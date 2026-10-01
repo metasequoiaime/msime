@@ -1,6 +1,6 @@
-//! `msime.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 wubi table and the quick phrase table.
+//! `msime.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -16,6 +16,7 @@ use crate::text;
 // The SQL text is kept byte for byte as the Python pipeline wrote it: SQLite stores it in sqlite_master, and the schema is part of what a rebuild must reproduce.
 const CREATE_QUANPIN_TABLE: &str = "\ncreate table if not exists {} (\n   \"key\" text, -- 全拼拼音\n   \"jp\" text, -- 全拼简拼\n   \"value\" text, -- 对应的汉字或者词组\n   \"weight\" integer default 0 -- 权重\n);\n";
 const CREATE_WUBI_TABLE: &str = "\n            CREATE TABLE wubi86 (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
+const CREATE_WUBI98_TABLE: &str = "\n            CREATE TABLE wubi98 (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
 const CREATE_QUICK_PHRASE_TABLE: &str = "\n            CREATE TABLE quick_parases (\n                \"key\" TEXT NOT NULL,\n                \"value\" TEXT NOT NULL,\n                \"weight\" INTEGER NOT NULL DEFAULT 0,\n                UNIQUE(\"key\", \"value\")\n            )\n            ";
 
 /// Characters added to the pinned single-character whitelist. The whitelist only applies to a build that includes unlicensed inputs (a licensed build accepts every single character), but where it applies it must not drop a reading the source has.
@@ -254,6 +255,17 @@ const WUBI86: CodeTable = CodeTable {
     code_first: false,
 };
 
+/// Built by [`build_wubi98`] rather than from `value<TAB>code<TAB>weight` lines: the pinned 98 table has no weights.
+const WUBI98: CodeTable = CodeTable {
+    name: "wubi98",
+    create: CREATE_WUBI98_TABLE,
+    index: "CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC)",
+    code_first: false,
+};
+
+/// Weight step between neighbouring candidates of one 98 code, the step the 86 table uses for its lowest ranks.
+const WUBI98_WEIGHT_STEP: i64 = 10;
+
 const QUICK_PHRASES: CodeTable = CodeTable {
     name: "quick_parases",
     create: CREATE_QUICK_PHRASE_TABLE,
@@ -296,6 +308,18 @@ fn build_code_table(
     path: &Path,
 ) -> Result<(usize, usize)> {
     let source = text::read(path)?;
+    let rows = text::universal_lines(text::without_bom(&source))
+        .into_iter()
+        .map(|line| parse_code_line(line, table.code_first));
+    write_code_table(connection, table, rows)
+}
+
+/// Recreates `table` and inserts the parsed rows; `None` marks a skipped line. Returns the imported and skipped counts.
+fn write_code_table<'a>(
+    connection: &mut Connection,
+    table: &CodeTable,
+    rows: impl Iterator<Item = Option<(String, &'a str, i64)>>,
+) -> Result<(usize, usize)> {
     let transaction = connection.transaction()?;
     transaction.execute_batch(&format!("DROP TABLE IF EXISTS {}", table.name))?;
     transaction.execute_batch(table.create)?;
@@ -306,8 +330,8 @@ fn build_code_table(
             "\nINSERT INTO {0} (\"key\", \"value\", \"weight\")\nVALUES (?, ?, ?)\nON CONFLICT(\"key\", \"value\") DO UPDATE SET\n    \"weight\" = MAX(\"weight\", excluded.\"weight\")\n",
             table.name
         ))?;
-        for line in text::universal_lines(text::without_bom(&source)) {
-            match parse_code_line(line, table.code_first) {
+        for row in rows {
+            match row {
                 Some((key, value, weight)) => {
                     insert.execute(params![key, value, weight])?;
                     imported += 1;
@@ -322,6 +346,51 @@ fn build_code_table(
 
 pub fn build_wubi(connection: &mut Connection, path: &Path) -> Result<(usize, usize)> {
     build_code_table(connection, &WUBI86, path)
+}
+
+/// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
+pub fn build_wubi98(connection: &mut Connection, path: &Path) -> Result<(usize, usize)> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
+    let lines = text::universal_lines(text::without_bom(&source));
+    let parsed: Vec<Option<(String, &str)>> =
+        lines.iter().map(|line| parse_wubi98_line(line)).collect();
+    let mut remaining: HashMap<&str, i64> = HashMap::new();
+    for (key, _) in parsed.iter().flatten() {
+        *remaining.entry(key.as_str()).or_default() += 1;
+    }
+    let mut weighted = Vec::with_capacity(parsed.len());
+    for row in &parsed {
+        weighted.push(row.as_ref().map(|(key, value)| {
+            let left = remaining
+                .get_mut(key.as_str())
+                .expect("every parsed code was counted");
+            let weight = *left * WUBI98_WEIGHT_STEP;
+            *left -= 1;
+            (key.clone(), *value, weight)
+        }));
+    }
+    write_code_table(connection, &WUBI98, weighted.into_iter())
+}
+
+fn decode_utf16le(bytes: &[u8]) -> Result<String> {
+    if !bytes.len().is_multiple_of(2) || !bytes.starts_with(&[0xff, 0xfe]) {
+        bail!("not UTF-16LE with a byte-order mark");
+    }
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    Ok(String::from_utf16(&units)?)
+}
+
+/// `value<TAB>code`, the code one to four of the letters a to y (z is the wildcard and the pinyin fallback, never a code).
+fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
+    let [value, key] = line.split('\t').collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    let valid_key = (1..=4).contains(&key.len()) && key.bytes().all(|b| (b'a'..=b'y').contains(&b));
+    (!value.is_empty() && valid_key).then(|| (key.to_owned(), value))
 }
 
 /// Builds the quick phrase table, then checks it and refreshes the planner statistics of the whole database (the Python `04verify_db.py` step, which ran after quanpin and wubi).
@@ -503,6 +572,52 @@ mod tests {
         for bad in ["词\tci", "词\tCi\t1", "词\tci\t0", "\tci\t1", "词\tci\tx"] {
             assert!(parse_custom_words(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_98_table_is_decoded_from_utf16_and_weighted_by_line_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = "工\ta\r\n戈\ta\r\n五\tgg\r\n工\taaaa\r\n藏匿\taaaa\r\n恭恭敬敬\taaaa\r\n坏\tz\r\n坏\tAA\r\n\tgg\r\n长\tabcde\r\n只有一列\r\n";
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let path = dir.path().join("wubi98.txt");
+        std::fs::write(&path, bytes).unwrap();
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(build_wubi98(&mut connection, &path).unwrap(), (6, 5));
+        let rows: Vec<(String, String, i64)> = connection
+            .prepare("select key, value, weight from wubi98 order by key, weight desc")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("a".into(), "工".into(), 20),
+                ("a".into(), "戈".into(), 10),
+                ("aaaa".into(), "工".into(), 30),
+                ("aaaa".into(), "藏匿".into(), 20),
+                ("aaaa".into(), "恭恭敬敬".into(), 10),
+                ("gg".into(), "五".into(), 10),
+            ]
+        );
+        let indexes: i64 = connection
+            .query_row(
+                "select count(*) from sqlite_master where name = 'idx_wubi98_key_weight'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 1);
+    }
+
+    #[test]
+    fn the_98_table_must_be_utf16le_with_a_byte_order_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert!(build_wubi98(&mut connection, &path).is_err());
     }
 
     #[test]

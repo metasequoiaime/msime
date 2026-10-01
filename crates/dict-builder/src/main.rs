@@ -40,6 +40,8 @@ enum Stage {
     CustomWords,
     /// 86 wubi table in msime.db
     Wubi,
+    /// 98 wubi table in msime.db
+    Wubi98,
     /// Quick phrase table in msime.db, then msime.db's planner statistics
     QuickPhrases,
     /// english_words table in english.db, plus custom/english.txt (pinned from msime-dictionary)
@@ -61,10 +63,11 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 12] = [
+const STAGES: [Stage; 13] = [
     Stage::Quanpin,
     Stage::CustomWords,
     Stage::Wubi,
+    Stage::Wubi98,
     Stage::QuickPhrases,
     Stage::English,
     Stage::EnglishGlosses,
@@ -361,6 +364,13 @@ impl Build {
                 let (imported, skipped) = msime::build_wubi(
                     &mut self.database("msime.db")?,
                     &self.sources.pinned("cn/Wubi86.txt")?,
+                )?;
+                Ok(format!("{imported} rows imported, {skipped} skipped"))
+            }
+            Stage::Wubi98 => {
+                let (imported, skipped) = msime::build_wubi98(
+                    &mut self.database("msime.db")?,
+                    &self.sources.pinned("cn/Wubi98.txt")?,
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }

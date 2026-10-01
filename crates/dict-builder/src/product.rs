@@ -137,7 +137,10 @@ fn row_count(connection: &Connection, table: &str) -> Result<i64> {
 /// Every shipping table exists with at least a floor number of rows, far below today's counts: these catch a table that came out empty because an input silently changed shape, not ordinary dictionary edits. A licensed build legitimately has fewer rows.
 pub fn verify(out: &Path, complete: bool) -> Result<()> {
     let floors: [(&str, &[(&str, i64)]); 3] = [
-        ("msime.db", &[("wubi86", 50_000), ("quick_parases", 1)]),
+        (
+            "msime.db",
+            &[("wubi86", 50_000), ("wubi98", 50_000), ("quick_parases", 1)],
+        ),
         (
             "english.db",
             &[

@@ -61,6 +61,12 @@
       "size": 1319422
     },
     {
+      "path": "cn/Wubi98.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.1.0/Wubi98.txt",
+      "sha256": "1b5a4c22eddae08d8e0e6aa8f926f92d45d6cdaa591e5cee0e8aad29271da1cc",
+      "size": 1988020
+    },
+    {
       "path": "en/BaseDictIceEn.txt",
       "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.0.0/BaseDictIceEn.txt",
       "sha256": "d8e063481a29d87b762a33d58de7c5098fbabaf0f719e16a2a5a4538a0d7a8cf",
