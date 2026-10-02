@@ -44,6 +44,10 @@ jobs:
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
             echo "package=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
+          # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
+            printf 'package=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+          fi
           # 三个点：只看 PR 自己从分叉点起改了什么，理由见 ci-macos.yml 的同一段。
           changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
           printf '改动文件:\n%s\n' "$changed"
