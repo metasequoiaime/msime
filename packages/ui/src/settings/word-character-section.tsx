@@ -1,4 +1,4 @@
-import { Row, Segmented } from "../core/platform-controls";
+import { SegmentedRow } from "./segmented-row";
 import { SwitchRow } from "./switch-row";
 
 export type WordCharacterPreferences = {
@@ -59,16 +59,15 @@ export function WordCharacterSection({
       />
       {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
       {!ios && (
-        <Row title="以词定字快捷键">
-          <Segmented
-            options={wordCharacterKeyOptions.map((option) => ({
-              ...option,
-              disabled: navigation[option.value],
-            }))}
-            value={preferences.keys}
-            onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
-          />
-        </Row>
+        <SegmentedRow
+          title="以词定字快捷键"
+          options={wordCharacterKeyOptions.map((option) => ({
+            ...option,
+            disabled: navigation[option.value],
+          }))}
+          value={preferences.keys}
+          onChange={(keys) => onChange({ wordCharacter: { ...preferences, keys }, navigation })}
+        />
       )}
     </>
   );
