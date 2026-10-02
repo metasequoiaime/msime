@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
 import { GroupList, MoreOptions, Row, Select, Switch } from "../core/platform-controls";
-import { AiBasicSettingsSection, type AiProviderOption } from "./ai-basic-settings-section";
+import {
+  AiBasicSettingsSection,
+  AiProviderOptions,
+  type AiProviderOption,
+} from "./ai-basic-settings-section";
 import { AiCandidateLimitSection } from "./ai-candidate-limit-section";
 import { AiModelCatalogSection } from "./ai-model-catalog-section";
 import { AiPromptSettingsSection } from "./ai-prompt-settings-section";
@@ -116,11 +120,7 @@ export function AiSettingsPageSection({
                 value={provider}
                 onChange={(event) => onProviderChange(event.target.value)}
               >
-                {providerOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title}
-                  </option>
-                ))}
+                <AiProviderOptions options={providerOptions} />
               </Select>
             </Row>
             {credentialSection}

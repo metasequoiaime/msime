@@ -6,6 +6,19 @@ import { TextSettingField } from "./text-setting-field";
 
 export type AiProviderOption = { id: string; title: string };
 
+/** Shared provider option markup for the legacy and grouped AI selects. */
+export function AiProviderOptions({ options }: { options: readonly AiProviderOption[] }) {
+  return (
+    <>
+      {options.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.title}
+        </option>
+      ))}
+    </>
+  );
+}
+
 export function AiBasicSettingsSection({
   enabled,
   enabledDescription,
@@ -47,11 +60,7 @@ export function AiBasicSettingsSection({
           value={provider}
           onChange={onProviderChange}
         >
-          {providerOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.title}
-            </option>
-          ))}
+          <AiProviderOptions options={providerOptions} />
         </SelectSettingField>
       </div>
       {providerPreset}
