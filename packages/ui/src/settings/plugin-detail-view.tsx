@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
 import {
@@ -25,6 +25,7 @@ import {
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
+import { SwitchRow } from "./switch-row";
 
 /** A row whose trailing edge is a read-only value rather than a control. */
 function InfoRow({ title, children }: { title: string; children: ReactNode }) {
@@ -376,7 +377,7 @@ function PackActions({
       const position = preferences.command_tables.indexOf(pack.id);
       const full = position < 0 && preferences.command_tables.length >= MAX_COMMAND_TABLES;
       return (
-        <Row
+        <SwitchRow
           title="启用"
           description={
             position >= 0
@@ -385,13 +386,10 @@ function PackActions({
                 ? `最多启用 ${MAX_COMMAND_TABLES} 个指令表。`
                 : "启用后排在已启用的指令表之后。"
           }
-        >
-          <Switch
-            checked={position >= 0}
-            disabled={full}
-            onChange={(enabled) => onCommandTable(pack.id, enabled)}
-          />
-        </Row>
+          checked={position >= 0}
+          disabled={full}
+          onChange={(enabled) => onCommandTable(pack.id, enabled)}
+        />
       );
     }
     case "symbol_set":
@@ -425,18 +423,18 @@ function PackActions({
         onChange({ ...preferences, [key]: on ? pack.id : "" });
       return (
         <>
-          <Row title="用于全拼" description="替换全拼的辅助码方案；关闭后回到原来的方案。">
-            <Switch
-              checked={preferences.helpcode_pack_quanpin === pack.id}
-              onChange={(on) => toggle("helpcode_pack_quanpin", on)}
-            />
-          </Row>
-          <Row title="用于双拼" description="替换双拼的辅助码方案；关闭后回到原来的方案。">
-            <Switch
-              checked={preferences.helpcode_pack_shuangpin === pack.id}
-              onChange={(on) => toggle("helpcode_pack_shuangpin", on)}
-            />
-          </Row>
+          <SwitchRow
+            title="用于全拼"
+            description="替换全拼的辅助码方案；关闭后回到原来的方案。"
+            checked={preferences.helpcode_pack_quanpin === pack.id}
+            onChange={(on) => toggle("helpcode_pack_quanpin", on)}
+          />
+          <SwitchRow
+            title="用于双拼"
+            description="替换双拼的辅助码方案；关闭后回到原来的方案。"
+            checked={preferences.helpcode_pack_shuangpin === pack.id}
+            onChange={(on) => toggle("helpcode_pack_shuangpin", on)}
+          />
           {onOpenPage && (
             <ActionBlock note="辅助码的开关和显示方式在「输入 → 辅助码」里。">
               <button type="button" className="secondary" onClick={() => onOpenPage("input")}>
@@ -453,7 +451,7 @@ function PackActions({
       const full = position < 0 && preferences.phrase_tables.length >= MAX_PHRASE_TABLES;
       return (
         <>
-          <Row
+          <SwitchRow
             title="启用"
             description={
               position >= 0
@@ -462,13 +460,10 @@ function PackActions({
                   ? `最多启用 ${MAX_PHRASE_TABLES} 个短语表。`
                   : "启用后排在已启用的短语表之后。"
             }
-          >
-            <Switch
-              checked={position >= 0}
-              disabled={full}
-              onChange={(enabled) => onPhraseTable(pack.id, enabled)}
-            />
-          </Row>
+            checked={position >= 0}
+            disabled={full}
+            onChange={(enabled) => onPhraseTable(pack.id, enabled)}
+          />
           {!quickPhraseMode && (
             <ActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
               {onOpenPage && (

@@ -20,8 +20,12 @@ struct ThemeChoice {
 // The menu entries: the global themes in the catalogue's picker order, then the installed packages. A package whose id is a global theme id is left out, as the shared layer refuses it (catalog::is_external_id). So is a package whose base is not a catalogue theme other than 自定义: the shared layer draws a package only over system or a built-in theme (GlobalTheme::is_base), so choosing it would write a custom theme the preferences refuse. The check reads the catalogue rather than a copy of the ids.
 inline std::vector<ThemeChoice> theme_choices(const nlohmann::json &theme_catalog,
                                               const std::vector<CandidateSkin> &packages) {
-  std::vector<ThemeChoice> choices;
   const auto themes = theme_catalog.is_object() ? theme_catalog.find("themes") : theme_catalog.end();
+  const auto theme_capacity = themes != theme_catalog.end() && themes->is_array()
+                                  ? themes->size()
+                                  : 0;
+  std::vector<ThemeChoice> choices;
+  choices.reserve(theme_capacity + packages.size());
   if (themes != theme_catalog.end() && themes->is_array())
     for (const auto &theme : *themes) {
       if (!theme.is_object()) continue;

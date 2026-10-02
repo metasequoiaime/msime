@@ -1,4 +1,4 @@
-import { Row, Segmented, Switch } from "../core/platform-controls";
+import { Row, Segmented } from "../core/platform-controls";
 import type { InputScheme, VietnamesePreferences } from "../index";
 import {
   cantoneseInputSchemeOptions,
@@ -9,6 +9,7 @@ import {
   zhuyinLayoutOptions,
 } from "./input-scheme-options";
 import { SelectRow } from "./select-row";
+import { SwitchRow } from "./switch-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -84,16 +85,13 @@ export function InputSchemeDetailsSection({
         <ShuangpinProfileOptions />
       </SelectRow>
       {macosShuangpinKeymap !== undefined && (
-        <Row
+        <SwitchRow
           title="输入时显示双拼键位提示"
           description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
           hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
-        >
-          <Switch
-            checked={macosShuangpinKeymap}
-            onChange={onMacosShuangpinKeymapChange ?? (() => {})}
-          />
-        </Row>
+          checked={macosShuangpinKeymap}
+          onChange={onMacosShuangpinKeymapChange ?? (() => {})}
+        />
       )}
       {/* 五笔、日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
       <SelectRow

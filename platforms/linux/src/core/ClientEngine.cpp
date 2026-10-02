@@ -1125,6 +1125,7 @@ std::string traditional_display(const State &s, const Json &context,
   return text;
 }
 constexpr size_t kClipboardStoreBytes = 1024 * 1024;
+constexpr size_t kMaxClipboardItems = 50;
 
 std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
   const auto payload = msime::linux_host::read_clipboard_file(path, kClipboardStoreBytes);
@@ -1138,11 +1139,12 @@ std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
 
 std::vector<std::string> clipboard_items(const std::string &path) {
   std::vector<std::string> items;
+  items.reserve(kMaxClipboardItems);
   if (path.empty() || path.size() > 4096) return items;
   const auto value = read_clipboard_store(std::filesystem::path(path));
   if (!value || !value->is_array()) return items;
   for (const auto &entry : *value) {
-    if (items.size() == 50) break;
+    if (items.size() == kMaxClipboardItems) break;
     if (!entry.is_string()) continue;
     auto text = entry.get<std::string>();
     if (text.size() > 12000) continue;

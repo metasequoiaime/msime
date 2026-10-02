@@ -2161,6 +2161,7 @@ public:
     refreshClipboard();
     if (clipboard_mutation_job_.valid() || clipboard_items_.empty()) return false;
     std::vector<std::string> texts;
+    texts.reserve(clipboard_items_.size());
     for (const auto &item : clipboard_items_) {
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
       if (!text.empty()) texts.push_back(text);

@@ -432,6 +432,126 @@ fn the_queue_keeps_the_newest_sixty_four() {
     assert!(queue[0].id.ends_with("20261007"));
 }
 
+#[cfg(unix)]
+#[test]
+fn telemetry_state_symlink_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-state.json");
+    let external_state = serde_json::json!({
+        "install_id": "external-install-id-1234",
+        "active_day": "20261001",
+        "retry_after_unix_ms": 0
+    });
+    let external_bytes = serde_json::to_vec(&external_state).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(STATE_FILE)).unwrap();
+
+    // 外部状态文件不能成为本地安装 id 的来源，也不能被修改。
+    let install_id = store.install_id().unwrap();
+    assert_ne!(install_id, "external-install-id-1234");
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn telemetry_queue_symlink_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-queue.json");
+    let event = TelemetryEvent {
+        id: "0123456789abcdef0123456789abcdef".to_owned(),
+        kind: TelemetryKind::Session,
+        platform: "linux".to_owned(),
+        version: "0.50.0".to_owned(),
+        message: String::new(),
+        stack: String::new(),
+        artifact: String::new(),
+        channel: String::new(),
+        install_id: "external-install-id-1234".to_owned(),
+    };
+    let external_bytes = serde_json::to_vec(&vec![event]).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(QUEUE_FILE)).unwrap();
+
+    // 外部队列不能被读取，原文件也不能被替换或删除。
+    assert!(store.queued().unwrap().is_empty());
+    assert!(
+        std::fs::symlink_metadata(store.directory().join(QUEUE_FILE))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_previous_crash_marker_is_not_counted() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let first = store.begin_session(&app(), noon()).unwrap();
+    let external = directory.path().join("external-crash-record.crash");
+    std::fs::write(&external, b"external crash\nexternal stack\n").unwrap();
+    symlink(&external, &first.crash_record_path).unwrap();
+
+    let next = store.begin_session(&app(), noon()).unwrap();
+    // 外部 crash 文件不能让上一会话被标记为崩溃，也不能被删除。
+    assert!(!next.previous_session_crashed);
+    assert_eq!(next.crashes, 0);
+    assert_eq!(
+        std::fs::read(&external).unwrap(),
+        b"external crash\nexternal stack\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_session_marker_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-session.json");
+    let marker = serde_json::json!({
+        "id": "01234567-89ab-cdef-0123-456789abcdef",
+        "platform": "linux",
+        "version": "0.50.0",
+        "started_at_unix_ms": 1790856000000u64
+    });
+    let external_bytes = serde_json::to_vec(&marker).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(SESSION_FILE)).unwrap();
+
+    // 外部 session marker 不能被当作本地运行中的会话。
+    assert!(store.read_marker().is_none());
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_crash_file_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, _store) = store();
+    let external = directory.path().join("external.crash");
+    let link = directory.path().join("linked.crash");
+    std::fs::write(&external, b"external crash\nexternal stack\n").unwrap();
+    symlink(&external, &link).unwrap();
+
+    // crash 叶子是外部链接时必须拒绝读取。
+    assert!(read_crash_file(&link).is_none());
+    assert_eq!(
+        std::fs::read(&external).unwrap(),
+        b"external crash\nexternal stack\n"
+    );
+}
+
 #[test]
 fn clear_drops_everything_but_the_install_id() {
     let (_directory, store) = store();

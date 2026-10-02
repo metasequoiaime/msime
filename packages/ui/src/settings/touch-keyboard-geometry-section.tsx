@@ -1,5 +1,6 @@
-import { Checks, GroupList, Row, Slider, Switch } from "../core/platform-controls";
+import { Checks, GroupList, Row, Slider } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SwitchRow } from "./switch-row";
 
 export type TouchToolbarPreferences = {
   layout: boolean;
@@ -115,9 +116,12 @@ export function TouchKeyboardGeometrySection({
         </Row>
       </GroupList>
       <GroupList title="工具栏">
-        <Row title="顶部语音入口" description="在触屏键盘工具栏直接打开最近一次语音结果">
-          <Switch checked={touchVoiceShortcut} onChange={onTouchVoiceShortcutChange} />
-        </Row>
+        <SwitchRow
+          title="顶部语音入口"
+          description="在触屏键盘工具栏直接打开最近一次语音结果"
+          checked={touchVoiceShortcut}
+          onChange={onTouchVoiceShortcutChange}
+        />
         {toolbarComponents && (
           <div className={settings.groupBlock}>
             <Checks
@@ -141,16 +145,13 @@ export function TouchKeyboardGeometrySection({
       </GroupList>
       {tabletFullKeys !== undefined && (
         <GroupList title="布局">
-          <Row
+          <SwitchRow
             title="数字行与 Tab 键"
             description="iPad 全宽键盘在字母上方显示数字行，并在 Q 左侧显示 Tab 键；浮动键盘和窄窗口没有空间，不显示。"
-          >
-            <Switch
-              disabled={tabletFullKeysBusy}
-              checked={tabletFullKeys}
-              onChange={onTabletFullKeysChange}
-            />
-          </Row>
+            disabled={tabletFullKeysBusy}
+            checked={tabletFullKeys}
+            onChange={onTabletFullKeysChange}
+          />
         </GroupList>
       )}
     </>

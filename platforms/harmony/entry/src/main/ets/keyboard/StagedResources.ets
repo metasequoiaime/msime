@@ -92,7 +92,10 @@ export class StagedResources {
     const directory: string = relative.length === 0 ? root : `${root}/${relative}`;
     for (const name of fs.listFileSync(directory)) {
       const path: string = relative.length === 0 ? name : `${relative}/${name}`;
-      const stat = fs.statSync(`${root}/${path}`);
+      const stat: fs.Stat = fs.lstatSync(`${root}/${path}`);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`packaged resource is a symbolic link: ${path}`);
+      }
       if (stat.isDirectory()) {
         StagedResources.listFiles(root, path, into);
       } else {
@@ -111,12 +114,20 @@ export class StagedResources {
 
   /** Remove a staged tree before replacing it; rmdirSync only accepts empty directories. */
   static removeDirectory(directory: string): void {
-    if (!fs.accessSync(directory)) {
+    let directoryStat: fs.Stat;
+    try {
+      directoryStat = fs.lstatSync(directory);
+    } catch {
+      return;
+    }
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      // 清理阶段遇到外部链接或意外的普通文件时，只删除目录项，绝不跟随到目录外。
+      fs.unlinkSync(directory);
       return;
     }
     for (const entry of fs.listFileSync(directory)) {
       const child: string = `${directory}/${entry}`;
-      if (fs.statSync(child).isDirectory()) {
+      if (fs.lstatSync(child).isDirectory()) {
         StagedResources.removeDirectory(child);
       } else {
         fs.unlinkSync(child);

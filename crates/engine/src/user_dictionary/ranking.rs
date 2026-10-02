@@ -265,7 +265,7 @@ fn plan_weights(weights: &[i64], owns_entry_key: &[bool], target: usize) -> Weig
             promote_selection_alone(&mut new_weight, &mut need_rebalance);
         }
     }
-    let mut staircase = Vec::new();
+    let mut staircase = Vec::with_capacity(rebalance_end.saturating_sub(target));
     if need_rebalance {
         let mut base = if target == 0 {
             MANAGED_WEIGHT_CEILING - REBALANCE_GAP
@@ -791,6 +791,20 @@ mod tests {
         assert_eq!(
             clamp_managed_weight(extreme.selected),
             MANAGED_WEIGHT_CEILING
+        );
+    }
+
+    #[test]
+    fn staircase_reserves_the_rebalance_window_capacity() {
+        let weights = [100_000; REBALANCE_COUNT + 1];
+        let owns_entry_key = [true; REBALANCE_COUNT + 1];
+        let target = 3;
+        let plan = plan(&weights, &owns_entry_key, target);
+
+        assert_eq!(
+            plan.staircase.capacity(),
+            weights.len() - target,
+            "the staircase should reserve its maximum number of entries"
         );
     }
 

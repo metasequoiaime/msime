@@ -3,10 +3,11 @@ import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../the
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
-import { Checks, GroupList, Row, Switch } from "../../core/platform-controls";
+import { Checks, GroupList, Row } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 import { SelectRow } from "../select-row";
+import { SwitchRow } from "../switch-row";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -92,12 +93,12 @@ export function FloatingToolbarSettingsPage() {
           </div>
         </GroupList>
         <GroupList title="显示">
-          <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
-            <Switch
-              checked={floatingToolbar.enabled}
-              onChange={(enabled) => onToolbarChange({ enabled })}
-            />
-          </Row>
+          <SwitchRow
+            title="在桌面显示悬浮工具栏"
+            description="快速访问输入法状态与常用功能"
+            checked={floatingToolbar.enabled}
+            onChange={(enabled) => onToolbarChange({ enabled })}
+          />
         </GroupList>
         {showToolbarComponents && (
           <GroupList title="按钮">

@@ -1,7 +1,8 @@
 import { Fragment } from "react";
 import * as settings from "../settings-style";
-import { GroupList, Row, Switch } from "../../core/platform-controls";
+import { GroupList, Row } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
+import { SwitchRow } from "../switch-row";
 import { pluginPreferences, type PluginPreferences } from "../plugin-preferences";
 
 export type HelpcodeSchema =
@@ -157,12 +158,11 @@ export function HelpcodeSettingsGroup({
           );
         return (
           <Fragment key={key}>
-            <Row title={`${label}辅助码`}>
-              <Switch
-                checked={current.enabled}
-                onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
-              />
-            </Row>
+            <SwitchRow
+              title={`${label}辅助码`}
+              checked={current.enabled}
+              onChange={(enabled) => onChange({ [key]: { ...current, enabled } })}
+            />
             <SelectRow
               title={`${label}辅助码方案`}
               disabled={!current.enabled}
@@ -199,14 +199,13 @@ export function HelpcodeSettingsGroup({
                   </option>
                 ))}
             </SelectRow>
-            <Row title={display}>
-              <Switch
-                checked={current.show_in_candidate_window}
-                onChange={(show_in_candidate_window) =>
-                  onChange({ [key]: { ...current, show_in_candidate_window } })
-                }
-              />
-            </Row>
+            <SwitchRow
+              title={display}
+              checked={current.show_in_candidate_window}
+              onChange={(show_in_candidate_window) =>
+                onChange({ [key]: { ...current, show_in_candidate_window } })
+              }
+            />
           </Fragment>
         );
       })}

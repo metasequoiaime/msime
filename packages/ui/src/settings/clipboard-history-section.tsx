@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import {
   CLOUD_CLIPBOARD_MAX_UTF16,
   cloudClipboardAvailabilityNote,
@@ -8,6 +8,7 @@ import {
   type CloudClipboardAvailability,
   type CloudClipboardRequest,
 } from "./cloud-clipboard-send";
+import { SwitchRow } from "./switch-row";
 
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 
@@ -158,19 +159,24 @@ export function ClipboardHistorySection({
     }
   };
 
+  const clipboardDescription = ios
+    ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
+    : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。";
+
   return (
     <>
       <GroupList title="剪贴板">
-        <Row
-          title="剪贴板管理"
-          description={
-            ios
-              ? "由键盘的“允许完全访问”权限控制；记录仅保存在本机。"
-              : "开启后记录复制的文本；保存关闭设置后清空已保存记录，且只记录文本类型。"
-          }
-        >
-          {!ios && <Switch aria-label="剪贴板管理" checked={historyEnabled} onChange={toggle} />}
-        </Row>
+        {ios ? (
+          <Row title="剪贴板管理" description={clipboardDescription} />
+        ) : (
+          <SwitchRow
+            title="剪贴板管理"
+            description={clipboardDescription}
+            aria-label="剪贴板管理"
+            checked={historyEnabled}
+            onChange={toggle}
+          />
+        )}
         {((!ios && client?.sync) || (client && entries.length > 0)) && (
           <div className={settings.managerBlock}>
             <div className={settings.managerActions}>

@@ -1,4 +1,4 @@
-import { GroupList, Row, Segmented, Slider, Switch } from "../core/platform-controls";
+import { GroupList, Row, Segmented, Slider } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
 import type { KeySoundMode, PluginPreferences } from "./plugin-preferences";
@@ -10,6 +10,7 @@ import {
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginKind, PluginPackage } from "./plugin-types";
+import { SwitchRow } from "./switch-row";
 
 const keySoundModes: readonly { value: KeySoundMode; label: string }[] = [
   { value: "keys", label: "按键音效" },
@@ -66,14 +67,14 @@ export function PluginSoundEffectsView({
       <PluginViewHeader title="声音与效果" onBack={onBack} />
       {keySound && (
         <GroupList title="按键音效">
-          <Row title="按键音" description="打字时按键发声。密码等安全输入框中不发声。">
-            <Switch
-              checked={key_sound.enabled}
-              onChange={(enabled) =>
-                onChange({ ...preferences, key_sound: { ...key_sound, enabled } })
-              }
-            />
-          </Row>
+          <SwitchRow
+            title="按键音"
+            description="打字时按键发声。密码等安全输入框中不发声。"
+            checked={key_sound.enabled}
+            onChange={(enabled) =>
+              onChange({ ...preferences, key_sound: { ...key_sound, enabled } })
+            }
+          />
           <Row
             title="发声方式"
             description="按键音效按普通键、空格、回车和退格各自发声；按键旋律每按一键弹出旋律的下一个音，停顿 3 秒后从头开始。"
@@ -106,21 +107,18 @@ export function PluginSoundEffectsView({
               />
             </span>
           </Row>
-          <Row title="上屏音" description="文字上屏时播放音效包的上屏音，与按键音各自开关。">
-            <Switch
-              checked={commit_sound.enabled}
-              onChange={(enabled) => onChange({ ...preferences, commit_sound: { enabled } })}
-            />
-          </Row>
-          <Row
+          <SwitchRow
+            title="上屏音"
+            description="文字上屏时播放音效包的上屏音，与按键音各自开关。"
+            checked={commit_sound.enabled}
+            onChange={(enabled) => onChange({ ...preferences, commit_sound: { enabled } })}
+          />
+          <SwitchRow
             title="成就音效"
             description="上屏字数累计达到 100、1000、1 万等里程碑时播放一段短音。按打字统计计数，需要打开打字统计。"
-          >
-            <Switch
-              checked={achievements.enabled}
-              onChange={(enabled) => onChange({ ...preferences, achievements: { enabled } })}
-            />
-          </Row>
+            checked={achievements.enabled}
+            onChange={(enabled) => onChange({ ...preferences, achievements: { enabled } })}
+          />
         </GroupList>
       )}
       {typingEffects && (
@@ -164,42 +162,33 @@ export function PluginSoundEffectsView({
               </Row>
             </>
           )}
-          <Row
+          <SwitchRow
             title="连击计数"
             description="连续打字时在候选栏显示连击数，停顿 3 秒或按退格后重新计数。自动重复的按键不计数。"
-          >
-            <Switch
-              checked={preferences.combo_counter}
-              onChange={(combo_counter) => onChange({ ...preferences, combo_counter })}
-            />
-          </Row>
+            checked={preferences.combo_counter}
+            onChange={(combo_counter) => onChange({ ...preferences, combo_counter })}
+          />
           {effectStyles && (
-            <Row
+            <SwitchRow
               title="升档音"
               description="连击达到 10、25、50、100 时播放音效包的上屏音，每升一档音调更高，音量随音效音量。"
-            >
-              <Switch
-                checked={preferences.combo_tier_sound}
-                disabled={!preferences.combo_counter}
-                onChange={(combo_tier_sound) => onChange({ ...preferences, combo_tier_sound })}
-              />
-            </Row>
+              checked={preferences.combo_tier_sound}
+              disabled={!preferences.combo_counter}
+              onChange={(combo_tier_sound) => onChange({ ...preferences, combo_tier_sound })}
+            />
           )}
         </GroupList>
       )}
       {music && (
         <GroupList title="背景音乐">
-          <Row
+          <SwitchRow
             title="背景音乐"
             description="默认关闭。只在输入法处于活动状态时播放，切换到其他输入法时暂停。"
-          >
-            <Switch
-              checked={preferences.music.enabled}
-              onChange={(enabled) =>
-                onChange({ ...preferences, music: { ...preferences.music, enabled } })
-              }
-            />
-          </Row>
+            checked={preferences.music.enabled}
+            onChange={(enabled) =>
+              onChange({ ...preferences, music: { ...preferences.music, enabled } })
+            }
+          />
           <Row
             title="音乐包"
             description={

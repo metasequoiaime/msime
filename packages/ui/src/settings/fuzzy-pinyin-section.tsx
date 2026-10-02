@@ -1,5 +1,5 @@
 import type { ConfirmRequest } from "../core/confirm";
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 import { SettingCheck } from "./setting-check";
 import * as settings from "./settings-style";
 
@@ -53,20 +53,20 @@ export interface FuzzyPinyinSectionProps {
 export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
     <div role="group" aria-label="模糊音" className={settings.rowStack}>
-      <Row title="启用模糊音" description="全拼、九键与双拼均支持；更改会在当前输入结束后生效">
-        <Switch
-          aria-label="启用模糊音"
-          checked={preferences.enabled}
-          onChange={(enabled) => {
-            const firstEnable = enabled && !preferences.seeded;
-            onChange({
-              ...preferences,
-              enabled,
-              ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
-            });
-          }}
-        />
-      </Row>
+      <SwitchRow
+        title="启用模糊音"
+        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
+        aria-label="启用模糊音"
+        checked={preferences.enabled}
+        onChange={(enabled) => {
+          const firstEnable = enabled && !preferences.seeded;
+          onChange({
+            ...preferences,
+            enabled,
+            ...(firstEnable ? { rules: fuzzyPinyinRuleIds, seeded: true } : {}),
+          });
+        }}
+      />
       <div className={settings.groupBlock} hidden={!preferences.enabled}>
         <p className="input-setting-description">
           勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。

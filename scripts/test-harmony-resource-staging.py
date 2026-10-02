@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep Harmony resource replacement recursive when a package changes."""
+"""Keep Harmony resource replacement recursive and symlink-safe."""
 from pathlib import Path
 
 
@@ -14,7 +14,9 @@ def main() -> int:
     required = [
         "static removeDirectory(directory: string): void",
         "fs.listFileSync(directory)",
-        "fs.statSync(child).isDirectory()",
+        "fs.lstatSync(directory)",
+        "fs.lstatSync(child).isDirectory()",
+        "stat.isSymbolicLink()",
         "StagedResources.removeDirectory(destination)",
     ]
     missing = [item for item in required if item not in staged and item not in settings]

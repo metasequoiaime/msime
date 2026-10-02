@@ -69,6 +69,15 @@ fn u64_at(bytes: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("eight bytes"))
 }
 
+fn collect_query_ids<I>(ids: I, capacity: usize) -> Vec<u32>
+where
+    I: IntoIterator<Item = u32>,
+{
+    let mut collected = Vec::with_capacity(capacity);
+    collected.extend(ids);
+    collected
+}
+
 /// Keeps the `limit` cheapest ids by (cost, id), cheapest first: the C++ bounded max-heap, whose result is the same set in the same order because (cost, id) is a total order.
 fn best_ids(mut ids: Vec<u32>, limit: usize, cost: impl Fn(u32) -> i32) -> Vec<u32> {
     let key = |id: &u32| (cost(*id), *id);
@@ -216,10 +225,13 @@ impl JapaneseDictionary {
         if reading.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let matches = (self.lower_bound(reading)..self.token_count)
-            .take_while(|&index| self.reading(&self.token_at(index)) == reading)
-            .map(|index| index as u32)
-            .collect();
+        let start = self.lower_bound(reading);
+        let matches = collect_query_ids(
+            (start..self.token_count)
+                .take_while(|&index| self.reading(&self.token_at(index)) == reading)
+                .map(|index| index as u32),
+            limit.min(self.token_count.saturating_sub(start)),
+        );
         self.best_lemmas(matches, limit)
     }
 
@@ -237,10 +249,13 @@ impl JapaneseDictionary {
                     .collect();
             }
         }
-        let matches = (self.lower_bound(prefix)..self.token_count)
-            .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
-            .map(|index| index as u32)
-            .collect();
+        let start = self.lower_bound(prefix);
+        let matches = collect_query_ids(
+            (start..self.token_count)
+                .take_while(|&index| self.reading(&self.token_at(index)).starts_with(prefix))
+                .map(|index| index as u32),
+            limit.min(self.token_count.saturating_sub(start)),
+        );
         self.best_lemmas(matches, limit)
     }
 
@@ -434,6 +449,13 @@ mod tests {
 
     fn surfaces(lemmas: &[JapaneseLemma]) -> Vec<&str> {
         lemmas.iter().map(|lemma| lemma.surface.as_str()).collect()
+    }
+
+    #[test]
+    fn scanned_query_ids_reserve_the_lookup_limit() {
+        let ids = collect_query_ids([1_u32, 2, 3], 8);
+        assert_eq!(ids, [1, 2, 3]);
+        assert!(ids.capacity() >= 8);
     }
 
     // test_runtime_isolation.cpp:105-139.

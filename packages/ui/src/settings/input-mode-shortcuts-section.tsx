@@ -1,6 +1,7 @@
 import * as settings from "./settings-style";
 import { InputModeHudSection } from "./input-mode-hud-section";
-import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { GroupList, Row, Select } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface InputModeShortcutPreferences {
   switch_language_shift: boolean;
@@ -101,12 +102,11 @@ export function InputModeShortcutsSection({
             ))}
           </Select>
         </Row>
-        <Row title={characterSetLabel}>
-          <Switch
-            checked={keybindings.toggle_character_set_ctrl_shift_f ?? false}
-            onChange={(checked) => onChange({ toggle_character_set_ctrl_shift_f: checked })}
-          />
-        </Row>
+        <SwitchRow
+          title={characterSetLabel}
+          checked={keybindings.toggle_character_set_ctrl_shift_f ?? false}
+          onChange={(checked) => onChange({ toggle_character_set_ctrl_shift_f: checked })}
+        />
         {macos && showInputModeHUD && (
           <InputModeHudSection
             shortcut
@@ -115,15 +115,12 @@ export function InputModeShortcutsSection({
           />
         )}
         {showFullwidthChord && (
-          <Row
+          <SwitchRow
             title={`${fullwidthChord} 切换全半角`}
             description="关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。"
-          >
-            <Switch
-              checked={keybindings.toggle_fullwidth_option_shift_h}
-              onChange={(checked) => onChange({ toggle_fullwidth_option_shift_h: checked })}
-            />
-          </Row>
+            checked={keybindings.toggle_fullwidth_option_shift_h}
+            onChange={(checked) => onChange({ toggle_fullwidth_option_shift_h: checked })}
+          />
         )}
         {/* Ctrl+Space 是 Windows 自己的快捷键，这里只说明去哪里改，压成组末一行。 */}
         {windows && (
