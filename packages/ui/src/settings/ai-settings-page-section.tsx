@@ -9,6 +9,7 @@ import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { TextInputRow } from "./text-input-row";
 
 export interface AiSettingsPageSectionProps {
   /** 设置窗口的 AI 辅助页为真，画成 服务 → 联想 → 提示词 → 测试工具 几组；旧的嵌入式面板不传，保持原来的卡片。 */
@@ -124,13 +125,7 @@ export function AiSettingsPageSection({
             </Row>
             {credentialSection}
             {providerPreset}
-            <Row title="模型">
-              <input
-                aria-label="AI 模型"
-                value={model}
-                onChange={(event) => onModelChange(event.target.value)}
-              />
-            </Row>
+            <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
             {modelCatalog && (
               <>
                 <Row
@@ -165,32 +160,29 @@ export function AiSettingsPageSection({
               </>
             )}
             <MoreOptions defaultOpen={!endpointValid}>
-              <Row title="接口地址">
-                <input
-                  aria-label="AI 接口地址"
-                  type="url"
-                  value={endpoint}
-                  onChange={(event) => onEndpointChange(event.target.value)}
-                />
-              </Row>
+              <TextInputRow
+                title="接口地址"
+                label="AI 接口地址"
+                type="url"
+                value={endpoint}
+                onChange={onEndpointChange}
+              />
             </MoreOptions>
             {desktopCredentialTest && (
               <div className={settings.groupBlock}>{desktopCredentialTest}</div>
             )}
           </GroupList>
           <GroupList title="联想">
-            <Row title="候选数量" description="每次 AI 联想给出的候选个数，1 到 10">
-              <input
-                aria-label="AI 候选数量"
-                type="number"
-                min="1"
-                max="10"
-                value={candidateLimit}
-                onChange={(event) =>
-                  onCandidateLimitChange(clamp(Number(event.target.value) || 3, 1, 10))
-                }
-              />
-            </Row>
+            <TextInputRow
+              title="候选数量"
+              description="每次 AI 联想给出的候选个数，1 到 10"
+              label="AI 候选数量"
+              type="number"
+              min="1"
+              max="10"
+              value={String(candidateLimit)}
+              onChange={(value) => onCandidateLimitChange(clamp(Number(value) || 3, 1, 10))}
+            />
           </GroupList>
           {/* 只显示所选槽位的提示词；兼容提示词是旧版留下的后备，只在所选槽位留空时使用，收进「更多选项」。 */}
           <GroupList title="提示词">
