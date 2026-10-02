@@ -93,10 +93,14 @@ class Engine:
             arms = block(impl[match.start() :], match.group(0)) or ""
             true_for: set[str] = set()
             seen: list[str] = []
-            for arm in re.finditer(r"((?:\|?\s*Self::\w+\s*)+)=>\s*\{?\s*(true|false)", arms):
+            for arm in re.finditer(
+                r"(?P<variants>Self::\w+(?:[ \t\r\n]*\|[ \t\r\n]*Self::\w+)*)"
+                r"[ \t\r\n]*=>[ \t\r\n]*\{?[ \t\r\n]*(?P<result>true|false)",
+                arms,
+            ):
                 variants = re.findall(r"Self::(\w+)", arm.group(1))
                 seen.extend(variants)
-                if arm.group(2) == "true":
+                if arm.group("result") == "true":
                     true_for.update(variants)
             if sorted(seen) != sorted(self.ordinals):
                 errors.append(f"{rel(ENGINE)}: `{predicate}` does not decide every variant exactly once in a readable match")
