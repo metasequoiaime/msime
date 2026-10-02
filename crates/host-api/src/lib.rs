@@ -1196,6 +1196,7 @@ fn refresh_options_file(
         &document,
         &specification.generation()?,
         bundled,
+        Path::is_dir,
         |resources, state| {
             Ok(serde_json::from_str(
                 &prepare_host_configuration(resources, state).map_err(outdated_resources)?,
@@ -1273,11 +1274,16 @@ fn refreshed_host_options(
     document: &Value,
     generation: &str,
     bundled: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
     mut prepare: impl FnMut(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let Some((resources, dictionaries, state)) = prepared_layout(document) else {
         return Ok(None);
     };
+    // 记录的资源目录已经不存在，最常见的是用户把设置应用挪了位置（例如从 /Applications 挪到 ~/Applications）：代次没变，只看代次就会让 `resources` 一直指向不存在的旧路径，下一次开会话就找不到词库。带着 bundle 刷新时改从 bundle 准备，不论代次是否变化。
+    if let Some(bundled) = bundled.filter(|bundled| *bundled != resources && !exists(resources)) {
+        return refreshed_layout(document, prepare(bundled, state)?).map(Some);
+    }
     if dictionaries.file_name().and_then(|name| name.to_str()) == Some(generation) {
         return Ok(None);
     }
@@ -1287,6 +1293,14 @@ fn refreshed_host_options(
         }
         (prepared, _) => prepared?,
     };
+    refreshed_layout(document, prepared).map(Some)
+}
+
+/// `document` with `resources` and `dictionaries` taken from what `prepare_host_configuration` returned.
+fn refreshed_layout(
+    document: &Value,
+    prepared: Value,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let mut refreshed = document.clone();
     for key in ["resources", "dictionaries"] {
         refreshed[key] = prepared
@@ -1295,12 +1309,12 @@ fn refreshed_host_options(
             .cloned()
             .ok_or("prepared options are incomplete")?;
     }
-    Ok(Some(refreshed))
+    Ok(refreshed)
 }
 
 /// `document` with `language_dictionaries` naming what is installed beside its resources, or `None` when it already does or is not in the prepared layout.
 ///
-/// The Cantonese and Zhuyin dictionaries arrive with a package, not with a dictionary generation, so options published by an older package are brought up to what is installed even when the generation is current, and lose the key once the dictionaries are gone. Only the directory `prepare_host_configuration` records is kept in step; a document naming another one keeps it.
+/// The Cantonese and Zhuyin dictionaries arrive with a package, not with a dictionary generation, so options published by an older package are brought up to what is installed even when the generation is current, and lose the key once the dictionaries are gone. Only the directory `prepare_host_configuration` records is kept in step; a document naming another directory that still exists keeps it.
 fn with_installed_language_dictionaries(
     document: &Value,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
@@ -1312,7 +1326,10 @@ fn with_installed_language_dictionaries(
     let recorded = document
         .get("language_dictionaries")
         .and_then(Value::as_str);
-    if recorded.is_some() && recorded != beside.as_deref() {
+    // 指向别处、而且那个目录还在的记录是有意为之，原样保留；已经不存在的记录（应用挪了位置后留下的旧路径）换成资源目录旁实际安装的那份。
+    if recorded
+        .is_some_and(|recorded| Some(recorded) != beside.as_deref() && Path::new(recorded).is_dir())
+    {
         return Ok(None);
     }
     let installed = installed_language_dictionaries(resources);

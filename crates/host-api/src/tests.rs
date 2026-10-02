@@ -6846,14 +6846,20 @@ fn stale_dictionary_generation_is_prepared_and_other_keys_survive() {
         "online_provider_socket": "/run/user/1000/msime-online.sock",
     });
     let mut requested = None;
-    let refreshed = super::refreshed_host_options(&document, "new", None, |resources, state| {
-        requested = Some((resources.to_owned(), state.to_owned()));
-        Ok(json!({
-            "resources": "/usr/share/msime-client/resources",
-            "dictionaries": "/home/u/.config/msime-client/user/dictionaries/new",
-            "preferences": {},
-        }))
-    })
+    let refreshed = super::refreshed_host_options(
+        &document,
+        "new",
+        None,
+        |_| true,
+        |resources, state| {
+            requested = Some((resources.to_owned(), state.to_owned()));
+            Ok(json!({
+                "resources": "/usr/share/msime-client/resources",
+                "dictionaries": "/home/u/.config/msime-client/user/dictionaries/new",
+                "preferences": {},
+            }))
+        },
+    )
     .unwrap()
     .unwrap();
     assert_eq!(
@@ -6883,9 +6889,13 @@ fn current_or_unfamiliar_options_are_not_prepared() {
     let mut relative = current.clone();
     relative["resources"] = json!("r");
     for document in [current, unfamiliar, moved, relative, json!({})] {
-        let refreshed = super::refreshed_host_options(&document, "new", None, |_, _| {
-            panic!("must not prepare {document}")
-        })
+        let refreshed = super::refreshed_host_options(
+            &document,
+            "new",
+            None,
+            |_| true,
+            |_, _| panic!("must not prepare {document}"),
+        )
         .unwrap();
         assert_eq!(refreshed, None);
     }
@@ -6917,9 +6927,16 @@ fn refresh_keeps_the_language_dictionaries_in_step_with_the_installed_package() 
     assert_eq!(refresh(&current), Some(installed.clone()));
     assert_eq!(refresh(&installed), None);
 
+    // 指向另一个仍然存在的目录是有意为之，保留；指向已经不存在的目录（应用挪走后留下的旧路径）则换成实际安装的那份。
+    let other = root.path().join("elsewhere");
+    std::fs::create_dir_all(&other).expect("elsewhere");
     let mut elsewhere = current.clone();
-    elsewhere["language_dictionaries"] = json!("/opt/language-dictionaries");
+    elsewhere["language_dictionaries"] = json!(other);
     assert_eq!(refresh(&elsewhere), None);
+    let mut gone = current.clone();
+    gone["language_dictionaries"] =
+        json!(root.path().join("moved-away").join("language-dictionaries"));
+    assert_eq!(refresh(&gone), Some(installed.clone()));
 
     // A document outside the prepared layout is not guessed at.
     let mut moved = current.clone();
@@ -6947,9 +6964,13 @@ fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resour
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    let prepared = super::refreshed_host_options(&stale, "new", None, |_, _| {
-        Ok(json!({ "resources": new, "dictionaries": "/s/user/dictionaries/new" }))
-    })
+    let prepared = super::refreshed_host_options(
+        &stale,
+        "new",
+        None,
+        |_| true,
+        |_, _| Ok(json!({ "resources": new, "dictionaries": "/s/user/dictionaries/new" })),
+    )
     .unwrap()
     .unwrap();
     assert_eq!(prepared.get("language_dictionaries"), None);
@@ -7064,13 +7085,18 @@ fn outdated_recorded_resources_are_prepared_from_the_bundled_copy() {
         }
     };
     let mut requested = Vec::new();
-    let refreshed =
-        super::refreshed_host_options(&stale, "new", Some(bundled), |resources, state| {
+    let refreshed = super::refreshed_host_options(
+        &stale,
+        "new",
+        Some(bundled),
+        |_| true,
+        |resources, state| {
             requested.push((resources.to_owned(), state.to_owned()));
             outdated(resources)
-        })
-        .unwrap()
-        .unwrap();
+        },
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(
         requested,
         [
@@ -7086,28 +7112,88 @@ fn outdated_recorded_resources_are_prepared_from_the_bundled_copy() {
     expected["dictionaries"] = json!("/s/user/dictionaries/new");
     assert_eq!(refreshed, expected);
 
-    let error =
-        super::refreshed_host_options(&stale, "new", None, |resources, _| outdated(resources))
-            .unwrap_err();
+    let error = super::refreshed_host_options(
+        &stale,
+        "new",
+        None,
+        |_| true,
+        |resources, _| outdated(resources),
+    )
+    .unwrap_err();
     assert!(error.is::<super::DictionaryOutdated>());
     let mut packaged = stale.clone();
     packaged["resources"] = json!(bundled);
-    let error = super::refreshed_host_options(&packaged, "new", Some(bundled), |_, _| {
-        Err(Box::new(super::DictionaryOutdated(
-            ResourceError::Integrity,
-        )))
-    })
+    let error = super::refreshed_host_options(
+        &packaged,
+        "new",
+        Some(bundled),
+        |_| true,
+        |_, _| {
+            Err(Box::new(super::DictionaryOutdated(
+                ResourceError::Integrity,
+            )))
+        },
+    )
     .unwrap_err();
     assert!(error.is::<super::DictionaryOutdated>());
     let mut calls = 0;
-    assert!(
-        super::refreshed_host_options(&stale, "new", Some(bundled), |_, _| {
+    assert!(super::refreshed_host_options(
+        &stale,
+        "new",
+        Some(bundled),
+        |_| true,
+        |_, _| {
             calls += 1;
             Err("busy".into())
-        })
-        .is_err()
-    );
+        }
+    )
+    .is_err());
     assert_eq!(calls, 1);
+}
+
+/// 设置应用从 /Applications 挪到 ~/Applications 后再打开：代次没变，但记录的资源目录已经不存在，配置要改指向新位置的 bundle，而不是因为代次一致就原样返回。
+#[test]
+fn refresh_follows_the_bundle_when_the_recorded_resources_are_gone() {
+    let moved = json!({
+        "resources": "/Applications/MSIME.app/Contents/Resources/EngineResources",
+        "user_data": "/s/user",
+        "dictionaries": "/s/user/dictionaries/new",
+        "preferences_directory": "/s",
+        "preferences": {},
+    });
+    let bundled = Path::new("/Users/u/Applications/MSIME.app/Contents/Resources/EngineResources");
+    let gone = |path: &Path| {
+        path != Path::new("/Applications/MSIME.app/Contents/Resources/EngineResources")
+    };
+    let mut requested = Vec::new();
+    let refreshed =
+        super::refreshed_host_options(&moved, "new", Some(bundled), gone, |resources, state| {
+            requested.push((resources.to_owned(), state.to_owned()));
+            Ok(json!({ "resources": resources, "dictionaries": "/s/user/dictionaries/new" }))
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(requested, [(bundled.to_owned(), PathBuf::from("/s"))]);
+    let mut expected = moved.clone();
+    expected["resources"] = json!(bundled);
+    assert_eq!(refreshed, expected);
+
+    // 记录的目录还在时，代次一致就什么都不做，也不碰 bundle。
+    let untouched = super::refreshed_host_options(
+        &moved,
+        "new",
+        Some(bundled),
+        |_| true,
+        |_, _| panic!("nothing to prepare"),
+    )
+    .unwrap();
+    assert_eq!(untouched, None);
+    // 没有 bundle 可依（开发运行）时，不猜新位置。
+    let unknown = super::refreshed_host_options(&moved, "new", None, gone, |_, _| {
+        panic!("nothing to prepare")
+    })
+    .unwrap();
+    assert_eq!(unknown, None);
 }
 
 #[test]
@@ -7165,11 +7251,22 @@ fn a_failed_preparation_is_reported_and_incomplete_output_rejected() {
         "dictionaries": "/s/user/dictionaries/old",
         "preferences_directory": "/s",
     });
-    assert!(super::refreshed_host_options(&stale, "new", None, |_, _| Err("busy".into())).is_err());
-    assert!(
-        super::refreshed_host_options(&stale, "new", None, |_, _| Ok(json!({"resources": "/r"})))
-            .is_err()
-    );
+    assert!(super::refreshed_host_options(
+        &stale,
+        "new",
+        None,
+        |_| true,
+        |_, _| Err("busy".into())
+    )
+    .is_err());
+    assert!(super::refreshed_host_options(
+        &stale,
+        "new",
+        None,
+        |_| true,
+        |_, _| Ok(json!({"resources": "/r"}))
+    )
+    .is_err());
 }
 
 /// A symlinked locator is left alone: replacing it would turn the link into a private copy.
