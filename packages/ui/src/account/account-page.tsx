@@ -1125,17 +1125,15 @@ function AccountDetailsPage({
     <div className={account.page}>
       {!user && onCancelLogin && (
         <div className={account.profilePageHeader}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy && !(googleWaiting && client.googleCancel)}
-            onClick={() => {
+          <ActionButton
+            action={() => {
               cancelGoogle();
               onCancelLogin();
             }}
-          >
-            取消
-          </button>
+            className="secondary"
+            disabled={busy && !(googleWaiting && client.googleCancel)}
+            label="取消"
+          />
           <h2 className={account.heading}>登录水杉</h2>
         </div>
       )}
