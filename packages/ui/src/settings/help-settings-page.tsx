@@ -1,5 +1,6 @@
 import * as doc from "./document-style";
 import * as settings from "./settings-style";
+import { ActionButton } from "../core/action-button";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
 
@@ -132,13 +133,12 @@ export function HelpSettingsPage({
               <div className={`${settings.groupBlock} ${doc.page}`}>
                 <p>{platformQuickStart}</p>
                 {mobile && onOpenSystemKeyboardSettings && (
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={onOpenSystemKeyboardSettings}
-                  >
-                    {ios ? "打开系统键盘设置" : "打开系统输入法设置"}
-                  </button>
+                  <ActionButton
+                    action={onOpenSystemKeyboardSettings}
+                    ariaBusy={busy}
+                    disabled={busy}
+                    label={ios ? "打开系统键盘设置" : "打开系统输入法设置"}
+                  />
                 )}
               </div>
             </GroupList>

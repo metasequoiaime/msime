@@ -47,6 +47,23 @@ test("renders mobile help and opens system keyboard settings", () => {
   expect(onOpenSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
 
+test("marks the mobile system settings action busy", () => {
+  const onOpenSystemKeyboardSettings = vi.fn();
+  render(
+    <HelpSettingsPage
+      {...common}
+      busy
+      mobile
+      ios
+      onOpenSystemKeyboardSettings={onOpenSystemKeyboardSettings}
+    />,
+  );
+
+  const button = screen.getByRole("button", { name: "打开系统键盘设置" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+});
+
 test("hides the page when requested", () => {
   const { container } = render(<HelpSettingsPage {...common} hidden />);
   expect(container.querySelector("fieldset")?.getAttribute("hidden")).not.toBeNull();
