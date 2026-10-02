@@ -51,6 +51,43 @@ const zhuyinDescription =
 const vietnameseDescription = "Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键";
 const toneStyleDescription = "新式把声调标在主元音上（hoà），旧式按传统位置标注（hòa）";
 
+function LegacySchemeChoice({
+  title,
+  titleId,
+  optionName,
+  optionLabel,
+  description,
+  descriptionClassName,
+  hidden,
+}: {
+  title: string;
+  titleId: string;
+  optionName: string;
+  optionLabel: string;
+  description: string;
+  descriptionClassName?: string;
+  hidden: boolean;
+}) {
+  return (
+    <div className="section" role="group" aria-labelledby={titleId} hidden={hidden}>
+      <div className="section-title" id={titleId}>
+        {title}
+      </div>
+      <div className="input-option-content">
+        <label className="radio-option">
+          <input type="radio" name={optionName} checked readOnly />
+          <span>{optionLabel}</span>
+        </label>
+      </div>
+      <div
+        className={`input-setting-description${descriptionClassName ? ` ${descriptionClassName}` : ""}`}
+      >
+        {description}
+      </div>
+    </div>
+  );
+}
+
 /** Shared scheme-specific controls for desktop input settings. */
 export function InputSchemeDetailsSection({
   scheme,
@@ -203,78 +240,40 @@ export function InputSchemeDetailsSection({
           <WubiSchemeOption />
         </SelectSettingField>
       </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="japanese-scheme-title"
+      <LegacySchemeChoice
+        title="日语方案"
+        titleId="japanese-scheme-title"
+        optionName="japanese-scheme"
+        optionLabel="罗马音"
+        description="直接输入罗马音，提供平假名、片假名及日语词库候选"
+        descriptionClassName="japanese-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-      >
-        <div className="section-title" id="japanese-scheme-title">
-          日语方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="japanese-scheme" checked readOnly />
-            <span>罗马音</span>
-          </label>
-        </div>
-        <div className="input-setting-description japanese-scheme-description">
-          直接输入罗马音，提供平假名、片假名及日语词库候选
-        </div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="korean-scheme-title"
+      />
+      <LegacySchemeChoice
+        title="韩语方案"
+        titleId="korean-scheme-title"
+        optionName="korean-scheme"
+        optionLabel="两套式"
+        description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
+        descriptionClassName="korean-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-      >
-        <div className="section-title" id="korean-scheme-title">
-          韩语方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="korean-scheme" checked readOnly />
-            <span>两套式</span>
-          </label>
-        </div>
-        <div className="input-setting-description korean-scheme-description">
-          按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角
-        </div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="cantonese-scheme-title"
+      />
+      <LegacySchemeChoice
+        title="粤拼方案"
+        titleId="cantonese-scheme-title"
+        optionName="cantonese-scheme"
+        optionLabel="粤拼"
+        description={cantoneseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-      >
-        <div className="section-title" id="cantonese-scheme-title">
-          粤拼方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="cantonese-scheme" checked readOnly />
-            <span>粤拼</span>
-          </label>
-        </div>
-        <div className="input-setting-description">{cantoneseDescription}</div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="zhuyin-layout-title"
+      />
+      <LegacySchemeChoice
+        title="注音键盘"
+        titleId="zhuyin-layout-title"
+        optionName="zhuyin-layout"
+        optionLabel="大千"
+        description={zhuyinDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-      >
-        <div className="section-title" id="zhuyin-layout-title">
-          注音键盘
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="zhuyin-layout" checked readOnly />
-            <span>大千</span>
-          </label>
-        </div>
-        <div className="input-setting-description">{zhuyinDescription}</div>
-      </div>
+      />
       <div
         className="section"
         role="group"
