@@ -1862,6 +1862,7 @@ Json prefer_online_translations(const Json &glosses, const Json &online) {
   std::vector<std::pair<std::string, std::string>> merged, answers;
   const auto read = [](const Json &values, auto &into) {
     if (!values.is_array()) return;
+    into.reserve(into.size() + values.size());
     for (const auto &item : values)
       if (item.is_object())
         into.emplace_back(item.value("text", std::string{}),
