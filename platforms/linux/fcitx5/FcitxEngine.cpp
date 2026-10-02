@@ -2815,12 +2815,16 @@ public:
   // The `count` characters in front of the caret, oldest first. std::nullopt is
   // "this host publishes nothing usable there", which is not the same answer as
   // an empty vector: that one means the document starts at the caret.
-  std::optional<std::vector<std::string>> precedingCharacters(size_t count) {
+  std::optional<std::vector<std::string>> precedingCharacters(
+      size_t count, std::optional<size_t> validatedLength = std::nullopt) {
     const auto &surrounding = ic_.surroundingText();
     if (privateInput() || !ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) ||
         !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
       return std::nullopt;
     const auto &text = surrounding.text();
+    if (validatedLength)
+      return preceding_characters_with_validated_length<std::vector<std::string>>(
+          text, surrounding.cursor(), count, *validatedLength);
     return preceding_characters(text, surrounding.cursor(), count);
   }
   bool composingOrCandidates() const {
@@ -2891,15 +2895,19 @@ public:
                    msime::linux_host::PunctuationPairMode pairMode =
                        msime::linux_host::PunctuationPairMode::Unpaired) {
     uint32_t preceding = 0;
+    std::optional<size_t> surroundingLength;
     const auto &surrounding = ic_.surroundingText();
     if (!privateInput() && ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) &&
         surrounding.isValid() && surrounding.cursor() > 0 &&
         surrounding.cursor() == surrounding.anchor()) {
       const auto &text = surrounding.text();
       const auto length = fcitx::utf8::lengthValidated(text);
-      if (length != fcitx::utf8::INVALID_LENGTH && surrounding.cursor() <= length)
-        preceding = fcitx::utf8::getChar(
-            fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
+      if (length != fcitx::utf8::INVALID_LENGTH) {
+        surroundingLength = length;
+        if (surrounding.cursor() <= length)
+          preceding = fcitx::utf8::getChar(
+              fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
+      }
     }
     // Engine is about to commit the Chinese mark for this key. Record what the
     // caret follows now, while the document still predates the commit; a Space
@@ -2913,7 +2921,8 @@ public:
                      !composingOrCandidates();
     std::string armedPreceding;
     if (arm) {
-      if (const auto characters = precedingCharacters(1); characters && !characters->empty())
+      if (const auto characters = precedingCharacters(1, surroundingLength);
+          characters && !characters->empty())
         armedPreceding = characters->front();
     }
     // The ASCII mark this key already produced once was deleted, so the shared
