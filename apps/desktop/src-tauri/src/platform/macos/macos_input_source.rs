@@ -703,6 +703,44 @@ pub(crate) fn input_source_enabled() -> Option<bool> {
 }
 
 fn enabled_in_preference_list(domain: &str, key: &str) -> Option<bool> {
+    enabled_in_input_source_list(&preference_list_json(domain, key)?)
+}
+
+/// 输入法列表里本输入法各个模式的标识符，例如 `app.msime.inputmethod.MetasequoiaIME.Cantonese`。
+fn enabled_modes_in_input_source_list(json: &[u8]) -> Option<Vec<String>> {
+    let list: serde_json::Value = serde_json::from_slice(json).ok()?;
+    Some(
+        list.as_array()?
+            .iter()
+            .filter(|entry| {
+                entry.get("Bundle ID").and_then(serde_json::Value::as_str)
+                    == Some(INPUT_SOURCE_BUNDLE_ID)
+            })
+            .filter_map(|entry| entry.get("Input Mode")?.as_str().map(str::to_owned))
+            .collect(),
+    )
+}
+
+/// 用户在系统设置里加入输入法列表的本输入法模式，按标识符排序去重；两份列表都读不到时为 `None`。
+///
+/// macOS 27 不允许进程启用键盘输入模式（`TISEnableInputSource` 返回 noErr 而状态不变），粤、注、越这几个按需模式只能由用户自己在系统设置里添加，设置页靠它告诉用户哪几个还没加。
+pub(crate) fn enabled_input_modes() -> Option<Vec<String>> {
+    let mut modes = ENABLED_INPUT_SOURCE_LISTS
+        .iter()
+        .filter_map(|(domain, key)| {
+            enabled_modes_in_input_source_list(&preference_list_json(domain, key)?)
+        })
+        .reduce(|mut all, modes| {
+            all.extend(modes);
+            all
+        })?;
+    modes.sort();
+    modes.dedup();
+    Some(modes)
+}
+
+/// 偏好域里一个列表的 JSON 形式；读不到或没有这个键时为 `None`。
+fn preference_list_json(domain: &str, key: &str) -> Option<Vec<u8>> {
     use std::io::Write;
     let mut command = Command::new("/usr/bin/defaults");
     command.args(["export", domain, "-"]);
@@ -719,7 +757,7 @@ fn enabled_in_preference_list(domain: &str, key: &str) -> Option<bool> {
     if !output.status.success() {
         return None;
     }
-    enabled_in_input_source_list(&output.stdout)
+    Some(output.stdout)
 }
 
 #[cfg(test)]
@@ -1010,6 +1048,20 @@ mod tests {
         let absent = br#"[{"Bundle ID":"com.apple.inputmethod.Kotoeri.RomajiTyping"}]"#;
         assert_eq!(enabled_in_input_source_list(absent), Some(false));
         assert_eq!(enabled_in_input_source_list(b"not json"), None);
+    }
+
+    #[test]
+    fn enabled_modes_lists_this_bundles_input_modes_only() {
+        let list = br#"[{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","InputSourceKind":"Keyboard Input Method"},{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","Input Mode":"app.msime.inputmethod.MetasequoiaIME.Cantonese","InputSourceKind":"Input Mode"},{"Bundle ID":"com.example.other","Input Mode":"com.example.other.hans","InputSourceKind":"Input Mode"},{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","Input Mode":"app.msime.inputmethod.MetasequoiaIME.Hans","InputSourceKind":"Input Mode"}]"#;
+        assert_eq!(
+            enabled_modes_in_input_source_list(list),
+            Some(vec![
+                "app.msime.inputmethod.MetasequoiaIME.Cantonese".to_owned(),
+                "app.msime.inputmethod.MetasequoiaIME.Hans".to_owned(),
+            ])
+        );
+        assert_eq!(enabled_modes_in_input_source_list(b"[]"), Some(Vec::new()));
+        assert_eq!(enabled_modes_in_input_source_list(b"not json"), None);
     }
 
     #[test]

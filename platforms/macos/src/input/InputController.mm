@@ -3399,7 +3399,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 // Keeps the selected input mode - 中, 双, 五, 粤, 注, 英, 日, 한 or 越 in the input menu - in step with the Chinese/English state and the scheme actually running. A switch the system reported is already recorded as shown, so this does not echo it back.
 //
-// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音或越南文时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这三个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。
+// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音或越南文时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这三个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
 - (void)syncSystemInputModeForClient:(id)client {
     NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
     NSString *synced = _appearance.lastSyncedInputScheme;

@@ -1943,6 +1943,31 @@ static void TestOptInSchemeModes() {
         const BOOL missing = radio.tag == 6;
         assert(radio.enabled == !missing && (missing ? [radio.toolTip isEqual:@"未安装该方案的词库，暂不可用"] : radio.toolTip == nil));
     }
+    // 选中粤拼而「粤」不在输入法列表里时，输入方式卡片说明去「粤语」下添加；没有探针时不显示，加进去之后也不显示。
+    auto hintRow = [](MSIMEAppearancePreferences *preferences) {
+        return MSIMEFindPreferenceView(preferences.window.contentView, ^BOOL(NSView *view) {
+            return [view.accessibilityLabel isEqual:@"菜单栏入口提示"];
+        });
+    };
+    [defaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
+    settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(hintRow(settings).hidden);
+    static BOOL cantoneseAdded = NO;
+    MSIMEInputModeEnabledProbe = [](NSString *identifier) -> BOOL {
+        return cantoneseAdded || ![identifier isEqual:MSIMECantoneseInputModeID];
+    };
+    settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    NSView *hint = hintRow(settings);
+    assert(hint && !hint.hidden);
+    NSTextField *hintText = (NSTextField *)MSIMEFindPreferenceViewOfClass(hint, NSTextField.class);
+    assert([hintText.stringValue containsString:@"「水杉输入法 · 粤」"] && [hintText.stringValue containsString:@"「粤语」"]);
+    assert(MSIMEFindPreferenceControl(hint, @selector(openInputSourceSettings:)));
+    cantoneseAdded = YES;
+    [NSNotificationCenter.defaultCenter postNotificationName:NSWindowDidBecomeKeyNotification object:settings.window];
+    assert(hint.hidden);
+    MSIMEInputModeEnabledProbe = nullptr;
+    [defaults setObject:@"quanpin" forKey:@"MSIMEClientInputScheme"];
+
     assert([NSFileManager.defaultManager removeItemAtPath:optionsPath error:nil]);
     settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));

@@ -32,6 +32,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 
 extern "C" NSView *MSIMEAccountPaneView(void) __attribute__((weak_import));
 extern "C" void MSIMEAccountPaneAttach(NSWindow *window) __attribute__((weak_import));
+BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier) = nullptr;
 extern "C" void MSIMEAccountPaneClose(void) __attribute__((weak_import));
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
@@ -850,6 +851,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSBox *_wubiCard;
     NSInteger _selectedPageIndex;
     NSArray<NSButton *> *_schemeButtons;
+    // 当前方案的菜单栏入口还没加入输入法列表时，输入方式卡片底部说明去哪里添加。
+    NSView *_inputModeHintRow;
+    NSTextField *_inputModeHintLabel;
     NSPopUpButton *_shuangpinSchemeButton;
     NSPopUpButton *_wubiSchemeButton;
     NSTextField *_versionLabel;
@@ -2754,6 +2758,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // is in the dependency table with every other such rule.
     for (NSInteger index = 0; index < (NSInteger)_schemeButtons.count; ++index)
         _schemeButtons[index].state = index == storedScheme ? NSControlStateValueOn : NSControlStateValueOff;
+    [self refreshInputModeHint];
     // Options that only apply to one scheme are shown only while it is selected. Leaving them
     // editable under another scheme means the change saves, the page says nothing, and the setting
     // does nothing until the user happens to switch back.
@@ -3327,6 +3332,20 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         if (index < (NSInteger)schemeTitles.count - 1) [schemeRows addObject:MSIMECardSeparator()];
     }
     _schemeButtons = schemeButtons;
+    // macOS 27 不允许进程启用键盘输入模式，选中粤拼、注音这类方案后菜单栏里不会自动出现对应入口；这一行说明它在系统设置「添加」对话框的哪个语言下。
+    _inputModeHintLabel = MSIMEDetailLabel(@"");
+    NSButton *inputModeHintButton = [NSButton buttonWithTitle:@"打开键盘设置" target:self action:@selector(openInputSourceSettings:)];
+    inputModeHintButton.controlSize = NSControlSizeSmall;
+    NSStackView *inputModeHint = [NSStackView stackViewWithViews:@[_inputModeHintLabel, inputModeHintButton]];
+    inputModeHint.orientation = NSUserInterfaceLayoutOrientationVertical;
+    inputModeHint.alignment = NSLayoutAttributeLeading;
+    inputModeHint.spacing = 6.0;
+    inputModeHint.edgeInsets = NSEdgeInsetsMake(8.0, 0.0, 8.0, 0.0);
+    inputModeHint.accessibilityLabel = @"菜单栏入口提示";
+    [_inputModeHintLabel.widthAnchor constraintEqualToAnchor:inputModeHint.widthAnchor].active = YES;
+    inputModeHint.hidden = YES;
+    _inputModeHintRow = inputModeHint;
+    [schemeRows addObject:inputModeHint];
     NSBox *schemeCard = MSIMECardWithViews(schemeRows, 0.0);
     schemeCard.accessibilityLabel = @"输入方式卡片";
 
@@ -4185,6 +4204,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 /// page restored while the window was being built gets its turn.
 - (void)preferencesWindowDidBecomeKey:(NSNotification *)notification {
     (void)notification;
+    // 用户多半是从系统设置添加完回来的，每次回到窗口都重读一次。
+    [self refreshInputModeHint];
     if (_windowHasAppeared) return;
     _windowHasAppeared = YES;
     [self performPageEntrySideEffects];
@@ -4763,6 +4784,19 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 }
 - (void)schemeRadioChanged:(NSButton *)sender {
     self.inputScheme = MSIMEInputSchemeNames()[sender.tag];
+}
+// 当前方案在菜单栏的入口还没加入输入法列表时显示提示；没有探针（测试与其它链接了设置窗口的程序）时不显示。
+- (void)refreshInputModeHint {
+    if (!_inputModeHintRow) return;
+    NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(NO, self.inputScheme));
+    const BOOL missing = MSIMEInputModeEnabledProbe != nullptr && !MSIMEInputModeEnabledProbe(mode);
+    _inputModeHintRow.hidden = !missing;
+    if (!missing) return;
+    _inputModeHintLabel.stringValue = [NSString stringWithFormat:@"菜单栏里还没有「%@」，要先把它加进输入法列表才能从菜单栏切过去。macOS 只允许你自己添加：点「打开键盘设置」，在「输入法」一行点「编辑…」，再点左下角「+」，在左栏选或搜索「%@」后添加。", MSIMEInputModeMenuName(mode), MSIMEInputModeAddDialogLanguage(mode)];
+}
+- (void)openInputSourceSettings:(id)sender {
+    (void)sender;
+    [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.Keyboard-Settings.extension"]];
 }
 - (void)showBackendAccount:(id)sender {
     (void)sender;

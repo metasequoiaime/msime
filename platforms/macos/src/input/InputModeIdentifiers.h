@@ -12,7 +12,7 @@ static NSString *const MSIMECantoneseInputModeID = @"app.msime.inputmethod.Metas
 static NSString *const MSIMEZhuyinInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Zhuyin";
 static NSString *const MSIMEVietnameseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Vietnamese";
 
-// The modes that stay off until the user picks their scheme. Neither installing nor updating enables them: registration skips them and MSIMEEnableNewInputModes records them without enabling, so the input menu of someone who never asked for Cantonese, Zhuyin or Vietnamese does not grow three entries. Picking the scheme enables its mode (MSIMEOptInInputModeToEnable); leaving it does not disable the mode again.
+// 等用户选中对应方案才打开的模式。安装和更新都不启用它们：登记时跳过，MSIMEEnableNewInputModes 只记录不启用，免得从没用过粤拼、注音或越南文的人输入菜单里平白多出三项。选中方案时请求启用对应模式（MSIMEOptInInputModeToEnable），切走方案也不关掉它。macOS 27 不允许进程启用键盘输入模式，这个请求在那里不生效，只能由用户在系统设置里添加，设置页的「菜单栏入口」告诉用户去哪里加。
 static inline NSArray<NSString *> *MSIMEOptInInputModeIDs(void) {
     return @[ MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID ];
 }
@@ -71,6 +71,26 @@ static inline NSString *MSIMEInputModeID(MSIMEInputMode mode) {
     case MSIMEInputMode::Chinese: break;
     }
     return MSIMEChineseInputModeID;
+}
+
+// 一个模式在输入法菜单里的名字（与 InfoPlist.strings 一致），以及系统设置「添加」对话框把它归在哪个语言下（对应 Info.plist.in 的 TISIntendedLanguage）。macOS 27 不允许进程启用键盘输入模式，设置窗口靠这两项告诉用户去哪里自己添加；共享设置页 `macos-input-mode-entries-section.tsx` 里有同一张表。
+static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
+    NSDictionary<NSString *, NSString *> *names = @{
+        MSIMEChineseInputModeID: @"水杉输入法 · 中", MSIMEShuangpinInputModeID: @"水杉输入法 · 双",
+        MSIMEWubiInputModeID: @"水杉输入法 · 五", MSIMECantoneseInputModeID: @"水杉输入法 · 粤",
+        MSIMEZhuyinInputModeID: @"水杉输入法 · 注", MSIMEJapaneseInputModeID: @"水杉输入法 · 日",
+        MSIMEKoreanInputModeID: @"水杉输入法 · 韩", MSIMEVietnameseInputModeID: @"水杉输入法 · 越",
+        MSIMEEnglishInputModeID: @"水杉输入法 · 英",
+    };
+    return identifier ? names[identifier] : nil;
+}
+static inline NSString *MSIMEInputModeAddDialogLanguage(NSString *identifier) {
+    if ([identifier isEqualToString:MSIMECantoneseInputModeID]) return @"粤语";
+    if ([identifier isEqualToString:MSIMEZhuyinInputModeID]) return @"繁体中文";
+    if ([identifier isEqualToString:MSIMEJapaneseInputModeID]) return @"日语";
+    if ([identifier isEqualToString:MSIMEKoreanInputModeID]) return @"韩语";
+    if ([identifier isEqualToString:MSIMEVietnameseInputModeID]) return @"越南语";
+    return @"简体中文";
 }
 
 static inline BOOL MSIMEIsInputModeID(id value) {

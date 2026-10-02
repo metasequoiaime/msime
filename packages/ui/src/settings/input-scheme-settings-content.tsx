@@ -1,6 +1,10 @@
 import type { InputScheme, Preferences } from "../index";
 import { GroupList } from "../core/platform-controls";
 import { InputModeSection } from "./input-mode-section";
+import {
+  MacosInputModeEntriesSection,
+  type MacosInputModesClient,
+} from "./macos-input-mode-entries-section";
 import { InputSchemeDetailsSection, type ShuangpinProfile } from "./input-scheme-details-section";
 import { baseInputSchemes, isChineseScheme } from "./input-scheme-options";
 import {
@@ -24,6 +28,9 @@ export interface InputSchemeSettingsContentProps {
   inputSchemes?: readonly InputScheme[];
   macosShuangpinKeymap?: boolean;
   macosWubiAutoCommitUnique?: boolean;
+  /** macOS 的输入法列表；有它时在方案组末尾显示「菜单栏入口」。 */
+  macosInputModes?: MacosInputModesClient;
+  onError?: (message: string) => void;
   onPreferencesChange: (patch: Partial<Preferences>) => void;
   onSelectTouchKeyboardScheme: (scheme: TouchKeyboardScheme) => void;
   onToggleTouchKeyboardScheme: (scheme: TouchKeyboardScheme, enabled: boolean) => void;
@@ -41,6 +48,8 @@ export function InputSchemeSettingsContent({
   inputSchemes = baseInputSchemes,
   macosShuangpinKeymap,
   macosWubiAutoCommitUnique,
+  macosInputModes,
+  onError = () => {},
   onPreferencesChange,
   onSelectTouchKeyboardScheme,
   onToggleTouchKeyboardScheme,
@@ -103,6 +112,14 @@ export function InputSchemeSettingsContent({
           autoCommitUnique={macos ? macosWubiAutoCommitUnique : undefined}
           onChange={onPreferencesChange}
           onAutoCommitUniqueChange={onMacosWubiAutoCommitUniqueChange}
+        />
+      )}
+      {macos && (
+        <MacosInputModeEntriesSection
+          client={macosInputModes}
+          scheme={preferences.scheme}
+          inputSchemes={inputSchemes}
+          onError={onError}
         />
       )}
     </GroupList>

@@ -87,6 +87,8 @@ int main(int argc, const char *argv[]) {
         if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
+        // 设置窗口用它判断当前方案的菜单栏入口是否已加入输入法列表。
+        MSIMEInputModeEnabledProbe = MSIMEInputSourceIsEnabled;
         // Turn on, once each, the input modes this version added and the install that brought it did not register. The opt-in modes are only recorded, and turned off once if the system turned them on.
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";
         NSArray *offeredModes = [NSUserDefaults.standardUserDefaults arrayForKey:offeredModesKey];

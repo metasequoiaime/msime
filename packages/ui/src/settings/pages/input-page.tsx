@@ -54,6 +54,7 @@ export function InputSettingsPage() {
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
+    setError,
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
@@ -76,6 +77,8 @@ export function InputSettingsPage() {
               : undefined
           }
           macosWubiAutoCommitUnique={macosWubiAutoCommitUnique}
+          macosInputModes={client.macosInputModes}
+          onError={setError}
           onPreferencesChange={onPreferencesChange}
           onSelectTouchKeyboardScheme={(scheme) => selectTouchKeyboardScheme(scheme)}
           onToggleTouchKeyboardScheme={(scheme, enabled) =>

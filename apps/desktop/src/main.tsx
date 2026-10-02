@@ -206,6 +206,10 @@ const inputSourceStartup: NonNullable<SettingsClient["inputSourceStartup"]> = {
   status: () => invoke("input_source_startup_status"),
   openSettings: () => invoke("open_input_source_settings"),
 };
+const macosInputModes: NonNullable<SettingsClient["macosInputModes"]> = {
+  enabled: () => invoke("enabled_input_modes"),
+  openSettings: () => invoke("open_input_source_settings"),
+};
 const macosInstallClient: MacosInstallClient = {
   install: () => invoke("run_first_input_source_install"),
 };
@@ -261,6 +265,7 @@ const client: SettingsClient = {
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
   inputSourceStartup,
+  macosInputModes,
   onDeviceTranslation: {
     downloadableLanguages: () => invoke<string[]>("on_device_translation_downloadable_languages"),
     openSettings: () => invoke("open_translation_language_settings"),

@@ -2973,6 +2973,17 @@ fn leave_first_install_window(
     window.center().map_err(unavailable)
 }
 
+/// 用户已经加入输入法列表的本输入法模式（完整标识符）；读不到列表时为 `None`。设置页据此提示还没加入的模式该去系统设置的哪个语言下添加。
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn enabled_input_modes() -> Result<Option<Vec<String>>, HostActionError> {
+    tauri::async_runtime::spawn_blocking(macos_input_source::enabled_input_modes)
+        .await
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 fn open_input_source_settings() -> Result<(), HostActionError> {
@@ -5205,6 +5216,8 @@ pub fn run() {
             leave_first_install_window,
             #[cfg(target_os = "macos")]
             open_input_source_settings,
+            #[cfg(target_os = "macos")]
+            enabled_input_modes,
             #[cfg(target_os = "macos")]
             data_directory_status,
             #[cfg(target_os = "macos")]
