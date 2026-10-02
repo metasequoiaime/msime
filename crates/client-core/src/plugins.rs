@@ -302,7 +302,9 @@ fn scan_builtin(directory: &Path, catalog: &mut PluginCatalog) {
             PluginKind::Sound
         };
         let loaded = match entry.file_type() {
-            Ok(file_type) if file_type.is_dir() => load_installed(directory, &folder, kind, true),
+            Ok(file_type) if file_type.is_dir() => {
+                load_installed(directory, &folder, kind, true, DataFiles::Summarize)
+            }
             _ => Err("不是插件文件夹".to_owned()),
         };
         match loaded {
@@ -338,7 +340,7 @@ fn scan_kind(directory: &Path, kind: PluginKind, builtin: bool, catalog: &mut Pl
         }
         let loaded = match entry.file_type() {
             Ok(file_type) if file_type.is_dir() => {
-                load_installed(directory, &folder, kind, builtin)
+                load_installed(directory, &folder, kind, builtin, DataFiles::Summarize)
             }
             _ => Err("不是插件文件夹".to_owned()),
         };
@@ -365,9 +367,42 @@ pub fn load_package(
     }
     if is_builtin(kind, id) {
         let builtin = builtin_sounds.ok_or("内置音效包不可用")?;
-        return load_installed(builtin, id, kind, true);
+        return load_installed(builtin, id, kind, true, DataFiles::Summarize);
     }
-    load_installed(&kind_directory(root, kind), id, kind, false)
+    load_installed(
+        &kind_directory(root, kind),
+        id,
+        kind,
+        false,
+        DataFiles::Summarize,
+    )
+}
+
+/// 与 [`load_package`] 同样校验一个已安装的包（清单、文件清单、数据文件的存在与大小），但不读数据文件的内容：`content` 里的摘要是占位值。只给自己要完整解析数据文件的调用方用（`wordbook_pack::load_book`、`helpcode_pack::load_codes`），它们的解析就是对内容的校验，这样一个最大 4 MiB 的文件只解析一遍。
+pub(crate) fn load_package_unread(
+    root: &Path,
+    kind: PluginKind,
+    id: &str,
+) -> Result<PluginSummary, String> {
+    if !safe_id(id) {
+        return Err("插件 id 无效".into());
+    }
+    load_installed(
+        &kind_directory(root, kind),
+        id,
+        kind,
+        false,
+        DataFiles::Unread,
+    )
+}
+
+/// 载入包时是否读出数据文件（辅助码表、单词本）的摘要。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DataFiles {
+    /// 读出并严格解析，摘要（条数、预览）写进 `content`。
+    Summarize,
+    /// 只检查文件存在、大小和扩展名，内容由调用方自己解析。
+    Unread,
 }
 
 /// A pack in `<directory>/<folder>`, whose manifest must name `folder` as its id and `kind` as its kind.
@@ -376,6 +411,7 @@ fn load_installed(
     folder: &str,
     kind: PluginKind,
     builtin: bool,
+    data_files: DataFiles,
 ) -> Result<PluginSummary, String> {
     crate::storage::reject_symlink(directory).map_err(|_| "插件所在目录是符号链接".to_owned())?;
     if !safe_id(folder) {
@@ -392,7 +428,7 @@ fn load_installed(
     if !contained(directory, &package) {
         return Err("插件指向了所在目录之外".into());
     }
-    let mut summary = load_directory(&package)?;
+    let mut summary = load_directory_with(&package, data_files)?;
     if summary.id != folder {
         return Err("plugin.toml 里的 id 与文件夹名不一致".into());
     }
@@ -421,6 +457,10 @@ pub(crate) type PackFiles = BTreeMap<String, u64>;
 
 /// Parse and check the pack in `directory` whatever its folder is called. `import` runs this on the staged copy before anything is installed, and every load runs it again.
 pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> {
+    load_directory_with(directory, DataFiles::Summarize)
+}
+
+fn load_directory_with(directory: &Path, data_files: DataFiles) -> Result<PluginSummary, String> {
     let files = list_files(directory)?;
     if !files.contains_key(MANIFEST_FILE) {
         return Err("缺少 plugin.toml".into());
@@ -547,6 +587,7 @@ pub(crate) fn load_directory(directory: &Path) -> Result<PluginSummary, String> 
     };
     check_files(directory, &files, &audio, limits, &data)?;
     let content = match content {
+        content if data_files == DataFiles::Unread => content,
         PluginContent::Helpcode(pack) => {
             PluginContent::Helpcode(helpcode_pack::read(directory, &pack.table)?)
         }

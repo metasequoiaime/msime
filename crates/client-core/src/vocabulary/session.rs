@@ -108,6 +108,8 @@ pub fn apply(
     }
     let library = WordbookLibrary::new(directory);
     let store = VocabularyProgressStore::new(directory);
+    // 作答时已经读过的选中书，交给最后的 `status` 复用：插件书最大 4 MiB，没必要在一次作答里再解析一遍。
+    let mut answered_book = None;
 
     match action {
         ReviewAction::Load => {}
@@ -121,6 +123,7 @@ pub fn apply(
                 ReviewGrade::Unknown
             };
             store.answer(&book, &word, grade, day)?;
+            answered_book = Some(book);
         }
         ReviewAction::SetSettings {
             wordbook,
@@ -186,7 +189,7 @@ pub fn apply(
         }
     }
 
-    status(directory, resources, plugins, day)
+    status_with(directory, resources, plugins, day, answered_book)
 }
 
 /// The selected book, bundled, from a plugin or imported. `Ok(None)` when nothing is selected or it has gone.
@@ -218,6 +221,17 @@ pub fn status(
     plugins: Option<&Path>,
     day: &str,
 ) -> Result<ReviewStatus, ReviewSessionError> {
+    status_with(directory, resources, plugins, day, None)
+}
+
+/// [`status`]，`loaded` 是调用方刚读过的书：它的 id 仍是选中的那本时直接用它，不再读一遍。
+fn status_with(
+    directory: &Path,
+    resources: &Path,
+    plugins: Option<&Path>,
+    day: &str,
+    loaded: Option<Wordbook>,
+) -> Result<ReviewStatus, ReviewSessionError> {
     if !crate::calendar::is_valid_day(day) {
         return Err(ReviewSessionError::InvalidDay);
     }
@@ -246,6 +260,8 @@ pub fn status(
     // as an error: the user deleted it, and the page should offer the picker instead of a failure.
     let imported = if settings.wordbook.is_empty() || builtin::is_builtin(&settings.wordbook) {
         None
+    } else if let Some(book) = loaded.filter(|book| book.id == settings.wordbook) {
+        Some(book)
     } else {
         selected_book(&library, resources, plugins, &settings.wordbook)?
     };

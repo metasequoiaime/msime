@@ -143,10 +143,10 @@ pub fn is_pack_book(book: &str) -> bool {
     book.starts_with(BOOK_ID_PREFIX)
 }
 
-/// 已安装的单词本插件里 `book`（`pack-<插件 id>`）那一本，按 `scan` 列出包的规则校验过。插件不在或载入失败时为 `None`：背单词把它当作已经不在的书，显示书目选择。读一个最大 4 MiB 的文件。
+/// 已安装的单词本插件里 `book`（`pack-<插件 id>`）那一本，按 `scan` 列出包的规则校验过。插件不在或载入失败时为 `None`：背单词把它当作已经不在的书，显示书目选择。读一个最大 4 MiB 的文件，只解析一遍：清单和文件先按 `load_package` 的规则检查，词表的严格解析既是校验也是结果。
 pub fn load_book(root: &Path, book: &str) -> Option<Wordbook> {
     let id = book.strip_prefix(BOOK_ID_PREFIX)?;
-    let package = super::load_package(root, None, PluginKind::Wordbook, id).ok()?;
+    let package = super::load_package_unread(root, PluginKind::Wordbook, id).ok()?;
     let PluginContent::Wordbook(pack) = &package.content else {
         return None;
     };
