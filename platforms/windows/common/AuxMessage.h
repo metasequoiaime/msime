@@ -100,6 +100,7 @@ parse_aux_langbar_right_click(const std::wstring &text) {
       text[verb.size()] != L'|')
     return std::nullopt;
   std::vector<std::wstring_view> fields;
+  fields.reserve(4);
   std::wstring_view rest(text);
   rest.remove_prefix(verb.size() + 1);
   while (true) {
