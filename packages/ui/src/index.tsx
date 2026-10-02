@@ -1229,6 +1229,10 @@ export {
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";
 export {
+  CommunityPublicationMetadataFields,
+  type CommunityPublicationMetadataFieldsProps,
+} from "./community/community-publication-metadata-fields";
+export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";

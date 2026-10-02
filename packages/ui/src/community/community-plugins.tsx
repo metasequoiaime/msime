@@ -27,10 +27,8 @@ import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunityRightsAgreement } from "./community-rights-agreement";
-import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
-import { CommunityTextareaField } from "./community-textarea-field";
+import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 import {
   CommunityReportSection,
   type CommunityModeration,
@@ -692,36 +690,26 @@ export function CommunityPluginPublishDialog({
                 .filter(Boolean)
                 .join(" · ")}
             </p>
-            <CommunityInputField
-              label="名称"
-              ariaLabel="发布插件名称"
-              maxLength={32}
-              value={name}
-              disabled={busy}
-              onChange={(value) => {
+            <CommunityPublicationMetadataFields
+              name={name}
+              description={description}
+              agreed={agreed}
+              busy={busy}
+              nameLabel="名称"
+              nameAriaLabel="发布插件名称"
+              descriptionLabel="说明"
+              descriptionAriaLabel="发布插件说明"
+              agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+              agreementClassName={style.agreementBox}
+              onNameChange={(value) => {
                 setPublicationId(randomUuid());
                 setName(boundedGraphemes(value, 32));
               }}
-            />
-            <CommunityTextareaField
-              label="说明"
-              ariaLabel="发布插件说明"
-              maxLength={280}
-              rows={4}
-              value={description}
-              disabled={busy}
-              onChange={(value) => {
+              onDescriptionChange={(value) => {
                 setPublicationId(randomUuid());
                 setDescription(value);
               }}
-            />
-            <CommunityRightsAgreement
-              agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
-              ariaLabel="确认拥有发布内容权利"
-              checked={agreed}
-              disabled={busy}
-              checkboxClassName={style.agreementBox}
-              onChange={setAgreed}
+              onAgreedChange={setAgreed}
             />
             <p className={style.warning}>{publishWarning}</p>
           </>

@@ -26,11 +26,12 @@ import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
 } from "./community-resource-scope-buttons";
-import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
-import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 
@@ -251,22 +252,21 @@ function ResourceEditor({
           onClose={close}
         />
         {error && <CommunityErrorAlert message={error} />}
-        <CommunityInputField
-          label="作品名称"
-          ariaLabel="社区作品名称"
-          maxLength={32}
-          value={name}
-          disabled={busy}
-          onChange={setName}
-        />
-        <CommunityTextareaField
-          label="作品说明"
-          ariaLabel="社区作品说明"
-          maxLength={280}
-          rows={3}
-          value={description}
-          disabled={busy}
-          onChange={setDescription}
+        <CommunityPublicationMetadataFields
+          name={name}
+          description={description}
+          agreed={agreed}
+          busy={busy}
+          nameLabel="作品名称"
+          nameAriaLabel="社区作品名称"
+          descriptionLabel="作品说明"
+          descriptionAriaLabel="社区作品说明"
+          descriptionRows={3}
+          showAgreement={!existing}
+          agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
+          onNameChange={setName}
+          onDescriptionChange={setDescription}
+          onAgreedChange={setAgreed}
         />
         {kind === "reply" ? (
           <CommunityTextareaField
@@ -338,15 +338,6 @@ function ResourceEditor({
               ))}
             </div>
           </>
-        )}
-        {!existing && (
-          <CommunityRightsAgreement
-            agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
-            ariaLabel="确认拥有发布内容权利"
-            checked={agreed}
-            disabled={busy}
-            onChange={setAgreed}
-          />
         )}
         <p className={style.warning}>
           发布内容会公开展示。请勿包含 API
