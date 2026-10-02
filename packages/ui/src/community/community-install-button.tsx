@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 /** Shared primary install action used by community detail pages. */
 export function CommunityInstallButton({
@@ -13,13 +14,12 @@ export function CommunityInstallButton({
   onInstall: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <ActionButton
+      action={onInstall}
       className={`primary ${style.action}`}
       disabled={actionBusy || detailBusy || confirmReplace}
-      onClick={onInstall}
-    >
-      {actionBusy ? "正在安装…" : "一键安装"}
-    </button>
+      ariaBusy={actionBusy}
+      label={actionBusy ? "正在安装…" : "一键安装"}
+    />
   );
 }
