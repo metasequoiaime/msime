@@ -135,6 +135,9 @@ class HarmonyTransport extends HarmonyAccountTransport {
       || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
       throw new Error('account_invalid');
     }
+    if (!this.safeDestination(destination)) {
+      throw new Error('account_storage');
+    }
     const request = http.createHttp();
     this.activeDownloads.add(request);
     const headers: DownloadHeaders = {
@@ -222,6 +225,24 @@ class HarmonyTransport extends HarmonyAccountTransport {
       }
     } catch {
       return { status: 503, body: '' };
+    }
+  }
+
+  private safeDestination(destination: string): boolean {
+    const slash: number = destination.lastIndexOf('/');
+    if (slash <= 0) return false;
+    const parent: string = destination.substring(0, slash);
+    try {
+      const parentStat: fs.Stat = fs.lstatSync(parent);
+      if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) return false;
+      try {
+        const targetStat: fs.Stat = fs.lstatSync(destination);
+        return !targetStat.isSymbolicLink() && targetStat.isFile();
+      } catch {
+        return true;
+      }
+    } catch {
+      return false;
     }
   }
 }
@@ -322,6 +343,9 @@ export class HarmonyAccountCloudBridge {
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.tsv`;
     let destination: string = '';
     try {
+      if (!this.safeDirectory(`${this.context.filesDir}/state`)) {
+        return this.failure('account_storage');
+      }
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       const downloaded = await this.bridge.downloadAuthenticated(
         `/v1/users/me/dictionaries/${kind}/export?format=${format}`,
@@ -777,6 +801,7 @@ export class HarmonyAccountCloudBridge {
   private async restorePreview(stateRoot: string): Promise<string> {
     const accountId: string | null = this.bridge.currentUserId();
     if (accountId === null) return this.failure('account_unauthorized');
+    if (!this.safeDirectory(stateRoot)) return this.failure('account_storage');
     this.clearRestorePreview();
     try {
       const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
@@ -792,6 +817,9 @@ export class HarmonyAccountCloudBridge {
       }
       const directory: string = `${stateRoot}/cloud-restore`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(directory)) {
+        return this.failure('account_storage');
+      }
       this.restoreFile = `${directory}/${util.generateRandomUUID(false)}.ndjson`;
       fs.copyFileSync(source, this.restoreFile);
       const copiedBytes: number = fs.statSync(this.restoreFile).size;
@@ -857,6 +885,7 @@ export class HarmonyAccountCloudBridge {
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
     try {
       this.clearSnapshotPreview();
+      if (!this.safeDirectory(stateRoot)) return null;
       const directory = `${stateRoot}/cloud-snapshot`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       this.snapshotFile = `${directory}/snapshot.ndjson`;
@@ -944,6 +973,15 @@ export class HarmonyAccountCloudBridge {
       return this.success({ request: this.publicRequest(reply.value.request) });
     } catch {
       return this.failure('snapshot_unavailable');
+    }
+  }
+
+  private safeDirectory(directory: string): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
     }
   }
 }
