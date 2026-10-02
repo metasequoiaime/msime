@@ -272,6 +272,11 @@ assert 'clipboard_loading_ = false' in source
 # directory in both initial setup and runtime reload.
 assert 'auto clipboard_path = options.value("clipboard_history_path", std::string());' in source
 assert 'auto nextClipboard = options.value("clipboard_history_path", std::string{});' in source
+# The shared option names the history file, while the Host API clipboard ABI
+# receives its containing preferences directory.  Fcitx5 must normalize the
+# explicit default filename before loading or mutating history.
+assert 'std::filesystem::path(clipboard_path).parent_path().string()' in source
+assert 'std::filesystem::path(nextClipboard).parent_path().string()' in source
 
 # Cloud clipboard follows the provider socket contract: explicit options,
 # environment override, then the per-user runtime socket, and hot reload must

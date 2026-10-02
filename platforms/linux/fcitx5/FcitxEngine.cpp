@@ -1575,6 +1575,9 @@ public:
     configureDiagnostics();
     resources_ = options.value("resources", std::string());
     auto clipboard_path = options.value("clipboard_history_path", std::string());
+    if (!clipboard_path.empty() &&
+        std::filesystem::path(clipboard_path).filename() == "clipboard_history.json")
+      clipboard_path = std::filesystem::path(clipboard_path).parent_path().string();
     if (clipboard_path.empty()) clipboard_path = options.value("preferences_directory", std::string());
     if (clipboard_path != clipboard_path_) {
       ++clipboard_generation_;
@@ -1756,6 +1759,9 @@ public:
       // input context remains focused. Keep the same path precedence as the
       // initial session setup and fence an in-flight read from the old file.
       auto nextClipboard = options.value("clipboard_history_path", std::string{});
+      if (!nextClipboard.empty() &&
+          std::filesystem::path(nextClipboard).filename() == "clipboard_history.json")
+        nextClipboard = std::filesystem::path(nextClipboard).parent_path().string();
       if (nextClipboard.empty())
         nextClipboard = options.value("preferences_directory", std::string{});
       if (nextClipboard != clipboard_path_) {

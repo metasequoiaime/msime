@@ -251,6 +251,7 @@ int main(int argc, char **argv) {
     const auto clipboardPath = std::filesystem::path(options.at("preferences_directory").get<std::string>()) /
                                "clipboard_history.json";
     std::ofstream(clipboardPath) << Json::array({"剪贴板合成测试", "第二条"}).dump();
+    options["clipboard_history_path"] = clipboardPath.string();
     options["preferences"]["cloud_candidates"] = !ai;
     options["preferences"]["ai_assistant"]["enabled"] = ai;
     options["preferences"]["ai_assistant"]["candidate_limit"] = 1;
