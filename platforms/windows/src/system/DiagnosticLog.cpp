@@ -56,12 +56,20 @@ void DiagnosticLog::append(std::string_view line) {
     record.append("\r\n");
     HANDLE file = CreateFileW(file_.c_str(), FILE_APPEND_DATA,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                              nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE)
       return;
+    const bool existed = GetLastError() == ERROR_ALREADY_EXISTS;
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!GetFileInformationByHandle(file, &info) ||
+        (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+      CloseHandle(file);
+      return;
+    }
     DWORD written = 0;
     // A byte-order mark on a new file, as the reference writes, so Notepad on older Windows reads it as UTF-8.
-    if (GetLastError() != ERROR_ALREADY_EXISTS)
+    if (!existed)
       WriteFile(file, "\xEF\xBB\xBF", 3, &written, nullptr);
     WriteFile(file, record.data(), static_cast<DWORD>(record.size()), &written, nullptr);
     CloseHandle(file);
