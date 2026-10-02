@@ -1,5 +1,6 @@
-import { Row, Switch } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import { PreeditStyleSelect } from "./preedit-style-select";
+import { SwitchRow } from "./switch-row";
 
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
 export type CandidatePreeditStyle = "pinyin" | "empty";
@@ -54,16 +55,13 @@ export function PreeditSettingsSection({
         </Row>
       )}
       {inlinePreedit !== undefined ? (
-        <Row
+        <SwitchRow
           title="行内预编辑"
           description="把正在拼写的编码也写进输入框，像系统键盘那样带下划线显示。默认关闭；个别 App 显示不完整时可以关掉。"
-        >
-          <Switch
-            disabled={inlinePreeditBusy}
-            checked={inlinePreedit}
-            onChange={(checked) => onInlinePreeditChange?.(checked)}
-          />
-        </Row>
+          disabled={inlinePreeditBusy}
+          checked={inlinePreedit}
+          onChange={(checked) => onInlinePreeditChange?.(checked)}
+        />
       ) : (
         <Row title="行内预编辑">
           <PreeditStyleSelect
