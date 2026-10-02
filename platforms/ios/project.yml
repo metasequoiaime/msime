@@ -102,6 +102,8 @@ targets:
         # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。
         INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # App 同时支持 iPad（xcodegen 对 iOS 应用默认 TARGETED_DEVICE_FAMILY 为 1,2）。支持 iPad 分屏多任务必须声明全部四个方向，否则 App Store Connect 上传校验以 409 Invalid bundle 拒收（2026-10-02 首次自动上传 TestFlight 时）。iPhone 仍用上面三个方向。
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。"
         # 语音服务选「系统语音识别」时由 Speech 框架识别录音，第一次使用前系统按这句话询问授权。
         INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。"

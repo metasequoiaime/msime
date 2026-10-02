@@ -103,6 +103,12 @@ mkdir -p "$keys_dir"
 chmod 700 "$keys_dir"
 trap 'rm -rf -- "$keys_dir"' EXIT
 install -m 600 "$MSIME_IOS_AUTH_KEY_PATH" "$keys_dir/AuthKey_$MSIME_IOS_AUTH_KEY_ID.p8"
+# altool 上传被 App Store Connect 校验拒收时仍以 0 退出（2026-10-02 一次 409 Invalid bundle 就被当成了上传成功），所以按它的输出判断。
+upload_log="$build_root/altool.log"
 API_PRIVATE_KEYS_DIR="$keys_dir" xcrun altool --upload-app --file "$ipa" --type ios \
-  --apiKey "$MSIME_IOS_AUTH_KEY_ID" --apiIssuer "$MSIME_IOS_AUTH_KEY_ISSUER_ID"
+  --apiKey "$MSIME_IOS_AUTH_KEY_ID" --apiIssuer "$MSIME_IOS_AUTH_KEY_ISSUER_ID" 2>&1 | tee "$upload_log"
+if ! grep -q 'UPLOAD SUCCEEDED' "$upload_log" || grep -q 'UPLOAD FAILED' "$upload_log"; then
+  echo "altool did not report a successful upload; see the output above" >&2
+  exit 1
+fi
 echo "Uploaded MSIMEApp $MSIME_IOS_VERSION ($MSIME_IOS_BUILD_NUMBER) to App Store Connect"
