@@ -5,13 +5,43 @@ use std::path::{Component, Path, PathBuf};
 pub(crate) fn is_system_path_alias(path: &Path) -> bool {
     #[cfg(target_os = "macos")]
     {
-        path == Path::new("/var") || path == Path::new("/tmp")
+        fs::read_link(path)
+            .ok()
+            .is_some_and(|target| trusted_system_alias_target(path, &target))
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = path;
         false
     }
+}
+
+/// macOS exposes `/tmp` and `/var` as symlinks into `/private`. Trust only the
+/// exact system targets; the path names alone are not an ownership guarantee.
+fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
+    let expected = match path {
+        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
+        path if path == Path::new("/var") => Path::new("/private/var"),
+        _ => return false,
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+    normalize_lexical(&parent.join(target)) == expected
+}
+
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if normalized.file_name().is_some() {
+                    normalized.pop();
+                }
+            }
+            _ => normalized.push(component),
+        }
+    }
+    normalized
 }
 
 /// Reject an existing symbolic link before a storage operation follows it.
@@ -144,5 +174,25 @@ mod tests {
             cfg!(target_os = "macos")
         );
         assert!(!is_system_path_alias(Path::new("/tmp/work")));
+    }
+
+    #[test]
+    fn macos_aliases_require_the_private_system_target() {
+        assert!(trusted_system_alias_target(
+            Path::new("/tmp"),
+            Path::new("private/tmp")
+        ));
+        assert!(trusted_system_alias_target(
+            Path::new("/var"),
+            Path::new("/private/var")
+        ));
+        assert!(!trusted_system_alias_target(
+            Path::new("/tmp"),
+            Path::new("/Users/synthetic/outside")
+        ));
+        assert!(!trusted_system_alias_target(
+            Path::new("/var"),
+            Path::new("private/tmp")
+        ));
     }
 }
