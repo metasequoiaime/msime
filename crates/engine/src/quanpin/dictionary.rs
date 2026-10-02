@@ -545,6 +545,11 @@ impl QuanpinDictionary {
         merge_alternative_segmentations(result, primary_full, alternative_full)
     }
 
+    fn append_query_rows(result: &mut Vec<WordItem>, rows: Vec<WordItem>) {
+        result.reserve(rows.len());
+        result.extend(rows);
+    }
+
     /// QD:560-730 without the Google sentence: prefix groups longest first, the lattice block, the typo sentence, sparse fallbacks.
     fn query_series(
         &mut self,
@@ -571,7 +576,7 @@ impl QuanpinDictionary {
                     rows.sort_by_key(|item| std::cmp::Reverse(item.weight));
                 }
             }
-            result.extend(rows);
+            Self::append_query_rows(&mut result, rows);
         }
 
         if segments.len() >= 2 && has_only_complete_pinyin_segments(segments) {
