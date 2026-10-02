@@ -8,8 +8,9 @@ export interface ActionButtonProps {
   ariaLabel?: string;
   ariaBusy?: boolean;
   ariaPressed?: boolean;
+  ariaChecked?: boolean;
   ariaExpanded?: boolean;
-  role?: "button" | "menuitem";
+  role?: "button" | "menuitem" | "switch";
 }
 
 /** Shared button for an action that may be asynchronous or unavailable. */
@@ -21,6 +22,7 @@ export function ActionButton({
   ariaLabel,
   ariaBusy,
   ariaPressed,
+  ariaChecked,
   ariaExpanded,
   role,
 }: ActionButtonProps) {
@@ -33,6 +35,7 @@ export function ActionButton({
       aria-label={ariaLabel}
       aria-busy={ariaBusy}
       aria-pressed={ariaPressed}
+      aria-checked={ariaChecked}
       aria-expanded={ariaExpanded}
       onClick={() => void action?.()}
     >

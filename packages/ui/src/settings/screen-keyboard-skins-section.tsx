@@ -27,28 +27,30 @@ export function ScreenKeyboardSkinsSection({
     <div className={settings.groupBlock} role="group" aria-label="我的皮肤">
       <div className={skin.skinGrid}>
         <article className={skin.skinCard(selected)}>
-          <button
-            type="button"
+          <ActionButton
+            action={onSelect}
             className={skin.skinCardButton}
             role="switch"
-            aria-label="屏幕键盘皮肤 我的皮肤"
-            aria-checked={selected}
-            onClick={onSelect}
-          >
-            <ScreenKeyboardPreview
-              theme={theme}
-              skin="custom"
-              customDesign={customDesign}
-              compact
-            />
-            <span className={skin.skinCardCopy}>
-              <strong>我的皮肤</strong>
-              <small>自由配色 · 自定义键帽</small>
-            </span>
-            <span className={skin.skinCardCheck} aria-hidden="true">
-              {selected ? "✓" : ""}
-            </span>
-          </button>
+            ariaLabel="屏幕键盘皮肤 我的皮肤"
+            ariaChecked={selected}
+            label={
+              <>
+                <ScreenKeyboardPreview
+                  theme={theme}
+                  skin="custom"
+                  customDesign={customDesign}
+                  compact
+                />
+                <span className={skin.skinCardCopy}>
+                  <strong>我的皮肤</strong>
+                  <small>自由配色 · 自定义键帽</small>
+                </span>
+                <span className={skin.skinCardCheck} aria-hidden="true">
+                  {selected ? "✓" : ""}
+                </span>
+              </>
+            }
+          />
         </article>
       </div>
       <ActionButton
