@@ -71,6 +71,18 @@ final class BackendDesktopSessionFileTests: XCTestCase {
     XCTAssertThrowsError(try BackendDesktopSessionFile(directory: directory).load())
   }
 
+  func testRefusesASymlinkedSessionDirectory() throws {
+    let outside = FileManager.default.temporaryDirectory
+      .appendingPathComponent("desktop-session-outside-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o700])
+    try FileManager.default.createSymbolicLink(at: directory, withDestinationURL: outside)
+    XCTAssertThrowsError(try BackendDesktopSessionFile(directory: directory).save(session("a")))
+    XCTAssertFalse(FileManager.default.fileExists(
+      atPath: outside.appendingPathComponent(BackendDesktopSessionFile.fileName).path))
+    try? FileManager.default.removeItem(at: outside)
+  }
+
   /// Without a storage the macOS account session is the shared file, refreshed under the lock beside it; a session given its own storage keeps a lock of its own.
   func testTheDefaultSessionSharesTheFileAndItsLock() async throws {
     let lock = BackendDesktopSessionFile.refreshLock

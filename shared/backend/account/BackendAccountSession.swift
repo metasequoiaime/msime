@@ -8,6 +8,34 @@ protocol BackendSessionAPI: Sendable {
 }
 extension BackendAccountClient: BackendSessionAPI {}
 
+// Check every existing directory component before an operation can create or
+// open a shared account file. `/var` and `/tmp` are system aliases on macOS;
+// other symlinks would let a user-data path escape its intended container.
+private func backendDirectoryPathIsSafe(_ url: URL) -> Bool {
+  guard url.isFileURL, url.path.hasPrefix("/") else { return false }
+  var current = URL(fileURLWithPath: "/")
+  var sawPrefixAlias = false
+  var sawRealComponent = false
+  for component in url.standardizedFileURL.pathComponents.dropFirst() {
+    current.appendPathComponent(component, isDirectory: true)
+    var info = stat()
+    if lstat(current.path, &info) != 0 {
+      if errno == ENOENT { continue }
+      return false
+    }
+    if (info.st_mode & S_IFMT) == S_IFLNK {
+      let systemAlias = !sawRealComponent && !sawPrefixAlias &&
+        (current.path == "/var" || current.path == "/tmp")
+      if !systemAlias { return false }
+      sawPrefixAlias = true
+    } else {
+      guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
+      sawRealComponent = true
+    }
+  }
+  return true
+}
+
 struct BackendSavedSession: Codable, Sendable {
   let tokens: BackendAccountClient.Tokens
   let expiresAt: Date
@@ -127,8 +155,14 @@ struct BackendDesktopSessionFile: BackendSessionStorage {
   func save(_ session: BackendSavedSession) throws {
     guard let directory, let url else { throw BackendAccountClient.Failure(status: 0) }
     let data = try JSONEncoder().encode(BackendSavedSession.validated(session))
+    guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
+    guard backendDirectoryPathIsSafe(directory) else { throw BackendAccountClient.Failure(status: 0) }
+    let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)
+    if let permissions = attributes[.posixPermissions] as? NSNumber, permissions.intValue & 0o077 != 0 {
+      try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    }
     // Created 0600 before any byte is written and published by rename, so the tokens are never readable by anyone else and no reader sees half a document.
     let temporary = directory.appendingPathComponent(".\(Self.fileName).\(UUID().uuidString)", isDirectory: false)
     let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
@@ -180,6 +214,9 @@ struct BackendFileRefreshLock: BackendRefreshLock {
   func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
     // No shared directory means no way to keep another process out, and refreshing anyway risks the revocation this lock exists to prevent.
     guard let url else { throw BackendAccountClient.Failure(status: 0) }
+    guard backendDirectoryPathIsSafe(url.deletingLastPathComponent()) else {
+      throw BackendAccountClient.Failure(status: 0)
+    }
     let descriptor = open(url.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
     guard descriptor >= 0 else { throw BackendAccountClient.Failure(status: 0) }
     defer { close(descriptor) }
