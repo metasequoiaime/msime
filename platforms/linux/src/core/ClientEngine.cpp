@@ -2189,6 +2189,7 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
     // Keep the original Engine identity for application, while each transport
     // request enables only one source. Fast cloud results need not wait for AI.
     std::vector<std::unique_ptr<OnlineTask>> requests;
+    requests.reserve(2);
     for (uint8_t source = 0; source < 2; ++source) {
       if (source != only_source) continue;
       // Each source has one in-flight request and its own duplicate guard. A pending AI result must not delay cloud for a newer composition.
