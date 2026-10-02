@@ -157,9 +157,14 @@ foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
         throw '缺少对应架构 TSF 的 msime_host_api.dll'
     }
 }
+# The self-contained Windows App SDK copies its own runtime executables beside the WinUI settings app, and Microsoft ships them without symbols; they are packaged, but no PDB is expected for them.
+$windowsAppSdkExecutables = @('RestartAgent')
 $serverExecutables = @(
     Get-ChildItem -LiteralPath $serverRelease -Recurse -File -Filter '*.exe' |
-        Where-Object { -not (Test-PackageTestArtifact -BaseName $_.BaseName) }
+        Where-Object {
+            -not (Test-PackageTestArtifact -BaseName $_.BaseName) -and
+                $windowsAppSdkExecutables -notcontains $_.BaseName
+        }
 )
 $missingServerPdb = @(
     $serverExecutables |
