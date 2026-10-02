@@ -581,7 +581,10 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
     // can be read and tested without a provider, a page or a session.
     std::vector<std::pair<std::string, std::string>> answered;
     try {
-      for (const auto &entry : nlohmann::json::parse(translations))
+      const auto parsed = nlohmann::json::parse(translations);
+      if (parsed.is_array())
+        answered.reserve(parsed.size());
+      for (const auto &entry : parsed)
         if (entry.is_object())
           answered.emplace_back(entry.value("text", std::string{}),
                                 entry.value("translation", std::string{}));
