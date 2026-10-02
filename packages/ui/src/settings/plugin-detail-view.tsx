@@ -524,16 +524,13 @@ export function MissingPluginView({
       <PluginViewHeader title={missingTitle(entry)} onBack={onBack} />
       <GroupList>
         <ActionBlock note={note}>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
+          <ActionButton
+            action={() => {
               onChange(dropped());
               onBack();
             }}
-          >
-            {action}
-          </button>
+            label={action}
+          />
         </ActionBlock>
       </GroupList>
     </>
