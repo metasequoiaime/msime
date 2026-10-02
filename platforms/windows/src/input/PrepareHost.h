@@ -30,9 +30,10 @@ inline bool write_new_file(const std::filesystem::path &path,
               (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
   std::size_t offset = 0;
   while (ok && offset < contents.size()) {
-    const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
+    // Parenthesized so windows.h's min/max macros cannot expand them; this header includes windows.h itself and some including targets do not define NOMINMAX.
+    const DWORD chunk = static_cast<DWORD>((std::min<std::size_t>)(
         contents.size() - offset,
-        static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+        static_cast<std::size_t>((std::numeric_limits<DWORD>::max)())));
     DWORD written = 0;
     ok = WriteFile(handle, contents.data() + offset, chunk, &written, nullptr) &&
          written == chunk;
