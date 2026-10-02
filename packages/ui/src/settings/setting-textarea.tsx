@@ -1,35 +1,60 @@
-import type { ReactNode } from "react";
+import type { ReactNode, TextareaHTMLAttributes } from "react";
 
-export interface SettingTextareaProps {
+export interface SettingTextareaControlProps extends Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "value" | "onChange" | "aria-label"
+> {
   label: ReactNode;
   description?: ReactNode;
   ariaLabel: string;
   value: string;
-  placeholder?: string;
   onChange: (value: string) => void;
+  /** Legacy feedback uses a div title because its surrounding section is already a form group. */
+  titleElement?: "label" | "div";
 }
 
-/** Shared stacked textarea field used by prompt and other multiline settings. */
-export function SettingTextarea({
+/** Shared labeled textarea control used by stacked and embedded legacy settings. */
+export function SettingTextareaControl({
   label,
   description,
   ariaLabel,
   value,
-  placeholder,
   onChange,
-}: SettingTextareaProps) {
+  titleElement = "label",
+  ...textareaProps
+}: SettingTextareaControlProps) {
+  const Title = titleElement;
   return (
-    <div className="section">
-      <label className="section-title">
+    <>
+      <Title className="section-title">
         {label}
         {description !== undefined && <small>{description}</small>}
-      </label>
+      </Title>
       <textarea
+        {...textareaProps}
         aria-label={ariaLabel}
-        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+    </>
+  );
+}
+
+export interface SettingTextareaProps extends SettingTextareaControlProps {
+  sectionClassName?: string;
+  children?: ReactNode;
+}
+
+/** Shared stacked textarea field used by prompt and other multiline settings. */
+export function SettingTextarea({
+  sectionClassName = "section",
+  children,
+  ...controlProps
+}: SettingTextareaProps) {
+  return (
+    <div className={sectionClassName}>
+      <SettingTextareaControl {...controlProps} />
+      {children}
     </div>
   );
 }
