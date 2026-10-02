@@ -200,11 +200,11 @@ interface EngineView {
   microsoft_shuangpin?: boolean;
   /** 'none' unless a local utility mode is consuming the keys. */
   local_mode: string;
-  /** The non-letter keys the Engine takes as input now: the active local mode's digits and operators, or with nothing composed `/` and `@` for the modes they open. Absent from a runtime older than those modes. */
-  spelling_symbols?: string;
+  /** The non-letter keys the Engine takes as input now: the active local mode's digits and operators, or with nothing composed `/` and `@` for the modes they open. */
+  spelling_symbols: string;
   dedicated_english: boolean;
-  /** The scheme's openable candidate list is showing: the Korean Hanja list, the Zhuyin list. Absent from a runtime older than the flag. */
-  candidate_list_open?: boolean;
+  /** The scheme's openable candidate list is showing: the Korean Hanja list, the Zhuyin list. */
+  candidate_list_open: boolean;
 }
 
 // The stored preferences, read and written whole. Only the fields the keyboard changes are named;
@@ -267,7 +267,6 @@ interface MobileClipboardAction {
 
 interface MobileClipboardRequest {
   directory: string;
-  legacy: string;
   action: MobileClipboardAction;
 }
 
@@ -432,7 +431,6 @@ interface PreparedAiAssistant {
   endpoint: string;
   candidate_limit: number;
   prompt_id: string;
-  prompt: string;
   prompt_custom_1: string;
   prompt_custom_2: string;
   prompt_custom_3: string;
@@ -687,8 +685,8 @@ interface PreparedPreferences {
   /** `app` remembers the mode per application; `global` shares one across all of them. */
   ime_mode_scope?: string;
   scheme: string;
-  /** Optional in the shared document; absent means the Wubi remaining-code hint stays on. */
-  wubi_code_hint?: boolean;
+  /** The Wubi remaining-code hint, always written by the shared store and on by default. */
+  wubi_code_hint: boolean;
   /** Whether the mode badge is drawn after a Chinese/English switch. Defaults to on. */
   input_mode_hud?: boolean;
   /** Read-only English word completions while typing directly in English. Defaults to on. */
@@ -1134,7 +1132,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   private replyRequest: http.HttpRequest | undefined = undefined;
   private aiAssistant: PreparedAiAssistant = {
     enabled: false, provider: 'deepseek', model: '', token: '', tokens: {}, endpoint: '',
-    candidate_limit: 3, prompt_id: 'custom_1', prompt: '', prompt_custom_1: '',
+    candidate_limit: 3, prompt_id: 'custom_1', prompt_custom_1: '',
     prompt_custom_2: '', prompt_custom_3: ''
   };
 
@@ -2094,7 +2092,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const view: EngineView | undefined = this.lastView;
     return view !== undefined && SchemeCompositionPolicy.listOpen(
       SchemeCompositionPolicy.rulesScheme(view.scheme, view.dedicated_english, view.local_mode),
-      view.candidate_list_open, view.candidates.length);
+      view.candidate_list_open);
   }
 
   /** Which mode-switch gestures the user left bound, as the shared document has them. */
@@ -4478,7 +4476,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     const directory: string = this.clipboardRoot();
     if (directory.length === 0) return null;
     const request: MobileClipboardRequest = {
-      directory: directory, legacy: 'harmony_state', action: action
+      directory: directory, action: action
     };
     try {
       const reply: MobileClipboardReply = JSON.parse(
@@ -4760,12 +4758,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const editorGeneration: number = this.editorGeneration;
     const contextGeneration: number = this.replyContextGeneration;
+    // The reply instructions ride in the first custom slot, which the shared request builder reads as the system prompt; the user's candidate prompts do not apply to replies.
     const config: PreparedAiAssistant = {
       enabled: this.aiAssistant.enabled, provider: this.aiAssistant.provider,
       model: this.aiAssistant.model, token: this.aiAssistant.token, tokens: this.aiAssistant.tokens,
-      endpoint: this.aiAssistant.endpoint, candidate_limit: 3, prompt_id: this.aiAssistant.prompt_id,
-      prompt: request.prompt, prompt_custom_1: this.aiAssistant.prompt_custom_1,
-      prompt_custom_2: this.aiAssistant.prompt_custom_2, prompt_custom_3: this.aiAssistant.prompt_custom_3
+      endpoint: this.aiAssistant.endpoint, candidate_limit: 3, prompt_id: 'custom_1',
+      prompt_custom_1: request.prompt, prompt_custom_2: '', prompt_custom_3: ''
     };
     const input: AiHttpRequestInput = {
       segmented_pinyin: ['reply'], context: request.source, candidate_limit: 3

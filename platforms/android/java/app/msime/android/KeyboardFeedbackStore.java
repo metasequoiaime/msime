@@ -1,7 +1,6 @@
 package app.msime.android;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -15,7 +14,6 @@ import org.json.JSONObject;
 
 /** Shared, bounded feedback settings for the app and the isolated IME process. */
 public final class KeyboardFeedbackStore {
-    private static final String PREFERENCES_NAME = "keyboard-feedback";
     private static final String FILE_NAME = "keyboard-feedback.json";
     private static final int MAX_BYTES = 4096;
 
@@ -42,7 +40,6 @@ public final class KeyboardFeedbackStore {
     private KeyboardFeedbackStore() {}
 
     public static Settings load(Context context) {
-        Settings legacy = loadLegacy(context);
         Path file = file(context);
         try {
             if (Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
@@ -51,29 +48,16 @@ public final class KeyboardFeedbackStore {
                     // Files.readString/writeString need API 34; this host starts at 28.
                     return decode(new String(KeyboardFeedbackFileReader.read(file), StandardCharsets.UTF_8));
                 }
-                return legacy;
             }
-            // Persist the old SharedPreferences value once so both processes converge on the
-            // same source of truth even when the app has never opened its settings page.
-            save(context, legacy);
         } catch (Exception ignored) {
-            // Keep the last usable in-memory value; a corrupt file is never replaced here.
+            // Fall back to the defaults; a corrupt file is never replaced here.
         }
-        return legacy;
+        return defaults();
     }
 
     public static void save(Context context, Settings settings) throws IOException {
         if (settings == null) throw new IllegalArgumentException("settings");
-        Path file = file(context);
-        saveFile(file, settings);
-        // Keep older APKs functional during an in-place upgrade. New code always reads the
-        // atomic file first, so a stale legacy copy cannot overwrite a newer setting.
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
-            .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, settings.soundEnabled())
-            .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, settings.hapticsEnabled())
-            .putString(KeyboardFeedbackPreferences.STRENGTH_KEY,
-                settings.hapticStrength().id())
-            .apply();
+        saveFile(file(context), settings);
     }
 
     static void saveFile(Path file, Settings settings) throws IOException {
@@ -144,14 +128,9 @@ public final class KeyboardFeedbackStore {
             .toString();
     }
 
-    private static Settings loadLegacy(Context context) {
-        SharedPreferences preferences = context.getSharedPreferences(PREFERENCES_NAME,
-            Context.MODE_PRIVATE);
-        return new Settings(
-            preferences.getBoolean(KeyboardFeedbackPreferences.SOUND_KEY, true),
-            preferences.getBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, false),
-            KeyboardFeedbackPreferences.strength(preferences.getString(
-                KeyboardFeedbackPreferences.STRENGTH_KEY, "medium")));
+    // Sound on, haptics off, medium strength: the same values decode() uses for absent fields.
+    private static Settings defaults() {
+        return new Settings(true, false, KeyboardFeedbackPreferences.HapticStrength.MEDIUM);
     }
 
     private static Path file(Context context) {

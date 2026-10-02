@@ -6,7 +6,7 @@
 #include "LocalAsrAudioQueue.h"
 #include "ReplyCodec.h"
 #include "SystemAudioMuter.h"
-#include "VoiceProviders.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include "VoiceSessionPolicy.h"
 #include "msime_client.h"
 
@@ -135,10 +135,12 @@ bool should_polish(const VoiceInputConfig &config, std::string_view text) {
 }
 
 std::string polish_prompt(const VoiceInputConfig &config) {
-  return polish_prompt_for({config.polish_prompt_id, config.polish_prompt,
-                            config.polish_prompt_custom_1,
-                            config.polish_prompt_custom_2,
-                            config.polish_prompt_custom_3});
+  PolishPromptSlots slots;
+  slots.id = config.polish_prompt_id;
+  slots.custom_1 = config.polish_prompt_custom_1;
+  slots.custom_2 = config.polish_prompt_custom_2;
+  slots.custom_3 = config.polish_prompt_custom_3;
+  return polish_prompt_for(slots);
 }
 
 void send_text_via_send_input(std::wstring_view text) {

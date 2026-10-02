@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -269,7 +270,7 @@ test("settings passes the Harmony 2-in-1 form factor into the account page", asy
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "harmony", mobile_settings: false } as never,
+        host: testHost({ platform: "harmony", mobile_settings: false }),
         account: client,
       }}
     />,
@@ -296,7 +297,7 @@ test("Harmony chat login focuses the tryout and cancel returns to it", async () 
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "harmony" } as never,
+        host: testHost({ platform: "harmony" }),
         home: {},
         chat: {
           models: vi.fn().mockRejectedValue({ code: "account_unauthorized" }),
@@ -705,7 +706,7 @@ test("mobile settings return to My after replaying and skipping onboarding", asy
   const client = {
     load: async () => preferences,
     save: vi.fn(),
-    host: { platform: "harmony" } as never,
+    host: testHost({ platform: "harmony" }),
     home: {},
     account: account(),
   };
@@ -1043,7 +1044,7 @@ test("iOS exposes My and alternate icons without a fake account client", async (
       client={{
         load: async () => preferences,
         save: vi.fn(),
-        host: { platform: "ios" } as never,
+        host: testHost({ platform: "ios" }),
         appIcon,
       }}
       initialPage="account"
@@ -1067,7 +1068,7 @@ test("macOS settings offer no setup guide to replay; the status notice covers th
         load: async () => preferences,
         save: vi.fn(),
         account: account(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
         inputSourceStartup: {
           status: vi.fn().mockResolvedValue(null),
           openSettings: vi.fn().mockResolvedValue(undefined),

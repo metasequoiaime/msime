@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -29,7 +30,7 @@ function renderSettings(platform: string, save = vi.fn().mockResolvedValue(undef
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform } as never,
+        host: testHost({ platform }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}
     />,
@@ -109,7 +110,7 @@ test("iOS reaches the helper-code settings when its keyboard marks helper codes"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "ios", helpcode_shift_entry: true } as never,
+        host: testHost({ platform: "ios", helpcode_shift_entry: true }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}
     />,
@@ -120,7 +121,7 @@ test("iOS reaches the helper-code settings when its keyboard marks helper codes"
   expect(screen.getByLabelText("在候选栏中显示全拼辅助码")).toBeTruthy();
 });
 
-// A host that predates the capability says nothing about the gesture, so the group stays hidden there.
+// A host that does not report the Shift helper-code gesture keeps the group hidden.
 test("an iOS host without the capability keeps the helper-code settings hidden", async () => {
   renderSettings("ios");
 
@@ -177,7 +178,7 @@ test("the Shift explanation follows the capability, not the platform name", asyn
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "harmony", helpcode_shift_entry: true } as never,
+        host: testHost({ platform: "harmony", helpcode_shift_entry: true }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}
     />,
@@ -192,7 +193,7 @@ test("a host that appends helper codes is not told to hold Shift", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows", helpcode_shift_entry: false } as never,
+        host: testHost({ platform: "windows", helpcode_shift_entry: false }),
       }}
     />,
   );

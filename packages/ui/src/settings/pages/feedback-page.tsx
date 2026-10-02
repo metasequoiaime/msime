@@ -54,7 +54,6 @@ export function FeedbackSettingsPage() {
           <div className={settings.rowStack} role="group" aria-label="问题报告">
             <p className={settings.groupNote}>报告只在你点击按钮时生成，不会读取或上传输入历史。</p>
             <FeedbackReportFields
-              grouped
               kind={feedbackKind}
               detail={feedbackDetail}
               onKindChange={setFeedbackKind}

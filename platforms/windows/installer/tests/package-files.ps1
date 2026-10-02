@@ -19,8 +19,6 @@ try {
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
         'server/build-release/bin/Release/MetasequoiaImeWatchdog.exe',
         'server/build-release/bin/Release/MetasequoiaImeWatchdog.pdb',
-        'server/build-release/bin/Release/MetasequoiaImeDictionaryReplay.exe',
-        'server/build-release/bin/Release/MetasequoiaImeDictionaryReplay.pdb',
         'server/build-release/bin/Release/msime-mcp.exe',
         'server/build-release/bin/Release/msime-mcp.pdb',
         'server/build-release/bin/Release/MetasequoiaImeServerTests.exe',
@@ -77,10 +75,6 @@ try {
     foreach ($artifact in $artifacts) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
-        $legacyName = if ($artifact.name -eq 'mozc_dictionary_oss_README.txt') { 'MOZC_DICTIONARY_LICENSE.txt' } else { $artifact.name }
-        if ((Get-FileHash (Join-Path $installer "app_data/$legacyName")).Hash -ne $artifact.sha256) {
-            throw 'Legacy and shared resource layouts differ'
-        }
     }
     if (Test-Path (Join-Path $installer 'server_exe/resources/unlisted-private-file.txt')) {
         throw 'Packaged an unlisted resource'
@@ -100,14 +94,11 @@ try {
         }
     }
     [IO.File]::WriteAllText($pinned, $originalPinned)
-    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Full package contains legacy HTML' }
-    foreach ($file in @('app_data/dictionary-manifest.json',
-                         'tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
+    foreach ($file in @('tsf_dll/32/MetasequoiaImeTsf.dll', 'tsf_dll/32/MetasequoiaImeTsf.pdb',
                          'tsf_dll/64/MetasequoiaImeTsf.dll', 'tsf_dll/64/MetasequoiaImeTsf.pdb',
                          'server_exe/MetasequoiaImeServer.pdb',
                          'server_exe/MetasequoiaImeWatchdog.exe',
                          'server_exe/MetasequoiaImeWatchdog.pdb',
-                         'server_exe/MetasequoiaImeDictionaryReplay.pdb',
                          'server_exe/msime-mcp.exe',
                          'server_exe/msime-mcp.pdb',
                          'server_exe/msime-client-settings.exe',
@@ -152,7 +143,7 @@ try {
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'PDB' }
     if (-not $rejected) { throw 'Missing production PDB was accepted' }
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
-    $database = Join-Path $installer 'app_data/msime.db'
+    $database = Join-Path $installer 'app_data/previous-staging.txt'
     [IO.File]::WriteAllText($database, 'preserved user data')
     foreach ($arch in @('32', '64')) {
         $expected = if ($arch -eq '32') { 'synthetic x86 host' } else { 'synthetic x64 host' }
@@ -189,9 +180,7 @@ try {
     if (-not $rejected) { throw 'Missing WinUI settings shell was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing shell damaged previous staging' }
     [IO.File]::WriteAllText($nativeDesktop, 'fixture')
-    Write-Fixture 'installer/app_data/html/webview2/stale.html' 'synthetic obsolete staging'
-    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -UiHtmlDirectory ui-html -NoticesDirectory . -Light
-    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Light package retained legacy HTML staging' }
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TsfDirectory windows -ServerDirectory server -NoticesDirectory . -Light
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Light package replaced dictionary data' }
     if (-not (Test-Path (Join-Path $installer 'server_exe/msime-client-settings.exe'))) { throw 'Light package lost WinUI settings shell' }
     foreach ($arch in @('32', '64')) {
@@ -248,13 +237,6 @@ try {
     if (-not $rejected) { throw 'Missing handwriting license was accepted' }
     if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing license damaged previous staging' }
     [IO.File]::WriteAllText($notice, 'fixture')
-    $pinyin = Join-Path $installer 'assets/tables/pinyin.txt'
-    [IO.File]::WriteAllText($pinyin, 'invalid-fixture')
-    $rejected = $false
-    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'xing' }
-    if (-not $rejected) { throw 'Incomplete pinyin table was accepted' }
-    if (-not (Test-Path $database) -or [IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Invalid pinyin table damaged previous staging' }
-    [IO.File]::WriteAllText($pinyin, 'xing')
     $factory = Join-Path $installer 'config.default.toml'
     $originalFactory = [IO.File]::ReadAllText($factory)
     foreach ($invalid in @(
@@ -300,7 +282,6 @@ try {
     if ([IO.File]::ReadAllText((Join-Path $installer 'THIRD_PARTY_NOTICES.txt')) -ne 'fixture') {
         throw 'Explicit notice directory override ignored'
     }
-    if (Test-Path (Join-Path $installer 'app_data/html')) { throw 'Legacy HTML reappeared in staging' }
     # The on-device speech runtime rides beside the Server: all three libraries, or none.
     $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
     $serverOutput = 'server/build-release/bin/Release'

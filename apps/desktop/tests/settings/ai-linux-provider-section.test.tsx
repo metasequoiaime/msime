@@ -8,14 +8,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("explains Linux provider credentials and renders its test controls", () => {
-  render(
-    <AiLinuxProviderSection>
-      <button type="button">测试 AI 辅助配置</button>
-    </AiLinuxProviderSection>,
-  );
+test("explains where Linux keeps the AI provider credentials", () => {
+  render(<AiLinuxProviderSection />);
 
-  expect(screen.getByText("Linux AI provider")).toBeTruthy();
   expect(screen.getByText(/ai-provider\.json/)).toBeTruthy();
-  expect(screen.getByRole("button", { name: "测试 AI 辅助配置" })).toBeTruthy();
+  expect(screen.getByText(/凭据不保存在共享设置中/)).toBeTruthy();
 });

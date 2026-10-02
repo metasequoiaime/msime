@@ -12,26 +12,22 @@ export interface VoicePolishSectionProps {
   model: string;
   providerPreset?: ReactNode;
   children?: ReactNode;
-  /** 润色关闭时只留开关，服务、凭据、方案与提示词都收起；打开后原样展开，已填的值不受影响。语音页用它，旧面板不传，始终展开。 */
-  collapsible?: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
 }
 
-/** Shared voice text-polish provider controls and extension slot for credentials and prompts. */
+/** Shared voice text-polish provider controls and extension slot for credentials and prompts. While polishing is off only the switch shows; turning it on expands the service, credentials, presets and prompts with their values intact. */
 export function VoicePolishSection({
   enabled,
   provider,
   model,
   providerPreset,
   children,
-  collapsible = false,
   onEnabledChange,
   onProviderChange,
   onModelChange,
 }: VoicePolishSectionProps) {
-  const expanded = !collapsible || enabled;
   return (
     <GroupList title="文本润色">
       <p className={settings.groupNote}>识别结果可交给用户管理的服务润色</p>
@@ -41,7 +37,7 @@ export function VoicePolishSection({
         checked={enabled}
         onChange={onEnabledChange}
       />
-      {expanded && (
+      {enabled && (
         <>
           <Row title="服务提供商">
             <VoiceProviderSelect

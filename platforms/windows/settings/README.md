@@ -12,7 +12,7 @@
 
 原生页面不绘制的部分（候选字体选择、皮肤与自定义主题编辑、词库管理、背单词、AI 服务商配置与对话、语音识别服务、屏幕键盘与手写的详细设置、帮助、反馈表单、检查更新）以按钮的形式跳到共享应用的对应路由，路由 id 与托盘和其他启动方使用的相同。
 
-`--route=settings:<id>` 或 `MSIME_CLIENT_SETTINGS_PAGE` 指定打开的页面，可以是共享路由的设置分类 id（`appearance`、`dictionary`、`about` 等，映射见 `route_aliases`），也可以是本窗口的页面 id；其他值打开默认的「输入」页。
+`--route=settings:<id>` 指定打开的页面，可以是共享路由的设置分类 id（`appearance`、`dictionary`、`about` 等，映射见 `route_aliases`），也可以是本窗口的页面 id；其他值打开默认的「输入」页。
 
 ## 外观与主题预览
 

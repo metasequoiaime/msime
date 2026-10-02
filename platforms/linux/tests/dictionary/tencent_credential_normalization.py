@@ -56,7 +56,7 @@ class TencentCredentials(unittest.TestCase):
     def test_reload_reuses_cache_after_whitespace_only_change(self):
         server = SimpleNamespace(tencent_config_path=self.path, translation_cache={},
                                  translation_lock=threading.Lock())
-        query = {"candidates": ["测试"], "target_language": "en"}
+        query = {"candidates": ["测试"], "target_language": "en", "provider": "tencent"}
         self.save(self.clean)
         with mock.patch.object(provider, "fetch", return_value={"Response": {"TargetTextList": ["synthetic"]}}) as fetch:
             first = provider.translations(query, server)

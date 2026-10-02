@@ -1371,11 +1371,6 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
         Global::IsVSCodeLike = true;
     }
     */
-    // Set up IPC(named pipe)
-    // InitIpc();
-    // TODO: 去掉共享内存，只保留命名管道
-    // InitNamedpipe();
-
     Global::current_process_name = GetCurrentProcessName();
 
     if (!_InitThreadMgrEventSink())
@@ -1790,7 +1785,6 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PagingCommaPeriodChanged)
         {
             // Accepted forms: "0", "1", "0|raw", "1|pinyin", "0|empty".
-            // Legacy clients only inspected data[0]; keep that contract.
             bool hasTerminator = false;
             for (const wchar_t ch : buf.data)
             {
@@ -1807,7 +1801,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             }
             else if (buf.data[1] == L'\0')
             {
-                // Legacy "0"/"1" payload.
+                // Paging flag without a preedit style.
             }
             else if (buf.data[1] == L'|')
             {
@@ -1854,7 +1848,6 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 }
             }
             const bool validLock = buf.data[0] == L'0' || buf.data[0] == L'1' || buf.data[0] == L'2';
-            const bool legacyPayload = buf.data[1] == L'\0';
             const bool directPolicyPayload = buf.data[1] == L'|' && buf.data[2] == L's' &&
                                              (buf.data[3] == L'0' || buf.data[3] == L'1') &&
                                              buf.data[4] == L'd' &&
@@ -1862,7 +1855,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                                              buf.data[6] == L'l' &&
                                              (buf.data[7] == L'0' || buf.data[7] == L'1') &&
                                              buf.data[8] == L'\0';
-            validFrame = hasTerminator && validLock && (legacyPayload || directPolicyPayload);
+            validFrame = hasTerminator && validLock && directPolicyPayload;
         }
         if (validFrame && (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::UpdateVoiceComposition ||
                            buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitVoiceComposition))
@@ -1892,10 +1885,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             {
                 focusToken = _wcstoui64(buf.data, &end, 10);
             }
-            // Token 0 is a syntactically valid legacy/dummy activation marker,
-            // but it can never satisfy the nonzero focus barrier below. Treat
-            // it as a harmless stale frame instead of tearing down the healthy
-            // worker pipe.
+            // Token 0 parses but can never satisfy the nonzero focus barrier below. Treat it as a harmless stale frame instead of tearing down the healthy worker pipe.
             validFrame = hasTerminator && buf.data[0] != L'\0' && end && *end == L'\0';
         }
 
@@ -2047,23 +2037,10 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 lock = Global::PunctuationLock::AlwaysEnglish;
             }
             Global::PunctuationLockMode.store(lock, std::memory_order_relaxed);
-            if (buf.data[1] == L'|' && buf.data[2] == L's' && buf.data[4] == L'd' && buf.data[6] == L'l')
-            {
-                Global::SmartPunctuationSpaceConvertEnabled.store(buf.data[3] == L'1',
-                                                                  std::memory_order_relaxed);
-                Global::SmartPunctuationDirectDigitEnabled.store(buf.data[5] == L'1',
-                                                                  std::memory_order_relaxed);
-                Global::SmartPunctuationDirectLetterEnabled.store(buf.data[7] == L'1',
-                                                                   std::memory_order_relaxed);
-            }
-            else
-            {
-                // A legacy Server has no split policy; fail closed rather
-                // than retaining values from a previous extended frame.
-                Global::SmartPunctuationSpaceConvertEnabled.store(false, std::memory_order_relaxed);
-                Global::SmartPunctuationDirectDigitEnabled.store(false, std::memory_order_relaxed);
-                Global::SmartPunctuationDirectLetterEnabled.store(false, std::memory_order_relaxed);
-            }
+            // The frame was validated above as "<lock>|s<0|1>d<0|1>l<0|1>".
+            Global::SmartPunctuationSpaceConvertEnabled.store(buf.data[3] == L'1', std::memory_order_relaxed);
+            Global::SmartPunctuationDirectDigitEnabled.store(buf.data[5] == L'1', std::memory_order_relaxed);
+            Global::SmartPunctuationDirectLetterEnabled.store(buf.data[7] == L'1', std::memory_order_relaxed);
             const HWND ownerWindow = pIME->_msgWndHandle;
             if (ownerWindow && IsWindow(ownerWindow))
             {
@@ -2559,11 +2536,6 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             pIME->_RefreshLanguageBarThemeIcons();
             break;
         }
-        break;
-    }
-    case WM_IMEActivation: {
-        // Retained only for message-number compatibility.  Main-pipe lifecycle
-        // messages no longer control floating-toolbar visibility.
         break;
     }
     case WM_ThreadFocus: {

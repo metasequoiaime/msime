@@ -26,8 +26,7 @@ function wideSnapshot(): boolean {
 /** The `data-platform` value for the settings root, following the viewport so an iPad split view that narrows to phone width takes the phone look. */
 export function useSettingsPlatform(
   host: { platform: string; mobile_settings?: boolean } | undefined,
-  linuxUserAgent: boolean,
 ): SettingsPlatform {
   const wide = useSyncExternalStore(subscribeWide, wideSnapshot, () => false);
-  return settingsPlatformOf(host, { wide, linuxUserAgent });
+  return settingsPlatformOf(host, { wide });
 }

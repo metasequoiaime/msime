@@ -17,8 +17,6 @@ pub enum CandidateSource {
     Kaomoji = 7,
     Generated = 8,
     Fallback = 9,
-    /// A lattice path the desktop (accuracy) sentence model picked. The engine no longer emits it (that model runs only as the runtime's settled reranker); the value stays reserved so the wire numbering and learned rows keep their meaning.
-    NeuralDesktop = 10,
     /// A lattice path the keyboard (speed) sentence model picked.
     NeuralKeyboard = 11,
 }
@@ -36,7 +34,6 @@ impl CandidateSource {
             7 => Self::Kaomoji,
             8 => Self::Generated,
             9 => Self::Fallback,
-            10 => Self::NeuralDesktop,
             11 => Self::NeuralKeyboard,
             _ => return None,
         })
@@ -52,9 +49,7 @@ impl CandidateSource {
 
     /// Rows a direct selection stores as a user phrase, because there is no dictionary row whose frequency could be adjusted instead.
     pub fn is_sentence_learning(self) -> bool {
-        self.is_generated_or_fallback()
-            || self.is_online()
-            || matches!(self, Self::NeuralDesktop | Self::NeuralKeyboard)
+        self.is_generated_or_fallback() || self.is_online() || matches!(self, Self::NeuralKeyboard)
     }
 
     pub fn is_dictionary(self) -> bool {

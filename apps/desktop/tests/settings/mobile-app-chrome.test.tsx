@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -35,7 +36,7 @@ function renderSettings(
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockResolvedValue(undefined),
-        host: { platform, ...host } as never,
+        host: testHost({ platform, ...host }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
         // Both window commands are present here because one Tauri binary serves every platform: the
         // app exposes them on a phone too, which is exactly how the titlebar reached Android.
@@ -491,7 +492,7 @@ test("a route naming an Object.prototype member pushes no uncloneable history st
   const client = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn().mockResolvedValue(undefined),
-    host: { platform: "android" } as never,
+    host: testHost({ platform: "android" }),
     home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
   };
   const view = render(<SettingsPage client={client} />);

@@ -517,7 +517,7 @@ fn doubao_auth_mode(entry: &Map<String, Value>) -> &'static str {
     {
         Some("api_key") => "api_key",
         Some("legacy") => "legacy",
-        _ if !entry_text(entry, "app_key").is_empty() => "legacy",
+        // An absent or empty mode is the single API key, whatever else the entry carries.
         _ => "api_key",
     }
 }
@@ -1417,6 +1417,13 @@ mod tests {
             Some("volc.bigasr.sauc.duration")
         );
         assert_eq!(status.voice_asr[0].auth_mode.as_deref(), Some("legacy"));
+        let mut stored = document.clone();
+        stored["asr"]["doubao_auth_mode"] = Value::String(String::new());
+        write_private(&root.join(VOICE_FILE), Some(&stored)).unwrap();
+        assert_eq!(
+            status_in(root).unwrap().voice_asr[0].auth_mode.as_deref(),
+            Some("api_key")
+        );
 
         // Switching to the single API key drops the stored App Key.
         let mut api_key = voice(VoiceKind::Asr, "doubao", "", None);

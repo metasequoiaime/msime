@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -41,10 +42,12 @@ function radio(name: string): HTMLInputElement {
 }
 
 test("a Windows capability shows 粤拼, 注音 and 越南文 disabled", async () => {
-  await openInputPage({
-    platform: "windows",
-    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
-  } as HostCapabilities);
+  await openInputPage(
+    testHost({
+      platform: "windows",
+      input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
+    }),
+  );
 
   expect(radio("粤拼").disabled).toBe(true);
   expect(radio("注音").disabled).toBe(true);
@@ -54,19 +57,21 @@ test("a Windows capability shows 粤拼, 注音 and 越南文 disabled", async (
 });
 
 test("a macOS capability offers every scheme", async () => {
-  await openInputPage({
-    platform: "macos",
-    input_schemes: [
-      "quanpin",
-      "shuangpin",
-      "wubi",
-      "japanese",
-      "korean",
-      "cantonese",
-      "zhuyin",
-      "vietnamese",
-    ],
-  } as HostCapabilities);
+  await openInputPage(
+    testHost({
+      platform: "macos",
+      input_schemes: [
+        "quanpin",
+        "shuangpin",
+        "wubi",
+        "japanese",
+        "korean",
+        "cantonese",
+        "zhuyin",
+        "vietnamese",
+      ],
+    }),
+  );
 
   expect(radio("粤拼").disabled).toBe(false);
   expect(radio("注音").disabled).toBe(false);
@@ -78,7 +83,7 @@ test("a macOS capability offers every scheme", async () => {
 });
 
 test("a Cantonese document on a host without Cantonese names the fallback", async () => {
-  await openInputPage({ platform: "linux" } as HostCapabilities, {
+  await openInputPage(testHost({ platform: "linux" }), {
     scheme: "cantonese",
     last_chinese_scheme: "cantonese",
   });

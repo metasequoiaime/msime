@@ -21,7 +21,7 @@ import {
 import { VoiceAsrServiceTestSection } from "./voice-asr-service-test-section";
 import { VoiceHotkeysSection } from "./voice-hotkeys-section";
 import { VoicePolishSettingsSection } from "./voice-polish-settings-section";
-import { DoubaoOptionsRows, DoubaoOptionsSection } from "./doubao-options-section";
+import { DoubaoOptionsRows } from "./doubao-options-section";
 import { VoiceRecordingBehaviorSettingsSection } from "./voice-recording-behavior-settings-section";
 import { VoiceCredentialControl } from "./voice-credential-control";
 import {
@@ -35,7 +35,6 @@ import type { useProviderCredentials } from "./use-provider-credentials";
 import { GroupList } from "../core/platform-controls";
 
 export interface VoiceSettingsContentProps {
-  grouped?: boolean;
   disabled: boolean;
   hidden: boolean;
   client: SettingsClient;
@@ -82,9 +81,8 @@ export interface VoiceSettingsContentProps {
   windowsPlatform: boolean;
   mobilePlatform: boolean;
   nativeVoicePlatform: boolean;
-  desktopPanels: boolean;
-  showVoiceHotkeys?: boolean;
-  showCredentialTests?: boolean;
+  showVoiceHotkeys: boolean;
+  showCredentialTests: boolean;
   showVoiceProviderSettings: boolean;
   showVoiceStreamPreedit: boolean;
   showVoiceCommitMode: boolean;
@@ -94,7 +92,6 @@ export interface VoiceSettingsContentProps {
 
 /** Complete shared voice settings page; host state and effects stay with SettingsPage. */
 export function VoiceSettingsContent({
-  grouped = false,
   disabled,
   hidden,
   client,
@@ -128,16 +125,14 @@ export function VoiceSettingsContent({
   windowsPlatform,
   mobilePlatform,
   nativeVoicePlatform,
-  desktopPanels,
   showVoiceHotkeys,
-  showCredentialTests = true,
+  showCredentialTests,
   showVoiceProviderSettings,
   showVoiceStreamPreedit,
   showVoiceCommitMode,
   showVoiceCaptureDevices,
   captureBackendOptions,
 }: VoiceSettingsContentProps) {
-  const hotkeysVisible = showVoiceHotkeys ?? desktopPanels;
   const polishEnabled = isVoicePolishEnabled(voiceInput);
   const asrProviderSettings = (
     <VoiceAsrProviderSettingsSection
@@ -147,7 +142,7 @@ export function VoiceSettingsContent({
       linux={linuxPlatform}
       doubaoAuthMode={doubaoAuthMode}
       providerPresetControls={providerPresetControls}
-      providerPresetClassName={grouped ? settings.managerBlock : undefined}
+      providerPresetClassName={settings.managerBlock}
       updateVoice={updateVoice}
     />
   );
@@ -199,7 +194,6 @@ export function VoiceSettingsContent({
   );
   const localModelSettings = (
     <VoiceLocalModelSettingsSection
-      grouped={grouped}
       client={client}
       localVoice={localVoice}
       mobile={mobilePlatform}
@@ -212,7 +206,6 @@ export function VoiceSettingsContent({
   );
   const credentialControl = (kind: VoiceCredentialKind) => (
     <VoiceCredentialControl
-      grouped={grouped}
       available={Boolean(client.providerCredentials)}
       kind={kind}
       voiceInput={voiceInput}
@@ -240,7 +233,7 @@ export function VoiceSettingsContent({
       updateVoice({ doubao_boosting_table_id }),
   };
   const doubaoOptionsVisible = showVoiceProviderSettings && voiceInput.asr_provider === "doubao";
-  const hotkeys = hotkeysVisible && (
+  const hotkeys = showVoiceHotkeys && (
     <VoiceHotkeysSection
       platform={
         macosPlatform
@@ -249,7 +242,7 @@ export function VoiceSettingsContent({
             ? "windows"
             : linuxPlatform
               ? "linux"
-              : harmonyPlatform && grouped
+              : harmonyPlatform
                 ? "harmony"
                 : "other"
       }
@@ -268,7 +261,6 @@ export function VoiceSettingsContent({
         updateVoice({ stream_inline_preedit })
       }
       onCommitModeChange={(commit_mode) => updateVoice({ commit_mode })}
-      grouped={grouped}
     />
   );
   const captureDevices = showVoiceCaptureDevices && (
@@ -299,7 +291,7 @@ export function VoiceSettingsContent({
     asrCredentialVisible ||
     Boolean(asrCredentialTest);
   // 设置窗口的语音页：先选服务并把它配好（识别服务配置的末尾是检查按钮），再是快捷键、录音时的行为和识别结果怎么用，润色是可选的另一项服务，录音设备很少要改，放在最后。
-  const groupedContent = (
+  const content = (
     <>
       {basics}
       {providerConfigVisible && (
@@ -310,7 +302,6 @@ export function VoiceSettingsContent({
           {localModelSettings}
           {asrCredentialTest && <div className={settings.groupBlock}>{asrCredentialTest}</div>}
           <VoiceAsrServiceTestSection
-            grouped
             available={windowsPlatform || macosPlatform || harmonyPlatform}
             voiceInput={voiceInput}
             doubaoAuthMode={doubaoAuthMode}
@@ -323,7 +314,6 @@ export function VoiceSettingsContent({
       {recognitionResult}
       {showVoiceProviderSettings && (
         <VoicePolishSettingsSection
-          collapsible
           voiceInput={voiceInput}
           linux={linuxPlatform}
           providerPresetControls={providerPresetControls}
@@ -337,44 +327,9 @@ export function VoiceSettingsContent({
       {captureDevices}
     </>
   );
-  // 旧的嵌入式语音面板（`VoiceSettingsPanel`）保持原来的顺序和卡片样式。
-  const legacyContent = (
-    <>
-      {basics}
-      {localModelSettings}
-      {asrProviderSettings}
-      {asrCredentialVisible && credentialControl("asr")}
-      {asrCredentialTest}
-      {/* Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the shared one, and Windows and macOS have had it since it was added. Gating it on HarmonyOS alone silently dropped the button on the two hosts whose tests cover it. */}
-      <VoiceAsrServiceTestSection
-        available={windowsPlatform || macosPlatform || harmonyPlatform}
-        voiceInput={voiceInput}
-        doubaoAuthMode={doubaoAuthMode}
-        credentialTestControl={credentialTestControl}
-      />
-      {recognitionResult}
-      {captureDevices}
-      {recordingBehavior}
-      {doubaoOptionsVisible && <DoubaoOptionsSection {...doubaoOptionsProps} />}
-      {showVoiceProviderSettings && (
-        <VoicePolishSettingsSection
-          voiceInput={voiceInput}
-          linux={linuxPlatform}
-          providerPresetControls={providerPresetControls}
-          updateVoice={updateVoice}
-        >
-          {polishProviderCredentialTest}
-          {polishServiceCredentialTest}
-        </VoicePolishSettingsSection>
-      )}
-      {showVoiceProviderSettings && linuxPlatform && credentialControl("polish")}
-      {hotkeys}
-    </>
-  );
-
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="语音输入">
-      {grouped ? <div className={settings.groups}>{groupedContent}</div> : legacyContent}
+      <div className={settings.groups}>{content}</div>
     </fieldset>
   );
 }

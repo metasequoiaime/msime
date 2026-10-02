@@ -55,8 +55,6 @@ export interface VoiceCredentialSectionProps {
   onChange: (patch: Partial<VoiceCredentialInput>) => void;
   onSave: (credential: VoiceCredentialSaveInput) => void;
   onClear: () => void;
-  /** 放进语音页的配置组时为真：去掉自带的卡片外框，画成组内的一块。 */
-  grouped?: boolean;
 }
 
 /** Owner-only credentials for the Linux voice provider's recognition or polishing service. */
@@ -73,7 +71,6 @@ export function VoiceCredentialSection({
   onChange,
   onSave,
   onClear,
-  grouped = false,
 }: VoiceCredentialSectionProps) {
   const doubao = kind === "asr" && provider === "doubao";
   const legacy = doubao && authMode === "legacy";
@@ -92,11 +89,7 @@ export function VoiceCredentialSection({
   const streamEndpoint = endpoint.trim() || findDoubaoStreamEndpoint("async")?.endpoint || "";
 
   return (
-    <div
-      className={grouped ? settings.managerBlock : "section"}
-      role="group"
-      aria-label={`语音${name}凭据`}
-    >
+    <div className={settings.managerBlock} role="group" aria-label={`语音${name}凭据`}>
       <div className="section-title">
         {name}凭据
         <small>

@@ -12,7 +12,6 @@
 #include "../../../../shared/contracts/windows_ipc.h"
 #include "../../common/InputSchemeTraits.h"
 
-int InitIpc();
 int InitNamedpipe();
 int ConnectToAllNamedpipe();
 int ConnectToTsfNamedpipe();
@@ -40,18 +39,6 @@ bool SupportsKeyboardCompositionCancel(_In_ const void *owner);
 bool FlushNamedpipeFocusSessionReset();
 bool FlushNamedpipeImeDeactivation(uint64_t focusToken = 0);
 
-//
-// For shared memory
-//
-int WriteDataToSharedMemory(           //
-    UINT keycode,                      // VkCode
-    WCHAR wch,                         // Unicode character converted from vkcode
-    UINT modifiers_down,               //
-    const int point[2],                //
-    int pinyin_length,                 //
-    const std::wstring &pinyin_string, //
-    UINT write_flag                    //
-);
 KeyEventSendResult SendKeyEventToUIProcess(_Out_opt_ uint64_t *requestId = nullptr);
 void DebugTsfKeyLatency(_In_z_ const wchar_t *stage, uint64_t requestId, double elapsedMs, HRESULT result);
 void DebugTsfIssue47(_In_z_ const wchar_t *stage, uint64_t requestId, UINT code, WCHAR wch, UINT category,
@@ -94,11 +81,7 @@ int SendHideCandidateWndEventToUIProcessViaNamedPipe();
 int SendShowCandidateWndEventToUIProcessViaNamedPipe();
 int SendMoveCandidateWndEventToUIProcessViaNamedPipe();
 int SendLangbarRightClickEventToUIProcessViaNamedPipe(const RECT *prcArea);
-void ClearNamedpipeDataIfExists(bool force = false);
-// Best-effort read of the Server-published current candidate page (comma-
-// separated). Used in UILess mode so ITfCandidateListUIElement::GetString can
-// return real candidates after PrepareCandidateList has written shared memory.
-bool TryReadCandidatePageFromSharedMemory(_Out_ std::wstring *candidatePage);
+void ClearNamedpipeDataIfExists();
 struct FanyImeNamedpipeDataToTsf *TryReadDataFromServerPipeWithTimeout(uint64_t expectedRequestId);
 // When abortTransportOnTimeout is false, a missed reply leaves the pipe up and
 // returns a non-TransportUnavailable empty frame for the caller to fall back.

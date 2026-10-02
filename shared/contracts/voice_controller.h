@@ -8,7 +8,6 @@
 // v1 remains unchanged. All integers are little endian, payload is UTF-8.
 namespace FanyImeVoiceController
 {
-inline constexpr wchar_t PipeName[] = L"\\\\.\\pipe\\FanyImeVoiceControllerV2";
 inline constexpr uint32_t Magic = 0x3243564d; // bytes "MVC2"
 inline constexpr uint32_t Version = 2;
 inline constexpr uint32_t MaxLanguageBytes = 64;

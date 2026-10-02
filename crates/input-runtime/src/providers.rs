@@ -337,7 +337,7 @@ impl UnixSocketProvider {
             return None;
         }
         // Translation switched off: no candidate text leaves the host, not even to the local provider.
-        if query.provider == Some(TranslationService::Off) {
+        if query.provider == TranslationService::Off {
             return Some(Vec::new());
         }
         let mut stream = self.connect()?;
@@ -622,10 +622,7 @@ impl UnixSocketProvider {
         .filter(|text| !text.is_empty())
     }
 
-    /// Run a newline-delimited voice provider stream. Provider updates use
-    /// `{text, type:"partial"}` (or `interim`) and the terminal update uses
-    /// `{text, type:"final"}`. A legacy single `{text}` response is treated
-    /// as final. Only bounded UTF-8 text crosses the host boundary.
+    /// Run a newline-delimited voice provider stream. Every event carries the request `generation`. Provider updates use `{text, type:"partial"}` (or `interim`) and the terminal update uses `{text, type:"final"}`. Only bounded UTF-8 text crosses the host boundary.
     #[cfg(unix)]
     pub fn voice_stream_with_options_cancelled(
         &self,
@@ -761,18 +758,9 @@ impl UnixSocketProvider {
         loop {
             let line = read_voice_provider_line(&mut stream, &mut pending, deadline, cancelled)?;
             let value = serde_json::from_str::<Value>(line.trim_end()).ok()?;
-            // Explicit stream events belong to the request generation. Keep
-            // the documented bare terminal response from pre-stream
-            // providers, but do not let a typed event omit its binding.
-            let event_generation = value.get("generation").and_then(Value::as_u64);
-            if event_generation != Some(generation) {
-                // Keep compatibility with pre-stream providers, which return
-                // a bare {"text": ...} terminal object, but require a binding
-                // for every explicitly typed stream event.
-                let typed_event = value.get("type").is_some() || value.get("event").is_some();
-                if typed_event || event_generation.is_some() {
-                    return None;
-                }
+            // Every stream event belongs to the request generation.
+            if value.get("generation").and_then(Value::as_u64) != Some(generation) {
+                return None;
             }
             if value.get("ok").and_then(Value::as_bool) == Some(false) {
                 if value.get("error").and_then(Value::as_str) == Some("voice_dependency_missing") {

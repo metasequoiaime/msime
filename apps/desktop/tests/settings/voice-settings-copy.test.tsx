@@ -2,7 +2,8 @@
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { SettingsPage, type Snapshot } from "@msime/ui";
+import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { testHost } from "../support/host";
 
 afterEach(() => {
   cleanup();
@@ -85,8 +86,8 @@ const snapshot: Snapshot = {
   },
 };
 
-function host(platform: string) {
-  return { platform, voice_capture_devices: true } as never;
+function host(platform: HostCapabilities["platform"]) {
+  return testHost({ platform, voice_capture_devices: true });
 }
 
 async function openVoice(platform: string) {

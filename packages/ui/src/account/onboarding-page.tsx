@@ -120,10 +120,10 @@ export function WelcomeFlowPage({
   const [error, setError] = useState("");
   const actionRunning = useRef(false);
   const prepared = useRef(false);
-  const platform = useSettingsPlatform(
-    { platform: actions.platform ?? "android", mobile_settings: actions.mobileSettings },
-    false,
-  );
+  const platform = useSettingsPlatform({
+    platform: actions.platform ?? "android",
+    mobile_settings: actions.mobileSettings,
+  });
   const ios = actions.platform === "ios";
   const harmony = actions.platform === "harmony";
   const android = platform === "android";

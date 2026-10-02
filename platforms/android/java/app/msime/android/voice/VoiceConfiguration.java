@@ -138,8 +138,8 @@ public final class VoiceConfiguration {
     private static VoiceRecognitionActivity.Polish polish(JSONObject value, String requestId) {
         if (value == null) return null;
         String prompt = NativeClient.polishPrompt(value.optString("promptId", ""),
-            value.optString("promptLegacy", ""), value.optString("promptCustom1", ""),
-            value.optString("promptCustom2", ""), value.optString("promptCustom3", ""));
+            value.optString("promptCustom1", ""), value.optString("promptCustom2", ""),
+            value.optString("promptCustom3", ""));
         String endpoint = value.optString("endpoint", "");
         String model = value.optString("model", "");
         String token = value.optString("token", "");

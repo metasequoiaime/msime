@@ -16,8 +16,6 @@ static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *o
         fallback();
         return;
     }
-    // The legacy state directory is only read until the settings app migrates it, and the settings app migrates only when it starts without a HostOptions override. Handing it the legacy file would keep both processes on the old directory indefinitely.
-    if ([optionsPath isEqualToString:MSIMELegacyRuntimeOptionsPath(NSFileManager.defaultManager)]) optionsPath = nil;
     NSURL *url = [workspace URLForApplicationWithBundleIdentifier:MSIMEClientApplicationIdentifier];
     if (!url) {
         os_log(MSIMEUILog(), "desktop_route_fallback route=%{public}@ reason=settings_app_not_found", route);

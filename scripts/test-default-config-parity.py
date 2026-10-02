@@ -84,12 +84,17 @@ assert source_mixed_emoji_default.group(1) == 'cfg!(any(windows, target_os = "ma
 )
 print("Windows and macOS ship emoji mixed-input on, as the source does")
 
-voice_auth_default = re.search(
-    r'impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*"([^"]+)"\.into\(\)',
+voice_auth_field = re.search(
+    r"impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*default_doubao_auth_mode\(\)",
     core_source,
     re.DOTALL,
 )
-assert voice_auth_default, "VoiceInputPreferences Doubao auth default was not found"
+assert voice_auth_field, "VoiceInputPreferences::default() must take doubao_auth_mode from default_doubao_auth_mode"
+voice_auth_default = re.search(
+    r'fn default_doubao_auth_mode\(\) -> String \{\s*"([^"]+)"\.to_owned\(\)\s*\}',
+    core_source,
+)
+assert voice_auth_default, "default_doubao_auth_mode was not found"
 
 shared_voice_auth_mode = voice_auth_default.group(1)
 windows_voice_auth_mode = windows_defaults["voice_input"]["doubao_auth_mode"]

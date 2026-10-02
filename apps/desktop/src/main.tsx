@@ -94,17 +94,9 @@ import {
 } from "./core/desktop-host-services";
 
 const dictionary: DictionaryClient = {
-  // kind and query are omitted when absent so an older host still sees the
-  // request shape it knows.
   list: (offset, limit, kind, query) =>
     invoke("dictionary_request", {
-      action: {
-        operation: "list",
-        offset,
-        limit,
-        ...(kind ? { kind } : {}),
-        ...(query ? { query } : {}),
-      },
+      action: { operation: "list", offset, limit, kind, query },
     }),
   edit: (
     previous: DictionaryEntry | null,
@@ -453,16 +445,10 @@ function DesktopPanelTheme({
         : snapshot?.preferences.emoji_theme;
   return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
 }
-// The host reports what it supports. Typing statistics were previously gated on
-// an Android user-agent match, which left the category dead on every desktop
-// even though the commands were registered.
+// The host reports what it supports; outside Tauri (the browser preview) there is no host.
 async function discoverHostCapabilities(): Promise<HostCapabilities | null> {
   if (!isTauri()) return null;
-  try {
-    return await invoke<HostCapabilities>("host_capabilities");
-  } catch {
-    return null; // A host without the command keeps its previous behaviour.
-  }
+  return await invoke<HostCapabilities>("host_capabilities");
 }
 
 function DesktopSettings() {
@@ -670,8 +656,7 @@ function DesktopSettings() {
             ...(host.platform === "macos"
               ? { openDiagnosticLogDirectory: () => invoke<void>("open_diagnostic_log_directory") }
               : {}),
-            // A host binary older than the capability sends no field and reads as false, which
-            // hides the page rather than offering buttons whose every press would fail.
+            // A host that has not wired 背单词 hides the page rather than offering buttons whose every press would fail.
             ...(host.vocabulary_review ? { vocabularyReview } : {}),
             // This shell registers no download handler, and the macOS WKWebView cancels every download link without one, so the host writes the export into Downloads itself and the page can say where the file went. Linux runs the same shell and takes the same path; Windows' WebView2 and the mobile webviews keep the download link.
             ...(host.platform === "macos" || host.platform === "linux"

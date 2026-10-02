@@ -17,8 +17,6 @@ export interface InputSchemeSelectorSectionProps {
   supportedSchemes?: readonly InputScheme[];
   /** The remembered Chinese scheme, which host-api runs in place of an unsupported `value`. */
   lastChineseScheme?: ChineseInputScheme | null;
-  /** Uses the shared settings-page row instead of the legacy panel markup. */
-  grouped?: boolean;
   hidden?: boolean;
 }
 
@@ -42,7 +40,6 @@ export function InputSchemeSelectorSection({
   onChange,
   supportedSchemes = baseInputSchemes,
   lastChineseScheme,
-  grouped = false,
   hidden,
 }: InputSchemeSelectorSectionProps) {
   const options = chineseInputSchemeOptions.map((option) => ({
@@ -51,38 +48,9 @@ export function InputSchemeSelectorSection({
   }));
   const hint = supportHint(value, supportedSchemes, lastChineseScheme);
   // Five two-character segments come to about 262px. Beside the macOS look's 260px sidebar and 48px page margins the row fits in any window from about 675px wide, and the window opens at 1000px, so this stays a Segmented rather than falling back to a Select.
-  if (grouped) {
-    return (
-      <Row title="输入方案" description={hint} hidden={hidden}>
-        <Segmented options={options} value={value} onChange={onChange} />
-      </Row>
-    );
-  }
-
   return (
-    <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={hidden}>
-      <div className="section-title" id="input-scheme-title">
-        输入方案
-      </div>
-      <div className="input-option-content">
-        {options.map(({ value: scheme, label, disabled }, index) => (
-          <div className="input-option-item" key={scheme}>
-            {index > 0 && <div className="input-option-divider" />}
-            <label className="radio-option">
-              <input
-                type="radio"
-                name="input-scheme"
-                value={scheme}
-                checked={value === scheme}
-                disabled={disabled}
-                onChange={() => onChange(scheme)}
-              />
-              <span>{label}</span>
-            </label>
-          </div>
-        ))}
-      </div>
-      {hint && <div className="input-setting-description">{hint}</div>}
-    </div>
+    <Row title="输入方案" description={hint} hidden={hidden}>
+      <Segmented options={options} value={value} onChange={onChange} />
+    </Row>
   );
 }

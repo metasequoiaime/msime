@@ -1,3 +1,4 @@
+import { testHost } from "../support/host";
 import { expect, test } from "vitest";
 import {
   cantoneseInputSchemeOptions,
@@ -12,7 +13,7 @@ import {
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
 } from "../../../../packages/ui/src/settings/input-scheme-options";
-import type { HostCapabilities, InputScheme } from "@msime/ui";
+import type { InputScheme } from "@msime/ui";
 
 test("shares the input scheme labels used by settings controls", () => {
   expect(chineseInputSchemeOptions).toEqual([
@@ -53,22 +54,15 @@ test("Cantonese and Zhuyin are Chinese schemes and Vietnamese is a mode of its o
   expect(chinese).toEqual(["quanpin", "shuangpin", "wubi", "cantonese", "zhuyin"]);
 });
 
-test("a host older than input_schemes offers the five base schemes", () => {
+test("without a host the five base schemes are offered", () => {
   expect(supportedInputSchemes()).toEqual(["quanpin", "shuangpin", "wubi", "japanese", "korean"]);
-  expect(supportedInputSchemes({ platform: "windows" } as HostCapabilities)).toEqual([
-    "quanpin",
-    "shuangpin",
-    "wubi",
-    "japanese",
-    "korean",
-  ]);
 });
 
-test("input_schemes values this build does not know are dropped", () => {
-  const host = {
+test("input_schemes values the page has no label for are dropped", () => {
+  const host = testHost({
     platform: "macos",
     input_schemes: ["quanpin", "cantonese", "klingon" as InputScheme, "vietnamese"],
-  } as HostCapabilities;
+  });
   expect(supportedInputSchemes(host)).toEqual(["quanpin", "cantonese", "vietnamese"]);
 });
 

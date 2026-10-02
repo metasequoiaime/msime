@@ -40,11 +40,9 @@ enum AICandidatePreference {
     return promptSlots.first { $0.id == id }?.id ?? promptSlots[0].id
   }
 
-  /// A slot's text. The first slot falls back to the older single `prompt` field, as the desktop settings page and the shared layer both do.
+  /// A slot's text; empty means the built-in prompt.
   static func prompt(_ preferences: [String: Any]?, slot: String) -> String {
-    let assistant = preferences?["ai_assistant"] as? [String: Any]
-    if let text = assistant?["prompt_\(slot)"] as? String, !(slot == promptSlots[0].id && text.isEmpty) { return text }
-    return slot == promptSlots[0].id ? assistant?["prompt"] as? String ?? "" : ""
+    (preferences?["ai_assistant"] as? [String: Any])?["prompt_\(slot)"] as? String ?? ""
   }
 
   /// The document's `ai_assistant` with `slot` in use and holding `text`. Text that is only whitespace is stored empty so the built-in prompt applies.

@@ -240,8 +240,7 @@ impl From<&PreferencesSnapshot> for PreferencesView {
             smart_punctuation: preferences.smart_punctuation,
             traditional_chinese_output: preferences.traditional_chinese_output,
             wubi_mixed_pinyin: preferences.wubi_mixed_pinyin,
-            // Absent means on: documents written before the switch existed keep the hint.
-            wubi_code_hint: preferences.wubi_code_hint.unwrap_or(true),
+            wubi_code_hint: preferences.wubi_code_hint,
             diagnostic_log_server: preferences.diagnostic_log.server,
             diagnostic_log_tsf: preferences.diagnostic_log.tsf,
             learning: preferences.learning,
@@ -372,7 +371,7 @@ impl PreferencesChange {
             preferences.wubi_mixed_pinyin = value;
         }
         if let Some(value) = self.wubi_code_hint {
-            preferences.wubi_code_hint = Some(value);
+            preferences.wubi_code_hint = value;
         }
         if let Some(value) = self.diagnostic_log_server {
             preferences.diagnostic_log.server = value;
@@ -590,7 +589,7 @@ mod tests {
         expected.candidate_page_size = 7;
         expected.character_width = CharacterWidthPreference::Fullwidth;
         expected.traditional_chinese_output = true;
-        expected.wubi_code_hint = Some(false);
+        expected.wubi_code_hint = false;
         expected.diagnostic_log.server = true;
         expected.fuzzy_pinyin = stored.preferences.fuzzy_pinyin.clone();
         assert_eq!(json!(stored.preferences), json!(expected));

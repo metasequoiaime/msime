@@ -1,8 +1,5 @@
 //! Bounded worker-thread operations on the private learned-gloss store.
 use msime_client_core::is_bounded_text;
-use msime_client_core::translation::store::{
-    GlossDirection, GlossStoreError, TranslationGlossStore,
-};
 use msime_client_core::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
     is_supported_translation_language, is_valid_source_text, should_persist_translation,
@@ -60,6 +57,13 @@ fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {
     Ok(())
 }
 
+#[derive(Clone, Copy, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum GlossDirection {
+    EnglishToChinese,
+    ChineseToEnglish,
+}
+
 #[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum Action {
@@ -109,9 +113,7 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
     reject_symlinked_path(directory)?;
     let database = directory.join("translation-glosses.db");
     reject_symlinked_path(&database)?;
-    // Preserve previous JSON records as read-only fallback. New writes use the
-    // same Engine-owned user database as other native hosts, never resources.
-    let legacy = TranslationGlossStore::new(directory);
+    // Glosses live in the same Engine-owned user database as other native hosts use, never resources.
     let mut translations = Vec::with_capacity(request.items.len());
     let mut saved = 0;
     if request.target_language != "en" {
@@ -158,19 +160,6 @@ pub fn execute(bytes: &[u8]) -> Result<Value, &'static str> {
                     if learned.is_some() {
                         found = learned;
                         break;
-                    }
-                    let legacy_key = if chinese {
-                        key.as_str()
-                    } else {
-                        item.text.as_str()
-                    };
-                    match legacy.lookup(&request.target_language, item.direction, legacy_key) {
-                        Ok(Some(translation)) => {
-                            found = Some(translation);
-                            break;
-                        }
-                        Ok(None) | Err(GlossStoreError::InvalidRecord) => {}
-                        Err(_) => return Err("learned translation storage unavailable"),
                     }
                 }
                 if let Some(translation) = found {
@@ -302,18 +291,13 @@ mod tests {
         assert!(run(&bad).is_err());
         bad["items"] = json!(vec![valid["items"][0].clone(); 10]);
         assert!(run(&bad).is_err());
-        assert!(!root.path().join("learned-translations-v1").exists());
         assert!(!root.path().join("translation-glosses.db").exists());
     }
 
     #[test]
-    fn canonical_engine_store_and_legacy_fallback_interoperate() {
+    fn canonical_engine_store_interoperates() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path().to_str().unwrap();
-        let legacy = TranslationGlossStore::new(root.path());
-        legacy
-            .remember("en", GlossDirection::EnglishToChinese, "hello", "旧释义")
-            .unwrap();
         let read = request(
             root.path(),
             "lookup",
@@ -321,11 +305,8 @@ mod tests {
             {"text":"HELLO","direction":"english_to_chinese"},
             {"text":"测试","direction":"chinese_to_english"}]),
         );
-        assert_eq!(
-            run(&read).unwrap()["translations"][0]["translation"],
-            "旧释义"
-        );
-        assert!(!root.path().join("translation-glosses.db").exists()); // Reads do not migrate or write.
+        assert_eq!(run(&read).unwrap()["translations"], json!([]));
+        assert!(!root.path().join("translation-glosses.db").exists()); // Reads do not write.
         let write = request(
             root.path(),
             "remember",
@@ -345,13 +326,6 @@ mod tests {
             run(&read).unwrap()["translations"],
             json!([
             {"text":"HELLO","translation":"新释义"},{"text":"测试","translation":"test"}])
-        );
-        assert_eq!(
-            legacy
-                .lookup("en", GlossDirection::EnglishToChinese, "hello")
-                .unwrap()
-                .as_deref(),
-            Some("旧释义")
         );
         #[cfg(unix)]
         {
@@ -388,11 +362,8 @@ mod tests {
     }
 
     #[test]
-    fn damaged_database_preserves_legacy_and_reports_write_failure() {
+    fn damaged_database_reports_write_failure() {
         let root = tempfile::tempdir().unwrap();
-        TranslationGlossStore::new(root.path())
-            .remember("en", GlossDirection::EnglishToChinese, "hello", "旧释义")
-            .unwrap();
         let database = root.path().join("translation-glosses.db");
         std::fs::write(&database, b"synthetic damaged database").unwrap();
         let read = request(
@@ -401,10 +372,7 @@ mod tests {
             json!([
             {"text":"Hello","direction":"english_to_chinese"}]),
         );
-        assert_eq!(
-            run(&read).unwrap()["translations"][0]["translation"],
-            "旧释义"
-        );
+        assert_eq!(run(&read).unwrap()["translations"], json!([]));
         let write = request(
             root.path(),
             "remember",

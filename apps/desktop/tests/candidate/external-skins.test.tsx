@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ComponentProps } from "react";
@@ -998,7 +999,7 @@ test("an import host lists the imported skin without a manual refresh", async ()
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockResolvedValue(undefined);
   openSkinPage({
-    host: { platform: "harmony", skin_directory_import: true } as never,
+    host: testHost({ platform: "harmony", skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });
@@ -1016,7 +1017,7 @@ test("an import that fails does not rescan", async () => {
   const scan = vi.fn().mockResolvedValue({ directory: "/skins", packages: [], issues: [] });
   const openDirectory = vi.fn().mockRejectedValue(new Error("synthetic"));
   openSkinPage({
-    host: { platform: "harmony", skin_directory_import: true } as never,
+    host: testHost({ platform: "harmony", skin_directory_import: true }),
     openSkinDirectory: openDirectory,
     scanSkinCatalog: scan,
   });
@@ -1038,7 +1039,7 @@ test("a host that draws one layout judges skins by it, not by the shared setting
     load: async () => vertical as Snapshot,
     save: vi.fn(),
     scanSkinCatalog: vi.fn().mockResolvedValue(catalog),
-    host: host as never,
+    host: host && testHost(host),
   });
   const mounted = render(
     <SettingsPage
@@ -1079,7 +1080,7 @@ test("the Linux skin page describes the candidate window only", async () => {
         load: async () => initial,
         save: vi.fn(),
         readSkinToolbarCss,
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         scanSkinCatalog: async () => ({
           ...catalog,
           packages: [{ ...sample, toolbarStylesheet: "toolbar.css" }],
@@ -1105,7 +1106,7 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   render(
     <SettingsPage
       initialPage="skin"
-      client={{ load: async () => initial, save: vi.fn(), host: { platform: "windows" } as never }}
+      client={{ load: async () => initial, save: vi.fn(), host: testHost({ platform: "windows" }) }}
     />,
   );
   await settingsFormReady();

@@ -6,44 +6,15 @@ if [ "${1:-}" = "--help" ]; then
   echo "       msime-linux-settings --sync-omarchy-theme   (write the Omarchy candidate skin from the current Omarchy theme, without opening a window)"
   exit 0
 fi
+# --panel names a surface or one of the settings sections below; it becomes the desktop shell's --route argument. A settings section is a "settings:<category>" route, because only a surface may head a route. The input method hosts pass --route=<route> themselves, which reaches the shell through the remaining arguments.
+route=
 if [ "${1:-}" = "--panel" ]; then
   case "${2:-}" in
-    settings|about|help|feedback|dictionary|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard)
-      MSIME_CLIENT_PANEL=$2
-      export MSIME_CLIENT_PANEL
-      shift 2
-      ;;
+    about|help|feedback|dictionary) route=settings:$2 ;;
+    settings|handwriting|keyboard|emoji|clipboard|voice|cloud-dictionary|cloud-clipboard) route=$2 ;;
     *) echo "MSIME panel name is missing or unsupported" >&2; exit 2 ;;
   esac
-fi
-
-# The About, Help and Feedback menus open existing settings sections, not separate panels.
-case "${MSIME_CLIENT_PANEL:-}" in
-  about|help|feedback)
-    MSIME_CLIENT_SETTINGS_PAGE=$MSIME_CLIENT_PANEL
-    MSIME_CLIENT_PANEL=settings
-    export MSIME_CLIENT_PANEL MSIME_CLIENT_SETTINGS_PAGE
-    ;;
-esac
-
-# Local dictionary is a settings section rather than a separate desktop host.
-if [ "${MSIME_CLIENT_PANEL:-}" = "dictionary" ]; then
-  MSIME_CLIENT_PANEL=settings
-  MSIME_CLIENT_SETTINGS_PAGE=dictionary
-  export MSIME_CLIENT_PANEL MSIME_CLIENT_SETTINGS_PAGE
-fi
-
-# Share the cross-platform surface route with hosts that understand the newer
-# route contract while retaining MSIME_CLIENT_PANEL compatibility. A settings
-# section is a "settings:<category>" route; emitting the bare section name would
-# not parse, because only a surface may head a route.
-if [ -n "${MSIME_CLIENT_PANEL:-}" ]; then
-  if [ -n "${MSIME_CLIENT_SETTINGS_PAGE:-}" ]; then
-    MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE
-  else
-    MSIME_CLIENT_ROUTE=$MSIME_CLIENT_PANEL
-  fi
-  export MSIME_CLIENT_ROUTE
+  shift 2
 fi
 
 if [ -n "${MSIME_CLIENT_HOST_OPTIONS:-}" ]; then
@@ -88,10 +59,7 @@ while [ -L "$launcher_path" ]; do
 done
 launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 export MSIME_CLIENT_HOST_OPTIONS=$config
-if [ -n "${MSIME_CLIENT_ROUTE:-}" ]; then
-  # Keep the route in argv as well as the compatibility environment variable.
-  # The single-instance plugin forwards argv from a second launch, while the
-  # environment remains useful to a newly started shell.
-  exec "$launcher_dir/msime-linux-desktop" "--route=$MSIME_CLIENT_ROUTE" "$@"
+if [ -n "$route" ]; then
+  exec "$launcher_dir/msime-linux-desktop" "--route=$route" "$@"
 fi
 exec "$launcher_dir/msime-linux-desktop" "$@"

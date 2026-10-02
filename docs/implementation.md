@@ -19,7 +19,7 @@
 | crate | 职责 |
 | --- | --- |
 | `msime-client-core` | 宿主无关的客户端业务：`preferences`、`account`、`ai`、`cloud`、`community`、`credential`、`dictionary`、`helpcode`、`skin`、`translation`、`voice`、`clipboard`、`punctuation`、`chinese_conversion`、`typing_statistics`、`resources`、`host_surface`、`panels`。不依赖 Tauri、React、Engine 或任何平台 API。 |
-| `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别，另含词典回放工具 `MetasequoiaImeDictionaryReplay`；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
+| `msime-engine` | 纯 Rust 输入引擎（由 C++ MSIME-Engine 移植）：组合状态、全拼／双拼／五笔／九键／日语等方案、词库查询与分代准备、学习日志与回放、手写识别；`examples/` 下是各类真实词库探针，`tests/golden/` 是从 C++ 参考实现录下的行为基准。 |
 | `msime-input-runtime` | 输入宿主的会话编排：焦点、候选翻页、代次选择、全半角转换、在线候选调度。含重排模型 `Reranker` 的接入。 |
 | `msime-host-api` | 版本化 C ABI（`msime_client_abi_version()` 返回 3），132 个 `msime_client_*` 导出（头文件另有 2 个 `static inline` 辅助函数），`crate-type = ["cdylib", "staticlib", "rlib"]`。`ffi/` 按 host/session/input/candidates/lifecycle/providers/translation/voice 分文件。 |
 | `msime-host-macos` | macOS 宿主的 Objective-C++ 平台能力：键盘注入、账户、剪贴板、词库、文件选择器、卸载器、录音设备枚举，以及 `panel_session`、`cloud_clipboard`、`cloud_dictionary`。 |
@@ -41,7 +41,7 @@
 
 输入引擎是仓库内的 `crates/engine`，不再从外部拉取、也没有锁文件和 overlay 脚本：原先由 overlay 改写的行为都已直接写进对应的 Rust 模块。移植的对照基准在 `crates/engine/tests/golden/`，录制方法见 `tools/engine-golden/README.md`。平台仍在用的非引擎文件随仓库提交：IPC 契约头文件在 `shared/contracts/`，Windows 提示音用的 miniaudio 在 `platforms/windows/third_party/miniaudio/`。
 
-`resources/desktop-dictionary.lock.json` 锁定 9 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。校验词库目录时 `client-core` 的 `ResourceStore::verify` 要求目录恰好是锁里的产物，例外有二：Engine 的 `helpcodes/` 子目录，以及 `RETIRED_ARTIFACTS` 列出、锁已不再固定的普通文件（目前只有 C++ Engine 的 `dict_pinyin.dat`），后者被就地删除而不是拒绝整份目录；删除失败时照旧拒绝。
+`resources/desktop-dictionary.lock.json` 锁定 9 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。校验词库目录时 `client-core` 的 `ResourceStore::verify` 要求目录恰好是锁里的产物，唯一的例外是 Engine 的 `helpcodes/` 子目录。
 
 ## 三、共享层的最终形态
 
@@ -124,7 +124,7 @@ Java 侧按 `java/app/msime/android/<feature>/` 分层（core、home、keyboard�
 
 ### Linux
 
-IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件——`CMakeLists.txt` 里的注释和 README 都写明了这一点，两者链的是同一个 `msime-host-api` ABI。IBus 侧是 `msime-linux-ibus` 可执行文件，由 `data/msime-linux.xml` 注册成 IBus component，`<exec>` 指向随装的 `msime-linux-ibus-launcher`；Fcitx5 侧是独立子工程编出的 `msime-fcitx5` MODULE，显式 `unset(CMAKE_CXX_STANDARD)` 以免继承上级钉死的 C++17（Fcitx5 5.1 的公开头用了 `std::span`）。装了 Fcitx5 开发包或开了打包就默认构建它，没装则打印获取方式而不是静默丢掉这一半。
+IBus 与 Fcitx5 是**并列的两个系统入口**，不是宿主和它的插件——`CMakeLists.txt` 里的注释和 README 都写明了这一点，两者链的是同一个 `msime-host-api` ABI。IBus 侧是 `msime-linux-ibus` 可执行文件，由 `data/msime-linux.xml.in` 生成的 component 文件注册，`<exec>` 指向随装的 `msime-linux-ibus-launcher`；Fcitx5 侧是独立子工程编出的 `msime-fcitx5` MODULE，显式 `unset(CMAKE_CXX_STANDARD)` 以免继承上级钉死的 C++17（Fcitx5 5.1 的公开头用了 `std::span`）。装了 Fcitx5 开发包或开了打包就默认构建它，没装则打印获取方式而不是静默丢掉这一半。
 
 在线候选、语音、剪贴板、手写、emoji、词典、翻译各有独立的可执行入口，其中在线候选、语音和剪贴板另配 systemd 用户单元；前两者是 socket 激活的，`ListenStream` 落在 `%t/msime-client/` 下、`SocketMode=0600`。浮层在 `src/overlay/`，提供模式徽章和语音波形，X11 与 Wayland layer-shell 两套后端（Wayland 协议代码由 `wayland-scanner` 从 `data/wayland/` 的 layer-shell 描述加系统 `xdg-shell.xml` 生成），缺依赖时退回面板文字。诊断日志写偏好目录下的 `diagnostic.log`，1 MiB 轮转一份，只用户可读。
 

@@ -188,7 +188,7 @@ int main() {
         Wait(window); assert(saves == 18);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         assert([stored[@"preferences"][@"candidate_english_gloss"] isEqual:@NO]);
-        assert(!stored[@"preferences"][@"translation_account"]);
+        assert([stored[@"preferences"][@"translation_account"] isEqual:@NO]);
         // The MSIME account is an explicit choice: it hides every credential row, and saving it turns Tencent off even if its checkbox was left on.
         tencent.state = NSControlStateValueOn;
         [provider selectItemAtIndex:3]; [window providerChanged:nil];
@@ -208,7 +208,7 @@ int main() {
         assert(tencent.enabled && ![grid rowAtIndex:8].hidden);
         Wait(window); assert(saves == 20);
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
-        assert(!stored[@"preferences"][@"translation_account"]);
+        assert([stored[@"preferences"][@"translation_account"] isEqual:@NO]);
         [window reload:nil]; Wait(window); assert(provider.indexOfSelectedItem == 0);
         // Controls that reflect what is stored write nothing.
         Commit(window); [window controlChanged:enabled]; Wait(window); assert(saves == 20);

@@ -253,9 +253,7 @@ public final class TypingStatisticsModel {
     /**
      * Counts with the shortfall against the scope's total filed as unclassified.
      *
-     * <p>Versions before the breakdown existed recorded a day's characters without classifying
-     * them. Dropping the difference would make a pie chart of one profile's history disagree with
-     * the total printed above it.
+     * <p>A day's total can count characters that carry no classification. Dropping the difference would make a pie chart of one profile's history disagree with the total printed above it.
      */
     private static Map<String, Long> unclassified(Map<String, Long> values, long scope) {
         long classified = 0;

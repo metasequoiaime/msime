@@ -126,78 +126,6 @@ fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
 }
 
 #[test]
-fn resource_verification_removes_the_retired_pinyin_dictionary_in_place() {
-    let root = tempfile::tempdir().unwrap();
-    let resources = root.path().join("resources");
-    std::fs::create_dir_all(&resources).unwrap();
-    std::fs::write(resources.join("fixture.db"), b"fixture").unwrap();
-    // Left behind by a release whose lock still pinned the C++ Engine's system dictionary.
-    std::fs::write(resources.join("dict_pinyin.dat"), b"retired").unwrap();
-    let specification = ResourceSet {
-        source_commit: "a".repeat(40),
-        artifacts: vec![msime_client_core::resources::Artifact {
-            name: "fixture.db".into(),
-            url: "https://example.invalid/fixture.db".into(),
-            sha256: hex::encode(Sha256::digest(b"fixture")),
-            size: 7,
-        }],
-    };
-    let state = root.path().join("state");
-
-    verify_resources_once(&resources, &specification, &state).unwrap();
-    assert!(!resources.join("dict_pinyin.dat").exists());
-    assert_eq!(
-        std::fs::read(resources.join("fixture.db")).unwrap(),
-        b"fixture"
-    );
-    // The marker describes the directory as it was before hashing, so it is recorded on the next verification once the directory holds only pinned files.
-    verify_resources_once(&resources, &specification, &state).unwrap();
-    assert!(state.join("verified-resources.json").is_file());
-}
-
-#[test]
-fn windows_legacy_mixed_input_is_imported_without_leaking_other_config() {
-    let mut preferences = Preferences::default();
-    assert!(apply_windows_legacy_mixed_input(
-        "[general]\ncn_en_mixed_input = false\ncn_en_mixed_input_min_chars = 5\nemoji_mixed_input = true\nkaomoji_mixed_input = true\ndiagnostic_log = true\n",
-        &mut preferences,
-    ));
-    assert!(!preferences.mixed_input.english);
-    assert_eq!(preferences.mixed_input.minimum_prefix, 5);
-    assert!(preferences.mixed_input.emoji);
-    assert!(preferences.mixed_input.kaomoji);
-    assert!(!preferences.diagnostic_log.server);
-    assert!(!preferences.diagnostic_log.tsf);
-}
-
-#[test]
-fn windows_legacy_mixed_input_ignores_invalid_values_and_documents() {
-    let mut preferences = Preferences::default();
-    assert!(!apply_windows_legacy_mixed_input(
-        "[general]\ncn_en_mixed_input_min_chars = 9\n",
-        &mut preferences,
-    ));
-    assert_eq!(preferences.mixed_input.minimum_prefix, 5);
-    assert!(!apply_windows_legacy_mixed_input(
-        "not toml",
-        &mut preferences
-    ));
-}
-
-#[test]
-fn windows_legacy_config_reader_bounds_startup_input() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.toml");
-    std::fs::write(&path, "[general]\ncn_en_mixed_input = false\n").unwrap();
-    assert_eq!(
-        read_windows_legacy_config(&path).as_deref(),
-        Some("[general]\ncn_en_mixed_input = false\n")
-    );
-    std::fs::write(&path, vec![b'x'; MAX_WINDOWS_LEGACY_CONFIG_BYTES + 1]).unwrap();
-    assert!(read_windows_legacy_config(&path).is_none());
-}
-
-#[test]
 fn local_mode_resource_gates_preserve_unrelated_modes() {
     let root = tempfile::tempdir().unwrap();
     for name in ["others.db", "english.db", "dict_japanese.dat"] {
@@ -1634,8 +1562,8 @@ fn autocorrect_update_waits_for_composition_end() {
     let dir = tempfile::tempdir().unwrap();
     let disabled_preferences = Preferences {
         quanpin: msime_client_core::preferences::QuanpinPreferences {
-            autocorrect_transposition: Some(false),
-            autocorrect_neighbor: Some(false),
+            autocorrect_transposition: false,
+            autocorrect_neighbor: false,
         },
         ..chinese_preferences()
     };
@@ -1645,8 +1573,8 @@ fn autocorrect_update_waits_for_composition_end() {
     let before = read(msime_client_view(handle))["value"].clone();
     let preferences = Preferences {
         quanpin: msime_client_core::preferences::QuanpinPreferences {
-            autocorrect_transposition: Some(true),
-            autocorrect_neighbor: Some(true),
+            autocorrect_transposition: true,
+            autocorrect_neighbor: true,
         },
         ..Preferences::default()
     };
@@ -3050,7 +2978,7 @@ fn clipboard_reader_respects_preferences_and_preserves_history() {
 }
 
 #[test]
-fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
+fn mobile_clipboard_uses_structured_actions() {
     let directory = tempfile::tempdir().unwrap();
     let call = |action: Value| {
         let request = serde_json::to_vec(&json!({
@@ -3060,47 +2988,16 @@ fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
         .unwrap();
         read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
     };
-    let legacy = directory.path().join("Clipboard/history.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    std::fs::write(
-        &legacy,
-        serde_json::to_vec(&json!([
-            {
-                "id": "00000000-0000-4000-8000-000000000001",
-                "text": "synthetic older",
-                "date": 721_692_800.0,
-                "pinned": false
-            },
-            {
-                "id": "00000000-0000-4000-8000-000000000002",
-                "text": "synthetic pinned",
-                "date": 721_692_900.0,
-                "pinned": true
-            }
-        ]))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let loaded = call(json!({"operation": "load"}));
-    assert_eq!(loaded["value"]["migrated"], true);
-    assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic pinned");
     assert_eq!(
-        loaded["value"]["entries"][0]["timestampMs"],
-        1_700_000_100_000_u64
+        call(json!({"operation": "load"}))["value"]["entries"],
+        json!([])
     );
-    assert_eq!(loaded["value"]["entries"][1]["text"], "synthetic older");
-    assert!(!legacy.exists());
-    assert!(directory
-        .path()
-        .join("MSIME/clipboard_history.json")
-        .exists());
     assert!(!directory.path().join("preferences.json").exists());
-    assert_eq!(
-        call(json!({"operation": "load"}))["value"]["migrated"],
-        false
-    );
 
+    assert_eq!(
+        call(json!({"operation": "capture", "text": "synthetic older"}))["value"]["captured"],
+        true
+    );
     assert_eq!(
         call(json!({"operation": "capture", "text": "synthetic current"}))["value"]["captured"],
         true
@@ -3108,16 +3005,16 @@ fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
     assert_eq!(
         call(json!({
             "operation": "set_pinned",
-            "text": "synthetic current",
+            "text": "synthetic older",
             "pinned": true
         }))["value"]["updated"],
         true
     );
     let pinned = call(json!({"operation": "load"}));
-    assert_eq!(pinned["value"]["entries"][0]["text"], "synthetic current");
-    assert_eq!(pinned["value"]["entries"][1]["text"], "synthetic pinned");
+    assert_eq!(pinned["value"]["entries"][0]["text"], "synthetic older");
+    assert_eq!(pinned["value"]["entries"][1]["text"], "synthetic current");
     assert_eq!(
-        call(json!({"operation": "remove", "text": "synthetic older"}))["value"]["removed"],
+        call(json!({"operation": "remove", "text": "synthetic current"}))["value"]["removed"],
         true
     );
     assert_eq!(
@@ -3128,117 +3025,14 @@ fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
         call(json!({"operation": "load"}))["value"]["entries"],
         json!([])
     );
-}
 
-#[test]
-fn harmony_mobile_clipboard_migrates_once_and_preserves_corrupt_current_data() {
-    let directory = tempfile::tempdir().unwrap();
-    let call = |action: Value| {
-        let request = serde_json::to_vec(&json!({
-            "directory": directory.path(),
-            "legacy": "harmony_state",
-            "action": action,
-        }))
-        .unwrap();
-        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
-    };
-    let legacy = directory.path().join("state/clipboard-history.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    std::fs::write(
-        &legacy,
-        serde_json::to_vec(&json!([
-            {"text": "synthetic older", "at": 10, "pinned": false},
-            {"text": "synthetic pinned", "at": 1, "pinned": true}
-        ]))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let loaded = call(json!({"operation": "load"}));
-    assert_eq!(loaded["value"]["migrated"], true);
-    assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic pinned");
-    assert!(!legacy.exists());
-
-    let captured = call(json!({"operation": "capture", "text": "synthetic current"}));
-    assert_eq!(captured["value"]["captured"], true);
-    assert_eq!(captured["value"]["entries"][1]["text"], "synthetic current");
+    // A corrupt shared history is refused rather than replaced.
     let shared = directory.path().join("MSIME/clipboard_history.json");
     let corrupt = b"invalid synthetic current history";
     std::fs::write(&shared, corrupt).unwrap();
     let refused = call(json!({"operation": "capture", "text": "synthetic rejected"}));
     assert_eq!(refused["ok"], false);
     assert_eq!(std::fs::read(&shared).unwrap(), corrupt);
-}
-
-#[test]
-fn harmony_mobile_clipboard_rejects_corrupt_legacy_without_replacing_it() {
-    let directory = tempfile::tempdir().unwrap();
-    let legacy = directory.path().join("state/clipboard-history.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    let corrupt = b"invalid synthetic harmony history";
-    std::fs::write(&legacy, corrupt).unwrap();
-    let request = serde_json::to_vec(&json!({
-        "directory": directory.path(),
-        "legacy": "harmony_state",
-        "action": {"operation": "load"}
-    }))
-    .unwrap();
-    let response =
-        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
-    assert_eq!(response["error"], "invalid legacy clipboard history");
-    assert_eq!(std::fs::read(&legacy).unwrap(), corrupt);
-    assert!(!directory
-        .path()
-        .join("MSIME/clipboard_history.json")
-        .exists());
-}
-
-#[test]
-fn mobile_clipboard_preserves_invalid_legacy_and_existing_shared_history() {
-    let invalid = tempfile::tempdir().unwrap();
-    let legacy = invalid.path().join("Clipboard/history.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    let fixture = b"invalid synthetic legacy";
-    std::fs::write(&legacy, fixture).unwrap();
-    let request = serde_json::to_vec(&json!({
-        "directory": invalid.path(),
-        "action": {"operation": "load"}
-    }))
-    .unwrap();
-    let response =
-        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
-    assert_eq!(response["error"], "invalid legacy clipboard history");
-    assert_eq!(std::fs::read(&legacy).unwrap(), fixture);
-    assert!(!invalid.path().join("MSIME/clipboard_history.json").exists());
-
-    let existing = tempfile::tempdir().unwrap();
-    let call = |action: Value| {
-        let request = serde_json::to_vec(&json!({
-            "directory": existing.path(),
-            "action": action,
-        }))
-        .unwrap();
-        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
-    };
-    assert_eq!(
-        call(json!({"operation": "capture", "text": "synthetic shared"}))["value"]["captured"],
-        true
-    );
-    let legacy = existing.path().join("Clipboard/history.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    std::fs::write(&legacy, b"invalid synthetic legacy").unwrap();
-    let loaded = call(json!({"operation": "load"}));
-    assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic shared");
-    assert!(legacy.exists());
-    assert_eq!(
-        call(json!({"operation": "clear"}))["value"]["cleared"],
-        true
-    );
-    assert!(!legacy.exists());
-    assert_eq!(
-        call(json!({"operation": "load"}))["value"]["entries"],
-        json!([])
-    );
 
     let null = read(unsafe { msime_client_mobile_clipboard_history(std::ptr::null(), 0) });
     assert_eq!(null["ok"], false);
@@ -3251,60 +3045,6 @@ fn mobile_clipboard_preserves_invalid_legacy_and_existing_shared_history() {
         read(unsafe { msime_client_mobile_clipboard_history(relative.as_ptr(), relative.len()) })
             ["ok"],
         false
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn mobile_clipboard_rejects_symlinked_legacy_ancestors() {
-    use std::os::unix::fs::symlink;
-
-    let root = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
-    let outside_history = outside.path().join("history.json");
-    let fixture = br#"[{"text":"synthetic outside","date":0.0,"id":"00000000-0000-0000-0000-000000000001","pinned":false}]"#;
-    std::fs::write(&outside_history, fixture).unwrap();
-    symlink(outside.path(), root.path().join("Clipboard")).unwrap();
-    let request = serde_json::to_vec(&json!({
-        "directory": root.path(),
-        "action": {"operation": "load"}
-    }))
-    .unwrap();
-    let response =
-        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
-    assert_eq!(
-        response["error"],
-        "clipboard migration path is a symbolic link"
-    );
-    assert_eq!(std::fs::read(&outside_history).unwrap(), fixture);
-
-    let clear = serde_json::to_vec(&json!({
-        "directory": root.path(),
-        "action": {"operation": "clear"}
-    }))
-    .unwrap();
-    let response =
-        read(unsafe { msime_client_mobile_clipboard_history(clear.as_ptr(), clear.len()) });
-    assert_eq!(
-        response["error"],
-        "clipboard migration path is a symbolic link"
-    );
-    assert_eq!(std::fs::read(&outside_history).unwrap(), fixture);
-
-    std::fs::remove_file(root.path().join("Clipboard")).unwrap();
-    symlink(outside.path(), root.path().join("state")).unwrap();
-    let harmony_request = serde_json::to_vec(&json!({
-        "directory": root.path(),
-        "legacy": "harmony_state",
-        "action": {"operation": "load"}
-    }))
-    .unwrap();
-    let response = read(unsafe {
-        msime_client_mobile_clipboard_history(harmony_request.as_ptr(), harmony_request.len())
-    });
-    assert_eq!(
-        response["error"],
-        "clipboard migration path is a symbolic link"
     );
 }
 
@@ -5104,7 +4844,7 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
                 preferences.ai_assistant.endpoint =
                     "https://synthetic.invalid/v1/chat/completions".into()
             }
-            4 => preferences.ai_assistant.prompt = "synthetic prompt".into(),
+            4 => preferences.ai_assistant.prompt_custom_1 = "synthetic prompt".into(),
             _ => preferences.ai_assistant.candidate_limit = 1,
         }
         assert_eq!(
@@ -5128,8 +4868,8 @@ fn ai_queries_and_delivery_follow_pending_preferences() {
                 preferences.ai_assistant.endpoint
             );
             assert_eq!(
-                current["ai_assistant"]["prompt"],
-                preferences.ai_assistant.prompt
+                current["ai_assistant"]["prompt_custom_1"],
+                preferences.ai_assistant.prompt_custom_1
             );
             assert_eq!(
                 current["ai_assistant"]["candidate_limit"],

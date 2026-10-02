@@ -200,7 +200,6 @@ static NSString *const SmartPunctuationSpaceConvertKey = @"MSIMEClientSmartPunct
 static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
 static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
 static NSString *const MixedInputKey = @"MSIMEClientMixedInput";
-static NSString *const AutocorrectKey = @"MSIMEClientAutocorrect";
 static NSString *const CandidateLearningKey = @"MSIMEClientCandidateLearning";
 static NSString *const FrequencyModeKey = @"MSIMEClientFrequencyAdjustmentMode";
 static NSString *const FrequencyTriggerCountKey = @"MSIMEClientFrequencyTriggerCount";
@@ -241,7 +240,6 @@ static NSString *const CandidateTranslationsKey = @"MSIMEClientCandidateTranslat
 static NSString *const CandidateEnglishGlossKey = @"MSIMEClientCandidateEnglishGloss";
 static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition";
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
-static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
 static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
 static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"]; }
 static BOOL ValidHelpcodeOption(NSString *key, id value) {
@@ -397,7 +395,6 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             KeymapKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinKeymap); },
             WubiKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiAutoCommitUnique); },
             WubiMixedPinyinKey : ^id(MSIMEAppearancePreferences *p) { return @(p.wubiMixedPinyinEnabled); },
-            HelpcodeKey : ^id(MSIMEAppearancePreferences *p) { return @(p.helpcodeEnabled); },
             QuanpinHelpcodeKey : ^id(MSIMEAppearancePreferences *p) { return @(p.quanpinHelpcodeEnabled); },
             ShuangpinHelpcodeKey : ^id(MSIMEAppearancePreferences *p) { return @(p.shuangpinHelpcodeEnabled); },
             HelpcodeOptionsKey : ^id(MSIMEAppearancePreferences *p) {
@@ -923,7 +920,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSSwitch *_mixedKaomojiToggle;
     NSNumber *_sharedTraditionalOutput;
     NSNumber *_sharedFullWidthInput;
-    NSNumber *_sharedAutocorrect;
     NSNumber *_sharedCloudCandidates;
     NSSwitch *_cloudCandidatesToggle;
     NSNumber *_sharedCandidateTranslations;
@@ -1267,7 +1263,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         @"emoji": @(self.mixedEmojiInput),
         @"kaomoji": @(self.mixedKaomojiInput)
     };
-    merged[@"autocorrect"] = @(self.autocorrect);
     if ([_defaults objectForKey:CandidateLearningKey] != nil || _sharedCandidateLearning != nil)
         merged[@"learning"] = @(self.candidateLearningEnabled);
     if ([_defaults objectForKey:FrequencyModeKey] != nil || [_defaults objectForKey:FrequencyTriggerCountKey] != nil ||
@@ -1381,7 +1376,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _sharedSmartPunctuationSpaceConvert = nil;
     _sharedTraditionalOutput = nil;
     _sharedFullWidthInput = nil;
-    _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
     _sharedCandidateLearning = nil;
     _sharedQuanpinHelpcode = nil;
@@ -1421,7 +1415,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     snapshot[@"platform.macos.chinese_punctuation"] = @(self.chinesePunctuation);
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
-    snapshot[@"platform.macos.autocorrect"] = @(self.autocorrect);
     snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
     return [snapshot copy];
@@ -1491,7 +1484,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [_defaults setBool:value forKey:InputModeHUDKey];
     [self preferencesChanged];
 }
-- (BOOL)autocorrect { if (_sharedAutocorrect) return _sharedAutocorrect.boolValue; return [_defaults objectForKey:AutocorrectKey] == nil ? YES : [_defaults boolForKey:AutocorrectKey]; }
 - (BOOL)candidateLearningEnabled {
     if (_sharedCandidateLearning) return _sharedCandidateLearning.boolValue;
     return [_defaults objectForKey:CandidateLearningKey] == nil ? YES : [_defaults boolForKey:CandidateLearningKey];
@@ -1596,33 +1588,21 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setCandidateTranslations:(BOOL)value { _sharedCandidateTranslations = nil; [_defaults setBool:value forKey:CandidateTranslationsKey]; [self preferencesChanged]; }
 - (BOOL)candidateEnglishGloss { if (_sharedCandidateEnglishGloss) return _sharedCandidateEnglishGloss.boolValue; return [_defaults boolForKey:CandidateEnglishGlossKey]; }
 - (void)setCandidateEnglishGloss:(BOOL)value { _sharedCandidateEnglishGloss = nil; [_defaults setBool:value forKey:CandidateEnglishGlossKey]; [self preferencesChanged]; }
-- (void)setAutocorrect:(BOOL)value { _sharedAutocorrect = nil; [_defaults setBool:value forKey:AutocorrectKey]; [self preferencesChanged]; }
 - (BOOL)autocorrectTransposition { id value = _sharedTransposition ?: [_defaults objectForKey:TranspositionKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (BOOL)autocorrectNeighbor { id value = _sharedNeighbor ?: [_defaults objectForKey:NeighborKey]; return LocalModeBoolean(value) ? [value boolValue] : YES; }
 - (void)setAutocorrectTransposition:(BOOL)value { _sharedTransposition = nil; [_defaults setBool:value forKey:TranspositionKey]; [self preferencesChanged]; }
 - (void)setAutocorrectNeighbor:(BOOL)value { _sharedNeighbor = nil; [_defaults setBool:value forKey:NeighborKey]; [self preferencesChanged]; }
-- (BOOL)helpcodeEnabled { return [_defaults objectForKey:HelpcodeKey] == nil ? YES : [_defaults boolForKey:HelpcodeKey]; }
-- (void)setHelpcodeEnabled:(BOOL)value {
-    _sharedQuanpinHelpcode = nil;
-    _sharedShuangpinHelpcode = nil;
-    [_defaults setBool:value forKey:HelpcodeKey];
-    [_defaults setBool:value forKey:QuanpinHelpcodeKey];
-    [_defaults setBool:value forKey:ShuangpinHelpcodeKey];
-    [self preferencesChanged];
-}
-- (BOOL)quanpinHelpcodeEnabled { if (_sharedQuanpinHelpcode) return _sharedQuanpinHelpcode.boolValue; return [_defaults objectForKey:QuanpinHelpcodeKey] ? [_defaults boolForKey:QuanpinHelpcodeKey] : self.helpcodeEnabled; }
-- (BOOL)shuangpinHelpcodeEnabled { if (_sharedShuangpinHelpcode) return _sharedShuangpinHelpcode.boolValue; return [_defaults objectForKey:ShuangpinHelpcodeKey] ? [_defaults boolForKey:ShuangpinHelpcodeKey] : self.helpcodeEnabled; }
+- (BOOL)quanpinHelpcodeEnabled { if (_sharedQuanpinHelpcode) return _sharedQuanpinHelpcode.boolValue; return [_defaults objectForKey:QuanpinHelpcodeKey] ? [_defaults boolForKey:QuanpinHelpcodeKey] : YES; }
+- (BOOL)shuangpinHelpcodeEnabled { if (_sharedShuangpinHelpcode) return _sharedShuangpinHelpcode.boolValue; return [_defaults objectForKey:ShuangpinHelpcodeKey] ? [_defaults boolForKey:ShuangpinHelpcodeKey] : YES; }
 - (void)setQuanpinHelpcodeEnabled:(BOOL)value { _sharedQuanpinHelpcode = nil; [_defaults setBool:value forKey:QuanpinHelpcodeKey]; [self preferencesChanged]; }
 - (void)setShuangpinHelpcodeEnabled:(BOOL)value { _sharedShuangpinHelpcode = nil; [_defaults setBool:value forKey:ShuangpinHelpcodeKey]; [self preferencesChanged]; }
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences {
     if (![preferences isKindOfClass:NSDictionary.class]) return;
-    id autocorrect = preferences[@"autocorrect"];
     id learning = preferences[@"learning"];
     NSDictionary *frequency = preferences[@"frequency"];
     NSDictionary *fuzzy = preferences[@"fuzzy_pinyin"];
     id quanpin = preferences[@"quanpin_helpcode"];
     id shuangpin = preferences[@"shuangpin_helpcode"];
-    if (LocalModeBoolean(autocorrect)) _sharedAutocorrect = autocorrect;
     if (LocalModeBoolean(learning)) _sharedCandidateLearning = learning;
     if ([frequency isKindOfClass:NSDictionary.class]) {
         if (ValidFrequencyMode(frequency[@"mode"])) _sharedFrequencyMode = [frequency[@"mode"] copy];
@@ -1634,12 +1614,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         if (ValidFuzzyPinyinRules(fuzzy[@"rules"])) _sharedFuzzyPinyinRules = [fuzzy[@"rules"] copy];
     }
     id correction = preferences[@"quanpin"];
-    if (!correction && LocalModeBoolean(autocorrect)) correction = @{};
     if ([correction isKindOfClass:NSDictionary.class]) {
         id transposition = correction[@"autocorrect_transposition"];
         id neighbor = correction[@"autocorrect_neighbor"];
-        // Missing optional fields inherit the legacy default, including when
-        // a new shared snapshot removes a previously explicit override.
+        // A missing field inherits the default, including when a new shared snapshot removes a previously explicit override.
         if (!transposition || transposition == NSNull.null || LocalModeBoolean(transposition)) _sharedTransposition = transposition ?: NSNull.null;
         if (!neighbor || neighbor == NSNull.null || LocalModeBoolean(neighbor)) _sharedNeighbor = neighbor ?: NSNull.null;
     }
@@ -3422,7 +3400,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self sectionHeader:@"应用例外" keys:@[AppInputModeRulesKey]], appRuleCard,
         [self sectionHeader:@"中文输入方案"
                        keys:@[SchemeKey, ShuangpinProfileKey, ShuangpinPreeditKey, KeymapKey, WubiKey,
-                              WubiMixedPinyinKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
+                              WubiMixedPinyinKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
                               ShuangpinHelpcodeKey]],
         schemeCard, _quanpinCard, _shuangpinCard, _wubiCard,
     ]];
@@ -3472,9 +3450,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self settingRow:@"全拼邻键纠错" detail:@"例如把 shang 输入为 shabg。" control:_neighborToggle aka:@[@"打错"]],
     ], 0.0);
     correctionCard.accessibilityLabel = @"拼音纠错卡片";
-    // Quanpin correction is enabled by default and is no longer exposed as a native setting.
-    // Keep the controls attached for older automation and explicit shared-preference compatibility,
-    // but keep the card out of the visible and accessible settings page.
+    // Quanpin correction is enabled by default and is not exposed as a native setting, so the card stays out of the visible and accessible settings page while its controls keep reflecting the shared preferences in -refreshControls.
     correctionCard.hidden = YES;
     correctionCard.accessibilityHidden = YES;
     NSMutableArray<NSButton *> *fuzzyRuleBoxes = [NSMutableArray array];
@@ -4841,13 +4817,6 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                                              error:nil];
     NSURL *inputMethods = [library URLByAppendingPathComponent:@"Input Methods" isDirectory:YES];
     NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法.app" isDirectory:YES];
-    // A copy installed by the previous preview build may be the one that is there.
-    // Uninstalling has to remove what exists rather than a path that was never written; both carry
-    // the same bundle identifier, so only one of them can be installed.
-    if (![NSFileManager.defaultManager fileExistsAtPath:bundle.path]) {
-        NSURL *other = [inputMethods URLByAppendingPathComponent:@"水杉输入法（预览）.app" isDirectory:YES];
-        if ([NSFileManager.defaultManager fileExistsAtPath:other.path]) bundle = other;
-    }
     NSDictionary *runtime = MSIMELoadRuntimeOptions();
     NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]
         && [runtime[@"preferences_directory"] isAbsolutePath] ? runtime[@"preferences_directory"] : nil;

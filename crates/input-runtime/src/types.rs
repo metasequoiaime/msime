@@ -158,8 +158,6 @@ pub struct AiAssistantProviderConfig {
     #[serde(default)]
     pub prompt_id: String,
     #[serde(default)]
-    pub prompt: String,
-    #[serde(default)]
     pub prompt_custom_1: String,
     #[serde(default)]
     pub prompt_custom_2: String,
@@ -266,9 +264,8 @@ pub struct TranslationQuery {
         skip_serializing_if = "is_false"
     )]
     pub sentence: bool,
-    /// Absent only in documents from a host that predates the field; the provider then keeps its legacy choice (NiuTrans, then custom, then Tencent) so mixed versions behave as before.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<TranslationService>,
+    /// The service the user selected; every query carries it so the provider never guesses.
+    pub provider: TranslationService,
     /// The user explicitly selected the hosted MSIME translation account. Linux
     /// carries this flag through its provider socket; it is not a provider enum
     /// value because the provider owns the account credentials.

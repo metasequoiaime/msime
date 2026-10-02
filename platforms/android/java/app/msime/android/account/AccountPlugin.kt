@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -83,7 +82,6 @@ class AiTestArgs {
 class AccountPlugin(activity: Activity) : Plugin(activity) {
     private val hostActivity = activity
     private val storage = AndroidAccountSessionStorage(activity)
-    private val feedback = activity.getSharedPreferences("keyboard-feedback", Context.MODE_PRIVATE)
     private val bootstrapWorker: ExecutorService = Executors.newSingleThreadExecutor()
 
     private fun snapshotQueue(): DictionarySnapshotQueue {

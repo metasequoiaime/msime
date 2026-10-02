@@ -920,7 +920,6 @@ fn only_the_keyboard_model_answers_a_query() {
         "{:?}",
         words(&rows)
     );
-    assert_eq!(count(CandidateSource::NeuralDesktop), 0);
 }
 
 fn fuzzy_fixture() -> Fixture {

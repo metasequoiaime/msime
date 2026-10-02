@@ -35,49 +35,6 @@ fn preference_store_rejects_a_symlinked_document() {
 }
 
 #[test]
-fn retired_google_sentence_switch_still_loads_and_is_not_written_back() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(dir.path());
-    let saved = store.save(0, Preferences::default()).unwrap();
-    let mut document: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
-    document["preferences"]["sentence_association"] = serde_json::json!({
-        "word_lattice": false,
-        "google": false,
-        "neural_desktop": true,
-    });
-    fs::write(store.path(), serde_json::to_vec_pretty(&document).unwrap()).unwrap();
-
-    let loaded = store.load().unwrap();
-    assert_eq!(loaded.revision, saved.revision);
-    let sentence = loaded.preferences.sentence_association;
-    assert!(!sentence.word_lattice);
-    assert!(sentence.neural_desktop);
-    assert_eq!(
-        sentence,
-        SentenceAssociationPreferences {
-            word_lattice: false,
-            neural_desktop: true,
-            ..SentenceAssociationPreferences::default()
-        }
-    );
-    let written = serde_json::to_value(sentence).unwrap();
-    assert!(written.get("google").is_none());
-    assert!(
-        serde_json::from_value::<SentenceAssociationPreferences>(serde_json::json!({
-            "google": "not a bool either",
-        }))
-        .is_ok()
-    );
-    assert!(
-        serde_json::from_value::<SentenceAssociationPreferences>(serde_json::json!({
-            "googel": true,
-        }))
-        .is_err()
-    );
-}
-
-#[test]
 fn voice_commit_mode_defaults_for_legacy_documents() {
     let mut value = serde_json::to_value(Preferences::default()).unwrap();
     value["voice_input"]
@@ -110,66 +67,13 @@ fn doubao_auth_mode_defaults_and_roundtrips() {
         .unwrap()
         .remove("doubao_auth_mode");
     let restored: Preferences = serde_json::from_value(value).unwrap();
-    assert_eq!(restored.voice_input.doubao_auth_mode, "");
+    assert_eq!(restored.voice_input.doubao_auth_mode, "api_key");
 
     let mut explicit = Preferences::default();
     explicit.voice_input.doubao_auth_mode = "legacy".into();
     let roundtripped: Preferences =
         serde_json::from_value(serde_json::to_value(explicit).unwrap()).unwrap();
     assert_eq!(roundtripped.voice_input.doubao_auth_mode, "legacy");
-}
-
-#[test]
-fn legacy_voice_upgrade_preserves_existing_credentials() {
-    let mut value = serde_json::to_value(Preferences::default()).unwrap();
-    let voice = value["voice_input"].as_object_mut().unwrap();
-    voice.insert("asr_token".into(), "synthetic-asr-token".into());
-    voice.insert("polish_token".into(), "synthetic-polish-token".into());
-    voice.remove("commit_mode");
-    voice.remove("doubao_auth_mode");
-    voice.remove("asr_tokens");
-    voice.remove("polish_tokens");
-    let restored: Preferences = serde_json::from_value(value).unwrap();
-    assert_eq!(restored.voice_input.asr_token, "synthetic-asr-token");
-    assert_eq!(restored.voice_input.polish_token, "synthetic-polish-token");
-    assert_eq!(restored.voice_input.commit_mode, "tsf");
-    assert_eq!(restored.voice_input.doubao_auth_mode, "");
-    assert!(restored.voice_input.asr_tokens.is_empty());
-    assert!(restored.voice_input.polish_tokens.is_empty());
-}
-
-#[test]
-fn unreachable_voice_providers_normalize_on_read_without_rewriting_the_file() {
-    // A file written by a build that offered "local_whisper" must still load.
-    // No backend implements it: the Linux provider builds
-    // {openai, groq, siliconflow, doubao}, so it would fail every recording.
-    let directory = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(directory.path());
-    let mut document = serde_json::to_value(PreferencesSnapshot {
-        format_version: 1,
-        revision: 3,
-        preferences: Preferences::default(),
-    })
-    .unwrap();
-    document["preferences"]["voice_input"]["asr_provider"] =
-        serde_json::Value::String("local_whisper".into());
-    document["preferences"]["voice_input"]["polish_provider"] =
-        serde_json::Value::String("nonesuch".into());
-    let path = directory.path().join("preferences.json");
-    std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-    let original = std::fs::read(&path).unwrap();
-
-    let snapshot = store.load().expect("a legacy file still loads");
-    assert_eq!(
-        snapshot.preferences.voice_input.asr_provider,
-        Preferences::default().voice_input.asr_provider
-    );
-    assert_eq!(
-        snapshot.preferences.voice_input.polish_provider,
-        Preferences::default().voice_input.polish_provider
-    );
-    // Reading must not rewrite the user's file.
-    assert_eq!(std::fs::read(&path).unwrap(), original);
 }
 
 #[test]
@@ -272,8 +176,6 @@ fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
         "D:/models/sense-voice-small",
         r"\\?\C:\models\x-asr-zh-en-streaming",
         r"\\fileserver\share\models\fun-asr-nano",
-        // A Whisper model file saved by an earlier build: the document still loads, and the recognizer then reports the model missing because the path is not a directory holding `msime-model.json`.
-        "/Users/someone/models/ggml-large-v3-turbo.bin",
     ] {
         assert!(
             with_path(accepted).validate().is_ok(),
@@ -423,15 +325,19 @@ fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
     );
 }
 
-// Usage reporting is on by default and can be turned off. A document written before the switch existed reads on, and the retired opt-in `telemetry_enabled` key is dropped instead of being read or failing the document.
+// Usage reporting is on by default and can be turned off.
 #[test]
 fn usage_reporting_defaults_on_and_survives_a_save() {
     let defaults = Preferences::default();
     assert!(defaults.usage_reporting);
-    // Left out while on, so older strict parsers keep reading the document; absent reads as on.
-    let serialized = serde_json::to_value(&defaults).unwrap();
-    assert!(serialized.get("usage_reporting").is_none());
+    let mut serialized = serde_json::to_value(&defaults).unwrap();
+    assert_eq!(serialized["usage_reporting"], serde_json::Value::Bool(true));
     assert!(serialized.get("telemetry_enabled").is_none());
+    // An absent key reads as on.
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("usage_reporting");
     assert!(
         serde_json::from_value::<Preferences>(serialized.clone())
             .unwrap()
@@ -460,27 +366,7 @@ fn usage_reporting_defaults_on_and_survives_a_save() {
 }
 
 #[test]
-fn a_stored_telemetry_enabled_key_is_dropped_on_load() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PreferencesStore::new(dir.path());
-    store.save(0, Preferences::default()).unwrap();
-    let path = dir.path().join("preferences.json");
-    let mut document: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    document["preferences"]
-        .as_object_mut()
-        .unwrap()
-        .remove("usage_reporting");
-    // Neither value of the retired opt-in carries over: reporting follows the new default.
-    for old in [false, true] {
-        document["preferences"]["telemetry_enabled"] = old.into();
-        std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
-        assert!(store.load().unwrap().preferences.usage_reporting);
-    }
-}
-
-#[test]
-fn translation_account_defaults_on_for_new_desktop_installs_and_omitted_until_chosen() {
+fn translation_account_defaults_on_for_new_desktop_installs() {
     let defaults = Preferences::default();
     let desktop_default = cfg!(any(target_os = "macos", target_os = "linux"));
     assert_eq!(defaults.translation_account, desktop_default);
@@ -488,13 +374,20 @@ fn translation_account_defaults_on_for_new_desktop_installs_and_omitted_until_ch
         defaults.restored_to_defaults().translation_account,
         desktop_default
     );
-    // A stored document that never chose the account keeps it off, and an older strict parser must still read it.
+    // A stored document that never chose the account keeps it off.
     let unchosen = Preferences {
         translation_account: false,
         ..defaults.clone()
     };
-    let serialized = serde_json::to_value(&unchosen).unwrap();
-    assert!(serialized.get("translation_account").is_none());
+    let mut serialized = serde_json::to_value(&unchosen).unwrap();
+    assert_eq!(
+        serialized["translation_account"],
+        serde_json::Value::Bool(false)
+    );
+    serialized
+        .as_object_mut()
+        .unwrap()
+        .remove("translation_account");
     assert!(
         !serde_json::from_value::<Preferences>(serialized.clone())
             .unwrap()
@@ -548,23 +441,18 @@ fn secondary_candidate_translation_language_is_optional_and_round_trips() {
 }
 
 #[test]
-fn wubi_code_hint_defaults_on_and_legacy_documents_stay_implicit() {
+fn wubi_code_hint_defaults_on_and_roundtrips() {
     let defaults = Preferences::default();
-    assert!(defaults.wubi_code_hint_enabled());
-    let legacy = serde_json::to_value(&defaults).unwrap();
-    assert!(!legacy.as_object().unwrap().contains_key("wubi_code_hint"));
-    assert!(serde_json::from_value::<Preferences>(legacy)
-        .unwrap()
-        .wubi_code_hint_enabled());
+    assert!(defaults.wubi_code_hint);
 
     let disabled = Preferences {
-        wubi_code_hint: Some(false),
+        wubi_code_hint: false,
         ..defaults
     };
     assert!(
         !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
             .unwrap()
-            .wubi_code_hint_enabled()
+            .wubi_code_hint
     );
 }
 
@@ -819,24 +707,24 @@ fn local_mode_defaults_and_each_switch_roundtrip() {
 }
 
 #[test]
-fn generated_local_modes_are_off_by_default_and_in_older_documents() {
+fn generated_local_modes_are_off_by_default_and_when_absent() {
     let defaults = LocalModePreferences::default();
     assert!(
         !defaults.expression && !defaults.command && !defaults.mention && !defaults.mention_places
     );
 
-    // A document from before the three switches existed still loads, with them off and the rest as written. While off they are not written at all, so a default document is exactly what a build from before them wrote and can read back.
+    // A document without the switches loads with them off and the rest as written.
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    let local_modes = legacy["preferences"]["local_modes"]
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let local_modes = sparse["preferences"]["local_modes"]
         .as_object_mut()
         .unwrap();
     for key in ["expression", "command", "mention", "mention_places"] {
-        assert!(!local_modes.contains_key(key), "{key}");
+        assert_eq!(local_modes.remove(key), Some(false.into()), "{key}");
     }
     local_modes.insert("unicode".into(), false.into());
-    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap().preferences.local_modes;
     assert_eq!(
@@ -1073,10 +961,10 @@ fn plugin_preferences_are_validated() {
 }
 
 #[test]
-fn appearance_preferences_legacy_defaults_and_roundtrip() {
+fn appearance_preferences_absent_defaults_and_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let mut sparse = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     for key in [
         "theme",
         "settings_theme",
@@ -1084,13 +972,12 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         "screen_keyboard_theme",
         "global_theme",
         "custom_theme",
-        "ui_backend",
         "candidate_follow_cursor",
         "input_mode_hud",
     ] {
-        legacy["preferences"].as_object_mut().unwrap().remove(key);
+        sparse["preferences"].as_object_mut().unwrap().remove(key);
     }
-    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let bytes = serde_json::to_vec(&sparse).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
     assert_eq!(loaded, PreferencesSnapshot::default());
@@ -1107,7 +994,6 @@ fn appearance_preferences_legacy_defaults_and_roundtrip() {
         theme: ThemeMode::Light,
         settings_theme: SettingsTheme::Dark,
         toolbar_theme: SettingsTheme::Light,
-        ui_backend: UiBackend::Webview2,
         candidate_follow_cursor: false,
         input_mode_hud: false,
         ..Preferences::default()
@@ -1249,111 +1135,6 @@ fn global_theme_ids_round_trip_and_reject_unknown_ids() {
             "{removed} must no longer be accepted"
         );
     }
-}
-
-/// A document an older build saved: the settings as they were then, with the skin fields #1187 retired.
-fn write_legacy_document(dir: &Path, legacy: serde_json::Value) {
-    let mut preferences = serde_json::to_value(Preferences::default()).unwrap();
-    for key in ["global_theme", "custom_theme"] {
-        preferences.as_object_mut().unwrap().remove(key);
-    }
-    for (key, value) in legacy.as_object().unwrap() {
-        preferences[key] = value.clone();
-    }
-    let document =
-        serde_json::json!({"format_version": 1, "revision": 7, "preferences": preferences});
-    fs::write(
-        dir.join("preferences.json"),
-        serde_json::to_vec(&document).unwrap(),
-    )
-    .unwrap();
-}
-
-#[test]
-fn documents_with_the_retired_skin_fields_still_load() {
-    use crate::skin::theme::GlobalTheme;
-    let design = serde_json::to_value(TouchKeyboardSkinDesign {
-        background: 0x123456,
-        ..TouchKeyboardSkinDesign::default()
-    })
-    .unwrap();
-
-    // An external package, the colour pickers and a custom keyboard design become the custom theme.
-    let dir = tempfile::tempdir().unwrap();
-    write_legacy_document(
-        dir.path(),
-        serde_json::json!({
-            "candidate_skin": "bigfish",
-            "candidate_text_color": "#101010",
-            "candidate_border_color": "#707070",
-            "touch_keyboard_skin": "custom",
-            "custom_touch_keyboard_skin": design,
-        }),
-    );
-    let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-    assert_eq!(loaded.revision, 7);
-    assert_eq!(loaded.preferences.global_theme, GlobalTheme::Custom);
-    let custom = &loaded.preferences.custom_theme;
-    assert_eq!(custom.candidate_skin.as_deref(), Some("bigfish"));
-    assert_eq!(custom.candidate_colors.text.as_deref(), Some("#101010"));
-    assert_eq!(custom.candidate_colors.border.as_deref(), Some("#707070"));
-    assert_eq!(
-        custom.keyboard.as_ref().map(|design| design.background),
-        Some(0x123456)
-    );
-    // In memory only: the file keeps what the older build wrote.
-    let on_disk: serde_json::Value =
-        serde_json::from_slice(&fs::read(dir.path().join("preferences.json")).unwrap()).unwrap();
-    assert_eq!(on_disk["preferences"]["candidate_skin"], "bigfish");
-
-    // The retired built-in looks and keyboard presets have no counterpart: the defaults stand.
-    for skin in ["willow_green", "fluent", "wechat", "graphite"] {
-        let dir = tempfile::tempdir().unwrap();
-        write_legacy_document(
-            dir.path(),
-            serde_json::json!({"candidate_skin": skin, "touch_keyboard_skin": "candy", "custom_touch_keyboard_skin": design}),
-        );
-        let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-        assert_eq!(
-            loaded.preferences.global_theme,
-            GlobalTheme::System,
-            "{skin}"
-        );
-        assert_eq!(
-            loaded.preferences.custom_theme,
-            CustomTheme::default(),
-            "{skin}"
-        );
-    }
-
-    // What the document already says in the new fields wins, and a colour the current checks refuse is dropped instead of failing the load.
-    let dir = tempfile::tempdir().unwrap();
-    write_legacy_document(
-        dir.path(),
-        serde_json::json!({
-            "global_theme": "paper",
-            "custom_theme": {"candidate_skin": "sakura"},
-            "candidate_skin": "bigfish",
-            "candidate_text_color": "red",
-            "candidate_number_color": "#202020",
-        }),
-    );
-    let loaded = PreferencesStore::new(dir.path()).load().unwrap();
-    assert_eq!(loaded.preferences.global_theme, GlobalTheme::Paper);
-    assert_eq!(
-        loaded.preferences.custom_theme.candidate_skin.as_deref(),
-        Some("sakura")
-    );
-    assert_eq!(loaded.preferences.custom_theme.candidate_colors.text, None);
-    assert_eq!(
-        loaded
-            .preferences
-            .custom_theme
-            .candidate_colors
-            .number
-            .as_deref(),
-        Some("#202020")
-    );
 }
 
 #[test]
@@ -1853,11 +1634,18 @@ fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
 }
 
 #[test]
-fn vietnamese_preferences_default_and_stay_out_of_an_untouched_document() {
+fn vietnamese_preferences_default_when_absent_and_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let defaults = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    assert!(defaults["preferences"].get("vietnamese").is_none());
+    let mut defaults = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    assert_eq!(
+        defaults["preferences"]["vietnamese"],
+        serde_json::json!({ "input_method": "telex", "tone_style": "modern" })
+    );
+    defaults["preferences"]
+        .as_object_mut()
+        .unwrap()
+        .remove("vietnamese");
     let bytes = serde_json::to_vec(&defaults).unwrap();
     fs::write(store.path(), &bytes).unwrap();
     let loaded = store.load().unwrap();
@@ -1869,11 +1657,7 @@ fn vietnamese_preferences_default_and_stay_out_of_an_untouched_document() {
         }
     );
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    // A saved document that leaves Vietnamese alone is written without the key.
     let saved = store.save(0, loaded.preferences).unwrap();
-    assert!(serde_json::to_value(&saved).unwrap()["preferences"]
-        .get("vietnamese")
-        .is_none());
     let preferences = Preferences {
         vietnamese: VietnamesePreferences {
             input_method: VietnameseInputMethod::Vni,
@@ -2211,41 +1995,25 @@ fn custom_helpcode_schema_roundtrips_and_rejects_unsafe_ids() {
 }
 
 #[test]
-fn autocorrect_legacy_default_and_disabled_roundtrip() {
+fn quanpin_autocorrect_defaults_on_and_roundtrips() {
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
-    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
-    legacy["preferences"]
-        .as_object_mut()
-        .unwrap()
-        .remove("autocorrect");
-    let bytes = serde_json::to_vec(&legacy).unwrap();
-    fs::write(store.path(), &bytes).unwrap();
-    let loaded = store.load().unwrap();
-    assert!(loaded.preferences.autocorrect);
-    assert!(loaded.preferences.quanpin_autocorrect_transposition());
-    assert!(loaded.preferences.quanpin_autocorrect_neighbor());
-    assert_eq!(fs::read(store.path()).unwrap(), bytes);
-    let preferences = Preferences {
-        autocorrect: false,
-        ..Preferences::default()
-    };
-    let saved = store.save(0, preferences).unwrap();
-    assert!(!saved.preferences.autocorrect);
-    assert!(saved.preferences.quanpin_autocorrect_transposition());
-    assert!(saved.preferences.quanpin_autocorrect_neighbor());
+    let defaults = Preferences::default();
+    assert!(defaults.quanpin.autocorrect_transposition);
+    assert!(defaults.quanpin.autocorrect_neighbor);
 
     let explicit = Preferences {
-        autocorrect: true,
         quanpin: QuanpinPreferences {
-            autocorrect_transposition: Some(true),
-            autocorrect_neighbor: Some(false),
+            autocorrect_transposition: true,
+            autocorrect_neighbor: false,
         },
-        ..Preferences::default()
+        ..defaults
     };
-    let saved = store.save(saved.revision, explicit).unwrap();
-    assert!(saved.preferences.quanpin_autocorrect_transposition());
-    assert!(!saved.preferences.quanpin_autocorrect_neighbor());
+    let saved = store.save(0, explicit).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded, saved);
+    assert!(loaded.preferences.quanpin.autocorrect_transposition);
+    assert!(!loaded.preferences.quanpin.autocorrect_neighbor);
 }
 
 #[test]
@@ -2391,9 +2159,9 @@ fn ai_assistant_rejects_unknown_provider_and_invalid_candidate_limit() {
 
 #[test]
 fn default_ai_assistant_requests_carry_the_builtin_associative_prompt() {
-    // The stored slot stays empty on purpose. Android's keyboard and the iOS keyboard mirror read `ai_assistant.prompt` as their polish instruction and substitute a polish prompt only when it is blank, so storing the Windows associative text here would turn their polish answers into candidate JSON. Blank means "use the built-in prompt" at request time instead: here, and in the Linux provider's copy of the same text.
+    // The stored slot stays empty on purpose: blank means "use the built-in prompt" at request time, here and in the Linux provider's copy of the same text.
     let mut ai = Preferences::default().ai_assistant;
-    assert!(ai.prompt.is_empty());
+    assert!(ai.prompt_custom_1.is_empty());
     ai.enabled = true;
     ai.endpoint = "https://synthetic.invalid/chat".into();
     ai.model = "synthetic-model".into();
@@ -3169,44 +2937,6 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     assert_eq!(restored.restored_to_defaults(), restored);
 }
 
-/// Both halves of this product can name the renderer they mean.
-///
-/// `ui_backend` is written `d2d` in the Windows factory configuration and `direct2d` by this type,
-/// so a document carrying the factory spelling was rejected rather than read - and a rejected
-/// preference document does not lose one field, it falls back wholesale. The reference also accepts
-/// `webview` and `web` for the same choice, having written both at different times.
-///
-/// Serialisation is unchanged: the aliases are read-only, so nothing here starts writing a second
-/// spelling of its own.
-#[test]
-fn ui_backend_reads_every_spelling_this_product_has_written() {
-    for (value, expected) in [
-        ("direct2d", UiBackend::Direct2d),
-        ("d2d", UiBackend::Direct2d),
-        ("webview2", UiBackend::Webview2),
-        ("webview", UiBackend::Webview2),
-        ("web", UiBackend::Webview2),
-    ] {
-        assert_eq!(
-            serde_json::from_str::<UiBackend>(&format!("\"{value}\"")).unwrap(),
-            expected,
-            "{value} should name a renderer this product understands"
-        );
-    }
-    // An unknown value is still an error rather than a silent default: the reference falls back to
-    // native for one, but it is reading a single key, while here the whole document goes with it.
-    assert!(serde_json::from_str::<UiBackend>("\"opengl\"").is_err());
-    // One spelling out, whichever ones come in.
-    assert_eq!(
-        serde_json::to_string(&UiBackend::Direct2d).unwrap(),
-        "\"direct2d\""
-    );
-    assert_eq!(
-        serde_json::to_string(&UiBackend::Webview2).unwrap(),
-        "\"webview2\""
-    );
-}
-
 // Staged writes nobody is going to finish.
 //
 // `NamedTempFile` removes itself when dropped, but a process killed between creating the file and
@@ -3621,21 +3351,16 @@ fn mint_morning_is_the_community_design_and_a_valid_custom_theme() {
 }
 
 #[test]
-fn candidate_window_style_defaults_stay_out_of_the_document() {
+fn candidate_window_style_defaults_round_trip() {
     let preferences = Preferences::default();
     assert_eq!(preferences.candidate_scale_percent, 100);
     assert_eq!(preferences.candidate_opacity_percent, 100);
     assert_eq!(preferences.candidate_corner_radius, None);
 
-    // An untouched document must still load in a build that predates these keys, which refuses unknown fields.
     let value = serde_json::to_value(&preferences).unwrap();
-    for key in [
-        "candidate_scale_percent",
-        "candidate_opacity_percent",
-        "candidate_corner_radius",
-    ] {
-        assert!(value.get(key).is_none(), "{key} is written at its default");
-    }
+    assert_eq!(value["candidate_scale_percent"], 100);
+    assert_eq!(value["candidate_opacity_percent"], 100);
+    assert!(value.get("candidate_corner_radius").is_none());
     let decoded: Preferences = serde_json::from_value(value).unwrap();
     assert_eq!(decoded, preferences);
 }

@@ -212,12 +212,12 @@ int main() {
         };
         muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, AddListener, RemoveListener}
             recoveryDirectory:[directory URLByAppendingPathComponent:@"voice-audio-recovery" isDirectory:YES]];
-        assert([muter mute:nil] && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        assert([muter mute:nil] && [record()[@"uids"] isEqual:@[@"synthetic-output-a"]] && [record()[@"version"] isEqual:@2]);
         [identities removeObjectForKey:@100];
         MoveDefault(200);
         assert([record()[@"version"] isEqual:@2] && [record()[@"uids"] isEqual:(@[@"synthetic-output-a", @"synthetic-output-b"])]);
         [muter restore];
-        assert(muted[200] == 0 && [record()[@"uid"] isEqual:@"synthetic-output-a"] && [record()[@"version"] isEqual:@1]);
+        assert(muted[200] == 0 && [record()[@"uids"] isEqual:@[@"synthetic-output-a"]] && [record()[@"version"] isEqual:@2]);
         identities[@100] = @"synthetic-output-a";
         [muter restore]; assert(muted[100] == 0 && !record());
         muter = nil;

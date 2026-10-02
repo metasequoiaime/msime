@@ -231,12 +231,10 @@ static std::string utf8(JNIEnv *env, jbyteArray value) {
     env->ReleaseByteArrayElements(value, bytes, JNI_ABORT);
     return text;
 }
-// Which prompt the selected slot resolves to, decided by the shared header rather than here: the
-// slot/legacy precedence has been wrong on individual hosts before, and it is one rule.
-JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_polishPromptRaw(JNIEnv *env, jclass, jbyteArray id, jbyteArray legacy, jbyteArray custom1, jbyteArray custom2, jbyteArray custom3) {
+// Which prompt the selected slot resolves to, decided by the shared header rather than here: slot precedence has been wrong on individual hosts before, and it is one rule.
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_polishPromptRaw(JNIEnv *env, jclass, jbyteArray id, jbyteArray custom1, jbyteArray custom2, jbyteArray custom3) {
     msime::windows::PolishPromptSlots slots;
     slots.id = utf8(env, id);
-    slots.legacy = utf8(env, legacy);
     slots.custom_1 = utf8(env, custom1);
     slots.custom_2 = utf8(env, custom2);
     slots.custom_3 = utf8(env, custom3);

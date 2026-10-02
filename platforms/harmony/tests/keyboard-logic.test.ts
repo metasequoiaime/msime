@@ -7308,51 +7308,6 @@ group("cloud candidate mutations preserve the service protocol", () => {
   });
 });
 
-group("cloud dictionary exports are bounded before a native host saves them", () => {
-  const stored = JSON.stringify({
-    access_token: "a".repeat(64),
-    refresh_token: "b".repeat(64),
-    token_type: "Bearer",
-    expires_at: Date.now() + 600000,
-    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
-  });
-  let response: AccountTransportResponse = { status: 200, body: "A" };
-  let calls = 0;
-  const bridge = new AccountCloudBridge(
-    {
-      request: async () => {
-        calls += 1;
-        return response;
-      },
-    },
-    { load: () => stored, save: () => {}, clear: () => {} },
-  );
-  const ordinaryJsonLimit = "A".repeat(2 * 1024 * 1024);
-  response = { status: 200, body: ordinaryJsonLimit, contentLength: ordinaryJsonLimit.length };
-  void bridge.downloadDictionary("quick", "standard").then((reply) => {
-    check(
-      reply.body?.length === ordinaryJsonLimit.length,
-      "a 2 MiB export reaches the native saver",
-    );
-    response = { status: 200, body: "A".repeat(3 * 1024 * 1024 + 1) };
-    void bridge.downloadDictionary("quick", "standard").then((oversized) => {
-      check(oversized.body === undefined, "an export above 3 MiB is refused before saving");
-      response = { status: 200, body: "short", contentLength: 3000000 };
-      void bridge.downloadDictionary("quick", "standard").then((truncated) => {
-        check(truncated.body === undefined, "a truncated export is refused before saving");
-        const beforeInvalid = calls;
-        void bridge.downloadDictionary("quick", "hans").then((invalid) => {
-          check(invalid.error === "account_invalid", "an unsupported export format is refused");
-          check(
-            calls === beforeInvalid,
-            "an invalid export never carries the session to transport",
-          );
-        });
-      });
-    });
-  });
-});
-
 group("large account files use the authenticated streaming transport", () => {
   const stored = JSON.stringify({
     access_token: "a".repeat(64),
@@ -12902,16 +12857,12 @@ group("a Zhuyin or Vietnamese composition is drawn as the text it writes", () =>
     "the caret stays at the end of a written composition, and is the Engine's in a spelling",
   );
   check(
-    SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, true, 0) &&
-      !SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, false, 5) &&
-      !SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, undefined, 5),
-    "the Zhuyin list is open when the view says so, never from a candidate count",
-  );
-  check(
-    SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, undefined, 3) &&
-      !SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, false, 0) &&
-      !SchemeCompositionPolicy.listOpen(-1, true, 3),
-    "a Korean view without the flag still says so with its Hanja rows",
+    SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, true) &&
+      !SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, false) &&
+      SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, true) &&
+      !SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, false) &&
+      !SchemeCompositionPolicy.listOpen(-1, true),
+    "the openable list is open only when the view says so",
   );
 });
 

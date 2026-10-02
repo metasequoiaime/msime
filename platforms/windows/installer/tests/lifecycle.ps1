@@ -46,7 +46,9 @@ $initialize = Get-Block 'function InitializeUninstall' 'procedure StopProcess'
 if (-not $initialize.Contains('ResolvePreviousDataDir;')) {
     throw 'InitializeUninstall does not capture DataDir before the registry values are removed'
 }
-$post = Get-Block 'else if CurUninstallStep = usPostUninstall' "TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime'))"
+$postStart = $script.IndexOf('else if CurUninstallStep = usPostUninstall')
+if ($postStart -lt 0) { throw 'Missing installer block: usPostUninstall' }
+$post = $script.Substring($postStart)
 if (-not $post.Contains('if OwnsDataDir(ResolvePreviousDataDir) then') -or
     -not $post.Contains('TryDeleteTree(ResolvePreviousDataDir)') -or $post.Contains('GetDataDir(')) {
     throw 'usPostUninstall does not remove the data directory captured at uninstall start'
@@ -64,14 +66,14 @@ if (-not $preserved.Contains('(CompareText(FileName, DataDirMarkerName) = 0)')) 
 if ($script -notmatch '(?m)^Name: "\{code:GetDataDir\}"; Permissions: users-modify') {
     throw 'The data directory is not created with Users modify permission'
 }
-$ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'procedure EnsureSharedWebView2DataDir;'
+$ensure = Get-Block 'procedure EnsureImeUserDataDir;' 'procedure CreateWatchdogLogonTask;'
 foreach ($needle in @("AppDataPath := GetDataDir('')", '/grant *S-1-5-32-545:(OI)(CI)M /T /C /Q', '/setintegritylevel (OI)(CI)M /T /C /Q')) {
     if (-not $ensure.Contains($needle)) { throw "EnsureImeUserDataDir is missing $needle" }
 }
 $postInstall = Get-Block 'if CurStep = ssPostInstall then' 'procedure CurUninstallStepChanged'
-$replay = $postInstall.IndexOf('ReplayUserDictionary;')
+$networkChoice = $postInstall.IndexOf('ApplyNetworkChoiceToUserConfig;')
 $permissions = $postInstall.IndexOf('EnsureImeUserDataDir;')
-if ($permissions -lt 0 -or $permissions -lt $replay) {
+if ($permissions -lt 0 -or $networkChoice -lt 0 -or $permissions -lt $networkChoice) {
     throw 'Data-directory permissions are not applied after everything the installer writes there'
 }
 

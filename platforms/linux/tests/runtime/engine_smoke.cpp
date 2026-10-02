@@ -1752,7 +1752,7 @@ int main(int argc, char **argv) {
       const auto panel_marker = root / "panel-launches.log";
       const auto panel_launcher = root / "panel-launcher";
       std::ofstream(panel_launcher)
-          << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" >> \""
+          << "#!/bin/sh\ncase \"$1\" in --route=*) route=${1#--route=} ;; *) route=\"unexpected: $*\" ;; esac\nprintf '%s\\n' \"$route\" >> \""
           << panel_marker.string() << "\"\n";
       std::filesystem::permissions(panel_launcher,
                                    std::filesystem::perms::owner_read |

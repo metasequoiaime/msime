@@ -124,7 +124,6 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) NSInteger mixedEnglishMinimumPrefix;
 @property(nonatomic) BOOL mixedEmojiInput;
 @property(nonatomic) BOOL mixedKaomojiInput;
-@property(nonatomic) BOOL autocorrect;
 @property(nonatomic) BOOL candidateLearningEnabled;
 @property(nonatomic, copy) NSString *frequencyAdjustmentMode;
 @property(nonatomic) NSInteger frequencyTriggerCount;
@@ -146,8 +145,6 @@ FOUNDATION_EXPORT NSString *const MSIMEAppearanceInputModeOnlyKey;
 @property(nonatomic) BOOL candidateEnglishGloss;
 @property(nonatomic) BOOL autocorrectTransposition;
 @property(nonatomic) BOOL autocorrectNeighbor;
-// Legacy fallback for both schemes; setting it explicitly still sets both.
-@property(nonatomic) BOOL helpcodeEnabled;
 @property(nonatomic) BOOL quanpinHelpcodeEnabled;
 @property(nonatomic) BOOL shuangpinHelpcodeEnabled;
 - (void)applySharedAssistancePreferences:(NSDictionary *)preferences;

@@ -78,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            legacy = self.path in ("/legacy", "/inferred", "/trimmed-legacy")
+            legacy = self.path in ("/legacy", "/trimmed-legacy")
             assert self.headers.get("X-Api-Key") == (None if legacy else "fixture-token")
             assert self.headers.get("X-Api-App-Key") == ("stale-fixture-app" if legacy else None)
             assert self.headers.get("X-Api-Access-Key") == ("fixture-token" if legacy else None)
@@ -153,7 +153,7 @@ try:
         raise
     assert returncode == 0 and not errors
     assert all(counts.get(path) == 1 for path in
-               ("/api", "/legacy", "/inferred", "/masked-app", "/inferred-masked", "/trimmed", "/trimmed-legacy",
+               ("/api", "/legacy", "/unset", "/masked-app", "/trimmed", "/trimmed-legacy",
                 "/malformed", "/server-error", "/oversized", "/redirect", "/cancel", "/drop", "/silent", "/long"))
     assert "/leaked" not in counts
 finally:

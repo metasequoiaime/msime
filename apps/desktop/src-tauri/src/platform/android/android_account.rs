@@ -1148,7 +1148,7 @@ fn local_account_preferences(
     insert_bool(
         &mut settings,
         "input.wubi_code_hint",
-        preferences.wubi_code_hint.unwrap_or(true),
+        preferences.wubi_code_hint,
     );
     insert_string(
         &mut settings,
@@ -1384,7 +1384,7 @@ fn apply_local_account_preferences(
     }
     if let Some(value) = bool_setting(values, "input.wubi_code_hint")? {
         if supports_schema_field(schema, "input.wubi_code_hint", "boolean")? {
-            preferences.wubi_code_hint = Some(value);
+            preferences.wubi_code_hint = value;
         }
     }
     if let Some(value) = string_setting(values, "platform.android.keyboard_layout")? {

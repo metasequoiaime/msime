@@ -2720,11 +2720,11 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
                  ? msime::windows::PipeMetadata::CandidateActive
                  : 0u) |
             (IsAutoRepeat(lParam) ? msime::windows::PipeMetadata::AutoRepeat : 0u);
-        WriteDataToSharedMemory(Global::Keycode, wch, ipcModifiers, nullptr, 0,
-                                localCommitObservation,
-                                hasLocalCommitObservation && !localCommitObservation.empty()
-                                    ? 0b110111
-                                    : 0b000111);
+        WriteDataToNamedPipe(Global::Keycode, wch, ipcModifiers, nullptr, 0,
+                             localCommitObservation,
+                             hasLocalCommitObservation && !localCommitObservation.empty()
+                                 ? 0b110111
+                                 : 0b000111);
 
         PerfTimer sendKeyEventTimer;
         const KeyEventSendResult sendResult = SendKeyEventToUIProcess(&requestId);

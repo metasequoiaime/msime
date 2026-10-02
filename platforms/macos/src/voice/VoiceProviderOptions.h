@@ -10,7 +10,7 @@
 static inline BOOL MSIMEVoiceUsesNativeHTTPProvider(NSString *provider, BOOL providerSocketAvailable) {
     if (providerSocketAvailable) return NO;
     NSString *identifier = provider.lowercaseString ?: @"";
-    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral", @"cloud"]
+    return [@[@"openai", @"groq", @"siliconflow", @"everyapi", @"mistral"]
         containsObject:identifier];
 }
 
@@ -31,9 +31,7 @@ static inline BOOL MSIMEVoiceASRTokenMissing(NSString *provider, NSString *token
         MSIMEVoiceUsesNativeHTTPProvider(provider, NO);
 }
 
-// Adapt native preferences to the existing provider contract. Do not infer an
-// authentication mode here: older configurations rely on provider-side inference.
-// The boolean fallbacks match the shared macOS first-run defaults (`source_voice_default` in client-core).
+// Adapt native preferences to the provider contract. An unset Doubao authentication mode means the API key route. The boolean fallbacks match the shared macOS first-run defaults (`source_voice_default` in client-core).
 static inline NSDictionary *MSIMEVoiceProviderOptions(NSDictionary *query, NSUserDefaults *defaults) {
     NSMutableDictionary *result = [query mutableCopy];
     id commitMode = [defaults objectForKey:@"MSIMEClientVoiceCommitMode"];

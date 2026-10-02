@@ -54,7 +54,7 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
 char *msime_client_refresh_host(const uint8_t *path, size_t length);
 /* directory is an absolute UTF-8 directory path of length bytes; maximum 4096. Registers the device's anonymous MSIME account at https://api.msime.app unless anonymous-session.json already exists there, keeping the identity in anonymous-account.json and the session in anonymous-session.json (both owner-only). Blocks on the network: call off the input thread. Value is true once a session exists. A failure leaves the identity for the next call, so call again on a later start. */
 char *msime_client_ensure_anonymous_account(const uint8_t *directory, size_t length);
-/* Anonymous usage reporting to https://api.msime.app/v1/telemetry/events (no credentials). Every request is UTF-8 JSON of length bytes; maximum 16 KiB (256 KiB for record_crash). directory is an absolute directory the host owns for its telemetry files (the queue telemetry.json, telemetry-state.json with the random install id, the session marker and telemetry-crashes/); pass the same directory the earlier C++ reporter used so its queue is migrated. platform is windows, macos, linux, android, ios or harmony (aliases such as win, darwin, ohos are mapped); version is the real app version. Consent: enabled (the usage_reporting switch, default on) or, for hosts on the shared preferences, preferences_directory to read usage_reporting from; with reporting off, begin and flush clear everything and send nothing.
+/* Anonymous usage reporting to https://api.msime.app/v1/telemetry/events (no credentials). Every request is UTF-8 JSON of length bytes; maximum 16 KiB (256 KiB for record_crash). directory is an absolute directory the host owns for its telemetry files (the queue telemetry.json, telemetry-state.json with the random install id, the session marker and telemetry-crashes/). platform is windows, macos, linux, android, ios or harmony (aliases such as win, darwin, ohos are mapped); version is the real app version. Consent: enabled (the usage_reporting switch, default on) or, for hosts on the shared preferences, preferences_directory to read usage_reporting from; with reporting off, begin and flush clear everything and send nothing.
  * begin {directory, platform, version, enabled?|preferences_directory?}: call once at host start. Closes the previous session (session_crash only when it left a crash record; a leftover marker alone is no crash), queues crash records as crash events with paths reduced to file names, queues today's active, writes a new marker. Value {enabled, crash_record_path?, previous_session_crashed?, crashes?}. No network.
  * end {directory}: the host is exiting normally; queues the session event. Value true when a session was running. No network.
  * record_crash {directory, message, stack}: from a crash handler that may allocate (C++ terminate handler). Writes the session's crash record only; first line of message is the summary, stack is frames as module+offset or symbol. Value false when no session runs or a record exists. An async-signal handler instead writes crash_record_path from begin itself: open(O_WRONLY|O_CREAT|O_EXCL, 0600), the summary line, '\n', the frames.
@@ -341,8 +341,7 @@ char *msime_client_capture_clipboard_history(const uint8_t *request, size_t leng
 /* Structured mobile history, independent of the desktop automatic-capture preference.
  * JSON {directory:absolute App Group root,action:{operation:"load"|"clear"}}
  * or action:{operation:"capture"|"remove",text} or
- * action:{operation:"set_pinned",text,pinned}. The fixed Apple legacy file is
- * validated and migrated to directory/MSIME/clipboard_history.json before use. */
+ * action:{operation:"set_pinned",text,pinned}. History lives in directory/MSIME/clipboard_history.json. */
 char *msime_client_mobile_clipboard_history(const uint8_t *request, size_t length);
 /* Same validation as load_preferences; ok:true,value:null means lock busy.
  * Does not wait for the writer lock. Disk I/O may still block: use a worker.
@@ -649,7 +648,7 @@ char *msime_client_emoji_catalog_request(const uint8_t *query,
                                          size_t resources_length);
 #endif
 /* Shared Doubao authentication policy. Input (max 32768 bytes):
- * {auth_mode,app_id,token,resource_id}; absent mode supports legacy documents.
+ * {auth_mode,app_id,token,resource_id}; an absent or empty mode means api_key.
  * Response value: {headers:[[name,value],...]}. Contains credentials: never
  * log/persist the response; release with msime_client_string_free. */
 char *msime_client_doubao_auth_headers(const uint8_t *request, size_t length);

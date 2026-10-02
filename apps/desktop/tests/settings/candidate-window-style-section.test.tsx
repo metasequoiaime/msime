@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
@@ -6,7 +7,6 @@ import {
   CandidateScaleRow,
   CandidateWindowStyleSection,
   settingsCapabilities,
-  type HostCapabilities,
   type HostPlatform,
   type Preferences,
 } from "@msime/ui";
@@ -160,12 +160,12 @@ test.each([
   ["ios", { scale: false, opacity: false, radius: false }],
   ["android", { scale: false, opacity: false, radius: false }],
 ] as const)("%s gates the window style rows on its capabilities", (platform, expected) => {
-  const host = {
+  const host = testHost({
     platform,
     candidate_window_scale: expected.scale,
     candidate_window_opacity: expected.opacity,
     candidate_corner_radius: expected.radius,
-  } as HostCapabilities;
+  });
   const capabilities = settingsCapabilities({
     host,
     linux: platform === "linux",
@@ -184,25 +184,6 @@ test.each([
     opacity: capabilities.showCandidateWindowOpacity,
     radius: capabilities.showCandidateCornerRadius,
   }).toEqual(expected);
-});
-
-test("a host older than the style capabilities hides the rows", () => {
-  const capabilities = settingsCapabilities({
-    host: { platform: "windows" } as HostCapabilities,
-    linux: false,
-    android: false,
-    ios: false,
-    harmony: false,
-    windows: true,
-    macos: false,
-    mobile: false,
-    canRestartInputMethod: false,
-    canInstallInputSource: false,
-    canListVoiceCaptureDevices: false,
-  });
-  expect(capabilities.showCandidateWindowScale).toBe(false);
-  expect(capabilities.showCandidateWindowOpacity).toBe(false);
-  expect(capabilities.showCandidateCornerRadius).toBe(false);
 });
 
 test("the font presets write the platform's family first and lead the fallback chain with the preset", () => {

@@ -783,11 +783,11 @@ export function platformCssVariables(tokens: PlatformTokens): Record<string, str
 /**
  * Which settings look a host gets. Harmony's 2-in-1 reports `mobile_settings: false` and gets the desktop-style `hm2`; an iPhone and an iPad are told apart by viewport width, because the host contract carries no idiom yet, at the same 601px the stylesheet's phone breakpoint uses.
  *
- * A page with no host at all (the browser fixtures, or a host that predates the capability contract) is the Windows reference the upstream palette came from, unless the user agent says Linux.
+ * A page with no host at all (the browser preview and the test fixtures) is the Windows reference the upstream palette came from.
  */
 export function settingsPlatformOf(
   host: { platform: string; mobile_settings?: boolean } | undefined,
-  options: { wide: boolean; linuxUserAgent: boolean },
+  options: { wide: boolean },
 ): SettingsPlatform {
   switch (host?.platform) {
     case "windows":
@@ -803,6 +803,6 @@ export function settingsPlatformOf(
     case "harmony":
       return host.mobile_settings === false ? "hm2" : "harmony";
     default:
-      return options.linuxUserAgent ? "linux" : "win";
+      return "win";
   }
 }

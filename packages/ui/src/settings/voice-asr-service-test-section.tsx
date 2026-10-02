@@ -19,8 +19,6 @@ export interface VoiceAsrServiceTestSectionProps {
     config: Record<string, unknown>,
     disabled?: boolean,
   ) => ReactNode;
-  /** 放在语音页「识别服务配置」组末尾时为真，画成组内的一块。 */
-  grouped?: boolean;
 }
 
 /** Shared remote ASR test notice and credential test control. */
@@ -29,13 +27,12 @@ export function VoiceAsrServiceTestSection({
   voiceInput,
   doubaoAuthMode,
   credentialTestControl,
-  grouped = false,
 }: VoiceAsrServiceTestSectionProps) {
   const provider = voiceInput.asr_provider ?? "";
   if (!available || !isAsrServiceProvider(provider)) return null;
 
-  const content = (
-    <>
+  return (
+    <div className={settings.groupBlock}>
       <VoiceSyntheticSilenceNotice />
       {credentialTestControl(
         "voice.asr",
@@ -43,7 +40,6 @@ export function VoiceAsrServiceTestSection({
         asrServiceCredentialTestConfig(voiceInput, doubaoAuthMode),
         asrServiceCredentialTestDisabled(voiceInput, doubaoAuthMode),
       )}
-    </>
+    </div>
   );
-  return grouped ? <div className={settings.groupBlock}>{content}</div> : content;
 }

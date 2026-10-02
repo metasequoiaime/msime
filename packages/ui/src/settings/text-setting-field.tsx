@@ -1,8 +1,10 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
 import { SettingField } from "./setting-field";
 
-export interface TextSettingFieldProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "aria-label"> {
+export interface TextSettingFieldProps extends Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "value" | "onChange" | "aria-label"
+> {
   label: ReactNode;
   inputLabel: string;
   description?: ReactNode;
@@ -10,7 +12,7 @@ export interface TextSettingFieldProps
   onChange: (value: string) => void;
 }
 
-/** Shared labeled text input for legacy settings fields. */
+/** Shared labeled text input. */
 export function TextSettingField({
   label,
   inputLabel,

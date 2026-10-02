@@ -133,16 +133,11 @@ ANSWERED_BY: dict[str, str] = {
 # because "handled differently" is the sentence that would make this check worthless.
 DELIBERATELY_ABSENT: dict[str, str] = {
     # The WebView2 candidate backend. The reference can render its candidate window either with
-    # Direct2D or with a WebView2 document; this repository has only the Direct2D one, and
-    # `ui_backend` survives as a configuration contract (registered RUST_ONLY in the field-drift
-    # gate) so a profile carrying it still loads.
+    # Direct2D or with a WebView2 document; this repository has only the Direct2D one and no `ui_backend` preference.
     "windows_webview2": "The candidate window has one renderer here, Direct2D. See docs/windows-parity.md.",
     "ui_backend_policy": (
         "Chooses between the two renderers per surface. With one renderer there is nothing to "
-        "choose, and the key is inert here (registered RUST_ONLY in the field-drift gate). What "
-        "the policy also carries - that `d2d`, `webview` and `web` are spellings this product has "
-        "written - is migrated into UiBackend's serde aliases, so a profile written by either side "
-        "is read rather than rejected."
+        "choose, so the shared preferences have no `ui_backend` field."
     ),
     "webview_utils": "WebView2 host helpers. The webview here is Tauri's, which brings its own.",
     # Engine-owned. These call into the Engine's own tables; the Engine is vendored whole, so the

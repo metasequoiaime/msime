@@ -14,9 +14,6 @@ using FanyImeWireChar = wchar_t;
 using FanyImeWireChar = char16_t;
 #endif
 
-inline const wchar_t *FANY_IME_SHARED_MEMORY = L"Local\\FanyImeSharedMemory";
-inline const int BUFFER_SIZE = 4096;
-
 inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe";
 inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe";
 inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe";
@@ -36,36 +33,14 @@ inline const std::vector<std::wstring> FANY_IME_EVENT_ARRAY = {
 };
 
 //
-// modifiers:
-//   0: non
-//   1: shift
-//   2: control
-//   3: alt
-//   4: win
-//   5: to be supplemented
-//
-struct FanyImeSharedMemoryData
-{
-    std::uint32_t keycode;
-    FanyImeWireChar wch;
-    std::uint32_t modifiers_down = 0;
-    int point[2] = {100, 100};
-    int pinyin_length = 0;
-    FanyImeWireChar pinyin_string[128];
-    FanyImeWireChar candidate_string[1024];
-    FanyImeWireChar selected_candiate_string[128];
-};
-
-//
-// For uwp/metro apps, here we do not need candidate_string and selected_candiate_string,
-// just let server process to handle them
+// Main-pipe frame from the TSF to the Server. Candidates are resolved by the Server, so the frame carries only the key and the pinyin.
 //
 // event_type
 //   0: FanyImeKeyEvent
 //   1: FanyHideCandidateWndEvent
 //   2: FanyShowCandidateWndEvent
 //   3: FanyMoveCandidateWndEvent
-//   4: FanyLangbarRightClickEvent (legacy Main enum; tip now sends via Aux)
+//   4: FanyLangbarRightClickEvent (sent on Aux, never on Main)
 //
 struct alignas(8) FanyImeNamedpipeData
 {

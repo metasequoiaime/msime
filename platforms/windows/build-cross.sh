@@ -46,8 +46,6 @@ VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --x-manifest-root="$repo_root/platforms/windows" --x-install-root="$deps_root"
 env "$linker_var=$compiler-gcc" \
   cargo build --locked -p msime-host-api --target "$triple"
-env "$linker_var=$compiler-gcc" \
-  cargo build --locked -p msime-engine --bin MetasequoiaImeDictionaryReplay --target "$triple"
 output="$repo_root/target/windows-full/$arch"
 # compile_commands.json is what lets the same sources be re-checked for the
 # other architecture with the flags they are really built with, rather than a
@@ -62,6 +60,4 @@ cmake -S platforms/windows -B "$output" \
   -DMSIME_HOST_LIBRARY="$repo_root/target/$triple/debug/libmsime_host_api.dll.a"
 cmake --build "$output" --parallel 4
 cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output"
-cmake -E copy_if_different \
-  "$repo_root/target/$triple/debug/MetasequoiaImeDictionaryReplay.exe" "$output"
 echo "$arch Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; MinGW runtime DLLs are not bundled."

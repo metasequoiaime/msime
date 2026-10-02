@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { DoubaoOptionsSection } from "@msime/ui";
+import { DoubaoOptionsRows } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -14,7 +14,7 @@ test("forwards recognition option changes", () => {
   const onEnableDdcChange = vi.fn();
   const onBoostingTableIdChange = vi.fn();
   render(
-    <DoubaoOptionsSection
+    <DoubaoOptionsRows
       linux={false}
       enableItn
       enablePunc
@@ -42,7 +42,7 @@ test("forwards recognition option changes", () => {
 
 test("describes provider-side options", () => {
   render(
-    <DoubaoOptionsSection
+    <DoubaoOptionsRows
       linux
       enableItn
       enablePunc

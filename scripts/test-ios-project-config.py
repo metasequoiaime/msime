@@ -115,7 +115,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
-    def test_tauri_ios_onboarding_reuses_the_legacy_app_marker(self):
+    def test_tauri_ios_onboarding_reuses_the_native_app_marker(self):
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
@@ -199,7 +199,7 @@ class IOSProjectConfigTests(unittest.TestCase):
 
         # The checked-in XcodeGen output is the shipping project used by Tauri. Keep the
         # generated target in lockstep with project.yml so a newly added keyboard dependency
-        # cannot silently compile only in the legacy native project.
+        # cannot silently compile only in the native project.
         self.assertIn("../../../../../platforms/ios/KeyboardExtension/Sources", project)
         self.assertIn("../../../../../platforms/ios/SharedUI", project)
         sources = [
@@ -277,7 +277,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn('kSecAttrService as String: "app.msime.backend.account"', swift)
         self.assertIn('kSecAttrAccount as String: "https://api.msime.app"', swift)
         self.assertIn("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly", swift)
-        self.assertIn('kSecAttrService as String: "app.msime.ios.community"', swift)
+        self.assertNotIn("app.msime.ios.community", swift)
         self.assertIn("static let maximumPayloadBytes = 16 * 1024", swift)
         self.assertIn("@objc public func loadSession", swift)
         self.assertIn("@objc public func saveSession", swift)

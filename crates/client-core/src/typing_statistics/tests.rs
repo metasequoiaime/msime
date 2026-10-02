@@ -141,32 +141,6 @@ fn migrates_legacy_totals_and_preserves_pause_on_reset() {
 }
 
 #[test]
-fn moves_a_valid_legacy_store_without_replacing_shared_statistics() {
-    let root = tempfile::tempdir().unwrap();
-    let legacy = TypingStatisticsStore::new(root.path());
-    legacy.set_enabled(true).unwrap();
-    legacy
-        .record("old", TypingSource::English, "2026-09-07", Some(9))
-        .unwrap();
-    let shared_directory = root.path().join("MSIME");
-    let shared = TypingStatisticsStore::new(&shared_directory);
-
-    assert!(shared.migrate_from(root.path()).unwrap());
-    assert!(!root.path().join("typing-statistics.json").exists());
-    assert_eq!(shared.load().unwrap().total, 3);
-
-    // Its document was moved away, so as far as the store is concerned this is a fresh
-    // profile again - and a fresh profile has statistics off.
-    legacy.set_enabled(true).unwrap();
-    legacy
-        .record("legacy", TypingSource::English, "2026-09-08", Some(9))
-        .unwrap();
-    assert!(!shared.migrate_from(root.path()).unwrap());
-    assert_eq!(shared.load().unwrap().total, 3);
-    assert_eq!(legacy.load().unwrap().total, 6);
-}
-
-#[test]
 fn serializes_writers_and_keeps_every_day_under_forever() {
     let directory = tempfile::tempdir().unwrap();
     let store = Arc::new(TypingStatisticsStore::new(directory.path()));

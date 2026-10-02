@@ -56,7 +56,6 @@ enum UsageReporting {
   /// Starts a keyboard session: closes the previous one, queues crash records and today's active. Returns the crash record path for the signal handler, or nil when reporting is off. No network I/O.
   static func begin() -> String? {
     guard let directory else { return nil }
-    removeLegacyQueue()
     guard let value = call(msimeClientTelemetryBegin, request(directory)) as? [String: Any],
           value["enabled"] as? Bool == true else { return nil }
     return value["crash_record_path"] as? String
@@ -71,7 +70,6 @@ enum UsageReporting {
   /// Queues today's active and sends the queue. Blocks on the network: never on the main thread.
   static func flush() {
     guard let directory else { return }
-    removeLegacyQueue()
     call(msimeClientTelemetryFlush, request(directory))
   }
 
@@ -126,13 +124,6 @@ enum UsageReporting {
       pending.insert(contentsOf: (frame["subFrames"] as? [[String: Any]]) ?? [], at: 0)
     }
     return lines.joined(separator: "\n")
-  }
-
-  /// The queue of the earlier Swift reporter: per-install download events and crashes without an install id, which the server no longer wants.
-  private static func removeLegacyQueue() {
-    guard let group = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier) else { return }
-    try? FileManager.default.removeItem(at: group.appendingPathComponent("telemetry-events.json"))
   }
 
   /// The value of the {ok,value} envelope, or nil on any failure; reporting never affects the host.

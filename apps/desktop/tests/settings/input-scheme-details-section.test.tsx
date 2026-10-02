@@ -50,7 +50,7 @@ test("updates the macOS Shuangpin keymap toggle when provided", () => {
     />,
   );
 
-  fireEvent.click(screen.getByRole("checkbox", { name: "输入时显示双拼键位提示" }));
+  fireEvent.click(screen.getByRole("switch", { name: "输入时显示双拼键位提示" }));
   expect(onMacosShuangpinKeymapChange).toHaveBeenCalledWith(true);
 });
 
@@ -65,7 +65,7 @@ test("shows only the Japanese scheme details in Japanese mode", () => {
     />,
   );
 
-  expect(screen.getByRole("group", { name: "日语方案" }).getAttribute("hidden")).toBeNull();
+  expect(screen.getByRole("radiogroup", { name: "日语方案" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
 });
@@ -81,42 +81,10 @@ test("shows only the Korean scheme details in Korean mode", () => {
     />,
   );
 
-  expect(screen.getByRole("group", { name: "韩语方案" }).getAttribute("hidden")).toBeNull();
-  expect(screen.queryByRole("group", { name: "日语方案" })).toBeNull();
+  expect(screen.getByRole("radiogroup", { name: "韩语方案" })).toBeTruthy();
+  expect(screen.queryByRole("radiogroup", { name: "日语方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
-});
-
-test("grouped mode renders the same scheme details with platform rows", () => {
-  const onShuangpinProfileChange = vi.fn();
-  const { rerender } = render(
-    <InputSchemeDetailsSection
-      grouped
-      scheme="quanpin"
-      shuangpinProfile="xiaohe"
-      macos
-      hasTouchKeyboardSchemes={false}
-      onShuangpinProfileChange={onShuangpinProfileChange}
-    />,
-  );
-
-  const profile = screen.getByRole("combobox", { name: "双拼方案" }) as HTMLSelectElement;
-  expect(profile.disabled).toBe(true);
-  fireEvent.change(profile, { target: { value: "microsoft" } });
-  expect(onShuangpinProfileChange).toHaveBeenCalledWith("microsoft");
-
-  rerender(
-    <InputSchemeDetailsSection
-      grouped
-      scheme="japanese"
-      shuangpinProfile="xiaohe"
-      macos={false}
-      hasTouchKeyboardSchemes={false}
-      onShuangpinProfileChange={onShuangpinProfileChange}
-    />,
-  );
-  expect(screen.getByRole("radiogroup")).toBeTruthy();
-  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
 });
 
 test.each([
@@ -125,64 +93,53 @@ test.each([
 ] as const)(
   "%s shows its read-only scheme row and no pinyin or Wubi rows",
   (scheme, title, label) => {
-    for (const grouped of [true, false]) {
-      render(
-        <InputSchemeDetailsSection
-          grouped={grouped}
-          scheme={scheme}
-          shuangpinProfile="xiaohe"
-          macos
-          hasTouchKeyboardSchemes={false}
-          onShuangpinProfileChange={vi.fn()}
-        />,
-      );
-      expect(screen.getAllByText(title).length).toBeGreaterThanOrEqual(1);
-      expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
-      expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
-      expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
-      expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
-      cleanup();
-    }
-  },
-);
-
-test("Vietnamese input method and tone placement are live controls", () => {
-  for (const grouped of [true, false]) {
-    const onVietnameseChange = vi.fn();
     render(
       <InputSchemeDetailsSection
-        grouped={grouped}
-        scheme="vietnamese"
+        scheme={scheme}
         shuangpinProfile="xiaohe"
         macos
         hasTouchKeyboardSchemes={false}
         onShuangpinProfileChange={vi.fn()}
-        onVietnameseChange={onVietnameseChange}
       />,
     );
-    expect((screen.getByRole("radio", { name: "Telex" }) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByRole("radio", { name: "新式 hoà" }) as HTMLInputElement).checked).toBe(
-      true,
-    );
+    expect(screen.getAllByText(title).length).toBeGreaterThanOrEqual(1);
+    expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: "VNI" }));
-    expect(onVietnameseChange).toHaveBeenLastCalledWith({
-      input_method: "vni",
-      tone_style: "modern",
-    });
-    fireEvent.click(screen.getByRole("radio", { name: "旧式 hòa" }));
-    expect(onVietnameseChange).toHaveBeenLastCalledWith({
-      input_method: "telex",
-      tone_style: "classic",
-    });
-    cleanup();
-  }
+    expect(screen.queryByRole("combobox", { name: "五笔方案" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
+  },
+);
+
+test("Vietnamese input method and tone placement are live controls", () => {
+  const onVietnameseChange = vi.fn();
+  render(
+    <InputSchemeDetailsSection
+      scheme="vietnamese"
+      shuangpinProfile="xiaohe"
+      macos
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+      onVietnameseChange={onVietnameseChange}
+    />,
+  );
+  expect((screen.getByRole("radio", { name: "Telex" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: "新式 hoà" }) as HTMLInputElement).checked).toBe(true);
+  expect(screen.queryByRole("combobox", { name: "双拼方案" })).toBeNull();
+  fireEvent.click(screen.getByRole("radio", { name: "VNI" }));
+  expect(onVietnameseChange).toHaveBeenLastCalledWith({
+    input_method: "vni",
+    tone_style: "modern",
+  });
+  fireEvent.click(screen.getByRole("radio", { name: "旧式 hòa" }));
+  expect(onVietnameseChange).toHaveBeenLastCalledWith({
+    input_method: "telex",
+    tone_style: "classic",
+  });
 });
 
 test("Vietnamese controls show the document's options", () => {
   render(
     <InputSchemeDetailsSection
-      grouped
       scheme="vietnamese"
       shuangpinProfile="xiaohe"
       macos={false}

@@ -28,6 +28,7 @@ class TranslationCacheParity(unittest.TestCase):
         self.query = {
             "candidates": ["hello"],
             "target_language": "en",
+            "provider": "custom",
             "custom_translation": {
                 "enabled": True,
                 "endpoint": "https://translation.invalid/",

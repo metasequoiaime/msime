@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -16,7 +17,6 @@ import {
   parseCustomTranslations,
   useCustomTranslations,
   type CustomTranslationsClient,
-  type HostCapabilities,
   type Snapshot,
 } from "@msime/ui";
 
@@ -71,7 +71,7 @@ test("a host with nowhere to drop a file can still supply the overlay", async ()
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "harmony" } as HostCapabilities,
+        host: testHost({ platform: "harmony" }),
         customTranslations: { load: async () => "你好\thello\n", save },
       }}
     />,
@@ -97,7 +97,7 @@ test("the desktop hosts get the overlay too, where the profile directory is hidd
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         customTranslations: { load: async () => "", save },
       }}
     />,
@@ -118,7 +118,7 @@ test("a host without the route is not offered the section", async () => {
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );

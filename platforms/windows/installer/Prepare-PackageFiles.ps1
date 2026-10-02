@@ -8,14 +8,10 @@ param(
     # Historical or custom layouts remain available through explicit overrides.
     [string]$TsfDirectory = 'windows',
     [string]$ServerDirectory = 'server',
-    # Deprecated compatibility argument; UI assets are embedded in Tauri now.
-    [string]$UiHtmlDirectory = 'ui-html',
     # The helpcode tables, one flat directory; only its *.txt tables are staged, and its notices go into THIRD_PARTY_NOTICES.txt through Collect-Notices.ps1.
     [string]$HelpCodeDirectory = 'resources/helpcodes',
     # The zinnia handwriting model with its licence, relative to RepoRoot, as scripts/fetch_handwriting_model.py downloads them against resources/handwriting-model.lock.json. Without the model the package installs without offline handwriting.
     [string]$HandwritingDirectory = 'target/handwriting-model',
-    # Deprecated: both resource layouts now use DesktopResourcesDirectory.
-    [string]$DictionaryDirectory = 'MetasequoiaImeDict',
     [string]$ServerReleaseDirectory = '',
     # Native WinUI 3 settings binary; relative overrides are resolved against RepoRoot.
     [string]$DesktopExecutable = 'target/windows-full/x64/bin/msime-client-settings.exe',
@@ -43,7 +39,7 @@ if ($TargetVersion -notmatch '^[0-9][0-9A-Za-z.+-]*$') {
 
 function Test-PackageTestArtifact {
     param([Parameter(Mandatory)][string]$BaseName)
-    # Client CMake tests use windows-*, alongside the legacy test conventions.
+    # Client CMake tests use windows-*; the other patterns cover the remaining test executables.
     # Production entry points use MetasequoiaIme* or msime-client-* names.
     return $BaseName -like '*Tests' -or $BaseName -like 'test_*' -or $BaseName -like 'windows-*'
 }
@@ -96,7 +92,6 @@ if ($DesktopPreviewExecutable) {
     $stagedPreview = Join-Path $serverRelease 'MSIME.exe'
     if (Test-Path -LiteralPath $stagedPreview -PathType Leaf) { $previewSource = $stagedPreview }
 }
-$dictionaryReplayRelease = Join-Path $serverRelease 'MetasequoiaImeDictionaryReplay.exe'
 $mcpRelease = Join-Path $serverRelease 'msime-mcp.exe'
 if (-not $Tsf32ReleaseDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 'target/windows-full/x86/bin') -PathType Container)) {
     $Tsf32ReleaseDirectory = 'target/windows-full/x86/bin'
@@ -121,7 +116,6 @@ $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) 'msime_host_api.dll'
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
 $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
-$pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot $HelpCodeDirectory
 # 品牌标识。这个目录只放 ServerResources.rc 要编译进 Server 的那一个图标。
 # 语言栏与工具栏的状态图标不在这里：它们在 tsf/assets 下，由 MetasequoiaIME.rc 编进 TSF DLL，
@@ -138,12 +132,7 @@ $license = Join-Path $RepoRoot 'LICENSE'
 $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
     $DesktopResourcesDirectory
 } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
-$dictionaryDb = Join-Path $resourceSource 'msime.db'
-$dictionaryManifest = Join-Path $resourceSource 'dictionary-manifest.json'
-$japaneseModel = Join-Path $resourceSource 'dict_japanese.dat'
-$japaneseModelLicense = Join-Path $resourceSource 'mozc_dictionary_oss_README.txt'
 $englishDb = Join-Path $resourceSource 'english.db'
-$othersDb = Join-Path $resourceSource 'others.db'
 # 手写模型与其授权声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model 查找，因此这两个文件与 Server 一起落在 server_exe 下，而不是 app_data。来源由 resources/handwriting-model.lock.json 记录，不再随包附 provenance.json。
 $handwritingSource = Join-Path $RepoRoot $HandwritingDirectory
 $handwritingModel = Join-Path $handwritingSource 'handwriting-zh_CN.model'
@@ -158,7 +147,6 @@ if ($DesktopPreviewExecutable -and -not (Test-Path -LiteralPath $previewSource -
 }
 Assert-PathExists -LiteralPath $serverRelease -Description 'Server Release 输出目录'
 Assert-PathExists -LiteralPath (Join-Path $serverRelease 'MetasequoiaImeWatchdog.exe') -Description 'Watchdog Release EXE'
-Assert-PathExists -LiteralPath $dictionaryReplayRelease -Description '用户词库回放程序 Release EXE'
 Assert-PathExists -LiteralPath $mcpRelease -Description 'MCP 服务程序 Release EXE'
 Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
@@ -189,20 +177,15 @@ Assert-PathExists -LiteralPath $license -Description '许可证 LICENSE'
 
 $desktopResources = @()
 if (-not $Light) {
-    # Check pinned bytes before either legacy or shared-runtime staging reads
-    # them. Both layouts must be built from the same source generation.
+    # Check pinned bytes before staging reads them.
     $desktopResources = @(& (Join-Path $PSScriptRoot 'Get-VerifiedDesktopResources.ps1') `
         -SourceDirectory $resourceSource `
         -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json'))
     Assert-PathExists -LiteralPath $factoryConfig -Description '出厂配置 default_config\config.default.toml'
-    Assert-PathExists -LiteralPath $pinyinTable -Description '完整拼音音节表 pinyin.txt'
     Assert-PathExists -LiteralPath $helpcodeSource -Description '辅助码目录'
     if (-not (Get-ChildItem -LiteralPath $helpcodeSource -File -Filter '*.txt')) {
         throw "辅助码目录中没有码表：$helpcodeSource"
     }
-    Assert-PathExists -LiteralPath $dictionaryDb -Description '词库数据库 msime.db'
-    Assert-PathExists -LiteralPath $japaneseModel -Description '日语整句模型 dict_japanese.dat'
-    Assert-PathExists -LiteralPath $japaneseModelLicense -Description 'Mozc 日语词典授权声明'
     Assert-PathExists -LiteralPath $englishDb -Description '英文词库数据库 english.db'
     python -c @"
 import sqlite3, sys
@@ -215,11 +198,7 @@ if 'weight' not in names or pk != ['word', 'display']:
     if ($LASTEXITCODE -ne 0) {
         throw "英文词库数据库 schema 检查失败：$englishDb"
     }
-    Assert-PathExists -LiteralPath $othersDb -Description '杂项数据库 others.db'
     # Validate source content before any existing package staging is removed.
-    if (-not (Get-Content -LiteralPath $pinyinTable | Where-Object { $_.Trim() -eq 'xing' })) {
-        throw "完整拼音音节表缺少 xing：$pinyinTable"
-    }
     $defaultConfig = Get-Content -LiteralPath $factoryConfig -Raw
     if ($defaultConfig -notmatch '(?m)^schema\s*=\s*"quanpin"\s*$') {
         throw '出厂配置的 input.schema 必须是 quanpin。'
@@ -268,31 +247,14 @@ $targetServer = Join-Path $PSScriptRoot 'server_exe'
 $targetTsf = Join-Path $PSScriptRoot 'tsf_dll'
 
 if ($Light) {
-    Write-Host '轻量模式：跳过词库、辅助码、拼音表和出厂配置，刷新 TSF、Server 与 Tauri。'
+    Write-Host '轻量模式：跳过词库、辅助码和出厂配置，刷新 TSF、Server 与 Tauri。'
     New-Item -ItemType Directory -Path $targetAppData -Force | Out-Null
 }
 else {
     Reset-Directory -LiteralPath $targetAppData
-    Copy-Item -LiteralPath $pinyinTable -Destination (Join-Path $targetAppData 'pinyin.txt') -Force
-    Copy-Item -LiteralPath $dictionaryDb -Destination (Join-Path $targetAppData 'msime.db') -Force
-    if (Test-Path -LiteralPath $dictionaryManifest) {
-        Copy-Item -LiteralPath $dictionaryManifest -Destination (Join-Path $targetAppData 'dictionary-manifest.json') -Force
-    }
-    Copy-Item -LiteralPath $japaneseModel -Destination (Join-Path $targetAppData 'dict_japanese.dat') -Force
-    Copy-Item -LiteralPath $japaneseModelLicense -Destination (Join-Path $targetAppData 'MOZC_DICTIONARY_LICENSE.txt') -Force
-    Copy-Item -LiteralPath $englishDb -Destination (Join-Path $targetAppData 'english.db') -Force
-    Copy-Item -LiteralPath $othersDb -Destination (Join-Path $targetAppData 'others.db') -Force
-
     $defaultConfigPath = Join-Path $targetAppData 'config.default.toml'
-    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。
-    # 安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
+    # 出厂配置来自本仓库的 default_config，不依赖本机是否已安装输入法。安装脚本用 onlyifdoesntexist 生成用户 config.toml，升级不会覆盖已有方案/主题。
     Set-Content -LiteralPath $defaultConfigPath -Value $defaultConfig -Encoding utf8NoBOM -NoNewline
-    foreach ($stagedUserConfig in @('config.toml', 'config.base.toml')) {
-        $stagedPath = Join-Path $targetAppData $stagedUserConfig
-        if (Test-Path -LiteralPath $stagedPath) {
-            Remove-Item -LiteralPath $stagedPath -Force
-        }
-    }
 
     $targetHelpcodes = Join-Path $targetAppData 'helpcodes'
     Reset-Directory -LiteralPath $targetHelpcodes
@@ -300,17 +262,12 @@ else {
         Copy-Item -Destination $targetHelpcodes -Force
 }
 
-$targetHtml = Join-Path $targetAppData 'html'
 $targetAudios = Join-Path $targetAppData 'audios'
 Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py. The Server names DataDir\sound-packs to client-core as the built-in pack root; installed packs live under DataDir\plugins, which is user state.
 $targetSoundPacks = Join-Path $targetAppData 'sound-packs'
 Reset-Directory -LiteralPath $targetSoundPacks
 Copy-DirectoryContents -Source (Join-Path $RepoRoot 'resources/sound-packs') -Destination $targetSoundPacks
-if (Test-Path -LiteralPath $targetHtml) {
-    # Remove obsolete package staging, not the user's installed files.
-    Remove-Item -LiteralPath $targetHtml -Recurse -Force
-}
 
 # Server Release 输出整体复制，但测试程序及其 PDB 绝不能进入安装包。
 # 其他 PDB 保留在对应 EXE 旁边，方便安装后直接进行崩溃分析。
@@ -333,8 +290,7 @@ if ($previewSource) {
         Copy-Item -LiteralPath $previewPdbSource -Destination (Join-Path $targetServer 'MSIME.pdb') -Force
     }
 }
-# Inno recursively installs server_exe under Program Files. Keep these verified
-# read-only sources separate from legacy app_data and per-user writable state.
+# Inno recursively installs server_exe under Program Files. Keep these verified read-only sources separate from app_data and per-user writable state.
 $targetResources = Join-Path $targetServer 'resources'
 if ($Light -and (Test-Path -LiteralPath $targetResources)) {
     # Do not inherit a stale bundle from a reused native build directory.

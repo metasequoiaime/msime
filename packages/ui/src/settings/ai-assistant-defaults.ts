@@ -13,7 +13,6 @@ export const defaultAiAssistant: AiAssistantPreferences = {
   token: "",
   tokens: {},
   prompt_id: "custom_1",
-  prompt: "",
   prompt_custom_1: "",
   prompt_custom_2: "",
   prompt_custom_3: "",

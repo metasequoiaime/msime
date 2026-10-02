@@ -41,7 +41,7 @@ export function isChineseScheme(scheme: InputScheme): scheme is ChineseScheme {
   return !(nonChineseSchemes as readonly InputScheme[]).includes(scheme);
 }
 
-/** Mirrors `client-core::host_surface::base_input_schemes`: what a host older than `HostCapabilities.input_schemes` offers. */
+/** The schemes offered when there is no host (the browser preview and tests). */
 export const baseInputSchemes: readonly InputScheme[] = [
   "quanpin",
   "shuangpin",
@@ -57,11 +57,11 @@ const knownInputSchemes: readonly InputScheme[] = [
   "vietnamese",
 ];
 
-/** The schemes the host offers. A value this build does not know is dropped, so a newer host never puts an unlabelled option on the page. */
+/** The schemes the host offers, or `baseInputSchemes` without a host. A value the page has no label for is dropped rather than shown as an unlabelled option. */
 export function supportedInputSchemes(host?: HostCapabilities): readonly InputScheme[] {
-  return (
-    host?.input_schemes?.filter((scheme) => knownInputSchemes.includes(scheme)) ?? baseInputSchemes
-  );
+  return host
+    ? host.input_schemes.filter((scheme) => knownInputSchemes.includes(scheme))
+    : baseInputSchemes;
 }
 
 /** The scheme host-api runs when the document names one the host does not offer: the remembered Chinese scheme when it is offered, else 全拼. */

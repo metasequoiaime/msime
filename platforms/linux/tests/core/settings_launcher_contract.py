@@ -9,22 +9,16 @@ root = Path(__file__).resolve().parents[2]
 launcher = (root / "data/msime-linux-settings.in").read_text()
 desktop = (root / "data/msime-linux.desktop.in").read_text()
 engine = (root / "src/core/ClientEngine.cpp").read_text()
-assert "settings|about|help|feedback|dictionary|" in launcher
-assert 'MSIME_CLIENT_PANEL:-}" = "dictionary"' in launcher
+assert "about|help|feedback|dictionary) route=settings:$2" in launcher
 assert "Desktop Action Dictionary" in desktop
 assert "--panel dictionary" in desktop
-assert '"MSIME_CLIENT_ROUTE"' in engine
-# A settings section must travel as "settings:<category>". The bare section name
-# is not a route head, so the shared parser would reject it and the desktop shell
-# would fall back to its default page.
-assert 'MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE' in launcher
-assert '"--route=$MSIME_CLIENT_ROUTE"' in launcher
-# The host builds the route rather than spelling each one out, so the literal to
-# look for is the prefix it prepends. The assertion here named a whole route
-# ("settings:about") that no version of this file has ever contained - and with
-# the test unable to resolve its own paths, nothing ever said so.
+# The route travels only as the desktop shell's --route argument. A settings section must travel as "settings:<category>": the bare section name is not a route head, so the shared parser would reject it and the desktop shell would fall back to its default page.
+assert '"--route=$route"' in launcher
+assert '"--route="' in engine
+# The host builds the route rather than spelling each one out, so the literal to look for is the prefix it prepends.
 assert 'std::string("settings:")' in engine
-assert 'MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}' not in launcher
+for retired in ("MSIME_CLIENT_PANEL", "MSIME_CLIENT_SETTINGS_PAGE", "MSIME_CLIENT_ROUTE"):
+    assert retired not in launcher and retired not in engine, retired
 for property_name in ("Learning", "FrequencyMode", "FrequencyTriggerCount", "FrequencyLinearStep"):
     assert f'"{property_name}"' in engine
 assert "MenuPreference::Learning" in engine
@@ -51,7 +45,7 @@ with tempfile.TemporaryDirectory() as scratch:
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in ("MSIME_CLIENT_HOST_OPTIONS", "MSIME_IBUS_OPTIONS", "MSIME_CLIENT_PANEL")
+        if key not in ("MSIME_CLIENT_HOST_OPTIONS", "MSIME_IBUS_OPTIONS")
     }
     environment["XDG_CONFIG_HOME"] = str(scratch / "config")
 
@@ -64,16 +58,16 @@ with tempfile.TemporaryDirectory() as scratch:
     assert launched() == str(system_config)
 
     # About, Help and Feedback each open their own settings section. Unlisted in the --panel case they exit 2, and passed through bare they would not parse as a route, leaving the window on its home page.
-    desktop_binary.write_text('#!/bin/sh\nprintf "%s|%s|%s|%s" "$*" "$MSIME_CLIENT_PANEL" "${MSIME_CLIENT_SETTINGS_PAGE:-}" "$MSIME_CLIENT_ROUTE"\n')
-    for key in ("MSIME_CLIENT_SETTINGS_PAGE", "MSIME_CLIENT_ROUTE"):
-        environment.pop(key, None)
+    desktop_binary.write_text('#!/bin/sh\nprintf "%s" "$*"\n')
 
     def launched_panel(panel: str) -> str:
         return subprocess.run([str(script), "--panel", panel], env=environment, check=True, capture_output=True, text=True).stdout
 
     for page in ("about", "help", "feedback", "dictionary"):
-        assert launched_panel(page) == f"--route=settings:{page}|settings|{page}|settings:{page}", page
-    assert launched_panel("handwriting") == "--route=handwriting|handwriting||handwriting"
+        assert launched_panel(page) == f"--route=settings:{page}", page
+    assert launched_panel("handwriting") == "--route=handwriting"
+    # A host's own --route argument reaches the shell untouched.
+    assert subprocess.run([str(script), "--route=emoji"], env=environment, check=True, capture_output=True, text=True).stdout == "--route=emoji"
     usage = subprocess.run([str(script), "--help"], env=environment, check=True, capture_output=True, text=True).stdout
     assert "|help|feedback|" in usage
 

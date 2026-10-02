@@ -10,7 +10,6 @@ import {
   aiServiceCredentialTestDisabled,
 } from "./ai-credential-test-config";
 import { aiCredentialSaveConfig } from "./ai-credential-save-config";
-import { defaultAiAssistant } from "./ai-assistant-defaults";
 import { AiSettingsPageSection } from "./ai-settings-page-section";
 import { AiCredentialSection } from "./ai-credential-section";
 import { AiLinuxProviderSection } from "./ai-linux-provider-section";
@@ -55,8 +54,6 @@ export interface AiSettingsContentProps {
   runProviderCredential: ReturnType<typeof useProviderCredentials>["runProviderCredential"];
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
   mcpConnect: ReactNode;
-  /** 设置窗口的 AI 辅助页传 true，见 `AiSettingsPageSectionProps.grouped`。 */
-  grouped?: boolean;
 }
 
 /** Complete AI settings composition; host state and provider operations stay with SettingsPage. */
@@ -94,7 +91,6 @@ export function AiSettingsContent({
   runProviderCredential,
   credentialTestControl,
   mcpConnect,
-  grouped = false,
 }: AiSettingsContentProps) {
   const linuxCredentialTest = credentialTestControl(
     "ai.assistant",
@@ -113,7 +109,6 @@ export function AiSettingsContent({
       : null;
   return (
     <AiSettingsPageSection
-      grouped={grouped}
       endpointValid={aiOrigin !== null}
       disabled={disabled}
       hidden={hidden}
@@ -134,7 +129,7 @@ export function AiSettingsContent({
         aiProviderOption(ai.provider),
         ai.model,
         (model) => updateAi({ model }),
-        grouped ? settings.managerBlock : undefined,
+        settings.managerBlock,
       )}
       onEnabledChange={(enabled) => updateAi({ enabled })}
       onProviderChange={(provider) => updateAi(aiProviderUpdate(provider, ai))}
@@ -143,7 +138,6 @@ export function AiSettingsContent({
       credentialSection={
         linuxPlatform && client.providerCredentials ? (
           <AiCredentialSection
-            grouped={grouped}
             endpoint={ai.endpoint}
             model={ai.model}
             origin={aiOrigin}
@@ -167,26 +161,15 @@ export function AiSettingsContent({
                 "凭据已清除。",
               )
             }
-          >
-            {!grouped && linuxCredentialTest}
-          </AiCredentialSection>
-        ) : linuxPlatform ? (
-          <AiLinuxProviderSection grouped={grouped}>
-            {!grouped && linuxCredentialTest}
-          </AiLinuxProviderSection>
-        ) : (
-          <AiApiTokenSection
-            grouped={grouped}
-            origin={aiOrigin}
-            token={aiToken}
-            onTokenChange={updateAiToken}
           />
+        ) : linuxPlatform ? (
+          <AiLinuxProviderSection />
+        ) : (
+          <AiApiTokenSection origin={aiOrigin} token={aiToken} onTokenChange={updateAiToken} />
         )
       }
-      // 分组的页面把 Linux 的测试按钮也挪到服务组末尾，与其他平台一致；旧面板仍把它放在凭据卡片里。
-      desktopCredentialTest={
-        serviceCredentialTest ?? (grouped && linuxPlatform ? linuxCredentialTest : null)
-      }
+      // Linux 的测试按钮同样放在服务组末尾，与其他平台一致。
+      desktopCredentialTest={serviceCredentialTest ?? (linuxPlatform ? linuxCredentialTest : null)}
       modelCatalog={
         client.aiAssistant
           ? {
@@ -202,20 +185,16 @@ export function AiSettingsContent({
       candidateLimit={ai.candidate_limit}
       onCandidateLimitChange={(candidate_limit) => updateAi({ candidate_limit })}
       promptId={ai.prompt_id}
-      prompt={ai.prompt}
       promptCustom1={ai.prompt_custom_1 ?? ""}
       promptCustom2={ai.prompt_custom_2 ?? ""}
       promptCustom3={ai.prompt_custom_3 ?? ""}
-      fallbackPrompt={defaultAiAssistant.prompt ?? ""}
       onPromptIdChange={(prompt_id) => updateAi({ prompt_id })}
-      onPromptChange={(prompt) => updateAi({ prompt })}
       onPromptCustom1Change={(prompt_custom_1) => updateAi({ prompt_custom_1 })}
       onPromptCustom2Change={(prompt_custom_2) => updateAi({ prompt_custom_2 })}
       onPromptCustom3Change={(prompt_custom_3) => updateAi({ prompt_custom_3 })}
       testTools={
         client.aiAssistant ? (
           <AiTestToolsSection
-            grouped={grouped}
             input={aiTestInput}
             busy={aiTestBusy}
             status={aiTestStatus}

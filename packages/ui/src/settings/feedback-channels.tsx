@@ -23,7 +23,7 @@ export interface FeedbackChannelsProps {
   titleClassName: string;
 }
 
-/** Shared feedback channel cards used by the legacy and grouped settings surfaces. */
+/** Shared feedback channel cards of the feedback page. */
 export function FeedbackChannels({
   issuesUrl,
   feedbackCopied,

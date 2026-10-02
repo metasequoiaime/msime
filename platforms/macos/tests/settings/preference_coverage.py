@@ -23,7 +23,6 @@ from pathlib import Path
 # is exactly what a defect looks like from the outside.
 NOT_APPLICABLE = {
     "settings_theme": "the settings application's own appearance; the input method has no window to theme",
-    "ui_backend": "which settings surface the host opens, chosen by the host rather than read from itself",
     "touch_keyboard_schemes": "the touch keyboard, which macOS has no equivalent of; the screen keyboard is a separate surface with its own preferences",
     "touch_key_spacing_tenths": "the touch keyboard",
     "touch_row_spacing_tenths": "the touch keyboard",

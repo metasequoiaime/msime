@@ -20,11 +20,11 @@ int main()
     assert(AcceptReply(Reply(hello, negotiated), 19));
     assert(!CanCancel(Negotiate(hello)));                   // new client / old server
     assert(!CanCancel(Negotiate(Hello(7, 19), supported))); // old client / new server
-    FanyImeNamedpipeData legacy{};
-    legacy.event_type = FanyImePipeEventType::ClientHello;
-    legacy.client_id = 7;
-    assert(!CanCancel(Negotiate(legacy, supported)));
-    assert(!CanCancel({false, false, supported}));
+    FanyImeNamedpipeData unversioned{};
+    unversioned.event_type = FanyImePipeEventType::ClientHello;
+    unversioned.client_id = 7;
+    assert(!Negotiate(unversioned, supported).accepted);
+    assert(!CanCancel({false, supported}));
     assert(!EncodeCancel(19, Negotiate(hello)));
     assert(!EncodeCancel(0, negotiated));
     assert(!EncodeCancel(FANY_IME_NO_REQUEST_ID, negotiated));

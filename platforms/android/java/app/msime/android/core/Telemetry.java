@@ -61,11 +61,7 @@ public final class Telemetry {
         Context app = context.getApplicationContext();
         crashDirectory = new File(directory(app), CRASH_DIRECTORY);
         installCrashHandler(app);
-        WORKER.execute(() -> {
-            // The queue the first Android reporter kept in SharedPreferences: a per-install "download" and crashes with a fixed version, all refused by the server. Nothing in it is worth sending.
-            app.deleteSharedPreferences("msime-telemetry");
-            flush(app);
-        });
+        WORKER.execute(() -> flush(app));
     }
 
     /** The keyboard process (MSIMEInputService.onCreate): crash handler, a new session, then a flush. */

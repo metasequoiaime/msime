@@ -27,7 +27,6 @@
 #include "ProductionPipeNames.h"
 #include "ProviderToken.h"
 #include "ServerLaunch.h"
-#include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
 #include "StateRootLease.h"
 #include "SystemAudioMuter.h"
@@ -464,7 +463,7 @@ TrayMenuPreferences tray_menu_preferences(
   result.scheme = running_scheme(preferences, installed);
   result.shuangpin_profile =
       preferences.value("shuangpin_profile", std::string("xiaohe"));
-  // The same defaults publish_switch_language_keybindings writes for the TIP.
+  // The same defaults the TIP reads (FanyUtils::ReadConfiguredSwitchLanguageHotkeys).
   const auto bindings =
       preferences.value("keybindings", nlohmann::json::object());
   result.language_hint = msime::windows::tray_menu_language_hint(
@@ -480,10 +479,7 @@ TrayMenuPreferences tray_menu_preferences(
 // inline preedit style stayed "raw" whatever the user picked.
 // The token for the provider actually in use.
 //
-// Tokens are kept one per provider so switching provider restores the matching
-// key instead of sending the previous provider's key to the new endpoint. The
-// flat field remains the value the box currently holds, so it is the right
-// fallback for a store written before the slots existed.
+// Tokens are kept one per provider so switching provider restores the matching key instead of sending the previous provider's key to the new endpoint.
 msime::windows::TsfLocalConfig tsf_local_config(
     const nlohmann::json &preferences,
     msime::windows::scheme::LanguageDictionaryPresence installed) {
@@ -497,9 +493,7 @@ msime::windows::TsfLocalConfig tsf_local_config(
   // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
   if (config.preedit_style == "local")
     config.preedit_style = "raw";
-  // Windows follows the upstream split smart-punctuation policy: the feature
-  // is opt-in, and legacy profiles without the key must not silently enable
-  // punctuation rewriting.
+  // Windows follows the upstream split smart-punctuation policy: the feature is opt-in, so a profile without the key must not enable punctuation rewriting.
   config.smart_punctuation = preferences.value("smart_punctuation", false);
   config.smart_punctuation_repeat_to_chinese =
       preferences.value("smart_punctuation_repeat", false);
@@ -536,53 +530,6 @@ void apply_diagnostic_log(msime::windows::DiagnosticLog &log,
   log.set_enabled(switches.value("server", false), switches.value("tsf", false));
 }
 
-// Mirror the CN/EN and 简繁 hotkeys into the shared config.toml.
-//
-// These four do not ride the worker pipe: the TIP reads them straight off disk
-// at activation. Without this the settings toggles would save and do nothing,
-// which is why they were hidden on Windows. Writing is best effort - a config
-// we cannot update costs the user their hotkey choice, never the IME.
-void publish_switch_language_keybindings(const nlohmann::json &preferences) {
-  // The same folder the TIP resolves. With no root there is nowhere to write, and a bare relative config.toml would land in the working directory.
-  const auto state = production_state_directory();
-  if (state.empty())
-    return;
-  const std::filesystem::path path = state / L"config.toml";
-  const auto bindings =
-      preferences.value("keybindings", nlohmann::json::object());
-  msime::windows::SwitchLanguageKeybindings values;
-  values.shift = bindings.value("switch_language_shift", true);
-  values.ctrl = bindings.value("switch_language_ctrl", false);
-  values.ctrl_alt_space = bindings.value("switch_language_ctrl_alt_space", true);
-  values.character_set_ctrl_shift_f =
-      bindings.value("toggle_character_set_ctrl_shift_f", true);
-  try {
-#ifdef _WIN32
-    msime::windows::reject_reparse_ancestors(path.parent_path());
-#endif
-    std::string existing;
-    {
-      std::ifstream input(path, std::ios::binary);
-      if (input) {
-        existing.resize(kMaxConfigBytes + 1);
-        input.read(existing.data(), static_cast<std::streamsize>(existing.size()));
-        if (input.bad() || input.gcount() > static_cast<std::streamsize>(kMaxConfigBytes))
-          return;
-        existing.resize(static_cast<std::size_t>(input.gcount()));
-      }
-    }
-    const auto updated = msime::windows::update_keybindings(existing, values);
-    if (updated == existing)
-      return;
-    std::error_code ignored;
-    std::filesystem::create_directories(path.parent_path(), ignored);
-    // Use a unique private sibling so a pre-existing staging symlink cannot
-    // redirect the keybinding document outside the state directory.
-    write_document_atomic(path, updated);
-  } catch (const std::exception &) {
-    // A read-only or roaming profile is the user's business, not a fatal error.
-  }
-}
 std::string production_preview_document(const std::string &runtime_document,
                                         const std::filesystem::path &fallback) {
   const auto host = nlohmann::json::parse(runtime_document);
@@ -939,7 +886,6 @@ int wmain(int argc, wchar_t **argv) {
               std::memory_order_release);
           effect_intensity->store(typing_effect_intensity(preferences),
                                   std::memory_order_release);
-          publish_switch_language_keybindings(preferences);
           const auto input = preferences.value("voice_input", nlohmann::json::object());
           VoiceInputConfig next;
           next.capture = voice_capture_selection(input);
@@ -980,7 +926,6 @@ int wmain(int argc, wchar_t **argv) {
           next.polish_endpoint = input.value("polish_endpoint", std::string{});
           next.polish_model = input.value("polish_model", std::string{});
           next.polish_prompt_id = input.value("polish_prompt_id", std::string{"cleanup"});
-          next.polish_prompt = input.value("polish_prompt", std::string{});
           next.polish_prompt_custom_1 = input.value("polish_prompt_custom_1", std::string{});
           next.polish_prompt_custom_2 = input.value("polish_prompt_custom_2", std::string{});
           next.polish_prompt_custom_3 = input.value("polish_prompt_custom_3", std::string{});
@@ -1040,14 +985,6 @@ int wmain(int argc, wchar_t **argv) {
     DWORD voice_controller_error = ERROR_SUCCESS;
     auto voice_controller = VoiceControllerListener::create(
         voice_controller_mailbox, voice_controller_error);
-    // Keep the pre-dedicated endpoint alive during rolling upgrades. Both
-    // listeners feed the same authenticated mailbox and dispatcher; a client
-    // still using VoiceControllerV2 therefore receives identical ownership
-    // and generation checks.
-    DWORD legacy_voice_controller_error = ERROR_SUCCESS;
-    auto legacy_voice_controller = VoiceControllerListener::create(
-        voice_controller_mailbox, legacy_voice_controller_error,
-        FanyImeVoiceController::PipeName);
     if (!voice_controller)
       notice("Voice controller unavailable; native input remains enabled");
     configure_audio_mute_state_path(
@@ -1808,8 +1745,6 @@ int wmain(int argc, wchar_t **argv) {
     // thread. Retire the matching review before Server/focus teardown.
     if (voice_controller)
       voice_controller->stop();
-    if (legacy_voice_controller)
-      legacy_voice_controller->stop();
     voice_controller_dispatch.retire();
     toolbar.hide();
     // Stop the listener and close the mailbox before the window goes away, so a

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { VoiceModelMirrorSection } from "@msime/ui";
+import { VoiceModelMirrorRow } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -10,7 +10,7 @@ afterEach(() => {
 
 test("shows a valid mirror and reports edits", () => {
   const onChange = vi.fn();
-  render(<VoiceModelMirrorSection value="https://mirror.example.com" onChange={onChange} />);
+  render(<VoiceModelMirrorRow value="https://mirror.example.com" onChange={onChange} />);
 
   const input = screen.getByRole("textbox", { name: "模型下载镜像" }) as HTMLInputElement;
   expect(input.getAttribute("aria-invalid")).toBe("false");
@@ -19,7 +19,7 @@ test("shows a valid mirror and reports edits", () => {
 });
 
 test("marks malformed mirrors invalid", () => {
-  render(<VoiceModelMirrorSection value="ftp://bad.example.com" onChange={vi.fn()} />);
+  render(<VoiceModelMirrorRow value="ftp://bad.example.com" onChange={vi.fn()} />);
   expect(
     (screen.getByRole("textbox", { name: "模型下载镜像" }) as HTMLInputElement).getAttribute(
       "aria-invalid",

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -30,7 +31,7 @@ test("macOS translation settings open on the 标点与翻译 page and save NiuTr
         load: async () => snapshot,
         save,
         testApiCredential: probe,
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -62,7 +63,7 @@ test("macOS AI entry opens the shared AI category without implicit credential re
         load: async () => snapshot,
         save: vi.fn(),
         testApiCredential: probe,
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -76,7 +77,7 @@ test("a menu entry picked while the page is open navigates without dropping the 
     load: async () => snapshot,
     save: vi.fn(),
     testApiCredential: vi.fn(),
-    host: { platform: "macos" } as never,
+    host: testHost({ platform: "macos" }),
   };
   const view = render(<SettingsPage initialPage="input" client={client} />);
   fireEvent.change(await screen.findByLabelText("NiuTrans App ID"), {

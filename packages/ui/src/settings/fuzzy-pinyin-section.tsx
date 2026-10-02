@@ -47,23 +47,13 @@ export interface FuzzyPinyinSectionProps {
   preferences: FuzzyPinyinPreferences;
   onChange: (preferences: FuzzyPinyinPreferences) => void;
   confirm: (request: ConfirmRequest) => Promise<boolean>;
-  /** 总开关关闭时收起规则列表和重置按钮，只留总开关；关闭总开关仍保留已选规则，重新打开后原样展开。输入页「模糊音」组用它，旧面板不传，规则列表始终展开。 */
-  collapsible?: boolean;
 }
 
-/** 有模糊音能力的宿主共用的模糊音设置：输入页「模糊音」组的内容。 */
-export function FuzzyPinyinSection({
-  preferences,
-  onChange,
-  confirm,
-  collapsible = false,
-}: FuzzyPinyinSectionProps) {
+/** 有模糊音能力的宿主共用的模糊音设置：输入页「模糊音」组的内容。总开关关闭时收起规则列表和重置按钮，只留总开关；关闭总开关仍保留已选规则，重新打开后原样展开。 */
+export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
     <div role="group" aria-label="模糊音" className={settings.rowStack}>
-      <Row
-        title={collapsible ? "启用模糊音" : "模糊音"}
-        description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
-      >
+      <Row title="启用模糊音" description="全拼、九键与双拼均支持；更改会在当前输入结束后生效">
         <Switch
           aria-label="启用模糊音"
           checked={preferences.enabled}
@@ -77,7 +67,7 @@ export function FuzzyPinyinSection({
           }}
         />
       </Row>
-      <div className={settings.groupBlock} hidden={collapsible && !preferences.enabled}>
+      <div className={settings.groupBlock} hidden={!preferences.enabled}>
         <p className="input-setting-description">
           勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。
         </p>

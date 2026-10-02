@@ -304,7 +304,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 选择器末尾在「韩语 26 键」之后再加三张卡：「粤语」（`KeyboardScheme.CANTONESE`，Engine 方案名 `cantonese`，编号 5）、「注音」（`ZHUYIN`，`zhuyin`，编号 6）和「越南语」（`VIETNAMESE`，`vietnamese`，编号 7）。三者默认都不启用（`DEFAULT_ENABLED` 不含它们），由用户在设置页打开。粤语和注音是中文方案：选中时它们自己就是 `last_chinese_scheme`，「中文」回到它们，打字统计记在 `cantonese`、`zhuyin` 名下；越南语和日语、韩语一样不是中文方案，选中时保留原来的 `last_chinese_scheme`，统计记在 `vietnamese` 名下。三者都不学进主词库，所以候选长按没有置顶、降权、删除；简繁转换开关对它们不起作用（粤语与注音本来就是繁体）。快捷栏和语言键上粤语、注音显示「中」，越南语显示「越」。
 
-方案之间的差异不再逐处写方案名，而是集中在 `SchemeTraits.ts`：它按 Engine 的方案编号逐条镜像 `crates/engine/src/types.rs` 里 `SchemeType` 的谓词（`is_chinese`、`uses_chinese_punctuation`、`commits_on_blur`、`locks_caret`、`has_openable_candidate_list` 等），每个谓词写成“对哪些编号成立”的列表，`scripts/test-scheme-traits-parity.py` 读这个文件，常量编号、`NAMES` 或任一谓词与 Engine 不一致时失败。`input/SchemeCompositionPolicy.ts` 是原 Korean 专用组字策略的推广：韩语、注音、越南语的组字行画 Engine 的 `preedit`（写出来的字，而不是按键），光标固定在末尾；韩语和注音的候选只在用户打开的列表里出现，是否打开以视图的 `candidate_list_open` 为准（旧运行时没有这个字段时，韩语仍按“带候选即打开”判断）。英文模式和本地工具模式下这些规则都不生效。
+方案之间的差异不再逐处写方案名，而是集中在 `SchemeTraits.ts`：它按 Engine 的方案编号逐条镜像 `crates/engine/src/types.rs` 里 `SchemeType` 的谓词（`is_chinese`、`uses_chinese_punctuation`、`commits_on_blur`、`locks_caret`、`has_openable_candidate_list` 等），每个谓词写成“对哪些编号成立”的列表，`scripts/test-scheme-traits-parity.py` 读这个文件，常量编号、`NAMES` 或任一谓词与 Engine 不一致时失败。`input/SchemeCompositionPolicy.ts` 是原 Korean 专用组字策略的推广：韩语、注音、越南语的组字行画 Engine 的 `preedit`（写出来的字，而不是按键），光标固定在末尾；韩语和注音的候选只在用户打开的列表里出现，是否打开以视图的 `candidate_list_open` 为准。英文模式和本地工具模式下这些规则都不生效。
 
 ### 词库与暂存
 
@@ -355,7 +355,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 共享设置中的“中英文切换提示”现在也由 Harmony 消费，并改由 `input_mode_hud` 宿主能力而非平台名决定是否出现在设置页。2in1 上模式徽标只在该偏好开启且没有悬浮工具栏时创建；关闭后不再占用那一个 STATUS_BAR 面板名额。手机形态本来就在键面上显示模式，不声明该能力。
 
-候选的两项可选注释现在各读各的共享偏好，不再一律显示：`wubi_code_hint` 控制五笔剩余编码提示，字段缺省时按共享 `wubi_code_hint_enabled` 的默认开启处理；`candidate_english_gloss` 控制离线英文释义，共享默认关闭，只有文档明确写 `true` 才显示。Engine 注释仍优先占用同一个提示槽位。
+候选的两项可选注释现在各读各的共享偏好，不再一律显示：`wubi_code_hint` 控制五笔剩余编码提示，共享默认开启，只有文档明确写 `false` 才隐藏；`candidate_english_gloss` 控制离线英文释义，共享默认关闭，只有文档明确写 `true` 才显示。Engine 注释仍优先占用同一个提示槽位。
 
 2in1 的按键音、打字旋律、上屏音和成就音效读共享偏好的 `plugins` 段，与桌面三端同一份设置、同一套音效包，只是播放器不同：host-api 在 HarmonyOS 上不链接音频栈，所以由 `KeySoundPlayer.ets` 用 SoundPool 播放。包里有哪些文件由 NAPI `keySoundPack` 调 `msime_client_key_sound_pack` 取得，校验只有 client-core 一份；哪个事件放哪个文件、旋律怎么走、停顿 3 秒从头开始，是 `KeySoundPolicy.ts` 照 host-api 播放器移植的规则，逻辑测试钉住。WAV 样本由 `native/key_sound_render.cpp` 用 miniaudio（与 Windows 宿主同一份单头文件）解码，先按头部声明的帧数查 1.5 秒上限、解码时再以声明长度为界，然后按旋律用到的每个音高各写一个 48 kHz 的 WAV 到 cacheDir，SoundPool 只解码本宿主写出的文件；变调按播放速率算，与桌面一致，升一个八度的音也短一半。Ogg 样本在 2in1 上不播放：本宿主不解码 Vorbis，交给 SoundPool 就会在媒体服务里整段解码，解码后的长度没有任何东西能限住，所以只有 WAV 样本出声（内置包全是 WAV）。SoundPool 用音乐流类型创建，系统对短音走混音而不打断正在播放的音乐，不走录音那套 `CONCURRENCY_PAUSE_OTHERS`。只在 2in1 上配置，手机形态保留自己的 `key-feedback.json`；密码框里和英文模式下不出声，与桌面三端一致。按键音在按键被处理之后触发，包括交还给应用的键；上屏音跟着 Engine 的每次提交；成就音效来自打字统计 `record` 应答里的 `milestone`，所以要打字统计开着才有。设置页在 2in1 上声明 `key_sound`、`music` 与 `plugin_triggers` 能力。
 

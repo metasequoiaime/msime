@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -110,7 +111,7 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
 test("Linux delegates Tencent credentials to the user-managed provider", async () => {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "linux" } as never }}
+      client={{ load: async () => snapshot, save: vi.fn(), host: testHost({ platform: "linux" }) }}
     />,
   );
   await settingsFormReady();
@@ -146,7 +147,7 @@ test("Linux saves Tencent credentials to the provider file", async () => {
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
         providerCredentials: credentials,
       }}
     />,
@@ -198,7 +199,7 @@ test("macOS exposes the native Tencent credential probe with current settings", 
         load: async () => macosSnapshot,
         save: vi.fn(),
         testApiCredential,
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );

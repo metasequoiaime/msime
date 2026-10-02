@@ -2,10 +2,6 @@ package app.msime.android;
 
 /** Persisted Android equivalents of Apple's keyboard sound and haptic settings. */
 public final class KeyboardFeedbackPreferences {
-    public static final String SOUND_KEY = "keyboardSoundEnabled";
-    public static final String HAPTICS_KEY = "keyboardHapticsEnabled";
-    public static final String STRENGTH_KEY = "keyboardHapticStrength";
-
     public enum HapticStrength {
         LIGHT("light", 64), MEDIUM("medium", 160), STRONG("strong", 255);
 

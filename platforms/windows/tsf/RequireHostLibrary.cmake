@@ -1,4 +1,4 @@
-# Runtime legacy fallback does not remove the adapter's C ABI link dependency.
+# The adapter links the Host API's C ABI, so the library is required at configure time.
 if(NOT MSIME_HOST_LIBRARY OR NOT IS_ABSOLUTE "${MSIME_HOST_LIBRARY}" OR
    NOT EXISTS "${MSIME_HOST_LIBRARY}" OR IS_DIRECTORY "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR

@@ -215,8 +215,7 @@ fn capabilities_describe_each_host() {
     // explanation of the gesture would be describing something that does not happen here.
     assert!(!windows.helpcode_shift_entry);
     assert!(!windows.skin_directory_import);
-    // The Server mirrors these into the shared config.toml the TIP reads,
-    // so the controls offer settings that actually take effect.
+    // The TIP reads the CN/EN and 简繁 hotkeys from the shared preferences document, so the toggles take effect.
     assert!(windows.mode_switch_shortcuts);
     assert!(
         windows.floating_toolbar
@@ -309,8 +308,7 @@ fn capabilities_describe_each_host() {
     // Windows handles Ctrl+Shift+Win+K on its maintenance hook, so the
     // panel shortcut row is real there now.
     assert!(windows.panel_shortcuts);
-    // The CN/EN and 简繁 hotkeys are editable now: the Server mirrors them
-    // into the config.toml the TIP reads, so the toggles take effect.
+    // The TIP reads the CN/EN and 简繁 hotkeys from the shared preferences document, so the toggles take effect.
     assert!(windows.mode_switch_shortcuts);
     assert!(windows.system_fonts);
 
@@ -363,27 +361,6 @@ fn every_host_offers_cantonese_zhuyin_and_vietnamese() {
             assert!(schemes.contains(&scheme), "{platform:?} {scheme:?}");
         }
     }
-}
-
-#[test]
-fn capabilities_without_input_schemes_offer_the_base_five() {
-    let capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
-    let mut document = serde_json::to_value(&capabilities).expect("serializes");
-    document
-        .as_object_mut()
-        .expect("an object")
-        .remove("input_schemes");
-    let decoded: HostCapabilities = serde_json::from_value(document).expect("deserializes");
-    assert_eq!(
-        decoded.input_schemes,
-        [
-            InputScheme::Quanpin,
-            InputScheme::Shuangpin,
-            InputScheme::Wubi,
-            InputScheme::Japanese,
-            InputScheme::Korean,
-        ]
-    );
 }
 
 #[test]
@@ -603,7 +580,7 @@ fn voice_commit_mode_is_offered_only_where_a_host_chooses_between_paths() {
     }
 }
 
-/// No host plays sound packs, routes the `/` and `@` modes or streams music yet, and a host binary from before the flags sends a document without them; both must read as "not offered".
+/// Only the hosts that wire them claim sound packs, the `/` and `@` modes, music and typing effects.
 #[test]
 fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
     for platform in [
@@ -638,14 +615,6 @@ fn plugin_surfaces_are_claimed_only_by_the_hosts_that_wire_them() {
             "{platform:?}"
         );
     }
-    let mut document =
-        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Macos)).unwrap();
-    let fields = document.as_object_mut().unwrap();
-    for key in ["key_sound", "plugin_triggers", "music", "typing_effects"] {
-        assert!(fields.remove(key).is_some(), "{key}");
-    }
-    let older: HostCapabilities = serde_json::from_value(document).unwrap();
-    assert!(!older.key_sound && !older.plugin_triggers && !older.music && !older.typing_effects);
     let mut claimed = HostCapabilities::for_platform(HostPlatform::Windows);
     claimed.key_sound = true;
     let text = serde_json::to_string(&claimed).unwrap();
@@ -673,20 +642,4 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Harmony), (false, true, true));
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
-
-    // A host built before these flags existed sends a document without them, and the page must then hide the controls.
-    let mut legacy =
-        serde_json::to_value(HostCapabilities::for_platform(HostPlatform::Windows)).unwrap();
-    let object = legacy.as_object_mut().unwrap();
-    for key in [
-        "candidate_window_scale",
-        "candidate_window_opacity",
-        "candidate_corner_radius",
-    ] {
-        assert_eq!(object.remove(key), Some(serde_json::Value::Bool(true)));
-    }
-    let decoded: HostCapabilities = serde_json::from_value(legacy).unwrap();
-    assert!(!decoded.candidate_window_scale);
-    assert!(!decoded.candidate_window_opacity);
-    assert!(!decoded.candidate_corner_radius);
 }

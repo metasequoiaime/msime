@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -68,7 +69,7 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -88,7 +89,7 @@ test("Windows voice shortcuts describe hold-to-record, the right Ctrl chord and 
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -110,7 +111,7 @@ test("Linux voice shortcuts describe hold-to-record like Windows and keep Ctrl+F
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "linux", panel_windows: true } as HostCapabilities,
+        host: testHost({ platform: "linux", panel_windows: true }),
       }}
     />,
   );
@@ -143,7 +144,7 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
         load: async () => initial,
         save,
         // 中英文切换提示在所有平台都放在输入页「中英文」组，macOS 也不例外。
-        host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
+        host: testHost({ platform: "macos", mode_switch_shortcuts: true }),
       }}
     />,
   );
@@ -175,7 +176,7 @@ test("macOS persists Wubi unique-candidate auto-commit outside shared preference
       client={{
         load: async () => wubiInitial,
         save,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
         saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
       }}
@@ -351,7 +352,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
 });
 
 test("touch hosts offering Cantonese, Zhuyin and Vietnamese list their touch schemes last and off", async () => {
-  const host = {
+  const host = testHost({
     platform: "android",
     input_schemes: [
       "quanpin",
@@ -363,7 +364,7 @@ test("touch hosts offering Cantonese, Zhuyin and Vietnamese list their touch sch
       "zhuyin",
       "vietnamese",
     ],
-  } as HostCapabilities;
+  });
   render(
     <SettingsPage
       client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
@@ -385,10 +386,10 @@ test("touch hosts offering Cantonese, Zhuyin and Vietnamese list their touch sch
 });
 
 test("a touch host without the Cantonese dictionary does not list the Cantonese touch scheme", async () => {
-  const host = {
+  const host = testHost({
     platform: "ios",
     input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean", "zhuyin", "vietnamese"],
-  } as HostCapabilities;
+  });
   render(
     <SettingsPage
       client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
@@ -436,7 +437,7 @@ test("Android English suggestions default on and persist independently", async (
       client={{
         load: async () => initial,
         save,
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -456,7 +457,7 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
         candidateEnglishGloss: true,
       }}
     />,
@@ -478,7 +479,7 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
         load: async () => initial,
         save,
         openExternalUrl,
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         candidateEnglishGloss: true,
       }}
     />,
@@ -514,7 +515,7 @@ test("Android exposes handwriting model privacy and system settings", async () =
         save: vi.fn(),
         openExternalUrl,
         openSystemKeyboardSettings,
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -537,7 +538,7 @@ test("mobile input settings expose the keyboard AI entry", async () => {
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -1053,7 +1054,7 @@ test("voice capture backend choices follow the host platform", async () => {
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform, voice_capture_devices: true } as HostCapabilities,
+          host: testHost({ platform, voice_capture_devices: true }),
           listVoiceCaptureDevices: vi.fn().mockResolvedValue([]),
         }}
       />,
@@ -1089,7 +1090,6 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
         candidate_limit: 3,
         tokens: { [firstOrigin]: "first-origin-fixture" },
         prompt_id: "polish",
-        prompt: "保持原意",
         prompt_custom_1: "",
         prompt_custom_2: "",
         prompt_custom_3: "",
@@ -1149,7 +1149,6 @@ test("mobile AI settings expose the Apple provider catalog and preserve custom e
     model: "deepseek-v4-flash",
     endpoint: "https://api.deepseek.com/chat/completions",
     candidate_limit: 3,
-    prompt: "保持原意",
     prompt_custom_1: "",
     prompt_custom_2: "",
     prompt_custom_3: "",
@@ -1226,10 +1225,10 @@ test("a provider-credential host runs the AI service controls without a token", 
       client={{
         load: async () => initial,
         save: vi.fn(),
-        host: {
+        host: testHost({
           platform: "linux",
           ai_provider_credentials: true,
-        } as HostCapabilities,
+        }),
         aiAssistant: { fetchModels, test: testAi },
       }}
     />,
@@ -1257,7 +1256,7 @@ test("AI settings explain the platform-specific keyboard surface", async () => {
   const client = {
     load: async () => initial,
     save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
   };
   render(<SettingsPage initialPage="ai" client={client} />);
   expect(await screen.findByText("为键盘 AI 联想、回复与润色提供共享配置")).toBeTruthy();
@@ -1265,7 +1264,7 @@ test("AI settings explain the platform-specific keyboard surface", async () => {
   render(
     <SettingsPage
       initialPage="ai"
-      client={{ ...client, host: { platform: "android" } as HostCapabilities }}
+      client={{ ...client, host: testHost({ platform: "android" }) }}
     />,
   );
   expect(await screen.findByText("为拼音联想和 Android 选中文字润色提供共享配置")).toBeTruthy();
@@ -1317,7 +1316,7 @@ test("Android candidate translations persist an optional second language", async
       client={{
         load: async () => initial,
         save,
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -1348,7 +1347,7 @@ test("macOS candidate translations expose the shared second language", async () 
       client={{
         load: async () => initial,
         save,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1392,7 +1391,7 @@ test("mobile translation languages stay editable for offline English glosses", a
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         candidateEnglishGloss: true,
       }}
     />,
@@ -1423,7 +1422,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
   const client = {
     load: async () => legacy,
     save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
   };
   const first = render(<SettingsPage client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
@@ -1649,7 +1648,7 @@ test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5"
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform } as HostCapabilities,
+          host: testHost({ platform }),
         }}
       />,
     );
@@ -1762,7 +1761,7 @@ test("Linux appearance and service copy names both hosts and the Fcitx5 reload",
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         restartInputMethod: vi.fn().mockResolvedValue(undefined),
-        host: { platform: "linux", panel_windows: true, restart_input_method: true } as never,
+        host: testHost({ platform: "linux", panel_windows: true, restart_input_method: true }),
       }}
     />,
   );
@@ -1787,7 +1786,7 @@ test.each(["windows", "macos"] as const)(
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform, panel_windows: true } as never,
+          host: testHost({ platform, panel_windows: true }),
         }}
       />,
     );
@@ -1806,13 +1805,13 @@ test("the macOS shortcuts page omits the maintenance chords and 维护与诊断 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         restartInputMethod,
-        host: {
+        host: testHost({
           platform: "macos",
           restart_input_method: true,
           panel_windows: true,
           mode_switch_shortcuts: true,
           panel_shortcuts: true,
-        } as never,
+        }),
       }}
     />,
   );
@@ -1836,7 +1835,7 @@ test("Linux restart copy covers both input method frameworks", async () => {
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         restartInputMethod,
-        host: { platform: "linux", restart_input_method: true } as never,
+        host: testHost({ platform: "linux", restart_input_method: true }),
       }}
     />,
   );
@@ -1860,7 +1859,7 @@ test("macOS service page exposes installation separately from re-registration", 
         save: vi.fn(),
         restartInputMethod: vi.fn().mockResolvedValue(undefined),
         installInputSource,
-        host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
+        host: testHost({ platform: "macos", restart_input_method: true, panel_windows: true }),
       }}
     />,
   );
@@ -1887,7 +1886,7 @@ test("macOS reports the start-time input method refresh and a source that still 
           }),
           openSettings,
         },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1924,7 +1923,7 @@ test("macOS names a system-wide copy of the input method even when everything el
           }),
           openSettings: vi.fn(),
         },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1946,7 +1945,7 @@ test("macOS stays quiet when the input method is current and enabled, and points
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         inputSourceStartup: { status: quiet, openSettings: vi.fn() },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1969,7 +1968,7 @@ test("macOS stays quiet when the input method is current and enabled, and points
           }),
           openSettings: vi.fn(),
         },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1993,7 +1992,7 @@ test("macOS asks for a new login when a first install waits for the input source
           }),
           openSettings: vi.fn(),
         },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -2025,7 +2024,7 @@ test("macOS keeps reading the input source list while the notice waits for the u
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           inputSourceStartup: { status, openSettings: vi.fn() },
-          host: { platform: "macos" } as HostCapabilities,
+          host: testHost({ platform: "macos" }),
         }}
       />,
     );
@@ -2063,7 +2062,7 @@ test("macOS reads the input source again when the window regains focus, but not 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         inputSourceStartup: { status, openSettings: vi.fn() },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -2087,7 +2086,7 @@ test("macOS keeps a dismissed input source notice hidden on later focus", async 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         inputSourceStartup: { status, openSettings: vi.fn() },
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -2112,7 +2111,7 @@ test("the start-time input method report is macOS only", async () => {
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         inputSourceStartup: { status, openSettings: vi.fn() },
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -2135,7 +2134,7 @@ test("macOS 维护与诊断 page exposes reversible uninstall with explicit data
           pick: vi.fn(),
           move: vi.fn(),
         },
-        host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
+        host: testHost({ platform: "macos", restart_input_method: true, panel_windows: true }),
       }}
     />,
   );
@@ -2184,7 +2183,7 @@ test("macOS developer page moves the shared data root only after an explicit con
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         dataDirectory: { status, pick, move },
-        host: { platform: "macos", panel_windows: true } as never,
+        host: testHost({ platform: "macos", panel_windows: true }),
       }}
     />,
   );
@@ -2218,7 +2217,7 @@ test("Linux developer page moves the data root and says the fixed configuration 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         dataDirectory: { status, pick, move },
-        host: { platform: "linux", panel_windows: true } as never,
+        host: testHost({ platform: "linux", panel_windows: true }),
       }}
     />,
   );
@@ -2256,7 +2255,7 @@ test("Linux data move reports busy input sessions and a restart it could not do"
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         dataDirectory: { status, pick, move },
-        host: { platform: "linux", panel_windows: true } as never,
+        host: testHost({ platform: "linux", panel_windows: true }),
       }}
     />,
   );
@@ -2347,7 +2346,7 @@ test("macOS offers every local mode, because every catalog ships", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -2464,7 +2463,7 @@ test("iOS clipboard history follows keyboard permission instead of the desktop p
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
     clipboard: { clear, list, sync },
   };
   render(<SettingsPage client={client} />);
@@ -2923,6 +2922,38 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     candidate_row_colors: true,
     candidate_selection_appearance: false,
     candidate_follow_cursor: false,
+    mobile_settings: false,
+    vocabulary_review: false,
+    floating_toolbar_handwriting: false,
+    floating_toolbar_voice: false,
+    number_row_selection: false,
+    candidate_preedit_font: true,
+    candidate_page_number: false,
+    candidate_border_color: false,
+    candidate_window_scale: false,
+    candidate_window_opacity: false,
+    candidate_corner_radius: false,
+    input_mode_hud: false,
+    candidate_english_font: false,
+    english_suggestions: false,
+    helpcode_shift_entry: false,
+    skin_directory_import: false,
+    touch_toolbar_components: false,
+    shuangpin_preedit: false,
+    maintenance_shortcuts: false,
+    fullwidth_chord: false,
+    voice_provider_settings: true,
+    voice_stream_preedit: true,
+    character_width: true,
+    ai_provider_credentials: true,
+    voice_commit_mode: false,
+    key_sound: false,
+    plugin_triggers: false,
+    music: false,
+    typing_effects: false,
+    wordbook_packs: false,
+    symbol_set_packs: false,
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
   };
   render(
     <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
@@ -2952,7 +2983,7 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -2972,7 +3003,7 @@ test("macOS reveals the diagnostic log in Finder and names what it records", asy
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         openDiagnosticLogDirectory,
       }}
     />,
@@ -3007,7 +3038,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -3025,7 +3056,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
         openDiagnosticLogDirectory,
       }}
     />,
@@ -3047,7 +3078,7 @@ test.each(["windows", "linux", "macos", "android", "ios", "harmony", undefined])
         revision: 8,
         preferences,
       })),
-      host: platform ? ({ platform } as HostCapabilities) : undefined,
+      host: platform ? testHost({ platform }) : undefined,
     };
     render(<SettingsPage client={client} />);
     await settingsReady();
@@ -3094,7 +3125,7 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
         save: vi.fn(),
         resetLearnedData,
         dictionary: {} as never,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -3130,6 +3161,38 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     candidate_row_colors: false,
     candidate_selection_appearance: false,
     candidate_follow_cursor: false,
+    mobile_settings: true,
+    vocabulary_review: false,
+    floating_toolbar_handwriting: false,
+    floating_toolbar_voice: false,
+    number_row_selection: false,
+    candidate_preedit_font: true,
+    candidate_page_number: false,
+    candidate_border_color: false,
+    candidate_window_scale: false,
+    candidate_window_opacity: false,
+    candidate_corner_radius: false,
+    input_mode_hud: false,
+    candidate_english_font: false,
+    english_suggestions: false,
+    helpcode_shift_entry: true,
+    skin_directory_import: false,
+    touch_toolbar_components: false,
+    shuangpin_preedit: false,
+    maintenance_shortcuts: false,
+    fullwidth_chord: false,
+    voice_provider_settings: true,
+    voice_stream_preedit: false,
+    character_width: false,
+    ai_provider_credentials: false,
+    voice_commit_mode: false,
+    key_sound: false,
+    plugin_triggers: false,
+    music: false,
+    typing_effects: false,
+    wordbook_packs: false,
+    symbol_set_packs: false,
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
   };
   render(
     <SettingsPage
@@ -3218,7 +3281,7 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: { load, save, preview },
       }}
@@ -3253,7 +3316,7 @@ test("iOS English suggestions sit with the candidate settings on the input page"
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: { load, save },
       }}
@@ -3285,7 +3348,7 @@ test("an iPad keeps key sounds but hides vibration it cannot produce", async () 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockImplementation(async (value) => value),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: { load, save, preview: vi.fn() },
       }}
@@ -3321,7 +3384,7 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn().mockImplementation(async (value) => value),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: { load: vi.fn().mockResolvedValue(feedback), save: vi.fn() },
       }}
@@ -3340,7 +3403,7 @@ test("the iPad digit row and Tab key switch appears only where the plugin report
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: saveDocument,
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: {
           load: vi
@@ -3369,7 +3432,7 @@ test("the touch toolbar switches appear only on a host that reads them and save 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -3388,7 +3451,7 @@ test("the touch toolbar switches appear only on a host that reads them and save 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform: "ios", touch_toolbar_components: true } as HostCapabilities,
+        host: testHost({ platform: "ios", touch_toolbar_components: true }),
         home: { openKeyboard: vi.fn() },
       }}
     />,
@@ -3427,13 +3490,13 @@ test("the theme page runs from the colour mode to the per-surface overrides", as
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
-        host: {
+        host: testHost({
           platform: "linux",
           candidate_panel_limit: "fcitx_theme",
           candidate_row_colors: true,
           candidate_selection_appearance: true,
           candidate_border_color: true,
-        } as HostCapabilities,
+        }),
       }}
     />,
   );
@@ -3472,12 +3535,12 @@ test("the floating toolbar page leads with its preview, then 显示, 按钮 and 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: {
+        host: testHost({
           platform: "windows",
           floating_toolbar: true,
           floating_toolbar_components: true,
           floating_toolbar_appearance: true,
-        } as HostCapabilities,
+        }),
       }}
     />,
   );
@@ -3508,7 +3571,7 @@ test("the iOS skin page hands the candidate strip to the desktop candidate skin"
   const client = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn().mockImplementation(async (value) => value),
-    host: { platform: "ios", candidate_row_colors: true } as HostCapabilities,
+    host: testHost({ platform: "ios", candidate_row_colors: true }),
     home: { openKeyboard: vi.fn() },
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
@@ -3543,7 +3606,7 @@ test("iOS offers 行内预编辑 as its own keyboard switch instead of the share
   const client = {
     load: vi.fn().mockResolvedValue(initial),
     save,
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
     home: { openKeyboard: vi.fn() },
     mobileKeyboardFeedback: { load, save: saveFeedback },
   };
@@ -3567,7 +3630,7 @@ test("iOS describes local modes and 以词定字 the way its keyboard reaches th
   const client = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
     home: { openKeyboard: vi.fn() },
   };
   // Both live on the 输入 page.
@@ -3587,7 +3650,7 @@ test("desktop hosts keep the chord wording for local modes and 以词定字", as
   const client = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
-    host: { platform: "windows" } as HostCapabilities,
+    host: testHost({ platform: "windows" }),
   };
   render(<SettingsPage initialPage="input" client={client} />);
   const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
@@ -3602,7 +3665,7 @@ test("a mobile host without the candidate palette switch shows neither the switc
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn() },
         mobileKeyboardFeedback: {
           load: vi.fn().mockResolvedValue({
@@ -3629,7 +3692,7 @@ test("mobile settings pages follow the WebView back stack", async () => {
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform: "ios" } as HostCapabilities,
+          host: testHost({ platform: "ios" }),
           home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
         }}
       />,
@@ -3661,7 +3724,7 @@ test("mobile settings reload shared preferences after returning to foreground", 
       client={{
         load,
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}
     />,
@@ -3684,7 +3747,7 @@ test("mobile account deep links participate in the back stack", async () => {
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform: "ios" } as HostCapabilities,
+          host: testHost({ platform: "ios" }),
           account: {
             status: vi.fn().mockResolvedValue({ available: false }),
             providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
@@ -3763,7 +3826,7 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save,
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
   const preedit = (await screen.findByRole("combobox", {
@@ -3859,7 +3922,7 @@ test("on Windows the main font leads the fallback chain", async () => {
       client={{
         load: async () => initial,
         save,
-        host: { platform: "windows", candidate_font_controls: true } as HostCapabilities,
+        host: testHost({ platform: "windows", candidate_font_controls: true }),
       }}
     />,
   );
@@ -5322,7 +5385,7 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
-    host: { platform: "linux" } as never,
+    host: testHost({ platform: "linux" }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -5348,7 +5411,7 @@ test("Linux help network section says what goes online and where credentials liv
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
-    host: { platform: "linux" } as never,
+    host: testHost({ platform: "linux" }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -5380,7 +5443,7 @@ test("Android help and about pages use mobile instructions and project links", a
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn(),
     openExternalUrl,
-    host: { platform: "android", floating_toolbar: false } as never,
+    host: testHost({ platform: "android", floating_toolbar: false }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -5430,7 +5493,7 @@ test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewher
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           openExternalUrl,
-          host: { platform } as HostCapabilities,
+          host: testHost({ platform }),
         }}
       />,
     );
@@ -5455,7 +5518,7 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
         openExternalUrl,
         openSystemKeyboardSettings,
         copyText,
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
       }}
     />,
   );
@@ -5497,7 +5560,7 @@ test("macOS support pages use client project and privacy links", async () => {
         openExternalUrl,
         openThirdPartyLicenses,
         copyText,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -5542,7 +5605,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -5569,7 +5632,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
       }}
     />,
   );
@@ -5591,7 +5654,7 @@ test("the sidebar follows the six titled navigation groups", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
+        host: testHost({ platform: "windows", floating_toolbar: true }),
       }}
     />,
   );
@@ -5625,7 +5688,7 @@ test("macOS shortcut page owns the full-width chord and the input page the mode 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
+        host: testHost({ platform: "macos", mode_switch_shortcuts: true }),
       }}
     />,
   );
@@ -5670,7 +5733,7 @@ test("the feedback report leads with the release and the scheme", async () => {
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         copyText,
-        host: { platform: "macos", os_version: "27.0" } as HostCapabilities,
+        host: testHost({ platform: "macos", os_version: "27.0" }),
       }}
     />,
   );
@@ -5693,7 +5756,7 @@ test("a host that cannot name its release still reports something", async () => 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         copyText,
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );
@@ -5712,7 +5775,7 @@ test("the full-width chord row is macOS only", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows", mode_switch_shortcuts: true } as HostCapabilities,
+        host: testHost({ platform: "windows", mode_switch_shortcuts: true }),
       }}
     />,
   );
@@ -5740,7 +5803,7 @@ test("restore defaults applies the host's defaults and saves them", async () => 
         }),
         save,
         loadDefaultPreferences,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -5768,7 +5831,7 @@ test("restore defaults declined leaves the draft alone", async () => {
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         loadDefaultPreferences,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -5785,7 +5848,7 @@ test("restore defaults sits in the footer of preference pages only", async () =>
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         loadDefaultPreferences: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -5804,7 +5867,7 @@ test("a host without the defaults command shows no restore button", async () => 
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -6051,7 +6114,7 @@ test.each(referenceSections)(
           // The capabilities `host_surface.rs` gives the Windows host, since these are the
           // reference's own sections: several of them are behind a capability and a bare fixture
           // would assert they are missing when the host simply never declared it.
-          host: {
+          host: testHost({
             platform: "windows",
             floating_toolbar: true,
             floating_toolbar_components: true,
@@ -6063,7 +6126,7 @@ test.each(referenceSections)(
             // them; without these the table would pass by asserting a page that rendered nothing.
             mode_switch_shortcuts: true,
             panel_shortcuts: true,
-          } as HostCapabilities,
+          }),
         }}
       />,
     );
@@ -6090,7 +6153,7 @@ test.each(referenceSections)(
  * being needed fails, so the list cannot outlive what it explains.
  */
 /** What `host_surface.rs` answers for HostPlatform::Macos, field for field. */
-const macosHostCapabilities = {
+const macosHostCapabilities = testHost({
   platform: "macos",
   restart_input_method: true,
   panel_windows: true,
@@ -6118,7 +6181,7 @@ const macosHostCapabilities = {
   voice_commit_mode: true,
   shuangpin_preedit: true,
   candidate_english_font: true,
-} as HostCapabilities;
+});
 
 const macosAbsentSections: Record<string, string> = {
   // The Windows font row carries this note; macOS applies the family without a restart, and its
@@ -6190,7 +6253,7 @@ test.each(referenceSections)(
  * on macOS would otherwise pass here.
  */
 test.each([
-  ["windows", { platform: "windows" } as HostCapabilities],
+  ["windows", testHost({ platform: "windows" })],
   ["macos", macosHostCapabilities as HostCapabilities],
 ])("the feedback page keeps the reference's channels on %s", async (_name, host) => {
   render(
@@ -6216,7 +6279,7 @@ test("the feedback page opens with 帮助 and links the report to 诊断日志",
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -6238,7 +6301,7 @@ test("the feedback page has no 诊断日志 link where 维护与诊断 has no lo
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
       }}
     />,
   );
@@ -6405,7 +6468,7 @@ const referenceOptions: {
 const optionHosts: [string, HostCapabilities][] = [
   [
     "windows",
-    {
+    testHost({
       platform: "windows",
       floating_toolbar: true,
       floating_toolbar_components: true,
@@ -6415,7 +6478,7 @@ const optionHosts: [string, HostCapabilities][] = [
       ime_mode_scope: true,
       mode_switch_shortcuts: true,
       panel_shortcuts: true,
-    } as HostCapabilities,
+    }),
   ],
   // The same lists, asked of macOS. A choice that exists on one host and not the other is a
   // difference in the page, and this is the layer where one hid: the candidate page sizes were
@@ -6568,7 +6631,7 @@ test("the page number row needs a host that draws one", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows", candidate_font_controls: true } as HostCapabilities,
+        host: testHost({ platform: "windows", candidate_font_controls: true }),
       }}
     />,
   );
@@ -6589,7 +6652,7 @@ test("the page number switch saves show_candidate_page_number", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save,
-        host: { platform: "windows", candidate_page_number: true } as HostCapabilities,
+        host: testHost({ platform: "windows", candidate_page_number: true }),
       }}
     />,
   );
@@ -6612,7 +6675,7 @@ test("the 中英混输 link on the input page opens 标点与翻译", async () =
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -6629,7 +6692,7 @@ test("macOS enables the shuangpin profile menu only under shuangpin", async () =
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -6650,7 +6713,7 @@ test("other hosts keep the shuangpin profile menu editable", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -6666,7 +6729,7 @@ test("macOS sidebar uses the same six groups", async () => {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "macos", floating_toolbar: true } as HostCapabilities,
+        host: testHost({ platform: "macos", floating_toolbar: true }),
       }}
     />,
   );
@@ -6733,7 +6796,7 @@ test("Linux checks the client release feed and treats no release as a normal res
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );
@@ -6779,7 +6842,7 @@ test("Linux offers its own newest published release, not another platform's", as
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         openExternalUrl,
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );
@@ -6835,7 +6898,7 @@ test("Linux update notice shows the .deb digest GitHub computed and the sha256su
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );
@@ -7058,7 +7121,7 @@ test("Windows checks this repository's Windows releases rather than the referenc
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         openExternalUrl,
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -7102,7 +7165,7 @@ test("an update check that never answers gives up after ten seconds", async () =
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: { platform: "windows" } as HostCapabilities,
+          host: testHost({ platform: "windows" }),
         }}
       />,
     );
@@ -7144,7 +7207,7 @@ test("about page uses the packaged app version for display and update comparison
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
-        host: { platform: "linux" } as HostCapabilities,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );
@@ -7217,7 +7280,7 @@ test("macOS routes input-session panels through the native input-method process"
     openHandwriting: vi.fn(),
     openCloudClipboard: vi.fn(),
     openCloudDictionary: vi.fn(),
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -7245,7 +7308,7 @@ test("the 剪贴板 page sends a history entry through the host's cloud clipboar
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(snapshot),
     save: vi.fn(),
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
     clipboard: {
       clear: vi.fn(),
       list: vi
@@ -7994,7 +8057,7 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue({ ...initial, preferences }),
     save,
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
@@ -8015,7 +8078,7 @@ test("a saved page size below the reference's three stays in range and selected"
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue({ ...initial, preferences }),
     save: vi.fn(),
-    host: { platform: "windows" } as HostCapabilities,
+    host: testHost({ platform: "windows" }),
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
@@ -8038,7 +8101,7 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
     save,
     loadMacosShuangpinKeymap,
     saveMacosShuangpinKeymap,
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -8187,7 +8250,7 @@ test.each(["windows", "macos", "linux"])(
           changed = undefined;
         };
       }),
-      host: { platform } as never,
+      host: testHost({ platform }),
     };
     render(<SettingsPage initialPage="appearance" client={client} />);
     const size = (await screen.findByRole("slider", {
@@ -8240,7 +8303,7 @@ test("this window's own save echoed back by the monitor is not reported as anoth
         changed = undefined;
       };
     }),
-    host: { platform: "linux" } as never,
+    host: testHost({ platform: "linux" }),
   };
   render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
@@ -8440,12 +8503,14 @@ test("a host that fixes the candidate page size and layout does not offer them",
   const { unmount } = render(
     <SettingsPage
       initialPage="appearance"
-      client={client({
-        platform: "ios",
-        candidate_row_colors: true,
-        fixed_candidate_page_size: 9,
-        fixed_candidate_layout: "horizontal",
-      } as HostCapabilities)}
+      client={client(
+        testHost({
+          platform: "ios",
+          candidate_row_colors: true,
+          fixed_candidate_page_size: 9,
+          fixed_candidate_layout: "horizontal",
+        }),
+      )}
     />,
   );
   await screen.findByLabelText("候选栏预编辑", undefined, { timeout: 3000 });
@@ -8471,7 +8536,7 @@ test("an unreadable preferences document offers a repair that backs it up first"
   });
   const openPreferencesDirectory = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = {
-    host: { platform: "macos" } as HostCapabilities,
+    host: testHost({ platform: "macos" }),
     load: vi.fn().mockRejectedValue({ code: "format" }),
     save: vi.fn(),
     recoverPreferences,
@@ -8575,7 +8640,7 @@ test("the dictionary page ends with the learning data reset", async () => {
           setSettings: vi.fn(),
           reset: vi.fn(),
         },
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );
@@ -8603,7 +8668,7 @@ test.each(["windows", "linux"])("%s offers the learning data reset too", async (
         save: vi.fn(),
         resetLearnedData: vi.fn().mockResolvedValue(undefined),
         dictionary: {} as never,
-        host: { platform } as HostCapabilities,
+        host: testHost({ platform }),
       }}
     />,
   );
@@ -8619,7 +8684,7 @@ test("a host without the reset has no learning data group", async () => {
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         dictionary: {} as never,
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -8654,7 +8719,7 @@ test("the AI page is grouped like the other pages", async () => {
         }),
         save: vi.fn(),
         aiAssistant: { models: vi.fn(), complete: vi.fn() } as never,
-        host: { platform: "windows" } as HostCapabilities,
+        host: testHost({ platform: "windows" }),
       }}
     />,
   );

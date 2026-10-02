@@ -7,10 +7,9 @@
 
 namespace FanyImeKeyboardCompositionPipe
 {
-// Legacy negotiation returns a server-local capability set, not peer consent.
 inline bool CanCancel(const FanyImeProtocol::Negotiation &negotiated)
 {
-    return negotiated.accepted && !negotiated.legacy &&
+    return negotiated.accepted &&
            (negotiated.capabilities & FanyImeProtocol::KeyboardCompositionCancel) != 0;
 }
 

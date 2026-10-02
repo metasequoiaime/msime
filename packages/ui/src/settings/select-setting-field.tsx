@@ -14,7 +14,7 @@ export interface SelectSettingFieldProps extends Omit<
   children?: ReactNode;
 }
 
-/** Shared labeled select control for legacy settings fields. */
+/** Shared labeled select control. */
 export function SelectSettingField({
   label,
   inputLabel,

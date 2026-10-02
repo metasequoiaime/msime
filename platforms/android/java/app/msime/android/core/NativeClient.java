@@ -134,14 +134,10 @@ public final class NativeClient {
     /**
      * The polish prompt the selected slot resolves to.
      *
-     * <p>Decided by the shared C++ header the other hosts read, not by this host: the
-     * slot-versus-legacy precedence has been wrong on individual hosts before, and the preset
-     * bodies carry their own prompt-injection wording that must not drift between copies.
+     * <p>Decided by the shared C++ header the other hosts read, not by this host: slot precedence has been wrong on individual hosts before, and the preset bodies carry their own prompt-injection wording that must not drift between copies.
      */
-    public static String polishPrompt(String id, String legacy, String custom1, String custom2,
-                                      String custom3) {
-        return text(polishPromptRaw(utf8(id), utf8(legacy), utf8(custom1), utf8(custom2),
-                                    utf8(custom3)));
+    public static String polishPrompt(String id, String custom1, String custom2, String custom3) {
+        return text(polishPromptRaw(utf8(id), utf8(custom1), utf8(custom2), utf8(custom3)));
     }
 
     private static byte[] utf8(String value) {
@@ -452,8 +448,8 @@ public final class NativeClient {
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
     private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
-    private static native byte[] polishPromptRaw(byte[] id, byte[] legacy, byte[] custom1,
-        byte[] custom2, byte[] custom3);
+    private static native byte[] polishPromptRaw(byte[] id, byte[] custom1, byte[] custom2,
+        byte[] custom3);
     private static native byte[] mobileClipboardHistoryRaw(byte[] request);
     private static native byte[] doubaoDecodeFrameRaw(byte[] frame);
     private static native byte[] doubaoStartFrameRaw(boolean itn, boolean punctuation, boolean ddc,

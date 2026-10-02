@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -6,7 +7,6 @@ import { answerConfirm } from "../support/confirm";
 import {
   TypingStatisticsPage,
   SettingsPage,
-  type HostCapabilities,
   type SettingsClient,
   type Snapshot,
   type TypingStatistics,
@@ -131,7 +131,7 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
@@ -154,7 +154,7 @@ test("the phone tab strip has a column for every tab", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics: {
           load: vi.fn().mockResolvedValue(status()),
@@ -189,7 +189,7 @@ test("mobile statistic tabs use Apple chart shapes", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
@@ -216,7 +216,7 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
@@ -243,7 +243,7 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         typingStatistics,
       }}
     />,
@@ -283,7 +283,7 @@ test("mobile statistics refresh when the settings surface returns to the foregro
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
@@ -520,7 +520,7 @@ test("desktop statistics draw an ANSI key heatmap for the cumulative or selected
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "macos" } as HostCapabilities,
+        host: testHost({ platform: "macos" }),
         typingStatistics,
       }}
     />,
@@ -586,7 +586,7 @@ test("the phone's 按键 tab draws the soft keyboard and a nine-key grid once it
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "android" } as HostCapabilities,
+        host: testHost({ platform: "android" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}
@@ -623,7 +623,7 @@ test("a phone with only 26-key presses has no nine-key grid", async () => {
     <SettingsPage
       client={{
         ...baseClient(),
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
         home: { openKeyboard: vi.fn() },
         typingStatistics,
       }}

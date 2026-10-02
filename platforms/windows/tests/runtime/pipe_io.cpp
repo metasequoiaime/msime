@@ -198,7 +198,7 @@ void handshakes() {
       auto packet = FanyImeProtocol::Hello(id, 71);
       if (mode == 1) // Required but not implemented optional capability.
         packet.point[1] |= FanyImeProtocol::FramedVoice;
-      if (mode == 2) {
+      if (mode == 2) { // A hello without version or request id is rejected.
         packet = {};
         packet.event_type = FanyImePipeEventType::ClientHello;
         packet.client_id = id;
@@ -226,17 +226,15 @@ void handshakes() {
                   FanyImeProtocol::FramedVoice));
       }
       auto result = negotiate.get();
-      require(result.status == ((mode == 0 || mode == 2)
-                                    ? HandshakeStatus::Ready
-                                    : HandshakeStatus::ProtocolRejected));
-      require(result.protocol.legacy == (mode == 2));
+      require(result.status == (mode == 0 ? HandshakeStatus::Ready
+                                          : HandshakeStatus::ProtocolRejected));
       if (result.status == HandshakeStatus::Ready)
         require(result.io.complete());
       if (mode >= 2) {
         DWORD available = 0;
         require(PeekNamedPipe(reverse.client.value, nullptr, 0, nullptr,
                               &available, nullptr));
-        require(available == 0); // No legacy ACK or spoofed-client response.
+        require(available == 0); // No ACK for an unversioned or spoofed-client hello.
       }
     }
   }

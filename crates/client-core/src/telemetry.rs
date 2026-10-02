@@ -7,7 +7,7 @@
 //! - `session_crash`: a session that left its marker behind *and* a crash record. A marker alone (the system killed the process, logout, shutdown, low memory) is not a crash and produces no event.
 //! - `crash`: a crash record the host's crash handler wrote to disk, turned into an event on the next start. The handler only writes a file ([`TelemetryStore::record_crash`], or a raw write to the path [`TelemetryStore::begin_session`] returned, which is what an async-signal handler can do); it never sends.
 //!
-//! Clients never send `download`: release downloads are counted on the server and installs by `active`. Queued per-start `download` events written by the earlier C++ reporter are dropped when the queue is read.
+//! Clients never send `download`: release downloads are counted on the server and installs by `active`.
 //!
 //! Every event carries `install_id`, an anonymous random id generated once per installation and stored in this directory. It is never derived from the hardware, the account or user data. Crash messages and stacks have every directory part of a path removed before they are queued, so a user or folder name cannot leave the machine.
 //!
@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-/// The queue, a JSON array of events. The name and format are the ones the earlier C++ reporter used, so a host that passes the same directory picks its queue up.
+/// The queue, a JSON array of events.
 pub const QUEUE_FILE: &str = "telemetry.json";
 /// The installation id, the last day `active` was queued, and any `Retry-After` deadline.
 pub const STATE_FILE: &str = "telemetry-state.json";
@@ -293,7 +293,7 @@ impl TelemetryStore {
         let _lock = self.lock()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
-        let mut queue = self.read_queue(&install_id)?;
+        let mut queue = self.read_queue()?;
         let previous = self.read_marker();
         let crashes_directory = self.directory.join(CRASH_DIRECTORY);
         crate::storage::create_directory_and_check(&crashes_directory)?;
@@ -350,7 +350,7 @@ impl TelemetryStore {
         };
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
-        let mut queue = self.read_queue(&install_id)?;
+        let mut queue = self.read_queue()?;
         push(
             &mut queue,
             TelemetryEvent {
@@ -403,7 +403,7 @@ impl TelemetryStore {
         let _lock = self.lock()?;
         let mut state = self.read_state();
         let install_id = self.ensure_install_id(&mut state)?;
-        let mut queue = self.read_queue(&install_id)?;
+        let mut queue = self.read_queue()?;
         if push_active(&mut state, &mut queue, app, &install_id, now) {
             self.write_queue(&queue)?;
             self.write_state(&state)?;
@@ -430,17 +430,15 @@ impl TelemetryStore {
     ) -> Result<FlushReport, TelemetryError> {
         let pending = {
             let _lock = self.lock()?;
-            let mut state = self.read_state();
+            let state = self.read_state();
             if state.retry_after_unix_ms > unix_ms(now) {
-                let install_id = self.ensure_install_id(&mut state)?;
                 return Ok(FlushReport {
-                    remaining: self.read_queue(&install_id)?.len(),
+                    remaining: self.read_queue()?.len(),
                     deferred: true,
                     ..FlushReport::default()
                 });
             }
-            let install_id = self.ensure_install_id(&mut state)?;
-            self.read_queue(&install_id)?
+            self.read_queue()?
         };
         let mut done = Vec::new();
         let mut report = FlushReport::default();
@@ -470,8 +468,7 @@ impl TelemetryStore {
         }
         let _lock = self.lock()?;
         let mut state = self.read_state();
-        let install_id = self.ensure_install_id(&mut state)?;
-        let mut queue = self.read_queue(&install_id)?;
+        let mut queue = self.read_queue()?;
         queue.retain(|event| !done.contains(&event.id));
         report.remaining = queue.len();
         if !done.is_empty() {
@@ -512,9 +509,7 @@ impl TelemetryStore {
     /// The queued events, oldest first.
     pub fn queued(&self) -> Result<Vec<TelemetryEvent>, TelemetryError> {
         let _lock = self.lock()?;
-        let mut state = self.read_state();
-        let install_id = self.ensure_install_id(&mut state)?;
-        self.read_queue(&install_id)
+        self.read_queue()
     }
 
     fn lock(&self) -> Result<File, TelemetryError> {
@@ -553,17 +548,17 @@ impl TelemetryStore {
         })
     }
 
-    /// Reads the queue and, when reading it changed anything, writes the result back at once, so a regenerated id is the id every later attempt sends.
-    fn read_queue(&self, install_id: &str) -> Result<Vec<TelemetryEvent>, TelemetryError> {
-        let (queue, changed) = self.parse_queue(install_id);
+    /// Reads the queue and, when reading it dropped anything, writes the result back at once.
+    fn read_queue(&self) -> Result<Vec<TelemetryEvent>, TelemetryError> {
+        let (queue, changed) = self.parse_queue();
         if changed {
             self.write_queue(&queue)?;
         }
         Ok(queue)
     }
 
-    /// Parses the queue, keeping only events the server would accept. This is also the migration of a queue the C++ reporter wrote: its per-start `download` events fail to parse and are dropped, ids shorter than the server's 16 characters are regenerated, and events without `install_id` get this installation's.
-    fn parse_queue(&self, install_id: &str) -> (Vec<TelemetryEvent>, bool) {
+    /// Parses the queue, keeping only events the server would accept: an event that fails to parse or validate is dropped.
+    fn parse_queue(&self) -> (Vec<TelemetryEvent>, bool) {
         let path = self.directory.join(QUEUE_FILE);
         let Ok(file) = File::open(&path) else {
             return (Vec::new(), false);
@@ -582,12 +577,6 @@ impl TelemetryStore {
                 continue;
             };
             let mut event = original.clone();
-            if event.id.chars().count() < 16 {
-                event.id = Uuid::new_v4().hyphenated().to_string();
-            }
-            if event.install_id.is_empty() {
-                event.install_id = install_id.to_owned();
-            }
             if event.kind == TelemetryKind::Crash {
                 event.message = clean_message(&event.message);
                 event.stack = clean_stack(&event.stack);

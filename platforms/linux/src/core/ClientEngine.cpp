@@ -1361,30 +1361,17 @@ bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
     command = "msime-linux-settings";
-  gchar *argv[] = {const_cast<gchar *>(command), nullptr};
-  gchar **environment = g_get_environ();
   const std::string requested = panel ? panel : "";
-  // About, help, feedback and the local dictionary are settings sections rather than desktop surfaces.
-  const char *settings_page = requested == "about" ? "about"
-                              : requested == "help" ? "help"
-                              : requested == "feedback" ? "feedback"
-                              : requested == "dictionary" ? "dictionary"
-                              : nullptr;
-  const bool settings_route = settings_page != nullptr;
-  environment = g_environ_setenv(environment, "MSIME_CLIENT_PANEL",
-                                 settings_route ? "settings" : panel, TRUE);
-  // A settings section travels as "settings:<category>"; the bare section name
-  // is not a route head and would be rejected by the shared parser.
-  const std::string route = settings_page ? std::string("settings:") + settings_page
-                                           : requested;
-  environment = g_environ_setenv(environment, "MSIME_CLIENT_ROUTE", route.c_str(), TRUE);
-  if (settings_page)
-    environment = g_environ_setenv(environment, "MSIME_CLIENT_SETTINGS_PAGE", settings_page, TRUE);
+  // About, help, feedback and the local dictionary are settings sections rather than desktop surfaces, so each travels as "settings:<category>"; the bare section name is not a route head and would be rejected by the shared parser.
+  const bool settings_page = requested == "about" || requested == "help" ||
+                             requested == "feedback" || requested == "dictionary";
+  std::string route_argument =
+      "--route=" + (settings_page ? std::string("settings:") + requested : requested);
+  gchar *argv[] = {const_cast<gchar *>(command), route_argument.data(), nullptr};
   GError *error = nullptr;
   const auto started = g_spawn_async(
-      nullptr, argv, environment, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
+      nullptr, argv, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
       nullptr, &error);
-  g_strfreev(environment);
   if (error)
     g_error_free(error);
   return started != FALSE;
@@ -2179,7 +2166,7 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
         // Engine preference application may be deferred until composition
         // ends. Never launch another request with the superseded AI settings.
         for (const auto *key : {"provider", "model", "endpoint", "candidate_limit",
-                                "prompt_id", "prompt", "prompt_custom_1",
+                                "prompt_id", "prompt_custom_1",
                                 "prompt_custom_2", "prompt_custom_3"}) {
           if (desired.contains(key) &&
               (!current.contains(key) || desired.at(key) != current.at(key)))
@@ -2394,7 +2381,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
       retry_empty_ai();
       return;
     }
-    const auto candidates = value.value("candidates", Json::array({value}));
+    const auto candidates = value.value("candidates", Json());
     if (!candidates.is_array() || candidates.size() > 11) {
       retry_empty_ai();
       return;

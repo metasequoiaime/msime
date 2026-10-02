@@ -12,7 +12,7 @@ export interface ModelSettingFieldProps {
   onSelect: (model: string) => void;
 }
 
-/** Shared labeled model catalog select for legacy settings fields. */
+/** Shared labeled model catalog select. */
 export function ModelSettingField({
   label,
   inputLabel,

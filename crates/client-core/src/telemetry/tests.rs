@@ -383,33 +383,6 @@ fn the_queue_keeps_the_newest_sixty_four() {
 }
 
 #[test]
-fn a_legacy_queue_loses_its_download_events_and_short_ids() {
-    let (_directory, store) = store();
-    std::fs::create_dir_all(store.directory()).unwrap();
-    std::fs::write(
-        store.directory().join(QUEUE_FILE),
-        serde_json::to_vec(&serde_json::json!([
-            {"id": "1f2e3d4c5b6a7980", "kind": "download", "platform": "linux", "version": "0.4.0"},
-            {"id": "abc123", "kind": "crash", "platform": "linux", "version": "0.4.0", "message": "std::terminate"},
-            {"id": "0123456789abcdef0123", "kind": "crash", "platform": "windows", "version": "0.4.0", "message": "std::terminate"},
-            "garbage",
-            {"id": "0123456789abcdef9999", "kind": "crash", "platform": "linux", "version": "0.4.0"}
-        ]))
-        .unwrap(),
-    )
-    .unwrap();
-    let install_id = store.install_id().unwrap();
-    let queue = store.queued().unwrap();
-    assert_eq!(queue.len(), 2);
-    assert!(queue.iter().all(|event| event.kind == TelemetryKind::Crash));
-    assert!(queue.iter().all(|event| event.id.len() >= 16));
-    assert!(queue.iter().all(|event| event.install_id == install_id));
-    assert_eq!(queue[1].id, "0123456789abcdef0123");
-    // The regenerated id was written back, so every later attempt sends the same one.
-    assert_eq!(store.queued().unwrap(), queue);
-}
-
-#[test]
 fn clear_drops_everything_but_the_install_id() {
     let (_directory, store) = store();
     let install_id = store.install_id().unwrap();

@@ -18,12 +18,10 @@ CHUNK_BYTES = 6400  # 200ms of 16kHz signed 16-bit mono PCM.
 MAX_RESPONSE = 1024 * 1024
 
 
-def normalize_doubao_auth_mode(mode, app_key):
-    """Resolve explicit console mode, retaining pre-mode config compatibility."""
+def normalize_doubao_auth_mode(mode):
+    """Doubao's console generation: "legacy" (App ID plus Access Token) only when named, otherwise "api_key"."""
     normalized = mode.lower() if isinstance(mode, str) and mode.isascii() else ""
-    if normalized in ("api_key", "legacy"):
-        return normalized
-    return "legacy" if isinstance(app_key, str) and app_key else "api_key"
+    return "legacy" if normalized == "legacy" else "api_key"
 
 
 def doubao_headers(config, request_id):
@@ -35,7 +33,7 @@ def doubao_headers(config, request_id):
     app_key = app_key.strip(" \t\r\n")
     token = token.strip(" \t\r\n")
     resource_id = resource_id.strip(" \t\r\n")
-    mode = normalize_doubao_auth_mode(config.get("doubao_auth_mode"), app_key)
+    mode = normalize_doubao_auth_mode(config.get("doubao_auth_mode"))
     headers = {"X-Api-Resource-Id": resource_id,
                "X-Api-Request-Id": request_id}
     if mode == "legacy":
@@ -146,13 +144,7 @@ def doubao_auth_headers(config, options):
     mode = options.get("doubao_auth_mode", "")
     if not isinstance(mode, str) or not isinstance(app_key, str) or not isinstance(token, str):
         raise ValueError("invalid Doubao authentication configuration")
-    mode = mode.lower()
-    if mode not in ("api_key", "legacy"):
-        # Older preferences had no mode and inferred the console generation
-        # from App ID presence. Keep that behavior, but never treat a shipped
-        # placeholder as an App ID.
-        mode = "api_key" if _placeholder(app_key) else "legacy"
-    if mode == "legacy":
+    if normalize_doubao_auth_mode(mode) == "legacy":
         if _placeholder(app_key):
             raise ValueError("Doubao legacy authentication requires an App ID")
         return {"X-Api-App-Key": app_key, "X-Api-Access-Key": token}

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -70,7 +71,7 @@ async function openDeveloper(extra: Partial<SettingsClient>) {
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
         ...extra,
       }}
     />,

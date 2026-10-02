@@ -1,5 +1,4 @@
 import type { HostCapabilities, HostPlatform } from "../index";
-import { isLinuxDesktop } from "./platform-helpers";
 
 export interface SettingsPlatformContext {
   host?: HostCapabilities;
@@ -20,8 +19,8 @@ export function settingsPlatformContext(host?: HostCapabilities): SettingsPlatfo
   const android = host?.platform === "android";
   const ios = host?.platform === "ios";
   const harmony = host?.platform === "harmony";
-  const mobile = host?.mobile_settings ?? (ios || android || harmony);
-  const linux = host ? host.platform === "linux" : isLinuxDesktop();
+  const mobile = host ? host.mobile_settings : false;
+  const linux = host?.platform === "linux";
   return {
     host,
     linux,
@@ -31,7 +30,7 @@ export function settingsPlatformContext(host?: HostCapabilities): SettingsPlatfo
     mobile,
     windows: host?.platform === "windows",
     macos: host?.platform === "macos",
-    releasePlatform: host?.platform ?? (linux ? "linux" : null),
+    releasePlatform: host?.platform ?? null,
     diagnosticsFallbackPlatform: android ? "android" : ios ? "ios" : "desktop",
     accountPlatform: android ? "android" : ios ? "ios" : harmony ? "harmony" : undefined,
   };

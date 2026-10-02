@@ -16,7 +16,6 @@ import { WubiSection } from "./wubi-section";
 
 export interface InputSchemeSettingsContentProps {
   preferences: Preferences;
-  grouped?: boolean;
   hasTouchKeyboardSchemes: boolean;
   touchKeyboardSchemes: { enabled: readonly TouchKeyboardScheme[] };
   selectedTouchKeyboardScheme: TouchKeyboardScheme;
@@ -35,7 +34,6 @@ export interface InputSchemeSettingsContentProps {
 /** Shared input mode, scheme selector, scheme details, and Wubi composition for settings hosts. */
 export function InputSchemeSettingsContent({
   preferences,
-  grouped = false,
   hasTouchKeyboardSchemes,
   touchKeyboardSchemes,
   selectedTouchKeyboardScheme,
@@ -56,25 +54,15 @@ export function InputSchemeSettingsContent({
       (scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese") ||
       inputSchemes.includes(scheme),
   );
-  const content = (
-    <>
-      {!grouped && !hasTouchKeyboardSchemes && (
-        <InputModeSection
-          scheme={preferences.scheme}
-          lastChineseScheme={preferences.last_chinese_scheme}
-          supportedSchemes={inputSchemes}
-          onChange={onPreferencesChange}
-        />
-      )}
-      {grouped && (
-        <InputModeSection
-          scheme={preferences.scheme}
-          lastChineseScheme={preferences.last_chinese_scheme}
-          supportedSchemes={inputSchemes}
-          hidden={hasTouchKeyboardSchemes}
-          onChange={onPreferencesChange}
-        />
-      )}
+  return (
+    <GroupList title="方案">
+      <InputModeSection
+        scheme={preferences.scheme}
+        lastChineseScheme={preferences.last_chinese_scheme}
+        supportedSchemes={inputSchemes}
+        hidden={hasTouchKeyboardSchemes}
+        onChange={onPreferencesChange}
+      />
       {hasTouchKeyboardSchemes && (
         <TouchKeyboardSchemesSection
           options={touchOptions}
@@ -87,7 +75,6 @@ export function InputSchemeSettingsContent({
         />
       )}
       <InputSchemeSelectorSection
-        grouped={grouped}
         hidden={hasTouchKeyboardSchemes || !chineseSchemes}
         value={isChineseScheme(preferences.scheme) ? preferences.scheme : "quanpin"}
         supportedSchemes={inputSchemes}
@@ -97,7 +84,6 @@ export function InputSchemeSettingsContent({
         }
       />
       <InputSchemeDetailsSection
-        grouped={grouped}
         scheme={preferences.scheme}
         shuangpinProfile={preferences.shuangpin_profile}
         macos={macos}
@@ -119,8 +105,6 @@ export function InputSchemeSettingsContent({
           onAutoCommitUniqueChange={onMacosWubiAutoCommitUniqueChange}
         />
       )}
-    </>
+    </GroupList>
   );
-
-  return grouped ? <GroupList title="方案">{content}</GroupList> : content;
 }

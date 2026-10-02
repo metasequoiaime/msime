@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -36,7 +37,7 @@ function mount() {
         communitySkins: {
           list: vi.fn().mockResolvedValue({ skins: [], has_more: false }),
         } as never,
-        host: { platform: "harmony" } as HostCapabilities,
+        host: testHost({ platform: "harmony" }),
       }}
     />,
   );

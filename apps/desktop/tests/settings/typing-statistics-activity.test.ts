@@ -98,7 +98,7 @@ test("days that predate the measurement are unknown rather than instant", () => 
 });
 
 test("the per-day average divides the recorded days, not a total that outlived them", () => {
-  // A document pruned by an older build keeps a running total above what its remaining days hold. The baseline divides the sum of its day rows by their count, so the dropped history must not inflate the average.
+  // A document may keep a running total above what its remaining days hold. The baseline divides the sum of its day rows by their count, so the dropped history must not inflate the average.
   const value = statistics({
     total: 900,
     days: { "2026-09-19": 200, "2026-09-20": 300 },

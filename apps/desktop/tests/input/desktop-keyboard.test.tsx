@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { themeEntry, type Snapshot } from "@msime/ui";
@@ -219,7 +220,7 @@ test("macOS standalone keyboard does not expose an unauthenticated voice panel",
     <DesktopKeyboard
       client={{ ...panel, openVoice: vi.fn() }}
       preferences={{
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
         load: async () => value,
       }}
     />,

@@ -1113,7 +1113,7 @@ void CCompositionProcessorEngine::OnPreservedKey( //
             Global::ModifiersDown &= ~0b00000001;
         if (notifyServer)
         {
-            WriteDataToSharedMemory(Global::Keycode, L'\0', Global::ModifiersDown, nullptr, 0, L"", 0b000111);
+            WriteDataToNamedPipe(Global::Keycode, L'\0', Global::ModifiersDown, nullptr, 0, L"", 0b000111);
             SendKeyEventToUIProcess();
             ClearNamedpipeDataIfExists();
         }
