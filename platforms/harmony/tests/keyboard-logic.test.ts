@@ -7072,6 +7072,20 @@ group("a clipboard history document is not trusted because we wrote it", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
+  let oversizedCleared = false;
+  const oversizedStore: AccountSessionStore = {
+    load: () => "x".repeat(64 * 1024 + 1),
+    save: () => {},
+    clear: () => {
+      oversizedCleared = true;
+    },
+  };
+  new AccountCloudBridge(
+    { request: async () => ({ status: 200, body: "{}" }) },
+    oversizedStore,
+  );
+  check(oversizedCleared, "an oversized saved session is cleared before JSON parsing");
+
   let stored: string | null = null;
   const store: AccountSessionStore = {
     load: () => stored,
