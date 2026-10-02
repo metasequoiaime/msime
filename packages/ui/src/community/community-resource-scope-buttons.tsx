@@ -1,5 +1,7 @@
+import { useRef } from "react";
 import { resourceScopeTitle } from "./community-helpers";
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export type CommunityResourceScope = "" | "mine" | "saved";
 
@@ -20,6 +22,7 @@ export function CommunityResourceScopeButtons({
     { scope: "saved", label: "收藏" },
     { scope: "mine", label: "我的作品" },
   ];
+  const menuRef = useRef<HTMLDetailsElement>(null);
   return (
     <>
       <div
@@ -28,36 +31,32 @@ export function CommunityResourceScopeButtons({
         aria-label={`${resourceLabel}范围`}
       >
         {options.map((option) => (
-          <button
+          <ActionButton
             key={option.scope || "all"}
-            type="button"
+            action={() => onScopeChange(option.scope)}
             className={scope === option.scope ? "primary" : "secondary"}
-            aria-pressed={scope === option.scope}
-            onClick={() => onScopeChange(option.scope)}
-          >
-            {option.label}
-          </button>
+            ariaPressed={scope === option.scope}
+            label={option.label}
+          />
         ))}
       </div>
-      <details className={style.scopeMenu}>
+      <details ref={menuRef} className={style.scopeMenu}>
         <summary className={style.scopeMenuSummary} aria-label={`${resourceLabel}筛选范围`}>
           {resourceScopeTitle(scope)}
         </summary>
         <div className={style.scopeMenuList} role="group" aria-label={`${resourceLabel}筛选范围`}>
           {options.map((option) => (
-            <button
+            <ActionButton
               key={option.scope || "all"}
-              type="button"
-              className={style.scopeMenuItem}
-              aria-label={`筛选范围：${option.label}`}
-              aria-pressed={scope === option.scope}
-              onClick={(event) => {
+              action={() => {
                 onScopeChange(option.scope);
-                event.currentTarget.closest("details")?.removeAttribute("open");
+                menuRef.current?.removeAttribute("open");
               }}
-            >
-              {option.label}
-            </button>
+              className={style.scopeMenuItem}
+              ariaLabel={`筛选范围：${option.label}`}
+              ariaPressed={scope === option.scope}
+              label={option.label}
+            />
           ))}
         </div>
       </details>
