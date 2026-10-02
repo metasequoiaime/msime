@@ -1201,47 +1201,41 @@ function AccountDetailsPage({
             <>
               <div className={account.signInBody}>
                 {appleAvailable && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={signInWithApple}
                     className={account.provider}
                     disabled={busy}
-                    onClick={signInWithApple}
-                  >
-                    使用 Apple 登录
-                  </button>
+                    label="使用 Apple 登录"
+                  />
                 )}
                 {googleAvailable && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={signInWithGoogle}
                     className={account.provider}
                     disabled={busy}
-                    onClick={signInWithGoogle}
-                  >
-                    {googleWaiting ? "正在等待浏览器完成 Google 登录…" : "使用 Google 登录"}
-                  </button>
+                    label={googleWaiting ? "正在等待浏览器完成 Google 登录…" : "使用 Google 登录"}
+                  />
                 )}
                 {googleWaiting && client.googleCancel && (
-                  <button type="button" className={account.link} onClick={cancelGoogle}>
-                    取消 Google 登录
-                  </button>
+                  <ActionButton
+                    action={cancelGoogle}
+                    className={account.link}
+                    label="取消 Google 登录"
+                  />
                 )}
                 {providers.email && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => chooseChannel("email")}
                     className={account.provider}
-                    onClick={() => chooseChannel("email")}
-                  >
-                    邮箱登录
-                  </button>
+                    label="邮箱登录"
+                  />
                 )}
                 {providers.phone && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => chooseChannel("phone")}
                     className={account.provider}
-                    onClick={() => chooseChannel("phone")}
-                  >
-                    手机号登录
-                  </button>
+                    label="手机号登录"
+                  />
                 )}
                 {enabledProviders === 0 && (
                   <p className={`${account.muted} text-center`}>
@@ -1250,11 +1244,8 @@ function AccountDetailsPage({
                 )}
               </div>
               <div className={account.signInFooter}>
-                <button
-                  type="button"
-                  className={account.link}
-                  disabled={busy}
-                  onClick={() =>
+                <ActionButton
+                  action={() =>
                     void perform(async () => {
                       const generation = clientGeneration.current;
                       const value = await client.providers();
@@ -1262,17 +1253,16 @@ function AccountDetailsPage({
                       setProviders(value);
                     })
                   }
-                >
-                  刷新登录方式
-                </button>
-                <button
-                  type="button"
                   className={account.link}
                   disabled={busy}
-                  onClick={clearExpired}
-                >
-                  清除失效登录状态
-                </button>
+                  label="刷新登录方式"
+                />
+                <ActionButton
+                  action={clearExpired}
+                  className={account.link}
+                  disabled={busy}
+                  label="清除失效登录状态"
+                />
               </div>
             </>
           ) : (
@@ -1294,14 +1284,12 @@ function AccountDetailsPage({
                   }}
                 />
               </label>
-              <button
-                type="button"
+              <ActionButton
+                action={requestCode}
                 className={challenge ? account.provider : account.submit}
                 disabled={busy || !target.trim() || resendSeconds > 0}
-                onClick={requestCode}
-              >
-                {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : "获取验证码"}
-              </button>
+                label={resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : "获取验证码"}
+              />
               {challenge && (
                 <div className={account.code}>
                   <label className={account.field}>
@@ -1319,28 +1307,24 @@ function AccountDetailsPage({
                       }
                     />
                   </label>
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={signIn}
                     className={account.submit}
                     disabled={busy || expired || !/^\d{6}$/.test(code)}
-                    onClick={signIn}
-                  >
-                    {expired ? "验证码已过期，请重新获取" : busy ? "正在登录…" : "登录"}
-                  </button>
+                    label={expired ? "验证码已过期，请重新获取" : busy ? "正在登录…" : "登录"}
+                  />
                 </div>
               )}
               <p className={`${account.muted} m-0 text-center`}>
                 验证码只用于本次登录，请勿向他人透露。
               </p>
               <div className={account.signInFooter}>
-                <button
-                  type="button"
+                <ActionButton
+                  action={() => setChannel(null)}
                   className={account.link}
                   disabled={busy}
-                  onClick={() => setChannel(null)}
-                >
-                  取消
-                </button>
+                  label="取消"
+                />
               </div>
             </div>
           )}
