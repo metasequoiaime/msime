@@ -13,7 +13,7 @@ try {
     [IO.File]::WriteAllText($desktopSymbols, 'synthetic symbols')
     $mcpSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_mcp.pdb'
     [IO.File]::WriteAllText($mcpSymbols, 'synthetic symbols')
-    $settingsSymbols = Join-Path $fixture 'target/windows-full/x64/bin/MSIME.Settings.pdb'
+    $settingsSymbols = Join-Path $fixture 'target/windows-full/x64/bin/msime-client-settings.pdb'
     New-Item -ItemType Directory -Force (Split-Path -Parent $settingsSymbols) | Out-Null
     [IO.File]::WriteAllText($settingsSymbols, 'synthetic WinUI symbols')
     foreach ($arch in @('x86', 'x64')) {
@@ -67,20 +67,20 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 21) { throw "Unexpected build stage count: $count" }
-    if ($global:ClientBuildCalls[17].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/MSIME.pdb')) {
+    if ($count -ne 20) { throw "Unexpected build stage count: $count" }
+    if ($global:ClientBuildCalls[16].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/MSIME.pdb')) {
         throw 'Desktop PDB did not follow staged executable name'
     }
     # The on-device speech runtime is fetched for x64 only and staged beside the Server.
     $voiceRuntime = Join-Path $fixture 'target/voice-runtime/windows-x64'
-    $fetch = $global:ClientBuildCalls[18]
+    $fetch = $global:ClientBuildCalls[17]
     if ($fetch.Name -ne 'python' -or $fetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_voice_runtime.py') -or
         [Array]::IndexOf($fetch.Values, 'windows-x64') -ne ([Array]::IndexOf($fetch.Values, '--platform') + 1) -or
         [Array]::IndexOf($fetch.Values, $voiceRuntime) -ne ([Array]::IndexOf($fetch.Values, '--out') + 1)) {
         throw 'Voice runtime fetch mismatch'
     }
-    $stage = $global:ClientBuildCalls[19].Values
-    if ($global:ClientBuildCalls[19].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
+    $stage = $global:ClientBuildCalls[18].Values
+    if ($global:ClientBuildCalls[18].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
         $stage[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin') -or $stage.Count -ne 6) {
         throw 'Voice runtime staging mismatch'
     }
@@ -88,26 +88,28 @@ try {
         if ($stage -notcontains (Join-Path $voiceRuntime $dll)) { throw "Voice runtime library not staged: $dll" }
     }
     # The handwriting model is fetched where Prepare-PackageFiles.ps1 and Collect-Notices.ps1 read it.
-    $handwritingFetch = $global:ClientBuildCalls[20]
+    $handwritingFetch = $global:ClientBuildCalls[19]
     if ($handwritingFetch.Name -ne 'python' -or $handwritingFetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_handwriting_model.py') -or
         [Array]::IndexOf($handwritingFetch.Values, (Join-Path $fixture 'target/handwriting-model')) -ne ([Array]::IndexOf($handwritingFetch.Values, '--out') + 1)) {
         throw 'Handwriting model fetch mismatch'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 15, 16, 17, 18, 19, 20)) {
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
-    foreach ($index in @(9, 10, 11, 12)) {
+    foreach ($index in @(8, 9, 10, 11)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x86) { throw 'Incorrect x86 dependency scope' }
     }
     if ($global:ClientBuildCalls[1].Values -notcontains 'x64' -or
         $global:ClientBuildCalls[1].Values -notcontains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[10].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[10].Values -notcontains 'Win32' -or
-        $global:ClientBuildCalls[11].Values -notcontains 'msime-tsf' -or
+        $global:ClientBuildCalls[9].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $global:ClientBuildCalls[9].Values -notcontains 'Win32' -or
+        $global:ClientBuildCalls[10].Values -notcontains 'msime-tsf' -or
         $global:ClientBuildCalls[4].Values -notcontains 'msime-mcp' -or
         $global:ClientBuildCalls[6].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-mcp.pdb') -or
         $global:ClientBuildCalls[7].Name -ne 'msbuild' -or
-        $global:ClientBuildCalls[15].Values -notcontains '--no-bundle' -or
+        $global:ClientBuildCalls[7].Values -notcontains '-restore' -or
+        $global:ClientBuildCalls[7].Values -notcontains '/p:TargetName=msime-client-settings' -or
+        $global:ClientBuildCalls[14].Values -notcontains '--no-bundle' -or
         $global:ClientBuildCalls[2].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     for ($failure = 1; $failure -le $count; $failure++) {
         $global:ClientBuildCalls.Clear()
@@ -129,7 +131,7 @@ try {
         if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Invalid version reached build tools' }
     }
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
-    if ($global:ClientBuildCalls[18].Values -contains '--config') { throw 'Development version was overridden' }
+    if ($global:ClientBuildCalls[17].Values -contains '--config') { throw 'Development version was overridden' }
     $global:ClientBuildCalls.Clear()
     Remove-Item -LiteralPath $desktopSymbols
     $rejected = $false
