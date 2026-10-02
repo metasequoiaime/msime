@@ -29,6 +29,7 @@ import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { ActionButton } from "../core/action-button";
+import { CommunityRatingButtons } from "./community-rating-buttons";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -586,24 +587,11 @@ function ResourceDetail({
           label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
         />
         {!item.owned && (
-          <div
-            className={`${style.divided} [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
-            aria-label="我的评分"
-          >
-            <p>我的评分（可重新选择）</p>
-            <div>
-              {[1, 2, 3, 4, 5].map((stars) => (
-                <ActionButton
-                  key={stars}
-                  action={() => rateResource(stars)}
-                  className="secondary"
-                  disabled={busy}
-                  ariaLabel={`评 ${stars} 星`}
-                  label={`${stars} 星`}
-                />
-              ))}
-            </div>
-          </div>
+          <CommunityRatingButtons
+            description="我的评分（可重新选择）"
+            disabled={busy}
+            onRate={rateResource}
+          />
         )}
         {item.owned && (
           <>
