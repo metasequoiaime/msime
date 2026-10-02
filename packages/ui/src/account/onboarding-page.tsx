@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Switch } from "../core/platform-controls";
+import { ActionButton } from "../core/action-button";
 import { useSettingsPlatform } from "../theme/settings-platform";
 import * as onboarding from "./onboarding-style";
 
@@ -194,39 +195,31 @@ export function WelcomeFlowPage({
     );
 
   const skip = skipFlow && (
-    <button type="button" className={onboarding.skip} disabled={busy} onClick={skipFlow}>
-      跳过
-    </button>
+    <ActionButton action={skipFlow} className={onboarding.skip} disabled={busy} label="跳过" />
   );
   const later = (
-    <button
-      type="button"
+    <ActionButton
+      action={() => finish(false)}
       className={android ? onboarding.textButton : desktop ? onboarding.deskLink : onboarding.later}
       disabled={busy}
-      onClick={() => finish(false)}
-    >
-      稍后再说
-    </button>
+      label="稍后再说"
+    />
   );
   const back = (
-    <button
-      type="button"
+    <ActionButton
+      action={() => setPage(page - 1)}
       className={android ? onboarding.textButton : desktop ? "secondary" : onboarding.back}
       disabled={busy}
-      onClick={() => setPage(page - 1)}
-    >
-      上一步
-    </button>
+      label="上一步"
+    />
   );
   const next = (
-    <button
-      type="button"
+    <ActionButton
+      action={advance}
       className={android || desktop ? "primary" : `primary ${onboarding.next}`}
       disabled={busy}
-      onClick={advance}
-    >
-      {nextLabel}
-    </button>
+      label={nextLabel}
+    />
   );
 
   const footer = android ? (
@@ -235,9 +228,12 @@ export function WelcomeFlowPage({
       {page > 0 ? (
         back
       ) : skipFlow ? (
-        <button type="button" className={onboarding.textButton} disabled={busy} onClick={skipFlow}>
-          跳过
-        </button>
+        <ActionButton
+          action={skipFlow}
+          className={onboarding.textButton}
+          disabled={busy}
+          label="跳过"
+        />
       ) : (
         <span />
       )}
@@ -252,14 +248,12 @@ export function WelcomeFlowPage({
       {page === 3
         ? later
         : skipFlow && (
-            <button
-              type="button"
+            <ActionButton
+              action={skipFlow}
               className={onboarding.deskLink}
               disabled={busy}
-              onClick={skipFlow}
-            >
-              跳过
-            </button>
+              label="跳过"
+            />
           )}
       <span className={onboarding.deskSpacer} />
       {page > 0 && back}
@@ -338,23 +332,19 @@ export function WelcomeFlowPage({
               </SetupStep>
             </div>
             <div className={onboarding.systemActions}>
-              <button
-                type="button"
+              <ActionButton
+                action={() => void run(withResources(actions.openSystemKeyboardSettings))}
                 className="primary"
                 disabled={busy}
-                onClick={() => void run(withResources(actions.openSystemKeyboardSettings))}
-              >
-                打开系统设置
-              </button>
+                label="打开系统设置"
+              />
               {!ios && (
-                <button
-                  type="button"
+                <ActionButton
+                  action={() => void run(withResources(actions.showInputMethodPicker))}
                   className="secondary"
                   disabled={busy}
-                  onClick={() => void run(withResources(actions.showInputMethodPicker))}
-                >
-                  选择输入法
-                </button>
+                  label="选择输入法"
+                />
               )}
             </div>
             <p className={onboarding.note}>
