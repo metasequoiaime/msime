@@ -1,6 +1,7 @@
 import * as skin from "../keyboard/touch-skin-style";
 import * as settings from "./settings-style";
-import { Row, Switch } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface TouchKeyboardSchemesSectionProps {
   options: readonly (readonly [string, string])[];
@@ -28,7 +29,7 @@ export function TouchKeyboardSchemesSection({
         const isEnabled = enabled.includes(scheme);
         const isSelected = selected === scheme;
         return (
-          <Row
+          <SwitchRow
             key={scheme}
             title={
               <button
@@ -43,14 +44,11 @@ export function TouchKeyboardSchemesSection({
                 {isSelected && <span aria-hidden="true">✓</span>}
               </button>
             }
-          >
-            <Switch
-              aria-label={`显示输入方案 ${label}`}
-              checked={isEnabled}
-              disabled={isEnabled && enabled.length === 1}
-              onChange={(checked) => onToggle(scheme, checked)}
-            />
-          </Row>
+            aria-label={`显示输入方案 ${label}`}
+            checked={isEnabled}
+            disabled={isEnabled && enabled.length === 1}
+            onChange={(checked) => onToggle(scheme, checked)}
+          />
         );
       })}
     </div>
