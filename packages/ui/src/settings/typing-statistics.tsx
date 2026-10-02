@@ -1915,14 +1915,13 @@ export function TypingStatisticsPage({
             </SelectSettingField>
           )}
           <div className="flex flex-wrap gap-[9px]">
-            <button
-              type="button"
+            <ActionButton
+              action={() => void update(() => client.load(), true)}
+              ariaBusy={busy}
               className="secondary m-0"
               disabled={busy}
-              onClick={() => void update(() => client.load(), true)}
-            >
-              {busy ? "处理中…" : "刷新统计"}
-            </button>
+              label={busy ? "处理中…" : "刷新统计"}
+            />
             {client.openDirectory && (
               <button
                 type="button"

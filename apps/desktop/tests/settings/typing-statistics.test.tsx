@@ -361,6 +361,25 @@ test("a late statistics response is ignored after the page unmounts", async () =
   await Promise.resolve();
 });
 
+test("marks the desktop statistics refresh action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  render(<TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} />);
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
+
+  const button = screen.getByRole("button", { name: "处理中…" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("a statistics mutation from a replaced client cannot overwrite the current page", async () => {
   const pending = deferred<TypingStatisticsStatus>();
   const oldClient = {
