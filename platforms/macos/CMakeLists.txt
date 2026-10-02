@@ -114,7 +114,7 @@ target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTP
 target_include_directories(MSIMEClientInputMethod PRIVATE src)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
-# The build number within a release, kept beside version.txt and set by hand with it: each new version starts again at 1, and a rebuild of the same version that has to be told apart from the last one moves it up. Sparkle orders releases by CFBundleVersion alone, so once SUFeedURL is configured the release that restarts this at 1 has to be offered through a feed that compares the short version first; until then nothing reads it but the About window and the settings app, which compares the short version before the build.
+# 同一版本内的构建号，与 version.txt 放在一起、随它手工设定：每个新版本从 1 重新开始，同一版本需要和上一次区分的重新构建再往上加。Sparkle 只按 CFBundleVersion 排序，所以配置 SUFeedURL 之后，构建号重新从 1 开始的版本得经由一个先比较短版本号的 feed 提供；在那之前只有「关于」窗口和设置应用读它，设置应用先比短版本号再比构建号。
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt")
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" MSIME_BUILD_NUMBER LIMIT_COUNT 1)
 string(STRIP "${MSIME_BUILD_NUMBER}" MSIME_BUILD_NUMBER)

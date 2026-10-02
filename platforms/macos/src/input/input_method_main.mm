@@ -82,7 +82,7 @@ int main(int argc, const char *argv[]) {
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
-        // The name imklaunchagent looks the bundle up by; Info.plist.in says why its form matters.
+        // imklaunchagent 用这个名字找到本 bundle；名字为什么必须是这种形式，见 Info.plist.in。
         NSString *connectionName = NSBundle.mainBundle.infoDictionary[@"InputMethodConnectionName"];
         if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
         __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];

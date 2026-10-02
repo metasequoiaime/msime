@@ -61,7 +61,7 @@ def main() -> int:
     for mode in visible:
         if mode not in modes:
             failures.append(f"tsVisibleInputModeOrderedArrayKey lists {mode}, which tsInputModeListKey does not declare")
-    # imklaunchagent refuses any other form and never launches the input method on demand, which greys its modes out in the input menu.
+    # 其他形式会被 imklaunchagent 拒绝，输入法不再被按需拉起，它的模式在输入菜单里就变灰。
     connection = plist.get("InputMethodConnectionName")
     if bundle and connection != f"{bundle}_Connection":
         failures.append(f"InputMethodConnectionName is {connection!r}; imklaunchagent only launches the input method under {bundle}_Connection")
