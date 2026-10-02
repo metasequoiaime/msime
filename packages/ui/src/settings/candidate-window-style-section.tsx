@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { HostPlatform, Preferences } from "../index";
-import { GroupList, Row, Segmented, Slider } from "../core/platform-controls";
+import { GroupList, Row, Slider } from "../core/platform-controls";
 import {
   candidateFontPresetAvailable,
   candidateFontPresetPatch,
@@ -20,6 +20,7 @@ import {
   candidateScaleSlider,
 } from "../candidate/candidate-window-style";
 import * as settings from "./settings-style";
+import { SegmentedRow } from "./segmented-row";
 
 export type CandidateWindowStyleSectionPreferences = Pick<
   Preferences,
@@ -44,7 +45,7 @@ export function CandidateFontPresetRow({
 }: CandidateFontPresetRowProps) {
   const preset = currentCandidateFontPreset(preferences, platform);
   return (
-    <Row
+    <SegmentedRow
       title="候选字体"
       description={
         preset === null
@@ -53,19 +54,16 @@ export function CandidateFontPresetRow({
             ? "Windows 没有自带圆体"
             : undefined
       }
-    >
-      <Segmented<CandidateFontPresetId | "custom">
-        options={candidateFontPresets.map((entry) => ({
-          value: entry.id,
-          label: entry.label,
-          disabled: !candidateFontPresetAvailable(entry.id, platform),
-        }))}
-        value={preset ?? "custom"}
-        onChange={(id) => {
-          if (id !== "custom") onChange(candidateFontPresetPatch(id, platform, preferences));
-        }}
-      />
-    </Row>
+      options={candidateFontPresets.map((entry) => ({
+        value: entry.id,
+        label: entry.label,
+        disabled: !candidateFontPresetAvailable(entry.id, platform),
+      }))}
+      value={preset ?? "custom"}
+      onChange={(id) => {
+        if (id !== "custom") onChange(candidateFontPresetPatch(id, platform, preferences));
+      }}
+    />
   );
 }
 
