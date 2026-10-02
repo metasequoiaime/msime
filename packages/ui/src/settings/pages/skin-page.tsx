@@ -153,13 +153,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                       </span>
                     </div>
                     <div className={settings.skinCardActions}>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-label={entry.title}
-                        aria-checked={selected}
-                        className={settings.skinSwitch(selected)}
-                        onClick={() =>
+                      <ActionButton
+                        action={() =>
                           onPreferencesChange(
                             id === "custom"
                               ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
@@ -170,9 +165,12 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                               : { global_theme: id },
                           )
                         }
-                      >
-                        <span className={settings.skinSwitchKnob(selected)} />
-                      </button>
+                        ariaChecked={selected}
+                        ariaLabel={entry.title}
+                        className={settings.skinSwitch(selected)}
+                        label={<span className={settings.skinSwitchKnob(selected)} />}
+                        role="switch"
+                      />
                       {fixedAppearance === null && (
                         <ActionButton
                           action={() =>
