@@ -79,7 +79,8 @@ public final class Bootstrap {
                 || (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
                     && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
             throw new java.io.IOException("Bootstrap lock is not a regular file");
-        return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+            LinkOption.NOFOLLOW_LINKS);
     }
 
     static boolean existingConfiguration(File file) throws java.io.IOException {
