@@ -32,8 +32,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
-import { CommunityRatingButtons } from "./community-rating-buttons";
-import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
+import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -579,45 +578,35 @@ function ResourceDetail({
           disabled={busy}
           label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
         />
-        {!item.owned && (
-          <CommunityRatingButtons
-            description="我的评分（可重新选择）"
+        {item.owned && (
+          <ActionButton
+            action={() => setEditing(true)}
+            className={`secondary ${style.action}`}
             disabled={busy}
-            onRate={rateResource}
+            label="编辑并发布新版本"
           />
         )}
-        {item.owned && (
-          <>
-            <ActionButton
-              action={() => setEditing(true)}
-              className={`secondary ${style.action}`}
-              disabled={busy}
-              label="编辑并发布新版本"
-            />
-            <ActionButton
-              action={() => setConfirmDelete(true)}
-              className="danger-text community-unpublish"
-              disabled={busy}
-              label="下架作品"
-            />
-          </>
-        )}
+        <CommunitySkinModerationSection
+          owned={item.owned}
+          actionBusy={busy}
+          ratingDescription="我的评分（可重新选择）"
+          unpublishMessage={
+            <>
+              下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
+              {item.name}”吗？
+            </>
+          }
+          confirmUnpublish={confirmDelete}
+          onRate={rateResource}
+          onRequestUnpublish={() => setConfirmDelete(true)}
+          onUnpublish={unpublish}
+          onCancelUnpublish={() => setConfirmDelete(false)}
+          unpublishButtonClassName="danger-text community-unpublish"
+          unpublishLabel="下架作品"
+          unpublishConfirmLabel="确认下架作品"
+        />
         {!item.owned && client.report && (
           <CommunityReportSection actionBusy={busy} onReport={report} />
-        )}
-        {confirmDelete && (
-          <CommunityUnpublishConfirmation
-            ariaLabel="确认下架作品"
-            message={
-              <>
-                下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
-                {item.name}”吗？
-              </>
-            }
-            actionBusy={busy}
-            onConfirm={unpublish}
-            onCancel={() => setConfirmDelete(false)}
-          />
         )}
       </section>
       {editing && (
