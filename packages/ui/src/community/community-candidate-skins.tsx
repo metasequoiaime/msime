@@ -8,12 +8,12 @@ import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers"
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
 import {
-  CommunityRemovedBadge,
   CommunityReportSection,
   type CommunityModeration,
   type CommunityReportReason,
@@ -447,23 +447,16 @@ export function CommunityCandidateSkinsPage({
             load={loadPreview}
             className={style.detailStage}
           />
-          <div className={style.detailTitle}>
-            <div className={style.headingBody}>
-              <h2 className={style.headingTitle}>{selected.name}</h2>
-              <p className={style.headingNote}>
-                {[selectedCategory, selected.author, selected.version && `v${selected.version}`]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-            {selected.owned && (
-              <span className={style.detailBadge}>
-                {selected.visibility === "private" ? "私有" : "我的作品"}
-              </span>
-            )}
-            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
-          </div>
-          {selected.description && <p className={style.description}>{selected.description}</p>}
+          <CommunityDetailHeader
+            title={selected.name}
+            note={[selectedCategory, selected.author, selected.version && `v${selected.version}`]
+              .filter(Boolean)
+              .join(" · ")}
+            owned={selected.owned}
+            moderation={selected.moderation}
+            ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
+            description={selected.description}
+          />
           {license && <p className={style.metrics}>{license}</p>}
           <CommunityDetailStatus
             downloads={selected.downloads}

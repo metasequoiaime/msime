@@ -22,6 +22,7 @@ import { useCommunityGallery, type CommunityGalleryClient } from "./community-ga
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
@@ -31,7 +32,6 @@ import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import {
-  CommunityRemovedBadge,
   CommunityReportSection,
   type CommunityModeration,
   type CommunityReportReason,
@@ -297,23 +297,19 @@ export function CommunityPluginsPage({
         <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
-          <div className={style.detailTitle}>
-            <div className={style.headingBody}>
-              <h2 className={style.headingTitle}>{selected.name}</h2>
-              <p className={style.headingNote}>
-                {[
-                  kindLabels[selected.kind],
-                  selected.author,
-                  selected.version && `v${selected.version}`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-            {selected.owned && <span className={style.detailBadge}>我的作品</span>}
-            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
-          </div>
-          {selected.description && <p className={style.description}>{selected.description}</p>}
+          <CommunityDetailHeader
+            title={selected.name}
+            note={[
+              kindLabels[selected.kind],
+              selected.author,
+              selected.version && `v${selected.version}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            owned={selected.owned}
+            moderation={selected.moderation}
+            description={selected.description}
+          />
           <p className={style.metrics}>
             {[
               selected.plugin_id,

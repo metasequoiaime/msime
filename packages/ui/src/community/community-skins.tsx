@@ -15,11 +15,11 @@ import { useCommunityGallery, type CommunityGalleryClient } from "./community-ga
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import {
-  CommunityRemovedBadge,
   CommunityReportSection,
   type CommunityModeration,
   type CommunityReportReason,
@@ -513,19 +513,15 @@ export function CommunitySkinsPage({
           <div className={style.detailStage}>
             <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
           </div>
-          <div className={style.detailTitle}>
-            <div className={style.headingBody}>
-              <h2 className={style.headingTitle}>{selected.name}</h2>
-              <p className={style.headingNote}>
-                {[communitySkinCategoryLabel(selected.category), selected.author]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            </div>
-            {selected.owned && <span className={style.detailBadge}>我的作品</span>}
-            <CommunityRemovedBadge owned={selected.owned} moderation={selected.moderation} />
-          </div>
-          {selected.description && <p className={style.description}>{selected.description}</p>}
+          <CommunityDetailHeader
+            title={selected.name}
+            note={[communitySkinCategoryLabel(selected.category), selected.author]
+              .filter(Boolean)
+              .join(" · ")}
+            owned={selected.owned}
+            moderation={selected.moderation}
+            description={selected.description}
+          />
           <CommunityDetailStatus
             downloads={selected.downloads}
             ratingCount={selected.rating_count}
