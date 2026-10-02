@@ -17,6 +17,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -240,6 +241,31 @@ bool model_path_inside(const fs::path &directory, const fs::path &candidate) {
     return false;
   for (const auto &part : relative) {
     if (part == ".." || part == ".")
+      return false;
+  }
+  return true;
+}
+
+// Check the path itself and every existing ancestor without following a link. The model path comes
+// from preferences, so checking only the final directory would let a link in the middle redirect
+// the recognizer to a different tree. macOS exposes /var and /tmp as stable aliases to /private/*.
+bool model_directory_has_real_ancestors(const fs::path &directory) {
+  if (!directory.is_absolute())
+    return false;
+  std::vector<fs::path> ancestors;
+  for (fs::path current = directory; !current.empty(); current = current.parent_path()) {
+    ancestors.push_back(current);
+    if (current.parent_path() == current)
+      break;
+  }
+  std::error_code error;
+  for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+#if defined(__APPLE__)
+    if (*it == fs::path("/var") || *it == fs::path("/tmp"))
+      continue;
+#endif
+    const auto status = fs::symlink_status(*it, error);
+    if (error || fs::is_symlink(status) || !fs::is_directory(status))
       return false;
   }
   return true;
@@ -786,6 +812,8 @@ bool is_local_model_dir(std::string_view path) {
     return false;
   std::error_code error;
   const auto directory = fs::u8path(std::string(path));
+  if (!model_directory_has_real_ancestors(directory))
+    return false;
   const auto manifest = directory / fs::u8path(std::string(local_model_manifest));
   const auto directory_status = fs::symlink_status(directory, error);
   if (error || !fs::is_directory(directory_status))
