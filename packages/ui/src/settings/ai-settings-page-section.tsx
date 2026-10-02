@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
-import { GroupList, MoreOptions, Row, Select } from "../core/platform-controls";
+import { GroupList, MoreOptions, Row } from "../core/platform-controls";
 import {
   AiBasicSettingsSection,
   AiProviderOptions,
@@ -14,6 +14,7 @@ import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
 import { SwitchRow } from "./switch-row";
+import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
 
 export interface AiSettingsPageSectionProps {
@@ -119,15 +120,14 @@ export function AiSettingsPageSection({
               checked={enabled}
               onChange={onEnabledChange}
             />
-            <Row title="服务提供商">
-              <Select
-                aria-label="AI 服务提供商"
-                value={provider}
-                onChange={(event) => onProviderChange(event.target.value)}
-              >
-                <AiProviderOptions options={providerOptions} />
-              </Select>
-            </Row>
+            <SelectRow
+              title="服务提供商"
+              aria-label="AI 服务提供商"
+              value={provider}
+              onChange={(event) => onProviderChange(event.target.value)}
+            >
+              <AiProviderOptions options={providerOptions} />
+            </SelectRow>
             {credentialSection}
             {providerPreset}
             <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
@@ -191,15 +191,15 @@ export function AiSettingsPageSection({
           </GroupList>
           {/* 只显示所选槽位的提示词；兼容提示词是旧版留下的后备，只在所选槽位留空时使用，收进「更多选项」。 */}
           <GroupList title="提示词">
-            <Row title="提示词方案" description="使用选中的独立槽位；槽位留空时使用兼容提示词">
-              <Select
-                aria-label="AI 联想提示词方案"
-                value={promptSlot}
-                onChange={(event) => onPromptIdChange(event.target.value)}
-              >
-                <CustomPromptSlotOptions />
-              </Select>
-            </Row>
+            <SelectRow
+              title="提示词方案"
+              description="使用选中的独立槽位；槽位留空时使用兼容提示词"
+              aria-label="AI 联想提示词方案"
+              value={promptSlot}
+              onChange={(event) => onPromptIdChange(event.target.value)}
+            >
+              <CustomPromptSlotOptions />
+            </SelectRow>
             <div className={settings.managerBlock}>
               <SettingsTextareaField
                 label={slot.label}
