@@ -28,5 +28,16 @@ int main() {
   assert(!msime::linux_host::read_clipboard_file(linked_store, 1024));
   const auto loaded = msime::linux_host::read_clipboard_file(file, 1024);
   assert(loaded && *loaded == "[\"synthetic\"]");
+
+  const auto external_directory = root / "external-state";
+  std::filesystem::create_directories(external_directory / "nested");
+  const auto linked_directory = root / "linked-state";
+  std::filesystem::create_directory_symlink(external_directory, linked_directory);
+  const auto linked_history = linked_directory / "nested" / "history.json";
+  assert(!msime::linux_host::clipboard_directory_is_safe(linked_history.parent_path()));
+  assert(!msime::linux_host::write_clipboard_file_atomically(linked_history, "[\"synthetic\"]"));
+  assert(!msime::linux_host::read_clipboard_file(linked_history, 1024));
+  assert(msime::linux_host::open_clipboard_lock(linked_history) < 0);
+  assert(!std::filesystem::exists(external_directory / "nested" / "history.json"));
   std::filesystem::remove_all(root);
 }
