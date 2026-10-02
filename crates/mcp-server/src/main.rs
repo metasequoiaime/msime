@@ -16,8 +16,9 @@ mod words;
 use rmcp::transport::io::stdio;
 use rmcp::ServiceExt;
 use serde_json::Value;
-use std::io::Read;
 use std::process::ExitCode;
+
+const ARGUMENTS_READ_LIMIT: u64 = 8 * 1024 * 1024;
 
 fn main() -> ExitCode {
     // Before the runtime starts any thread: on macOS and Linux the offset cannot be read once the process has more than one.
@@ -102,20 +103,56 @@ fn main() -> ExitCode {
 fn call_arguments(arguments: config::Arguments) -> Result<serde_json::Map<String, Value>, String> {
     let text = match arguments {
         config::Arguments::Inline(text) => text,
-        config::Arguments::File(path) => std::fs::read_to_string(&path).map_err(|error| {
-            format!("cannot read the arguments from {}: {error}", path.display())
-        })?,
+        config::Arguments::File(path) => {
+            let file = std::fs::File::open(&path).map_err(|error| {
+                format!("cannot read the arguments from {}: {error}", path.display())
+            })?;
+            let bytes =
+                crate::bounded::read(file, ARGUMENTS_READ_LIMIT).map_err(|error| match error {
+                    crate::bounded::ReadError::TooLarge => {
+                        format!("the arguments from {} are too large", path.display())
+                    }
+                    crate::bounded::ReadError::Io => {
+                        format!("cannot read the arguments from {}", path.display())
+                    }
+                })?;
+            String::from_utf8(bytes)
+                .map_err(|_| format!("the arguments from {} are not UTF-8", path.display()))?
+        }
         config::Arguments::Stdin => {
-            let mut text = String::new();
-            std::io::stdin()
-                .read_to_string(&mut text)
-                .map_err(|error| format!("cannot read the arguments from stdin: {error}"))?;
-            text
+            let bytes =
+                crate::bounded::read(std::io::stdin(), ARGUMENTS_READ_LIMIT).map_err(|error| {
+                    match error {
+                        crate::bounded::ReadError::TooLarge => {
+                            "the arguments from stdin are too large"
+                        }
+                        crate::bounded::ReadError::Io => "cannot read the arguments from stdin",
+                    }
+                })?;
+            String::from_utf8(bytes)
+                .map_err(|_| String::from("the arguments from stdin are not UTF-8"))?
         }
     };
     match serde_json::from_str(&text) {
         Ok(Value::Object(arguments)) => Ok(arguments),
         Ok(_) => Err("the arguments must be a JSON object".into()),
         Err(error) => Err(format!("the arguments are not valid JSON: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn argument_files_larger_than_the_request_budget_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("arguments.json");
+        let mut file = std::fs::File::create(&path).unwrap();
+        let value = format!(r#"{{"text":"{}"}}"#, "x".repeat(9 * 1024 * 1024));
+        file.write_all(value.as_bytes()).unwrap();
+        let result = call_arguments(config::Arguments::File(path));
+        assert!(result.is_err());
     }
 }
