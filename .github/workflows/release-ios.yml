@@ -12,6 +12,9 @@ jobs:
   release:
     runs-on: macos-15
     timeout-minutes: 60
+    # The same Xcode ci-ios.yml builds and tests with; the image default is older and is not what the project is verified against.
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ inputs.ref }}", fetch-depth: 0, persist-credentials: false}
@@ -28,6 +31,12 @@ jobs:
       # stage-resources.sh stages target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
+      # build-app.sh generates the Xcode project with xcodegen, and build-native.sh refuses to start without the simulator Rust target; rust-toolchain.toml installs neither, and the runner image has no xcodegen.
+      - name: Install xcodegen and the simulator Rust target
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          rustup target add aarch64-apple-ios-sim
       # build-app.sh fetches the Cantonese and Zhuyin dictionaries pinned by resources/language-dictionaries.lock.json itself; a release must carry both, so stage-resources.sh fails rather than staging fewer.
       - name: Build native iOS host
         env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
