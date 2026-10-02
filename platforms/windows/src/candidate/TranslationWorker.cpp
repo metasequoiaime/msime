@@ -522,6 +522,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       const auto entries = [](const nlohmann::json &values, auto &into) {
         if (!values.is_array())
           return;
+        into.reserve(values.size());
         for (const auto &entry : values)
           if (entry.is_object())
             into.emplace_back(entry.value("text", std::string{}),
