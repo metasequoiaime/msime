@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { ScreenKeyboardThemeSection } from "./screen-keyboard-theme-section";
-import { SurfaceThemeSelect, type SurfaceTheme } from "./surface-theme-select";
+import { SurfaceThemeRow } from "./surface-theme-row";
+import type { SurfaceTheme } from "./surface-theme-select";
 
 export type ThemeMode = "dark" | "light" | "system";
 export type { SurfaceTheme } from "./surface-theme-select";
@@ -26,25 +26,6 @@ export interface ThemeSettingsSectionProps {
   floatingToolbar: boolean;
   desktopPanels: boolean;
   onChange: (key: ThemePreferenceKey, value: SurfaceTheme) => void;
-}
-
-/** One of the per-surface light/dark overrides in 高级. */
-function SurfaceThemeRow({
-  title,
-  description,
-  value,
-  onChange,
-}: {
-  title: string;
-  description: ReactNode;
-  value: SurfaceTheme | undefined;
-  onChange: (value: SurfaceTheme) => void;
-}) {
-  return (
-    <Row title={title} description={description}>
-      <SurfaceThemeSelect label={title} value={value ?? "follow"} onChange={onChange} />
-    </Row>
-  );
 }
 
 /** The 主题 page's 高级 group, shared by desktop and touch settings hosts: each surface can still hold its own light or dark over the colour mode. */

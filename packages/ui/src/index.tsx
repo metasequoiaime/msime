@@ -681,6 +681,7 @@ export {
   type ThemePreferences,
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
+export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-theme-row";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
