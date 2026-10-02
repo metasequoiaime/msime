@@ -4383,7 +4383,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   static feedbackIn(stateRoot: string): FeedbackSettings {
     try {
       const path: string = KeyboardSession.feedbackFileIn(stateRoot);
-      if (!fs.accessSync(path) || fs.statSync(path).size > KeyboardFeedback.MAX_BYTES) {
+      if (!KeyboardSession.safeStateDirectory(stateRoot)
+        || KeyboardSession.safePrivateFile(path, KeyboardFeedback.MAX_BYTES) === null) {
         return KeyboardFeedback.DEFAULTS;
       }
       return KeyboardFeedback.parse(fs.readTextSync(path));
@@ -4395,7 +4396,11 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   static saveFeedbackIn(stateRoot: string, settings: FeedbackSettings): boolean {
     try {
-      const handle = fs.openSync(KeyboardSession.feedbackFileIn(stateRoot),
+      const path: string = KeyboardSession.feedbackFileIn(stateRoot);
+      if (!KeyboardSession.safeStateDirectory(stateRoot) || KeyboardSession.isSymbolicLink(path)) {
+        return false;
+      }
+      const handle = fs.openSync(path,
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
         fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
@@ -4412,8 +4417,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** How keys should feel on this device, which is not something the shared preferences carry. */
   feedback(): FeedbackSettings {
     try {
-      if (!fs.accessSync(this.feedbackFile())
-        || fs.statSync(this.feedbackFile()).size > KeyboardFeedback.MAX_BYTES) {
+      if (KeyboardSession.safePrivateFile(this.feedbackFile(), KeyboardFeedback.MAX_BYTES) === null) {
         return KeyboardFeedback.DEFAULTS;
       }
       return KeyboardFeedback.parse(fs.readTextSync(this.feedbackFile()));
@@ -4425,7 +4429,11 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   saveFeedback(settings: FeedbackSettings): boolean {
     try {
-      const handle = fs.openSync(this.feedbackFile(),
+      const path: string = this.feedbackFile();
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+        return false;
+      }
+      const handle = fs.openSync(path,
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
         fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
@@ -4641,7 +4649,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     const file: string = this.emojiRecentsFile();
     try {
-      if (!fs.accessSync(file) || fs.statSync(file).size > EMOJI_RECENTS_MAX_BYTES) {
+      if (KeyboardSession.safePrivateFile(file, EMOJI_RECENTS_MAX_BYTES) === null) {
         return [];
       }
       return EmojiCatalogModel.parseRecents(fs.readTextSync(file));
@@ -4663,7 +4671,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       return recents;
     }
     try {
-      const handle = fs.openSync(this.emojiRecentsFile(),
+      const path: string = this.emojiRecentsFile();
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+        return recents;
+      }
+      const handle = fs.openSync(path,
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
         fs.writeSync(handle.fd, EmojiCatalogModel.serializeRecents(recents));
@@ -4681,7 +4693,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     try {
-      const handle = fs.openSync(this.emojiRecentsFile(),
+      const path: string = this.emojiRecentsFile();
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory) || KeyboardSession.isSymbolicLink(path)) {
+        return false;
+      }
+      const handle = fs.openSync(path,
         fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
         fs.writeSync(handle.fd, '[]');
@@ -4746,13 +4762,42 @@ export class KeyboardSession implements HardwareKeyTarget {
     // its explicit library one level above, at files/CommunityLibrary.json.
     const file: string = `${this.stateDirectory}/../CommunityLibrary.json`;
     try {
-      if (!fs.accessSync(file) || fs.statSync(file).size > CommunityReplyLibraryPolicy.MAX_BYTES) {
+      const parent: string = this.stateDirectory.substring(0, this.stateDirectory.lastIndexOf('/'));
+      if (!KeyboardSession.safeStateDirectory(this.stateDirectory)
+        || !KeyboardSession.safeStateDirectory(parent)
+        || KeyboardSession.safePrivateFile(file, CommunityReplyLibraryPolicy.MAX_BYTES) === null) {
         return [];
       }
       return CommunityReplyLibraryPolicy.parse(fs.readTextSync(file));
     } catch (error) {
       KeyboardLog.error(`community reply library unavailable: ${describeError(error)}`);
       return [];
+    }
+  }
+
+  private static safeStateDirectory(directory: string): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private static safePrivateFile(path: string, maximumBytes: number): fs.Stat | null {
+    try {
+      const stat: fs.Stat = fs.lstatSync(path);
+      return !stat.isSymbolicLink() && stat.isFile() && stat.size <= maximumBytes ? stat : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private static isSymbolicLink(path: string): boolean {
+    try {
+      return fs.lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
     }
   }
 
