@@ -813,15 +813,20 @@ class SettingsBridge {
     }
     const destination: string = `${this.stateDirectory}/skins/${name}`;
     try {
-      if (!fs.accessSync(`${this.stateDirectory}/skins`)) {
-        fs.mkdirSync(`${this.stateDirectory}/skins`, true);
+      const skinsDirectory: string = `${this.stateDirectory}/skins`;
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, error: '导入失败' });
+      }
+      if (!fs.accessSync(skinsDirectory)) fs.mkdirSync(skinsDirectory, true);
+      if (!this.safeDirectory(skinsDirectory)) {
+        return JSON.stringify({ ok: false, error: '导入失败' });
       }
       if (fs.accessSync(destination)) {
         // Replacing rather than merging: a half-overwritten skin is a skin whose stylesheet and
         // assets come from two different versions, which the catalog would list and then draw wrong.
         StagedResources.removeDirectory(destination);
       }
-      fs.copyDirSync(picked[0], `${this.stateDirectory}/skins`, 1);
+      fs.copyDirSync(picked[0], skinsDirectory, 1);
     } catch (error) {
       KeyboardLog.error(`skin import failed: ${describeError(error)}`);
       return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
