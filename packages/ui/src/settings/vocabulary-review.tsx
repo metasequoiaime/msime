@@ -378,22 +378,20 @@ export function VocabularyReviewPage({
                 )}
               </button>
               <div className={answerRow}>
-                <button
-                  type="button"
+                <ActionButton
+                  action={() => void answer(false)}
+                  ariaBusy={busy}
                   className={answerButton}
                   disabled={busy}
-                  onClick={() => void answer(false)}
-                >
-                  不认识
-                </button>
-                <button
-                  type="button"
+                  label="不认识"
+                />
+                <ActionButton
+                  action={() => void answer(true)}
+                  ariaBusy={busy}
                   className={answerKnown}
                   disabled={busy}
-                  onClick={() => void answer(true)}
-                >
-                  认识
-                </button>
+                  label="认识"
+                />
               </div>
               <p className={note}>
                 答「不认识」的词会在本次复习里再次出现；答「认识」的词按间隔安排到以后的某一天。

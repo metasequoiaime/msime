@@ -121,6 +121,8 @@ test("only one request is in flight, so a double tap grades once", async () => {
 
   const known = await screen.findByRole("button", { name: "认识" });
   fireEvent.click(known);
+  expect(known.getAttribute("aria-busy")).toBe("true");
+  expect((known as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(known);
   expect(answer).toHaveBeenCalledTimes(1);
   release(status());
