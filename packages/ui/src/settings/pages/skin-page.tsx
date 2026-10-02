@@ -28,6 +28,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
+import { ActionButton } from "../action-button";
 import { ThemeCarousel } from "../theme-carousel";
 import { SwitchRow } from "../switch-row";
 import { SegmentedRow } from "../segmented-row";
@@ -173,10 +174,8 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                         <span className={settings.skinSwitchKnob(selected)} />
                       </button>
                       {fixedAppearance === null && (
-                        <button
-                          type="button"
-                          className={settings.skinPreviewSwitch}
-                          onClick={() =>
+                        <ActionButton
+                          action={() =>
                             setSkinPreviewThemes((current) => ({
                               ...current,
                               [id]:
@@ -185,9 +184,9 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                                   : "dark",
                             }))
                           }
-                        >
-                          {previewTheme === "dark" ? "预览浅色" : "预览深色"}
-                        </button>
+                          className={settings.skinPreviewSwitch}
+                          label={previewTheme === "dark" ? "预览浅色" : "预览深色"}
+                        />
                       )}
                     </div>
                   </div>
