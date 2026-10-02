@@ -613,22 +613,18 @@ export function TouchKeyboardSkinEditor({
             />
           </label>
           <div>
-            <button
-              type="button"
+            <ActionButton
+              action={() => submitName()}
               className="primary"
               disabled={libraryBusy || !skinName.trim()}
-              onClick={() => void submitName()}
-            >
-              {nameEditor.operation === "create" ? "确认保存" : "确认重命名"}
-            </button>
-            <button
-              type="button"
+              label={nameEditor.operation === "create" ? "确认保存" : "确认重命名"}
+            />
+            <ActionButton
+              action={() => setNameEditor(null)}
               className="secondary"
               disabled={libraryBusy}
-              onClick={() => setNameEditor(null)}
-            >
-              取消
-            </button>
+              label="取消"
+            />
           </div>
         </div>
       )}
@@ -646,22 +642,18 @@ export function TouchKeyboardSkinEditor({
               : `删除“${confirmation.item.name}”？`}
           </p>
           <div>
-            <button
-              type="button"
+            <ActionButton
+              action={() => confirmLibraryMutation()}
               className={confirmation.operation === "delete" ? "danger" : "primary"}
               disabled={libraryBusy}
-              onClick={() => void confirmLibraryMutation()}
-            >
-              {confirmation.operation === "update" ? "确认更新" : "确认删除"}
-            </button>
-            <button
-              type="button"
+              label={confirmation.operation === "update" ? "确认更新" : "确认删除"}
+            />
+            <ActionButton
+              action={() => setConfirmation(null)}
               className="secondary"
               disabled={libraryBusy}
-              onClick={() => setConfirmation(null)}
-            >
-              取消
-            </button>
+              label="取消"
+            />
           </div>
         </div>
       )}
