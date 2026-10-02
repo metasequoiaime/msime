@@ -1,6 +1,6 @@
 #!/usr/bin/env xcrun swift
 
-// Renders the input menu's template TIFFs from the stroke in MSIMEClientInputMethodMenuIcon.svg: MSIMEClientInputMethodMenuIcon.tiff is the bare logo the bundle names, and each input mode gets the logo with a corner badge carrying its own character, 中, 日, 한 or 英. With the bare logo on every mode the menu bar and the system's Ctrl+Space switcher showed three identical icons, and nothing told the modes apart.
+// 渲染输入菜单用的模板 TIFF：MSIMEClientInputMethodMenuIcon.tiff 是 bundle 自己引用的标志，取自 MSIMEClientInputMethodMenuIcon.svg 那条笔画；每个输入模式的图标则只有一个大字——中、双、五、粤、注、日、한、越或英——铺满整个图块，不带标志。菜单栏和 Ctrl+空格 切换条按 16 点绘制这些图标，以前「标志加右下角角标」的画法里角标只剩几个像素，认不出是哪个模式；苹果自家和其他输入法的输入源都是一个大字，一眼就能分清，这里照同样的做法。
 //
 // The input menu draws this through HIToolbox rather than through NSImage, and that path reads the TIFF's
 // pages, not the DPI metadata of a single one: a lone 2x page is taken for a 32-point image, which the
@@ -35,15 +35,9 @@ func metasequoiaStroke() -> CGPath {
 // One thirty-second of the tile stays clear on every side so the round caps do not sit on the edge.
 let edgeClearanceDivisor: CGFloat = 32
 
-func render(_ stroked: CGPath, badge: String?, pixels: Int, to url: URL) throws {
-    let bounds = stroked.boundingBox
+// 画一张空白的模板位图交给 draw，再写成 PNG。整张图是纯黑加 alpha：菜单把它当模板着色，形状只由 alpha 携带，填了底色就会变成一整块实心方块。
+func render(pixels: Int, to url: URL, draw: (CGContext, CGFloat) -> Void) throws {
     let side = CGFloat(pixels)
-    let inset = side / edgeClearanceDivisor
-    // A badged icon draws the logo into the top-left share of the tile, so the badge takes the bottom-right corner without covering the stroke.
-    let area = badge == nil ? side : side * badgedLogoFraction
-    let target = area - inset * 2
-    let scale = min(target / bounds.width, target / bounds.height)
-
     guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                      isPlanar: false, colorSpaceName: .deviceRGB,
@@ -56,21 +50,8 @@ func render(_ stroked: CGPath, badge: String?, pixels: Int, to url: URL) throws 
     NSGraphicsContext.current = context
     let cg = context.cgContext
     cg.clear(CGRect(x: 0, y: 0, width: side, height: side))
-
-    // The bitmap's origin is bottom-left and the SVG's is top-left, so the drawing is flipped back after
-    // being scaled to fit and centred.
-    var transform = CGAffineTransform.identity
-    transform = transform.translatedBy(x: (area - bounds.width * scale) / 2,
-                                       y: side - area + (area - bounds.height * scale) / 2)
-    transform = transform.scaledBy(x: scale, y: -scale)
-    transform = transform.translatedBy(x: -bounds.minX, y: -bounds.maxY)
-    cg.concatenate(transform)
-    cg.addPath(stroked)
-    // Black with a live alpha channel: the menu tints this as a template, so the shape is carried by the
-    // alpha and a filled background would arrive as a solid block.
     cg.setFillColor(NSColor.black.cgColor)
-    cg.fillPath()
-    if let badge { drawBadge(badge, in: cg, side: side) }
+    draw(cg, side)
 
     guard let png = rep.representation(using: .png, properties: [:]) else {
         throw CocoaError(.fileWriteUnknown)
@@ -78,52 +59,54 @@ func render(_ stroked: CGPath, badge: String?, pixels: Int, to url: URL) throws 
     try png.write(to: url)
 }
 
-// 角标：右下角一块圆角方块，模式的字从方块里镂空出来。整张图仍是纯黑加 alpha 的模板图，所以角标跟着菜单一起着色，不带自己的颜色。方块四周再清出一圈空白，标志的笔画经过角落时不会和方块粘成一团。
-// The badge takes a little over half the tile: at the 16-pixel page that leaves the character about seven pixels tall, the smallest at which 中, 日, 한 and 英 still read apart.
-let badgeSideFraction: CGFloat = 0.5
-let badgedLogoFraction: CGFloat = 0.7
-let badgeHaloFraction: CGFloat = 1.0 / 32
-let badgeCornerFraction: CGFloat = 0.22
-let badgeGlyphFraction: CGFloat = 0.78
+func drawLogo(_ stroked: CGPath, in cg: CGContext, side: CGFloat) {
+    let bounds = stroked.boundingBox
+    let inset = side / edgeClearanceDivisor
+    let target = side - inset * 2
+    let scale = min(target / bounds.width, target / bounds.height)
+    // The bitmap's origin is bottom-left and the SVG's is top-left, so the drawing is flipped back after being scaled to fit and centred.
+    var transform = CGAffineTransform.identity
+    transform = transform.translatedBy(x: (side - bounds.width * scale) / 2,
+                                       y: (side - bounds.height * scale) / 2)
+    transform = transform.scaledBy(x: scale, y: -scale)
+    transform = transform.translatedBy(x: -bounds.minX, y: -bounds.maxY)
+    cg.concatenate(transform)
+    cg.addPath(stroked)
+    cg.fillPath()
+}
 
-func badgeFont(size: CGFloat, for character: String) -> CTFont {
-    // PingFang ships with every supported macOS; Hiragino Sans GB is the fallback the system itself uses for Simplified Chinese. Neither carries Hangul, so 한 comes from Apple SD Gothic Neo, the system's Korean face, at the matching weight. The first font that has every glyph wins, so the Chinese badges keep the font they were drawn with.
+// 模式字的墨迹框四周各留半个 16 像素页的像素，其余全给字：16 像素页上字高约 15 像素，和苹果「拼」「あ」「A」里的字一样一眼可读。
+// 曾对照过三种画法（16 / 22 / 32 像素、浅色与深色菜单栏）：只有字、字外加圆角描边、实心圆角块里镂空字。描边和底块都要占掉外圈，16 像素页上字只剩 10 到 11 像素，越、粤这类笔画多的字糊成一团；只有字的那种最大也最清楚，所以不加框。
+let modeGlyphFraction: CGFloat = 15.0 / 16
+
+func modeFont(for character: String) -> CTFont {
+    // PingFang 随所有受支持的 macOS 提供，Hiragino Sans GB 是系统自己给简体中文用的后备字体；两者都没有韩文，한 取系统的韩文字体 Apple SD Gothic Neo，字重相同。取第一个包含全部字形的字体。字号无所谓，绘制时按墨迹框缩放。
     var unichars = Array(character.utf16)
     var glyphs = [CGGlyph](repeating: 0, count: unichars.count)
     for name in ["PingFangSC-Semibold", "HiraginoSansGB-W6", "AppleSDGothicNeo-SemiBold"] {
-        let font = CTFontCreateWithName(name as CFString, size, nil)
+        let font = CTFontCreateWithName(name as CFString, 100, nil)
         if (CTFontCopyPostScriptName(font) as String) == name,
            CTFontGetGlyphsForCharacters(font, &unichars, &glyphs, unichars.count) { return font }
     }
-    fatalError("no font for the menu icon badge \(character)")
+    fatalError("no font for the input mode icon \(character)")
 }
 
-func drawBadge(_ character: String, in cg: CGContext, side: CGFloat) {
-    let badgeSide = (side * badgeSideFraction).rounded()
-    let badge = CGRect(x: side - badgeSide, y: 0, width: badgeSide, height: badgeSide)
-    let halo = side * badgeHaloFraction
-    cg.saveGState()
-    defer { cg.restoreGState() }
-    cg.concatenate(cg.ctm.inverted())
-    cg.clear(badge.insetBy(dx: -halo, dy: -halo))
-    let corner = badgeSide * badgeCornerFraction
-    cg.addPath(CGPath(roundedRect: badge, cornerWidth: corner, cornerHeight: corner, transform: nil))
-    cg.setFillColor(NSColor.black.cgColor)
-    cg.fillPath()
-
-    let font = badgeFont(size: badgeSide * badgeGlyphFraction, for: character)
+func drawModeGlyph(_ character: String, in cg: CGContext, side: CGFloat) {
+    let font = modeFont(for: character)
     var unichars = Array(character.utf16)
     var glyphs = [CGGlyph](repeating: 0, count: unichars.count)
     guard CTFontGetGlyphsForCharacters(font, &unichars, &glyphs, unichars.count),
           let outline = CTFontCreatePathForGlyph(font, glyphs[0], nil) else {
         fatalError("\(character) has no outline in \(CTFontCopyPostScriptName(font))")
     }
-    // Centre the outline's own bounds rather than the advance box, so each character sits optically in the middle of the badge.
+    // 按字形自身的墨迹框缩放并居中，而不是按字号和步进框：한 的墨迹在 Apple SD Gothic Neo 的字身里比汉字在 PingFang 里矮一截，按同一字号画会显得小一号；各自把墨迹框的长边撑到同一尺寸，九个字的视觉大小才一致，也都落在图块正中。
     let bounds = outline.boundingBox
-    var place = CGAffineTransform(translationX: badge.midX - bounds.midX, y: badge.midY - bounds.midY)
+    let scale = side * modeGlyphFraction / max(bounds.width, bounds.height)
+    var place = CGAffineTransform(translationX: side / 2, y: side / 2)
+        .scaledBy(x: scale, y: scale)
+        .translatedBy(x: -bounds.midX, y: -bounds.midY)
     guard let glyph = outline.copy(using: &place) else { return }
     cg.addPath(glyph)
-    cg.setBlendMode(.clear)
     cg.fillPath()
 }
 
@@ -140,12 +123,12 @@ let staging = URL(fileURLWithPath: NSTemporaryDirectory())
 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: staging) }
 
-func writeIcon(_ shape: CGPath, badge: String? = nil, named name: String) throws {
+func writeIcon(named name: String, draw: (CGContext, CGFloat) -> Void) throws {
     // tiffutil pairs the pages by the @2x suffix, so the staged names carry it.
     let onex = staging.appendingPathComponent("\(name).png")
     let twox = staging.appendingPathComponent("\(name)@2x.png")
-    try render(shape, badge: badge, pixels: 16, to: onex)
-    try render(shape, badge: badge, pixels: 32, to: twox)
+    try render(pixels: 16, to: onex, draw: draw)
+    try render(pixels: 32, to: twox, draw: draw)
 
     let output = destination.appendingPathComponent("\(name).tiff")
     let tiffutil = Process()
@@ -157,14 +140,11 @@ func writeIcon(_ shape: CGPath, badge: String? = nil, named name: String) throws
     print("Wrote \(output.path)")
 }
 
-try writeIcon(metasequoiaStroke(), named: "MSIMEClientInputMethodMenuIcon")
-// The input modes' icons, named in Info.plist.in beside each mode.
-try writeIcon(metasequoiaStroke(), badge: "中", named: "MSIMEClientInputMethodMenuIconChinese")
-try writeIcon(metasequoiaStroke(), badge: "双", named: "MSIMEClientInputMethodMenuIconShuangpin")
-try writeIcon(metasequoiaStroke(), badge: "五", named: "MSIMEClientInputMethodMenuIconWubi")
-try writeIcon(metasequoiaStroke(), badge: "粤", named: "MSIMEClientInputMethodMenuIconCantonese")
-try writeIcon(metasequoiaStroke(), badge: "注", named: "MSIMEClientInputMethodMenuIconZhuyin")
-try writeIcon(metasequoiaStroke(), badge: "日", named: "MSIMEClientInputMethodMenuIconJapanese")
-try writeIcon(metasequoiaStroke(), badge: "한", named: "MSIMEClientInputMethodMenuIconKorean")
-try writeIcon(metasequoiaStroke(), badge: "越", named: "MSIMEClientInputMethodMenuIconVietnamese")
-try writeIcon(metasequoiaStroke(), badge: "英", named: "MSIMEClientInputMethodMenuIconEnglish")
+let logo = metasequoiaStroke()
+try writeIcon(named: "MSIMEClientInputMethodMenuIcon") { drawLogo(logo, in: $0, side: $1) }
+// 各输入模式的图标，Info.plist.in 里每个模式各引用一张。
+for (character, mode) in [("中", "Chinese"), ("双", "Shuangpin"), ("五", "Wubi"), ("粤", "Cantonese"),
+                          ("注", "Zhuyin"), ("日", "Japanese"), ("한", "Korean"), ("越", "Vietnamese"),
+                          ("英", "English")] {
+    try writeIcon(named: "MSIMEClientInputMethodMenuIcon\(mode)") { drawModeGlyph(character, in: $0, side: $1) }
+}

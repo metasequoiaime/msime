@@ -1,7 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
-// The nine input modes Info.plist.in declares. Each shows the bundle's logo with its own 中, 双, 五, 粤, 注, 日, 한, 越 or 英 badge; the selected one is checked in the input menu and named in the input-source list. info-plist-names checks these literals against the plist.
+// Info.plist.in 声明的九个输入模式。每个模式的图标是铺满图块的一个大字：中、双、五、粤、注、日、한、越或英；选中的那条在输入菜单里打勾，并在输入源列表里列出名称。info-plist-names 对照 plist 检查这些字面量。
 static NSString *const MSIMEChineseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Hans";
 static NSString *const MSIMEShuangpinInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Shuangpin";
 static NSString *const MSIMEWubiInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Wubi";
