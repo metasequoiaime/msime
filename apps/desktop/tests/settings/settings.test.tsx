@@ -4579,6 +4579,7 @@ test("Android AI skin draw prepares artwork, saves a proposal and continues edit
     ).toBe(false),
   );
   fireEvent.click(within(editor).getByRole("button", { name: "AI 皮肤抽卡" }));
+  expect(screen.getByRole("button", { name: "关闭 AI 皮肤抽卡" })).toBeTruthy();
   const draw = screen.getByRole("button", { name: "抽三张皮肤" });
   act(() => {
     fireEvent.click(draw);

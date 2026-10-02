@@ -221,7 +221,7 @@ function AiSkinGeneration({
             action={onClose}
             className={community.dialogClose}
             disabled={busy}
-            aria-label="关闭 AI 皮肤抽卡"
+            ariaLabel="关闭 AI 皮肤抽卡"
             label="×"
           />
         </div>
