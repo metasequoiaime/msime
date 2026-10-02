@@ -96,6 +96,7 @@ std::vector<std::string> StringArrayField(NSDictionary *object, NSString *key)
     {
         return values;
     }
+    values.reserve(items.count);
     for (NSString *item in items)
     {
         if ([item isKindOfClass:NSString.class])
