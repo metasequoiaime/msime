@@ -30,7 +30,7 @@ public final class Bootstrap {
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
             File configuration = new File(root, "runtime-options.json");
-            if (configuration.exists()) {
+            if (existingConfiguration(configuration)) {
                 refreshLanguageDictionaries(configuration);
                 return false;
             }
@@ -80,6 +80,16 @@ public final class Bootstrap {
                     && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
             throw new java.io.IOException("Bootstrap lock is not a regular file");
         return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+    }
+
+    static boolean existingConfiguration(File file) throws java.io.IOException {
+        if (file == null) throw new java.io.IOException("Runtime options unavailable");
+        java.nio.file.Path path = file.toPath();
+        if (Files.isSymbolicLink(path)
+                || (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
+            throw new java.io.IOException("Runtime options are not a regular file");
+        return Files.exists(path, LinkOption.NOFOLLOW_LINKS);
     }
 
     static void ensureSafeDirectory(java.nio.file.Path directory) throws java.io.IOException {
