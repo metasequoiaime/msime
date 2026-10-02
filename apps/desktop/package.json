@@ -1,6 +1,6 @@
 {
   "name": "@msime/desktop",
-  "version": "0.51.3",
+  "version": "0.51.4",
   "private": true,
   "type": "module",
   "scripts": {
