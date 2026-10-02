@@ -8,6 +8,7 @@ import { TelemetryRow } from "../telemetry-section";
 import { AboutHeroSection } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
+import { ActionButton } from "../action-button";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -62,14 +63,12 @@ export function AboutSettingsPage() {
                 </p>
               )}
             </div>
-            <button
-              type="button"
+            <ActionButton
+              action={onCheckForUpdate}
               className={`secondary ${doc.updateButton}`}
               disabled={updateBusy}
-              onClick={onCheckForUpdate}
-            >
-              {updateBusy ? "正在检查…" : "检查更新"}
-            </button>
+              label={updateBusy ? "正在检查…" : "检查更新"}
+            />
           </div>
           {availableUpdate && (
             <div className={doc.updateResult}>
@@ -87,13 +86,10 @@ export function AboutSettingsPage() {
                   </p>
                 </>
               )}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void openExternalUrl(availableUpdate.releaseUrl)}
-              >
-                前往下载
-              </button>
+              <ActionButton
+                action={() => void openExternalUrl(availableUpdate.releaseUrl)}
+                label="前往下载"
+              />
             </div>
           )}
           <OtherPlatformDownloadRows />
