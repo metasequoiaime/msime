@@ -15,6 +15,7 @@ import { SelectRow } from "../select-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
+import { ActionButton } from "../action-button";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -91,14 +92,11 @@ export function DictionarySettingsPage() {
               placeholder="留空查看全部"
               onChange={setPhraseSearch}
             >
-              <button
-                type="button"
-                className="secondary"
+              <ActionButton
+                action={() => void loadPhrases(dictionaryKind, 0)}
                 disabled={phraseBusy}
-                onClick={() => void loadPhrases(dictionaryKind, 0)}
-              >
-                查询
-              </button>
+                label="查询"
+              />
             </TextInputRow>
             <div className={settings.managerBlock}>
               {dictionaryPendingCount > 0 && (
@@ -157,11 +155,8 @@ export function DictionarySettingsPage() {
                 onPageChange={turnPhrasePage}
               />
               <div className={settings.managerActions}>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={phraseBusy}
-                  onClick={() =>
+                <ActionButton
+                  action={() =>
                     setPhraseForm({
                       key: "",
                       value: "",
@@ -169,9 +164,9 @@ export function DictionarySettingsPage() {
                       previous: null,
                     })
                   }
-                >
-                  新增词条
-                </button>
+                  disabled={phraseBusy}
+                  label="新增词条"
+                />
               </div>
             </div>
           </GroupList>
@@ -211,22 +206,16 @@ export function DictionarySettingsPage() {
                     }}
                   />
                 </label>
-                <button
-                  type="button"
-                  className="secondary"
+                <ActionButton
+                  action={() => void exportPhrases()}
                   disabled={phraseBusy || dictionaryFormat === "hans"}
-                  onClick={() => void exportPhrases()}
-                >
-                  导出当前类型
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
+                  label="导出当前类型"
+                />
+                <ActionButton
+                  action={() => void exportAllPhrases()}
                   disabled={phraseBusy}
-                  onClick={() => void exportAllPhrases()}
-                >
-                  导出全部
-                </button>
+                  label="导出全部"
+                />
               </div>
             </div>
             {client.dictionary.importPersonal && (
