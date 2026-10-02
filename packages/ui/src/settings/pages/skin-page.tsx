@@ -20,7 +20,7 @@ import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publi
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skins";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
-import { GroupList, Row, Segmented } from "../../core/platform-controls";
+import { GroupList, Row } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
@@ -30,6 +30,7 @@ import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-no
 import { SkinPlatformNotice } from "../skin-platform-notice";
 import { ThemeCarousel } from "../theme-carousel";
 import { SwitchRow } from "../switch-row";
+import { SegmentedRow } from "../segmented-row";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 
 const themeModeOptions = [
@@ -96,14 +97,14 @@ export function SkinSettingsPage() {
           )}
           {/* 颜色模式排在卡片之前，因为每张卡片的明暗预览都以它为起点。 */}
           <GroupList title="明暗">
-            <Row title="颜色模式" description="设置窗口和各界面的默认明暗模式">
-              <Segmented
-                aria-label="颜色模式"
-                options={themeModeOptions}
-                value={themeMode}
-                onChange={(theme) => onPreferencesChange({ theme })}
-              />
-            </Row>
+            <SegmentedRow
+              title="颜色模式"
+              description="设置窗口和各界面的默认明暗模式"
+              aria-label="颜色模式"
+              options={themeModeOptions}
+              value={themeMode}
+              onChange={(theme) => onPreferencesChange({ theme })}
+            />
           </GroupList>
           <ThemeCarousel
             labels={[
