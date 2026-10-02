@@ -316,6 +316,39 @@ fn reinstalling_replaces_the_previous_install() {
 }
 
 #[test]
+fn installing_clears_a_stray_file_left_by_an_interrupted_install() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join(".staging-fixture-dead"), b"stray leftover").unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(root.path(), &model, "", &fetcher, &AtomicBool::new(false));
+
+    assert!(result.is_ok());
+    assert!(!root.path().join(".staging-fixture-dead").exists());
+    assert_eq!(root_entries(root.path()), vec!["fixture"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn installing_clears_a_stray_link_without_touching_its_target() {
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("keep.txt"), b"keep").unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join(".old-fixture-dead")).unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(root.path(), &model, "", &fetcher, &AtomicBool::new(false));
+
+    assert!(result.is_ok());
+    assert!(!root.path().join(".old-fixture-dead").exists());
+    assert_eq!(fs::read(outside.path().join("keep.txt")).unwrap(), b"keep");
+}
+
+#[test]
 fn a_checksum_mismatch_leaves_nothing_behind() {
     let root = tempfile::tempdir().unwrap();
     let archive = good_archive();

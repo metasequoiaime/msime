@@ -358,8 +358,19 @@ fn remove_leftovers(root: &Path, id: &str) {
             continue;
         };
         if name.starts_with(&staging) || name.starts_with(&old) {
-            let _ = fs::remove_dir_all(entry.path());
+            remove_leftover(&entry.path());
         }
+    }
+}
+
+fn remove_leftover(path: &Path) {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    } else {
+        let _ = fs::remove_file(path);
     }
 }
 
