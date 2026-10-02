@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CommunitySkinModerationSectionProps {
   owned: boolean;
@@ -47,45 +48,43 @@ export function CommunitySkinModerationSection({
           <p>{ratingDescription}</p>
           <div className="grid grid-cols-5 gap-1.5">
             {[1, 2, 3, 4, 5].map((stars) => (
-              <button
+              <ActionButton
                 key={stars}
-                type="button"
+                action={() => onRate(stars)}
                 className="secondary min-w-0 px-[5px]"
                 disabled={actionBusy}
-                aria-label={`评 ${stars} 星`}
-                onClick={() => onRate(stars)}
-              >
-                {stars} 星
-              </button>
+                ariaLabel={`评 ${stars} 星`}
+                label={`${stars} 星`}
+              />
             ))}
           </div>
         </div>
       )}
       {owned && unpublishable && (
-        <button
-          type="button"
+        <ActionButton
+          action={onRequestUnpublish}
           className="danger-text pt-0"
           disabled={actionBusy || unpublishDisabled}
-          onClick={onRequestUnpublish}
-        >
-          {unpublishLabel}
-        </button>
+          label={unpublishLabel}
+        />
       )}
       {confirmUnpublish && (
         <div className={style.confirmation} role="alertdialog" aria-label={unpublishConfirmLabel}>
           <p>{unpublishMessage}</p>
           <div className={confirmationActionsClassName}>
-            <button type="button" className="danger" disabled={actionBusy} onClick={onUnpublish}>
-              确认下架
-            </button>
-            <button
-              type="button"
-              className="secondary"
+            <ActionButton
+              action={onUnpublish}
+              ariaBusy={actionBusy}
+              className="danger"
               disabled={actionBusy}
-              onClick={onCancelUnpublish}
-            >
-              取消
-            </button>
+              label="确认下架"
+            />
+            <ActionButton
+              action={onCancelUnpublish}
+              ariaBusy={actionBusy}
+              disabled={actionBusy}
+              label="取消"
+            />
           </div>
         </div>
       )}
