@@ -133,10 +133,13 @@ CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OS
 pnpm install --frozen-lockfile
 pnpm --filter @msime/desktop build
 # Compiled with cargo and only then bundled by `tauri bundle`, not with `tauri build`: tauri build exports MACOSX_DEPLOYMENT_TARGET from bundle.macOS.minimumSystemVersion, rustc applies it to the host proc-macro dylibs as well, and on current macOS those come out with a mis-aligned LINKEDIT string pool that dlopen rejects, so the build fails with "can't find crate". cargo leaves the variable out of its fingerprint, so a broken proc-macro would also be reused by later builds. tauri/custom-protocol is what tauri build would enable (the binary serves the embedded frontend instead of devUrl), and TAURI_CONFIG sets the version the app reports, as package-container.sh does for Linux.
-env -u MACOSX_DEPLOYMENT_TARGET TAURI_CONFIG="{\"version\":\"$version\"}" \
-  CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
-# 合并后的 universal 可执行文件放在 target/release/msime-desktop，tauri bundle 从那里取。
+# cargo_universal 是 shell 函数，env 只能执行外部程序，所以在子 shell 里 unset 再调用。合并后的 universal 可执行文件放在 target/release/msime-desktop，tauri bundle 从那里取。
+(
+  unset MACOSX_DEPLOYMENT_TARGET
+  TAURI_CONFIG="{\"version\":\"$version\"}" \
+    CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+    cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+)
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 rm -rf "$tauri_bundle_dir"
 # No APPLE_SIGNING_IDENTITY: Tauri would sign the nested input method again without its entitlements. The outer app is signed below instead. tauri.macos.conf.json is merged automatically on macOS and is what embeds EngineResources and the input method.
