@@ -1606,14 +1606,13 @@ export function TypingStatisticsPage({
           <p className="mt-2 mb-0 leading-relaxed text-secondary">
             开启后这里会显示输入字数、速度、时段分布与按键热力图。统计只保存在本机，不记录输入内容，也不联网。
           </p>
-          <button
-            type="button"
+          <ActionButton
+            action={() => void update(() => client.setEnabled(true))}
+            ariaBusy={busy}
             className="secondary"
             disabled={busy}
-            onClick={() => void update(() => client.setEnabled(true))}
-          >
-            {busy ? "处理中…" : "启用输入统计"}
-          </button>
+            label={busy ? "处理中…" : "启用输入统计"}
+          />
         </section>
       )}
       <section className="section m-0" aria-label="统计概览">

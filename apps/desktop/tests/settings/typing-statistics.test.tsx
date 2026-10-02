@@ -455,6 +455,29 @@ test("marks the statistics reset action busy", async () => {
   pending.resolve(status());
 });
 
+test("marks the enable statistics action busy", async () => {
+  const disabled = { ...initialStatistics(), enabled: false };
+  const pending = deferred<TypingStatisticsStatus>();
+  const setEnabled = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <TypingStatisticsPage
+      client={{ load: vi.fn().mockResolvedValue(status(disabled)), setEnabled, reset: vi.fn() }}
+    />,
+  );
+
+  await screen.findByText("输入统计已关闭");
+  fireEvent.click(screen.getByRole("button", { name: "启用输入统计" }));
+
+  const disabledSection = screen
+    .getByRole("heading", { name: "输入统计已关闭" })
+    .closest("section");
+  if (!disabledSection) throw new Error("missing disabled statistics section");
+  const button = within(disabledSection).getByRole("button", { name: "处理中…" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  pending.resolve(status());
+});
+
 test("never-written status explains the empty local-only data channel", async () => {
   const empty: TypingStatistics = { enabled: true, total: 0, days: {} };
   const typingStatistics = {
