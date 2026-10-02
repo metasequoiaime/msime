@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
+import { ActionButton } from "../core/action-button";
 import { SettingActionHeader } from "../settings/setting-action-header";
 
 export type VoiceCaptureDevice = {
@@ -83,9 +84,13 @@ export function VoiceDevicePicker({
             </option>
           ))}
         </select>
-        <button type="button" disabled={busy} onClick={() => void refresh()}>
-          {busy ? "读取中…" : "刷新设备"}
-        </button>
+        <ActionButton
+          action={() => void refresh()}
+          ariaBusy={busy}
+          className=""
+          disabled={busy}
+          label={busy ? "读取中…" : "刷新设备"}
+        />
       </SettingActionHeader>
       <p role="status">{notice}</p>
     </div>
