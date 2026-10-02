@@ -44,9 +44,7 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     let staging = root.join(format!(".import-{name}"));
     let replaced = root.join(format!(".replaced-{name}"));
     for leftover in [&staging, &replaced] {
-        if leftover.exists() {
-            std::fs::remove_dir_all(leftover).map_err(|_| "storage")?;
-        }
+        remove_leftover(leftover)?;
     }
     let mut budget = ImportBudget::default();
     if copy_tree(source, &staging, 0, &mut budget).is_err() {
@@ -55,6 +53,20 @@ pub fn import(source: &Path, root: &Path) -> Result<String, &'static str> {
     }
     replace_directory(&staging, &root.join(&name), &replaced)?;
     Ok(name)
+}
+
+fn remove_leftover(path: &Path) -> Result<(), &'static str> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err("storage"),
+    };
+    if metadata.is_dir() {
+        std::fs::remove_dir_all(path).map_err(|_| "storage")?;
+    } else {
+        std::fs::remove_file(path).map_err(|_| "storage")?;
+    }
+    Ok(())
 }
 
 /// Swap a fully written `staging` directory in as `target`, replacing any existing `target` whole. The previous directory is first moved aside to `backup` and restored if the swap fails, so a failure never leaves a half-replaced skin; `staging` is removed on failure and `backup` after success. Every error is `storage`.
@@ -176,6 +188,20 @@ mod tests {
         std::fs::write(root.join("sakura").join("stale.css"), b"old").unwrap();
         import(&picked(files.path(), "sakura"), &root).unwrap();
         assert!(!root.join("sakura").join("stale.css").exists());
+        assert!(root.join("sakura").join("skin.toml").is_file());
+        assert!(!root.join(".replaced-sakura").exists());
+    }
+
+    #[test]
+    fn import_clears_a_stray_file_left_by_an_interrupted_import() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".replaced-sakura"), b"stray leftover").unwrap();
+
+        import(&picked(files.path(), "sakura"), &root).unwrap();
+
         assert!(root.join("sakura").join("skin.toml").is_file());
         assert!(!root.join(".replaced-sakura").exists());
     }
