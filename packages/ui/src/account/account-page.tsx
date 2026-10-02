@@ -224,9 +224,7 @@ function MobileAccountProfilePage({
   return (
     <div className={account.page}>
       <div className={account.profilePageHeader}>
-        <button type="button" className="secondary" disabled={busy} onClick={onBack}>
-          ‹ 返回
-        </button>
+        <ActionButton action={onBack} className="secondary" disabled={busy} label="‹ 返回" />
         <h2 className={account.heading}>编辑资料</h2>
       </div>
       {error && (
@@ -266,14 +264,12 @@ function MobileAccountProfilePage({
         </p>
         <p className={account.muted}>{[...normalizedName].length}/64</p>
         <div className={account.actionRow}>
-          <button
-            type="button"
+          <ActionButton
+            action={rename}
             className={account.primary}
             disabled={busy || !validName || normalizedName === user.displayName}
-            onClick={rename}
-          >
-            保存昵称
-          </button>
+            label="保存昵称"
+          />
         </div>
       </section>
       <section className={`${account.section} ${account.stack}`}>
@@ -288,38 +284,30 @@ function MobileAccountProfilePage({
       <section className={`${account.section} ${account.stack}`}>
         <h2 className={account.heading}>账号操作</h2>
         <div className={account.actionRow}>
-          <button
-            type="button"
+          <ActionButton
+            action={() => setConfirmation("logout")}
             className="secondary"
             disabled={busy}
-            onClick={() => setConfirmation("logout")}
-          >
-            退出登录
-          </button>
-          <button
-            type="button"
+            label="退出登录"
+          />
+          <ActionButton
+            action={() => setConfirmation("logout-all")}
             className="secondary"
             disabled={busy}
-            onClick={() => setConfirmation("logout-all")}
-          >
-            退出所有设备
-          </button>
-          <button
-            type="button"
+            label="退出所有设备"
+          />
+          <ActionButton
+            action={() => setConfirmation("relogin")}
             className="secondary"
             disabled={busy}
-            onClick={() => setConfirmation("relogin")}
-          >
-            重新登录
-          </button>
-          <button
-            type="button"
+            label="重新登录"
+          />
+          <ActionButton
+            action={() => setConfirmation("delete")}
             className="danger-text"
             disabled={busy}
-            onClick={() => setConfirmation("delete")}
-          >
-            注销账号
-          </button>
+            label="注销账号"
+          />
         </div>
       </section>
       {confirmation && (
