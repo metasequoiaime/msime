@@ -2332,7 +2332,14 @@ class SettingsBridge {
         return JSON.stringify({ ok: false, value: '', error: '自定义释义过大' } as TextReply);
       }
       try {
-        fs.mkdirSync(`${this.stateDirectory}/user`, true);
+        const userDirectory: string = `${this.stateDirectory}/user`;
+        if (!this.safeDirectory(this.stateDirectory)) {
+          return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
+        }
+        fs.mkdirSync(userDirectory, true);
+        if (!this.safeDirectory(userDirectory) || this.symbolicLink(file)) {
+          return JSON.stringify({ ok: false, value: '', error: '自定义释义未能保存' } as TextReply);
+        }
         if (text.trim().length === 0) {
           // An empty document means "no overlay"; the bridge removes the file rather than leaving
           // one the Engine would read as an empty set every session.
@@ -2355,11 +2362,40 @@ class SettingsBridge {
       }
     }
     try {
-      const text: string = fs.accessSync(file) ? fs.readTextSync(file) : '';
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
+      }
+      let stat: fs.Stat;
+      try {
+        stat = fs.lstatSync(file);
+      } catch {
+        return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+      }
+      if (stat.isSymbolicLink() || !stat.isFile() || stat.size > CUSTOM_TRANSLATIONS_MAX_BYTES) {
+        return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
+      }
+      const text: string = fs.readTextSync(file);
       return JSON.stringify({ ok: true, value: text, error: '' } as TextReply);
     } catch (error) {
       KeyboardLog.error(`custom translations unreadable: ${describeError(error)}`);
       return JSON.stringify({ ok: false, value: '', error: '自定义释义无法读取' } as TextReply);
+    }
+  }
+
+  private safeDirectory(directory: string): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private symbolicLink(path: string): boolean {
+    try {
+      return fs.lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
     }
   }
 
