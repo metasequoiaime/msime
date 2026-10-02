@@ -1352,14 +1352,12 @@ function AccountDetailsPage({
           >
             <div className={account.modalHeading}>
               <h2 className={account.heading}>编辑资料</h2>
-              <button
-                type="button"
+              <ActionButton
+                action={() => setEditingProfile(false)}
                 className="secondary"
                 disabled={busy}
-                onClick={() => setEditingProfile(false)}
-              >
-                关闭
-              </button>
+                label="关闭"
+              />
             </div>
             <div className={account.profilePreview}>
               {client.chooseAvatar ? (
@@ -1378,14 +1376,12 @@ function AccountDetailsPage({
               )}
               <strong>{name.trim() || "你的昵称"}</strong>
               {user.avatarUploaded && client.removeAvatar && (
-                <button
-                  type="button"
+                <ActionButton
+                  action={removeAvatar}
                   className={account.link}
                   disabled={busy}
-                  onClick={removeAvatar}
-                >
-                  移除头像
-                </button>
+                  label="移除头像"
+                />
               )}
             </div>
             {client.chooseAvatar && (
@@ -1405,25 +1401,21 @@ function AccountDetailsPage({
               onCopy={copyAccountId}
             />
             <div className={account.actionRow}>
-              <button
-                type="button"
-                className={account.primary}
-                disabled={busy || name.trim() === user.displayName}
-                onClick={() => {
+              <ActionButton
+                action={() => {
                   rename();
                   setEditingProfile(false);
                 }}
-              >
-                保存修改
-              </button>
-              <button
-                type="button"
+                className={account.primary}
+                disabled={busy || name.trim() === user.displayName}
+                label="保存修改"
+              />
+              <ActionButton
+                action={() => setEditingProfile(false)}
                 className="secondary"
                 disabled={busy}
-                onClick={() => setEditingProfile(false)}
-              >
-                取消
-              </button>
+                label="取消"
+              />
             </div>
           </section>
         </div>
@@ -1445,14 +1437,12 @@ function AccountDetailsPage({
         <GroupList title="我的内容">
           {onOpenLocalDesigns && (
             <Row title="我的设计" description="保存在本机的键盘皮肤，不会因登录账号而上传。">
-              <button
-                type="button"
+              <ActionButton
+                action={onOpenLocalDesigns}
                 className={account.rowButton}
                 disabled={busy}
-                onClick={onOpenLocalDesigns}
-              >
-                打开设计器
-              </button>
+                label="打开设计器"
+              />
             </Row>
           )}
           {user && openPublishedSkins && (
@@ -1490,34 +1480,28 @@ function AccountDetailsPage({
             title="这台设备"
             description="退出后，设置同步、云词库、云剪贴板和发布作品都需要重新登录才能使用。"
           >
-            <button
-              type="button"
+            <ActionButton
+              action={() => signOut(false)}
               className={account.rowButton}
               disabled={busy}
-              onClick={() => signOut(false)}
-            >
-              退出登录
-            </button>
+              label="退出登录"
+            />
           </Row>
           <Row title="所有设备" description="所有已登录的设备都需要重新登录。">
-            <button
-              type="button"
+            <ActionButton
+              action={() => setConfirmation("logout-all")}
               className={account.rowButton}
               disabled={busy}
-              onClick={() => setConfirmation("logout-all")}
-            >
-              退出所有设备
-            </button>
+              label="退出所有设备"
+            />
           </Row>
           <Row title="注销账号" description="删除账号及已发布的作品、评分等云端数据，无法撤销。">
-            <button
-              type="button"
+            <ActionButton
+              action={() => setConfirmation("delete")}
               className={account.rowDanger}
               disabled={busy}
-              onClick={() => setConfirmation("delete")}
-            >
-              注销账号
-            </button>
+              label="注销账号"
+            />
           </Row>
           {confirmation && (
             <div className={account.rowBlock}>
