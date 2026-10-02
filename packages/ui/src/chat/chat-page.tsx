@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
+import { ActionButton } from "../core/action-button";
 import * as chat from "./chat-style";
 import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
 import { chatError } from "./chat-errors";
@@ -187,28 +188,22 @@ export function ChatPage({
               </select>
             )
           )}
-          <button
-            type="button"
+          <ActionButton
+            action={() => void loadModels()}
             className="secondary"
             disabled={loadingModels || sending}
-            onClick={() => void loadModels()}
-          >
-            刷新模型
-          </button>
+            label="刷新模型"
+          />
         </div>
       </div>
       {loginNeeded && onLogin && (
-        <button type="button" className={`primary ${chat.login}`} onClick={onLogin}>
-          登录使用 AI
-        </button>
+        <ActionButton action={onLogin} className={`primary ${chat.login}`} label="登录使用 AI" />
       )}
       {error && (
         <div className={chat.error} role="alert">
           <span>{error}</span>
           {!loginNeeded && messages.at(-1)?.role === "user" && (
-            <button type="button" className="secondary" disabled={sending} onClick={retry}>
-              重试
-            </button>
+            <ActionButton action={retry} className="secondary" disabled={sending} label="重试" />
           )}
         </div>
       )}
@@ -249,11 +244,8 @@ export function ChatPage({
           }}
         />
         <div className={chat.actions}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={!messages.length && !draft}
-            onClick={() => {
+          <ActionButton
+            action={() => {
               if (!messages.length) {
                 clear();
                 return;
@@ -266,22 +258,19 @@ export function ChatPage({
                 if (confirmed) clear();
               });
             }}
-          >
-            新对话
-          </button>
+            className="secondary"
+            disabled={!messages.length && !draft}
+            label="新对话"
+          />
           {sending ? (
-            <button type="button" className="secondary" onClick={cancel}>
-              取消
-            </button>
+            <ActionButton action={cancel} className="secondary" label="取消" />
           ) : (
-            <button
-              type="button"
+            <ActionButton
+              action={send}
               className="primary"
               disabled={!draft.trim() || (!loginNeeded && !selectedModel)}
-              onClick={send}
-            >
-              发送
-            </button>
+              label="发送"
+            />
           )}
         </div>
         <small>
