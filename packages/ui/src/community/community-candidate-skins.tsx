@@ -24,6 +24,7 @@ import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -479,13 +480,11 @@ export function CommunityCandidateSkinsPage({
                 已安装到外部皮肤。
               </p>
               {onOpenSkinPage && (
-                <button
-                  type="button"
+                <ActionButton
+                  action={onOpenSkinPage}
                   className={`primary ${style.action}`}
-                  onClick={onOpenSkinPage}
-                >
-                  去启用
-                </button>
+                  label="去启用"
+                />
               )}
             </>
           ) : (
@@ -506,16 +505,14 @@ export function CommunityCandidateSkinsPage({
             />
           )}
           {selected.owned && (
-            <button
-              type="button"
-              className={`secondary ${style.action}`}
-              disabled={actionBusy || detailBusy}
-              onClick={() =>
+            <ActionButton
+              action={() =>
                 void changeVisibility(selected.visibility === "private" ? "public" : "private")
               }
-            >
-              {selected.visibility === "private" ? "公开" : "设为私有"}
-            </button>
+              className={`secondary ${style.action}`}
+              disabled={actionBusy || detailBusy}
+              label={selected.visibility === "private" ? "公开" : "设为私有"}
+            />
           )}
           {selected.owned && (
             <CommunitySkinCategorySelect
@@ -571,9 +568,11 @@ export function CommunityCandidateSkinsPage({
             }}
           />
           {localSkins && (
-            <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
-              发布我的皮肤
-            </button>
+            <ActionButton
+              action={() => setPublishOpen(true)}
+              className="primary"
+              label="发布我的皮肤"
+            />
           )}
         </div>
       </div>
