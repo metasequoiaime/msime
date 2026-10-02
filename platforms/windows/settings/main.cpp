@@ -1545,6 +1545,7 @@ private:
 
   void update_suggestions(std::wstring const &query) {
     std::vector<Inspectable> items;
+    items.reserve(13);
     for (const auto *entry : search(query))
       items.push_back(box_value(hstring(entry->display)));
     if (items.empty() && !query.empty())
