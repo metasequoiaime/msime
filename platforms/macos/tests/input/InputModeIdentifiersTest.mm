@@ -306,6 +306,21 @@ int main() {
                 "A symlinked cantonese.db in the downloaded pack made Cantonese available.");
         [files removeItemAtPath:stateRoot error:nil];
 
+        // 资源包父目录是符号链接时也不能把外部词库当作已安装资源。
+        NSString *linkedStateRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSString *linkedOutside = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        NSString *linkedOutsidePack = [linkedOutside stringByAppendingPathComponent:@"resource-packs/language-dictionaries"];
+        [files createDirectoryAtPath:linkedOutsidePack withIntermediateDirectories:YES attributes:nil error:nil];
+        [NSData.data writeToFile:[linkedOutsidePack stringByAppendingPathComponent:@"cantonese.db"] atomically:YES];
+        [@"{}" writeToFile:[linkedOutsidePack stringByAppendingPathComponent:@"msime-model.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        [files createDirectoryAtPath:linkedStateRoot withIntermediateDirectories:YES attributes:nil error:nil];
+        [files createSymbolicLinkAtPath:[linkedStateRoot stringByAppendingPathComponent:@"resource-packs"]
+                    withDestinationPath:[linkedOutside stringByAppendingPathComponent:@"resource-packs"] error:nil];
+        require(!MSIMEInputSchemeAvailable(@"cantonese", @{ @"preferences_directory": linkedStateRoot }),
+                "A symlinked resource-packs parent made Cantonese available.");
+        [files removeItemAtPath:linkedStateRoot error:nil];
+        [files removeItemAtPath:linkedOutside error:nil];
+
         // 方案切到粤、注、越时启用对应模式，第一次同步就落在这类方案上也启用；方案没变、方案跑不起来、或方案没有按需模式时都不启用。
         require([MSIMEOptInInputModeToEnable(@"quanpin", @"cantonese", YES) isEqualToString:MSIMECantoneseInputModeID] &&
                     [MSIMEOptInInputModeToEnable(@"korean", @"vietnamese", YES) isEqualToString:MSIMEVietnameseInputModeID] &&

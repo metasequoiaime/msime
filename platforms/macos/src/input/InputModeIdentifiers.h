@@ -1,5 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 // Info.plist.in 声明的九个输入模式。每个模式的图标是铺满图块的一个大字：中、双、五、粤、注、日、한、越或英；选中的那条在输入菜单里打勾，并在输入源列表里列出名称。info-plist-names 对照 plist 检查这些字面量。
 static NSString *const MSIMEChineseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Hans";
@@ -31,6 +33,24 @@ static inline BOOL MSIMEItemHasFileType(NSString *path, NSFileAttributeType type
     return [[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil][NSFileType] isEqualToString:type];
 }
 
+// 资源包路径的每一层父目录都必须是真实目录。`attributesOfItemAtPath:` 会跟随父目录的符号链接，所以这里逐层用 `lstat` 检查；macOS 的 `/var` 和 `/tmp` 别名是受信任的例外。
+static inline BOOL MSIMEPathAncestorsAreReal(NSString *path) {
+    if (![path isKindOfClass:NSString.class] || !path.isAbsolutePath) return NO;
+    NSString *current = @"/";
+    for (NSString *component in path.stringByStandardizingPath.pathComponents) {
+        if ([component isEqualToString:@"/"]) continue;
+        current = [current stringByAppendingPathComponent:component];
+        if ([current isEqualToString:@"/var"] || [current isEqualToString:@"/tmp"]) continue;
+        struct stat status = {};
+        if (lstat(current.fileSystemRepresentation, &status) == 0) {
+            if (S_ISLNK(status.st_mode) || !S_ISDIR(status.st_mode)) return NO;
+        } else if (errno != ENOENT) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
 // 某个方案此处能否真正运行。粤拼和注音需要各自的词典：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
 static inline BOOL MSIMEInputSchemeAvailable(NSString *scheme, NSDictionary *hostOptions) {
     NSString *file = [scheme isEqualToString:@"cantonese"] ? @"cantonese.db" : ([scheme isEqualToString:@"zhuyin"] ? @"zhuyin.db" : nil);
@@ -38,7 +58,7 @@ static inline BOOL MSIMEInputSchemeAvailable(NSString *scheme, NSDictionary *hos
     id stateRoot = hostOptions[@"preferences_directory"];
     if ([stateRoot isKindOfClass:NSString.class] && [stateRoot length] && [stateRoot isAbsolutePath]) {
         NSString *pack = [[stateRoot stringByAppendingPathComponent:@"resource-packs"] stringByAppendingPathComponent:@"language-dictionaries"];
-        if (MSIMEItemHasFileType(pack, NSFileTypeDirectory) &&
+        if (MSIMEPathAncestorsAreReal(pack) && MSIMEItemHasFileType(pack, NSFileTypeDirectory) &&
             MSIMEItemHasFileType([pack stringByAppendingPathComponent:@"msime-model.json"], NSFileTypeRegular) &&
             MSIMEItemHasFileType([pack stringByAppendingPathComponent:file], NSFileTypeRegular))
             return YES;
