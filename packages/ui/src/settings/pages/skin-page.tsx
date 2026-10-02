@@ -20,7 +20,7 @@ import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publi
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skins";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
@@ -32,6 +32,7 @@ import { ThemeCarousel } from "../theme-carousel";
 import { SwitchRow } from "../switch-row";
 import { SegmentedRow } from "../segmented-row";
 import { createSettingsDraftActions } from "../settings-draft-actions";
+import { ActionRow } from "../action-row";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -275,11 +276,12 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
             />
             {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行是手机进入「社区」标签里键盘皮肤图库的入口。 */}
             {mobilePlatform && client.communitySkins && (
-              <Row title="在线皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
-                <button type="button" className="secondary" onClick={() => openCommunity("all")}>
-                  去社区找皮肤
-                </button>
-              </Row>
+              <ActionRow
+                title="在线皮肤"
+                description="看看别人做的键盘皮肤，可以直接试用或保存"
+                action={() => openCommunity("all")}
+                label="去社区找皮肤"
+              />
             )}
           </GroupList>
           <GroupList title="自定义主题">

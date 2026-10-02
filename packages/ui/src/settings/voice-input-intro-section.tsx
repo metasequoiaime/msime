@@ -1,6 +1,7 @@
 import * as settings from "./settings-style";
 import { OpenPanelRow } from "./open-panel-row";
-import { GroupList, Row } from "../core/platform-controls";
+import { ActionRow } from "./action-row";
+import { GroupList } from "../core/platform-controls";
 
 export interface VoiceInputIntroSectionProps {
   localVoice: boolean;
@@ -68,13 +69,7 @@ export function VoiceInputIntroSection({
         <p className={settings.groupNote}>
           在应用内点「开始 iOS 语音」录音，识别结果回到当前页面，确认后再使用。
         </p>
-        {onOpenVoice && (
-          <Row title="应用内语音">
-            <button type="button" className="secondary" onClick={onOpenVoice}>
-              开始 iOS 语音
-            </button>
-          </Row>
-        )}
+        {onOpenVoice && <ActionRow title="应用内语音" action={onOpenVoice} label="开始 iOS 语音" />}
       </GroupList>
     );
   }

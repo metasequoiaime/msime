@@ -14,6 +14,7 @@ import { TextInputRow } from "../text-input-row";
 import { SelectRow } from "../select-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
 import { OpenPanelRow } from "../open-panel-row";
+import { ActionRow } from "../action-row";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -255,19 +256,14 @@ export function DictionarySettingsPage() {
         {/* 宿主提供 `resetLearnedData` 就显示（宿主只在真正能清除的桌面平台上提供）；它是危险操作，放在页末。 */}
         {client.resetLearnedData && (
           <GroupList title="学习数据">
-            <Row
+            <ActionRow
               title="清除候选词频、用户词库和拼音学习记录"
               description="自己新增和修改的词条也会删除；输入方案与其他设置不会改变。"
-            >
-              <button
-                type="button"
-                className="secondary danger-button"
-                disabled={phraseBusy}
-                onClick={() => void resetLearnedData()}
-              >
-                清除全部学习数据
-              </button>
-            </Row>
+              action={resetLearnedData}
+              className="secondary danger-button"
+              disabled={phraseBusy}
+              label="清除全部学习数据"
+            />
           </GroupList>
         )}
       </div>

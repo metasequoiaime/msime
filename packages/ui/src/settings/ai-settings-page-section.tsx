@@ -8,6 +8,7 @@ import * as settings from "./settings-style";
 import { SwitchRow } from "./switch-row";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
+import { ActionRow } from "./action-row";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -121,19 +122,13 @@ export function AiSettingsPageSection({
           <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
           {modelCatalog && (
             <>
-              <Row
+              <ActionRow
                 title="服务模型"
                 description="从当前服务的模型目录读取；服务不支持时可继续手动填写模型。"
-              >
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={modelCatalog.busy || !modelCatalog.origin}
-                  onClick={modelCatalog.onFetch}
-                >
-                  {modelCatalog.busy ? "获取中…" : "获取模型列表"}
-                </button>
-              </Row>
+                action={modelCatalog.onFetch}
+                disabled={modelCatalog.busy || !modelCatalog.origin}
+                label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
+              />
               {modelCatalog.models && modelCatalog.models.length > 0 && (
                 <Row title="已获取模型">
                   <ModelSelect

@@ -1,6 +1,7 @@
 import * as doc from "./document-style";
 import * as settings from "./settings-style";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
+import { ActionRow } from "./action-row";
 
 /**
  * The macOS help page. The reference window answers the three questions a new user actually has --
@@ -115,11 +116,12 @@ export function HelpSettingsPage({
         {macos && onOpenDocumentation && (
           <GroupList>
             <div className={settings.rowStack} role="group" aria-label="更多">
-              <Row title="更多" description="更完整的说明、词库来源和更新记录在官网上。">
-                <button type="button" className="secondary" onClick={onOpenDocumentation}>
-                  打开官网
-                </button>
-              </Row>
+              <ActionRow
+                title="更多"
+                description="更完整的说明、词库来源和更新记录在官网上。"
+                action={onOpenDocumentation}
+                label="打开官网"
+              />
             </div>
           </GroupList>
         )}
@@ -167,11 +169,7 @@ export function HelpSettingsPage({
             </GroupList>
             {onOpenDocumentation && (
               <GroupList title="更多">
-                <Row title="完整文档">
-                  <button type="button" className="secondary" onClick={onOpenDocumentation}>
-                    完整文档（网页）
-                  </button>
-                </Row>
+                <ActionRow title="完整文档" action={onOpenDocumentation} label="完整文档（网页）" />
               </GroupList>
             )}
           </>

@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
+import { ActionRow } from "./action-row";
 import { SwitchRow } from "./switch-row";
 
 export interface DiagnosticLogPreferences {
@@ -62,18 +63,16 @@ export function DiagnosticLogsSection({
           onChange={(server) => onChange({ server })}
         />
         {openDirectory && (
-          <Row
+          <ActionRow
             title="日志文件"
             description={
               macos
                 ? "在 Finder 中选中 diagnostic.log；还没有写入时打开它所在的目录。"
                 : "打开日志文件所在的目录。"
             }
-          >
-            <button type="button" className="secondary" onClick={() => void revealDirectory()}>
-              {macos ? "在 Finder 中显示" : "打开日志目录"}
-            </button>
-          </Row>
+            action={revealDirectory}
+            label={macos ? "在 Finder 中显示" : "打开日志目录"}
+          />
         )}
         {!linux && windows && (
           <SwitchRow
