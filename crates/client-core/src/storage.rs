@@ -2,6 +2,18 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+pub(crate) fn is_system_path_alias(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        path == Path::new("/var") || path == Path::new("/tmp")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 /// Reject an existing symbolic link before a storage operation follows it.
 pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
     let mut current = PathBuf::new();
@@ -20,7 +32,7 @@ pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
                         let system_alias = path.is_absolute()
                             && !saw_real_component
                             && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                            && matches!(component, Component::Normal(_) if is_system_path_alias(&current));
                         if index + 1 == components.len()
                             || saw_real_component
                             || saw_prefix_alias
@@ -60,7 +72,7 @@ pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
     loop {
         match fs::symlink_metadata(current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if current == Path::new("/tmp") || current == Path::new("/var") {
+                if is_system_path_alias(current) {
                     break;
                 }
                 return Err(io::Error::new(
@@ -119,5 +131,18 @@ mod tests {
         assert!(create_directory_and_check(&path).unwrap());
         assert!(std::fs::symlink_metadata(&path).unwrap().is_dir());
         std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn system_path_aliases_are_trusted_only_on_macos() {
+        assert_eq!(
+            is_system_path_alias(Path::new("/tmp")),
+            cfg!(target_os = "macos")
+        );
+        assert_eq!(
+            is_system_path_alias(Path::new("/var")),
+            cfg!(target_os = "macos")
+        );
+        assert!(!is_system_path_alias(Path::new("/tmp/work")));
     }
 }

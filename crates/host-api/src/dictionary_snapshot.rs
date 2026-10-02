@@ -295,7 +295,7 @@ fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
                         let system_alias = path.is_absolute()
                             && !saw_real_component
                             && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                            && matches!(component, Component::Normal(_) if is_system_path_alias(&current));
                         if index + 1 == components.len()
                             || saw_real_component
                             || saw_prefix_alias
@@ -313,6 +313,18 @@ fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+fn is_system_path_alias(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        path == Path::new("/var") || path == Path::new("/tmp")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.
