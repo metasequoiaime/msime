@@ -10,6 +10,8 @@
 
 namespace msime::linux_host {
 
+inline constexpr std::size_t kMaxCandidateSkins = 32;
+
 // 一款已安装的外部候选皮肤：id 是身份，title 只用于展示，base 是它的清单声明的底色主题（system 或某个内置主题）。选中它就是选中自定义主题，并把 custom_theme.base 换成这个 base，和设置页的皮肤卡片一样。
 struct CandidateSkin {
   std::string id;
@@ -63,6 +65,7 @@ inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &o
     bool listed = false;
     for (const auto &existing : skins) listed = listed || existing.id == id;
     if (listed) continue;
+    if (skins.size() >= kMaxCandidateSkins) break;
     skins.push_back({std::move(id), std::move(title), std::move(base)});
   }
   return skins;
