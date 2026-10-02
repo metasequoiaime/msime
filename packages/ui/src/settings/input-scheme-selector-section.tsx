@@ -1,5 +1,5 @@
 import type { InputScheme } from "../index";
-import { Row, Segmented } from "../core/platform-controls";
+import { SegmentedRow } from "./segmented-row";
 import {
   baseInputSchemes,
   chineseInputSchemeOptions,
@@ -49,8 +49,13 @@ export function InputSchemeSelectorSection({
   const hint = supportHint(value, supportedSchemes, lastChineseScheme);
   // Five two-character segments come to about 262px. Beside the macOS look's 260px sidebar and 48px page margins the row fits in any window from about 675px wide, and the window opens at 1000px, so this stays a Segmented rather than falling back to a Select.
   return (
-    <Row title="输入方案" description={hint} hidden={hidden}>
-      <Segmented options={options} value={value} onChange={onChange} />
-    </Row>
+    <SegmentedRow
+      title="输入方案"
+      description={hint}
+      hidden={hidden}
+      options={options}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
