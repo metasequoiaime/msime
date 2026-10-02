@@ -182,6 +182,7 @@ inline FcitxThemeFiles fcitx_candidate_theme_files(const CandidateColors &colors
   using G = FcitxPanelGeometry;
   using M = FcitxMenuGeometry;
   FcitxThemeFiles files;
+  files.images.reserve(colors.selected ? 12 : 10);
   const auto surface = colors.background.value_or(0xffffffu);
   const auto text = colors.text.value_or(contrasting_color(surface).value_or(0));
   const auto selected_text = colors.selected_text.value_or(text);

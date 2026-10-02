@@ -1,5 +1,6 @@
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { iosLocalModeEntry } from "./local-mode-text";
+import { SwitchRow } from "./switch-row";
 
 export type LocalModeKey =
   | "unicode"
@@ -154,7 +155,7 @@ export function LocalModesSection({
   return (
     <GroupList title="快捷模式">
       {rows.map(([key, label, description]) => (
-        <Row
+        <SwitchRow
           key={key}
           title={label}
           description={
@@ -164,13 +165,10 @@ export function LocalModesSection({
                 ? (iosLocalModeDescriptions[key] ?? description)
                 : description
           }
-        >
-          <Switch
-            checked={preferences[key] ?? false}
-            disabled={key === "mention_places" && !preferences.mention}
-            onChange={(checked) => onChange({ ...preferences, [key]: checked })}
-          />
-        </Row>
+          checked={preferences[key] ?? false}
+          disabled={key === "mention_places" && !preferences.mention}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </GroupList>
   );

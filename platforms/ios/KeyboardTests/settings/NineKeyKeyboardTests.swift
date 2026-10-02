@@ -1005,6 +1005,103 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(key.layer.animationKeys()?.isEmpty ?? true)
   }
 
+  func testPressPreviewFollowsTheHighlightOnlyForKeysThatAskForIt() {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 300))
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.isHidden = false
+    defer { window.isHidden = true }
+    func key(_ title: String, x: CGFloat, preview: Bool) -> KeyboardKeyButton {
+      var configuration = UIButton.Configuration.plain()
+      configuration.title = title
+      let key = KeyboardKeyButton(configuration: configuration)
+      key.frame = CGRect(x: x, y: 120, width: 36, height: 44)
+      key.showsPressPreview = preview
+      controller.view.addSubview(key)
+      return key
+    }
+    func previews() -> [KeyPressPreviewView] { descendants(controller.view).compactMap { $0 as? KeyPressPreviewView } }
+    let letter = key("q", x: 20, preview: true)
+    let function = key("中", x: 80, preview: false)
+
+    letter.isHighlighted = true
+    XCTAssertEqual(previews().map(\.text), ["q"])
+    letter.isHighlighted = false
+    XCTAssertTrue(previews().isEmpty)
+
+    function.isHighlighted = true
+    XCTAssertTrue(previews().isEmpty)
+    function.isHighlighted = false
+
+    // Shift changes the title between presses; the callout shows whatever the key says now.
+    letter.configuration?.title = "Q"
+    letter.isHighlighted = true
+    XCTAssertEqual(previews().map(\.text), ["Q"])
+    letter.isEnabled = false
+    XCTAssertTrue(previews().isEmpty)
+    letter.isEnabled = true
+    letter.isHighlighted = false
+    letter.isHighlighted = true
+    XCTAssertEqual(previews().count, 1)
+    letter.removeFromSuperview()
+    XCTAssertTrue(previews().isEmpty)
+  }
+
+  func testPressPreviewHeadStaysInsideTheKeyboard() {
+    let bounds = CGRect(x: 0, y: 0, width: 390, height: 300)
+    let middle = KeyPressPreviewView.geometry(key: CGRect(x: 180, y: 120, width: 36, height: 44), in: bounds)
+    XCTAssertGreaterThan(middle.head.width, 36)
+    XCTAssertEqual(middle.head.midX, 198, accuracy: 0.01)
+    XCTAssertEqual(middle.head.maxY, 120, accuracy: 0.01)
+    XCTAssertGreaterThanOrEqual(middle.head.height, 44)
+
+    let left = KeyPressPreviewView.geometry(key: CGRect(x: 3, y: 120, width: 36, height: 44), in: bounds)
+    XCTAssertEqual(left.head.minX, 0, accuracy: 0.01)
+    XCTAssertLessThanOrEqual(left.head.minX, left.key.minX)
+    let right = KeyPressPreviewView.geometry(key: CGRect(x: 351, y: 120, width: 36, height: 44), in: bounds)
+    XCTAssertEqual(right.head.maxX, 390, accuracy: 0.01)
+    XCTAssertGreaterThanOrEqual(right.head.maxX, right.key.maxX)
+
+    // A row with little room above it gets a shorter head rather than one the system would clip.
+    let top = KeyPressPreviewView.geometry(key: CGRect(x: 180, y: 30, width: 36, height: 44), in: bounds)
+    XCTAssertEqual(top.head.minY, 0, accuracy: 0.01)
+    XCTAssertEqual(top.head.height, 30, accuracy: 0.01)
+  }
+
+  func testKeyShadowsFollowTheKeysWhenTheKeyboardShrinksIntoPlace() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    // The system shows a keyboard at a taller window first and walks it down to the real height (874 -> 444 -> 292 measured on iOS 26.3).
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 874)
+    controller.view.layoutIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    let shadowed = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { $0.layer.shadowOpacity > 0 && $0.window == nil && !$0.isHidden && $0.bounds.height > 0 }
+    XCTAssertFalse(shadowed.isEmpty)
+    for button in shadowed {
+      let path = try XCTUnwrap(button.layer.shadowPath, button.accessibilityLabel ?? "")
+      XCTAssertEqual(path.boundingBoxOfPath.height, button.bounds.height, accuracy: 0.5, button.accessibilityLabel ?? "")
+      XCTAssertEqual(path.boundingBoxOfPath.width, button.bounds.width, accuracy: 0.5, button.accessibilityLabel ?? "")
+    }
+  }
+
+  func testOnlyCharacterKeysOfTheRealKeyboardShowAPressPreview() throws {
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    let keys = descendants(controller.view).compactMap { $0 as? KeyboardKeyButton }
+    let letter = try XCTUnwrap(keys.first { ["q", "Q"].contains($0.configuration?.title ?? "") })
+    XCTAssertTrue(letter.showsPressPreview)
+    for id in ["shiftButton", "returnKey"] {
+      let key = try XCTUnwrap(keys.first { $0.accessibilityIdentifier == id }, id)
+      XCTAssertFalse(key.showsPressPreview, id)
+    }
+    let space = try XCTUnwrap(keys.first { $0.accessibilityLabel == "空格" })
+    XCTAssertFalse(space.showsPressPreview)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

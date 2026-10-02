@@ -56,7 +56,8 @@ pub fn cut_one_piece_min_segments(pinyin: &str, intact_only: bool) -> Vec<String
         }
         best[index] = chosen;
     }
-    let mut segments = Vec::with_capacity(length);
+    let segment_count = best[0].map_or(0, |(_, count)| count);
+    let mut segments = Vec::with_capacity(segment_count);
     let mut index = 0;
     while index < length {
         let Some((end, _)) = best[index] else {
@@ -473,6 +474,9 @@ mod tests {
         let many = split_segments("a'a'a'a'a");
         assert_eq!(many.len(), 5);
         assert_eq!(many.capacity(), many.len());
+        let minimum = cut_one_piece_min_segments("zhong", true);
+        assert_eq!(minimum, ["zhong"]);
+        assert_eq!(minimum.capacity(), minimum.len());
         assert_eq!(join_segments(&split_segments("ni'hao")), "ni'hao");
         assert_eq!(segments_to_jianpin(&split_segments("ni''hao")), "nh");
         // Spellings only a minimum-segment cut can split are complete (test_input_session.cpp:978-986).

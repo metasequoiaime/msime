@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
 
 /// 2026-10-01T12:00:00Z.
 fn noon() -> SystemTime {
@@ -208,6 +209,18 @@ fn a_crash_record_turns_the_leftover_session_into_session_crash_and_a_crash() {
 }
 
 #[test]
+fn crash_file_read_reserves_capped_file_size() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("synthetic.crash");
+    let contents = vec![b'x'; 128];
+    std::fs::write(&path, &contents).unwrap();
+
+    let bytes = read_crash_file(&path).unwrap();
+    assert_eq!(bytes, contents);
+    assert_eq!(bytes.capacity(), 128);
+}
+
+#[test]
 fn a_record_a_signal_handler_wrote_raw_is_read_too() {
     let (_directory, store) = store();
     let start = store.begin_session(&app(), noon()).unwrap();
@@ -356,6 +369,55 @@ fn a_retry_after_defers_every_flush_until_it_passes() {
     assert_eq!(later.ids().len(), 1);
 }
 
+struct PausingSender {
+    entered: Arc<Barrier>,
+    release: Arc<Barrier>,
+    delivery: Delivery,
+}
+
+impl TelemetrySender for PausingSender {
+    fn send(&self, _body: &[u8]) -> Delivery {
+        self.entered.wait();
+        self.release.wait();
+        self.delivery
+    }
+}
+
+#[test]
+fn a_concurrent_flush_does_not_clear_another_flush_retry_deadline() {
+    let (_directory, store) = store();
+    store.begin_session(&app(), noon()).unwrap();
+
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let first = store.clone();
+    let first_sender = PausingSender {
+        entered: entered.clone(),
+        release: release.clone(),
+        delivery: Delivery::Accepted,
+    };
+    let first_thread = std::thread::spawn(move || first.flush(&first_sender, noon()).unwrap());
+
+    entered.wait();
+    let second_sender = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::from_secs(120)))]);
+    let second = store.clone();
+    let second_report = second.flush(&second_sender, noon()).unwrap();
+    assert_eq!(second_report.remaining, 1);
+
+    release.wait();
+    first_thread.join().unwrap();
+
+    let idle = ScriptedSender::new([]);
+    let deferred = store
+        .flush(&idle, noon() + Duration::from_secs(60))
+        .unwrap();
+    assert!(
+        deferred.deferred,
+        "a concurrent success must not erase Retry-After"
+    );
+    assert!(idle.ids().is_empty());
+}
+
 #[test]
 fn the_queue_keeps_the_newest_sixty_four() {
     let (_directory, store) = store();
@@ -395,6 +457,126 @@ fn a_legacy_queue_loses_its_download_events_and_short_ids() {
     assert_eq!(queue[1].id, "0123456789abcdef0123");
     // The regenerated id was written back, so every later attempt sends the same one.
     assert_eq!(store.queued().unwrap(), queue);
+}
+
+#[cfg(unix)]
+#[test]
+fn telemetry_state_symlink_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-state.json");
+    let external_state = serde_json::json!({
+        "install_id": "external-install-id-1234",
+        "active_day": "20261001",
+        "retry_after_unix_ms": 0
+    });
+    let external_bytes = serde_json::to_vec(&external_state).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(STATE_FILE)).unwrap();
+
+    // 外部状态文件不能成为本地安装 id 的来源，也不能被修改。
+    let install_id = store.install_id().unwrap();
+    assert_ne!(install_id, "external-install-id-1234");
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn telemetry_queue_symlink_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-queue.json");
+    let event = TelemetryEvent {
+        id: "0123456789abcdef0123456789abcdef".to_owned(),
+        kind: TelemetryKind::Session,
+        platform: "linux".to_owned(),
+        version: "0.50.0".to_owned(),
+        message: String::new(),
+        stack: String::new(),
+        artifact: String::new(),
+        channel: String::new(),
+        install_id: "external-install-id-1234".to_owned(),
+    };
+    let external_bytes = serde_json::to_vec(&vec![event]).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(QUEUE_FILE)).unwrap();
+
+    // 外部队列不能被读取，原文件也不能被替换或删除。
+    assert!(store.queued().unwrap().is_empty());
+    assert!(
+        std::fs::symlink_metadata(store.directory().join(QUEUE_FILE))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_previous_crash_marker_is_not_counted() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let first = store.begin_session(&app(), noon()).unwrap();
+    let external = directory.path().join("external-crash-record.crash");
+    std::fs::write(&external, b"external crash\nexternal stack\n").unwrap();
+    symlink(&external, &first.crash_record_path).unwrap();
+
+    let next = store.begin_session(&app(), noon()).unwrap();
+    // 外部 crash 文件不能让上一会话被标记为崩溃，也不能被删除。
+    assert!(!next.previous_session_crashed);
+    assert_eq!(next.crashes, 0);
+    assert_eq!(
+        std::fs::read(&external).unwrap(),
+        b"external crash\nexternal stack\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_session_marker_is_ignored() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, store) = store();
+    let external = directory.path().join("external-session.json");
+    let marker = serde_json::json!({
+        "id": "01234567-89ab-cdef-0123-456789abcdef",
+        "platform": "linux",
+        "version": "0.50.0",
+        "started_at_unix_ms": 1790856000000u64
+    });
+    let external_bytes = serde_json::to_vec(&marker).unwrap();
+    std::fs::write(&external, &external_bytes).unwrap();
+    std::fs::create_dir_all(store.directory()).unwrap();
+    symlink(&external, store.directory().join(SESSION_FILE)).unwrap();
+
+    // 外部 session marker 不能被当作本地运行中的会话。
+    assert!(store.read_marker().is_none());
+    assert_eq!(std::fs::read(&external).unwrap(), external_bytes);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_crash_file_is_not_read() {
+    use std::os::unix::fs::symlink;
+
+    let (directory, _store) = store();
+    let external = directory.path().join("external.crash");
+    let link = directory.path().join("linked.crash");
+    std::fs::write(&external, b"external crash\nexternal stack\n").unwrap();
+    symlink(&external, &link).unwrap();
+
+    // crash 叶子是外部链接时必须拒绝读取。
+    assert!(read_crash_file(&link).is_none());
+    assert_eq!(
+        std::fs::read(&external).unwrap(),
+        b"external crash\nexternal stack\n"
+    );
 }
 
 #[test]

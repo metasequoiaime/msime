@@ -1,4 +1,4 @@
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 import * as settings from "./settings-style";
 import { SelectRow } from "./select-row";
 
@@ -39,12 +39,12 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
   return (
     <>
       <div role="group" aria-label="中英混输" className={settings.rowStack}>
-        <Row title="中英混输" description="中文输入时在候选项中补充英文单词">
-          <Switch
-            checked={preferences.english}
-            onChange={(english) => onChange({ ...preferences, english })}
-          />
-        </Row>
+        <SwitchRow
+          title="中英混输"
+          description="中文输入时在候选项中补充英文单词"
+          checked={preferences.english}
+          onChange={(english) => onChange({ ...preferences, english })}
+        />
         <SelectRow
           title="触发字符数"
           description="预编辑字母达到该长度后才出现英文候选项"
@@ -62,12 +62,13 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
         </SelectRow>
       </div>
       {supplementalOptions.map(([key, label, description]) => (
-        <Row key={key} title={label} description={description}>
-          <Switch
-            checked={preferences[key]}
-            onChange={(checked) => onChange({ ...preferences, [key]: checked })}
-          />
-        </Row>
+        <SwitchRow
+          key={key}
+          title={label}
+          description={description}
+          checked={preferences[key]}
+          onChange={(checked) => onChange({ ...preferences, [key]: checked })}
+        />
       ))}
     </>
   );

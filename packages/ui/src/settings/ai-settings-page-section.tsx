@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
-import { GroupList, MoreOptions, Row, Select, Switch } from "../core/platform-controls";
-import { AiBasicSettingsSection, type AiProviderOption } from "./ai-basic-settings-section";
+import { GroupList, MoreOptions, Row } from "../core/platform-controls";
+import {
+  AiBasicSettingsSection,
+  AiProviderOptions,
+  type AiProviderOption,
+} from "./ai-basic-settings-section";
 import { AiCandidateLimitSection } from "./ai-candidate-limit-section";
 import { AiModelCatalogSection } from "./ai-model-catalog-section";
 import { AiPromptSettingsSection } from "./ai-prompt-settings-section";
@@ -9,6 +13,8 @@ import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { SwitchRow } from "./switch-row";
+import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
 
 export interface AiSettingsPageSectionProps {
@@ -108,22 +114,21 @@ export function AiSettingsPageSection({
         <div className={settings.groups}>
           {/* 先把服务接通：开关、服务商、凭据、模型；接口地址一般随服务商预设，收进「更多选项」；测试按钮放在组末，测的正是上面这些。 */}
           <GroupList title="服务">
-            <Row title="启用 AI 辅助" description={enabledDescription}>
-              <Switch aria-label="启用 AI 辅助" checked={enabled} onChange={onEnabledChange} />
-            </Row>
-            <Row title="服务提供商">
-              <Select
-                aria-label="AI 服务提供商"
-                value={provider}
-                onChange={(event) => onProviderChange(event.target.value)}
-              >
-                {providerOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title}
-                  </option>
-                ))}
-              </Select>
-            </Row>
+            <SwitchRow
+              title="启用 AI 辅助"
+              description={enabledDescription}
+              aria-label="启用 AI 辅助"
+              checked={enabled}
+              onChange={onEnabledChange}
+            />
+            <SelectRow
+              title="服务提供商"
+              aria-label="AI 服务提供商"
+              value={provider}
+              onChange={(event) => onProviderChange(event.target.value)}
+            >
+              <AiProviderOptions options={providerOptions} />
+            </SelectRow>
             {credentialSection}
             {providerPreset}
             <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
@@ -187,15 +192,15 @@ export function AiSettingsPageSection({
           </GroupList>
           {/* 只显示所选槽位的提示词；兼容提示词是旧版留下的后备，只在所选槽位留空时使用，收进「更多选项」。 */}
           <GroupList title="提示词">
-            <Row title="提示词方案" description="使用选中的独立槽位；槽位留空时使用兼容提示词">
-              <Select
-                aria-label="AI 联想提示词方案"
-                value={promptSlot}
-                onChange={(event) => onPromptIdChange(event.target.value)}
-              >
-                <CustomPromptSlotOptions />
-              </Select>
-            </Row>
+            <SelectRow
+              title="提示词方案"
+              description="使用选中的独立槽位；槽位留空时使用兼容提示词"
+              aria-label="AI 联想提示词方案"
+              value={promptSlot}
+              onChange={(event) => onPromptIdChange(event.target.value)}
+            >
+              <CustomPromptSlotOptions />
+            </SelectRow>
             <div className={settings.managerBlock}>
               <SettingsTextareaField
                 label={slot.label}

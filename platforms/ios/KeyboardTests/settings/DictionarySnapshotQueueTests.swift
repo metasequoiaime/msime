@@ -88,6 +88,32 @@ final class DictionarySnapshotQueueTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
   }
 
+  func testStateFileSymlinkFailsClosedBeforeReadingExternalState() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-file-link-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-file-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let queueDirectory = root.appendingPathComponent("DictionarySnapshots", isDirectory: true)
+    try FileManager.default.createDirectory(at: queueDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let externalState = outsideDirectory.appendingPathComponent("state.json")
+    try Data(#"{"version":1,"localVersion":null,"request":null}"#.utf8).write(to: externalState)
+    try FileManager.default.createSymbolicLink(
+      at: queueDirectory.appendingPathComponent("state.json"), withDestinationURL: externalState)
+
+    do {
+      _ = try DictionarySnapshotQueue(directory: root).read()
+      XCTFail("a symlinked state file must be rejected")
+    } catch DictionarySnapshotQueue.Failure.unavailable {
+      // Expected: queue metadata must stay inside the App Group directory.
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+    XCTAssertEqual(try Data(contentsOf: externalState), Data(#"{"version":1,"localVersion":null,"request":null}"#.utf8))
+  }
+
   private let first = "local-v1:legacy:" + String(repeating: "a", count: 64)
   private let second = "local-v1:legacy:" + String(repeating: "b", count: 64)
   private func fixture(_ action: (DictionarySnapshotQueue, URL, String, URL) throws -> Void) throws {

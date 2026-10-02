@@ -43,6 +43,11 @@ int main() {
         assert([[NSFont fontWithDescriptor:menlo size:18] isEqual:[NSFont fontWithDescriptor:uncached size:18]]);
         assert([[NSFont fontWithDescriptor:menlo size:18].familyName isEqual:@"Menlo"]);
 
+        // 可下载但还没下载的系统字体（字体预设里的楷体、圆体等）不拿去匹配：匹配会让 CoreText 经 FontRegistryUI 同步等待下载确认，调用线程就此挂起，CI 的 macOS 15 上设置窗口就是这样卡死的。答案只看本机已激活的字体族，所以这台机器下载过的照常命中，没下载的立即答 nil。
+        NSSet<NSString *> *available = [NSSet setWithArray:(__bridge_transfer NSArray<NSString *> *)CTFontManagerCopyAvailableFontFamilyNames()];
+        for (NSString *family in @[@"Songti SC", @"PingFang SC", @"Kaiti SC", @"STKaiti", @"Yuanti SC"])
+            assert((MSIMEInstalledFontFamilyDescriptor(family) != nil) == [available containsObject:family]);
+
         // A family that is not installed resolves to nil, and so does every later lookup of it.
         assert(!MSIMEInstalledFontFamilyDescriptor(SyntheticFamily));
         assert(!MSIMEInstalledFontFamilyDescriptor(SyntheticFamily));

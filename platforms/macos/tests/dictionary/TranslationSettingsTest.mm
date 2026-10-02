@@ -46,6 +46,16 @@ int main() {
         NSTextField *secretId = [window valueForKey:@"secretId"], *region = [window valueForKey:@"region"], *plainTencent = [window valueForKey:@"plainTencentKey"];
         NSSecureTextField *tencentKey = [window valueForKey:@"tencentKey"];
         assert([tencentKey isKindOfClass:NSSecureTextField.class] && !tencentKey.hidden && plainTencent.hidden);
+        // 新装默认选「水杉账号」（#2519）：腾讯云默认的 `enabled: true` 没有可用凭据，不算用户的选择，凭据行全部禁用。
+        assert(provider.indexOfSelectedItem == 3 && !tencent.enabled && !secretId.enabled && !tencentKey.enabled);
+        assert(tencent.state == NSControlStateValueOn && [region.stringValue isEqual:@"ap-guangzhou"]);
+        // 下面的流程从一份没有选过账号的已有配置开始，即升级上来的用户：文档里没有 `translation_account`，按未选择读，服务落在腾讯云。
+        NSMutableDictionary *existing = [initial mutableCopy], *existingPreferences = [initial[@"preferences"] mutableCopy];
+        [existingPreferences removeObjectForKey:@"translation_account"]; existing[@"preferences"] = existingPreferences;
+        assert([MSIMEClientSession savePreferencesInDirectory:root expectedRevision:[initial[@"revision"] unsignedLongLongValue] snapshot:existing error:&error] && !error);
+        initial = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+        assert(initial && !error && ![initial[@"preferences"][@"translation_account"] boolValue]);
+        [window reload:nil]; Wait(window); assert(saves == 0);
         assert(tencent.state == NSControlStateValueOn && secretId.enabled && [region.stringValue isEqual:@"ap-guangzhou"]);
         secretId.stringValue = @"AKIDsynthetic"; tencentKey.stringValue = @"synthetic-tencent";
         assert([key isKindOfClass:NSSecureTextField.class] && !key.hidden && plain.hidden);

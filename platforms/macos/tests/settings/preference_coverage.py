@@ -32,6 +32,7 @@ NOT_APPLICABLE = {
     "touch_toolbar": "the touch keyboard's row above the keys",
     "number_row_selection": "releasing the number row back to the editor, offered only where the host advertises it - Linux and HarmonyOS; Windows and macOS both keep number selection",
     "english_suggestions": "the mobile suggestion strip; desktop hosts show English candidates through mixed_input instead",
+    "show_candidate_page_number": "offered only where the host advertises candidate_page_number - Linux alone (7508f045e); the macOS candidate window always draws its page indicator and the shared page does not show the switch here",
 }
 
 

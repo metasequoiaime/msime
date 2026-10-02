@@ -112,6 +112,22 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertTrue(CustomSkinLibrary.designs.isEmpty)
   }
 
+  func testCustomSkinLibraryRejectsASymlinkedDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    let linked = root.appendingPathComponent("linked", isDirectory: true)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+
+    XCTAssertFalse(CustomSkinLibrary.save([], in: linked))
+    XCTAssertTrue(try FileManager.default.contentsOfDirectory(at: outside, includingPropertiesForKeys: nil).isEmpty)
+  }
+
   @MainActor
   func testGradientAndPhotoRenderInKeyboardBackdrop() throws {
     let view = KeyboardSkinBackgroundView(frame: CGRect(x: 0, y: 0, width: 320, height: 260))

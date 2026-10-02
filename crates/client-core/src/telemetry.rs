@@ -300,7 +300,7 @@ impl TelemetryStore {
         let mut previous_session_crashed = false;
         if let Some(previous) = &previous {
             let record = crashes_directory.join(format!("{}.{CRASH_EXTENSION}", previous.id));
-            if record.is_file() {
+            if is_regular_file(&record) {
                 previous_session_crashed = true;
                 push(
                     &mut queue,
@@ -477,9 +477,17 @@ impl TelemetryStore {
         if !done.is_empty() {
             self.write_queue(&queue)?;
         }
-        let deadline = retry_after.map_or(0, |delay| {
-            unix_ms(now).saturating_add(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX))
-        });
+        let now_ms = unix_ms(now);
+        let deadline = match retry_after {
+            Some(delay) => {
+                // 请求在途期间，另一个 flush 可能已经记录了更长的退避时间。
+                let proposed =
+                    now_ms.saturating_add(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX));
+                state.retry_after_unix_ms.max(proposed)
+            }
+            None if state.retry_after_unix_ms > now_ms => state.retry_after_unix_ms,
+            None => 0,
+        };
         if state.retry_after_unix_ms != deadline {
             state.retry_after_unix_ms = deadline;
             self.write_state(&state)?;
@@ -565,7 +573,7 @@ impl TelemetryStore {
     /// Parses the queue, keeping only events the server would accept. This is also the migration of a queue the C++ reporter wrote: its per-start `download` events fail to parse and are dropped, ids shorter than the server's 16 characters are regenerated, and events without `install_id` get this installation's.
     fn parse_queue(&self, install_id: &str) -> (Vec<TelemetryEvent>, bool) {
         let path = self.directory.join(QUEUE_FILE);
-        let Ok(file) = File::open(&path) else {
+        let Some(file) = open_regular_file(&path) else {
             return (Vec::new(), false);
         };
         let Ok(bytes) = crate::bounded_io::read_bounded(file, MAX_QUEUE_BYTES) else {
@@ -660,12 +668,7 @@ fn crash_event(
     install_id: &str,
 ) -> Option<TelemetryEvent> {
     // A record is read up to the limit and the rest ignored rather than refused: a stack that ran long still has its useful top.
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(
-        &mut std::io::Read::take(File::open(path).ok()?, MAX_CRASH_RECORD_BYTES),
-        &mut bytes,
-    )
-    .ok()?;
+    let bytes = read_crash_file(path)?;
     let text = String::from_utf8_lossy(&bytes);
     let (message, stack) = text.split_once('\n').unwrap_or((&text, ""));
     let mut message = clean_message(message);
@@ -694,6 +697,23 @@ fn crash_event(
         install_id: install_id.to_owned(),
     };
     event.is_valid().then_some(event)
+}
+
+fn read_crash_file(path: &Path) -> Option<Vec<u8>> {
+    let file = open_regular_file(path)?;
+    let capacity = file
+        .metadata()
+        .ok()
+        .map(|metadata| metadata.len().min(MAX_CRASH_RECORD_BYTES))
+        .and_then(|size| usize::try_from(size).ok())
+        .unwrap_or(0);
+    let mut bytes = Vec::with_capacity(capacity);
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(file, MAX_CRASH_RECORD_BYTES),
+        &mut bytes,
+    )
+    .ok()?;
+    Some(bytes)
 }
 
 /// Appends `event` unless an event with its id is queued already, then drops the oldest events beyond [`MAX_QUEUED_EVENTS`].
@@ -761,9 +781,27 @@ fn unix_ms(now: SystemTime) -> u64 {
 }
 
 fn read_small_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
-    let file = File::open(path).ok()?;
+    let file = open_regular_file(path)?;
     let bytes = crate::bounded_io::read_bounded(file, MAX_SMALL_FILE_BYTES).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
+fn open_regular_file(path: &Path) -> Option<File> {
+    if !is_regular_file(path) {
+        return None;
+    }
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    options.open(path).ok()
 }
 
 fn remove_file(path: &Path) -> Result<(), TelemetryError> {

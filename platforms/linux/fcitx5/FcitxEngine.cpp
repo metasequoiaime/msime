@@ -66,6 +66,7 @@
 #include "../src/core/InputSchemes.h"
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
+#include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
@@ -2178,6 +2179,7 @@ public:
     refreshClipboard();
     if (clipboard_mutation_job_.valid() || clipboard_items_.empty()) return false;
     std::vector<std::string> texts;
+    texts.reserve(clipboard_items_.size());
     for (const auto &item : clipboard_items_) {
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
       if (!text.empty()) texts.push_back(text);
@@ -2826,18 +2828,7 @@ public:
         !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
       return std::nullopt;
     const auto &text = surrounding.text();
-    const auto length = fcitx::utf8::lengthValidated(text);
-    if (length == fcitx::utf8::INVALID_LENGTH || surrounding.cursor() > length)
-      return std::nullopt;
-    const auto available = std::min<size_t>(count, surrounding.cursor());
-    std::vector<std::string> characters;
-    auto start = fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - available);
-    for (size_t index = 0; index < available; ++index) {
-      const auto next = fcitx::utf8::nextChar(start);
-      characters.emplace_back(start, next);
-      start = next;
-    }
-    return characters;
+    return preceding_characters(text, surrounding.cursor(), count);
   }
   bool composingOrCandidates() const {
     return msime::linux_host::view_has_composition(
@@ -6951,12 +6942,15 @@ bool FcitxEngine::toolbarEnabled(fcitx::InputContext *ic) {
 // The package entries of the 主题 menu follow the skin catalogue in the runtime options, which can change while the process runs; the menu is shared by every context, so it follows the context that last read the catalogue, as the toolbar menu does. Nothing is rebuilt while the packages and their titles stay the same, so an entry is never replaced under a menu that shows it.
 void FcitxEngine::rebuildThemeMenu(fcitx::InputContext *ic) {
   if (!ic) return;
+  const auto choices = ic->propertyFor(&factory_)->themeChoices();
   std::vector<std::pair<std::string, std::string>> packages;
-  for (const auto &choice : ic->propertyFor(&factory_)->themeChoices())
+  packages.reserve(choices.size());
+  for (const auto &choice : choices)
     if (choice.package_base) packages.emplace_back(choice.id, choice.title);
   if (packages == global_theme_packages_) return;
   for (const auto &item : global_theme_package_items_) global_theme_menu_.removeAction(item.get());
   global_theme_package_items_.clear();
+  global_theme_package_items_.reserve(packages.size());
   for (const auto &[id, title] : packages) {
     global_theme_package_items_.push_back(std::make_unique<FcitxGlobalThemeItemAction>(&factory_, id, title));
     // Registered under their own prefix, so a package can never take a global theme's name, and reachable from the D-Bus menus like every other entry.

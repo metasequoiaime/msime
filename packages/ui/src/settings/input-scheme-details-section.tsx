@@ -1,4 +1,4 @@
-import { Row, Segmented, Switch } from "../core/platform-controls";
+import { Row, Segmented } from "../core/platform-controls";
 import type { InputScheme, VietnamesePreferences } from "../index";
 import {
   cantoneseInputSchemeOptions,
@@ -11,6 +11,8 @@ import {
 import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { SelectRow } from "./select-row";
+import { LegacyRadioGroup } from "./legacy-radio-group";
+import { SwitchRow } from "./switch-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -90,16 +92,13 @@ export function InputSchemeDetailsSection({
           <ShuangpinProfileOptions />
         </SelectRow>
         {macosShuangpinKeymap !== undefined && (
-          <Row
+          <SwitchRow
             title="输入时显示双拼键位提示"
             description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
             hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
-          >
-            <Switch
-              checked={macosShuangpinKeymap}
-              onChange={onMacosShuangpinKeymapChange ?? (() => {})}
-            />
-          </Row>
+            checked={macosShuangpinKeymap}
+            onChange={onMacosShuangpinKeymapChange ?? (() => {})}
+          />
         )}
         {/* 五笔、日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
         <SelectRow
@@ -203,128 +202,64 @@ export function InputSchemeDetailsSection({
           <WubiSchemeOption />
         </SelectSettingField>
       </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="japanese-scheme-title"
+      <LegacyRadioGroup
+        title="日语方案"
+        titleId="japanese-scheme-title"
+        name="japanese-scheme"
+        options={japaneseInputSchemeOptions}
+        value="romaji"
+        description="直接输入罗马音，提供平假名、片假名及日语词库候选"
+        descriptionClassName="japanese-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-      >
-        <div className="section-title" id="japanese-scheme-title">
-          日语方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="japanese-scheme" checked readOnly />
-            <span>罗马音</span>
-          </label>
-        </div>
-        <div className="input-setting-description japanese-scheme-description">
-          直接输入罗马音，提供平假名、片假名及日语词库候选
-        </div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="korean-scheme-title"
+      />
+      <LegacyRadioGroup
+        title="韩语方案"
+        titleId="korean-scheme-title"
+        name="korean-scheme"
+        options={koreanInputSchemeOptions}
+        value="dubeolsik"
+        description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
+        descriptionClassName="korean-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-      >
-        <div className="section-title" id="korean-scheme-title">
-          韩语方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="korean-scheme" checked readOnly />
-            <span>两套式</span>
-          </label>
-        </div>
-        <div className="input-setting-description korean-scheme-description">
-          按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角
-        </div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="cantonese-scheme-title"
+      />
+      <LegacyRadioGroup
+        title="粤拼方案"
+        titleId="cantonese-scheme-title"
+        name="cantonese-scheme"
+        options={cantoneseInputSchemeOptions}
+        value="jyutping"
+        description={cantoneseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-      >
-        <div className="section-title" id="cantonese-scheme-title">
-          粤拼方案
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="cantonese-scheme" checked readOnly />
-            <span>粤拼</span>
-          </label>
-        </div>
-        <div className="input-setting-description">{cantoneseDescription}</div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="zhuyin-layout-title"
+      />
+      <LegacyRadioGroup
+        title="注音键盘"
+        titleId="zhuyin-layout-title"
+        name="zhuyin-layout"
+        options={zhuyinLayoutOptions}
+        value="dachen"
+        description={zhuyinDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-      >
-        <div className="section-title" id="zhuyin-layout-title">
-          注音键盘
-        </div>
-        <div className="input-option-content">
-          <label className="radio-option">
-            <input type="radio" name="zhuyin-layout" checked readOnly />
-            <span>大千</span>
-          </label>
-        </div>
-        <div className="input-setting-description">{zhuyinDescription}</div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="vietnamese-scheme-title"
+      />
+      <LegacyRadioGroup
+        title="越南语方案"
+        titleId="vietnamese-scheme-title"
+        name="vietnamese-input-method"
+        options={vietnameseInputMethodOptions}
+        value={inputMethod}
+        onChange={(value) => changeVietnamese({ input_method: value })}
+        description={vietnameseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      >
-        <div className="section-title" id="vietnamese-scheme-title">
-          越南语方案
-        </div>
-        <div className="input-option-content">
-          {vietnameseInputMethodOptions.map(({ value, label }) => (
-            <label className="radio-option" key={value}>
-              <input
-                type="radio"
-                name="vietnamese-input-method"
-                value={value}
-                checked={inputMethod === value}
-                onChange={() => changeVietnamese({ input_method: value })}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-        <div className="input-setting-description">{vietnameseDescription}</div>
-      </div>
-      <div
-        className="section"
-        role="group"
-        aria-labelledby="vietnamese-tone-style-title"
+      />
+      <LegacyRadioGroup
+        title="声调位置"
+        titleId="vietnamese-tone-style-title"
+        name="vietnamese-tone-style"
+        options={vietnameseToneStyleOptions}
+        value={toneStyle}
+        onChange={(value) => changeVietnamese({ tone_style: value })}
+        description={toneStyleDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      >
-        <div className="section-title" id="vietnamese-tone-style-title">
-          声调位置
-        </div>
-        <div className="input-option-content">
-          {vietnameseToneStyleOptions.map(({ value, label }) => (
-            <label className="radio-option" key={value}>
-              <input
-                type="radio"
-                name="vietnamese-tone-style"
-                value={value}
-                checked={toneStyle === value}
-                onChange={() => changeVietnamese({ tone_style: value })}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </div>
-        <div className="input-setting-description">{toneStyleDescription}</div>
-      </div>
+      />
     </>
   );
 }

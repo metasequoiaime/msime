@@ -1,6 +1,7 @@
 import * as settings from "./settings-style";
-import { GroupList, Row, Select, Switch } from "../core/platform-controls";
+import { GroupList, Row, Select } from "../core/platform-controls";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
+import { SwitchRow } from "./switch-row";
 
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
@@ -63,21 +64,21 @@ export function MobileKeyboardFeedbackSection({
   return (
     <GroupList title="按键反馈">
       <div className={settings.rowStack} role="group" aria-label="按键反馈">
-        <Row title="按键音" description="按键音受系统静音设置控制">
-          <Switch
-            disabled={busy}
-            checked={value.soundEnabled}
-            onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
-          />
-        </Row>
+        <SwitchRow
+          title="按键音"
+          description="按键音受系统静音设置控制"
+          disabled={busy}
+          checked={value.soundEnabled}
+          onChange={(checked) => onChange({ ...value, soundEnabled: checked })}
+        />
         {value.hapticsAvailable !== false && (
-          <Row title="按键振动" description="振动效果取决于设备与系统支持">
-            <Switch
-              disabled={busy}
-              checked={value.hapticsEnabled}
-              onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
-            />
-          </Row>
+          <SwitchRow
+            title="按键振动"
+            description="振动效果取决于设备与系统支持"
+            disabled={busy}
+            checked={value.hapticsEnabled}
+            onChange={(checked) => onChange({ ...value, hapticsEnabled: checked })}
+          />
         )}
         {value.hapticsAvailable !== false && value.hapticsEnabled && (
           <Row title="振动强度">

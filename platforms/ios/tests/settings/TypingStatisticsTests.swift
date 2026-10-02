@@ -23,6 +23,24 @@ final class TypingStatisticsTests: XCTestCase {
       atPath: directory.appendingPathComponent("typing-statistics.json").path))
   }
 
+  func testPrepareRejectsASymlinkedStatisticsDirectory() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-directory-symlink-root-(UUID().uuidString)")
+    let outside = FileManager.default.temporaryDirectory
+      .appendingPathComponent("stats-directory-symlink-target-(UUID().uuidString)")
+    let linked = root.appendingPathComponent("linked", isDirectory: true)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+
+    XCTAssertThrowsError(try TypingStatisticsStore(directory: linked).setEnabled(true))
+    XCTAssertTrue(try FileManager.default.contentsOfDirectory(at: outside, includingPropertiesForKeys: nil).isEmpty)
+  }
+
   func testLegacyMigrationRejectsASymlinkedLegacyLock() throws {
     let container = FileManager.default.temporaryDirectory
       .appendingPathComponent("stats-legacy-lock-test-\(UUID().uuidString)")

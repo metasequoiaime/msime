@@ -586,6 +586,22 @@ struct TypingStatisticsStore {
   private static let preparedLock = NSLock()
   private static var prepared = Set<String>()
 
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        if status.st_mode & S_IFMT == S_IFLNK { return true }
+      } else if errno != ENOENT {
+        return true
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { return false }
+      current = parent
+    }
+  }
+
   private func call(_ action: [String: Any]) throws -> Any {
     guard let directory else { throw CocoaError(.fileNoSuchFile) }
     try prepare(directory)
@@ -611,6 +627,7 @@ struct TypingStatisticsStore {
     Self.preparedLock.lock()
     defer { Self.preparedLock.unlock() }
     guard !Self.prepared.contains(directory.path) else { return }
+    guard !Self.rejectsSymlinkAncestors(directory) else { throw CocoaError(.fileWriteNoPermission) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     // The shared store takes the same lock file, and flock locks per open file, so this must be released before any call into it.
     let lockURL = directory.appendingPathComponent("typing-statistics.lock")

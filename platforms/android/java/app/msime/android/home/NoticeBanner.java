@@ -100,7 +100,6 @@ final class NoticeBanner {
 
     private static String directory(Context context) {
         File directory = new File(context.getFilesDir(), DIRECTORY);
-        if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("notices directory");
         return directory.getAbsolutePath();
     }
 

@@ -27,7 +27,6 @@ enum AppNotices {
   /// Blocks on the network at most once a minute: call off the main thread when the app home opens.
   static func load() -> [AppNotice] {
     guard let directory else { return [] }
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     guard let value = call(msimeClientNotices, ["directory": directory.path, "platform": "ios", "channel": "app"]) as? [String: Any],
           let items = value["items"] as? [[String: Any]] else { return [] }
     return items.compactMap { item in

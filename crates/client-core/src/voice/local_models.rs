@@ -308,21 +308,24 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(_) => return Err(LocalModelError::InvalidRoot),
     }
-    // A not-yet-created root can have several missing components below a
-    // replaced app-data directory. Find the nearest existing ancestor and
-    // inspect that one; walking farther would reject intentional system
-    // aliases such as macOS `/var` even though the nearest real directory
-    // already anchors the app-owned path.
-    let mut current = root.parent();
+    // 逐个检查所有祖先；只看最近的已存在目录会漏掉“符号链接后面中间目录已存在”的路径。
+    let mut ancestors = Vec::new();
+    let mut current = Some(root);
     while let Some(path) = current {
+        ancestors.push(path);
+        current = path.parent();
+    }
+    for path in ancestors.into_iter().rev() {
+        // macOS 的临时目录通过受信任的 /var 别名暴露。
+        if path == Path::new("/var") || path == Path::new("/tmp") {
+            continue;
+        }
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
                 return Err(LocalModelError::InvalidRoot);
             }
-            Ok(_) => break,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                current = path.parent();
-            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(_) => return Err(LocalModelError::InvalidRoot),
         }
     }

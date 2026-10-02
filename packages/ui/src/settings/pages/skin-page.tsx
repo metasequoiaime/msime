@@ -20,7 +20,7 @@ import { CandidateSkinPublishDialog } from "../../community/candidate-skin-publi
 import type { CandidateSkinVisibility } from "../../community/community-candidate-skins";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "../../keyboard/touch-keyboard-skin-editor";
-import { GroupList, Row, Segmented, Switch } from "../../core/platform-controls";
+import { GroupList, Row, Segmented } from "../../core/platform-controls";
 import { CandidateColorsSection } from "../candidate-colors-section";
 import { ThemeSettingsSection } from "../theme-settings-section";
 import { ScreenKeyboardSkinsSection } from "../screen-keyboard-skins-section";
@@ -29,6 +29,7 @@ import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidatePaletteFallbackNotice } from "../candidate-palette-fallback-notice";
 import { SkinPlatformNotice } from "../skin-platform-notice";
 import { ThemeCarousel } from "../theme-carousel";
+import { SwitchRow } from "../switch-row";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 
 const themeModeOptions = [
@@ -282,22 +283,19 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
           </GroupList>
           <GroupList title="自定义主题">
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
-              <Row
+              <SwitchRow
                 title="候选栏使用主题配色"
                 description="关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用本页的主题和候选颜色。"
-              >
-                <Switch
-                  aria-label="候选栏使用主题配色"
-                  disabled={mobileKeyboardFeedbackBusy}
-                  checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
-                  onChange={(checked) =>
-                    void saveMobileKeyboardFeedback({
-                      ...mobileKeyboardFeedback,
-                      candidatePaletteFollowsDesktop: checked,
-                    })
-                  }
-                />
-              </Row>
+                aria-label="候选栏使用主题配色"
+                disabled={mobileKeyboardFeedbackBusy}
+                checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
+                onChange={(checked) =>
+                  void saveMobileKeyboardFeedback({
+                    ...mobileKeyboardFeedback,
+                    candidatePaletteFollowsDesktop: checked,
+                  })
+                }
+              />
             )}
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop === false && (
               <CandidatePaletteFallbackNotice />

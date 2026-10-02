@@ -114,6 +114,15 @@ int main() {
         assert(![files fileExistsAtPath:[installed URLByAppendingPathComponent:@".msime.db.installing"].path]);
         assert([MarkerValue(target) isEqual:@"newer"]);
 
+        // A destination directory supplied through preferences must not redirect an install through a symlink.
+        NSURL *outside = [root URLByAppendingPathComponent:@"outside"];
+        assert([files createDirectoryAtURL:outside withIntermediateDirectories:YES attributes:nil error:nil]);
+        NSURL *linked = [root URLByAppendingPathComponent:@"linked-installed"];
+        assert([files createSymbolicLinkAtURL:linked withDestinationURL:outside error:nil]);
+        error = nil;
+        assert(!MSIMEInstallDictionary(replacement, linked, replacementDigest, &error) && error);
+        assert(![files fileExistsAtPath:[outside URLByAppendingPathComponent:@"msime.db"].path]);
+
         [files removeItemAtURL:root error:nil];
     }
     return 0;

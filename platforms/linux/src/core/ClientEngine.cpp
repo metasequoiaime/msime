@@ -22,6 +22,7 @@
 #include "PreparePaths.h"
 #include "LocalModeSwitches.h"
 #include "WordCharacterBinding.h"
+#include "SurroundingCharacters.h"
 #include "../voice/VoiceAction.h"
 #include "../voice/VoiceHotwords.h"
 #include "../voice/VoiceProviderOptions.h"
@@ -1124,6 +1125,7 @@ std::string traditional_display(const State &s, const Json &context,
   return text;
 }
 constexpr size_t kClipboardStoreBytes = 1024 * 1024;
+constexpr size_t kMaxClipboardItems = 50;
 
 std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
   const auto payload = msime::linux_host::read_clipboard_file(path, kClipboardStoreBytes);
@@ -1137,11 +1139,12 @@ std::optional<Json> read_clipboard_store(const std::filesystem::path &path) {
 
 std::vector<std::string> clipboard_items(const std::string &path) {
   std::vector<std::string> items;
+  items.reserve(kMaxClipboardItems);
   if (path.empty() || path.size() > 4096) return items;
   const auto value = read_clipboard_store(std::filesystem::path(path));
   if (!value || !value->is_array()) return items;
   for (const auto &entry : *value) {
-    if (items.size() == 50) break;
+    if (items.size() == kMaxClipboardItems) break;
     if (!entry.is_string()) continue;
     auto text = entry.get<std::string>();
     if (text.size() > 12000) continue;
@@ -1742,21 +1745,8 @@ std::optional<std::vector<std::string>> surrounding_preceding_characters(
     const State &s, std::size_t count) {
   if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
     return std::nullopt;
-  auto offset = surrounding_byte_offset(s, s.surrounding_cursor);
-  if (offset > s.surrounding_text.size())
-    return std::nullopt;
-  const auto *begin = s.surrounding_text.c_str();
-  std::vector<std::string> characters;
-  while (characters.size() < count && offset > 0) {
-    const auto *end = begin + offset;
-    const auto *start = g_utf8_find_prev_char(begin, end);
-    if (!start)
-      return std::nullopt;
-    characters.emplace(characters.begin(), start,
-                       static_cast<std::size_t>(end - start));
-    offset = static_cast<std::size_t>(start - begin);
-  }
-  return characters;
+  return msime::linux_host::preceding_characters_from_byte_offset(
+      s.surrounding_text, surrounding_byte_offset(s, s.surrounding_cursor), count);
 }
 std::optional<std::string> surrounding_following_character(const State &s) {
   if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)

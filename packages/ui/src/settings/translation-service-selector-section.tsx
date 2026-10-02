@@ -12,15 +12,8 @@ export interface TranslationServiceSelectorSectionProps {
   onChange: (provider: TranslationProvider) => void;
 }
 
-/** Translation provider choice shared by desktop hosts. */
-export function TranslationServiceSelectorSection({
-  grouped = false,
-  available,
-  provider,
-  showAccountProvider,
-  onChange,
-}: TranslationServiceSelectorSectionProps) {
-  const options = (
+function TranslationServiceOptions({ showAccountProvider }: { showAccountProvider: boolean }) {
+  return (
     <>
       <option value="none">关闭</option>
       <option value="tencent">腾讯云机器翻译</option>
@@ -31,7 +24,16 @@ export function TranslationServiceSelectorSection({
       )}
     </>
   );
+}
 
+/** Translation provider choice shared by desktop hosts. */
+export function TranslationServiceSelectorSection({
+  grouped = false,
+  available,
+  provider,
+  showAccountProvider,
+  onChange,
+}: TranslationServiceSelectorSectionProps) {
   return grouped ? (
     <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
       <Row title="翻译服务">
@@ -41,7 +43,7 @@ export function TranslationServiceSelectorSection({
           value={provider}
           onChange={(event) => onChange(event.target.value as TranslationProvider)}
         >
-          {options}
+          <TranslationServiceOptions showAccountProvider={showAccountProvider} />
         </Select>
       </Row>
     </div>
@@ -54,7 +56,7 @@ export function TranslationServiceSelectorSection({
         value={provider}
         onChange={(value) => onChange(value as TranslationProvider)}
       >
-        {options}
+        <TranslationServiceOptions showAccountProvider={showAccountProvider} />
       </SelectSettingField>
     </div>
   );

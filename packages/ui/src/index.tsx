@@ -841,6 +841,11 @@ export {
   type ShuangpinProfile,
 } from "./settings/input-scheme-details-section";
 export {
+  LegacyRadioGroup,
+  type LegacyRadioGroupOption,
+  type LegacyRadioGroupProps,
+} from "./settings/legacy-radio-group";
+export {
   TranslationProviderSettingsSection,
   type TranslationProviderSettingsSectionProps,
   type TranslationNiuTransSettings,
@@ -1051,7 +1056,12 @@ export {
   SettingSectionHeader,
   type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
-export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
+export {
+  SettingTextarea,
+  SettingTextareaControl,
+  type SettingTextareaControlProps,
+  type SettingTextareaProps,
+} from "./settings/setting-textarea";
 export {
   SettingsTextareaField,
   type SettingsTextareaFieldProps,

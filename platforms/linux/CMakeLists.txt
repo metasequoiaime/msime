@@ -343,6 +343,11 @@ target_compile_options(linux-diagnostic-log-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-diagnostic-log-test PRIVATE src)
 target_sources(linux-diagnostic-log-test PRIVATE src/system/DiagnosticLog.cpp)
 add_test(NAME linux-diagnostic-log COMMAND linux-diagnostic-log-test)
+add_executable(linux-surrounding-characters-test tests/core/surrounding_characters.cpp)
+target_compile_options(linux-surrounding-characters-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-surrounding-characters-test PRIVATE src)
+target_link_libraries(linux-surrounding-characters-test PRIVATE PkgConfig::IBUS)
+add_test(NAME linux-surrounding-characters COMMAND linux-surrounding-characters-test)
 # The composition both front ends draw while a phrase is being assembled: the piece already picked
 # leads the reading, and the caret has to move past it in the unit each toolkit counts in - bytes
 # for fcitx5, Unicode scalars for IBus.
