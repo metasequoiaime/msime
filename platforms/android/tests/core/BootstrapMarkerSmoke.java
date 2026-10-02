@@ -13,15 +13,24 @@ public final class BootstrapMarkerSmoke {
     public static void main(String[] args) throws Exception {
         Path exact = Files.createTempFile("bootstrap-marker", ".txt");
         Path oversized = Files.createTempFile("bootstrap-marker", ".txt");
+        Path markerRoot = Files.createTempDirectory("bootstrap-marker-link");
+        Path markerOutside = Files.createTempFile("bootstrap-marker-outside", ".txt");
         try {
             String stamp = "1234567890123";
             Files.write(exact, stamp.getBytes(StandardCharsets.UTF_8));
             Files.write(oversized, new byte[65]);
             check(stamp.equals(Bootstrap.readMarker(exact)));
             check(Bootstrap.readMarker(oversized) == null);
+            Files.write(markerOutside, stamp.getBytes(StandardCharsets.UTF_8));
+            Path linked = markerRoot.resolve(".package");
+            Files.createSymbolicLink(linked, markerOutside);
+            check(Bootstrap.readMarker(linked) == null);
         } finally {
             Files.deleteIfExists(exact);
             Files.deleteIfExists(oversized);
+            Files.deleteIfExists(markerRoot.resolve(".package"));
+            Files.deleteIfExists(markerRoot);
+            Files.deleteIfExists(markerOutside);
         }
         Path root = Files.createTempDirectory("bootstrap-delete-tree");
         Path outside = Files.createTempDirectory("bootstrap-delete-outside");

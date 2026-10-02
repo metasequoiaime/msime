@@ -114,7 +114,8 @@ public final class Bootstrap {
             String stamp = Long.toString(context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
             File marker = new File(destination, ".package");
-            if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
             File staging = new File(destination.getParentFile(), "offline-glosses.staging");
             ensureSafeDirectory(destination.getParentFile().toPath());
             deleteTree(staging);
@@ -145,7 +146,8 @@ public final class Bootstrap {
             String stamp = Long.toString(context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
             File marker = new File(destination, ".package");
-            if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
             ensureSafeDirectory(destination.toPath());
             String[] names = context.getAssets().list("helpcodes");
             for (String name : names == null ? new String[0] : names) {
@@ -171,7 +173,8 @@ public final class Bootstrap {
             String stamp = Long.toString(context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0).lastUpdateTime);
             File marker = new File(destination, ".package");
-            if (marker.isFile() && stamp.equals(readMarker(marker.toPath()))) return;
+            if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)
+                    && stamp.equals(readMarker(marker.toPath()))) return;
             File staging = new File(destination.getParentFile(), "language-dictionaries.staging");
             ensureSafeDirectory(destination.getParentFile().toPath());
             deleteTree(staging);
@@ -211,6 +214,7 @@ public final class Bootstrap {
     }
 
     static String readMarker(java.nio.file.Path file) {
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
         try (InputStream input = Files.newInputStream(file)) {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(64);
             byte[] buffer = new byte[64];
