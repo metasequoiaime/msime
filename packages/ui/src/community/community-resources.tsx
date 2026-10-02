@@ -32,7 +32,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
-import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunityModerationSection } from "./community-moderation-section";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -586,7 +586,7 @@ function ResourceDetail({
             label="编辑并发布新版本"
           />
         )}
-        <CommunitySkinModerationSection
+        <CommunityModerationSection
           owned={item.owned}
           actionBusy={busy}
           ratingDescription="我的评分（可重新选择）"

@@ -26,7 +26,7 @@ import {
 } from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunitySelectField } from "./community-select-field";
-import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityBackButton } from "./community-gallery-controls";
@@ -567,7 +567,7 @@ export function CommunitySkinsPage({
               onChange={(next) => void changeOwnCategory(next)}
             />
           )}
-          <CommunitySkinModerationSection
+          <CommunityModerationSection
             owned={selected.owned}
             actionBusy={actionBusy}
             ratingDescription="我的评分（下载后可评，可重新选择）"

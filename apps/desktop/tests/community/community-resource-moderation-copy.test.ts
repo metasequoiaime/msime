@@ -9,7 +9,7 @@ test("resource details reuse the shared moderation section", () => {
     }),
   )[0];
 
-  expect(resources).toContain("CommunitySkinModerationSection");
+  expect(resources).toContain("CommunityModerationSection");
   expect(resources).not.toContain("CommunityRatingButtons");
   expect(resources).not.toContain("CommunityUnpublishConfirmation");
 });

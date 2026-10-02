@@ -12,7 +12,7 @@ import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityScopeButtons } from "./community-scope-buttons";
-import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunityModerationSection } from "./community-moderation-section";
 import {
   CommunityReportSection,
   type CommunityModeration,
@@ -515,7 +515,7 @@ export function CommunityCandidateSkinsPage({
               onChange={(next) => void changeOwnCategory(next)}
             />
           )}
-          <CommunitySkinModerationSection
+          <CommunityModerationSection
             owned={selected.owned}
             unpublishable={selected.visibility === "public"}
             actionBusy={actionBusy}

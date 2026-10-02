@@ -25,7 +25,7 @@ import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
-import { CommunitySkinModerationSection } from "./community-skin-moderation-section";
+import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
@@ -354,7 +354,7 @@ export function CommunityPluginsPage({
               onCancel={() => setConfirmReplace(false)}
             />
           )}
-          <CommunitySkinModerationSection
+          <CommunityModerationSection
             owned={selected.owned}
             actionBusy={actionBusy}
             ratingDescription="我的评分（安装后可评，可重新选择）"

@@ -3,7 +3,7 @@ import { ActionButton } from "../core/action-button";
 import { CommunityRatingButtons } from "./community-rating-buttons";
 import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
 
-export interface CommunitySkinModerationSectionProps {
+export interface CommunityModerationSectionProps {
   owned: boolean;
   actionBusy: boolean;
   ratingDescription: string;
@@ -26,7 +26,7 @@ export interface CommunitySkinModerationSectionProps {
 }
 
 /** 社区皮肤、插件和资源详情共用的评分与作者作品下架控件。 */
-export function CommunitySkinModerationSection({
+export function CommunityModerationSection({
   owned,
   actionBusy,
   ratingDescription,
@@ -42,7 +42,7 @@ export function CommunitySkinModerationSection({
   unpublishButtonClassName = "danger-text pt-0",
   unpublishLabel = "下架这款皮肤",
   unpublishConfirmLabel = "确认下架皮肤",
-}: CommunitySkinModerationSectionProps) {
+}: CommunityModerationSectionProps) {
   return (
     <>
       {!owned && (
