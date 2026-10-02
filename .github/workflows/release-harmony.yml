@@ -10,8 +10,13 @@ permissions: {contents: write}
 concurrency: {group: release-harmony, cancel-in-progress: false}
 jobs:
   release:
-    runs-on: macos-15
-    timeout-minutes: 45
+    # HarmonyOS 的 SDK、hvigorw 和 ohpm 来自华为命令行工具包。它要登录才能下载，所以在私有仓库 metasequoiaime/harmony-toolchain 的 Release 里存了一份 Linux 版，用 HARMONY_TOOLCHAIN_TOKEN（只读该仓库）取回并校验摘要。GitHub 的 macOS 镜像上没有 DevEco Studio，原来跑在 macos-15 上根本编不出来，还占着只有 5 台的 macOS runner。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      HARMONY_TOOLCHAIN_TAG: cli-6.1.1.280
+      HARMONY_TOOLCHAIN_ZIP: commandline-tools-linux-x64-6.1.1.280.zip
+      HARMONY_TOOLCHAIN_SHA256: b9caf7b73c541b90e6c8f3c7c3de7f2bea9b35e41e80cd3525f2f759ebf16cf4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ inputs.ref }}", fetch-depth: 0, persist-credentials: false}
@@ -38,13 +43,37 @@ jobs:
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet --locked -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/harmony/stage-resources.sh "$resource_dir"
+      # 只解压构建用得到的部分：预览器、codelinter 不需要；hvigor 在本项目里不编 C++（entry 没有 externalNativeOptions），原生库由 build-native.sh 用 openharmony/native 编，所以 hms/native 也不需要。解压量约 3.7 GB，压缩包解完即删。
+      - name: Install the HarmonyOS command-line tools
+        env: {GH_TOKEN: "${{ secrets.HARMONY_TOOLCHAIN_TOKEN }}"}
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/harmony"
+          mkdir -p "$tools"
+          gh release download "$HARMONY_TOOLCHAIN_TAG" --repo metasequoiaime/harmony-toolchain --pattern "$HARMONY_TOOLCHAIN_ZIP" --dir "$RUNNER_TEMP"
+          printf '%s  %s\n' "$HARMONY_TOOLCHAIN_SHA256" "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP" | sha256sum --check
+          unzip -q "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP" -d "$tools" \
+            -x 'command-line-tools/sdk/default/*/previewer/*' 'command-line-tools/codelinter/*' 'command-line-tools/sdk/default/hms/native/*'
+          rm "$RUNNER_TEMP/$HARMONY_TOOLCHAIN_ZIP"
+          root="$tools/command-line-tools"
+          test -x "$root/bin/hvigorw" && test -x "$root/bin/ohpm"
+          test -f "$root/sdk/default/openharmony/native/build/cmake/ohos.toolchain.cmake"
+          echo "$root/bin" >> "$GITHUB_PATH"
+          echo "DEVECO_SDK_HOME=$root/sdk" >> "$GITHUB_ENV"
+          echo "MSIME_OHOS_NDK=$root/sdk/default/openharmony/native" >> "$GITHUB_ENV"
+          rustup target add aarch64-unknown-linux-ohos
+          df -h "$RUNNER_TEMP" | tail -1
       - name: Build HarmonyOS native host
         run: bash platforms/harmony/build-native.sh arm64-v8a
       - name: Stage the sherpa-onnx HAR
         run: bash platforms/harmony/stage-voice-runtime.sh
+      # ohpm install 在 entry/oh_modules 建出 libmsimeclient.so 的类型链接，少了它 ArkTS 解析不到 NAPI 模块（见 platforms/harmony/README.md）。
       - name: Build HarmonyOS HAP
         working-directory: platforms/harmony
-        run: ./hvigorw assembleHap --no-daemon
+        run: |
+          set -euo pipefail
+          ohpm install
+          hvigorw assembleHap --no-daemon
       - id: hap
         name: Locate the packaged HAP
         run: |
