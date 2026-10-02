@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CommunityDialogHeaderProps {
   title: string;
@@ -18,15 +19,13 @@ export function CommunityDialogHeader({
   return (
     <div className={style.dialogHeading}>
       <h2 className={titleClassName}>{title}</h2>
-      <button
-        type="button"
+      <ActionButton
+        action={onClose}
         className={style.dialogClose}
         disabled={busy}
-        onClick={onClose}
-        aria-label="关闭发布窗口"
-      >
-        ×
-      </button>
+        ariaLabel="关闭发布窗口"
+        label="×"
+      />
     </div>
   );
 }
@@ -45,9 +44,7 @@ export function CommunityDialogActions({
 }: CommunityDialogActionsProps) {
   return (
     <div className={style.dialogActions}>
-      <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-        取消
-      </button>
+      <ActionButton action={onClose} disabled={busy} label="取消" />
       {children}
     </div>
   );
