@@ -19,7 +19,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
@@ -643,91 +643,84 @@ export function CommunityPluginPublishDialog({
   };
 
   return (
-    <div className={style.backdrop}>
-      <div
-        className={style.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label="发布插件"
-        onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
-      >
-        <CommunityDialogHeader
-          title="发布插件"
-          titleClassName={style.dialogTitle}
-          busy={busy}
-          onClose={onClose}
-        />
-        {error && (
-          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-        )}
-        {optionsLoading && <p role="status">正在读取本地插件…</p>}
-        {!optionsLoading && options.length === 0 && (
-          <p className={style.notice}>
-            还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、短语表、辅助码表、单词本或符号集。
+    <CommunityDialogFrame
+      title="发布插件"
+      titleClassName={style.dialogTitle}
+      ariaLabel="发布插件"
+      busy={busy}
+      onClose={onClose}
+      error={error}
+      signInRequired={signInRequired}
+      onLogin={onLogin}
+      onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
+    >
+      {optionsLoading && <p role="status">正在读取本地插件…</p>}
+      {!optionsLoading && options.length === 0 && (
+        <p className={style.notice}>
+          还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、短语表、辅助码表、单词本或符号集。
+        </p>
+      )}
+      {options.length > 0 && (
+        <CommunitySelectField
+          label="发布插件"
+          ariaLabel="发布插件"
+          value={selection}
+          disabled={busy}
+          onChange={setSelection}
+        >
+          {options.map((item) => (
+            <option key={item.key} value={item.key}>
+              {item.label} · {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+            </option>
+          ))}
+        </CommunitySelectField>
+      )}
+      {packLoading && <p role="status">正在检查插件…</p>}
+      {packError && (
+        <div className={style.confirmation} role="alert">
+          <p>{packError}</p>
+        </div>
+      )}
+      {pack && (
+        <>
+          <p className={style.metrics}>
+            {[
+              `v${pack.version}`,
+              pack.license && `授权 ${pack.license}`,
+              `${pack.fileCount} 个文件`,
+              `${candidateSkinMegabytes(pack.size)} / ${archiveLimit}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
+          <CommunityPublicationMetadataFields
+            name={name}
+            description={description}
+            agreed={agreed}
+            busy={busy}
+            nameLabel="名称"
+            nameAriaLabel="发布插件名称"
+            descriptionLabel="说明"
+            descriptionAriaLabel="发布插件说明"
+            agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
+            agreementClassName={style.agreementBox}
+            onNameChange={onNameChange}
+            onDescriptionChange={onDescriptionChange}
+            onAgreedChange={onAgreedChange}
+          />
+          <p className={style.warning}>{publishWarning}</p>
+        </>
+      )}
+      <CommunityDialogActions busy={busy} onClose={onClose}>
+        {!packError && (
+          <ActionButton
+            action={() => submit()}
+            className="primary"
+            disabled={busy || !ready}
+            label={busy ? "正在发布…" : "公开发布"}
+          />
         )}
-        {options.length > 0 && (
-          <CommunitySelectField
-            label="发布插件"
-            ariaLabel="发布插件"
-            value={selection}
-            disabled={busy}
-            onChange={setSelection}
-          >
-            {options.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.label} · {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-              </option>
-            ))}
-          </CommunitySelectField>
-        )}
-        {packLoading && <p role="status">正在检查插件…</p>}
-        {packError && (
-          <div className={style.confirmation} role="alert">
-            <p>{packError}</p>
-          </div>
-        )}
-        {pack && (
-          <>
-            <p className={style.metrics}>
-              {[
-                `v${pack.version}`,
-                pack.license && `授权 ${pack.license}`,
-                `${pack.fileCount} 个文件`,
-                `${candidateSkinMegabytes(pack.size)} / ${archiveLimit}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            <CommunityPublicationMetadataFields
-              name={name}
-              description={description}
-              agreed={agreed}
-              busy={busy}
-              nameLabel="名称"
-              nameAriaLabel="发布插件名称"
-              descriptionLabel="说明"
-              descriptionAriaLabel="发布插件说明"
-              agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
-              agreementClassName={style.agreementBox}
-              onNameChange={onNameChange}
-              onDescriptionChange={onDescriptionChange}
-              onAgreedChange={onAgreedChange}
-            />
-            <p className={style.warning}>{publishWarning}</p>
-          </>
-        )}
-        <CommunityDialogActions busy={busy} onClose={onClose}>
-          {!packError && (
-            <ActionButton
-              action={() => submit()}
-              className="primary"
-              disabled={busy || !ready}
-              label={busy ? "正在发布…" : "公开发布"}
-            />
-          )}
-        </CommunityDialogActions>
-      </div>
-    </div>
+      </CommunityDialogActions>
+    </CommunityDialogFrame>
   );
 }

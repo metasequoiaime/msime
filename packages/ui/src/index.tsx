@@ -1166,6 +1166,8 @@ export {
 export {
   CommunityDialogActions,
   type CommunityDialogActionsProps,
+  CommunityDialogFrame,
+  type CommunityDialogFrameProps,
   CommunityDialogHeader,
   type CommunityDialogHeaderProps,
 } from "./community/community-dialog";

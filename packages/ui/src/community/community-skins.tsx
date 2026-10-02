@@ -12,7 +12,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
@@ -207,79 +207,76 @@ function CommunitySkinPublishDialog({
   };
 
   return (
-    <div className={style.backdrop}>
-      <form
-        className={style.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label="发布我的皮肤"
-        onSubmit={(event) => void submit(event)}
-      >
-        <CommunityDialogHeader title="发布我的皮肤" busy={busy} onClose={onClose} />
-        {error && (
-          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-        )}
-        {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
-        {!busy && saved.length === 0 && (
-          <p className={style.notice}>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</p>
-        )}
-        {saved.length > 0 && (
-          <>
-            <CommunitySelectField
-              label="发布设计"
-              ariaLabel="发布设计"
-              value={selectedId}
-              disabled={busy}
-              onChange={(nextId) => {
-                const item = saved.find((value) => value.id === nextId);
-                setSelectedId(nextId);
-                resetPublication();
-                if (item) setName(item.name);
-              }}
-            >
-              {saved.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </CommunitySelectField>
-            {selected && (
-              <div className={`${style.cardStage} max-h-[220px]`}>
-                <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
-              </div>
-            )}
-            <CommunitySkinPublicationFields
-              name={name}
-              description={description}
-              agreed={agreed}
-              busy={busy}
-              agreementText="我拥有发布所用素材的权利，并同意其他用户免费下载使用"
-              onNameChange={onNameChange}
-              onDescriptionChange={onDescriptionChange}
-              onAgreedChange={onAgreedChange}
-            />
-            <CommunitySkinCategorySelect
-              ariaLabel="发布分类"
-              value={category}
-              disabled={busy}
-              onChange={(next) => {
-                // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-                resetPublication();
-                setCategory(next);
-              }}
-            />
-            <p className={style.warning}>
-              发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
-            </p>
-          </>
-        )}
-        <CommunityDialogActions busy={busy} onClose={onClose}>
-          <button type="submit" className="primary" disabled={busy || !selected || !agreed}>
-            {busy ? "正在发布…" : "公开发布"}
-          </button>
-        </CommunityDialogActions>
-      </form>
-    </div>
+    <CommunityDialogFrame
+      title="发布我的皮肤"
+      ariaLabel="发布我的皮肤"
+      busy={busy}
+      onClose={onClose}
+      error={error}
+      signInRequired={signInRequired}
+      onLogin={onLogin}
+      onSubmit={(event) => void submit(event)}
+    >
+      {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
+      {!busy && saved.length === 0 && (
+        <p className={style.notice}>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</p>
+      )}
+      {saved.length > 0 && (
+        <>
+          <CommunitySelectField
+            label="发布设计"
+            ariaLabel="发布设计"
+            value={selectedId}
+            disabled={busy}
+            onChange={(nextId) => {
+              const item = saved.find((value) => value.id === nextId);
+              setSelectedId(nextId);
+              resetPublication();
+              if (item) setName(item.name);
+            }}
+          >
+            {saved.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </CommunitySelectField>
+          {selected && (
+            <div className={`${style.cardStage} max-h-[220px]`}>
+              <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
+            </div>
+          )}
+          <CommunitySkinPublicationFields
+            name={name}
+            description={description}
+            agreed={agreed}
+            busy={busy}
+            agreementText="我拥有发布所用素材的权利，并同意其他用户免费下载使用"
+            onNameChange={onNameChange}
+            onDescriptionChange={onDescriptionChange}
+            onAgreedChange={onAgreedChange}
+          />
+          <CommunitySkinCategorySelect
+            ariaLabel="发布分类"
+            value={category}
+            disabled={busy}
+            onChange={(next) => {
+              // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
+              resetPublication();
+              setCategory(next);
+            }}
+          />
+          <p className={style.warning}>
+            发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
+          </p>
+        </>
+      )}
+      <CommunityDialogActions busy={busy} onClose={onClose}>
+        <button type="submit" className="primary" disabled={busy || !selected || !agreed}>
+          {busy ? "正在发布…" : "公开发布"}
+        </button>
+      </CommunityDialogActions>
+    </CommunityDialogFrame>
   );
 }
 
