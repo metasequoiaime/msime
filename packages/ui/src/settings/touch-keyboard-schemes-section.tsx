@@ -1,6 +1,7 @@
 import * as skin from "../keyboard/touch-skin-style";
 import * as settings from "./settings-style";
 import { Row } from "../core/platform-controls";
+import { ActionButton } from "../core/action-button";
 import { SwitchRow } from "./switch-row";
 
 export interface TouchKeyboardSchemesSectionProps {
@@ -32,17 +33,19 @@ export function TouchKeyboardSchemesSection({
           <SwitchRow
             key={scheme}
             title={
-              <button
-                type="button"
+              <ActionButton
+                action={() => onSelect(scheme)}
+                ariaLabel={`设为当前输入方案 ${label}`}
+                ariaPressed={isSelected}
                 className={skin.schemeSelect(isSelected)}
-                aria-label={`设为当前输入方案 ${label}`}
-                aria-pressed={isSelected}
                 disabled={!isEnabled}
-                onClick={() => onSelect(scheme)}
-              >
-                <span>{label}</span>
-                {isSelected && <span aria-hidden="true">✓</span>}
-              </button>
+                label={
+                  <>
+                    <span>{label}</span>
+                    {isSelected && <span aria-hidden="true">✓</span>}
+                  </>
+                }
+              />
             }
             aria-label={`显示输入方案 ${label}`}
             checked={isEnabled}
