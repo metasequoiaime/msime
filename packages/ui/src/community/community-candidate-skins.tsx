@@ -18,7 +18,7 @@ import {
   type CommunityModeration,
   type CommunityReportReason,
 } from "./community-report";
-import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
@@ -232,7 +232,7 @@ function CommunityCandidateSkinCard({
         private={skin.visibility === "private"}
         removed={skin.moderation === "removed"}
       />
-      <CommunitySkinCardMetrics
+      <CommunityCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}
         ratingAverage={skin.rating_average}

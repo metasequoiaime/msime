@@ -36,7 +36,7 @@ import {
   type CommunityModeration,
   type CommunityReportReason,
 } from "./community-report";
-import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
@@ -152,7 +152,7 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
       {plugin.description && (
         <span className={style.resourceDescription}>{plugin.description}</span>
       )}
-      <CommunitySkinCardMetrics
+      <CommunityCardMetrics
         downloads={plugin.downloads}
         ratingCount={plugin.rating_count}
         ratingAverage={plugin.rating_average}

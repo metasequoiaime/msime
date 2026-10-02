@@ -1,18 +1,18 @@
 import { communityRating } from "./community-helpers";
 import * as style from "./community-style";
 
-export interface CommunitySkinCardMetricsProps {
+export interface CommunityCardMetricsProps {
   downloads: number;
   ratingCount: number;
   ratingAverage: number;
 }
 
-/** Shared download and rating metrics shown on community skin cards. */
-export function CommunitySkinCardMetrics({
+/** 社区卡片共用的下载量和评分指标。 */
+export function CommunityCardMetrics({
   downloads,
   ratingCount,
   ratingAverage,
-}: CommunitySkinCardMetricsProps) {
+}: CommunityCardMetricsProps) {
   return (
     <span className={style.cardMetrics}>
       <span>↓ {downloads.toLocaleString("zh-CN")}</span>
