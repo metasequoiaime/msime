@@ -1,4 +1,5 @@
 import * as cloud from "./cloud-panel-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CloudDictionaryPaginationProps {
   offset: number;
@@ -18,23 +19,19 @@ export function CloudDictionaryPagination({
 }: CloudDictionaryPaginationProps) {
   return (
     <div className={cloud.dictionaryPagination}>
-      <button
+      <ActionButton
+        action={onPrevious}
         className={cloud.dictionaryButton}
-        type="button"
-        onClick={onPrevious}
         disabled={busy || offset === 0}
-      >
-        上一页
-      </button>
+        label="上一页"
+      />
       <span>第 {Math.floor(offset / 100) + 1} 页</span>
-      <button
+      <ActionButton
+        action={onNext}
         className={cloud.dictionaryButton}
-        type="button"
-        onClick={onNext}
         disabled={busy || !hasMore}
-      >
-        下一页
-      </button>
+        label="下一页"
+      />
     </div>
   );
 }
