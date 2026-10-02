@@ -1525,6 +1525,7 @@ private:
     if (!index_valid_ || index_revision_ != document_.revision())
       rebuild_search_index();
     std::vector<SearchEntry const *> matches;
+    matches.reserve(12);
     const auto needle = lowercase(query);
     if (needle.empty())
       return matches;
