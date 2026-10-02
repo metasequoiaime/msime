@@ -30,9 +30,11 @@ std::optional<NavigationReply> navigation_for(ReplyPath path) {
 EncodedReply uiless_composition(uint64_t request, const std::string &display,
                                 const nlohmann::json &view) {
   std::vector<std::string> candidates;
+  const auto &view_candidates = view.at("candidates");
+  candidates.reserve(view_candidates.size());
   size_t highlighted = 0;
   bool found_highlight = false;
-  for (const auto &candidate : view.at("candidates")) {
+  for (const auto &candidate : view_candidates) {
     if (candidate.at("highlighted").get<bool>()) {
       if (found_highlight)
         throw std::logic_error("Ambiguous candidate highlight");
