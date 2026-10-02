@@ -1,4 +1,4 @@
-import { Row, Segmented } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 import type { InputScheme, VietnamesePreferences } from "../index";
 import {
   cantoneseInputSchemeOptions,
@@ -10,6 +10,7 @@ import {
 } from "./input-scheme-options";
 import { SelectRow } from "./select-row";
 import { SwitchRow } from "./switch-row";
+import { SegmentedRow } from "./segmented-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -102,56 +103,54 @@ export function InputSchemeDetailsSection({
       >
         <WubiSchemeOption />
       </SelectRow>
-      <Row
+      <SegmentedRow
         title="日语方案"
         description="直接输入罗马音，提供平假名、片假名及日语词库候选"
         hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-      >
-        <Segmented options={japaneseInputSchemeOptions} value="romaji" onChange={() => {}} />
-      </Row>
-      <Row
+        options={japaneseInputSchemeOptions}
+        value="romaji"
+        onChange={() => {}}
+      />
+      <SegmentedRow
         title="韩语方案"
         description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
         hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-      >
-        <Segmented options={koreanInputSchemeOptions} value="dubeolsik" onChange={() => {}} />
-      </Row>
-      <Row
+        options={koreanInputSchemeOptions}
+        value="dubeolsik"
+        onChange={() => {}}
+      />
+      <SegmentedRow
         title="粤拼方案"
         description={cantoneseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-      >
-        <Segmented options={cantoneseInputSchemeOptions} value="jyutping" onChange={() => {}} />
-      </Row>
-      <Row
+        options={cantoneseInputSchemeOptions}
+        value="jyutping"
+        onChange={() => {}}
+      />
+      <SegmentedRow
         title="注音键盘"
         description={zhuyinDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-      >
-        <Segmented options={zhuyinLayoutOptions} value="dachen" onChange={() => {}} />
-      </Row>
-      <Row
+        options={zhuyinLayoutOptions}
+        value="dachen"
+        onChange={() => {}}
+      />
+      <SegmentedRow
         title="越南语方案"
         description={vietnameseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      >
-        <Segmented
-          options={vietnameseInputMethodOptions}
-          value={inputMethod}
-          onChange={(input_method) => changeVietnamese({ input_method })}
-        />
-      </Row>
-      <Row
+        options={vietnameseInputMethodOptions}
+        value={inputMethod}
+        onChange={(input_method) => changeVietnamese({ input_method })}
+      />
+      <SegmentedRow
         title="声调位置"
         description={toneStyleDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      >
-        <Segmented
-          options={vietnameseToneStyleOptions}
-          value={toneStyle}
-          onChange={(tone_style) => changeVietnamese({ tone_style })}
-        />
-      </Row>
+        options={vietnameseToneStyleOptions}
+        value={toneStyle}
+        onChange={(tone_style) => changeVietnamese({ tone_style })}
+      />
     </>
   );
 }
