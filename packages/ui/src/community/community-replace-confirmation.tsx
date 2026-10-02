@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export interface CommunityReplaceConfirmationProps {
   ariaLabel: string;
@@ -21,12 +22,14 @@ export function CommunityReplaceConfirmation({
     <div className={style.confirmation} role="alertdialog" aria-label={ariaLabel}>
       <p>{message}</p>
       <div className={style.confirmationActions}>
-        <button type="button" className="danger" disabled={actionBusy} onClick={onConfirm}>
-          替换安装
-        </button>
-        <button type="button" className="secondary" disabled={actionBusy} onClick={onCancel}>
-          取消
-        </button>
+        <ActionButton
+          action={onConfirm}
+          ariaBusy={actionBusy}
+          className="danger"
+          disabled={actionBusy}
+          label="替换安装"
+        />
+        <ActionButton action={onCancel} ariaBusy={actionBusy} disabled={actionBusy} label="取消" />
       </div>
     </div>
   );
