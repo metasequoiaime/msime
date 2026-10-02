@@ -1054,6 +1054,7 @@ export {
   type SegmentedRowProps,
 } from "./settings/segmented-row";
 export { SliderRow, type SliderRowProps } from "./settings/slider-row";
+export { SummaryRow, type SummaryRowProps } from "./settings/summary-row";
 export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,

@@ -1,5 +1,4 @@
 import { GroupList, Row } from "../core/platform-controls";
-import * as controls from "../core/platform-controls-style";
 import type { KeySoundMode, PluginPreferences } from "./plugin-preferences";
 import {
   effectStyleOptions,
@@ -11,6 +10,7 @@ import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginKind, PluginPackage } from "./plugin-types";
 import { SegmentedRow } from "./segmented-row";
 import { SliderRow } from "./slider-row";
+import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
 
 const keySoundModes: readonly { value: KeySoundMode; label: string }[] = [
@@ -84,24 +84,21 @@ export function PluginSoundEffectsView({
             disabled={!key_sound.enabled}
             onChange={(mode) => onChange({ ...preferences, key_sound: { ...key_sound, mode } })}
           />
-          <Row title="音效包" description={`按键、上屏和成就音效都取自这个音效包。${choose}`}>
-            <SummaryValue>
-              {selectedName("sound", key_sound.pack, key_sound.pack, "keys")}
-            </SummaryValue>
-          </Row>
-          <Row title="旋律" description={choose} hidden={key_sound.mode !== "melody"}>
-            <SummaryValue>
-              {selectedName("sound", melody.pack, melody.pack, "sequence")}
-            </SummaryValue>
-          </Row>
+          <SummaryRow
+            title="音效包"
+            description={`按键、上屏和成就音效都取自这个音效包。${choose}`}
+          >
+            {selectedName("sound", key_sound.pack, key_sound.pack, "keys")}
+          </SummaryRow>
+          <SummaryRow title="旋律" description={choose} hidden={key_sound.mode !== "melody"}>
+            {selectedName("sound", melody.pack, melody.pack, "sequence")}
+          </SummaryRow>
           <SliderRow
             title="音效音量"
             description="按键音、旋律、上屏音和成就音效共用。"
             value={key_sound.volume}
             valueText={`${key_sound.volume}%`}
-            onChange={(volume) =>
-              onChange({ ...preferences, key_sound: { ...key_sound, volume } })
-            }
+            onChange={(volume) => onChange({ ...preferences, key_sound: { ...key_sound, volume } })}
           />
           <SwitchRow
             title="上屏音"
@@ -122,7 +119,7 @@ export function PluginSoundEffectsView({
           {effectStyles && (
             <>
               {effectPacks && (
-                <Row
+                <SummaryRow
                   title="特效包"
                   description={
                     effectPackSelected
@@ -130,10 +127,8 @@ export function PluginSoundEffectsView({
                       : choose
                   }
                 >
-                  <SummaryValue>
-                    {selectedName("effect", preferences.effect_pack, "不使用")}
-                  </SummaryValue>
-                </Row>
+                  {selectedName("effect", preferences.effect_pack, "不使用")}
+                </SummaryRow>
               )}
               <SegmentedRow
                 title="效果样式"
@@ -180,7 +175,7 @@ export function PluginSoundEffectsView({
               onChange({ ...preferences, music: { ...preferences.music, enabled } })
             }
           />
-          <Row
+          <SummaryRow
             title="音乐包"
             description={
               listed && !packages.some((pack) => pack.kind === "music")
@@ -188,8 +183,8 @@ export function PluginSoundEffectsView({
                 : choose
             }
           >
-            <SummaryValue>{selectedName("music", preferences.music.pack, "未选择")}</SummaryValue>
-          </Row>
+            {selectedName("music", preferences.music.pack, "未选择")}
+          </SummaryRow>
           <SliderRow
             title="音乐音量"
             value={preferences.music.volume}
@@ -202,8 +197,4 @@ export function PluginSoundEffectsView({
       )}
     </>
   );
-}
-
-function SummaryValue({ children }: { children: string }) {
-  return <span className={`${controls.rowDescription} text-right`}>{children}</span>;
 }

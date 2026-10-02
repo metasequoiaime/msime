@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { GroupList, Row } from "../core/platform-controls";
-import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
 import {
   MAX_COMMAND_TABLES,
@@ -25,16 +24,8 @@ import {
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
+import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
-
-/** A row whose trailing edge is a read-only value rather than a control. */
-function InfoRow({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <Row title={title}>
-      <span className={`${controls.rowDescription} text-right break-anywhere`}>{children}</span>
-    </Row>
-  );
-}
 
 function ActionBlock({ note, children }: { note?: ReactNode; children?: ReactNode }) {
   return (
@@ -99,11 +90,25 @@ export function PluginDetailView({
     <>
       <PluginViewHeader title={pack.name} onBack={onBack} />
       <GroupList title="信息">
-        <InfoRow title="类型">{packKindLabel(pack)}</InfoRow>
-        <InfoRow title="版本">{pack.version}</InfoRow>
-        {pack.author && <InfoRow title="作者">{pack.author}</InfoRow>}
-        <InfoRow title="许可证">{pack.license}</InfoRow>
-        {pack.builtin && <InfoRow title="来源">内置，不能删除</InfoRow>}
+        <SummaryRow title="类型" breakAnywhere>
+          {packKindLabel(pack)}
+        </SummaryRow>
+        <SummaryRow title="版本" breakAnywhere>
+          {pack.version}
+        </SummaryRow>
+        {pack.author && (
+          <SummaryRow title="作者" breakAnywhere>
+            {pack.author}
+          </SummaryRow>
+        )}
+        <SummaryRow title="许可证" breakAnywhere>
+          {pack.license}
+        </SummaryRow>
+        {pack.builtin && (
+          <SummaryRow title="来源" breakAnywhere>
+            内置，不能删除
+          </SummaryRow>
+        )}
         {pack.description && <p className={settings.groupNote}>{pack.description}</p>}
       </GroupList>
       <PackContent pack={pack} />
@@ -234,10 +239,18 @@ function PackContent({ pack }: { pack: PluginPackage }) {
   if (pack.kind === "effect") {
     return (
       <GroupList title="特效">
-        {pack.style && <InfoRow title="样式">{effectStyleLabel(pack.style)}</InfoRow>}
-        {pack.intensity !== undefined && <InfoRow title="强度">{pack.intensity}%</InfoRow>}
+        {pack.style && (
+          <SummaryRow title="样式" breakAnywhere>
+            {effectStyleLabel(pack.style)}
+          </SummaryRow>
+        )}
+        {pack.intensity !== undefined && (
+          <SummaryRow title="强度" breakAnywhere>
+            {pack.intensity}%
+          </SummaryRow>
+        )}
         {pack.colors && pack.colors.length > 0 && (
-          <InfoRow title="颜色">
+          <SummaryRow title="颜色" breakAnywhere>
             <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
               {pack.colors.map((color, index) => (
                 <span key={`${index}/${color}`} className="inline-flex items-center gap-1">
@@ -250,10 +263,18 @@ function PackContent({ pack }: { pack: PluginPackage }) {
                 </span>
               ))}
             </span>
-          </InfoRow>
+          </SummaryRow>
         )}
-        {pack.duration_ms != null && <InfoRow title="时长">{pack.duration_ms} 毫秒</InfoRow>}
-        {pack.particles != null && <InfoRow title="粒子数">{pack.particles}</InfoRow>}
+        {pack.duration_ms != null && (
+          <SummaryRow title="时长" breakAnywhere>
+            {pack.duration_ms} 毫秒
+          </SummaryRow>
+        )}
+        {pack.particles != null && (
+          <SummaryRow title="粒子数" breakAnywhere>
+            {pack.particles}
+          </SummaryRow>
+        )}
       </GroupList>
     );
   }
