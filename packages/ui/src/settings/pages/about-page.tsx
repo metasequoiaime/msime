@@ -1,6 +1,5 @@
 import * as doc from "../document-style";
 import { logo } from "../settings-options";
-import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow } from "../../core/platform-controls";
 import { LicenseRows } from "../license-rows";
@@ -9,6 +8,7 @@ import { AboutHeroSection } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
 import { OtherPlatformDownloadRows } from "./download-page";
 import { ActionButton } from "../action-button";
+import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
@@ -47,76 +47,74 @@ export function AboutSettingsPage() {
     setDraft,
   });
   return (
-    <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-      <div className={settings.groups}>
-        <GroupList>
-          <AboutHeroSection logo={logo} description={platformAboutDescription} />
-        </GroupList>
-        <GroupList title="版本与更新">
-          <div className={`${doc.linkRow} ${doc.versionRow}`}>
-            <div>
-              <div className={doc.linkTitle}>当前版本</div>
-              <div className={doc.version}>v{currentAppVersion}</div>
-              {updateStatus && (
-                <p className={doc.updateStatus} role="status">
-                  {updateStatus}
+    <SettingsPageFieldset disabled={busy} hidden={page !== "about"} ariaLabel="关于">
+      <GroupList>
+        <AboutHeroSection logo={logo} description={platformAboutDescription} />
+      </GroupList>
+      <GroupList title="版本与更新">
+        <div className={`${doc.linkRow} ${doc.versionRow}`}>
+          <div>
+            <div className={doc.linkTitle}>当前版本</div>
+            <div className={doc.version}>v{currentAppVersion}</div>
+            {updateStatus && (
+              <p className={doc.updateStatus} role="status">
+                {updateStatus}
+              </p>
+            )}
+          </div>
+          <ActionButton
+            action={onCheckForUpdate}
+            className={`secondary ${doc.updateButton}`}
+            disabled={updateBusy}
+            label={updateBusy ? "正在检查…" : "检查更新"}
+          />
+        </div>
+        {availableUpdate && (
+          <div className={doc.updateResult}>
+            <p>水杉 IME v{availableUpdate.version.display} 已发布。</p>
+            {installerTrust?.warning && (
+              <p className={doc.updateWarning}>{installerTrust.warning}</p>
+            )}
+            {installerTrust?.verify && (
+              <>
+                <p>
+                  下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
                 </p>
-              )}
-            </div>
+                <p>
+                  核对命令：<code>{installerTrust.verify.command}</code>
+                </p>
+              </>
+            )}
             <ActionButton
-              action={onCheckForUpdate}
-              className={`secondary ${doc.updateButton}`}
-              disabled={updateBusy}
-              label={updateBusy ? "正在检查…" : "检查更新"}
+              action={() => void openExternalUrl(availableUpdate.releaseUrl)}
+              label="前往下载"
             />
           </div>
-          {availableUpdate && (
-            <div className={doc.updateResult}>
-              <p>水杉 IME v{availableUpdate.version.display} 已发布。</p>
-              {installerTrust?.warning && (
-                <p className={doc.updateWarning}>{installerTrust.warning}</p>
-              )}
-              {installerTrust?.verify && (
-                <>
-                  <p>
-                    下载后请核对 SHA256：<code>{installerTrust.verify.sha256}</code>
-                  </p>
-                  <p>
-                    核对命令：<code>{installerTrust.verify.command}</code>
-                  </p>
-                </>
-              )}
-              <ActionButton
-                action={() => void openExternalUrl(availableUpdate.releaseUrl)}
-                label="前往下载"
-              />
-            </div>
-          )}
-          <OtherPlatformDownloadRows />
-        </GroupList>
-        <GroupList title="许可与隐私">
-          <LinkRow
-            title="开源许可协议"
-            external
-            onClick={() => void openExternalUrl(platformLicenseUrl)}
-          />
-          {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
-          <LinkRow
-            title="隐私政策"
-            external
-            onClick={() =>
-              void openExternalUrl(
-                linuxPlatform
-                  ? linuxPrivacyUrl
-                  : clientHostedPlatform
-                    ? androidPrivacyUrl
-                    : privacyUrl,
-              )
-            }
-          />
-          <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
-        </GroupList>
-      </div>
-    </fieldset>
+        )}
+        <OtherPlatformDownloadRows />
+      </GroupList>
+      <GroupList title="许可与隐私">
+        <LinkRow
+          title="开源许可协议"
+          external
+          onClick={() => void openExternalUrl(platformLicenseUrl)}
+        />
+        {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
+        <LinkRow
+          title="隐私政策"
+          external
+          onClick={() =>
+            void openExternalUrl(
+              linuxPlatform
+                ? linuxPrivacyUrl
+                : clientHostedPlatform
+                  ? androidPrivacyUrl
+                  : privacyUrl,
+            )
+          }
+        />
+        <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
+      </GroupList>
+    </SettingsPageFieldset>
   );
 }

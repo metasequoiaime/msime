@@ -3,6 +3,7 @@ import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 /**
  * The macOS help page. The reference window answers the three questions a new user actually has --
@@ -92,89 +93,87 @@ export function HelpSettingsPage({
   onOpenSystemKeyboardSettings,
 }: HelpSettingsPageProps) {
   return (
-    <fieldset disabled={busy} hidden={hidden} aria-label="帮助">
-      <div className={settings.groups}>
-        {macos &&
-          macosHelpCards.map((card) => (
-            <GroupList key={card.title} title={card.title}>
-              <div
-                className={`${settings.groupBlock} ${doc.guide}`}
-                role="group"
-                aria-label={card.title}
-              >
-                {card.rows.map((row, index) => (
-                  <div
-                    key={row.term}
-                    className={`${doc.guideRow}${index === 0 && card.rows.length > 1 ? ` ${doc.guideLead}` : ""}`}
-                  >
-                    <span className={doc.guideTerm}>{row.term}</span>
-                    <p className={doc.guideText}>{row.text}</p>
-                  </div>
-                ))}
-              </div>
-            </GroupList>
-          ))}
-        {macos && onOpenDocumentation && (
-          <GroupList>
-            <div className={settings.rowStack} role="group" aria-label="更多">
-              <ActionRow
-                title="更多"
-                description="更完整的说明、词库来源和更新记录在官网上。"
-                action={onOpenDocumentation}
-                label="打开官网"
-              />
+    <SettingsPageFieldset disabled={busy} hidden={hidden} ariaLabel="帮助">
+      {macos &&
+        macosHelpCards.map((card) => (
+          <GroupList key={card.title} title={card.title}>
+            <div
+              className={`${settings.groupBlock} ${doc.guide}`}
+              role="group"
+              aria-label={card.title}
+            >
+              {card.rows.map((row, index) => (
+                <div
+                  key={row.term}
+                  className={`${doc.guideRow}${index === 0 && card.rows.length > 1 ? ` ${doc.guideLead}` : ""}`}
+                >
+                  <span className={doc.guideTerm}>{row.term}</span>
+                  <p className={doc.guideText}>{row.text}</p>
+                </div>
+              ))}
             </div>
           </GroupList>
-        )}
-        {!macos && (
-          <>
-            <p className={settings.groupNote}>{platformHelpIntro}</p>
-            <GroupList title="快速上手">
-              <div className={`${settings.groupBlock} ${doc.page}`}>
-                <p>{platformQuickStart}</p>
-                {mobile && onOpenSystemKeyboardSettings && (
-                  <ActionButton
-                    action={onOpenSystemKeyboardSettings}
-                    ariaBusy={busy}
-                    disabled={busy}
-                    label={ios ? "打开系统键盘设置" : "打开系统输入法设置"}
-                  />
-                )}
-              </div>
+        ))}
+      {macos && onOpenDocumentation && (
+        <GroupList>
+          <div className={settings.rowStack} role="group" aria-label="更多">
+            <ActionRow
+              title="更多"
+              description="更完整的说明、词库来源和更新记录在官网上。"
+              action={onOpenDocumentation}
+              label="打开官网"
+            />
+          </div>
+        </GroupList>
+      )}
+      {!macos && (
+        <>
+          <p className={settings.groupNote}>{platformHelpIntro}</p>
+          <GroupList title="快速上手">
+            <div className={`${settings.groupBlock} ${doc.page}`}>
+              <p>{platformQuickStart}</p>
+              {mobile && onOpenSystemKeyboardSettings && (
+                <ActionButton
+                  action={onOpenSystemKeyboardSettings}
+                  ariaBusy={busy}
+                  disabled={busy}
+                  label={ios ? "打开系统键盘设置" : "打开系统输入法设置"}
+                />
+              )}
+            </div>
+          </GroupList>
+          {ios && (
+            <GroupList title="允许完全访问">
+              <p className={settings.groupNote}>
+                打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
+              </p>
             </GroupList>
-            {ios && (
-              <GroupList title="允许完全访问">
-                <p className={settings.groupNote}>
-                  打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
-                </p>
-              </GroupList>
-            )}
-            {android && (
-              <GroupList title="输入权限">
-                <p className={settings.groupNote}>
-                  Android
-                  的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
-                </p>
-              </GroupList>
-            )}
-            <GroupList title="基本功能">
-              <div className={`${settings.groupBlock} ${doc.page}`}>
-                <p>
-                  支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
-                  2.0、首右 plus 和小鹤。
-                </p>
-                <p>{platformNetworkDescription}</p>
-                <p>更多功能欢迎自由探索～</p>
-              </div>
+          )}
+          {android && (
+            <GroupList title="输入权限">
+              <p className={settings.groupNote}>
+                Android
+                的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
+              </p>
             </GroupList>
-            {onOpenDocumentation && (
-              <GroupList title="更多">
-                <ActionRow title="完整文档" action={onOpenDocumentation} label="完整文档（网页）" />
-              </GroupList>
-            )}
-          </>
-        )}
-      </div>
-    </fieldset>
+          )}
+          <GroupList title="基本功能">
+            <div className={`${settings.groupBlock} ${doc.page}`}>
+              <p>
+                支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
+                2.0、首右 plus 和小鹤。
+              </p>
+              <p>{platformNetworkDescription}</p>
+              <p>更多功能欢迎自由探索～</p>
+            </div>
+          </GroupList>
+          {onOpenDocumentation && (
+            <GroupList title="更多">
+              <ActionRow title="完整文档" action={onOpenDocumentation} label="完整文档（网页）" />
+            </GroupList>
+          )}
+        </>
+      )}
+    </SettingsPageFieldset>
   );
 }

@@ -205,6 +205,10 @@ export {
 } from "./settings/use-settings-dictionary-state";
 export { SettingsFormFrame, type SettingsFormFrameProps } from "./settings/settings-form-frame";
 export {
+  SettingsPageFieldset,
+  type SettingsPageFieldsetProps,
+} from "./settings/settings-page-fieldset";
+export {
   NoticeBanner,
   noticeBodyHtml,
   type AppNotice,

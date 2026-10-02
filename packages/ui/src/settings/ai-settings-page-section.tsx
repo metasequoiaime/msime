@@ -9,6 +9,7 @@ import { SwitchRow } from "./switch-row";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -94,108 +95,106 @@ export function AiSettingsPageSection({
   } as const;
   const slot = slotPrompts[promptSlot as keyof typeof slotPrompts] ?? slotPrompts.custom_1;
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="AI 辅助">
-      <div className={settings.groups}>
-        {/* 先把服务接通：开关、服务商、凭据、模型；接口地址一般随服务商预设，收进「更多选项」；测试按钮放在组末，测的正是上面这些。 */}
-        <GroupList title="服务">
-          <SwitchRow
-            title="启用 AI 辅助"
-            description={enabledDescription}
-            aria-label="启用 AI 辅助"
-            checked={enabled}
-            onChange={onEnabledChange}
-          />
-          <SelectRow
-            title="服务提供商"
-            aria-label="AI 服务提供商"
-            value={provider}
-            onChange={(event) => onProviderChange(event.target.value)}
-          >
-            {providerOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.title}
-              </option>
-            ))}
-          </SelectRow>
-          {credentialSection}
-          {providerPreset}
-          <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
-          {modelCatalog && (
-            <>
-              <ActionRow
-                title="服务模型"
-                description="从当前服务的模型目录读取；服务不支持时可继续手动填写模型。"
-                action={modelCatalog.onFetch}
-                disabled={modelCatalog.busy || !modelCatalog.origin}
-                label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
-              />
-              {modelCatalog.models && modelCatalog.models.length > 0 && (
-                <Row title="已获取模型">
-                  <ModelSelect
-                    models={modelCatalog.models}
-                    model={model}
-                    ariaLabel="已获取的 AI 模型"
-                    emptyLabel="选择模型…"
-                    onSelect={modelCatalog.onSelect}
-                  />
-                </Row>
-              )}
-              {modelCatalog.status && (
-                <p className={settings.groupNote} role="status">
-                  {modelCatalog.status}
-                </p>
-              )}
-            </>
-          )}
-          <MoreOptions defaultOpen={!endpointValid}>
-            <TextInputRow
-              title="接口地址"
-              label="AI 接口地址"
-              type="url"
-              value={endpoint}
-              onChange={onEndpointChange}
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="AI 辅助">
+      {/* 先把服务接通：开关、服务商、凭据、模型；接口地址一般随服务商预设，收进「更多选项」；测试按钮放在组末，测的正是上面这些。 */}
+      <GroupList title="服务">
+        <SwitchRow
+          title="启用 AI 辅助"
+          description={enabledDescription}
+          aria-label="启用 AI 辅助"
+          checked={enabled}
+          onChange={onEnabledChange}
+        />
+        <SelectRow
+          title="服务提供商"
+          aria-label="AI 服务提供商"
+          value={provider}
+          onChange={(event) => onProviderChange(event.target.value)}
+        >
+          {providerOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.title}
+            </option>
+          ))}
+        </SelectRow>
+        {credentialSection}
+        {providerPreset}
+        <TextInputRow title="模型" label="AI 模型" value={model} onChange={onModelChange} />
+        {modelCatalog && (
+          <>
+            <ActionRow
+              title="服务模型"
+              description="从当前服务的模型目录读取；服务不支持时可继续手动填写模型。"
+              action={modelCatalog.onFetch}
+              disabled={modelCatalog.busy || !modelCatalog.origin}
+              label={modelCatalog.busy ? "获取中…" : "获取模型列表"}
             />
-          </MoreOptions>
-          {desktopCredentialTest && (
-            <div className={settings.groupBlock}>{desktopCredentialTest}</div>
-          )}
-        </GroupList>
-        <GroupList title="联想">
+            {modelCatalog.models && modelCatalog.models.length > 0 && (
+              <Row title="已获取模型">
+                <ModelSelect
+                  models={modelCatalog.models}
+                  model={model}
+                  ariaLabel="已获取的 AI 模型"
+                  emptyLabel="选择模型…"
+                  onSelect={modelCatalog.onSelect}
+                />
+              </Row>
+            )}
+            {modelCatalog.status && (
+              <p className={settings.groupNote} role="status">
+                {modelCatalog.status}
+              </p>
+            )}
+          </>
+        )}
+        <MoreOptions defaultOpen={!endpointValid}>
           <TextInputRow
-            title="候选数量"
-            description="每次 AI 联想给出的候选个数，1 到 10"
-            label="AI 候选数量"
-            type="number"
-            min="1"
-            max="10"
-            value={String(candidateLimit)}
-            onChange={(value) => onCandidateLimitChange(clamp(Number(value) || 3, 1, 10))}
+            title="接口地址"
+            label="AI 接口地址"
+            type="url"
+            value={endpoint}
+            onChange={onEndpointChange}
           />
-        </GroupList>
-        {/* 只显示所选槽位的提示词；槽位留空时使用内置的联想提示词。 */}
-        <GroupList title="提示词">
-          <SelectRow
-            title="提示词方案"
-            description="使用选中的独立槽位；槽位留空时使用内置的联想提示词"
-            aria-label="AI 联想提示词方案"
-            value={promptSlot}
-            onChange={(event) => onPromptIdChange(event.target.value)}
-          >
-            <CustomPromptSlotOptions />
-          </SelectRow>
-          <div className={settings.managerBlock}>
-            <SettingsTextareaField
-              label={slot.label}
-              description="发送给 AI 联想服务的额外提示词"
-              ariaLabel={slot.label}
-              value={slot.value}
-              onChange={slot.onChange}
-            />
-          </div>
-        </GroupList>
-        {testTools}
-        {trailing}
-      </div>
-    </fieldset>
+        </MoreOptions>
+        {desktopCredentialTest && (
+          <div className={settings.groupBlock}>{desktopCredentialTest}</div>
+        )}
+      </GroupList>
+      <GroupList title="联想">
+        <TextInputRow
+          title="候选数量"
+          description="每次 AI 联想给出的候选个数，1 到 10"
+          label="AI 候选数量"
+          type="number"
+          min="1"
+          max="10"
+          value={String(candidateLimit)}
+          onChange={(value) => onCandidateLimitChange(clamp(Number(value) || 3, 1, 10))}
+        />
+      </GroupList>
+      {/* 只显示所选槽位的提示词；槽位留空时使用内置的联想提示词。 */}
+      <GroupList title="提示词">
+        <SelectRow
+          title="提示词方案"
+          description="使用选中的独立槽位；槽位留空时使用内置的联想提示词"
+          aria-label="AI 联想提示词方案"
+          value={promptSlot}
+          onChange={(event) => onPromptIdChange(event.target.value)}
+        >
+          <CustomPromptSlotOptions />
+        </SelectRow>
+        <div className={settings.managerBlock}>
+          <SettingsTextareaField
+            label={slot.label}
+            description="发送给 AI 联想服务的额外提示词"
+            ariaLabel={slot.label}
+            value={slot.value}
+            onChange={slot.onChange}
+          />
+        </div>
+      </GroupList>
+      {testTools}
+      {trailing}
+    </SettingsPageFieldset>
   );
 }

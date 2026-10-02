@@ -4,6 +4,7 @@ import { GroupList, Row } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
 import { pluginPreferences, type PluginPreferences } from "../plugin-preferences";
+import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 export type HelpcodeSchema =
   | "lantian"
@@ -95,11 +96,9 @@ export function HelpcodeSettingsPage({
   ...group
 }: HelpcodeSettingsPageProps) {
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="辅助码">
-      <div className={settings.groups}>
-        <HelpcodeSettingsGroup {...group} />
-      </div>
-    </fieldset>
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="辅助码">
+      <HelpcodeSettingsGroup {...group} />
+    </SettingsPageFieldset>
   );
 }
 
