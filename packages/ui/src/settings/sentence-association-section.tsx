@@ -1,5 +1,5 @@
 import type { SentenceAssociationPreferences } from "../index";
-import { Row, Switch } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface SentenceAssociationSectionProps {
   value: SentenceAssociationPreferences | undefined;
@@ -16,26 +16,23 @@ export function SentenceAssociationSection({
 }: SentenceAssociationSectionProps) {
   return (
     <>
-      <Row title="本地整句联想" description="把词库组合出的整句加入候选；关闭后仍保留单词候选。">
-        <Switch
-          checked={value?.word_lattice ?? true}
-          onChange={(checked) => onChange({ ...value, word_lattice: checked })}
-        />
-      </Row>
-      <Row
+      <SwitchRow
+        title="本地整句联想"
+        description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
+        checked={value?.word_lattice ?? true}
+        onChange={(checked) => onChange({ ...value, word_lattice: checked })}
+      />
+      <SwitchRow
         title={mobile ? "键盘神经联想" : "桌面神经联想"}
         description="使用随包的神经模型重排整句候选；没有模型时保持现有候选。"
-      >
-        <Switch
-          checked={mobile ? (value?.neural_keyboard ?? false) : (value?.neural_desktop ?? false)}
-          onChange={(checked) =>
-            onChange({
-              ...value,
-              ...(mobile ? { neural_keyboard: checked } : { neural_desktop: checked }),
-            })
-          }
-        />
-      </Row>
+        checked={mobile ? (value?.neural_keyboard ?? false) : (value?.neural_desktop ?? false)}
+        onChange={(checked) =>
+          onChange({
+            ...value,
+            ...(mobile ? { neural_keyboard: checked } : { neural_desktop: checked }),
+          })
+        }
+      />
     </>
   );
 }
