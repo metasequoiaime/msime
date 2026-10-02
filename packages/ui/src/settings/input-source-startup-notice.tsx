@@ -1,4 +1,6 @@
 import { actionRow, primary } from "../account/account-style";
+import { ActionButton } from "./action-button";
+import { SettingSectionTitle } from "./setting-section-title";
 
 export type InputSourceStartupStatus = {
   /** `login_required`: the input method is installed, but this login session's input source list only picks it up after the user logs in again. `not_installed`: a first install, left for the user to start from the install window. */
@@ -95,7 +97,11 @@ export function InputSourceStartupNotice({
       className="section flex flex-col gap-2"
       aria-label="水杉输入法安装状态"
     >
-      <p className={`section-title m-0${failed ? " text-[var(--danger-text)]" : ""}`}>{title}</p>
+      <SettingSectionTitle
+        as="p"
+        className={`section-title m-0${failed ? " text-[var(--danger-text)]" : ""}`}
+        title={title}
+      />
       {detail && <p className="notice m-0">{detail}</p>}
       {needsAdding && (
         <>
@@ -109,13 +115,9 @@ export function InputSourceStartupNotice({
       {systemBundles && <p className="notice m-0">{systemBundles}</p>}
       <div className={`${actionRow} mt-1`}>
         {needsAdding && (
-          <button type="button" className={primary} onClick={openSettings}>
-            打开键盘设置
-          </button>
+          <ActionButton action={openSettings} className={primary} label="打开键盘设置" />
         )}
-        <button type="button" className="secondary" onClick={onDismiss}>
-          知道了
-        </button>
+        <ActionButton action={onDismiss} label="知道了" />
       </div>
     </div>
   );

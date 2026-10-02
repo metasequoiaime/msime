@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingSectionTitle } from "./setting-section-title";
 
 export interface SettingSectionHeaderProps {
   title: ReactNode;
@@ -17,10 +18,7 @@ export function SettingSectionHeader({
   const Header = as;
   return (
     <Header className="section-header">
-      <span className="section-title">
-        {title}
-        {description !== undefined && <small>{description}</small>}
-      </span>
+      <SettingSectionTitle title={title} description={description} />
       {children}
     </Header>
   );

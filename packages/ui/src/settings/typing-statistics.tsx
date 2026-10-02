@@ -11,6 +11,7 @@ import { scopedBreakdown } from "./typing-breakdown";
 import { chartGradient } from "./typing-chart";
 import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
+import { ActionButton } from "./action-button";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -1777,9 +1778,7 @@ export function TypingStatisticsPage({
             {mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}
           </p>
           {selectedDay && (
-            <button type="button" className="secondary" onClick={() => setSelectedDay(null)}>
-              返回整个时间范围
-            </button>
+            <ActionButton action={() => setSelectedDay(null)} label="返回整个时间范围" />
           )}
         </section>
       )}
@@ -1941,9 +1940,7 @@ export function TypingStatisticsPage({
           <h2 className={heading}>统计没有数据</h2>
           <p className="mt-2 mb-0 leading-relaxed text-secondary">{availabilityMessage}</p>
           {iosPlatform && status.availability === "neverWritten" && openSystemSettings && (
-            <button type="button" className="secondary" onClick={() => void openSystemSettings()}>
-              打开系统键盘设置
-            </button>
+            <ActionButton action={openSystemSettings} label="打开系统键盘设置" />
           )}
         </section>
       )}

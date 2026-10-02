@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { CredentialActions } from "./credential-actions";
+import { SettingSectionTitle } from "./setting-section-title";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { PasswordSettingField } from "./password-setting-field";
 import { TextSettingField } from "./text-setting-field";
@@ -49,10 +50,11 @@ export function LinuxTencentCredentialsSection({
 
   return (
     <div className="section" role="group" aria-label="在线翻译服务">
-      <div className="section-title">
-        在线翻译服务
-        <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
-      </div>
+      <SettingSectionTitle
+        as="div"
+        title="在线翻译服务"
+        description="由用户管理的 Linux provider 服务负责网络请求和凭据"
+      />
       {!available ? (
         <p className="input-setting-description">
           候选词翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code>{" "}

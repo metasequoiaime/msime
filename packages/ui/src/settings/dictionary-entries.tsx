@@ -3,6 +3,7 @@ import type { DictionaryEntry, LocalDictionaryKind } from "../dictionary/diction
 import { dictionaryKindKeyHint } from "../dictionary/dictionary-messages";
 import { localDictionaryKinds } from "../dictionary/dictionary-kinds";
 import * as settings from "./settings-style";
+import { ActionButton } from "./action-button";
 
 export interface DictionaryPhraseForm {
   key: string;
@@ -69,9 +70,7 @@ export function DictionaryEntries({
           <button type="button" disabled={busy} onClick={onSave}>
             保存
           </button>
-          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-            取消
-          </button>
+          <ActionButton action={onCancel} disabled={busy} label="取消" />
         </div>
       )}
       {entries.length === 0 ? (
