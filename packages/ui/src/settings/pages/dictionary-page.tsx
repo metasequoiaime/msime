@@ -13,7 +13,7 @@ import { DictionaryPagination } from "../dictionary-pagination";
 import { TextInputRow } from "../text-input-row";
 import { SelectRow } from "../select-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
-import { OpenPanelButton } from "../open-panel-button";
+import { OpenPanelRow } from "../open-panel-row";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -239,12 +239,12 @@ export function DictionarySettingsPage() {
         )}
         {client.openCloudDictionary && (
           <GroupList title="云词库">
-            <Row title="云词库" description="管理同步到账号的词条和备份">
-              <OpenPanelButton
-                action={() => openPanel(client.openCloudDictionary)}
-                label="打开云词库"
-              />
-            </Row>
+            <OpenPanelRow
+              title="云词库"
+              description="管理同步到账号的词条和备份"
+              action={() => openPanel(client.openCloudDictionary)}
+              label="打开云词库"
+            />
           </GroupList>
         )}
         {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}

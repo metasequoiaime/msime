@@ -1,5 +1,5 @@
 import * as settings from "./settings-style";
-import { OpenPanelButton } from "./open-panel-button";
+import { OpenPanelRow } from "./open-panel-row";
 import { GroupList, Row } from "../core/platform-controls";
 
 export interface VoiceInputIntroSectionProps {
@@ -99,16 +99,16 @@ export function VoiceInputIntroSection({
   }
   return (
     <GroupList title="语音面板">
-      <Row
+      <OpenPanelRow
         title="打开语音输入"
         description={
           linux
             ? "录音和识别由已配置的语音服务完成"
             : "在本机录音，音频发送给下方选择的识别服务转写"
         }
-      >
-        <OpenPanelButton action={onOpenVoice} className={`secondary ${settings.openButton}`} />
-      </Row>
+        action={onOpenVoice}
+        className={`secondary ${settings.openButton}`}
+      />
       {linux && (
         <p className={settings.groupNote}>
           语音需要单独运行的语音服务：录音、模型和凭据都由它负责，服务未运行时无法录音。

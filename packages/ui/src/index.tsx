@@ -685,6 +685,7 @@ export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-t
 export { ShortcutRow, type ShortcutRowProps } from "./settings/shortcut-row";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
 export { EndpointSettingRow, type EndpointSettingRowProps } from "./settings/endpoint-setting-row";
+export { OpenPanelRow, type OpenPanelRowProps } from "./settings/open-panel-row";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
 export {
