@@ -1106,25 +1106,24 @@ export function TouchKeyboardSkinEditor({
 
       <div className={skin.editorPreview}>
         <div className={skin.editorActions}>
-          <button
-            type="button"
+          <ActionButton
+            action={stepBack}
             className="secondary"
             disabled={!undo.length || disabled}
-            onClick={stepBack}
-          >
-            撤销设计
-          </button>
-          <button
-            type="button"
+            label="撤销设计"
+          />
+          <ActionButton
+            action={stepForward}
             className="secondary"
             disabled={!redo.length || disabled}
-            onClick={stepForward}
-          >
-            重做
-          </button>
-          <button type="button" className="primary" disabled={disabled || selected} onClick={onUse}>
-            {selected ? "正在使用" : "使用皮肤"}
-          </button>
+            label="重做"
+          />
+          <ActionButton
+            action={onUse}
+            className="primary"
+            disabled={disabled || selected}
+            label={selected ? "正在使用" : "使用皮肤"}
+          />
         </div>
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={design} />
       </div>
