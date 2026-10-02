@@ -1,13 +1,16 @@
 package app.msime.android.core;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
 
 public final class TelemetryHandlerSmoke {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
         try {
             check(Telemetry.installCrashHandler(null), "first installation must succeed");
@@ -42,6 +45,44 @@ public final class TelemetryHandlerSmoke {
         check(record.contains("Caused by: java.lang.IllegalStateException: inner"), "causes are kept");
         check(record.contains("at app.msime.android.core.TelemetryHandlerSmoke.main("), "frames are kept");
         check(Telemetry.firstLine("a\r\nb").equals("a"), "CRLF first line");
+
+        Path root = Files.createTempDirectory("msime-telemetry-");
+        try {
+            Path outside = Files.createDirectory(root.resolve("outside"));
+            Path linked = root.resolve("telemetry-crashes");
+            Files.createSymbolicLink(linked, outside);
+            java.lang.reflect.Field crashDirectory = Telemetry.class
+                .getDeclaredField("crashDirectory");
+            crashDirectory.setAccessible(true);
+            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
+                .getDeclaredField("sessionCrashRecord");
+            sessionCrashRecord.setAccessible(true);
+            java.lang.reflect.Method writeCrashRecord = Telemetry.class
+                .getDeclaredMethod("writeCrashRecord", Throwable.class);
+            writeCrashRecord.setAccessible(true);
+            crashDirectory.set(null, linked.toFile());
+            sessionCrashRecord.set(null, null);
+            writeCrashRecord.invoke(null, new RuntimeException("synthetic"));
+            try (Stream<Path> children = Files.list(outside)) {
+                check(children.findAny().isEmpty(),
+                    "crash records must not follow a telemetry directory symlink");
+            }
+        } finally {
+            java.lang.reflect.Field crashDirectory = Telemetry.class
+                .getDeclaredField("crashDirectory");
+            crashDirectory.setAccessible(true);
+            crashDirectory.set(null, null);
+            java.lang.reflect.Field sessionCrashRecord = Telemetry.class
+                .getDeclaredField("sessionCrashRecord");
+            sessionCrashRecord.setAccessible(true);
+            sessionCrashRecord.set(null, null);
+            try (Stream<Path> paths = Files.walk(root)) {
+                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                    try { Files.deleteIfExists(path); }
+                    catch (Exception cleanupError) { throw new IllegalStateException(cleanupError); }
+                });
+            }
+        }
         System.out.println("Android telemetry crash handler and record limits passed");
     }
 }

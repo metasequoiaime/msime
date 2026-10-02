@@ -9,6 +9,9 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -142,16 +145,38 @@ public final class Telemetry {
         if (target == null) {
             File directory = crashDirectory;
             if (directory == null) return;
-            if (!directory.isDirectory() && !directory.mkdirs()) return;
+            if (!prepareCrashDirectory(directory)) return;
             target = new File(directory, UUID.randomUUID() + CRASH_EXTENSION);
         }
         byte[] record = crashRecord(error).getBytes(StandardCharsets.UTF_8);
         // CREATE_NEW: the first record of a session is kept, as the shared store's own writer does.
         try (FileChannel channel = FileChannel.open(target.toPath(),
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW,
+                LinkOption.NOFOLLOW_LINKS)) {
             ByteBuffer buffer = ByteBuffer.wrap(record);
             while (buffer.hasRemaining()) channel.write(buffer);
             channel.force(true);
+        }
+    }
+
+    private static boolean prepareCrashDirectory(File directory) {
+        try {
+            Path path = directory.toPath().toAbsolutePath().normalize();
+            Path current = path.getRoot();
+            if (current == null) return false;
+            for (Path component : path) {
+                current = current.resolve(component);
+                if (Files.isSymbolicLink(current)) return false;
+            }
+            if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !directory.mkdirs()) return false;
+            current = path.getRoot();
+            for (Path component : path) {
+                current = current.resolve(component);
+                if (Files.isSymbolicLink(current)) return false;
+            }
+            return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS);
+        } catch (RuntimeException error) {
+            return false;
         }
     }
 
