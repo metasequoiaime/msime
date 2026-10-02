@@ -6,6 +6,7 @@ import {
   fallbackChineseScheme,
   type ChineseInputScheme,
 } from "./input-scheme-options";
+import { LegacyRadioGroup } from "./legacy-radio-group";
 import { schemeTitle } from "./label-helpers";
 
 export type InputSchemeSelectorValue = ChineseInputScheme;
@@ -60,29 +61,16 @@ export function InputSchemeSelectorSection({
   }
 
   return (
-    <div className="section" role="group" aria-labelledby="input-scheme-title" hidden={hidden}>
-      <div className="section-title" id="input-scheme-title">
-        输入方案
-      </div>
-      <div className="input-option-content">
-        {options.map(({ value: scheme, label, disabled }, index) => (
-          <div className="input-option-item" key={scheme}>
-            {index > 0 && <div className="input-option-divider" />}
-            <label className="radio-option">
-              <input
-                type="radio"
-                name="input-scheme"
-                value={scheme}
-                checked={value === scheme}
-                disabled={disabled}
-                onChange={() => onChange(scheme)}
-              />
-              <span>{label}</span>
-            </label>
-          </div>
-        ))}
-      </div>
-      {hint && <div className="input-setting-description">{hint}</div>}
-    </div>
+    <LegacyRadioGroup
+      title="输入方案"
+      titleId="input-scheme-title"
+      name="input-scheme"
+      options={options}
+      value={value}
+      description={hint}
+      hidden={hidden}
+      showDividers
+      onChange={onChange}
+    />
   );
 }

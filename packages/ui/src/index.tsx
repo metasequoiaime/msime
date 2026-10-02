@@ -846,6 +846,11 @@ export {
   type ShuangpinProfile,
 } from "./settings/input-scheme-details-section";
 export {
+  LegacyRadioGroup,
+  type LegacyRadioGroupOption,
+  type LegacyRadioGroupProps,
+} from "./settings/legacy-radio-group";
+export {
   TranslationProviderSettingsSection,
   type TranslationProviderSettingsSectionProps,
   type TranslationNiuTransSettings,

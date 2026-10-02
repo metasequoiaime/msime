@@ -11,6 +11,7 @@ import {
 import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { SelectRow } from "./select-row";
+import { LegacyRadioGroup } from "./legacy-radio-group";
 
 export type InputSchemeDetailsScheme = InputScheme;
 export type ShuangpinProfile = "xiaohe" | "ziranma" | "shoudao" | "microsoft";
@@ -50,56 +51,6 @@ const zhuyinDescription =
   "按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词";
 const vietnameseDescription = "Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键";
 const toneStyleDescription = "新式把声调标在主元音上（hoà），旧式按传统位置标注（hòa）";
-
-function LegacySchemeRadioGroup<T extends string>({
-  title,
-  titleId,
-  name,
-  options,
-  value,
-  onChange,
-  description,
-  descriptionClassName,
-  hidden,
-}: {
-  title: string;
-  titleId: string;
-  name: string;
-  options: readonly { value: T; label: string }[];
-  value: T;
-  onChange?: (value: T) => void;
-  description: string;
-  descriptionClassName?: string;
-  hidden: boolean;
-}) {
-  return (
-    <div className="section" role="group" aria-labelledby={titleId} hidden={hidden}>
-      <div className="section-title" id={titleId}>
-        {title}
-      </div>
-      <div className="input-option-content">
-        {options.map((option) => (
-          <label className="radio-option" key={option.value}>
-            <input
-              type="radio"
-              name={name}
-              value={option.value}
-              checked={value === option.value}
-              readOnly={!onChange}
-              onChange={() => onChange?.(option.value)}
-            />
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </div>
-      <div
-        className={`input-setting-description${descriptionClassName ? ` ${descriptionClassName}` : ""}`}
-      >
-        {description}
-      </div>
-    </div>
-  );
-}
 
 /** Shared scheme-specific controls for desktop input settings. */
 export function InputSchemeDetailsSection({
@@ -253,7 +204,7 @@ export function InputSchemeDetailsSection({
           <WubiSchemeOption />
         </SelectSettingField>
       </div>
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="日语方案"
         titleId="japanese-scheme-title"
         name="japanese-scheme"
@@ -263,7 +214,7 @@ export function InputSchemeDetailsSection({
         descriptionClassName="japanese-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
       />
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="韩语方案"
         titleId="korean-scheme-title"
         name="korean-scheme"
@@ -273,7 +224,7 @@ export function InputSchemeDetailsSection({
         descriptionClassName="korean-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
       />
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="粤拼方案"
         titleId="cantonese-scheme-title"
         name="cantonese-scheme"
@@ -282,7 +233,7 @@ export function InputSchemeDetailsSection({
         description={cantoneseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
       />
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="注音键盘"
         titleId="zhuyin-layout-title"
         name="zhuyin-layout"
@@ -291,7 +242,7 @@ export function InputSchemeDetailsSection({
         description={zhuyinDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
       />
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="越南语方案"
         titleId="vietnamese-scheme-title"
         name="vietnamese-input-method"
@@ -301,7 +252,7 @@ export function InputSchemeDetailsSection({
         description={vietnameseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
       />
-      <LegacySchemeRadioGroup
+      <LegacyRadioGroup
         title="声调位置"
         titleId="vietnamese-tone-style-title"
         name="vietnamese-tone-style"
