@@ -1,3 +1,5 @@
+import { ActionButton } from "../core/action-button";
+
 export interface CloudPanelHeaderProps {
   title: string;
   onClose: () => void;
@@ -10,14 +12,10 @@ export function CloudPanelHeader({ title, onClose, onBack, backClassName }: Clou
   return (
     <header className="native-panel-header">
       {onBack && (
-        <button className={backClassName} type="button" aria-label="返回云词库" onClick={onBack}>
-          ‹
-        </button>
+        <ActionButton action={onBack} ariaLabel="返回云词库" className={backClassName} label="‹" />
       )}
       <span>{title}</span>
-      <button type="button" aria-label="关闭" onClick={onClose}>
-        ×
-      </button>
+      <ActionButton action={onClose} ariaLabel="关闭" label="×" />
     </header>
   );
 }
