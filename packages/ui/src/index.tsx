@@ -1167,6 +1167,8 @@ export {
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";
 export {
+  CommunityDialogActions,
+  type CommunityDialogActionsProps,
   CommunityDialogHeader,
   type CommunityDialogHeaderProps,
 } from "./community/community-dialog";

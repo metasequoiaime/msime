@@ -13,7 +13,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
@@ -271,14 +271,11 @@ function CommunitySkinPublishDialog({
             </p>
           </>
         )}
-        <div className={style.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            取消
-          </button>
+        <CommunityDialogActions busy={busy} onClose={onClose}>
           <button type="submit" className="primary" disabled={busy || !selected || !agreed}>
             {busy ? "正在发布…" : "公开发布"}
           </button>
-        </div>
+        </CommunityDialogActions>
       </form>
     </div>
   );

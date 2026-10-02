@@ -17,7 +17,7 @@ import {
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import {
@@ -509,10 +509,7 @@ export function CandidateSkinPublishDialog({
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}
-        <div className={style.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            取消
-          </button>
+        <CommunityDialogActions busy={busy} onClose={onClose}>
           {packError && licenseless && (
             <button
               type="button"
@@ -533,7 +530,7 @@ export function CandidateSkinPublishDialog({
               {busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
             </button>
           )}
-        </div>
+        </CommunityDialogActions>
       </div>
     </div>
   );

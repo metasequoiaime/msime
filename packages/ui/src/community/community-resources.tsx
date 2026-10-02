@@ -12,7 +12,7 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
-import { CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import {
   CommunityRemovedBadge,
   CommunityReportSection,
@@ -349,14 +349,11 @@ function ResourceEditor({
           发布内容会公开展示。请勿包含 API
           Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
         </p>
-        <div className={style.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={close}>
-            取消
-          </button>
+        <CommunityDialogActions busy={busy} onClose={close}>
           <button type="submit" className="primary" disabled={busy}>
             {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}
           </button>
-        </div>
+        </CommunityDialogActions>
       </form>
     </div>
   );
