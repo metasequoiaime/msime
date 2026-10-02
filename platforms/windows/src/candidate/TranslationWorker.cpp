@@ -379,8 +379,10 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
 
     // `/fy` (command mode): one English sentence for the service the user selected, into the query's own target language, whatever the gloss switches say (command_translation_item in CandidateTranslationPolicy.h). The selected service alone is asked, in the same precedence as below, with no packaged gloss and no gloss cache, and its answer goes back through apply_translations, which makes it the command's first row.
     if (query.value("sentence", false)) {
+      const auto &candidates = query.at("candidates");
       std::vector<std::string> texts;
-      for (const auto &candidate : query.at("candidates"))
+      texts.reserve(candidates.size());
+      for (const auto &candidate : candidates)
         texts.push_back(candidate.at("text").get<std::string>());
       const auto command = msime::windows::command_translation_item(
           true, texts, query.at("target_language").get<std::string>());
