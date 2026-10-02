@@ -7003,6 +7003,7 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   for (auto *action : toolbar_entries_)
     toolbar_menu_.removeAction(action);
   toolbar_entries_.clear();
+  toolbar_entries_.reserve(8);
   if (!ic) return;
   const auto *state = ic->propertyFor(&factory_);
   if (!state->session_) return;
