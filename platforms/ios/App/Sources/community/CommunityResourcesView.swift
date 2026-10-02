@@ -20,7 +20,7 @@ struct CommunityHomeView: View {
       HStack(spacing: 0) {
         categoryButton(0, title: "皮肤")
         categoryButton(1, title: "词库")
-        categoryButton(2, title: "回复")
+        categoryButton(2, title: "回复模板")
       }
       .padding(2)
       .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
@@ -206,7 +206,7 @@ struct CommunityResourceDetail: View {
           Text(item.content.prompt ?? "").font(.body).textSelection(.enabled)
             .padding().frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-          Button("添加到回复键盘") { run {
+          Button("添加到高情商回复键盘") { run {
             try await SkinCommunityAPI.shared.saveResource(item.id, saved: true)
             let latest = try await SkinCommunityAPI.shared.resource(item.id)
             try CommunityLibrary.save(latest); updated = latest
@@ -218,7 +218,7 @@ struct CommunityResourceDetail: View {
           updated = try await SkinCommunityAPI.shared.resource(item.id)
         }}.disabled(busy)
         if item.kind == .reply {
-          Button("从本机回复键盘移除") { run { try CommunityLibrary.remove(item.id); message = "已从本机移除，社区收藏保留。" } }.disabled(busy)
+          Button("从本机高情商回复键盘移除") { run { try CommunityLibrary.remove(item.id); message = "已从本机移除，社区收藏保留。" } }.disabled(busy)
         }
         if !item.owned {
           HStack {

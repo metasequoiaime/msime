@@ -15,7 +15,9 @@ test("learning data section reports a reset request", () => {
 
   expect(screen.getByRole("region", { name: "学习数据" })).toBeTruthy();
   expect(
-    screen.getByText("清除候选词频、用户词典和拼音学习记录；输入方案与其他设置不会改变。"),
+    screen.getByText(
+      "清除候选词频、用户词库和拼音学习记录；自己新增和修改的词条也会删除，输入方案与其他设置不会改变。",
+    ),
   ).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));

@@ -3117,7 +3117,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     MSIMEOpenDesktopRoute(@"settings:account", NSWorkspace.sharedWorkspace, ^{
         if (MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"))) return;
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"账户窗口暂不可用";
+        alert.messageText = @"账号窗口暂不可用";
         alert.informativeText = @"请重新启动输入法；若仍无法打开，请检查安装是否完整。";
         [alert runModal];
     });

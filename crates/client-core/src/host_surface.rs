@@ -490,7 +490,7 @@ impl HostCapabilities {
                     | HostPlatform::Ios
             ),
             // IBus exposes candidate and label foreground/background RGB
-            // attributes, but not native hover state or card borders. The iOS strip resolves every candidate colour once the keyboard's 「使用桌面候选皮肤」 switch is on, which the shared skin page now carries.
+            // attributes, but not native hover state or card borders. The iOS strip resolves every candidate colour once the keyboard's 「候选栏使用主题配色」 switch is on, which the shared skin page now carries.
             candidate_row_colors: matches!(
                 platform,
                 HostPlatform::Windows
@@ -627,15 +627,11 @@ pub enum SettingsCategory {
     Account,
     Chat,
     Community,
-    /// 其他平台下载：在其他设备上安装客户端的链接。它已不再单独成页，两行链接放在关于页，共享 UI 经 `settingsPageAliases` 为这个 id 打开关于页。宿主仍会发送它。
-    Download,
     Appearance,
     Input,
-    /// 表达, the parent of the AI assistant and AI conversation pages.
+    /// 标点与翻译.
     Expression,
     TypingStatistics,
-    /// No longer a page of its own: the helper-code settings are a group of 输入, and the shared UI opens that page for this id (`settingsPageAliases`). Hosts keep sending it.
-    Helpcode,
     Shortcuts,
     Dictionary,
     /// 背单词. Next to the dictionary because both are word lists the user manages, and away from
@@ -645,6 +641,7 @@ pub enum SettingsCategory {
     ScreenKeyboard,
     Handwriting,
     Voice,
+    /// AI 辅助, a page of the 工具 group and the parent of the AI conversation page.
     Ai,
     Tools,
     /// 插件: sound packs, background music, command tables and the @ name list.
@@ -664,12 +661,10 @@ impl SettingsCategory {
             SettingsCategory::Account => "account",
             SettingsCategory::Chat => "chat",
             SettingsCategory::Community => "community",
-            SettingsCategory::Download => "download",
             SettingsCategory::Appearance => "appearance",
             SettingsCategory::Input => "input",
             SettingsCategory::Expression => "expression",
             SettingsCategory::TypingStatistics => "typing-statistics",
-            SettingsCategory::Helpcode => "helpcode",
             SettingsCategory::Shortcuts => "shortcuts",
             SettingsCategory::Dictionary => "dictionary",
             SettingsCategory::Vocabulary => "vocabulary",
@@ -693,12 +688,10 @@ impl SettingsCategory {
             "account" => Ok(SettingsCategory::Account),
             "chat" => Ok(SettingsCategory::Chat),
             "community" => Ok(SettingsCategory::Community),
-            "download" => Ok(SettingsCategory::Download),
             "appearance" => Ok(SettingsCategory::Appearance),
             "input" => Ok(SettingsCategory::Input),
             "expression" => Ok(SettingsCategory::Expression),
             "typing-statistics" => Ok(SettingsCategory::TypingStatistics),
-            "helpcode" => Ok(SettingsCategory::Helpcode),
             "shortcuts" => Ok(SettingsCategory::Shortcuts),
             "dictionary" => Ok(SettingsCategory::Dictionary),
             "vocabulary" => Ok(SettingsCategory::Vocabulary),
@@ -719,16 +712,14 @@ impl SettingsCategory {
         }
     }
 
-    pub const ALL: [SettingsCategory; 24] = [
+    pub const ALL: [SettingsCategory; 22] = [
         SettingsCategory::Account,
         SettingsCategory::Chat,
         SettingsCategory::Community,
-        SettingsCategory::Download,
         SettingsCategory::Appearance,
         SettingsCategory::Input,
         SettingsCategory::Expression,
         SettingsCategory::TypingStatistics,
-        SettingsCategory::Helpcode,
         SettingsCategory::Shortcuts,
         SettingsCategory::Dictionary,
         SettingsCategory::Vocabulary,
@@ -898,7 +889,7 @@ impl SurfaceRoute {
             SurfaceRoute::CloudDictionary => Some(PanelSurface {
                 label: "cloud-dictionary-panel",
                 query: "cloud-dictionary",
-                title: "水杉云词典",
+                title: "水杉云词库",
                 width: 760,
                 height: 700,
                 placement: PanelPlacement::BottomCenter,

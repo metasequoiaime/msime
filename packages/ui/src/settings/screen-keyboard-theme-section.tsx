@@ -17,7 +17,7 @@ export function ScreenKeyboardThemeSection({
     <Row
       title="屏幕键盘主题"
       description={
-        mobile ? "覆盖主题模式；当前屏幕键盘支持此设置" : "覆盖主题模式；桌面屏幕键盘支持此设置"
+        mobile ? "覆盖颜色模式；当前屏幕键盘支持此设置" : "覆盖颜色模式；桌面屏幕键盘支持此设置"
       }
     >
       <SurfaceThemeSelect label="屏幕键盘主题" value={value} onChange={onChange} />

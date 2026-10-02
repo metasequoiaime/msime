@@ -13,7 +13,7 @@ export interface AccountConfirmationProps {
 const details: Record<AccountConfirmationAction, { label: string; message: string }> = {
   logout: {
     label: "确认退出登录",
-    message: "退出登录后，社区功能需要重新登录才能使用。",
+    message: "退出登录后，云端功能和社区发布都需要重新登录才能使用。",
   },
   "logout-all": {
     label: "确认退出所有设备",

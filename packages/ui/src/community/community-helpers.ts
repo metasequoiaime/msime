@@ -48,7 +48,7 @@ export function resourceMessage(error: unknown): string {
 }
 
 export function resourceKindTitle(kind: CommunityResourceKind): string {
-  return kind === "dictionary" ? "词库" : "回复";
+  return kind === "dictionary" ? "词库" : "回复模板";
 }
 
 export function resourceScopeTitle(scope: CommunityResourceScope): string {

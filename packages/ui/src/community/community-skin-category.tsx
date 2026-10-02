@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import * as style from "./community-style";
 import { CommunitySelectField } from "./community-select-field";
 
-/** 社区皮肤的发布分类，键盘皮肤和候选窗皮肤共用，与服务端的固定 id 一致；只是发布元数据，不写进皮肤内容。 */
+/** 社区皮肤的发布分类，键盘皮肤和候选窗口皮肤共用，与服务端的固定 id 一致；只是发布元数据，不写进皮肤内容。 */
 export type CommunitySkinCategory =
   | "nature"
   | "guofeng"

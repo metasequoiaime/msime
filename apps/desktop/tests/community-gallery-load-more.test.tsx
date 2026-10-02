@@ -19,9 +19,9 @@ test("community gallery load more renders the action and loading status", () => 
   expect(LoadMore).toBeDefined();
 
   const onLoadMore = vi.fn();
-  render(<LoadMore hasMore busy loadingText="正在读取候选窗皮肤…" onLoadMore={onLoadMore} />);
+  render(<LoadMore hasMore busy loadingText="正在读取候选窗口皮肤…" onLoadMore={onLoadMore} />);
 
-  expect(screen.getByRole("status").textContent).toContain("正在读取候选窗皮肤…");
+  expect(screen.getByRole("status").textContent).toContain("正在读取候选窗口皮肤…");
   const button = screen.getByRole("button", { name: "加载更多" });
   expect(button).toHaveProperty("disabled", true);
 });

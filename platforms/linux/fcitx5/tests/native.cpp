@@ -672,7 +672,7 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
-    require(engine.candidate_theme_action_.shortText(&ic) == "候选主题：跟随全局",
+    require(engine.candidate_theme_action_.shortText(&ic) == "候选明暗：跟随颜色模式",
             "candidate theme action reads the preference snapshot");
     engine.candidate_theme_action_.activate(&ic);
     require(state->preferences_.value("candidate_theme", std::string{}) == "light",

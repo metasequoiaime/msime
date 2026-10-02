@@ -66,9 +66,7 @@ export function VoiceInputIntroSection({
     return (
       <GroupList title="iOS 应用语音">
         <p className={settings.groupNote}>
-          iOS
-          的录音、识别和文本提交在当前共享设置与应用语音服务中完成。从应用内的语音入口开始；识别结果会回到当前页面，再由你确认使用。不打开无法提交到键盘扩展输入会话的
-          Tauri 语音面板。
+          在应用内点「开始 iOS 语音」录音，识别结果回到当前页面，确认后再使用。
         </p>
         {onOpenVoice && (
           <Row title="应用内语音">
@@ -84,9 +82,7 @@ export function VoiceInputIntroSection({
     return (
       <GroupList title="macOS 输入法语音">
         <p className={settings.groupNote}>
-          macOS
-          的语音录音、云端识别和文本提交由当前输入法进程负责；请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的
-          Tauri 面板。
+          请在要输入的应用里，用下方语音快捷键或输入法悬浮工具栏开始语音输入；识别结果直接输入到该应用。
         </p>
       </GroupList>
     );
@@ -105,7 +101,11 @@ export function VoiceInputIntroSection({
     <GroupList title="语音面板">
       <Row
         title="打开语音输入"
-        description={linux ? "录音和识别由已配置的语音服务完成" : "录音和识别在本机完成"}
+        description={
+          linux
+            ? "录音和识别由已配置的语音服务完成"
+            : "在本机录音，音频发送给下方选择的识别服务转写"
+        }
       >
         <OpenPanelButton action={onOpenVoice} className={`secondary ${settings.openButton}`} />
       </Row>

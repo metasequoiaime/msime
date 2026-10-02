@@ -1245,12 +1245,12 @@ test("the theme page opens the candidate publish dialog outside the settings fie
       }}
     />,
   );
-  // A desktop host with only the candidate-skin client still lists 社区.
-  expect(await screen.findByRole("button", { name: "社区" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  // A desktop host browses candidate-window skins on 主题, so it lists no 社区 page.
+  fireEvent.click(await screen.findByRole("button", { name: "主题" }));
+  expect(screen.queryByRole("button", { name: "社区" })).toBeNull();
   const card = await screen.findByRole("article", { name: "Sample skin" });
   fireEvent.click(within(card).getByRole("button", { name: "发布到社区" }));
-  const dialog = await screen.findByRole("dialog", { name: "发布候选窗皮肤" });
+  const dialog = await screen.findByRole("dialog", { name: "发布候选窗口皮肤" });
   expect(dialog.closest("fieldset")).toBeNull();
   await waitFor(() =>
     expect(communityCandidateSkins.packPreview).toHaveBeenCalledWith("sample", "public"),
@@ -1261,6 +1261,6 @@ test("the theme page opens the candidate publish dialog outside the settings fie
   expect(fireEvent.keyDown(name, { key: "Enter" })).toBe(false);
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
-  expect(screen.queryByRole("dialog", { name: "发布候选窗皮肤" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "发布候选窗口皮肤" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });

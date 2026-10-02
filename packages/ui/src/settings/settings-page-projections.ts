@@ -1,5 +1,6 @@
 import { mobilePrimaryPageIds, type MobilePrimaryPageId } from "./settings-navigation-helpers";
 import { pages, settingsNavGroups, type SettingsPageId } from "./settings-page-registry";
+import { mobileGroupTitle } from "./mobile-tab-helpers";
 
 export interface SettingsPageProjectionOptions {
   mobilePlatform: boolean;
@@ -81,7 +82,7 @@ export function settingsPageProjections({
   const byId = new Map(sidebarPages.map((item) => [item.id, item]));
   const groups = settingsNavGroups
     .map(({ title, ids }) => ({
-      title,
+      title: mobilePlatform ? mobileGroupTitle(title) : title,
       pages: ids.flatMap((id) => {
         if (mobilePlatform && !mobileListedPage(id)) return [];
         const item = byId.get(id);
@@ -98,7 +99,7 @@ export function settingsPageProjections({
   });
   const mobileSecondaryGroups = settingsNavGroups
     .map(({ title, ids }) => ({
-      title,
+      title: mobileGroupTitle(title),
       pages: ids.flatMap((id) => {
         if (!mobileListedPage(id)) return [];
         const item = availablePages.find((page) => page.id === id);

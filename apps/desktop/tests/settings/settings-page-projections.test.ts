@@ -45,8 +45,8 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
     { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools", "typing-statistics", "plugins"] },
-    { title: "账户与社区", ids: ["account", "community"] },
+    { title: "工具", ids: ["tools", "typing-statistics", "plugins", "ai"] },
+    { title: "账号", ids: ["account"] },
     { title: "支持", ids: ["developer", "feedback", "about"] },
   ]);
   // 宿主不提供的页从所在组里消失；整组为空时整组不出现。
@@ -64,7 +64,7 @@ test("projects the desktop sidebar into the titled navigation groups", () => {
     { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
     { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
     { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools"] },
+    { title: "工具", ids: ["tools", "ai"] },
     { title: "支持", ids: ["developer", "feedback", "about"] },
   ]);
 });
@@ -96,17 +96,19 @@ test("projects mobile pages into tabs, grouped settings, and sidebar sections", 
     expect(listed).not.toContain(id);
   }
   expect(listed).not.toContain("floating-toolbar");
-  // 有账户页的宿主在「我的」里放了关于和帮助与反馈，「全部设置」不再重复列出。
+  // 有账号页的宿主在「我的」里放了关于和帮助与反馈，「全部设置」不再重复列出。
   expect(listed).not.toContain("about");
   expect(listed).not.toContain("feedback");
   expect(groupIds(mobile.mobileSecondaryGroups)).toEqual([
     { title: "打字", ids: ["input", "expression", "dictionary"] },
     { title: "外观", ids: ["skin", "appearance"] },
-    { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-    { title: "工具", ids: ["tools", "plugins"] },
+    { title: "键盘、语音与手写", ids: ["screen-keyboard", "voice", "handwriting"] },
+    { title: "工具", ids: ["tools", "plugins", "ai"] },
     { title: "支持", ids: ["developer"] },
   ]);
   expect(mobile.sidebarGroups[0].pages.map((page) => page.id)).toEqual(["home"]);
+  expect(mobile.sidebarGroups.map((group) => group.title)).toContain("键盘、语音与手写");
+  expect(mobile.sidebarGroups.map((group) => group.title)).not.toContain("更多输入方式");
   expect(mobile.sidebarGroups.flatMap((group) => group.pages.map((page) => page.id))).not.toContain(
     "more",
   );
@@ -128,7 +130,12 @@ test("places the 插件 page in 工具 and drops it where the host does not back
     item.pages.some((page) => page.id === "tools"),
   );
   expect(group?.title).toBe("工具");
-  expect(group?.pages.map((page) => page.id)).toEqual(["tools", "typing-statistics", "plugins"]);
+  expect(group?.pages.map((page) => page.id)).toEqual([
+    "tools",
+    "typing-statistics",
+    "plugins",
+    "ai",
+  ]);
   expect(desktop.availablePages.find((page) => page.id === "plugins")?.title).toBe("插件");
 
   expect(project({ hasPlugins: false }).availablePages.map((page) => page.id)).not.toContain(

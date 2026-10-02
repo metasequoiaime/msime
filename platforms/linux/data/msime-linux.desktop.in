@@ -36,7 +36,7 @@ Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel voice
 
 [Desktop Action CloudDictionary]
 Name=Cloud Dictionary
-Name[zh_CN]=云词典
+Name[zh_CN]=云词库
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel cloud-dictionary
 
 [Desktop Action CloudClipboard]
@@ -56,5 +56,5 @@ Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel clipboard
 
 [Desktop Action Dictionary]
 Name=Local Dictionary
-Name[zh_CN]=本地词典
+Name[zh_CN]=词库
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-linux-settings --panel dictionary

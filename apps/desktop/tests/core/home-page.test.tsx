@@ -76,6 +76,7 @@ test("exposes Apple home shortcuts for dictionary, AI and system settings", () =
       preferences={initial.preferences}
       actions={{ openSystemKeyboardSettings }}
       onOpenPage={onOpenPage}
+      ios
     />,
   );
 
@@ -143,8 +144,10 @@ test("invokes Android keyboard and system input actions", () => {
   };
   render(<HomePage preferences={initial.preferences} actions={actions} onOpenPage={vi.fn()} />);
 
+  // 完全访问 and 系统键盘设置 are the iOS keyboard extension's words; Android opens the system input method settings.
+  expect(screen.getByRole("button", { name: "系统设置启用与设为默认" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
-  fireEvent.click(screen.getByRole("button", { name: "系统键盘设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "系统输入法设置" }));
   fireEvent.click(screen.getByRole("button", { name: "选择输入法" }));
 
   expect(actions.openKeyboard).toHaveBeenCalledOnce();
@@ -202,6 +205,7 @@ test("opens iOS system keyboard settings from the shared home", async () => {
         home: {
           openSystemKeyboardSettings,
         },
+        host: { platform: "ios" } as HostCapabilities,
       }}
     />,
   );

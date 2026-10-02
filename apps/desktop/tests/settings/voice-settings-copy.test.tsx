@@ -132,14 +132,14 @@ test("Windows is not told its voice input runs through a Linux provider", async 
   expect(screen.getByText("录音行为")).toBeTruthy();
   expect(screen.queryByText(/语音需要单独运行的语音服务/)).toBeNull();
   expect(screen.queryByText(/录音和识别由已配置的语音服务完成/)).toBeNull();
-  expect(screen.getByText(/录音和识别在本机完成/)).toBeTruthy();
+  expect(screen.getByText("在本机录音，音频发送给下方选择的识别服务转写")).toBeTruthy();
   expect(screen.getByText(/随识别请求发送给豆包/)).toBeTruthy();
 });
 
 test("macOS keeps voice submission in the native input-method process", async () => {
   await openVoice("macos");
   expect(screen.getByText("macOS 输入法语音")).toBeTruthy();
-  expect(screen.getByText(/由当前输入法进程负责/)).toBeTruthy();
+  expect(screen.getByText(/识别结果直接输入到该应用/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
   expect(screen.queryByText("打开语音输入")).toBeNull();
 });
@@ -209,7 +209,7 @@ test("Android uses the system recognizer and hides desktop voice controls", asyn
 test("iOS keeps voice in the app flow and hides the desktop voice panel", async () => {
   await openVoice("ios");
   expect(screen.getByText("iOS 应用语音")).toBeTruthy();
-  expect(screen.getByText(/录音、识别和文本提交在当前共享设置与应用语音服务中完成/)).toBeTruthy();
+  expect(screen.getByText(/识别结果回到当前页面，确认后再使用/)).toBeTruthy();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
   expect(screen.queryByText("打开语音输入")).toBeNull();
 });

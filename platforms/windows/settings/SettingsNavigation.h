@@ -24,7 +24,7 @@ struct Page {
 
 inline constexpr std::size_t page_group_count = 6;
 
-// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账户与社区、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。
+// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账号、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。
 inline constexpr std::array<Page, 18> pages{{
     {"typing", 0, PageHost::Native, {}},
     {"expression", 0, PageHost::Native, {}},
@@ -36,12 +36,14 @@ inline constexpr std::array<Page, 18> pages{{
     {"osk", 2, PageHost::Native, {}},
     {"voice", 2, PageHost::Native, {}},
     {"hand", 2, PageHost::Native, {}},
-    {"clip", 3, PageHost::Shell, {"cloud-clipboard", ""}},
+    // The shared 剪贴板 page holds the local clipboard history switch and opens the cloud clipboard panel, so this window draws neither.
+    {"clip", 3, PageHost::Shell, {"", "tools"}},
     {"stats", 3, PageHost::Shell, {"", "typing-statistics"}},
     // Sound packs, music and command tables are imported and chosen in the shared app, which reads packs from a folder or archive the user picks; this window only opens it there.
     {"plugins", 3, PageHost::Shell, {"", "plugins"}},
+    // AI 辅助 holds the 启用 switch, the providers, models and keys; all of it is set in the shared app.
+    {"ai", 3, PageHost::Shell, {"", "ai"}},
     {"account", 4, PageHost::Shell, {"", "account"}},
-    {"community", 4, PageHost::Shell, {"", "community"}},
     {"dev", 5, PageHost::Native, {}},
     {"feedback", 5, PageHost::Native, {}},
     {"about", 5, PageHost::Native, {}},
@@ -49,15 +51,13 @@ inline constexpr std::array<Page, 18> pages{{
 
 inline constexpr std::string_view default_page = "typing";
 
-// The shared app's surfaces that native pages link to for what they do not draw themselves: the candidate font pickers; the skin editor, colour pickers and theme packages; dictionary management; the AI pages; the panel settings; help and feedback; the about page's update check; and the screen keyboard and handwriting panels themselves.
+// The shared app's surfaces that native pages link to for what they do not draw themselves: the candidate font pickers; the skin editor, colour pickers, theme packages and the community skin gallery; dictionary management; the helpcode plugins on 输入; the panel settings; help and feedback; the about page's update check; and the screen keyboard and handwriting panels themselves.
 namespace shell_links {
 inline constexpr ShellTarget appearance{"", "appearance"};
 inline constexpr ShellTarget skin{"", "skin"};
 inline constexpr ShellTarget dictionary{"", "dictionary"};
 inline constexpr ShellTarget vocabulary{"", "vocabulary"};
-inline constexpr ShellTarget helpcode{"", "helpcode"};
-inline constexpr ShellTarget ai{"", "ai"};
-inline constexpr ShellTarget chat{"", "chat"};
+inline constexpr ShellTarget input{"", "input"};
 inline constexpr ShellTarget screen_keyboard{"", "screen-keyboard"};
 inline constexpr ShellTarget voice{"", "voice"};
 inline constexpr ShellTarget handwriting{"", "handwriting"};
@@ -66,10 +66,9 @@ inline constexpr ShellTarget feedback{"", "feedback"};
 inline constexpr ShellTarget about{"", "about"};
 inline constexpr ShellTarget keyboard_panel{"keyboard", ""};
 inline constexpr ShellTarget handwriting_panel{"handwriting", ""};
-inline constexpr std::array<ShellTarget, 15> all{
-    {appearance, skin, dictionary, vocabulary, helpcode, ai, chat,
-     screen_keyboard, voice, handwriting, help, feedback, about, keyboard_panel,
-     handwriting_panel}};
+inline constexpr std::array<ShellTarget, 13> all{
+    {appearance, skin, dictionary, vocabulary, input, screen_keyboard, voice,
+     handwriting, help, feedback, about, keyboard_panel, handwriting_panel}};
 } // namespace shell_links
 
 struct RouteAlias {
@@ -77,17 +76,15 @@ struct RouteAlias {
   std::string_view page;
 };
 
-// 共享路由词汇表（`client-core` 的 `host_surface::SettingsCategory`）认识的每个设置类别，映射到现在承载它的页面。每个 id 保持它在其他所有宿主上的含义：`appearance` 是候选窗口页，`skin` 是主题页。托盘会打开 `skin`、`dictionary` 和 `about`，其他桌面启动入口也用同样的名字。`download` 不再是独立页面：它的链接放在关于页的版本组里，与共享设置 UI 一致。
-inline constexpr std::array<RouteAlias, 24> route_aliases{{
+// 共享路由词汇表（`client-core` 的 `host_surface::SettingsCategory`）认识的每个设置类别，映射到现在承载它的页面。每个 id 保持它在其他所有宿主上的含义：`appearance` 是候选窗口页，`skin` 是主题页。托盘会打开 `skin`、`dictionary` 和 `about`，其他桌面启动入口也用同样的名字。桌面端没有社区页，社区皮肤在共享应用的主题页上，所以 `community` 打开主题页；AI 对话是 AI 辅助的子页，`chat` 打开 AI 辅助。
+inline constexpr std::array<RouteAlias, 22> route_aliases{{
     {"account", "account"},
-    {"chat", "expression"},
-    {"community", "community"},
-    {"download", "about"},
+    {"chat", "ai"},
+    {"community", "themes"},
     {"appearance", "candidate"},
     {"input", "typing"},
     {"expression", "expression"},
     {"typing-statistics", "stats"},
-    {"helpcode", "typing"},
     {"shortcuts", "shortcuts"},
     {"dictionary", "lexicon"},
     {"vocabulary", "lexicon"},
@@ -95,8 +92,8 @@ inline constexpr std::array<RouteAlias, 24> route_aliases{{
     {"screen-keyboard", "osk"},
     {"handwriting", "hand"},
     {"voice", "voice"},
-    {"ai", "expression"},
-    {"tools", "shortcuts"},
+    {"ai", "ai"},
+    {"tools", "clip"},
     {"plugins", "plugins"},
     {"floating-toolbar", "toolbar"},
     {"developer", "dev"},

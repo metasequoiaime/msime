@@ -56,26 +56,24 @@ export function UtilitiesSettingsSection({
         {macos ? (
           <CloudPanelSessionNotice />
         ) : (
-          <>
-            {openCloudClipboard && (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void onOpenPanel(openCloudClipboard)}
-              >
-                打开云剪贴板
-              </button>
-            )}
-            {openCloudDictionary && (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void onOpenPanel(openCloudDictionary)}
-              >
-                打开云词库
-              </button>
-            )}
-          </>
+          openCloudClipboard && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => void onOpenPanel(openCloudClipboard)}
+            >
+              打开云剪贴板
+            </button>
+          )
+        )}
+        {openCloudDictionary && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void onOpenPanel(openCloudDictionary)}
+          >
+            打开云词库
+          </button>
         )}
       </ClipboardHistorySection>
       <LocalModesSection preferences={localModes} ios={ios} onChange={onLocalModesChange} />

@@ -13,6 +13,7 @@ import { DictionaryPagination } from "../dictionary-pagination";
 import { TextInputRow } from "../text-input-row";
 import { SelectRow } from "../select-row";
 import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-options";
+import { OpenPanelButton } from "../open-panel-button";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -50,11 +51,12 @@ export function DictionarySettingsPage() {
     exportPhrases,
     exportAllPhrases,
     resetLearnedData,
+    openPanel,
   } = useSettingsForm();
   return (
     <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
       <div className={settings.groups}>
-        {/* 先是词库本身（查、看、加），再是成批的导入导出，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
+        {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
         {client.dictionary && (
           <GroupList title="本地词库管理">
             <p className={settings.groupNote}>
@@ -235,6 +237,16 @@ export function DictionarySettingsPage() {
             )}
           </GroupList>
         )}
+        {client.openCloudDictionary && (
+          <GroupList title="云词库">
+            <Row title="云词库" description="管理同步到账号的词条和备份">
+              <OpenPanelButton
+                action={() => openPanel(client.openCloudDictionary)}
+                label="打开云词库"
+              />
+            </Row>
+          </GroupList>
+        )}
         {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}
         <SubPageEntries
           title="更多"
@@ -244,8 +256,8 @@ export function DictionarySettingsPage() {
         {client.resetLearnedData && (
           <GroupList title="学习数据">
             <Row
-              title="清除候选词频、用户词典和拼音学习记录"
-              description="输入方案与其他设置不会改变。"
+              title="清除候选词频、用户词库和拼音学习记录"
+              description="自己新增和修改的词条也会删除；输入方案与其他设置不会改变。"
             >
               <button
                 type="button"

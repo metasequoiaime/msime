@@ -45,7 +45,7 @@ pub fn make_skin_text(style: Option<String>) -> String {
 2. Write skin.toml as create_candidate_skin's description lays out. Give [candidate.light] and [candidate.dark] colours for each mode listed in [supports] themes, and keep text and number readable against surface and selected (a contrast of at least 4.5:1).
 3. Make every image by running code; never write base64 by hand. A short Python script using only the standard library (zlib and struct are enough to write a PNG) runs without installing anything; use Pillow only if it is already installed. Always make the preview, a small picture of the skin in its own colours, around 480x160 and under 256 KiB. Keep background and decoration images to a few hundred pixels; at most 3 images and 2 MiB together. Have the script print each image's base64 and pass it in images, keyed by the path the manifest uses. If you cannot run code, tell the user that making a skin needs an assistant that can, such as Claude Code or Codex, and stop.
 4. If create_candidate_skin refuses the skin, read the reason, fix the manifest or the images, and try again.
-5. Once it is installed, tell the user how to use it: in the MSIME settings, open 外观, then 自定义主题, turn on 使用桌面候选皮肤 and pick the skin. If they are signed in, the desktop app also saves it to their cloud library as a private skin, and they can publish it from the community page."
+5. Once it is installed, tell the user how to use it: in the MSIME settings, open 主题 and pick the skin under 我的皮肤. If they are signed in, the desktop app also saves it to their cloud library as a private skin, and they can publish it from its card there."
     )
 }
 

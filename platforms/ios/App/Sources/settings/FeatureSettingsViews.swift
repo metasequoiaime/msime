@@ -49,7 +49,7 @@ struct SkinSettingsView: View {
                            detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
                            symbol: "paintbrush.pointed.fill")
         }.accessibilityIdentifier("customSkinEditorLink")
-        Button { navigation.discoverSkins() } label: { Label("去社区发现皮肤", systemImage: "square.grid.2x2") }
+        Button { navigation.discoverSkins() } label: { Label("去社区找皮肤", systemImage: "square.grid.2x2") }
           .accessibilityIdentifier("skinCommunityLink")
       } header: {
         Text("自定义主题")
@@ -148,7 +148,7 @@ struct SkinSettingsView: View {
   /// 「键盘明暗」 from the shared document (see KeyboardAppearancePreference). iPad lists the panels beside the keyboard; the phone folds them away, since most people only ever set the keyboard.
   private var appearanceSection: some View {
     Section {
-      Picker("主题模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
+      Picker("颜色模式", selection: theme(AppAppearancePreference.globalKey, fallback: "system")) {
         ForEach(AppAppearancePreference.globalOptions, id: \.id) { Text($0.title).tag($0.id) }
       }.accessibilityIdentifier("globalTheme")
       Picker("设置界面", selection: theme(AppAppearancePreference.settingsKey)) {
@@ -167,7 +167,7 @@ struct SkinSettingsView: View {
     } footer: {
       Text(themeSaveFailed
         ? "设置没有保存，键盘可能正在写入同一份设置，请再试一次。"
-        : "与电脑版的主题模式、设置界面、屏幕键盘、手写、表情和语音主题同步。主题模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看主题模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
+        : "与电脑版的颜色模式、设置界面、屏幕键盘、手写、表情和语音主题同步。颜色模式是各处选“跟随”时的默认值；设置界面就是这个 App，立即生效。键盘选“跟随系统”时先看颜色模式，再跟随当前 App 的外观；面板选“跟随键盘”时和键盘一致。键盘和面板下次打开水杉键盘时应用。")
     }
   }
 

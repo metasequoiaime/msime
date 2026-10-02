@@ -18,7 +18,7 @@ export type TranslationCustomSettings = Omit<CustomTranslationSettingsSectionPro
 
 export interface TranslationProviderSettingsSectionProps {
   grouped?: boolean;
-  /** 在「翻译服务」中选择的服务；只显示它的设置，选「关闭」或 MSIME 账户时不显示任何设置。 */
+  /** 在「翻译服务」中选择的服务；只显示它的设置，选「关闭」或 MSIME 账号时不显示任何设置。 */
   provider: TranslationProvider;
   niutrans: TranslationNiuTransSettings;
   tencent: TranslationTencentSettings;

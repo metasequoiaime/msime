@@ -3,7 +3,7 @@ import { Select } from "../core/platform-controls";
 export type SurfaceTheme = "follow" | "dark" | "light";
 
 const surfaceThemeLabels: Record<SurfaceTheme, string> = {
-  follow: "跟随全局",
+  follow: "跟随颜色模式",
   dark: "深色",
   light: "浅色",
 };

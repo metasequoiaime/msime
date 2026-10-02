@@ -37,8 +37,8 @@ const themeModeOptions = [
   { value: "dark", label: "深色" },
 ] as const satisfies readonly { value: ThemeMode; label: string }[];
 
-/** The 主题 page of the settings form (route id `skin`): the global theme, what a custom theme is made of, and the per-surface overrides. */
-export function SkinSettingsPage() {
+/** The 主题 page of the settings form (route id `skin`): the global theme, what a custom theme is made of, and the per-surface overrides. `hidden` keeps it mounted while the desktop shell shows the 社区皮肤 tab in its place. */
+export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   const {
     client,
     linuxPlatform,
@@ -86,7 +86,7 @@ export function SkinSettingsPage() {
   const packageInUse = packages.findIndex((skin) => skin.id === skinInUse);
   return (
     <>
-      <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
+      <fieldset disabled={busy} hidden={hidden || page !== "skin"} aria-label="主题">
         <div className={settings.groups}>
           <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
           {/* 这条说明指出面板会忽略本页的皮肤和颜色，而它们在别处都无法编辑，所以除了「候选窗口」预览下方，这里也保留一份。 */}
@@ -271,11 +271,11 @@ export function SkinSettingsPage() {
               openable={!!client.openSkinDirectory}
               importsSkin={importsSkin}
             />
-            {/* 有社区客户端的桌面宿主会在侧栏列出「社区」，候选皮肤从上面各自的卡片发布；这一行是手机进入键盘皮肤图库的入口。 */}
+            {/* 桌面宿主在本页顶部的「社区皮肤」标签里浏览候选窗口皮肤，并从上面各自的卡片发布；这一行是手机进入「社区」标签里键盘皮肤图库的入口。 */}
             {mobilePlatform && client.communitySkins && (
-              <Row title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
+              <Row title="在线皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
                 <button type="button" className="secondary" onClick={() => openCommunity("all")}>
-                  去社区发现皮肤
+                  去社区找皮肤
                 </button>
               </Row>
             )}
@@ -283,11 +283,11 @@ export function SkinSettingsPage() {
           <GroupList title="自定义主题">
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
               <Row
-                title="使用桌面候选皮肤"
-                description="关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用这里的主题和候选颜色。"
+                title="候选栏使用主题配色"
+                description="关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用本页的主题和候选颜色。"
               >
                 <Switch
-                  aria-label="使用桌面候选皮肤"
+                  aria-label="候选栏使用主题配色"
                   disabled={mobileKeyboardFeedbackBusy}
                   checked={mobileKeyboardFeedback.candidatePaletteFollowsDesktop}
                   onChange={(checked) =>
@@ -351,7 +351,7 @@ export function SkinSettingsPage() {
           />
         </div>
       </fieldset>
-      {candidateSkins && publishSkinId && page === "skin" && (
+      {candidateSkins && publishSkinId && page === "skin" && !hidden && (
         <CandidateSkinPublishDialog
           client={candidateSkins}
           localSkins={client.scanSkinCatalog}

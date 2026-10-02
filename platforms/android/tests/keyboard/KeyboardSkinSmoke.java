@@ -69,7 +69,7 @@ public final class KeyboardSkinSmoke {
         check(KeyboardSkin.resolveDark("follow", "system", true));
         check(!KeyboardSkin.resolveDark("follow", "system", false));
         // The emoji and handwriting panels resolve their own surface setting through the same
-        // rule. An unknown or missing value has to read as 跟随全局, not as an explicit light:
+        // rule. An unknown or missing value has to read as 跟随颜色模式, not as an explicit light:
         // an older snapshot would otherwise flip those two panels while the keyboard stayed dark.
         check(KeyboardSkin.resolveDark("unknown", "dark", false));
         check(KeyboardSkin.resolveDark("", "system", true));

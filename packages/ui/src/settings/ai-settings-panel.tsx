@@ -1,7 +1,7 @@
 import { AiSettingsContent, type AiSettingsContentProps } from "./ai-settings-content";
 import { McpConnectSection } from "./mcp-connect";
 
-export type AiSettingsPanelProps = Omit<AiSettingsContentProps, "mcpConnect">;
+export type AiSettingsPanelProps = Omit<AiSettingsContentProps, "trailing">;
 
 /** Embedded AI settings adapter; the shared content owns the controls and provider logic. */
 export function AiSettingsPanel(props: AiSettingsPanelProps) {
@@ -9,7 +9,7 @@ export function AiSettingsPanel(props: AiSettingsPanelProps) {
   return (
     <AiSettingsContent
       {...props}
-      mcpConnect={
+      trailing={
         client.mcpServerStatus ? (
           <McpConnectSection
             status={client.mcpServerStatus}

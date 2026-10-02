@@ -22,16 +22,16 @@
         self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 420, 280)
                                                    styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable)
                                                      backing:NSBackingStoreBuffered defer:NO];
-        self.window.title = @"水杉账户";
+        self.window.title = @"水杉账号";
     }
     NSString *token = [[MSIMEAccountSessionManager sharedManager] accessTokenForAccountID:accountID];
     NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(24, 90, 372, 50)];
     label.editable = NO; label.bezeled = NO; label.drawsBackground = NO;
-    label.stringValue = token.length ? [NSString stringWithFormat:@"账户 %@\n已保存授权凭据。", accountID] : @"尚未找到授权凭据。";
+    label.stringValue = token.length ? [NSString stringWithFormat:@"账号 %@\n已保存授权凭据。", accountID] : @"尚未找到授权凭据。";
     NSButton *login = [[NSButton alloc] initWithFrame:NSMakeRect(24, 55, 100, 32)];
     login.title = @"登录"; login.bezelStyle = NSBezelStyleRounded; login.target = self; login.action = @selector(login:);
     NSButton *settings = [[NSButton alloc] initWithFrame:NSMakeRect(140, 55, 160, 32)]; settings.title = @"桌面设置同步…"; settings.bezelStyle = NSBezelStyleRounded; settings.target = self; settings.action = @selector(showSettings:);
-    NSArray *surfaces = @[@"云词典…", @"云剪贴板…", @"词库快照…"];
+    NSArray *surfaces = @[@"云词库…", @"云剪贴板…", @"词库快照…"];
     NSMutableArray *buttons = [NSMutableArray array];
     for (NSUInteger index = 0; index < surfaces.count; ++index) {
         NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(24 + (CGFloat)index * 124, 12, 112, 30)];

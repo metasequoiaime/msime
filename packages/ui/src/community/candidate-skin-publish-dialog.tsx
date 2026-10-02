@@ -322,11 +322,11 @@ export function CandidateSkinPublishDialog({
         className={style.dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="发布候选窗皮肤"
+        aria-label="发布候选窗口皮肤"
         onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
       >
         <CommunityDialogHeader
-          title="发布候选窗皮肤"
+          title="发布候选窗口皮肤"
           titleClassName={style.dialogTitle}
           busy={busy}
           onClose={onClose}

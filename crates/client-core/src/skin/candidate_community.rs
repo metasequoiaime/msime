@@ -95,7 +95,7 @@ pub enum CandidateSkinVisibility {
     Private,
 }
 
-/// 社区候选窗皮肤的发布分类，与社区键盘皮肤共用同一套分类。分类只是发布元数据，不属于 `skin.toml`。
+/// 社区候选窗口皮肤的发布分类，与社区键盘皮肤共用同一套分类。分类只是发布元数据，不属于 `skin.toml`。
 pub use super::category::SkinCategory as CandidateSkinCategory;
 
 /// One published package as the gallery lists it. It never carries the manifest or any image bytes.

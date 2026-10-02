@@ -1416,7 +1416,7 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Emoji", "emoji", "表情与符号", false},
     {"DesktopTools/Clipboard", "clipboard", "本地剪贴板", false},
     {"DesktopTools/Voice", "voice", "语音面板", false},
-    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词典", false},
+    {"DesktopTools/CloudDictionary", "cloud-dictionary", "云词库", false},
     {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板", false},
     {"DesktopTools/Dictionary", "dictionary", "词库…", true},
     {"DesktopTools/Settings", "settings", "设置…", true},
@@ -3140,8 +3140,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto nine_key_spellings_property = nine_key_spellings(engine);
   auto local_modes_property = ibus_property_new(
       "LocalModes", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("本地输入模式"), "",
-      ibus_text_new_from_static_string("启用或停用本地快捷输入模式"),
+      ibus_text_new_from_static_string("快捷模式"), "",
+      ibus_text_new_from_static_string("启用或停用快捷模式"),
       s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED,
       nullptr);
   auto local_modes_menu = ibus_prop_list_new();
@@ -3167,7 +3167,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     auto item = ibus_property_new(
         (std::string("LocalModes/") + key).c_str(), PROP_TYPE_TOGGLE,
         ibus_text_new_from_static_string(label), "",
-        ibus_text_new_from_static_string("本地快捷输入模式"),
+        ibus_text_new_from_static_string("快捷模式"),
         s.focused && !s.blocked && s.input_enabled && !menu_save_pending, TRUE,
         enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(local_modes_menu, item);
@@ -3214,17 +3214,17 @@ void publish_mode(IBusEngine *engine, bool registration) {
       TRUE, s.wubi_code_hint ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
-      ibus_text_new_from_static_string("候选主题"), "",
-      ibus_text_new_from_static_string("选择候选背景主题"),
+      ibus_text_new_from_static_string("候选明暗"), "",
+      ibus_text_new_from_static_string("选择候选窗口明暗"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto theme_menu = ibus_prop_list_new();
   const std::pair<const char *, const char *> theme_options[] = {
-      {"follow", "跟随全局"}, {"light", "浅色"}, {"dark", "深色"}};
+      {"follow", "跟随颜色模式"}, {"light", "浅色"}, {"dark", "深色"}};
   for (const auto &[value, label] : theme_options) {
     auto item = ibus_property_new(
         (std::string("CandidateTheme/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选主题"), !menu_save_pending, TRUE,
+        ibus_text_new_from_static_string("选择候选明暗"), !menu_save_pending, TRUE,
         theme == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
     ibus_prop_list_append(theme_menu, item);
   }

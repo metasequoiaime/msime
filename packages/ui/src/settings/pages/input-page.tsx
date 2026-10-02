@@ -1,7 +1,7 @@
 import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
-import { GroupList, LinkRow } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
@@ -38,7 +38,6 @@ export function InputSettingsPage() {
     setDraft,
     busy,
     page,
-    selectPage,
     macosShuangpinKeymap,
     setShuangpinKeymap,
     macosWubiAutoCommitUnique,
@@ -46,6 +45,7 @@ export function InputSettingsPage() {
     wordCharacter,
     frequency,
     fuzzyPinyin,
+    mixedInput,
     touchKeyboardSchemes,
     selectedTouchKeyboardScheme,
     selectTouchKeyboardScheme,
@@ -61,7 +61,7 @@ export function InputSettingsPage() {
   const navigation = draft.navigation ?? defaultNavigation;
   return (
     <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
-      {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
+      {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
       <div className={settings.groups}>
         <InputSchemeSettingsContent
           grouped
@@ -95,13 +95,8 @@ export function InputSettingsPage() {
           // 中英文切换提示在所有平台都放在这里；macOS 以前把它放在快捷键页。
           showInputModeHUD={showInputModeHUD}
           showModeScope={showModeScope}
-          modeExtra={
-            <LinkRow
-              title="中英混输"
-              description="中文输入时在候选项中补充英文单词，在「标点与翻译」页设置"
-              onClick={() => selectPage("expression")}
-            />
-          }
+          mixedInput={mixedInput}
+          onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
           paging={
             <NavigationSection
               navigation={navigation}

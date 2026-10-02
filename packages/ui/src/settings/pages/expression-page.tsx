@@ -1,7 +1,6 @@
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { createSettingsDraftActions } from "../settings-draft-actions";
-import { SubPageEntries } from "./sub-page-entries";
 import { GroupList } from "../../core/platform-controls";
 import { InputLanguageOptionsSection } from "../input-language-options-section";
 import { CustomTranslationsSection } from "../custom-translations-section";
@@ -11,7 +10,7 @@ import { createTranslationSettingsBindings } from "../translation-settings-bindi
 import { MobileInputAiNotice } from "../mobile-input-ai-notice";
 
 /**
- * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选、混入的英文与表情颜文字——以及改写它的 AI 功能，后者从这里进入各自的页面。模糊音改的是拼音怎么解析，在输入页。
+ * 标点与翻译页：打出来的内容以什么形式出现——标点、其他语言的候选与释义、翻译服务。混入的英文与表情颜文字是候选来源，模糊音改的是拼音怎么解析，两者都在输入页；AI 功能在「工具」组的「AI 辅助」页。
  */
 export function ExpressionSettingsPage() {
   const {
@@ -40,7 +39,6 @@ export function ExpressionSettingsPage() {
     updateTencentCredentialInput,
     providerCredentialBusy,
     flushCustomTranslations,
-    mixedInput,
     candidateTranslations,
     candidateEnglishGloss,
     englishSuggestions,
@@ -115,9 +113,6 @@ export function ExpressionSettingsPage() {
         </GroupList>
         <InputLanguageOptionsSection
           grouped
-          includeMixed
-          mixedInput={mixedInput}
-          onMixedInputChange={(mixed_input) => onPreferencesChange({ mixed_input })}
           includeCandidateControls
           showCandidateEnglishGloss={client.candidateEnglishGloss}
           candidateEnglishGloss={candidateEnglishGloss}
@@ -140,13 +135,6 @@ export function ExpressionSettingsPage() {
           providers={translation.providers}
         />
         {mobilePlatform && <MobileInputAiNotice grouped onOpenAi={() => selectPage("ai")} />}
-        <SubPageEntries
-          title="AI"
-          pages={[
-            { id: "ai", description: "联想、回复与润色使用的模型服务" },
-            { id: "chat", description: "与 AI 对话，结果可以直接用于输入" },
-          ]}
-        />
       </div>
     </fieldset>
   );

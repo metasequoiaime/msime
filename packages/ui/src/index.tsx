@@ -12,12 +12,7 @@ import {
   requestedPage,
   type MobilePrimaryPageId,
 } from "./settings/settings-navigation-helpers";
-import {
-  pages,
-  settingsPageAliases,
-  subPageParents,
-  type SettingsPageId,
-} from "./settings/settings-page-registry";
+import { pages, subPageParents, type SettingsPageId } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
 import {
   canReloadSettingsPage,
@@ -205,7 +200,7 @@ export {
   canRestoreDefaultsOnPage,
   isSettingsFormPage,
 } from "./settings/settings-page-visibility";
-export type { ExportedSettingsPageId as SettingsPageId } from "./settings/settings-page-registry";
+export type { SettingsPageId } from "./settings/settings-page-registry";
 export {
   useSettingsDictionaryState,
   type UseSettingsDictionaryStateOptions,
@@ -2250,7 +2245,6 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     requestedPage(
       initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined),
       pages,
-      settingsPageAliases,
       "input",
     ),
   );
@@ -2437,6 +2431,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setError,
     setNotice,
     confirm,
+    voiceShortcut: !macosPlatform,
   });
   const openExternalUrl = useExternalUrl({
     openExternalUrl: client.openExternalUrl,
@@ -2620,9 +2615,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       hasVocabularyReview: Boolean(client.vocabularyReview),
       hasAccount: Boolean(client.account || client.appIcon),
       hasChat: Boolean(client.chat),
-      hasCommunity: Boolean(
-        client.communitySkins || client.communityResources || client.communityCandidateSkins,
-      ),
+      hasCommunity: Boolean(client.communitySkins || client.communityResources),
       showFloatingToolbar,
       showDeveloperPage,
       // A host with a pack store, or one that plays or routes something the page switches.
@@ -2654,7 +2647,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       accountLoginReturnPage,
     });
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  // 设计稿里从一个页面内部打开另一个页面的行，例如「标点与翻译」上的「AI 辅助」。
+  // 设计稿里从一个页面内部打开另一个页面的行，例如「AI 辅助」上的「AI 对话」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
@@ -2951,6 +2944,8 @@ export function SettingsPage(props: SettingsPageProps) {
   const model = useSettingsPageModel(props);
   // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
   const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
+  // 主题 does the same on desktop: the installed candidate-window skins with the theme settings, or the community gallery of them.
+  const [skinView, setSkinView] = useState<"mine" | "community">("mine");
   // Filters the sidebar by page name; the model does not need it, since it never leaves the shell.
   const [navQuery, setNavQuery] = useState("");
   // The phone page that has scrolled its large title away, which brings in the compact bar. Keyed by page so that arriving on another page, which opens at its top, never inherits the bar.
@@ -3048,7 +3043,12 @@ export function SettingsPage(props: SettingsPageProps) {
   const titlebarShown =
     !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
   const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
-  // 子页面（「标点与翻译」下的「AI 辅助」、「词库」下的「背单词」、「帮助与反馈」下的「帮助」）在返回时写出父页面的名字。
+  // A community gallery stands in for the page's own settings, so the form's page-level actions do not apply while it is shown.
+  const skinCommunityShown =
+    page === "skin" && Boolean(client.communityCandidateSkins) && skinView === "community";
+  const pluginCommunityShown =
+    page === "plugins" && Boolean(client.communityPlugins) && pluginView === "community";
+  // 子页面（「AI 辅助」下的「AI 对话」、「词库」下的「背单词」、「帮助与反馈」下的「帮助」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.
@@ -3248,6 +3248,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={onOpenChat}
                 touchLayout={mobilePlatform}
+                ios={iosPlatform}
               />
             )}
             {page === "more" && (
@@ -3292,8 +3293,9 @@ export function SettingsPage(props: SettingsPageProps) {
                       }
                     : undefined
                 }
+                // macOS opens the cloud clipboard only from the IME menu, which supplies the input session it pastes into.
                 onOpenCloudClipboard={
-                  client.openCloudClipboard
+                  client.openCloudClipboard && !macosPlatform
                     ? () => {
                         void client.openCloudClipboard!().catch(() =>
                           setError("无法打开云剪贴板，请重试。"),
@@ -3330,11 +3332,6 @@ export function SettingsPage(props: SettingsPageProps) {
                 destinationKey={communityDestination}
                 skins={client.communitySkins}
                 resources={client.communityResources}
-                candidateSkins={client.communityCandidateSkins}
-                localSkins={client.scanSkinCatalog}
-                openSkinDirectory={client.openSkinDirectory}
-                readSkinImage={client.readSkinImage}
-                onOpenSkinPage={() => selectPage("skin")}
                 theme={keyboardPreviewTheme}
                 initialMine={initialCommunityMine}
                 initialCategory={initialCommunityCategory}
@@ -3360,6 +3357,39 @@ export function SettingsPage(props: SettingsPageProps) {
                 openPanel={client.openVocabulary}
               />
             )}
+            {page === "skin" && client.communityCandidateSkins && (
+              <div className={communityStyle.categoryTabsPair} role="tablist" aria-label="皮肤来源">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={skinView === "mine"}
+                  onClick={() => setSkinView("mine")}
+                >
+                  我的皮肤
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={skinView === "community"}
+                  onClick={() => setSkinView("community")}
+                >
+                  社区皮肤
+                </button>
+              </div>
+            )}
+            {skinCommunityShown && (
+              <div className="mt-4">
+                <CommunityPage
+                  candidateSkins={client.communityCandidateSkins}
+                  localSkins={client.scanSkinCatalog}
+                  openSkinDirectory={client.openSkinDirectory}
+                  readSkinImage={client.readSkinImage}
+                  onOpenSkinPage={() => setSkinView("mine")}
+                  theme={keyboardPreviewTheme}
+                  onLogin={openAccountLogin}
+                />
+              </div>
+            )}
             {page === "plugins" && client.communityPlugins && (
               <div className={communityStyle.categoryTabsPair} role="tablist" aria-label="插件来源">
                 <button
@@ -3380,7 +3410,7 @@ export function SettingsPage(props: SettingsPageProps) {
                 </button>
               </div>
             )}
-            {page === "plugins" && client.communityPlugins && pluginView === "community" && (
+            {client.communityPlugins && pluginCommunityShown && (
               <div className="mt-4">
                 <CommunityPluginsPage
                   client={client.communityPlugins}
@@ -3392,7 +3422,7 @@ export function SettingsPage(props: SettingsPageProps) {
             {draft && isSettingsFormPage(page) && (
               <SettingsFormFrame showReload={false} busy={busy}>
                 <SettingsFormContext.Provider value={{ ...model, draft }}>
-                  <SkinSettingsPage />
+                  <SkinSettingsPage hidden={skinCommunityShown} />
                   <AppearanceSettingsPage />
                   <FloatingToolbarSettingsPage />
                   <InputSettingsPage />
@@ -3404,9 +3434,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   <VoiceSettingsPage />
                   <HandwritingSettingsPage />
                   <ToolsSettingsPage />
-                  <PluginsSettingsPage
-                    hidden={Boolean(client.communityPlugins) && pluginView === "community"}
-                  />
+                  <PluginsSettingsPage hidden={pluginCommunityShown} />
                   <DeveloperSettingsPage />
                   <FeedbackSettingsPage />
                   <HelpSettingsPage
@@ -3430,7 +3458,10 @@ export function SettingsPage(props: SettingsPageProps) {
                   saveState={saveState}
                   saveError={saveError}
                   showRestoreDefaults={
-                    Boolean(client.loadDefaultPreferences) && canRestoreDefaultsOnPage(page)
+                    Boolean(client.loadDefaultPreferences) &&
+                    canRestoreDefaultsOnPage(page) &&
+                    !skinCommunityShown &&
+                    !pluginCommunityShown
                   }
                   onRestoreDefaults={onRestoreDefaults}
                   onRetry={() => void retrySave()}

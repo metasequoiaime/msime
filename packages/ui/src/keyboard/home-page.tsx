@@ -133,6 +133,7 @@ export function HomePage({
   onSelectScheme,
   onOpenChat,
   touchLayout = false,
+  ios = false,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
@@ -140,6 +141,8 @@ export function HomePage({
   onOpenChat?: () => void;
   onSelectScheme?: (scheme: TouchKeyboardScheme) => void;
   touchLayout?: boolean;
+  /** iOS opens the keyboard extension's settings, where 完全访问 lives; Android and HarmonyOS open the system input method settings. */
+  ios?: boolean;
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const selected = themeEntry(preferences.global_theme).id;
@@ -281,7 +284,7 @@ export function HomePage({
             icon={new URL("../assets/utilities.svg", import.meta.url).href}
           />
           <strong className={quickTitle}>系统设置</strong>
-          <small className={quickNote}>启用与完全访问</small>
+          <small className={quickNote}>{ios ? "启用与完全访问" : "启用与设为默认"}</small>
         </button>
       </div>
       <button
@@ -362,7 +365,7 @@ export function HomePage({
             className="secondary m-0"
             onClick={() => invokeAction(actions.openSystemKeyboardSettings)}
           >
-            系统键盘设置
+            {ios ? "系统键盘设置" : "系统输入法设置"}
           </button>
         )}
         {actions?.showInputMethodPicker && (

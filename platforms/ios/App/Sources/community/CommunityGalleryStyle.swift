@@ -52,7 +52,7 @@ struct CommunityResourceCard: View {
       HStack {
         Image(systemName: item.kind.icon).font(.system(size: 13, weight: .semibold))
         Spacer()
-        Text(item.kind == .dictionary ? "\(item.content.entries?.count ?? 0) 词条" : "回复灵感")
+        Text(item.kind == .dictionary ? "\(item.content.entries?.count ?? 0) 词条" : "回复模板")
           .font(.system(size: 9, weight: .medium))
       }.foregroundStyle(accent)
       if item.kind == .dictionary {

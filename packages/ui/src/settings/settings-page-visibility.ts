@@ -1,4 +1,4 @@
-import type { ExportedSettingsPageId as SettingsPageId } from "./settings-page-registry";
+import type { SettingsPageId } from "./settings-page-registry";
 
 const formExcludedPages: readonly SettingsPageId[] = [
   "typing-statistics",

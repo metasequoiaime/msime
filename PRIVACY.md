@@ -155,7 +155,7 @@ Android 的手写识别使用 ML Kit，**首次使用需要联网下载识别模
 
 ### 社区举报与审核
 
-社区里看别人发布的皮肤、候选窗皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-core/src/community/report.rs`。
+社区里看别人发布的皮肤、候选窗口皮肤、插件、词库和回复模板时，每一项都有「举报」入口。只有你选择理由并提交时，才会向 `POST https://api.msime.app/v1/community/reports` 发送 `{kind, item_id, reason, detail}`：`reason` 是固定的六个理由之一（侵权/抄袭、色情低俗、违法违规、垃圾广告、恶意插件、其他），`detail` 是你自己填写的可选说明（最多 1000 字）。请求带账号令牌，已登录用登录账号，否则用本机匿名账号。共享实现在 `crates/client-core/src/community/report.rs`。
 
 社区采用先发布后审核：发布的内容立即公开，管理员可以下架。查看「我的作品」或自己作品详情时，请求带 `fields=moderation`，只用来在被下架的作品上显示「已下架」；不会显示下架理由，也没有待审核状态。
 

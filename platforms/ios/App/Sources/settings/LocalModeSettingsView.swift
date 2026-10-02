@@ -38,7 +38,7 @@ struct LocalModeSettingsView: View {
         }
       }
     }
-    .navigationTitle("本地输入模式").navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("快捷模式").navigationBarTitleDisplayMode(.inline)
     .onAppear(perform: reload)
     .onChange(of: scenePhase) { if $0 == .active { reload() } }
   }

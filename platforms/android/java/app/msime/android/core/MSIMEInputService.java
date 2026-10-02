@@ -4721,7 +4721,7 @@ public final class MSIMEInputService extends InputMethodService {
         replyStatus = new TextView(this);
         replyStatus.setSingleLine(true);
         replyStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        replyStatus.setContentDescription("回复键盘状态");
+        replyStatus.setContentDescription("高情商回复键盘状态");
         footer.addView(replyStatus, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         Button styles = role(button(footer, "选风格", () -> {

@@ -647,9 +647,9 @@ test("logged-in accounts expose local designs and every community collection", a
   fireEvent.click(await screen.findByRole("button", { name: "打开设计器" }));
   fireEvent.click(screen.getByRole("button", { name: "我发布的皮肤" }));
   fireEvent.click(screen.getByRole("button", { name: "我发布的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "我发布的回复模板" }));
   fireEvent.click(screen.getByRole("button", { name: "收藏的词库" }));
-  fireEvent.click(screen.getByRole("button", { name: "收藏的回复" }));
+  fireEvent.click(screen.getByRole("button", { name: "收藏的回复模板" }));
   expect(openLocalDesigns).toHaveBeenCalledTimes(1);
   expect(openCommunity.mock.calls).toEqual([
     ["published-skins"],
@@ -749,9 +749,9 @@ test("mobile accounts group published and saved community resources", async () =
   const content = within(await screen.findByRole("region", { name: "我的内容" }));
   fireEvent.click(content.getByRole("button", { name: "我发布的皮肤" }));
   fireEvent.click(content.getByRole("button", { name: "我发布的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "我发布的回复" }));
+  fireEvent.click(content.getByRole("button", { name: "我发布的回复模板" }));
   fireEvent.click(content.getByRole("button", { name: "收藏的词库" }));
-  fireEvent.click(content.getByRole("button", { name: "收藏的回复" }));
+  fireEvent.click(content.getByRole("button", { name: "收藏的回复模板" }));
   expect(openCommunity.mock.calls).toEqual([
     ["published-skins"],
     ["published-dictionary"],
@@ -1018,7 +1018,7 @@ test("settings expose My only with a personal capability and omit preference act
     <SettingsPage client={{ load: async () => preferences, save: vi.fn() }} />,
   );
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "账户与同步" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "账号与同步" })).toBeNull();
   without.unmount();
 
   render(
@@ -1027,7 +1027,7 @@ test("settings expose My only with a personal capability and omit preference act
       initialPage="account"
     />,
   );
-  expect(await screen.findByRole("heading", { name: "账户与同步" })).not.toBeNull();
+  expect(await screen.findByRole("heading", { name: "账号与同步" })).not.toBeNull();
   await screen.findByText("欢迎来到水杉");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();

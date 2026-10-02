@@ -43,7 +43,7 @@ export type CommunityCandidateSkinLicense = {
 /** Who can see a package: everyone in the gallery, or only its owner, whose library sync keeps private packages in. */
 export type CandidateSkinVisibility = "public" | "private";
 
-/** 候选窗皮肤的发布分类，与社区键盘皮肤共用；只是发布元数据，不写进 skin.toml。 */
+/** 候选窗口皮肤的发布分类，与社区键盘皮肤共用；只是发布元数据，不写进 skin.toml。 */
 export type CandidateSkinCategory = CommunitySkinCategory;
 export const candidateSkinCategories = communitySkinCategories;
 export const candidateSkinCategoryLabels = communitySkinCategoryLabels;
@@ -213,7 +213,7 @@ function CommunityCandidateSkinCard({
     <button
       type="button"
       className={style.card}
-      aria-label={`查看候选窗皮肤 ${skin.name}`}
+      aria-label={`查看候选窗口皮肤 ${skin.name}`}
       onClick={open}
     >
       <CandidateSkinPreviewImage
@@ -257,7 +257,7 @@ export function CommunityCandidateSkinsPage({
   localSkins?: () => Promise<SkinCatalog>;
   openSkinDirectory?: () => Promise<void>;
   readSkinImage?: SkinImageReader;
-  /** Opens 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
+  /** Returns to 我的皮肤 on 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
   onOpenSkinPage?: () => void;
   /** Called once a package lands in the external skin directory, so a listing of that directory can scan again. */
   onInstalled?: () => void;
@@ -546,19 +546,19 @@ export function CommunityCandidateSkinsPage({
   return (
     <div className={style.page}>
       <CommunitySearchForm
-        label="搜索候选窗皮肤"
+        label="搜索候选窗口皮肤"
         value={search}
         onChange={setSearch}
         onSubmit={() => void requestList(search, false)}
       />
       <div className={style.heading}>
         <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>候选窗皮肤</h2>
-          <p className={style.headingNote}>为输入候选窗换一身新装，下载后在「主题」中启用</p>
+          <h2 className={style.headingTitle}>社区皮肤</h2>
+          <p className={style.headingNote}>为输入候选窗口换一身新装，安装后在「我的皮肤」中启用</p>
         </div>
         <div className={style.headingActions}>
           <CommunityScopeButtons
-            ariaLabel="候选窗皮肤范围"
+            ariaLabel="候选窗口皮肤范围"
             mineOnly={mineOnly}
             allLabel="全部"
             mineLabel="我的作品"
@@ -575,7 +575,7 @@ export function CommunityCandidateSkinsPage({
         </div>
       </div>
       <CommunitySkinCategoryFilter
-        ariaLabel="候选窗皮肤分类"
+        ariaLabel="候选窗口皮肤分类"
         value={categoryFilter.category}
         onChange={(next) => void changeCategory(next)}
       />
@@ -587,7 +587,7 @@ export function CommunityCandidateSkinsPage({
       )}
       {!listBusy && skins.length === 0 && (
         <p className={style.notice}>
-          {mineOnly ? "你的皮肤库里还没有候选窗皮肤。" : "暂时没有匹配的候选窗皮肤。"}
+          {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}
         </p>
       )}
       <div className={style.grid}>
@@ -603,7 +603,7 @@ export function CommunityCandidateSkinsPage({
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}
-        loadingText="正在读取候选窗皮肤…"
+        loadingText="正在读取候选窗口皮肤…"
         onLoadMore={() => void requestList(activeSearch, true)}
       />
       {publishOpen && localSkins && (

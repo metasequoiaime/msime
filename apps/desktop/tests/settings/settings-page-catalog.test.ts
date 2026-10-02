@@ -19,9 +19,6 @@ test("builds the complete desktop page catalog in registry order", () => {
     modeSwitchShortcuts: true,
     panelShortcuts: true,
     desktopMaintenanceShortcuts: true,
-    helpcodeShiftEntry: true,
-    android: false,
-    harmony: false,
     macos: false,
   });
 
@@ -40,11 +37,11 @@ test("builds the complete desktop page catalog in registry order", () => {
     "tools",
     "typing-statistics",
     "plugins",
+    "ai",
     "account",
     "community",
     "feedback",
     "about",
-    "ai",
     "chat",
     "vocabulary",
     "help",
@@ -58,9 +55,6 @@ test("builds the complete desktop page catalog in registry order", () => {
       modeSwitchShortcuts: true,
       panelShortcuts: true,
       desktopMaintenanceShortcuts: true,
-      helpcodeShiftEntry: true,
-      android: false,
-      harmony: false,
       macos: false,
     }).availablePages.map((page) => page.id),
   ).toContain("developer");
@@ -80,35 +74,23 @@ test("hides hardware shortcuts and floating toolbar on touch-only mobile hosts",
     modeSwitchShortcuts: false,
     panelShortcuts: false,
     desktopMaintenanceShortcuts: false,
-    helpcodeShiftEntry: false,
-    android: false,
-    harmony: false,
     macos: false,
   });
 
-  expect(catalog.mobileHiddenPageIds).toEqual([
-    "shortcuts",
-    "floating-toolbar",
-    "plugins",
-    "helpcode",
-  ]);
+  expect(catalog.mobileHiddenPageIds).toEqual(["shortcuts", "floating-toolbar", "plugins"]);
   expect(catalog.sidebarGroups.flat().map((page) => page.id)).not.toContain("shortcuts");
   expect(catalog.sidebarGroups.flat().map((page) => page.id)).not.toContain("floating-toolbar");
   expect(catalog.sidebarGroups.flat().map((page) => page.id)).not.toContain("plugins");
-  expect(catalog.mobileSecondaryPages.map((page) => page.id)).not.toContain("helpcode");
   expect(catalog.mobileSecondaryPages.map((page) => page.id)).not.toContain("plugins");
 });
 
-test("keeps helper codes on Android and HarmonyOS while exposing keyboard shortcuts by capability", () => {
-  const android = settingsPageCatalog({
+test("exposes the keyboard shortcuts page on a touch host that routes a chord", () => {
+  const touchOnly = settingsPageCatalog({
     ...allCapabilities,
     mobile: true,
     modeSwitchShortcuts: false,
     panelShortcuts: false,
     desktopMaintenanceShortcuts: false,
-    helpcodeShiftEntry: false,
-    android: true,
-    harmony: false,
     macos: false,
   });
   const harmonyTwoInOne = settingsPageCatalog({
@@ -117,18 +99,12 @@ test("keeps helper codes on Android and HarmonyOS while exposing keyboard shortc
     modeSwitchShortcuts: true,
     panelShortcuts: false,
     desktopMaintenanceShortcuts: false,
-    helpcodeShiftEntry: false,
-    android: false,
-    harmony: true,
     macos: false,
   });
 
-  expect(android.mobileHiddenPageIds).toEqual(["shortcuts", "floating-toolbar", "plugins"]);
+  expect(touchOnly.mobileHiddenPageIds).toEqual(["shortcuts", "floating-toolbar", "plugins"]);
   expect(harmonyTwoInOne.mobileHiddenPageIds).toEqual(["floating-toolbar", "plugins"]);
-  // 辅助码现在是输入页的一组，不再是单独的页面；输入页在两种宿主上都列在「全部设置」里。
-  expect(android.mobileSecondaryPages.map((page) => page.id)).toContain("input");
-  expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("input");
-  expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).not.toContain("helpcode");
+  expect(touchOnly.mobileSecondaryPages.map((page) => page.id)).toContain("input");
   expect(harmonyTwoInOne.mobileSecondaryPages.map((page) => page.id)).toContain("shortcuts");
 });
 
@@ -140,9 +116,6 @@ test("offers the 插件 page only where the host backs it", () => {
     modeSwitchShortcuts: true,
     panelShortcuts: true,
     desktopMaintenanceShortcuts: true,
-    helpcodeShiftEntry: true,
-    android: false,
-    harmony: false,
     macos: true,
   });
 

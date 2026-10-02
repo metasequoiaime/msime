@@ -54,7 +54,8 @@ export interface AiSettingsPageSectionProps {
   onPromptCustom2Change: (value: string) => void;
   onPromptCustom3Change: (value: string) => void;
   testTools: ReactNode;
-  mcpConnect: ReactNode;
+  /** What follows the last group: the MCP connection in the embedded panel, the entry to AI 对话 on the settings page. */
+  trailing: ReactNode;
 }
 
 /** Page-level composition for the shared AI assistant settings. */
@@ -91,7 +92,7 @@ export function AiSettingsPageSection({
   onPromptCustom2Change,
   onPromptCustom3Change,
   testTools,
-  mcpConnect,
+  trailing,
 }: AiSettingsPageSectionProps) {
   if (grouped) {
     const promptSlot = promptId === "custom" ? "custom_1" : promptId || "custom_1";
@@ -228,7 +229,7 @@ export function AiSettingsPageSection({
             </MoreOptions>
           </GroupList>
           {testTools}
-          {mcpConnect}
+          {trailing}
         </div>
       </fieldset>
     );
@@ -276,7 +277,7 @@ export function AiSettingsPageSection({
         onPromptCustom3Change={onPromptCustom3Change}
       />
       {testTools}
-      {mcpConnect}
+      {trailing}
     </fieldset>
   );
 }

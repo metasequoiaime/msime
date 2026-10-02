@@ -127,7 +127,7 @@ export function HelpcodeSettingsGroup({
       {showShiftEntry && (
         <p className={settings.groupNote}>
           全拼或双拼组字时，按 Shift
-          再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、越南语和本地输入模式不使用辅助码。
+          再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、越南语和快捷模式不使用辅助码。
         </p>
       )}
       {/* 全拼在前，和输入方案选择器「全拼、双拼」的顺序一致。 */}

@@ -2,7 +2,7 @@ import { LinkRow } from "../../core/platform-controls";
 import { useSettingsForm } from "../settings-form-context";
 
 /**
- * 原「其他平台下载」页的两行，现在放在关于页的「版本与更新」组里；旧的 `download` 路由经 `settingsPageAliases` 打开关于页。设计稿按平台列出七个下载入口，这个客户端只知道一个下载页和发布记录，所以只链到这两处，不编造各平台的地址。触屏宿主在「我的」里有同样的链接，不显示这两行。
+ * 原「其他平台下载」页的两行，现在放在关于页的「版本与更新」组里。设计稿按平台列出七个下载入口，这个客户端只知道一个下载页和发布记录，所以只链到这两处，不编造各平台的地址。触屏宿主在「我的」里有同样的链接，不显示这两行。
  */
 export function OtherPlatformDownloadRows() {
   const { mobilePlatform, openExternalUrl, desktopDownloadUrl, platformReleasesPageUrl } =

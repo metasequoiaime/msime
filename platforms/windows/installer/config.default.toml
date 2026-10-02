@@ -98,7 +98,7 @@ linear_step = 1
 # 外观
 #
 [appearance]
-# 主题模式，可选："dark", "light", "system"
+# 颜色模式，可选："dark", "light", "system"
 theme_mode = "system"
 # 候选窗 / 悬浮工具栏 / 托盘菜单渲染，可选："d2d", "webview2"
 # 更改后需重启输入法进程生效
@@ -359,9 +359,9 @@ clipboard_history = false # 表情面板剪贴板历史，仅记录文本；关�
 study_english_word = "false" # 背单词功能，开启后可以在候选项旁边显示英文
 quick_phrase = true # Shift+K 进入快捷短语模式
 unicode_mode = true # Shift+U 进入 Unicode 码位输入模式
-date_time_mode = true # Shift+T 进入日期与时间快捷输入模式
-emoji_mode = true # Shift+E 进入 Emoji 快捷输入模式（支持全拼/简拼/双拼/英文）
-kaomoji_mode = true # Shift+M 进入颜文字快捷输入模式（支持全拼/简拼/双拼/英文）
+date_time_mode = true # Shift+T 进入日期与时间快捷模式
+emoji_mode = true # Shift+E 进入 Emoji 快捷模式（支持全拼/简拼/双拼/英文）
+kaomoji_mode = true # Shift+M 进入颜文字快捷模式（支持全拼/简拼/双拼/英文）
 jianpin_mode = true # Shift+J 进入超级简拼模式（每个字母作为简拼；双拼按方案转换 zh/ch/sh）
 y_mode = true # Shift+Y 进入临时英文模式（中文状态下直接打英文，上屏后回到中文）
 r_mode = true # Shift+R 进入临时日语模式（中文状态下使用罗马字输入日语，上屏后回到中文）

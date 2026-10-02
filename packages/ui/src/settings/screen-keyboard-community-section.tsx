@@ -10,7 +10,7 @@ export function ScreenKeyboardCommunitySection({ onOpen }: ScreenKeyboardCommuni
     <div className="section">
       <SettingActionHeader title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
         <button type="button" className="secondary" onClick={onOpen}>
-          去社区发现皮肤
+          去社区找皮肤
         </button>
       </SettingActionHeader>
     </div>

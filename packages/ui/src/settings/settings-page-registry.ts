@@ -58,11 +58,13 @@ export const pages = [
     title: "插件",
     icon: new URL("../assets/plugins.svg", import.meta.url).href,
   },
+  { id: "ai", title: "AI 辅助", icon: new URL("../assets/ai.svg", import.meta.url).href },
   {
     id: "account",
-    title: "账户与同步",
+    title: "账号与同步",
     icon: new URL("../assets/account.svg", import.meta.url).href,
   },
+  // The touch hosts' 社区 tab, a primary tab rather than a member of a navigation group. Desktop hosts have no such page: they browse candidate-window skins on 主题 and plugin packs on 插件.
   {
     id: "community",
     title: "社区",
@@ -80,7 +82,6 @@ export const pages = [
   },
   { id: "about", title: "关于", icon: new URL("../assets/about.svg", import.meta.url).href },
   // Reached from inside a page rather than from the navigation; see `subPageParents`.
-  { id: "ai", title: "AI 辅助", icon: new URL("../assets/ai.svg", import.meta.url).href },
   { id: "chat", title: "AI 对话", icon: new URL("../assets/help.svg", import.meta.url).href },
   {
     id: "vocabulary",
@@ -107,26 +108,14 @@ export const settingsNavGroups = [
   { title: "打字", ids: ["input", "expression", "shortcuts", "dictionary"] },
   { title: "外观", ids: ["skin", "appearance", "floating-toolbar"] },
   { title: "更多输入方式", ids: ["screen-keyboard", "voice", "handwriting"] },
-  { title: "工具", ids: ["tools", "typing-statistics", "plugins"] },
-  { title: "账户与社区", ids: ["account", "community"] },
+  { title: "工具", ids: ["tools", "typing-statistics", "plugins", "ai"] },
+  { title: "账号", ids: ["account"] },
   { title: "支持", ids: ["developer", "feedback", "about"] },
 ] as const satisfies readonly { title: string; ids: readonly SettingsPageId[] }[];
 
 /** Pages reached from inside another settings page. */
 export const subPageParents: Partial<Record<SettingsPageId, SettingsPageId>> = {
-  ai: "expression",
-  chat: "expression",
+  chat: "ai",
   vocabulary: "dictionary",
   help: "feedback",
 };
-
-/** 已不再独立成页的旧页面 id，映射到现在承载其内容的页面。宿主仍会发送这些 id。 */
-export const settingsPageAliases: Record<string, SettingsPageId> = {
-  helpcode: "input",
-  download: "about",
-};
-
-/**
- * 包对外导出的页面 id。`helpcode` 已不是独立页面，打开它会经 `settingsPageAliases` 落到输入页；过渡期仍保留在类型里，免得仓库外按旧 id 写的 TypeScript 宿主编译失败。
- */
-export type ExportedSettingsPageId = SettingsPageId | "helpcode";

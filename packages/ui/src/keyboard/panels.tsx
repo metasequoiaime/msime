@@ -1800,7 +1800,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       } catch {
         if (revision === refreshRevision.current) setNotice("已上传，但历史刷新失败，请点击刷新");
       }
-    }, "上传失败，请确认账户 provider 已连接");
+    }, "上传失败，请确认账号 provider 已连接");
   }
 
   function remove(id: string) {
@@ -2021,8 +2021,8 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
     return run(async (revision) => {
       await load(revision, nextOffset, nextSearch, nextKind);
-      if (isCurrent(revision)) setNotice("云词典已刷新");
-    }, "无法访问云词典服务，请确认 provider 已连接");
+      if (isCurrent(revision)) setNotice("云词库已刷新");
+    }, "无法访问云词库服务，请确认 provider 已连接");
   }
 
   useEffect(() => {
@@ -2136,9 +2136,9 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     void refresh(0, searchRef.current, next);
   }
   return (
-    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词典">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库">
       {confirmation}
-      <CloudPanelHeader title="水杉云词典" onClose={() => void client.close()} />
+      <CloudPanelHeader title="水杉云词库" onClose={() => void client.close()} />
       <div className={cloud.dictionaryBody}>
         <p className={cloud.dictionaryNote}>
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。

@@ -481,6 +481,7 @@ test("the 插件 page switches between the installed packs and the community gal
           },
         }),
         save: vi.fn(),
+        loadDefaultPreferences: vi.fn(),
         host: { platform: "macos" } as never,
         plugins: {
           catalog: installed,
@@ -500,6 +501,7 @@ test("the 插件 page switches between the installed packs and the community gal
     "true",
   );
   expect(await screen.findByLabelText("已安装的插件")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "恢复默认设置" })).not.toBeNull();
   expect(pluginClient.list).not.toHaveBeenCalled();
   // A pack's detail left open while visiting the gallery is closed on the way back.
   fireEvent.click(await screen.findByRole("button", { name: "本地 rain" }));
@@ -512,6 +514,8 @@ test("the 插件 page switches between the installed packs and the community gal
   expect(form.contains(gallery)).toBe(false);
   const installedPage = form.querySelector<HTMLFieldSetElement>('fieldset[aria-label="插件"]')!;
   expect(installedPage.hidden).toBe(true);
+  // The gallery stands in for the page's own settings, so there is nothing for 恢复默认设置 to restore.
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 
   const reads = vi.mocked(installed).mock.calls.length;
   fireEvent.click(within(tabs).getByRole("tab", { name: "我的插件" }));

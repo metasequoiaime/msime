@@ -14,6 +14,7 @@ export function ScreenKeyboardSettingsPage() {
     client,
     mobilePlatform,
     iosPlatform,
+    macosPlatform,
     host,
     draft,
     setDraft,
@@ -76,6 +77,7 @@ export function ScreenKeyboardSettingsPage() {
           keySpacingTenths={touchKeySpacingTenths}
           rowSpacingTenths={touchRowSpacingTenths}
           touchVoiceShortcut={draft.touch_voice_shortcut ?? false}
+          voiceShortcutKind={macosPlatform ? "hidden" : iosPlatform ? "last-result" : "start-voice"}
           toolbarComponents={Boolean(host?.touch_toolbar_components)}
           toolbar={draft.touch_toolbar}
           tabletFullKeys={mobileKeyboardFeedback?.tabletFullKeys}

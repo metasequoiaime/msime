@@ -1198,7 +1198,11 @@ function AccountDetailsPage({
                     : "欢迎来到水杉"}
               </h2>
               <p className={account.note}>
-                {channel ? "我们会发送一个 6 位验证码完成登录" : "登录，分享你的键盘设计"}
+                {channel
+                  ? "我们会发送一个 6 位验证码完成登录"
+                  : mobile
+                    ? "登录，分享你的键盘设计"
+                    : "登录后在设备之间同步设置和词库，还可以发布你的候选窗口皮肤"}
               </p>
             </div>
           </div>
@@ -1487,7 +1491,7 @@ function AccountDetailsPage({
                 onClick={() => onOpenCommunity("published-dictionary")}
               />
               <MeRow
-                title="我发布的回复"
+                title="我发布的回复模板"
                 disabled={busy}
                 onClick={() => onOpenCommunity("published-reply")}
               />
@@ -1497,7 +1501,7 @@ function AccountDetailsPage({
                 onClick={() => onOpenCommunity("saved-dictionary")}
               />
               <MeRow
-                title="收藏的回复"
+                title="收藏的回复模板"
                 disabled={busy}
                 onClick={() => onOpenCommunity("saved-reply")}
               />
@@ -1507,7 +1511,10 @@ function AccountDetailsPage({
       )}
       {user && !mobile && (
         <GroupList title="账号">
-          <Row title="这台设备" description="退出后，社区功能需要重新登录才能使用。">
+          <Row
+            title="这台设备"
+            description="退出后，设置同步、云词库、云剪贴板和发布作品都需要重新登录才能使用。"
+          >
             <button
               type="button"
               className={account.rowButton}
@@ -1527,7 +1534,7 @@ function AccountDetailsPage({
               退出所有设备
             </button>
           </Row>
-          <Row title="删除账号" description="删除账号及已发布的作品、评分等云端数据，无法撤销。">
+          <Row title="注销账号" description="删除账号及已发布的作品、评分等云端数据，无法撤销。">
             <button
               type="button"
               className={account.rowDanger}
@@ -1584,7 +1591,7 @@ function AccountDetailsPage({
                     onClick={() => onOpenCommunity("published-dictionary")}
                   />
                   <MeRow
-                    title="我发布的回复"
+                    title="我发布的回复模板"
                     disabled={busy}
                     onClick={() => onOpenCommunity("published-reply")}
                   />
@@ -1594,7 +1601,7 @@ function AccountDetailsPage({
                     onClick={() => onOpenCommunity("saved-dictionary")}
                   />
                   <MeRow
-                    title="收藏的回复"
+                    title="收藏的回复模板"
                     disabled={busy}
                     onClick={() => onOpenCommunity("saved-reply")}
                   />

@@ -653,12 +653,11 @@ constexpr std::array<PageLabel, 18> page_labels{{
     {"osk", L"屏幕键盘", 0xE92E},
     {"voice", L"语音输入", 0xE720},
     {"hand", L"手写输入", 0xE929},
-    // 这一项打开的是共享应用的云剪贴板面板而不是本机剪贴板历史，所以 Windows 上保留「云剪贴板」这个名字。
-    {"clip", L"云剪贴板", 0xE77F},
+    {"clip", L"剪贴板", 0xE77F},
     {"stats", L"打字统计", 0xE9D2},
     {"plugins", L"插件", 0xEA86},
-    {"account", L"账户与同步", 0xE77B},
-    {"community", L"社区", 0xE716},
+    {"ai", L"AI 辅助", 0xE99A},
+    {"account", L"账号与同步", 0xE77B},
     {"dev", L"维护与诊断", 0xE90F},
     {"feedback", L"帮助与反馈", 0xED15},
     {"about", L"关于", 0xE946},
@@ -668,7 +667,7 @@ static_assert(page_labels[0].id == nav::default_page);
 
 // 侧栏的分组标题，按 `SettingsNavigation.h` 里的 `group` 索引，措辞与共享设置 UI 的 `settingsNavGroups` 一致。
 constexpr std::array<const wchar_t *, nav::page_group_count> group_titles{
-    {L"打字", L"外观", L"更多输入方式", L"工具", L"账户与社区", L"支持"}};
+    {L"打字", L"外观", L"更多输入方式", L"工具", L"账号", L"支持"}};
 
 // 未知 id 取默认页面的标签。
 const PageLabel &page_label(std::string_view id) {
@@ -681,15 +680,15 @@ const PageLabel &page_label(std::string_view id) {
 // What each page of the shared app is for, on the card that opens it.
 const wchar_t *shell_page_description(std::string_view id) {
   if (id == "account")
-    return L"登录水杉输入法账户，管理设置和词库在设备之间的同步。";
+    return L"登录水杉输入法账号，管理设置和词库在设备之间的同步。";
   if (id == "clip")
-    return L"查看和管理在各台设备之间同步的剪贴板内容。";
+    return L"开关本机的剪贴板历史，打开在各台设备之间同步的云剪贴板。";
   if (id == "stats")
     return L"查看打字字数、速度和常用输入方式的统计。统计只保存在本机。";
-  if (id == "community")
-    return L"浏览社区分享的皮肤和内容。";
   if (id == "plugins")
-    return L"导入和选择按键音效、打字旋律与背景音乐，管理 / 指令表和 @ 名单。";
+    return L"管理已安装的插件，浏览和安装社区插件；按键音效、背景音乐、/ 指令表和 @ 名单也在这里。";
+  if (id == "ai")
+    return L"开启 AI 辅助，设置联想、回复与润色使用的模型服务。";
   return L"";
 }
 
@@ -919,7 +918,7 @@ private:
     return background.R < 128;
   }
 
-  // 设置界面主题 overrides 主题模式 for this window only; 跟随系统 follows Windows.
+  // 设置界面主题 overrides 颜色模式 for this window only; 跟随系统 follows Windows.
   bool resolve_dark() {
     const auto settings = document_.String(L"settings_theme", L"follow");
     if (settings == L"dark")
@@ -934,7 +933,7 @@ private:
     return system_dark_;
   }
 
-  // The candidate window's own light/dark mode, decided as the Server decides it (candidate_theme_dark in src/candidate/CandidateThemeSettings.h): the 候选窗口主题 override, else 主题模式.
+  // The candidate window's own light/dark mode, decided as the Server decides it (candidate_theme_dark in src/candidate/CandidateThemeSettings.h): the 候选窗口主题 override, else 颜色模式.
   bool candidate_dark() const {
     const auto surface = document_.String(L"candidate_theme", L"follow");
     if (surface == L"dark" || surface == L"light")
@@ -2345,7 +2344,7 @@ private:
       build_about_page(page);
   }
 
-  // 云剪贴板、打字统计、插件、账户与同步、社区都由各平台共用的共享应用提供，这个窗口只负责在那里打开它们。
+  // 剪贴板、打字统计、插件、AI 辅助、账号与同步都由各平台共用的共享应用提供，这个窗口只负责在那里打开它们。
   void build_shell_page(nav::Page const &model, StackPanel const &page) {
     const auto &label = page_label(model.id);
     auto group = add_group(page, L"");
@@ -2469,11 +2468,11 @@ private:
     }
 
     auto look = add_group(page, L"外观");
-    segment_row(look, 0xE706, L"主题模式", L"深色、浅色或跟随 Windows 的应用模式",
+    segment_row(look, 0xE706, L"颜色模式", L"深色、浅色或跟随 Windows 的应用模式",
                 L"theme",
                 {{L"system", L"跟随系统"}, {L"light", L"浅色"}, {L"dark", L"深色"}},
                 L"system");
-    select_row(look, 0xE713, L"设置界面主题", L"覆盖主题模式，仅影响当前设置窗口",
+    select_row(look, 0xE713, L"设置界面主题", L"覆盖颜色模式，仅影响当前设置窗口",
                L"settings_theme", surface_theme_options(), L"follow", true);
     slider_row(look, 0xE8E9, L"候选窗字号", L"候选词的字号（12–32）",
                L"candidate_font_size", 12, 32, 18);
@@ -2484,12 +2483,15 @@ private:
     shell_row(look, 0xE70F, L"自定义主题",
               L"取色器、皮肤包与键盘样式在水杉输入法应用中编辑", L"编辑",
               nav::shell_links::skin);
+    shell_row(look, 0xE716, L"社区皮肤",
+              L"在水杉输入法应用的「主题 › 社区皮肤」中浏览、安装和发布候选窗口皮肤", L"浏览",
+              nav::shell_links::skin);
 
     auto surfaces = add_group(page, L"界面主题");
-    select_row(surfaces, 0xE8FD, L"候选窗口主题", L"预览跟随主题模式",
+    select_row(surfaces, 0xE8FD, L"候选窗口主题", L"覆盖颜色模式，只影响候选窗口",
                L"candidate_theme", surface_theme_options(), L"follow");
-    select_row(surfaces, 0xE7F4, L"悬浮工具栏主题", L"", L"toolbar_theme",
-               surface_theme_options(), L"follow");
+    select_row(surfaces, 0xE7F4, L"悬浮工具栏主题", L"覆盖颜色模式，只影响悬浮工具栏",
+               L"toolbar_theme", surface_theme_options(), L"follow");
     select_row(surfaces, 0xE700, L"菜单主题",
                L"覆盖托盘菜单与候选右键菜单的明暗外观", L"menu_theme",
                surface_theme_options(), L"follow");
@@ -2506,7 +2508,7 @@ private:
   }
 
   static std::vector<Option> surface_theme_options() {
-    return {{L"follow", L"跟随全局"}, {L"dark", L"深色"}, {L"light", L"浅色"}};
+    return {{L"follow", L"跟随颜色模式"}, {L"dark", L"深色"}, {L"light", L"浅色"}};
   }
 
   // ---- 界面预览 ----
@@ -2768,30 +2770,6 @@ private:
     }
 
     auto language = add_group(page, L"中英文");
-    // 偏好里仍是三个独立的布尔值，这里和共用设置页一样只让选一个：同时开着多个时按 Shift > 单击 Ctrl > Ctrl+Alt+Space 显示第一个，选中一项时一次写全三个，「不使用」三个都关。
-    const std::array<std::pair<const wchar_t *, const wchar_t *>, 3> switches{{
-        {L"shift", L"keybindings.switch_language_shift"},
-        {L"ctrl", L"keybindings.switch_language_ctrl"},
-        {L"ctrl_alt_space", L"keybindings.switch_language_ctrl_alt_space"},
-    }};
-    std::wstring language_switch = L"none";
-    for (const auto &[choice, key] : switches) {
-      if (document_.Boolean(key, false)) {
-        language_switch = choice;
-        break;
-      }
-    }
-    add_row(language, 0xE8AB, L"切换中英文", L"选择用于切换中英文的按键",
-            select_control(L"切换中英文",
-                           {{L"shift", L"Shift"}, {L"ctrl", L"单击 Ctrl"},
-                            {L"ctrl_alt_space", L"Ctrl+Alt+Space"}, {L"none", L"不使用"}},
-                           language_switch,
-                           [this, switches](std::wstring const &value) {
-                             change([&](PreferencesDocument &doc) {
-                               for (const auto &[choice, key] : switches)
-                                 doc.SetBoolean(key, value == choice);
-                             }, false);
-                           }));
     segment_row(language, 0xE774, L"默认中英文", L"新焦点会话开始时使用的中文或英文状态",
                 L"default_ime_mode", {{L"chinese", L"中文"}, {L"english", L"英文"}},
                 L"english");
@@ -2799,8 +2777,6 @@ private:
                 L"按应用分别记忆输入状态，或让所有输入上下文保持同一状态",
                 L"ime_mode_scope", {{L"app", L"按应用记忆"}, {L"global", L"全局统一"}},
                 L"app");
-    add_row(language, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词，在「标点与翻译」页设置",
-            button_control(L"前往", [this] { navigate("expression", true); }));
 
     auto word = add_group(page, L"选词与翻页");
     const bool word_enabled = document_.Boolean(L"word_character.enabled", false);
@@ -2855,6 +2831,18 @@ private:
     auto candidates = add_group(page, L"候选与联想");
     bool_row(candidates, 0xE753, L"云候选", L"向在线服务请求额外候选",
              L"cloud_candidates", false);
+    bool_row(candidates, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
+             L"mixed_input.english", true, true);
+    slider_row(candidates, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
+               L"mixed_input.minimum_prefix", 1, 8, 5);
+    bool_row(candidates, 0xE76E, L"emoji 混输",
+             L"中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
+             L"mixed_input.emoji", false);
+    bool_row(candidates, 0xE76E, L"颜文字混输",
+             L"中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
+             L"mixed_input.kaomoji", false);
+    bool_row(candidates, 0xE82D, L"学习选词习惯", L"根据选词调整候选顺序", L"learning",
+             true);
 
     auto output = add_group(page, L"输出");
     add_row(output, 0xE8E9, L"全角输入",
@@ -2871,6 +2859,38 @@ private:
     bool_row(output, 0xE8C1, L"繁体输出", L"将提交的简体中文转换为繁体中文",
              L"traditional_chinese_output", false);
 
+    struct LocalMode {
+      const wchar_t *id;
+      const wchar_t *label;
+      bool default_on;
+    };
+    // V, / and @ are off until the user turns them on: each takes a key that used to type itself.
+    const std::array<LocalMode, 11> modes{{
+        {L"quick_phrase", L"快捷短语(K 模式)", true},
+        {L"date_time", L"日期与时间快捷输入(T 模式)", true},
+        {L"unicode", L"Unicode 便捷录入(U 模式)", true},
+        {L"emoji", L"Emoji 快捷输入(E 模式)", true},
+        {L"kaomoji", L"颜文字快捷输入(M 模式)", true},
+        {L"super_jianpin", L"超级简拼(J 模式)", true},
+        {L"temporary_english", L"临时英文(Y 模式)", true},
+        {L"temporary_japanese", L"临时日语(R 模式)", true},
+        {L"expression", L"计算与数字(V 模式)", false},
+        {L"command", L"指令(/ 模式)", false},
+        {L"mention", L"@ 名字与地点(@ 模式)", false},
+    }};
+    std::vector<Check> checks;
+    for (const auto &[id, label, default_on] : modes) {
+      const std::wstring key = std::wstring(L"local_modes.") + id;
+      checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
+                          change([&](PreferencesDocument &doc) {
+                            doc.SetBoolean(key, on);
+                          }, false);
+                        }});
+    }
+    auto local = add_group(page, L"快捷模式");
+    add_row(local, 0xE945, L"快捷模式", L"用引导字母进入对应的输入模式；V、/、@ 只在拼音方案下没有输入时进入，/ 和 @ 还需中文标点", nullptr,
+            checks_panel(std::move(checks), 250));
+
     auto correction = add_group(page, L"纠错与模糊音");
     bool_row(correction, 0xE70F, L"自动纠错", L"修正常见的相邻按键顺序。",
              L"autocorrect", false);
@@ -2879,8 +2899,19 @@ private:
     auto helpcode = add_group(page, L"辅助码");
     helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
     helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
-    shell_row(helpcode, 0xE8A7, L"辅助码详细设置", L"在水杉输入法应用中查看辅助码说明与编码表",
-              L"打开", nav::shell_links::helpcode);
+    shell_row(helpcode, 0xE8A7, L"辅助码插件",
+              L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
+              nav::shell_links::input);
+
+    auto frequency = add_group(page, L"拼音方案调频");
+    select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
+               {{L"disabled", L"关闭"}, {L"pin", L"一次置顶"}, {L"halve", L"折半调频"},
+                {L"linear", L"线性调频"}, {L"promote", L"一次置前"}},
+               L"promote");
+    number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
+                      L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
+    number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
+                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
   }
 
   // Choosing Japanese, Korean or Vietnamese remembers the Chinese scheme it replaces, so switching back returns to it; choosing a Chinese scheme (Cantonese and Zhuyin included) makes it the one remembered. Moving between the three languages keeps the remembered scheme, since none is a Chinese scheme the store accepts there. The same rule as the tray (store_input_scheme in server_main.cpp).
@@ -2904,7 +2935,7 @@ private:
                      std::wstring const &prefix) {
     const bool enabled = document_.Boolean(prefix + L".enabled", false);
     bool_row(group, 0xE8CB, label + L"辅助码",
-             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、日语、韩语、越南语和本地输入模式不使用辅助码。",
+             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、日语、韩语、越南语和快捷模式不使用辅助码。",
              prefix + L".enabled", false, true);
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},
@@ -2946,18 +2977,8 @@ private:
              L"输入左侧符号时自动补全右侧符号，并将光标置于中间",
              L"paired_punctuation", false);
 
-    auto mixed = add_group(page, L"多语言与释义");
-    bool_row(mixed, 0xE774, L"中英混输", L"中文输入时在候选项中补充英文单词",
-             L"mixed_input.english", true, true);
-    slider_row(mixed, 0xE8CB, L"触发字符数", L"预编辑字母达到该长度后才出现英文候选项",
-               L"mixed_input.minimum_prefix", 1, 8, 5);
-    bool_row(mixed, 0xE76E, L"emoji 混输",
-             L"中文输入时在候选项中加入匹配的 emoji（位于英文候选之后；云候选与 AI 联想会使其相应顺移）",
-             L"mixed_input.emoji", false);
-    bool_row(mixed, 0xE76E, L"颜文字混输",
-             L"中文输入时在候选项中加入匹配的颜文字（排在 emoji 之后；云候选与 AI 联想会使其相应顺移）",
-             L"mixed_input.kaomoji", false);
-    bool_row(mixed, 0xE82D, L"显示英文释义",
+    auto gloss = add_group(page, L"多语言与释义");
+    bool_row(gloss, 0xE82D, L"显示英文释义",
              L"在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。",
              L"candidate_english_gloss", false);
 
@@ -2970,14 +2991,6 @@ private:
                {{L"en", L"英语"}, {L"fr", L"法语"}, {L"ja", L"日语"}, {L"es", L"西班牙语"},
                 {L"ru", L"俄语"}, {L"de", L"德语"}, {L"ko", L"韩语"}},
                L"en", false, translations);
-
-    auto ai = add_group(page, L"AI");
-    bool_row(ai, 0xE945, L"启用 AI 辅助", L"为拼音联想提供共享配置",
-             L"ai_assistant.enabled", false);
-    shell_row(ai, 0xE713, L"AI 辅助", L"服务商、模型与密钥在水杉输入法应用中设置", L"设置",
-              nav::shell_links::ai);
-    shell_row(ai, 0xE8BD, L"AI 对话", L"在水杉输入法应用中与 AI 对话", L"打开",
-              nav::shell_links::chat);
   }
 
   void fuzzy_row(StackPanel const &group) {
@@ -3028,52 +3041,41 @@ private:
   // ---- 快捷键 ----
 
   void build_shortcuts_page(StackPanel const &page) {
-    auto keys = add_group(page, L"快捷键");
+    auto keys = add_group(page, L"输入模式切换");
+    // 偏好里仍是三个独立的布尔值，这里和共用设置页一样只让选一个：同时开着多个时按 Shift > 单击 Ctrl > Ctrl+Alt+Space 显示第一个，选中一项时一次写全三个，「不使用」三个都关。
+    const std::array<std::pair<const wchar_t *, const wchar_t *>, 3> switches{{
+        {L"shift", L"keybindings.switch_language_shift"},
+        {L"ctrl", L"keybindings.switch_language_ctrl"},
+        {L"ctrl_alt_space", L"keybindings.switch_language_ctrl_alt_space"},
+    }};
+    std::wstring language_switch = L"none";
+    for (const auto &[choice, key] : switches) {
+      if (document_.Boolean(key, false)) {
+        language_switch = choice;
+        break;
+      }
+    }
+    add_row(keys, 0xE8AB, L"切换中英文", L"选择用于切换中英文的按键",
+            select_control(L"切换中英文",
+                           {{L"shift", L"Shift"}, {L"ctrl", L"单击 Ctrl"},
+                            {L"ctrl_alt_space", L"Ctrl+Alt+Space"}, {L"none", L"不使用"}},
+                           language_switch,
+                           [this, switches](std::wstring const &value) {
+                             change([&](PreferencesDocument &doc) {
+                               for (const auto &[choice, key] : switches)
+                                 doc.SetBoolean(key, value == choice);
+                             }, false);
+                           }));
     bool_row(keys, 0xE8C1, L"Ctrl+Shift+F 切换繁体输出", L"在简体与繁体输出之间切换",
              L"keybindings.toggle_character_set_ctrl_shift_f", true);
-    add_row(keys, 0xE765, L"中英文切换键", L"在「输入」页选择",
-            button_control(L"前往", [this] { navigate("typing", true); }));
-
-    struct LocalMode {
-      const wchar_t *id;
-      const wchar_t *label;
-      bool default_on;
-    };
-    // V, / and @ are off until the user turns them on: each takes a key that used to type itself.
-    const std::array<LocalMode, 11> modes{{
-        {L"quick_phrase", L"快捷短语(K 模式)", true},
-        {L"date_time", L"日期与时间快捷输入(T 模式)", true},
-        {L"unicode", L"Unicode 便捷录入(U 模式)", true},
-        {L"emoji", L"Emoji 快捷输入(E 模式)", true},
-        {L"kaomoji", L"颜文字快捷输入(M 模式)", true},
-        {L"super_jianpin", L"超级简拼(J 模式)", true},
-        {L"temporary_english", L"临时英文(Y 模式)", true},
-        {L"temporary_japanese", L"临时日语(R 模式)", true},
-        {L"expression", L"计算与数字(V 模式)", false},
-        {L"command", L"指令(/ 模式)", false},
-        {L"mention", L"@ 名字与地点(@ 模式)", false},
-    }};
-    std::vector<Check> checks;
-    for (const auto &[id, label, default_on] : modes) {
-      const std::wstring key = std::wstring(L"local_modes.") + id;
-      checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
-                          change([&](PreferencesDocument &doc) {
-                            doc.SetBoolean(key, on);
-                          }, false);
-                        }});
-    }
-    auto local = add_group(page, L"快捷输入模式");
-    add_row(local, 0xE945, L"快捷输入模式", L"用引导字母进入对应的输入模式；V、/、@ 只在拼音方案下没有输入时进入，/ 和 @ 还需中文标点", nullptr,
-            checks_panel(std::move(checks), 250));
 
     auto reset = add_group(page, L"");
     add_row(reset, 0xE72C, L"恢复默认快捷键",
-            L"中英文切换键、Ctrl+Shift+F 和快捷输入模式恢复为默认设置",
+            L"切换中英文和 Ctrl+Shift+F 恢复为默认设置",
             button_control(L"恢复默认",
                            [this] {
                              change([](PreferencesDocument &doc) {
                                doc.Restore(L"keybindings");
-                               doc.Restore(L"local_modes");
                              }, true);
                            },
                            loaded_));
@@ -3082,22 +3084,6 @@ private:
   // ---- 词库 ----
 
   void build_lexicon_page(StackPanel const &page) {
-    auto frequency = add_group(page, L"拼音方案调频");
-    select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
-               {{L"disabled", L"关闭"}, {L"pin", L"一次置顶"}, {L"halve", L"折半调频"},
-                {L"linear", L"线性调频"}, {L"promote", L"一次置前"}},
-               L"promote");
-    number_select_row(frequency, 0xE8EF, L"触发频次(第几次上屏触发)", L"",
-                      L"frequency.trigger_count", {1, 2, 3, 4, 5, 6}, 1, L"");
-    number_select_row(frequency, 0xE8EF, L"线性调频步长", L"",
-                      L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
-
-    auto learning = add_group(page, L"学习");
-    bool_row(learning, 0xE82D, L"开启词语学习", L"记录已上屏的词语，用于调整候选顺序。",
-             L"learning", true);
-    bool_row(learning, 0xE77F, L"剪贴板历史", L"保存复制过的文本供剪贴板面板使用。",
-             L"clipboard_history", false);
-
     auto manage = add_group(page, L"管理");
     shell_row(manage, 0xE82D, L"管理词库", L"导入、导出和编辑词库与快捷短语", L"打开",
               nav::shell_links::dictionary);
@@ -3268,15 +3254,15 @@ private:
               copy_text(download_url);
               show_notice(L"已复制下载链接。", InfoBarSeverity::Success);
             }));
-    url_row(updates, 0xE8A5, L"版本发布记录", L"每个版本的更新内容", L"查看", releases_url);
+    url_row(updates, 0xE8A5, L"历史版本", L"各版本的更新说明与安装包。", L"查看", releases_url);
 
-    auto privacy = add_group(page, L"数据与隐私");
+    auto privacy = add_group(page, L"许可与隐私");
     bool_row(privacy, 0xE9D2, L"匿名使用统计",
              L"默认开启，可随时关闭。开启时向 https://api.msime.app/v1/telemetry/events 发送匿名事件：每天一条活跃记录；输入法服务每次正常结束一条会话记录；服务崩溃后，下次启动时补发一条崩溃记录，含异常摘要和调用栈（只有模块文件名和偏移，不含文件夹路径）。每条事件只带随机事件 id、本机随机生成的安装 id、平台名 windows 和版本号，不含输入内容、候选、剪贴板、账号或设备信息。关闭后不再发送，并删除尚未发送的记录。",
              L"usage_reporting", true);
     url_row(privacy, 0xEA18, L"隐私政策", L"设置保存到当前输入法数据目录，详细说明见隐私政策。",
             L"查看", privacy_url);
-    url_row(privacy, 0xE8A5, L"开源许可", L"水杉输入法的开源许可证", L"查看", license_url);
+    url_row(privacy, 0xE8A5, L"开源许可协议", L"水杉输入法的开源许可证", L"查看", license_url);
   }
 
   // ---- 连接 AI 助手 ----
@@ -3309,7 +3295,7 @@ private:
 
   // 「连接 AI 助手」: the msime-mcp entry an assistant runs, to copy or to write into Claude Desktop's or Cursor's configuration. The same section as the shared settings page, through msime_client_mcp_status and msime_client_mcp_install.
   void append_mcp_section(StackPanel const &panel) {
-    append_text(panel, L"连接后，直接告诉 AI 助手输入法哪里不对劲（比如卡顿、候选框不见了），它会打开诊断日志、请你把出问题的操作再做一遍，然后读日志帮你找原因。它也能读取快捷短语、设置、打字统计和已安装的候选框皮肤。通过 MCP（Model Context Protocol）在本机运行，不联网；除了开关诊断日志，默认不改动任何设置。");
+    append_text(panel, L"连接后，直接告诉 AI 助手输入法哪里不对劲（比如卡顿、候选窗口不见了），它会打开诊断日志、请你把出问题的操作再做一遍，然后读日志帮你找原因。它也能读取快捷短语、设置、打字统计和已安装的候选窗口皮肤。通过 MCP（Model Context Protocol）在本机运行，不联网；除了开关诊断日志，默认不改动任何设置。");
     const auto response =
         call_mcp(msime_client_mcp_status, mcp_request(runtime_options_path()));
     JsonObject status{nullptr};
@@ -3346,7 +3332,7 @@ private:
     code.Header(box_value(L"MCP 配置"));
     panel.Children().Append(code);
     append_text(panel,
-                L"要让助手修改快捷短语和设置、为你制作候选框皮肤，在 args 中加入 "
+                L"要让助手修改快捷短语和设置、为你制作候选窗口皮肤，在 args 中加入 "
                 L"--allow-write；要让它读取你的用户词库、查看编码的候选，加入 "
                 L"--allow-dictionary-"
                 L"read；两项都加才能增删、调整和导入词。这两项只应在你信任该助"

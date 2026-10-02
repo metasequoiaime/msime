@@ -5,7 +5,7 @@ import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
 import { GroupList, Row } from "../../core/platform-controls";
 import { OpenPanelButton } from "../open-panel-button";
 
-/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云端面板。 */
+/** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板。云词库在「词库」页。 */
 export function ToolsSettingsPage() {
   const {
     client,
@@ -33,29 +33,17 @@ export function ToolsSettingsPage() {
           onError={setError}
           cloudRequest={page === "tools" ? client.cloudClipboardRequest : undefined}
         />
-        {(macosPlatform || client.openCloudClipboard || client.openCloudDictionary) && (
-          <GroupList title="云端面板">
+        {(macosPlatform || client.openCloudClipboard) && (
+          <GroupList title="云剪贴板">
             {macosPlatform ? (
               <p className={settings.groupNote}>{CLOUD_PANEL_SESSION_NOTE}</p>
             ) : (
-              <>
-                {client.openCloudClipboard && (
-                  <Row title="云剪贴板">
-                    <OpenPanelButton
-                      action={() => openPanel(client.openCloudClipboard)}
-                      label="打开云剪贴板"
-                    />
-                  </Row>
-                )}
-                {client.openCloudDictionary && (
-                  <Row title="云词库">
-                    <OpenPanelButton
-                      action={() => openPanel(client.openCloudDictionary)}
-                      label="打开云词库"
-                    />
-                  </Row>
-                )}
-              </>
+              <Row title="云剪贴板">
+                <OpenPanelButton
+                  action={() => openPanel(client.openCloudClipboard)}
+                  label="打开云剪贴板"
+                />
+              </Row>
             )}
           </GroupList>
         )}

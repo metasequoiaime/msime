@@ -30,8 +30,8 @@ struct CustomThemeCandidateSection: View {
     Section {
       Toggle(isOn: $followsDesktopPalette) {
         VStack(alignment: .leading, spacing: 2) {
-          Text("使用桌面候选皮肤")
-          Text("关闭时候选栏跟随键盘主题").font(.footnote).foregroundStyle(.secondary)
+          Text("候选栏使用主题配色")
+          Text("关闭时候选栏和按键一起使用键盘皮肤的颜色；打开后使用本页的主题和候选颜色。").font(.footnote).foregroundStyle(.secondary)
         }
       }.accessibilityIdentifier("candidatePaletteFollowsDesktop")
       if followsDesktopPalette {

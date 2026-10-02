@@ -4276,9 +4276,9 @@ class FcitxCandidateThemeAction : public fcitx::SimpleAction {
 public:
   explicit FcitxCandidateThemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
   std::string shortText(fcitx::InputContext *ic) const override {
-    if (!ic) return "候选主题";
+    if (!ic) return "候选明暗";
     const auto theme = ic->propertyFor(factory_)->preferences_.value("candidate_theme", std::string("follow"));
-    return theme == "light" ? "候选主题：浅色" : theme == "dark" ? "候选主题：深色" : "候选主题：跟随全局";
+    return theme == "light" ? "候选明暗：浅色" : theme == "dark" ? "候选明暗：深色" : "候选明暗：跟随颜色模式";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {
@@ -6006,7 +6006,7 @@ public:
   FcitxDesktopPanelAction desktop_emoji_action_{&factory_, "emoji", "表情与符号"};
   FcitxDesktopPanelAction desktop_clipboard_action_{&factory_, "clipboard", "本地剪贴板"};
   FcitxDesktopPanelAction desktop_voice_action_{&factory_, "voice", "语音面板"};
-  FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词典"};
+  FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词库"};
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
   FcitxDesktopPanelAction dictionary_action_{&factory_, "dictionary", "词库…"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置…"};
@@ -6023,7 +6023,7 @@ public:
   FcitxVoiceEnabledAction voice_enabled_action_{&factory_};
   FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
   fcitx::Menu input_group_menu_;
-  FcitxMenuGroupAction input_group_action_{"输入选项", "方案细节、混合候选、本地模式与按键选项"};
+  FcitxMenuGroupAction input_group_action_{"输入选项", "方案细节、混合候选、快捷模式与按键选项"};
   FcitxMenuSeparatorAction input_group_separator_;
   fcitx::Menu punctuation_group_menu_;
   FcitxMenuGroupAction punctuation_group_action_{"标点与翻译", "标点细节与候选翻译"};

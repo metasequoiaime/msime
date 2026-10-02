@@ -79,8 +79,7 @@ export function HandwritingSettingsSection({
   ) : macos ? (
     <GroupList title="macOS 手写识别板">
       <p className={settings.groupNote}>
-        手写面板需要当前输入法进程提供 IMK
-        输入会话；请从输入法悬浮工具栏或输入法菜单打开，识别候选会直接回到当前输入上下文。
+        请在要输入的应用里，从输入法悬浮工具栏或输入法菜单打开手写面板；识别出的字直接输入到该应用。
       </p>
     </GroupList>
   ) : (

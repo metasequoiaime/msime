@@ -27,7 +27,7 @@ export interface CommunityPageProps {
   openSkinDirectory?: () => Promise<void>;
   /** Reads an installed package's images, so publishing can draw a preview for a package without one. */
   readSkinImage?: SkinImageReader;
-  /** Opens 主题, where an installed candidate skin is enabled. */
+  /** Returns to 我的皮肤 on 主题, where an installed candidate-window skin is enabled. */
   onOpenSkinPage?: () => void;
   theme: "light" | "dark";
   initialMine?: boolean;
@@ -41,7 +41,7 @@ export interface CommunityPageProps {
   destinationKey?: string;
 }
 
-/** The community page: the gallery the host supports, keeping the external skin directory in step with the signed-in user's library in the background. The directory itself is listed on 主题, and plugin packs are shared from the 插件 page. */
+/** The community page: the gallery the host supports, keeping the external skin directory in step with the signed-in user's library in the background. The directory itself is listed on 主题, whose 社区皮肤 tab is where desktop hosts mount this page for candidate-window skins; plugin packs are shared from the 插件 page. */
 export function CommunityPage(props: CommunityPageProps): ReactNode {
   const { skins, resources, candidateSkins } = props;
   // 主题 scans the directory again when it is next shown, so a run that changed it needs nothing here.

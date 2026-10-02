@@ -12,7 +12,7 @@ import {
   requestedPage,
   type MobilePrimaryPageId,
 } from "./settings-navigation-helpers";
-import { pages, settingsPageAliases, type SettingsPageId } from "./settings-page-registry";
+import type { SettingsPageId } from "./settings-page-registry";
 
 export interface SettingsNavigationOptions {
   mobilePlatform: boolean;
@@ -44,6 +44,9 @@ export function useSettingsNavigation({
 }: SettingsNavigationOptions) {
   const mobileActiveTab = mobileTabForPage(page);
   const handledRoute = useRef(route?.nonce);
+  // The history listener outlives a render, so it reads the pages through a ref rather than the list it was created with.
+  const availablePagesRef = useRef(availablePages);
+  availablePagesRef.current = availablePages;
 
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
@@ -66,7 +69,8 @@ export function useSettingsNavigation({
   useEffect(() => {
     if (!route || route.nonce === handledRoute.current) return;
     handledRoute.current = route.nonce;
-    selectPage(requestedPage(route.page, pages, settingsPageAliases, "input"));
+    // A route to a page this host does not offer opens 输入 rather than an empty page.
+    selectPage(requestedPage(route.page, availablePages, "input"));
     // Route nonces intentionally provide the effect's identity; the page callback reads current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route?.nonce]);
@@ -85,7 +89,7 @@ export function useSettingsNavigation({
     const onPopState = (event: PopStateEvent) => {
       const state = event.state;
       if (state?.msimeSettings === true && typeof state.page === "string") {
-        const restored = requestedPage(state.page, pages, settingsPageAliases, "input");
+        const restored = requestedPage(state.page, availablePagesRef.current, "input");
         mobileLastPageByTab.current[mobileTabForPage(restored)] = restored;
         setPage(restored);
       }

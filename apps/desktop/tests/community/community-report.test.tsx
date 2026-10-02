@@ -177,7 +177,7 @@ function resourceClient(overrides: Partial<CommunityResourceClient> = {}): Commu
 test("a shared reply template is reported with its own kind", async () => {
   const client = resourceClient();
   render(<CommunityResourcesPage client={client} kind="reply" />);
-  fireEvent.click(await screen.findByRole("button", { name: "查看回复 礼貌回复" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查看回复模板 礼貌回复" }));
   await screen.findByRole("heading", { name: "礼貌回复" });
   fireEvent.click(screen.getByRole("button", { name: "举报" }));
   fireEvent.click(screen.getByRole("radio", { name: "垃圾广告" }));
@@ -199,7 +199,7 @@ test("the owner's removed resource shows 已下架", async () => {
       initialScope="mine"
     />,
   );
-  const card = await screen.findByRole("button", { name: "查看回复 礼貌回复" });
+  const card = await screen.findByRole("button", { name: "查看回复模板 礼貌回复" });
   expect(card.textContent).toContain("已下架");
 });
 

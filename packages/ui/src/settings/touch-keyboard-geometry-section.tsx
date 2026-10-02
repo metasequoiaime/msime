@@ -35,11 +35,15 @@ const touchToolbarOptions: readonly [keyof TouchToolbarPreferences, string][] = 
   ["punctuation", "中英文标点"],
 ];
 
+/** How the host's keyboard treats the voice button at the top: most hosts start voice input from it, the iOS keyboard extension opens the last result recognised in the app, and the macOS desktop keyboard does not draw it. */
+export type TouchVoiceShortcutKind = "start-voice" | "last-result" | "hidden";
+
 export interface TouchKeyboardGeometrySectionProps {
   heightAdjustment: number;
   keySpacingTenths: number;
   rowSpacingTenths: number;
   touchVoiceShortcut: boolean;
+  voiceShortcutKind?: TouchVoiceShortcutKind;
   toolbarComponents: boolean;
   toolbar?: Partial<TouchToolbarPreferences>;
   tabletFullKeys?: boolean;
@@ -59,6 +63,7 @@ export function TouchKeyboardGeometrySection({
   keySpacingTenths,
   rowSpacingTenths,
   touchVoiceShortcut,
+  voiceShortcutKind = "start-voice",
   toolbarComponents,
   toolbar,
   tabletFullKeys,
@@ -72,6 +77,7 @@ export function TouchKeyboardGeometrySection({
   onReset,
 }: TouchKeyboardGeometrySectionProps) {
   const toolbarValues = { ...defaultTouchToolbar, ...toolbar };
+  const showVoiceShortcut = voiceShortcutKind !== "hidden";
 
   return (
     <>
@@ -103,7 +109,14 @@ export function TouchKeyboardGeometrySection({
           </span>
         </Row>
         {/* 重置一如既往也覆盖下面的「工具栏」组；它放在这里，也就是它所重置的第一组的末尾。 */}
-        <Row title="恢复默认" description="高度、间距、顶部语音入口和工具栏按钮回到默认">
+        <Row
+          title="恢复默认"
+          description={
+            showVoiceShortcut
+              ? "高度、间距、顶部语音入口和工具栏按钮回到默认"
+              : "高度、间距和工具栏按钮回到默认"
+          }
+        >
           <button
             type="button"
             className="danger-text"
@@ -114,31 +127,42 @@ export function TouchKeyboardGeometrySection({
           </button>
         </Row>
       </GroupList>
-      <GroupList title="工具栏">
-        <Row title="顶部语音入口" description="在触屏键盘工具栏直接打开最近一次语音结果">
-          <Switch checked={touchVoiceShortcut} onChange={onTouchVoiceShortcutChange} />
-        </Row>
-        {toolbarComponents && (
-          <div className={settings.groupBlock}>
-            <Checks
-              legend="工具栏按钮"
-              description="勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里"
-              items={touchToolbarOptions.map(([key, label]) => ({
-                value: key,
-                // The hidden prefix keeps each box named "工具栏：…" for assistive technology, as the old per-box label did.
-                label: (
-                  <>
-                    <span className="sr-only">工具栏：</span>
-                    {label}
-                  </>
-                ),
-                checked: toolbarValues[key],
-              }))}
-              onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
-            />
-          </div>
-        )}
-      </GroupList>
+      {(showVoiceShortcut || toolbarComponents) && (
+        <GroupList title="工具栏">
+          {showVoiceShortcut && (
+            <Row
+              title="顶部语音入口"
+              description={
+                voiceShortcutKind === "last-result"
+                  ? "在触屏键盘工具栏直接打开最近一次语音结果"
+                  : "在键盘顶部显示一个语音按钮，点按开始语音输入"
+              }
+            >
+              <Switch checked={touchVoiceShortcut} onChange={onTouchVoiceShortcutChange} />
+            </Row>
+          )}
+          {toolbarComponents && (
+            <div className={settings.groupBlock}>
+              <Checks
+                legend="工具栏按钮"
+                description="勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里"
+                items={touchToolbarOptions.map(([key, label]) => ({
+                  value: key,
+                  // The hidden prefix keeps each box named "工具栏：…" for assistive technology, as the old per-box label did.
+                  label: (
+                    <>
+                      <span className="sr-only">工具栏：</span>
+                      {label}
+                    </>
+                  ),
+                  checked: toolbarValues[key],
+                }))}
+                onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
+              />
+            </div>
+          )}
+        </GroupList>
+      )}
       {tabletFullKeys !== undefined && (
         <GroupList title="布局">
           <Row

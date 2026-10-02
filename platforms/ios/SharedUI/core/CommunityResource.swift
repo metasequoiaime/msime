@@ -4,7 +4,7 @@ import Darwin
 enum CommunityResourceKind: String, Codable, CaseIterable, Identifiable, Sendable {
   case dictionary, reply
   var id: String { rawValue }
-  var title: String { self == .dictionary ? "词库" : "回复" }
+  var title: String { self == .dictionary ? "词库" : "回复模板" }
   var icon: String { self == .dictionary ? "character.book.closed.fill" : "text.bubble.fill" }
 }
 struct CommunityWord: Codable, Sendable {

@@ -189,7 +189,7 @@ test("desktop dictionary subpages reuse the session client and return without cl
   );
   fireEvent.click(screen.getByRole("button", { name: "完整目录" }));
   expect(screen.getByText("完整云词库目录")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "云端候选排序" }).hasAttribute("disabled")).toBe(
       false,
@@ -338,7 +338,7 @@ test("desktop dictionary file page reuses the authenticated client and returns t
   );
   fireEvent.click(screen.getByRole("button", { name: "导入与导出" }));
   expect(screen.getByText("导入与导出")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回云词库" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "导入与导出" })).toBeTruthy());
   expect(close).not.toHaveBeenCalled();
 });

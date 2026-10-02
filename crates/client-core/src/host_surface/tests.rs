@@ -30,7 +30,6 @@ fn settings_deep_link_names_a_category() {
     // The pages the redesigned navigation added are routable by their page ids.
     for (argument, category) in [
         ("settings:expression", SettingsCategory::Expression),
-        ("settings:download", SettingsCategory::Download),
         ("settings:developer", SettingsCategory::Developer),
         ("settings:plugins", SettingsCategory::Plugins),
     ] {

@@ -82,6 +82,29 @@ test("hides host-specific options when unavailable", () => {
   expect(screen.queryByLabelText("数字行与 Tab 键")).toBeNull();
 });
 
+test("describes the voice button by what the host's button does", () => {
+  const { rerender } = render(<TouchKeyboardGeometrySection {...baseProps} />);
+  expect(screen.getByText("在键盘顶部显示一个语音按钮，点按开始语音输入")).toBeTruthy();
+  expect(screen.getByText("高度、间距、顶部语音入口和工具栏按钮回到默认")).toBeTruthy();
+
+  rerender(<TouchKeyboardGeometrySection {...baseProps} voiceShortcutKind="last-result" />);
+  expect(screen.getByText("在触屏键盘工具栏直接打开最近一次语音结果")).toBeTruthy();
+});
+
+test("drops the voice switch, and the empty toolbar group, where the keyboard draws no voice button", () => {
+  render(
+    <TouchKeyboardGeometrySection
+      {...baseProps}
+      voiceShortcutKind="hidden"
+      toolbarComponents={false}
+    />,
+  );
+
+  expect(screen.queryByLabelText("顶部语音入口")).toBeNull();
+  expect(screen.queryByText("工具栏")).toBeNull();
+  expect(screen.getByText("高度、间距和工具栏按钮回到默认")).toBeTruthy();
+});
+
 test("disables the tablet switch while saving", () => {
   render(<TouchKeyboardGeometrySection {...baseProps} tabletFullKeysBusy />);
 

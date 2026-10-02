@@ -147,7 +147,7 @@ struct InputSettingsView: View {
             Label("辅助码", systemImage: "character.magnify")
           }.accessibilityIdentifier("helpcodeSettingsLink")
           NavigationLink(destination: LocalModeSettingsView()) {
-            Label("本地输入模式", systemImage: "textformat.123")
+            Label("快捷模式", systemImage: "textformat.123")
           }.accessibilityIdentifier("localModeSettingsLink")
           NavigationLink(destination: ClipboardHistorySettingsView()) {
             Label("剪贴板历史", systemImage: "doc.on.clipboard")

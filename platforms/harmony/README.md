@@ -114,7 +114,7 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 反馈页附带的系统版本由本宿主填入。`os_version` 不属于 `HostCapabilities::for_platform` —— 它不是平台假设而是关于这台机器的事实，所以每个宿主自己读了再加上去；此前只有 macOS 这么做。缺它的时候页面写的是「平台：harmony」并附上 WebView 的 User-Agent，那标识的是浏览器内核，不是复现问题所需要的系统。现在从 `deviceInfo.osFullName` 取：`OpenHarmony-6.0.1.112` 去掉产品名后是 `6.0.1.112`，页面在它前面自己会写平台名，于是读作「HarmonyOS 6.0.1.112」。取不到合规的版本号就不填——这条字符串进的是用户提交的报告，要么照系统说的写，要么什么都不写。
 
-候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
+候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词库覆盖层，凭据只存在于当前请求内，不写日志。
 
 共享设置中的“流式预编辑”现在也由 Harmony 消费：关闭时识别中的临时结果不进面板，只有最终结果才显示；此前无论该开关如何，临时结果一律显示。“结果提交策略”反过来从 Harmony 的设置页移除——Windows 在 TSF / SendInput / 粘贴之间选，macOS 在系统事件与输入会话之间选，而键盘扩展只有输入客户端一条提交路径（Linux 同样只经 IBus / Fcitx5 提交，也不提供该选项），三选一在这里是一个只有一种结果的控件。该判断由 `HostCapabilities::voice_commit_mode` 决定。
 

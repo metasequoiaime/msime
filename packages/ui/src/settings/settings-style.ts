@@ -290,7 +290,7 @@ export const contentColumn =
   "mx-auto w-full max-w-[900px] px-7 pt-3.5 pb-6 max-phone:px-3 max-phone:py-3 win:px-14 win:pt-9 win:pb-12 mac:max-w-none mac:px-12 mac:pt-6 mac:pb-11 linux:max-w-[680px] linux:px-8 linux:pt-6 linux:pb-7 hm2:max-w-[760px] hm2:px-7 hm2:pt-2 hm2:pb-7 ipad:max-w-[720px] ipad:px-7 ipad:pt-4 ipad:pb-7 max-phone:win:px-4 max-phone:win:pt-5 max-phone:mac:px-4 max-phone:linux:px-4 max-phone:hm2:px-4";
 /** The page's large title, sized by the platform's `--p-title-*` tokens. macOS puts it in the toolbar instead. */
 export const pageHeader = "mb-6 flex items-center gap-2.5 hm2:mb-4";
-/** The way back from a sub-page (AI 辅助, 背单词, 帮助) to the page it opens from, above the title. */
+/** The way back from a sub-page (AI 对话, 背单词, 帮助) to the page it opens from, above the title. */
 export const backLink =
   "mb-1 inline-flex min-h-8 items-center self-start rounded-md border-0 bg-transparent px-0 text-[13px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent";
 /** A view inside a page (a plugin's detail on 插件): the back link over a title one step below the page's own. */

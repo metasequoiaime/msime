@@ -233,7 +233,7 @@ describe("the MSIME account translation is an explicit choice", () => {
       tencent_tmt: { enabled: false, secret_id: "", secret_key: "", region: "ap-guangzhou" },
     });
     expect(serviceSelect().value).toBe("account");
-    // 账户不使用用户自己的凭据，所以选中它时下拉框下面什么都不显示。
+    // 账号不使用用户自己的凭据，所以选中它时下拉框下面什么都不显示。
     expect(screen.queryByLabelText("腾讯云 SecretId")).toBeNull();
     fireEvent.change(serviceSelect(), { target: { value: "tencent" } });
     expect(serviceSelect().value).toBe("tencent");

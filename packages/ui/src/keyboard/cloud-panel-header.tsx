@@ -10,7 +10,7 @@ export function CloudPanelHeader({ title, onClose, onBack, backClassName }: Clou
   return (
     <header className="native-panel-header">
       {onBack && (
-        <button className={backClassName} type="button" aria-label="返回云词典" onClick={onBack}>
+        <button className={backClassName} type="button" aria-label="返回云词库" onClick={onBack}>
           ‹
         </button>
       )}

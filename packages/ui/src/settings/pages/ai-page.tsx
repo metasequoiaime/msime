@@ -1,7 +1,8 @@
 import { AiSettingsContent } from "../ai-settings-content";
 import { useSettingsForm } from "../settings-form-context";
+import { SubPageEntries } from "./sub-page-entries";
 
-/** The AI 辅助 page of the settings form. */
+/** The AI 辅助 page of the settings form, a page of the 工具 group; AI 对话 opens from its last group. */
 export function AiSettingsPage() {
   const {
     client,
@@ -73,7 +74,12 @@ export function AiSettingsPage() {
       providerCredentialMessages={providerCredentialMessages}
       runProviderCredential={runProviderCredential}
       credentialTestControl={credentialTestControl}
-      mcpConnect={null}
+      trailing={
+        <SubPageEntries
+          title="AI 对话"
+          pages={[{ id: "chat", description: "与 AI 对话，结果可以直接用于输入" }]}
+        />
+      }
     />
   );
 }

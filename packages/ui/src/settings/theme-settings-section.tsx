@@ -75,8 +75,8 @@ export function ThemeSettingsSection({
           mobile
             ? "覆盖候选栏的明暗外观；跟随时使用键盘主题"
             : linux
-              ? "预览跟随颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
-              : "预览跟随颜色模式"
+              ? "覆盖颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色"
+              : "覆盖颜色模式，只影响候选窗口"
         }
         value={preferences.candidate_theme}
         onChange={(value) => onChange("candidate_theme", value)}
@@ -85,7 +85,7 @@ export function ThemeSettingsSection({
       {floatingToolbar && !linux && (
         <SurfaceThemeRow
           title="悬浮工具栏主题"
-          description="覆盖颜色模式；当前影响工具栏设置预览，原生工具栏需宿主支持"
+          description="覆盖颜色模式，只影响悬浮工具栏"
           value={preferences.toolbar_theme}
           onChange={(value) => onChange("toolbar_theme", value)}
         />

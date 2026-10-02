@@ -34,7 +34,7 @@ export interface MixedInputSectionProps {
   onChange: (preferences: MixedInputPreferences) => void;
 }
 
-/** 共享的中英混输候选控件：「标点与翻译」页「多语言与释义」组开头的几行。 */
+/** 共享的中英混输候选控件：输入页「候选与联想」组里云候选之后的几行。 */
 export function MixedInputSection({ preferences, onChange }: MixedInputSectionProps) {
   return (
     <>

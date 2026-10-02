@@ -37,7 +37,7 @@ pinyin = { version = "0.11", default-features = false, features = ["plain", "het
 zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 # Notice bodies are simple Markdown; HarmonyOS's RichText gets HTML rendered here (raw HTML escaped, unsafe links dropped). Only the HTML writer: the default `getopts` feature is for the crate's command-line binary.
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-# 候选窗皮肤的图片在安装、发布和补预览图之前完整解码一遍，和服务端重新编码时一样；只看签名会放过截断的图。只开 PNG 和 JPEG 两种解码器，包里只允许这两种格式。
+# 候选窗口皮肤的图片在安装、发布和补预览图之前完整解码一遍，和服务端重新编码时一样；只看签名会放过截断的图。只开 PNG 和 JPEG 两种解码器，包里只允许这两种格式。
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 # `image` 固定用宽松模式解码 JPEG，截断的 JPEG 也能“解码成功”，所以 JPEG 直接用严格模式的 `zune-jpeg` 解码。版本和特性与 `image` 依赖的那份相同，不引入新的 crate。
 zune-jpeg = "0.5.15"

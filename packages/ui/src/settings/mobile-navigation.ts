@@ -3,7 +3,7 @@ import {
   requestedPage as resolveRequestedPage,
   type MobilePrimaryPageId,
 } from "./settings-navigation-helpers";
-import { pages, settingsPageAliases, type SettingsPageId } from "./settings-page-registry";
+import { pages, type SettingsPageId } from "./settings-page-registry";
 
 export {
   mobilePrimaryPageIds,
@@ -40,9 +40,9 @@ export function splitMobilePages<T extends { id: string }>(
   return { primary, secondary };
 }
 
-/** 宿主请求的页面：旧 id 先经 `settingsPageAliases` 改道，未知 id 落到导航第一页「输入」。 */
+/** 宿主请求的页面：未知 id 落到导航第一页「输入」。 */
 export function requestedPage(value: string | undefined): SettingsPageId {
-  return resolveRequestedPage(value, pages, settingsPageAliases, "input");
+  return resolveRequestedPage(value, pages, "input");
 }
 
 /** Push a nested mobile settings route while preserving the host's existing history state. */

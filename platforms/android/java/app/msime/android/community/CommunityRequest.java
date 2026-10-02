@@ -11,11 +11,11 @@ import java.util.List;
  * socket to check.
  */
 public final class CommunityRequest {
-    /** 目录里的三类内容。皮肤自成一个端点，词库和回复共用资源端点。 */
+    /** 目录里的三类内容。皮肤自成一个端点，词库和回复模板共用资源端点。 */
     public enum Kind {
         SKIN("skin", "皮肤", "搜索皮肤设计"),
         DICTIONARY("dictionary", "词库", "搜索词包"),
-        REPLY("reply", "回复", "搜索回复模板");
+        REPLY("reply", "回复模板", "搜索回复模板");
 
         private final String id;
         private final String title;

@@ -439,7 +439,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     const confirmed = await confirm({
       title: "清除学习数据",
       message:
-        "候选词频、用户词典和拼音学习记录将永久删除，此操作无法撤销。输入方案等设置不会改变。",
+        "候选词频、用户词库（包括自己新增和修改的词条）和拼音学习记录将永久删除，此操作无法撤销。输入方案等设置不会改变。",
       confirmLabel: "清除",
       danger: true,
     });

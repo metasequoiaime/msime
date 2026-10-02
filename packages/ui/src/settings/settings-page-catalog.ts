@@ -1,16 +1,13 @@
 import { availableSettingsPages, type AvailablePageCapabilities } from "./available-pages";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./mobile-hidden-pages";
 import { splitMobilePages } from "./mobile-navigation";
-import type { ExportedSettingsPageId } from "./settings-page-registry";
+import type { SettingsPageId } from "./settings-page-registry";
 import { settingsSidebarGroups, type SettingsSidebarGroupsOptions } from "./sidebar-groups";
 
 export interface SettingsPageCatalogOptions extends AvailablePageCapabilities {
   modeSwitchShortcuts: boolean;
   panelShortcuts: boolean;
   desktopMaintenanceShortcuts: boolean;
-  helpcodeShiftEntry: boolean;
-  android: boolean;
-  harmony: boolean;
   macos: SettingsSidebarGroupsOptions["macos"];
 }
 
@@ -33,18 +30,12 @@ export function settingsPageCatalog(options: SettingsPageCatalogOptions) {
   // but its phone panel is still a touch keyboard, so the settings entry must not
   // leak the PC key descriptions into the phone's "全部设置" list.
   //
-  // Helper codes are per-host rather than per-form-factor. Android and iOS route
-  // Shift helper codes through the engine, and HarmonyOS uses the same policy, so
-  // those hosts keep the page even when their other hardware shortcuts are hidden.
   // The shortcuts page itself follows the projected capabilities rather than a
   // platform name so a mobile device with a physical keyboard can still reach it.
-  const mobileHiddenPageIds: readonly ExportedSettingsPageId[] = getMobileHiddenPageIds({
+  const mobileHiddenPageIds: readonly SettingsPageId[] = getMobileHiddenPageIds({
     modeSwitchShortcuts: options.modeSwitchShortcuts,
     panelShortcuts: options.panelShortcuts,
     desktopMaintenanceShortcuts: options.desktopMaintenanceShortcuts,
-    helpcodeShiftEntry: options.helpcodeShiftEntry,
-    android: options.android,
-    harmony: options.harmony,
   });
   const sidebarGroups = settingsSidebarGroups(availablePages, {
     mobile: options.mobile,

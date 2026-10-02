@@ -13,7 +13,7 @@ test("explains when mobile candidate colors follow the keyboard skin", () => {
 
   expect(
     screen.getByText(
-      "候选栏正在使用键盘皮肤的颜色，下面的候选颜色要打开「使用桌面候选皮肤」后才生效。",
+      "候选栏正在使用键盘皮肤的颜色，下面的候选颜色要打开「候选栏使用主题配色」后才生效。",
     ),
   ).toBeTruthy();
 });

@@ -108,7 +108,7 @@ test("the 全部设置 list is grouped under the navigation group titles", async
         : undefined,
       pages: [...group.querySelectorAll("strong")].map((item) => item.textContent),
     }));
-  expect(groups.map((group) => group.title)).toEqual(["打字", "外观", "更多输入方式", "工具"]);
+  expect(groups.map((group) => group.title)).toEqual(["打字", "外观", "键盘、语音与手写", "工具"]);
   expect(groups[0].pages[0]).toBe("输入");
   expect(within(list).getByRole("group", { name: "打字" })).toBeTruthy();
 });

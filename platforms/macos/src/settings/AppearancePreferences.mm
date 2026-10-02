@@ -3067,16 +3067,16 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     }
     _themeModeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_themeModeButton addItemsWithTitles:@[@"跟随系统", @"深色", @"浅色"]];
-    _themeModeButton.accessibilityLabel = @"主题模式";
+    _themeModeButton.accessibilityLabel = @"颜色模式";
     _themeModeButton.target = self;
     _themeModeButton.action = @selector(themeModeChanged:);
     _candidateThemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_candidateThemeButton addItemsWithTitles:@[@"跟随全局", @"深色", @"浅色"]];
+    [_candidateThemeButton addItemsWithTitles:@[@"跟随颜色模式", @"深色", @"浅色"]];
     _candidateThemeButton.accessibilityLabel = @"候选窗口主题";
     _candidateThemeButton.target = self;
     _candidateThemeButton.action = @selector(candidateThemeChanged:);
     _toolbarThemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_toolbarThemeButton addItemsWithTitles:@[@"跟随全局", @"深色", @"浅色"]];
+    [_toolbarThemeButton addItemsWithTitles:@[@"跟随颜色模式", @"深色", @"浅色"]];
     _toolbarThemeButton.accessibilityLabel = @"悬浮工具栏主题";
     _toolbarThemeButton.target = self;
     _toolbarThemeButton.action = @selector(toolbarThemeChanged:);
@@ -3504,11 +3504,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         MSIMEDetailLabel(@"未组词时按 Shift 加一个字母，临时切到另一种输入方式。"),
         [self settingCheckboxes:_localModeButtons columns:2],
     ], 8.0);
-    localModesCard.accessibilityLabel = @"扩展输入卡片";
+    localModesCard.accessibilityLabel = @"快捷模式卡片";
 
     NSScrollView *habitsPage = [self page:MSIMESettingsPageInputHabits
                                     title:@"输入习惯"
-                                  summary:@"标点、混输、拼音匹配，以及 Shift 加一个字母的扩展输入。"
+                                  summary:@"标点、混输、拼音匹配，以及 Shift 加一个字母的快捷模式。"
                                   content:@[
         [self sectionHeader:@"标点与字符"
                        keys:@[ChinesePunctuationKey, SmartPunctuationKey, SmartPunctuationRepeatToChineseKey,
@@ -3522,7 +3522,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self sectionHeader:@"拼音匹配（全拼与双拼）"
                        keys:@[TranspositionKey, NeighborKey, FuzzyPinyinKey, FuzzyPinyinRulesKey]],
         correctionCard, fuzzyCard,
-        [self sectionHeader:@"扩展输入模式" keys:@[LocalModesKey]], localModesCard,
+        [self sectionHeader:@"快捷模式" keys:@[LocalModesKey]], localModesCard,
     ]];
 
     // ---- 候选窗口 ---------------------------------------------------------------------------
@@ -3590,11 +3590,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // the other six are colours, and a card holding one of the seven while a card under it holds the
     // rest is a worse place to look for any of them than either card alone.
     NSMutableArray<NSView *> *colorRows = [NSMutableArray arrayWithObjects:
-        [self settingRow:@"主题模式"
+        [self settingRow:@"颜色模式"
                   detail:@"候选窗口、悬浮工具栏、屏幕键盘与输入法菜单的默认明暗；设置窗口始终跟随系统。"
                  control:_themeModeButton
                      aka:@[@"深色", @"浅色", @"暗黑"]],
-        [self settingRow:@"候选窗口主题" detail:@"覆盖主题模式，只影响候选窗口。" control:_candidateThemeButton],
+        [self settingRow:@"候选窗口主题" detail:@"覆盖颜色模式，只影响候选窗口。" control:_candidateThemeButton],
         [self settingRow:@"候选文字颜色" control:textColorControls], nil];
     [colorRows addObjectsFromArray:candidateColorRows];
     NSBox *colorCard = MSIMECardWithViews(colorRows, 0.0);
@@ -3845,7 +3845,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // ---- 状态栏 -----------------------------------------------------------------------------
     NSBox *toolbarCard = MSIMECardWithViews(@[
         [self settingRow:@"显示浮动工具栏" control:_toolbarToggle aka:@[@"状态栏", @"悬浮工具栏"]],
-        [self settingRow:@"悬浮工具栏主题" detail:@"覆盖主题模式，只影响悬浮工具栏。" control:_toolbarThemeButton],
+        [self settingRow:@"悬浮工具栏主题" detail:@"覆盖颜色模式，只影响悬浮工具栏。" control:_toolbarThemeButton],
         MSIMECardSeparator(),
         MSIMECardHeader(@"工具栏按钮"),
         // In the order the toolbar draws them, so that the grid reads left to right as the toolbar

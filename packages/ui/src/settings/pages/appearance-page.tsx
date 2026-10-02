@@ -163,8 +163,8 @@ export function AppearanceSettingsPage() {
           onChange={appearanceActions.onPreferencesChange}
         >
           <LinkRow
-            title="颜色与明暗"
-            description={`${surfaceName}的颜色和明暗在「主题」页设置`}
+            title="皮肤、颜色与明暗"
+            description={`${surfaceName}的皮肤、颜色和明暗在「主题」页设置`}
             onClick={() => selectPage("skin")}
           />
         </CandidateWindowStyleSection>

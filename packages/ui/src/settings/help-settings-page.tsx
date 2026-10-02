@@ -158,7 +158,7 @@ export function HelpSettingsPage({
             <GroupList title="基本功能">
               <div className={`${settings.groupBlock} ${doc.page}`}>
                 <p>
-                  支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
+                  支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
                   2.0、首右 plus 和小鹤。
                 </p>
                 <p>{platformNetworkDescription}</p>

@@ -54,7 +54,8 @@ export interface AiSettingsContentProps {
   >["providerCredentialMessages"];
   runProviderCredential: ReturnType<typeof useProviderCredentials>["runProviderCredential"];
   credentialTestControl: ReturnType<typeof useProviderCredentials>["credentialTestControl"];
-  mcpConnect: ReactNode;
+  /** What follows the last group: the MCP connection in the embedded panel, the entry to AI 对话 on the settings page. */
+  trailing: ReactNode;
   /** 设置窗口的 AI 辅助页传 true，见 `AiSettingsPageSectionProps.grouped`。 */
   grouped?: boolean;
 }
@@ -93,7 +94,7 @@ export function AiSettingsContent({
   providerCredentialMessages,
   runProviderCredential,
   credentialTestControl,
-  mcpConnect,
+  trailing,
   grouped = false,
 }: AiSettingsContentProps) {
   const linuxCredentialTest = credentialTestControl(
@@ -226,7 +227,7 @@ export function AiSettingsContent({
           />
         ) : null
       }
-      mcpConnect={mcpConnect}
+      trailing={trailing}
     />
   );
 }

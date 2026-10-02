@@ -19,7 +19,7 @@ struct CommunitySkin: Codable, Identifiable, Sendable {
   var category: CommunitySkinCategory? = nil
 }
 
-/// 社区键盘皮肤的发布分类，与候选窗皮肤共用同一组固定 id。分类只是发布元数据，不计入任何请求摘要。
+/// 社区键盘皮肤的发布分类，与候选窗口皮肤共用同一组固定 id。分类只是发布元数据，不计入任何请求摘要。
 enum CommunitySkinCategory: String, CaseIterable, Identifiable, Codable, Sendable {
   case nature, guofeng, acg, cute, food, tech, minimal, other
 

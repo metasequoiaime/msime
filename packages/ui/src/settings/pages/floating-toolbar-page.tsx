@@ -3,7 +3,7 @@ import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../the
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
-import { Checks, GroupList, Row, Switch } from "../../core/platform-controls";
+import { Checks, GroupList, LinkRow, Row, Switch } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 import { SelectRow } from "../select-row";
@@ -57,6 +57,8 @@ export function FloatingToolbarSettingsPage() {
     floatingToolbar,
     toolbarPreviewTheme,
     globalTheme,
+    linuxPlatform,
+    selectPage,
   } = useSettingsForm();
   const { onChange: onToolbarChange } = createFloatingToolbarSettingsActions({
     setDraft,
@@ -120,7 +122,11 @@ export function FloatingToolbarSettingsPage() {
                   },
                   ...floatingToolbarOptions
                     .filter(([, , capability]) => !capability || !host || host[capability])
-                    .map(([key, label]) => ({ value: key, label, checked: floatingToolbar[key] })),
+                    .map(([key, label]) => ({
+                      value: key,
+                      label,
+                      checked: floatingToolbar[key],
+                    })),
                 ]}
                 onChange={(key, checked) => {
                   if (key !== "mode_switch") onToolbarChange({ [key]: checked });
@@ -171,6 +177,14 @@ export function FloatingToolbarSettingsPage() {
             </>
           ) : (
             <FloatingToolbarPlatformNotice buttons={showToolbarComponents} />
+          )}
+          {/* Linux hosts never read toolbar_theme, so the 主题 page has no toolbar row to point at there. */}
+          {!linuxPlatform && (
+            <LinkRow
+              title="颜色与明暗"
+              description="悬浮工具栏的明暗在「主题」页设置"
+              onClick={() => selectPage("skin")}
+            />
           )}
         </GroupList>
       </div>

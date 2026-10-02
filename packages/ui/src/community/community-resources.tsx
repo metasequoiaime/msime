@@ -118,7 +118,7 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.owned && item.moderation === "removed" && " · 已下架"}
       </span>
       <span className={style.resourceDescription}>
-        {item.description || (item.kind === "dictionary" ? "共享词条" : "回复语气模板")}
+        {item.description || (item.kind === "dictionary" ? "共享词条" : "回复模板")}
       </span>
       <span className={style.cardMetrics}>
         ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
@@ -465,7 +465,7 @@ function ResourceDetail({
       await client.storeReply(latest);
       if (!mounted.current || generation !== clientGeneration.current) return;
       setItem(latest);
-      setNotice("已添加到回复键盘；只有点按生成时才会发送文字。");
+      setNotice("已添加到高情商回复键盘；只有点按生成时才会发送文字。");
     });
   const rateResource = (stars: number) =>
     void run(async (generation) => {
@@ -480,7 +480,7 @@ function ResourceDetail({
     void run(async (generation) => {
       await client.removeReply(item.id);
       if (!mounted.current || generation !== clientGeneration.current) return;
-      setNotice("已从本机回复键盘移除，社区收藏保留。");
+      setNotice("已从本机高情商回复键盘移除，社区收藏保留。");
     });
   const unpublish = () =>
     void run(async (generation) => {
@@ -570,7 +570,7 @@ function ResourceDetail({
               disabled={busy}
               onClick={storeReply}
             >
-              添加到回复键盘
+              添加到高情商回复键盘
             </button>
             <button
               type="button"
@@ -578,7 +578,7 @@ function ResourceDetail({
               disabled={busy}
               onClick={removeReply}
             >
-              从本机回复键盘移除
+              从本机高情商回复键盘移除
             </button>
           </>
         )}
@@ -901,7 +901,7 @@ export function CommunityHomePage({
           aria-selected={category === "reply"}
           onClick={() => setCategory("reply")}
         >
-          回复
+          回复模板
         </button>
       </div>
       {category === "skin" ? (
