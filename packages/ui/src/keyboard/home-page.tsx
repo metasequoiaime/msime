@@ -3,6 +3,7 @@ import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
 import { groupTitle } from "../core/platform-controls-style";
 import { keyboardThemeId, themeEntry } from "../theme/global-theme";
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
+import { ActionButton } from "../core/action-button";
 import type { Preferences, TouchKeyboardScheme } from "../index";
 import { touchKeyboardSchemeTitle } from "../settings/touch-keyboard-scheme-helpers";
 
@@ -342,40 +343,32 @@ export function HomePage({
       </button>
       <div className="flex flex-wrap gap-[9px]">
         {actions?.openEmojiPanel && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openEmojiPanel)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openEmojiPanel)}
-          >
-            表情与符号
-          </button>
+            label="表情与符号"
+          />
         )}
         {actions?.openClipboardPanel && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openClipboardPanel)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openClipboardPanel)}
-          >
-            剪贴板历史
-          </button>
+            label="剪贴板历史"
+          />
         )}
         {actions?.openSystemKeyboardSettings && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.openSystemKeyboardSettings)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.openSystemKeyboardSettings)}
-          >
-            {ios ? "系统键盘设置" : "系统输入法设置"}
-          </button>
+            label={ios ? "系统键盘设置" : "系统输入法设置"}
+          />
         )}
         {actions?.showInputMethodPicker && (
-          <button
-            type="button"
+          <ActionButton
+            action={() => invokeAction(actions.showInputMethodPicker)}
             className="secondary m-0"
-            onClick={() => invokeAction(actions.showInputMethodPicker)}
-          >
-            选择输入法
-          </button>
+            label="选择输入法"
+          />
         )}
       </div>
     </section>
