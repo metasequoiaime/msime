@@ -3,6 +3,7 @@ import { SwitchRow } from "./switch-row";
 import { SettingCheck } from "./setting-check";
 import { SettingSectionTitle } from "./setting-section-title";
 import * as settings from "./settings-style";
+import { ActionButton } from "../core/action-button";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -96,10 +97,9 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
             </div>
           </div>
         ))}
-        <button
-          type="button"
+        <ActionButton
           className="secondary fuzzy-pinyin-reset"
-          onClick={() => {
+          action={() => {
             void confirm({
               title: "关闭模糊音",
               message: "所有模糊音规则会被清空。",
@@ -114,9 +114,8 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
               });
             });
           }}
-        >
-          重置模糊音配置
-        </button>
+          label="重置模糊音配置"
+        />
       </div>
     </div>
   );
