@@ -1,4 +1,4 @@
-import { GroupList, Row, Segmented, Slider } from "../core/platform-controls";
+import { GroupList, Row, Slider } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
 import type { KeySoundMode, PluginPreferences } from "./plugin-preferences";
@@ -11,6 +11,7 @@ import {
 import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginKind, PluginPackage } from "./plugin-types";
 import { SwitchRow } from "./switch-row";
+import { SegmentedRow } from "./segmented-row";
 
 const keySoundModes: readonly { value: KeySoundMode; label: string }[] = [
   { value: "keys", label: "按键音效" },
@@ -75,17 +76,14 @@ export function PluginSoundEffectsView({
               onChange({ ...preferences, key_sound: { ...key_sound, enabled } })
             }
           />
-          <Row
+          <SegmentedRow
             title="发声方式"
             description="按键音效按普通键、空格、回车和退格各自发声；按键旋律每按一键弹出旋律的下一个音，停顿 3 秒后从头开始。"
-          >
-            <Segmented
-              options={keySoundModes}
-              value={key_sound.mode}
-              disabled={!key_sound.enabled}
-              onChange={(mode) => onChange({ ...preferences, key_sound: { ...key_sound, mode } })}
-            />
-          </Row>
+            options={keySoundModes}
+            value={key_sound.mode}
+            disabled={!key_sound.enabled}
+            onChange={(mode) => onChange({ ...preferences, key_sound: { ...key_sound, mode } })}
+          />
           <Row title="音效包" description={`按键、上屏和成就音效都取自这个音效包。${choose}`}>
             <SummaryValue>
               {selectedName("sound", key_sound.pack, key_sound.pack, "keys")}
@@ -139,17 +137,14 @@ export function PluginSoundEffectsView({
                   </SummaryValue>
                 </Row>
               )}
-              <Row
+              <SegmentedRow
                 title="效果样式"
                 description="闪光：按键时候选栏闪一下；火花：按键和上屏时迸出火花；Power Mode：火花随连击变大。"
-              >
-                <Segmented
-                  options={effectStyleOptions}
-                  value={preferences.effect_style}
-                  disabled={effectPackSelected}
-                  onChange={(effect_style) => onChange({ ...preferences, effect_style })}
-                />
-              </Row>
+                options={effectStyleOptions}
+                value={preferences.effect_style}
+                disabled={effectPackSelected}
+                onChange={(effect_style) => onChange({ ...preferences, effect_style })}
+              />
               <Row title="效果强度" description="效果的大小和持续时间。">
                 <span className={settings.sliderControl}>
                   <Slider
