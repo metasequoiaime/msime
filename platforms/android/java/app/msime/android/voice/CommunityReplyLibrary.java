@@ -32,6 +32,7 @@ public final class CommunityReplyLibrary {
     }
 
     public static List<Template> read(Path file) throws IOException {
+        rejectSymlinkComponents(file);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
         byte[] bytes = readBounded(file);
@@ -80,6 +81,20 @@ public final class CommunityReplyLibrary {
                 bytes.write(buffer, 0, count);
             }
             return bytes.toByteArray();
+        }
+    }
+
+    private static void rejectSymlinkComponents(Path path) throws IOException {
+        if (path == null) throw new IOException("Community library path unavailable");
+        Path absolute = path.toAbsolutePath().normalize();
+        Path current = absolute.getRoot();
+        if (current == null) throw new IOException("Community library path unavailable");
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            // macOS temporary paths expose /var through a trusted alias.
+            if (!current.toString().equals("/var") && !current.toString().equals("/tmp")
+                    && Files.isSymbolicLink(current))
+                throw new IOException("Community library path contains a symbolic link");
         }
     }
 
