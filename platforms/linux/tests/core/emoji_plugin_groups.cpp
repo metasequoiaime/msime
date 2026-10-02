@@ -35,15 +35,18 @@ int main() {
   // 「全部」：本目录下所有插件条目按顺序排在一起，不去重；Emoji 目录没有插件条目。
   const auto all = plugin_emoji_items(groups, "symbols", "", std::nullopt, "");
   assert(all.size() == 5);
-  assert(all[0] == (Json{{"text", "→"}, {"annotation", "jiantou"}, {"group", "箭头大全 / 箭头"}}));
+  // 组的关键词只用于搜索，不当作条目的注释。
+  assert(all[0] == (Json{{"text", "→"}, {"annotation", ""}, {"group", "箭头大全 / 箭头"}}));
   assert(all[2]["text"] == "┌" && all[4]["group"] == "音乐符号 / 音符");
   assert(plugin_emoji_items(groups, "", "", std::nullopt, "").empty());
   assert(plugin_emoji_items(groups, "kaomoji", "", std::nullopt, "").size() == 1);
   // 选中内置分组时只有内置条目；选中插件组时只有那一组，组已卸载时为空。
   assert(plugin_emoji_items(groups, "symbols", "数学", std::nullopt, "").empty());
-  const auto box = plugin_emoji_items(groups, "symbols", "", PluginGroupKey{"arrows", "Box"}, "");
+  const auto box = plugin_emoji_items(groups, "symbols", "", PluginGroupKey{"arrows", "symbols", "Box"}, "");
   assert(box.size() == 2 && box[0]["text"] == "┌");
-  assert(plugin_emoji_items(groups, "symbols", "", PluginGroupKey{"gone", "Box"}, "").empty());
+  assert(plugin_emoji_items(groups, "symbols", "", PluginGroupKey{"gone", "symbols", "Box"}, "").empty());
+  // 键里带标签页：同一个包在另一个标签页的同名组不会被选中。
+  assert(plugin_emoji_items(groups, "symbols", "", PluginGroupKey{"arrows", "kaomoji", "Box"}, "").empty());
 
   // 搜索匹配组关键词（整组）或条目原文，ASCII 不区分大小写。
   assert(plugin_emoji_items(groups, "symbols", "", std::nullopt, "jian").size() == 2);
@@ -84,10 +87,10 @@ int main() {
   choice = emoji_group_choice(builtin, groups, "kaomoji", 1);
   assert(choice.builtin == "All" && !choice.plugin && choice.label == "All");
   choice = emoji_group_choice(builtin, groups, "kaomoji", 2);
-  assert(choice.builtin.empty() && choice.plugin && (*choice.plugin == PluginGroupKey{"arrows", "开心"}) &&
+  assert(choice.builtin.empty() && choice.plugin && (*choice.plugin == PluginGroupKey{"arrows", "kaomoji", "开心"}) &&
          choice.label == "开心");
   choice = emoji_group_choice({"数学"}, groups, "symbols", 3);
-  assert(choice.plugin && (*choice.plugin == PluginGroupKey{"arrows", "Box"}) && choice.label == "箭头大全 / Box");
+  assert(choice.plugin && (*choice.plugin == PluginGroupKey{"arrows", "symbols", "Box"}) && choice.label == "箭头大全 / Box");
   choice = emoji_group_choice(builtin, groups, "kaomoji", 9);
   assert(choice.builtin.empty() && !choice.plugin);
   return 0;
