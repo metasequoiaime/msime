@@ -23,6 +23,7 @@ import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-fo
 import { candidateFamilyStyle } from "../candidate/candidate-font-family";
 import { candidateOpacityPercent, candidateWindowStyle } from "../candidate/candidate-window-style";
 import * as settings from "../settings/settings-style";
+import { ActionButton } from "../core/action-button";
 
 /** The host's own `resolve()` answer for `request`, when the host has a theme call; `undefined` until it arrives, when it fails, and for a request it was not asked for. */
 function useResolvedTheme(
@@ -196,14 +197,12 @@ export function ExternalAppearancePreview({
     (fixed !== null || skin.themes.includes(theme));
   return (
     <>
-      <button
-        type="button"
+      <ActionButton
+        action={() => setRefresh((value) => value + 1)}
         className="skin-preview-switch"
         disabled={!current}
-        onClick={() => setRefresh((value) => value + 1)}
-      >
-        刷新预览
-      </button>
+        label="刷新预览"
+      />
       {!current ? (
         <p role="status">正在读取所选皮肤。</p>
       ) : current.failed ? (
