@@ -446,17 +446,16 @@ export function McpConnectSection({
                     </p>
                   )}
                   <div className={settings.managerActions}>
-                    <button
-                      type="button"
-                      className="secondary"
+                    <ActionButton
+                      action={() => void write(client.id, flags)}
                       disabled={busy !== undefined || (client.configured && !outdated)}
-                      aria-busy={busy === client.id}
-                      onClick={() => void write(client.id, flags)}
-                    >
-                      {busy === client.id
-                        ? "正在写入…"
-                        : `${outdated ? "更新" : "写入"} ${clientNames[client.id]}`}
-                    </button>
+                      ariaBusy={busy === client.id}
+                      label={
+                        busy === client.id
+                          ? "正在写入…"
+                          : `${outdated ? "更新" : "写入"} ${clientNames[client.id]}`
+                      }
+                    />
                   </div>
                 </>
               )}
