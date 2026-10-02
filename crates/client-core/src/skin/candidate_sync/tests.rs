@@ -457,6 +457,24 @@ fn a_package_removed_from_the_library_is_removed_locally_when_unchanged() {
 }
 
 #[test]
+fn a_stale_removed_file_does_not_block_local_skin_deletion() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    fixture.library.rows.borrow_mut().clear();
+    fs::write(
+        fixture.root.join(".removed-sakura"),
+        b"stale cleanup marker",
+    )
+    .unwrap();
+
+    let report = fixture.sync();
+
+    assert_eq!(report.deleted_local, ids(&["sakura"]));
+    assert_eq!(fs::read_dir(&fixture.root).unwrap().count(), 0);
+}
+
+#[test]
 fn a_package_removed_from_the_library_is_uploaded_again_when_edited() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);

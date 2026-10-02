@@ -14,7 +14,7 @@ use super::catalog;
 use crate::account::{AccountApi, AccountError, AccountSessionStorage};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -759,10 +759,18 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         let removed = {
             let _writes = super::folder_import::lock_skin_root();
             let aside = self.root.join(format!(".removed-{id}"));
-            let _ = std::fs::remove_dir_all(&aside);
-            let moved = std::fs::rename(self.root.join(id), &aside).is_ok();
-            let _ = std::fs::remove_dir_all(&aside);
-            moved
+            let _ = remove_entry(&aside);
+            if fs::rename(self.root.join(id), &aside).is_err() {
+                false
+            } else {
+                match remove_entry(&aside) {
+                    Ok(()) => true,
+                    Err(_) => {
+                        let _ = fs::rename(&aside, self.root.join(id));
+                        false
+                    }
+                }
+            }
         };
         if removed {
             self.state.packages.remove(id);
@@ -783,6 +791,15 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
             }
             Err(error) => self.fail(id, error, Request::Other),
         }
+    }
+}
+
+fn remove_entry(path: &Path) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
     }
 }
 
