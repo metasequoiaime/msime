@@ -1436,12 +1436,18 @@ int wmain(int argc, wchar_t **argv) {
             return false;
           if (batch.counts.empty())
             return true;
+          // Narrowed unit by unit, which is lossless only because the parser admitted nothing but ASCII; constructing std::string from wide iterators narrows implicitly, and MSVC's /WX rejects that (C4244).
+          const auto ascii = [](const std::wstring &value) {
+            std::string narrow;
+            narrow.reserve(value.size());
+            for (const wchar_t unit : value)
+              narrow.push_back(static_cast<char>(unit));
+            return narrow;
+          };
           std::map<std::string, uint64_t> keys;
           for (const auto &[key, count] : batch.counts)
-            keys.emplace(std::string(key.begin(), key.end()), count);
-          record_typing_keys_async(statistics_directory,
-                                   std::string(batch.day.begin(), batch.day.end()),
-                                   keys);
+            keys.emplace(ascii(key), count);
+          record_typing_keys_async(statistics_directory, ascii(batch.day), keys);
           return true;
         });
     // The fifth pipe: TIP diagnostics. The TIP has always produced batches on
