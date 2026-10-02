@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
-import { GroupList, MoreOptions, Row, Select, Switch } from "../core/platform-controls";
+import { GroupList, MoreOptions, Row, Select } from "../core/platform-controls";
 import {
   AiBasicSettingsSection,
   AiProviderOptions,
@@ -13,6 +13,7 @@ import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { SwitchRow } from "./switch-row";
 import { TextInputRow } from "./text-input-row";
 
 export interface AiSettingsPageSectionProps {
@@ -111,9 +112,13 @@ export function AiSettingsPageSection({
         <div className={settings.groups}>
           {/* 先把服务接通：开关、服务商、凭据、模型；接口地址一般随服务商预设，收进「更多选项」；测试按钮放在组末，测的正是上面这些。 */}
           <GroupList title="服务">
-            <Row title="启用 AI 辅助" description={enabledDescription}>
-              <Switch aria-label="启用 AI 辅助" checked={enabled} onChange={onEnabledChange} />
-            </Row>
+            <SwitchRow
+              title="启用 AI 辅助"
+              description={enabledDescription}
+              aria-label="启用 AI 辅助"
+              checked={enabled}
+              onChange={onEnabledChange}
+            />
             <Row title="服务提供商">
               <Select
                 aria-label="AI 服务提供商"

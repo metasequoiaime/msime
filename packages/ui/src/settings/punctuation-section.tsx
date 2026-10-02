@@ -1,5 +1,5 @@
-import { Row, Switch } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
+import { SwitchRow } from "./switch-row";
 
 export interface PunctuationPreferences {
   chinese_punctuation: boolean;
@@ -51,15 +51,12 @@ export function CharacterWidthRow({
   onChange,
 }: Pick<PunctuationSectionProps, "preferences" | "onChange">) {
   return (
-    <Row
+    <SwitchRow
       title="全角输入"
       description="将英文字符和空格提交为全角形式，会话开始时生效；工具栏、键盘的更多工具或快捷键可临时切换"
-    >
-      <Switch
-        checked={(preferences.character_width ?? "halfwidth") === "fullwidth"}
-        onChange={(checked) => onChange({ character_width: checked ? "fullwidth" : "halfwidth" })}
-      />
-    </Row>
+      checked={(preferences.character_width ?? "halfwidth") === "fullwidth"}
+      onChange={(checked) => onChange({ character_width: checked ? "fullwidth" : "halfwidth" })}
+    />
   );
 }
 
@@ -71,20 +68,21 @@ export function PunctuationSection({
 }: PunctuationSectionProps) {
   return (
     <>
-      <Row title="中文标点" description="默认使用中文标点符号">
-        <Switch
-          checked={preferences.chinese_punctuation}
-          onChange={(chinese_punctuation) => onChange({ chinese_punctuation })}
-        />
-      </Row>
+      <SwitchRow
+        title="中文标点"
+        description="默认使用中文标点符号"
+        checked={preferences.chinese_punctuation}
+        onChange={(chinese_punctuation) => onChange({ chinese_punctuation })}
+      />
       {showCharacterWidth && <CharacterWidthRow preferences={preferences} onChange={onChange} />}
       {switches.map(([key, label, description]) => (
-        <Row key={key} title={label} description={description}>
-          <Switch
-            checked={preferences[key] ?? key === "paired_punctuation"}
-            onChange={(checked) => onChange({ [key]: checked })}
-          />
-        </Row>
+        <SwitchRow
+          key={key}
+          title={label}
+          description={description}
+          checked={preferences[key] ?? key === "paired_punctuation"}
+          onChange={(checked) => onChange({ [key]: checked })}
+        />
       ))}
       <SelectRow
         title="固定标点"

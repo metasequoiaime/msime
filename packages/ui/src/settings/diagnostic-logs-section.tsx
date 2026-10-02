@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
-import { GroupList, Row, Switch } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export interface DiagnosticLogPreferences {
   server: boolean;
@@ -54,9 +55,12 @@ export function DiagnosticLogsSection({
   return (
     <GroupList title="诊断日志">
       <div className={settings.rowStack} role="group" aria-label="诊断日志">
-        <Row title={title} description={description}>
-          <Switch checked={values.server} onChange={(server) => onChange({ server })} />
-        </Row>
+        <SwitchRow
+          title={title}
+          description={description}
+          checked={values.server}
+          onChange={(server) => onChange({ server })}
+        />
         {openDirectory && (
           <Row
             title="日志文件"
@@ -72,12 +76,12 @@ export function DiagnosticLogsSection({
           </Row>
         )}
         {!linux && windows && (
-          <Row
+          <SwitchRow
             title="TSF 端日志"
             description="排查应用内预编辑和输入延迟时开启。日志在内存中限量缓冲，并通过独立管道批量汇总，不记录按键、输入内容或候选文本。"
-          >
-            <Switch checked={values.tsf} onChange={(tsf) => onChange({ tsf })} />
-          </Row>
+            checked={values.tsf}
+            onChange={(tsf) => onChange({ tsf })}
+          />
         )}
       </div>
     </GroupList>
