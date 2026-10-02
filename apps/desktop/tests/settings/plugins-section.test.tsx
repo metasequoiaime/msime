@@ -1460,3 +1460,52 @@ test("a symbol set lists its groups and says when the panel does not show it", a
   await openPack("数学符号");
   expect(screen.getByText(/装上即在符号面板里显示/)).toBeTruthy();
 });
+
+test("names an imported or removed melody pack 音效包·旋律", async () => {
+  const melody = pack({
+    id: "tune",
+    kind: "sound",
+    mode: "sequence",
+    name: "晚安曲",
+    version: "1.0.0",
+  });
+  const client = fakeClient({ importPack: vi.fn(async () => melody) });
+  const confirm = vi.fn(async () => false);
+  render(
+    <PluginsSection
+      client={client}
+      preferences={defaultPluginPreferences}
+      keySound
+      music
+      triggers
+      active
+      onChange={vi.fn()}
+      onError={vi.fn()}
+      confirm={confirm}
+    />,
+  );
+  await screen.findByRole("button", { name: "打字机" });
+  fireEvent.click(screen.getByRole("button", { name: "导入 .zip" }));
+  expect(await screen.findByText("已导入音效包·旋律「晚安曲」1.0.0。")).toBeTruthy();
+
+  client.catalog = vi.fn(async () => ({ ...catalog, packages: [...catalog.packages, melody] }));
+  cleanup();
+  render(
+    <PluginsSection
+      client={client}
+      preferences={defaultPluginPreferences}
+      keySound
+      music
+      triggers
+      active
+      onChange={vi.fn()}
+      onError={vi.fn()}
+      confirm={confirm}
+    />,
+  );
+  await openPack("晚安曲");
+  fireEvent.click(screen.getByRole("button", { name: "删除晚安曲" }));
+  await waitFor(() =>
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ title: "删除音效包·旋律" })),
+  );
+});

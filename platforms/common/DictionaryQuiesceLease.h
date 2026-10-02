@@ -3,7 +3,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cerrno>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -76,6 +78,33 @@ inline bool dictionary_quiesced(const std::string &user_data,
   return dictionary_quiesce_lease_live(std::string_view(buffer, static_cast<std::size_t>(lease.gcount())), now_ms);
 }
 
+inline bool write_staged_dictionary_lease(const std::filesystem::path &staged,
+                                          std::string_view contents) {
+  const int descriptor = ::open(staged.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+  if (descriptor < 0) return false;
+  bool complete = true;
+  const char *data = contents.data();
+  std::size_t remaining = contents.size();
+  while (remaining != 0) {
+    const auto written = ::write(descriptor, data, remaining);
+    if (written > 0) {
+      data += written;
+      remaining -= static_cast<std::size_t>(written);
+    } else if (written < 0 && errno == EINTR) {
+      continue;
+    } else {
+      complete = false;
+      break;
+    }
+  }
+  if (::close(descriptor) != 0) complete = false;
+  if (!complete) {
+    std::error_code ignored;
+    std::filesystem::remove(staged, ignored);
+  }
+  return complete;
+}
+
 // Raise the lease from inside an input host, for maintenance that host runs itself (the macOS input method's own dictionary window). It is written the way the settings window writes it: an owner line `<pid> <n>` after the expiry, staged under `<lease>.<pid>-<n>` and renamed into place, so a reader never sees half of it, with an expiry at the bound. `written` receives the exact contents, for lower_dictionary_quiesce_lease. False when it could not be written.
 inline bool raise_dictionary_quiesce_lease(const std::string &user_data, std::string &written,
                                            std::int64_t now_ms = dictionary_quiesce_now_ms()) {
@@ -88,14 +117,7 @@ inline bool raise_dictionary_quiesce_lease(const std::string &user_data, std::st
   auto staged = lease;
   staged += "." + pid + "-" + serial;
   const std::string contents = std::to_string(now_ms + kDictionaryQuiesceLeaseMaxMs) + "\n" + pid + " " + serial + "\n";
-  {
-    std::ofstream file(staged, std::ios::trunc);
-    if (!(file << contents)) {
-      std::error_code ignored;
-      std::filesystem::remove(staged, ignored);
-      return false;
-    }
-  }
+  if (!write_staged_dictionary_lease(staged, contents)) return false;
   std::error_code error;
   std::filesystem::rename(staged, lease, error);
   if (!error) {

@@ -1054,11 +1054,7 @@ struct KeyboardView {
     }
     this.emojiShowingRecents = false;
     this.resetEmojiSearch();
-    for (const item of tab.items) {
-      if (item.annotation.length > 0) {
-        this.emojiKeywords.set(item.text, item.annotation);
-      }
-    }
+    // 插件条目没有逐项的注释，组的关键词只用于搜索：这里不写 `emojiKeywords`，与插件条目同字的内置符号保留自己的名字。
     this.emojiItems = tab.items.map((item: EmojiItem): string => item.text);
   }
 

@@ -21,12 +21,13 @@ struct PluginSymbolGroup {
   std::vector<std::string> items;
 };
 
-// 面板选中的插件组，按包 id 和组标题识别：插件列表重新加载后仍指向同一组，组被卸载时就不再匹配任何条目。
+// 面板选中的插件组，按包 id、标签页和组标题识别（同一个包的组标题只在同一标签页内唯一）：插件列表重新加载后仍指向同一组，组被卸载时就不再匹配任何条目。
 struct PluginGroupKey {
   std::string pack;
+  std::string tab;
   std::string title;
   bool operator==(const PluginGroupKey &other) const {
-    return pack == other.pack && title == other.title;
+    return pack == other.pack && tab == other.tab && title == other.title;
   }
 };
 
@@ -99,7 +100,7 @@ inline bool plugin_text_matches(const std::string &text, const std::string &sear
   return lower(text).find(lower(search)) != std::string::npos;
 }
 
-// 当前筛选下的插件条目，排在内置条目之后。选中内置分组时没有插件条目；`selected` 为空表示「全部」，即该目录下所有插件组。搜索匹配组的关键词或条目原文。
+// 当前筛选下的插件条目，排在内置条目之后。选中内置分组时没有插件条目；`selected` 为空表示「全部」，即该目录下所有插件组。搜索匹配组的关键词或条目原文；组的关键词只用于搜索，不当作条目的注释显示。
 inline nlohmann::json plugin_emoji_items(const std::vector<PluginSymbolGroup> &groups,
                                          const std::string &category, const std::string &builtin_group,
                                          const std::optional<PluginGroupKey> &selected,
@@ -108,12 +109,12 @@ inline nlohmann::json plugin_emoji_items(const std::vector<PluginSymbolGroup> &g
   if (!builtin_group.empty()) return items;
   for (const auto index : plugin_groups_in(groups, category)) {
     const auto &group = groups[index];
-    if (selected && !(*selected == PluginGroupKey{group.pack, group.title})) continue;
+    if (selected && !(*selected == PluginGroupKey{group.pack, group.tab, group.title})) continue;
     const bool keywordsMatch = !search.empty() && plugin_text_matches(group.keywords, search);
     const auto label = plugin_group_label(group);
     for (const auto &text : group.items)
       if (keywordsMatch || plugin_text_matches(text, search))
-        items.push_back({{"text", text}, {"annotation", group.keywords}, {"group", label}});
+        items.push_back({{"text", text}, {"annotation", ""}, {"group", label}});
   }
   return items;
 }
@@ -164,7 +165,7 @@ inline EmojiGroupChoice emoji_group_choice(const std::vector<std::string> &built
   const auto pluginIndex = index - 1 - builtin.size();
   if (pluginIndex >= indexes.size()) return {};
   const auto &group = plugins[indexes[pluginIndex]];
-  return {std::string{}, PluginGroupKey{group.pack, group.title}, plugin_group_label(group)};
+  return {std::string{}, PluginGroupKey{group.pack, group.tab, group.title}, plugin_group_label(group)};
 }
 
 }  // namespace msime::linux_host

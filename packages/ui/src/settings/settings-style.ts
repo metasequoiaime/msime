@@ -247,8 +247,9 @@ export const sidebar =
 /** The iPad sidebar's large 设置 title, sized like a page title. */
 export const sidebarTitle =
   "m-0 px-1 pt-1.5 pb-2.5 text-[length:var(--p-title-fs)] leading-tight [font-weight:var(--p-title-w)]";
+/** 侧栏顶部的品牌行：24px 图标加产品名，水平内边距取导航项的 `--p-nav-pad`，图标与下面各项的图标左对齐；文字颜色沿用侧栏，跟随明暗主题和自定义主题。 */
 export const sidebarHeader =
-  "mb-2 flex items-center gap-1.5 px-3 pt-0 pb-3 [&>img]:size-[25px] [&>img]:translate-y-px [&>img]:rounded-md [&>span]:ml-[3px] [&>span]:text-[19px] [&>span]:font-medium";
+  "mt-1 mb-3 flex shrink-0 items-center gap-2 [padding:var(--p-nav-pad)] select-none [&>img]:size-6 [&>img]:shrink-0 [&>img]:rounded-md [&>span]:min-w-0 [&>span]:truncate [&>span]:text-[15px] [&>span]:font-semibold";
 /*
  * A group of sidebar items, which are the shared `NavItem`: its height, radius, padding and selected fill come from the `--p-nav-*` tokens, Windows' 3x16 accent bar included. Windows insets each item 2px by 4px and gaps its icon 16px; the rest set the space between groups (macOS 18, HarmonyOS 12, GNOME 10).
  */

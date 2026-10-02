@@ -506,3 +506,46 @@ test("a route naming an Object.prototype member pushes no uncloneable history st
     expect(() => structuredClone(window.history.state)).not.toThrow();
   }
 });
+
+// 桌面窗口在侧栏顶部、搜索框之上写出品牌：macOS 和 HarmonyOS 2in1 没有自绘标题栏，品牌放进侧栏；Windows 的标题栏已经带着品牌，手机界面一律不画。HarmonyOS 宿主不提供窗口命令，这里也去掉。
+test("the sidebar brand heads desktop sidebars and stays off phone layouts", async () => {
+  const noWindowCommands = { windowControl: undefined, beginWindowDrag: undefined };
+  for (const [platform, host, client] of [
+    ["macos", {}, {}],
+    ["harmony", { mobile_settings: false }, noWindowCommands],
+  ] as const) {
+    renderSettings(platform, host, undefined, client);
+    await settingsFormReady();
+    const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+    const brand = sidebar.querySelector<HTMLElement>("[data-sidebar-brand]");
+    expect(brand, platform).not.toBeNull();
+    expect(within(brand!).getByText("水杉输入法")).toBeTruthy();
+    // 图标只是装饰，名称由文字给出，也不进 Tab 顺序。
+    expect(brand!.querySelector("img")?.getAttribute("alt")).toBe("");
+    expect(brand!.querySelector("a, button, [tabindex]")).toBeNull();
+    const search = within(sidebar).getByRole("searchbox", { name: "搜索设置" });
+    expect(brand!.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // macOS 的品牌行在红绿灯那一行下面，和那一行一样可以拖动窗口。
+    expect(brand!.hasAttribute("data-window-drag")).toBe(platform === "macos");
+    cleanup();
+  }
+
+  renderSettings("windows");
+  await settingsFormReady();
+  expect(document.querySelector("[data-sidebar-brand]")).toBeNull();
+  expect(
+    within(screen.getByRole("banner", { name: "窗口控制" })).getByText("水杉输入法"),
+  ).toBeTruthy();
+  cleanup();
+
+  for (const [platform, host] of [
+    ["android", {}],
+    ["ios", {}],
+    ["harmony", { mobile_settings: true }],
+  ] as const) {
+    renderSettings(platform, host);
+    await settingsFormReady();
+    expect(document.querySelector("[data-sidebar-brand]"), platform).toBeNull();
+    cleanup();
+  }
+});

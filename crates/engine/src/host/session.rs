@@ -9,7 +9,7 @@ use super::options::{runtime_paths, session_options, shuangpin_profile, EngineOp
 use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
-use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, SharedKeymap};
+use crate::helpcode::{compute_helpcodes, load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 use crate::local::database::LocalDatabaseLease;
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
@@ -286,13 +286,24 @@ impl Session {
     }
 
     /// 实时替换宿主给的辅助码表（辅助码表插件）；`None` 回到 `helpcode_schema` 对应的表。重建的会话从 `EngineOptions::helpcode_table` 开始。
+    ///
+    /// 从不失败：回退的表读不出来（典型是 `custom/<stem>` 的文件已被删掉）时装上空表并记一条日志。宿主在获得焦点时调用它，这里报错会让每一次聚焦都失败。
     pub fn set_helpcode_table(&mut self, table: Option<SharedKeymap>) -> Result<()> {
         let keymap = match &table {
             Some(table) => table.clone(),
-            None => Arc::new(load_helpcode_keymap(
-                Path::new(&self.options.resources),
-                &self.options.helpcode_schema,
-            )?),
+            None => Arc::new(
+                load_helpcode_keymap(
+                    Path::new(&self.options.resources),
+                    &self.options.helpcode_schema,
+                )
+                .unwrap_or_else(|error| {
+                    eprintln!(
+                        "msime: helpcode schema {} unavailable, using an empty table: {error}",
+                        self.options.helpcode_schema
+                    );
+                    HelpcodeKeymap::default()
+                }),
+            ),
         };
         self.inner.set_helpcode_table(keymap.clone());
         if self.helpcode_enabled {

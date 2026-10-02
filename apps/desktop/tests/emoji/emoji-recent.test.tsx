@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EmojiPanel } from "@msime/ui";
 
 afterEach(() => {
@@ -98,4 +98,42 @@ test("recent tab with history but no search match shows no results", async () =>
   });
   expect(await screen.findByText("No results")).toBeDefined();
   expect(screen.queryByText("Your recently used items will appear here")).toBeNull();
+});
+
+test("plugin symbol groups keep their own category and search by group keywords", async () => {
+  const client = {
+    close: async () => {},
+    loadCatalog: async () => ({
+      emoji: [],
+      kaomoji: [],
+      symbols: [
+        {
+          title: "箭头",
+          parent: "箭头",
+          icon: "←",
+          items: [{ text: "←", keywords: "左箭头" }],
+        },
+        {
+          title: "箭头",
+          parent: "箭头",
+          pack: "arrows",
+          keywords: "jiantou",
+          icon: "⇒",
+          items: [{ text: "⇒", keywords: "⇒" }],
+        },
+      ],
+    }),
+  };
+  render(<EmojiPanel client={client} />);
+  fireEvent.click(await screen.findByRole("button", { name: "符号" }));
+  const categories = await screen.findByRole("navigation", { name: "符号子分类" });
+  await waitFor(() =>
+    expect(within(categories).getAllByRole("button", { name: /箭头/ })).toHaveLength(2),
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索" }), {
+    target: { value: "jiantou" },
+  });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "←" })).toBeNull());
+  // 组的关键词只用于搜索：各项仍以自己的文本作提示。
+  expect(screen.getByRole("button", { name: "⇒" }).getAttribute("title")).toBe("⇒");
 });

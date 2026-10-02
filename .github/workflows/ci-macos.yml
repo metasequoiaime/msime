@@ -22,6 +22,10 @@ on:
 
   merge_group:
 
+  # 每天在默认分支上完整构建并跑一遍 CTest。push 和 PR 只在改动碰到 macOS 相关路径时才跑 Test，其余改动带进来的回归（2026-10-02 一次攒到 9 项）要等到下一个碰巧触发构建的 PR 才暴露；定时运行不走路径判断，最多隔一天就会报出来。
+  schedule:
+    - cron: "17 18 * * *"
+
 concurrency:
   # Keyed by event as well as branch: promote-release-branch.sh and merge-release-pr.sh dispatch this workflow and wait on that exact run, so a pull_request run on the same branch must not cancel it.
   #

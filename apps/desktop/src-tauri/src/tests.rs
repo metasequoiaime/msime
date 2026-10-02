@@ -15,7 +15,7 @@ fn emoji_group_page_capacity_reserves_the_first_page_size() {
     assert!(positions.capacity() >= 7);
 }
 
-/// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；没写关键词时用符号本身搜索。
+/// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；每组带包 id，组的关键词放在组上，各项的关键词仍是符号本身。
 #[test]
 fn plugin_symbol_groups_follow_the_built_in_catalog() {
     use msime_client_core::plugins::symbol_set::SymbolTab;
@@ -31,6 +31,8 @@ fn plugin_symbol_groups_follow_the_built_in_catalog() {
     let built_in = |title: &str| super::EmojiCatalogGroup {
         title: title.into(),
         parent: None,
+        pack: None,
+        keywords: String::new(),
         icon: String::new(),
         items: Vec::new(),
     };
@@ -48,9 +50,15 @@ fn plugin_symbol_groups_follow_the_built_in_catalog() {
     assert_eq!(symbols[1].title, "箭头");
     assert_eq!(symbols[1].parent.as_deref(), Some("箭头大全"));
     assert_eq!(symbols[1].icon, "→");
-    assert_eq!(symbols[1].items[1].keywords, "jiantou");
+    assert_eq!(symbols[1].pack.as_deref(), Some("arrows"));
+    // 组的关键词只用于搜索，不覆盖各项自己的关键词。
+    assert_eq!(symbols[1].keywords, "jiantou");
+    assert_eq!(symbols[1].items[1].keywords, "←");
     assert_eq!(kaomoji[0].title, "All");
+    assert_eq!(kaomoji[0].pack, None);
     assert_eq!(kaomoji[1].title, "开心");
+    assert_eq!(kaomoji[1].pack.as_deref(), Some("arrows"));
+    assert_eq!(kaomoji[1].parent, None);
     assert_eq!(kaomoji[1].items[0].keywords, "(^_^)");
 }
 

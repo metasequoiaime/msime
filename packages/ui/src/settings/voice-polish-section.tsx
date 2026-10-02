@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import * as settings from "./settings-style";
-import { VoiceProviderSelect } from "./voice-provider-select";
+import { VoiceProviderRow } from "./voice-provider-row";
 import { TextInputRow } from "./text-input-row";
 import { SwitchRow } from "./switch-row";
 
@@ -39,14 +39,13 @@ export function VoicePolishSection({
       />
       {enabled && (
         <>
-          <Row title="服务提供商">
-            <VoiceProviderSelect
-              options={POLISH_PROVIDER_OPTIONS}
-              ariaLabel="文本润色服务提供商"
-              value={provider}
-              onChange={onProviderChange}
-            />
-          </Row>
+          <VoiceProviderRow
+            title="服务提供商"
+            options={POLISH_PROVIDER_OPTIONS}
+            ariaLabel="文本润色服务提供商"
+            value={provider}
+            onChange={onProviderChange}
+          />
           {providerPreset}
           <TextInputRow title="模型" label="文本润色模型" value={model} onChange={onModelChange} />
           {children}

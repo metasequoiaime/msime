@@ -11,6 +11,7 @@ import {
   type PluginKind,
   type PluginPackage,
 } from "../settings/plugins-section";
+import { packKindLabel } from "../settings/plugin-catalog-helpers";
 import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
@@ -488,7 +489,14 @@ export function CommunityPluginsPage({
   );
 }
 
-type LocalPluginOption = { key: string; kind: CommunityPluginKind; id: string; name: string };
+/** `label` 是类型显示名：本机的包知道自己是不是旋律音效包，所以用 `packKindLabel`；社区列表的条目不带 `mode`，只能用 `kindLabels`。 */
+type LocalPluginOption = {
+  key: string;
+  kind: CommunityPluginKind;
+  label: string;
+  id: string;
+  name: string;
+};
 
 function optionKey(kind: PluginKind, id: string): string {
   return `${kind}/${id}`;
@@ -544,6 +552,7 @@ export function CommunityPluginPublishDialog({
           loaded.push({
             key: optionKey(item.kind, item.id),
             kind: item.kind,
+            label: packKindLabel(item),
             id: item.id,
             name: item.name,
           });
@@ -665,8 +674,7 @@ export function CommunityPluginPublishDialog({
           >
             {options.map((item) => (
               <option key={item.key} value={item.key}>
-                {kindLabels[item.kind]} ·{" "}
-                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+                {item.label} · {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
               </option>
             ))}
           </CommunitySelectField>

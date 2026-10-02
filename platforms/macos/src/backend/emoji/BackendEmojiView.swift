@@ -43,6 +43,9 @@ struct MacEmojiView: View {
   @State private var parent = ""
   @State private var symbolGroups: [MacEmojiSymbolGroup] = []
   @State private var symbolTabs: [MacEmojiCategoryTab<String>] = []
+  // 已安装的符号集插件组：打开符号页或颜文字页时由分类任务读一次，之后每次搜索和切换分组都只筛这份缓存，不再扫描、校验每个包。`pluginGroupsCategory` 是这份缓存属于哪一页，没读完时为 nil。
+  @State private var pluginGroups: [MacEmojiPluginSymbolGroup] = []
+  @State private var pluginGroupsCategory: String?
   @State private var groups: [String] = []
   @State private var groupsCategory: String?
   @State private var groupsFailed = false
@@ -57,7 +60,7 @@ struct MacEmojiView: View {
   @State private var deletionNotice = ""
   @State private var sendingToCloud = false
   @State private var loadedQuery: [String] = []
-  private var queryID: [String] { [search, category, parent, group, String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0)] }
+  private var queryID: [String] { [search, category, parent, group, String(category == "recent" ? recent.revision : 0), String(category == "clipboard" ? historyRevision : 0), pluginGroupsCategory == category ? "plugins" : ""] }
   @State private var items: [MacEmojiCatalogItem] = []
   /// 颜文字页的分节（内置 All 加插件分组），各节 `items` 按顺序拼起来就是 `items`。
   @State private var kaomojiSections: [MacEmojiSymbolSection] = []
@@ -247,6 +250,8 @@ struct MacEmojiView: View {
         groups = []
         symbolGroups = []
         symbolTabs = []
+        pluginGroups = []
+        pluginGroupsCategory = nil
         groupsFailed = false
         let selectedCategory = category
         let directory = resources
@@ -264,17 +269,29 @@ struct MacEmojiView: View {
             }
             // 插件分类与内置目录分开读：插件读不出来时只剩内置分类，内置目录读不出来时插件分类照常显示。
             let plugins = Task.detached {
-              MacEmojiCategoryIcons.pluginSymbolTabs(MacEmojiCatalog.installedPluginSymbolGroups(resources: directory, preferencesDirectory: preferences))
+              MacEmojiCatalog.installedPluginSymbolGroups(resources: directory, preferencesDirectory: preferences)
             }
             let result = try? await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })
-            let pluginTabs = await withTaskCancellationHandler(operation: { await plugins.value }, onCancel: { plugins.cancel() })
+            let loadedPlugins = await withTaskCancellationHandler(operation: { await plugins.value }, onCancel: { plugins.cancel() })
             try Task.checkCancellation()
+            pluginGroups = loadedPlugins
+            pluginGroupsCategory = selectedCategory
             symbolGroups = result?.0 ?? []
-            symbolTabs = (result?.1 ?? []) + pluginTabs
+            symbolTabs = (result?.1 ?? []) + MacEmojiCategoryIcons.pluginSymbolTabs(loadedPlugins)
             parent = symbolTabs.first?.id ?? ""
             groupsFailed = result == nil
             if result != nil { groupsCategory = selectedCategory }
             return
+          }
+          if selectedCategory == "kaomoji" {
+            let preferences = preferencesDirectory
+            let plugins = Task.detached {
+              MacEmojiCatalog.installedPluginSymbolGroups(resources: directory, preferencesDirectory: preferences)
+            }
+            let loadedPlugins = await withTaskCancellationHandler(operation: { await plugins.value }, onCancel: { plugins.cancel() })
+            try Task.checkCancellation()
+            pluginGroups = loadedPlugins
+            pluginGroupsCategory = selectedCategory
           }
           let result = try await Task.detached {
             try MacEmojiCatalog.loadGroups(resources: directory, category: selectedCategory == "recent" ? "" : selectedCategory)
@@ -330,6 +347,8 @@ struct MacEmojiView: View {
           })
           return
         }
+        // 符号页和颜文字页等分类任务把插件组读进缓存；读完后 `queryID` 跟着变，这里会重新跑。
+        if (category == "symbols" || category == "kaomoji") && pluginGroupsCategory != category { return }
         do {
           try await Task.sleep(nanoseconds: 200_000_000)
           let query = search
@@ -340,21 +359,22 @@ struct MacEmojiView: View {
           let selectedGroup = filters.group
           let selectedParent = filters.parent
           let requestedID = queryID
-          let preferences = preferencesDirectory
+          let plugins = pluginGroups
           let worker = Task.detached { () -> ([MacEmojiCatalogItem], [MacEmojiSymbolSection]) in
-            guard selectedCategory == "symbols" || selectedCategory == "kaomoji" else {
-              return (try MacEmojiCatalog.loadAll(resources: directory, search: query, category: selectedCategory, group: selectedGroup, parent: selectedParent), [])
+            let loadBuiltIn = {
+              try MacEmojiCatalog.loadAll(resources: directory, search: query, category: selectedCategory, group: selectedGroup, parent: selectedParent)
             }
-            // 插件组追加在内置目录之后；读取失败时得到空列表，只显示内置目录。
-            let plugins = MacEmojiCatalog.installedPluginSymbolGroups(resources: directory, preferencesDirectory: preferences)
+            guard selectedCategory == "symbols" || selectedCategory == "kaomoji" else {
+              return (try loadBuiltIn(), [])
+            }
+            // 插件组追加在内置目录之后，取自打开这一页时读好的缓存。有插件组时内置目录读不出来（比如 others.db 坏了）只当作没有内置条目，插件组照常显示；没有插件组时照旧报告目录不可用。
+            let builtInOrNone = { plugins.isEmpty ? try loadBuiltIn() : ((try? loadBuiltIn()) ?? []) }
             if selectedCategory == "kaomoji" {
-              let builtIn = try MacEmojiCatalog.loadAll(resources: directory, search: query, category: selectedCategory, group: selectedGroup, parent: selectedParent)
-              let sections = MacEmojiSymbolSections.kaomoji(builtIn: builtIn, plugins: plugins, search: query)
+              let sections = MacEmojiSymbolSections.kaomoji(builtIn: try builtInOrNone(), plugins: plugins, search: query)
               return (sections.flatMap(\.items), sections)
             }
             // 选中插件包时内置目录没有对应分类，不去查询。
-            let builtIn = MacEmojiPluginSymbolGroup.isParentID(selectedParent) ? []
-              : try MacEmojiCatalog.loadAll(resources: directory, search: query, category: selectedCategory, group: selectedGroup, parent: selectedParent)
+            let builtIn = MacEmojiPluginSymbolGroup.isParentID(selectedParent) ? [] : try builtInOrNone()
             return (builtIn + MacEmojiPluginSymbolGroup.symbolItems(plugins, search: query, parent: selectedParent), [])
           }
           let loaded = try await withTaskCancellationHandler(operation: { try await worker.value }, onCancel: { worker.cancel() })

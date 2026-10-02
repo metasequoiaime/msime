@@ -32,10 +32,7 @@ import {
   normalizeGroups,
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
-import {
-  MAX_PLUGIN_SYMBOL_GROUPS,
-  PluginSymbolGroupPolicy,
-} from "../entry/src/main/ets/keyboard/emoji/PluginSymbolGroupPolicy";
+import { PluginSymbolGroupPolicy } from "../entry/src/main/ets/keyboard/emoji/PluginSymbolGroupPolicy";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
@@ -6818,8 +6815,14 @@ group("symbol set packs are appended after the built-in kaomoji and symbol group
     "a pack's symbols groups run in manifest order with nothing deduplicated",
   );
   check(
-    symbols[2].items[0].annotation === "arrow 箭头" && symbols[2].items[2].annotation === "",
-    "each item carries its own group's keywords",
+    symbols[2].items.every((item) => item.annotation === ""),
+    "displayed plugin items carry no annotation, so a group's keywords never rename a symbol",
+  );
+  check(
+    symbols[2].searchItems[0].annotation === "arrow 箭头" &&
+      symbols[2].searchItems[2].annotation === "" &&
+      symbols[0].searchItems.length === 0,
+    "each search item carries its own group's keywords",
   );
 
   const kaomoji = PluginSymbolGroupPolicy.kaomojiTabs(["All", "Happy"], plugins);
@@ -6888,9 +6891,8 @@ group("plugin symbol groups are validated before they reach the panel", () => {
     "a malformed reply leaves only the built-in groups",
   );
   check(
-    PluginSymbolGroupPolicy.parse(Array.from({ length: MAX_PLUGIN_SYMBOL_GROUPS + 5 }, () => valid))
-      .length === MAX_PLUGIN_SYMBOL_GROUPS,
-    "an oversized reply is cut at the group ceiling rather than discarded",
+    PluginSymbolGroupPolicy.parse(Array.from({ length: 32 * 12 }, () => valid)).length === 32 * 12,
+    "every installed pack's groups are kept, with no silent ceiling",
   );
   check(
     PluginSymbolGroupPolicy.parse([

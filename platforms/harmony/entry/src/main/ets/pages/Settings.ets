@@ -259,8 +259,8 @@ interface VocabularyRequest {
   directory: string;
   day: string;
   action: VocabularyAction;
-  /** 插件目录：其中的单词本插件列进书目。 */
-  plugins: string;
+  /** 插件目录：其中的单词本插件列进书目。只在声明了 `wordbook_packs` 的形态（2in1）上传，手机不传。 */
+  plugins?: string;
 }
 
 interface VocabularyAction {
@@ -1576,8 +1576,11 @@ class SettingsBridge {
         directory: this.stateDirectory,
         day: `${now.getFullYear()}-${month}-${date}`,
         action: action,
-        plugins: `${this.stateDirectory}/plugins`,
       };
+      // 与设置页拿到的 `wordbook_packs` 能力同一个来源：没有这项能力的形态不列单词本插件。
+      if (SettingsFormFactorCapabilities.resolve(deviceInfo.deviceType).wordbookPacks) {
+        request.plugins = `${this.stateDirectory}/plugins`;
+      }
       return client.vocabularyReview(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`vocabulary review failed: ${describeError(error)}`);

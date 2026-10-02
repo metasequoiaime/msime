@@ -808,6 +808,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
+    // 粤拼和注音只在测试宿主带了对应词库时才有卡片（#2704）；词库是可选资源，CI 不暂存，所以按实际提供的方案逐张检查，缺词库的方案必须不出卡片。
+    let offered = InputSchemePreference.offeredSchemes
+    let withheld = ChineseInputScheme.allCases.filter { !offered.contains($0) }
+    XCTAssertTrue(withheld.allSatisfy(\.needsLanguageDictionary), "only a scheme whose dictionary is missing may be left off: \(withheld)")
     for width in [320.0, 414.0] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
@@ -818,12 +822,15 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSchemePicker" })
       XCTAssertEqual(picker.bounds.height, 260 + KeyboardViewController.stripExtraHeight)
-      for scheme in ChineseInputScheme.allCases {
+      for scheme in offered {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
         XCTAssertGreaterThanOrEqual(card.bounds.height, 62)
       }
-      let lowestCard = try ChineseInputScheme.allCases
+      for scheme in withheld {
+        XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }, scheme.rawValue)
+      }
+      let lowestCard = try offered
         .map { scheme -> CGFloat in
           let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
           return card.convert(card.bounds, to: picker).maxY
@@ -1045,6 +1052,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testKeyShadowsFollowTheKeysWhenTheKeyboardShrinksIntoPlace() throws {
+    // 按钮层的阴影只属于内置主题；触屏键盘默认的薄荷晨光（#2178）是自定义设计，阴影由 `SkinKeySurfaceView` 自己画，按钮的 `shadowOpacity` 为 0。
+    preserveSharedTheme()
+    XCTAssertTrue(GlobalThemePreference.save("paper"))
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     // The system shows a keyboard at a taller window first and walks it down to the real height (874 -> 444 -> 292 measured on iOS 26.3).
@@ -1544,7 +1554,11 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testSuspendReleasesDictionaryAccessAndResumeStillConverts() throws {
-    let bridge = MetasequoiaInputSessionBridge()
+    // 用自己的状态目录。默认目录是模拟器里各用例共用的偏好文档，前面的用例经由键盘选过的方案（比如五笔）会留在里面，这里的全拼输入就得不到「你好」。
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-suspend-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     var snapshot = bridge.cancel()
     for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
     XCTAssertTrue(snapshot.candidates.contains("你好"))

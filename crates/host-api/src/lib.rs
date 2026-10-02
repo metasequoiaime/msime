@@ -498,11 +498,12 @@ impl HostSession {
             self.options.quick_phrase_table = table;
         }
         if tables.helpcode_differs(&self.plugin_tables) {
-            let table = tables.helpcode_table(root);
-            self.runtime
-                .set_helpcode_table(table.clone())
-                .map_err(|e| e.to_string())?;
-            self.options.helpcode_table = table;
+            let table = tables.helpcode_table(root, &self.options);
+            // 辅助码表换不上不算聚焦失败：报错会让这次和之后每一次聚焦都失败（戳没更新，下次又会重试）。记下来，保留当前的表，照常更新戳。
+            match self.runtime.set_helpcode_table(table.clone()) {
+                Ok(()) => self.options.helpcode_table = table,
+                Err(error) => eprintln!("msime: helpcode table not replaced: {error}"),
+            }
         }
         self.plugin_tables = tables;
         Ok(())

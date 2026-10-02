@@ -173,7 +173,7 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
   const bool read = read_store_payload(input, payload);
 #endif
   if (!read) return {};
-  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
+  try { const auto value = nlohmann::json::parse(payload); if (!value.is_array()) return {}; std::vector<std::string> result; result.reserve(ClipboardHistory::max_items); for (const auto &item : value) { if (!item.is_string()) continue; auto text = normalize_clipboard_text(item.get<std::string>()); if (!text.empty() && result.size() < ClipboardHistory::max_items) result.push_back(std::move(text)); } return result; } catch (...) { return {}; }
 }
 bool write_store(const std::filesystem::path &path, const std::vector<std::string> &items) {
   if (!store_parent_is_safe(path) || !store_leaf_is_safe(path)) return false;

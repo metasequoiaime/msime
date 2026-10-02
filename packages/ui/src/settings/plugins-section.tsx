@@ -3,7 +3,7 @@ import { runAsyncAction } from "../core/async-action";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
 import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences";
-import { kindLabels, missingSelections, pluginErrorMessage } from "./plugin-catalog-helpers";
+import { missingSelections, packKindLabel, pluginErrorMessage } from "./plugin-catalog-helpers";
 import type {
   MentionEntry,
   PluginCatalogResult,
@@ -255,7 +255,7 @@ export function PluginsSection({
       const imported = await client!.importPack(source);
       if (!isCurrent()) return;
       if (imported) {
-        setNotice(`已导入${kindLabels[imported.kind]}「${imported.name}」${imported.version}。`);
+        setNotice(`已导入${packKindLabel(imported)}「${imported.name}」${imported.version}。`);
         await refresh();
       }
     }, "导入失败，请重试。");
@@ -263,7 +263,7 @@ export function PluginsSection({
 
   const removePack = async (pack: PluginPackage) => {
     const confirmed = await confirm({
-      title: `删除${kindLabels[pack.kind]}`,
+      title: `删除${packKindLabel(pack)}`,
       message: `删除「${pack.name}」？包里的文件会从本机移除。`,
       confirmLabel: "删除",
       danger: true,

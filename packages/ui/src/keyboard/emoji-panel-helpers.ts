@@ -15,6 +15,14 @@ export function clipboardTooltip(text: string): string {
   return characters.length > 200 ? `${characters.slice(0, 200).join("")}…` : preview;
 }
 
+/** 组里与 `query` 匹配的项：组的 `keywords` 匹配时整组都算，否则逐项匹配。组的搜索词只用于匹配，不改写各项。 */
+export function matchingGroupItems(group: EmojiCatalogGroup, query: string): EmojiCatalogItem[] {
+  if (query && group.keywords?.toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
+    return group.items;
+  }
+  return group.items.filter((item) => matchesEmojiItem(item, query));
+}
+
 export function flattenGroups(groups: EmojiCatalogGroup[]): EmojiCatalogItem[] {
   return groups.flatMap((group) => group.items);
 }

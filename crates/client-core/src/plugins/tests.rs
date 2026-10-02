@@ -3,6 +3,7 @@
 use super::command_table::CommandRow;
 use super::sound_pack::{SequenceAdvance, SoundMode};
 use super::*;
+use crate::vocabulary::wordbook;
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -1701,6 +1702,10 @@ const FIXTURE_REFUSALS: &[(&str, &str)] = &[
     ),
     ("symbol_set-duplicate-item", "第 1 组里「→」重复了"),
     (
+        "symbol_set-duplicate-title",
+        "第 2 组的 title「箭头」与同一标签页的另一组重复了",
+    ),
+    (
         "symbol_set-empty-item",
         "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
     ),
@@ -1975,6 +1980,13 @@ fn helpcode_tables_are_bounded_and_load_as_codes() {
     assert_eq!(codes["你"], "ni");
     assert_eq!(codes["好"], "h");
     assert!(helpcode_pack::load_codes(root.path(), "missing").is_err());
+    // `load_codes` 只解析一遍码表，但 `load_package` 拒绝的包它同样拒绝。
+    assert_eq!(
+        helpcode_pack::load_codes(root.path(), "larger").unwrap_err(),
+        "table.txt 为空或太大"
+    );
+    installed_helpcode(root.path(), "twice", "你=a\n你=b\n".as_bytes());
+    assert!(helpcode_pack::load_codes(root.path(), "twice").is_err());
 }
 
 fn installed_wordbook(root: &Path, id: &str, words: &[u8]) {
@@ -2031,6 +2043,18 @@ fn wordbooks_are_bounded_and_load_as_books() {
     assert!(book.is_valid());
     assert!(wordbook_pack::load_book(root.path(), "pack-missing").is_none());
     assert!(wordbook_pack::load_book(root.path(), "full").is_none());
+    // `load_book` 只解析一遍词表，但 `load_package` 拒绝的包它同样拒绝。
+    assert!(wordbook_pack::load_book(root.path(), "pack-over").is_none());
+    assert!(wordbook_pack::load_book(root.path(), "pack-larger").is_none());
+    installed_wordbook(root.path(), "twice", b"a\tn. x\na\tn. y\n");
+    assert!(wordbook_pack::load_book(root.path(), "pack-twice").is_none());
+}
+
+#[test]
+fn wordbook_parser_reserves_its_bounded_entry_capacity() {
+    let entries = wordbook_pack::parse_words(b"synthetic\tmeaning\n", "words.tsv").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.capacity(), wordbook::MAX_ENTRIES);
 }
 
 #[test]

@@ -1,6 +1,5 @@
-import { Row, Slider } from "../core/platform-controls";
 import { offeredCandidatePageSizes } from "./candidate-page-size";
-import * as settings from "./settings-style";
+import { SliderRow } from "./slider-row";
 
 export interface CandidatePageSizeSectionProps {
   value: number;
@@ -17,21 +16,14 @@ export function CandidatePageSizeSection({
   if (fixed) return null;
   const sizes = offeredCandidatePageSizes(value);
   return (
-    <Row title="每页候选项数量">
-      <span className={settings.sliderWithValue}>
-        <span className={settings.sliderControl}>
-          <Slider
-            ticks
-            min={Math.min(...sizes)}
-            max={Math.max(...sizes)}
-            value={value}
-            onChange={onChange}
-          />
-        </span>
-        <span className={settings.sliderValue} aria-hidden="true">
-          {value}
-        </span>
-      </span>
-    </Row>
+    <SliderRow
+      title="每页候选项数量"
+      ticks
+      min={Math.min(...sizes)}
+      max={Math.max(...sizes)}
+      value={value}
+      displayValue={value}
+      onChange={onChange}
+    />
   );
 }

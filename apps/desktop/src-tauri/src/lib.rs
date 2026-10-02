@@ -2370,6 +2370,12 @@ struct EmojiCatalogGroup {
     title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
+    /// 符号集插件组所属的包 id；内置组没有。面板用它给插件组和插件分类单独的键，插件组因此不会和同名的内置组或分类撞键、也不会并进内置分类。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pack: Option<String>,
+    /// 整组共用的搜索词（符号集插件组的 `keywords`）：只参与搜索，不改写各项自己的 `keywords`。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    keywords: String,
     icon: String,
     items: Vec<EmojiCatalogItem>,
 }
@@ -2426,6 +2432,8 @@ fn read_local_emoji_groups(
                 .map(|group| EmojiCatalogGroup {
                     title: group.title,
                     parent: Some(group.parent),
+                    pack: None,
+                    keywords: String::new(),
                     icon: group
                         .items
                         .first()
@@ -2479,6 +2487,8 @@ fn read_local_emoji_groups(
                     },
                     title,
                     parent: None,
+                    pack: None,
+                    keywords: String::new(),
                     items: Vec::new(),
                 });
                 index
@@ -2511,7 +2521,7 @@ fn read_local_emoji_groups(
         .collect())
 }
 
-/// 把已安装符号集插件的组追加到内置目录之后：`symbols` 组以插件名为上级分类，`kaomoji` 组排在颜文字的 All 之后；不跨包、不与内置目录去重。
+/// 把已安装符号集插件的组追加到内置目录之后：`symbols` 组以插件名为上级分类，`kaomoji` 组排在颜文字的 All 之后；不跨包、不与内置目录去重。每组都带上包 id，面板据此区分插件组和内置组；组的 `keywords` 只用于搜索，各项自己的 `keywords` 仍是符号本身。
 fn append_plugin_symbol_groups(
     groups: Vec<msime_host_api::PluginSymbolGroup>,
     kaomoji: &mut Vec<EmojiCatalogGroup>,
@@ -2519,16 +2529,11 @@ fn append_plugin_symbol_groups(
 ) {
     use msime_client_core::plugins::symbol_set::SymbolTab;
     for group in groups {
-        let keywords = group.keywords;
         let items: Vec<EmojiCatalogItem> = group
             .items
             .into_iter()
             .map(|text| EmojiCatalogItem {
-                keywords: if keywords.is_empty() {
-                    text.clone()
-                } else {
-                    keywords.clone()
-                },
+                keywords: text.clone(),
                 text,
             })
             .collect();
@@ -2540,12 +2545,16 @@ fn append_plugin_symbol_groups(
                     .unwrap_or_default(),
                 title: group.title,
                 parent: Some(group.pack_name),
+                pack: Some(group.pack),
+                keywords: group.keywords,
                 items,
             }),
             SymbolTab::Kaomoji => kaomoji.push(EmojiCatalogGroup {
                 icon: ";-)".to_owned(),
                 title: group.title,
                 parent: None,
+                pack: Some(group.pack),
+                keywords: group.keywords,
                 items,
             }),
         }
