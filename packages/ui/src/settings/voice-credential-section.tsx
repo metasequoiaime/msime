@@ -5,6 +5,7 @@ import { DoubaoStreamEndpointSelect } from "./doubao-stream-endpoint-section";
 import { EndpointSettingField } from "./endpoint-setting-field";
 import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
+import { SettingSectionTitle } from "./setting-section-title";
 import * as settings from "./settings-style";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
@@ -90,18 +91,19 @@ export function VoiceCredentialSection({
 
   return (
     <div className={settings.managerBlock} role="group" aria-label={`语音${name}凭据`}>
-      <div className="section-title">
-        {name}凭据
-        <small>
-          {credentials?.voiceInvalid
+      <SettingSectionTitle
+        as="div"
+        title={`${name}凭据`}
+        description={
+          credentials?.voiceInvalid
             ? "现有 voice-provider.json 无效，语音服务不会启动；请修复或删除该文件"
             : !stored
               ? "尚未保存；保存后只写入用户配置目录的 voice-provider.json，由语音服务读取"
               : mismatch
                 ? "已保存的凭据与上方模型或豆包设置不一致；保存后改为绑定当前设置"
-                : "已保存，留空则保留原凭据"}
-        </small>
-      </div>
+                : "已保存，留空则保留原凭据"
+        }
+      />
       {doubao && (
         <SettingField
           label="流式接口"

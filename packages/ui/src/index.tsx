@@ -1029,6 +1029,10 @@ export {
   type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export {
+  SettingSectionTitle,
+  type SettingSectionTitleProps,
+} from "./settings/setting-section-title";
+export {
   SettingsTextareaField,
   type SettingsTextareaFieldProps,
 } from "./settings/settings-textarea-field";

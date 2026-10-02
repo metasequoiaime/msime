@@ -90,7 +90,7 @@ pub fn validate(phrase: &PhraseRow) -> Result<(), String> {
 
 /// `root` 下按 `enabled` 顺序启用的短语表的全部行，最多 `MAX_ENABLED_PHRASES` 行：宿主交给 Engine 的表。缺失或载入失败的包不贡献任何行，设置页会报告它。
 pub fn enabled_phrases(root: &std::path::Path, enabled: &[String]) -> Vec<PhraseRow> {
-    let mut rows: Vec<PhraseRow> = Vec::new();
+    let mut rows: Vec<PhraseRow> = Vec::with_capacity(MAX_ENABLED_PHRASES);
     for id in enabled {
         let Ok(package) = super::load_package(root, None, PluginKind::PhraseTable, id) else {
             continue;

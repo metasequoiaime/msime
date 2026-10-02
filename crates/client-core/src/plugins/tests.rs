@@ -1911,6 +1911,10 @@ fn phrase_tables_hold_bounded_rows_and_merge_in_priority_order() {
             ("yx".to_owned(), "邮箱".to_owned()),
         ]
     );
+    assert_eq!(
+        phrase_table::enabled_phrases(root.path(), &[]).capacity(),
+        phrase_table::MAX_ENABLED_PHRASES
+    );
     let summary = load_package(root.path(), None, PluginKind::PhraseTable, "office").unwrap();
     let json = serde_json::to_value(&summary).unwrap();
     assert_eq!(json["kind"], "phrase_table");

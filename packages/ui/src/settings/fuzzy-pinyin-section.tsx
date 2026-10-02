@@ -1,6 +1,7 @@
 import type { ConfirmRequest } from "../core/confirm";
 import { SwitchRow } from "./switch-row";
 import { SettingCheck } from "./setting-check";
+import { SettingSectionTitle } from "./setting-section-title";
 import * as settings from "./settings-style";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
@@ -73,7 +74,7 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
         </p>
         {fuzzyPinyinGroups.map(([title, rules]) => (
           <div key={title} className="fuzzy-pinyin-group">
-            <div className="section-title">{title}</div>
+            <SettingSectionTitle as="div" title={title} />
             <div className="input-option-content">
               {rules.map(([id, label], index) => (
                 <div className="input-option-item" key={id}>

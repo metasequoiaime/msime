@@ -7077,7 +7077,8 @@ static void TestGlossSurvivesHighlightMove() {
         [controller synchronizeCandidateServices];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
         [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        // 词典查询在后台队列结束时把结果投递到主队列，自定义翻译要等这条结果落地才会排上计时器。这里排空主队列，而不是转一段固定 0.1 秒的 run loop：完整的 shortcut 运行里前面的用例会在主线程留下别的回调，它在 x86_64 和 AddressSanitizer 上一次就能占满这 0.1 秒，run loop 超时返回时词典结果还没处理，customTimer 因此是 nil。
+        DrainMainQueue();
     };
 
     // The user's own service, with its request in flight while the dictionary's answer for Hello is on screen.

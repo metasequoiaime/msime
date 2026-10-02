@@ -48,6 +48,25 @@ final class VoiceTextHandoffTests: XCTestCase {
     XCTAssertNil(try keyboard.read(now: now))
   }
 
+  func testReadRejectsASymlinkedResultFile() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-result-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-voice-result-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    let handoffDirectory = root.appendingPathComponent("VoiceHandoff", isDirectory: true)
+    try FileManager.default.createDirectory(at: handoffDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    let outside = outsideDirectory.appendingPathComponent("outside.json")
+    try Data("keep".utf8).write(to: outside)
+    try FileManager.default.createSymbolicLink(
+      at: handoffDirectory.appendingPathComponent("result.json"), withDestinationURL: outside)
+
+    XCTAssertThrowsError(try VoiceTextHandoffStore(directory: root).read())
+    XCTAssertEqual(try Data(contentsOf: outside), Data("keep".utf8))
+  }
+
   func testInvalidSavePreservesPendingTextAndMalformedStateIsNotConsumed() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SettingSectionTitle } from "./setting-section-title";
 
 export interface SettingFieldProps {
   label: ReactNode;
@@ -16,10 +17,7 @@ export function SettingField({
 }: SettingFieldProps) {
   return (
     <label className={className}>
-      <span className="section-title">
-        {label}
-        {description !== undefined && <small>{description}</small>}
-      </span>
+      <SettingSectionTitle title={label} description={description} />
       {children}
     </label>
   );
