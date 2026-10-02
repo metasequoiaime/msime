@@ -31,6 +31,7 @@ import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -535,14 +536,12 @@ export function CommunitySkinsPage({
             loadingText="正在读取皮肤详情…"
           />
           {!trial && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => void download()}
               className={`primary ${style.action}`}
               disabled={actionBusy || detailBusy}
-              onClick={() => void download()}
-            >
-              下载并试用
-            </button>
+              label="下载并试用"
+            />
           )}
           {trial && (
             <div
@@ -550,22 +549,18 @@ export function CommunitySkinsPage({
               aria-label="皮肤试用"
             >
               <p>正在试用：{trial.name}</p>
-              <button
-                type="button"
+              <ActionButton
+                action={() => void finishTrial(false)}
                 className="secondary"
                 disabled={actionBusy}
-                onClick={() => void finishTrial(false)}
-              >
-                恢复原皮肤
-              </button>
-              <button
-                type="button"
+                label="恢复原皮肤"
+              />
+              <ActionButton
+                action={() => void finishTrial(true)}
                 className="primary"
                 disabled={actionBusy}
-                onClick={() => void finishTrial(true)}
-              >
-                保留使用
-              </button>
+                label="保留使用"
+              />
             </div>
           )}
           {selected.owned && (
@@ -624,9 +619,11 @@ export function CommunitySkinsPage({
             }}
           />
           {localSkinLibrary && (
-            <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
-              发布我的设计
-            </button>
+            <ActionButton
+              action={() => setPublishOpen(true)}
+              className="primary"
+              label="发布我的设计"
+            />
           )}
         </div>
       </div>
