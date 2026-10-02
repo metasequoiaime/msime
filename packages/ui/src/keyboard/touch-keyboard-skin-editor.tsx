@@ -351,28 +351,22 @@ function AiSkinGeneration({
               我拥有发布所用素材的权利，并同意其他用户免费下载使用
             </label>
             <p>发布后插画背景将公开，请勿包含私人或敏感资料。</p>
-            <button
-              type="button"
+            <ActionButton
+              action={() => publish()}
               className="primary"
               disabled={!publishAgreed || publishBusy}
-              onClick={() => void publish()}
-            >
-              公开发布
-            </button>
-            <button
-              type="button"
+              label="公开发布"
+            />
+            <ActionButton
+              action={() => setPublishing(null)}
               className="secondary"
               disabled={publishBusy}
-              onClick={() => setPublishing(null)}
-            >
-              取消
-            </button>
+              label="取消"
+            />
           </div>
         )}
         <div className={community.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            完成
-          </button>
+          <ActionButton action={onClose} className="secondary" disabled={busy} label="完成" />
         </div>
       </section>
     </div>
