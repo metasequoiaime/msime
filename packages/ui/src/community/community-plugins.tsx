@@ -42,6 +42,7 @@ import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { ActionButton } from "../core/action-button";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -408,31 +409,29 @@ export function CommunityPluginsPage({
             }}
           />
           {localPlugins && (
-            <button type="button" className="primary" onClick={() => setPublishOpen(true)}>
-              发布我的插件
-            </button>
+            <ActionButton
+              action={() => setPublishOpen(true)}
+              className="primary"
+              label="发布我的插件"
+            />
           )}
         </div>
       </div>
       <div className={style.kindFilter} role="group" aria-label="插件类型">
-        <button
-          type="button"
+        <ActionButton
+          action={() => changeKind(null)}
           className={kind === null ? "primary" : "secondary"}
-          aria-pressed={kind === null}
-          onClick={() => void changeKind(null)}
-        >
-          全部
-        </button>
+          ariaPressed={kind === null}
+          label="全部"
+        />
         {communityPluginKinds.map((item) => (
-          <button
+          <ActionButton
             key={item}
-            type="button"
+            action={() => changeKind(item)}
             className={kind === item ? "primary" : "secondary"}
-            aria-pressed={kind === item}
-            onClick={() => void changeKind(item)}
-          >
-            {kindLabels[item]}
-          </button>
+            ariaPressed={kind === item}
+            label={kindLabels[item]}
+          />
         ))}
       </div>
       {errorAlert}
@@ -732,18 +731,14 @@ export function CommunityPluginPublishDialog({
           </>
         )}
         <div className={style.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            取消
-          </button>
+          <ActionButton action={onClose} className="secondary" disabled={busy} label="取消" />
           {!packError && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => submit()}
               className="primary"
               disabled={busy || !ready}
-              onClick={() => void submit()}
-            >
-              {busy ? "正在发布…" : "公开发布"}
-            </button>
+              label={busy ? "正在发布…" : "公开发布"}
+            />
           )}
         </div>
       </div>
