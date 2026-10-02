@@ -1,6 +1,7 @@
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import type { SettingsSaveState } from "./use-settings-persistence";
+import { ActionButton } from "./action-button";
 
 export interface CustomTranslationsSectionProps {
   mobile: boolean;
@@ -49,9 +50,7 @@ export function CustomTranslationsSection({
           {saveState === "failed" ? (
             <>
               <span role="alert">{saveError}</span>
-              <button type="button" className="secondary" onClick={onFlush}>
-                重试
-              </button>
+              <ActionButton action={onFlush} label="重试" />
             </>
           ) : (
             <span aria-live="polite">
