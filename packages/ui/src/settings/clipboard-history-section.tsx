@@ -8,6 +8,7 @@ import {
   type CloudClipboardAvailability,
   type CloudClipboardRequest,
 } from "./cloud-clipboard-send";
+import { ActionButton } from "./action-button";
 import { SwitchRow } from "./switch-row";
 
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
@@ -181,11 +182,8 @@ export function ClipboardHistorySection({
           <div className={settings.managerBlock}>
             <div className={settings.managerActions}>
               {!ios && client?.sync && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!historyEnabled || !persistedHistoryEnabled}
-                  onClick={() => {
+                <ActionButton
+                  action={() => {
                     const currentGeneration = historyGeneration.current;
                     void client.sync!()
                       .then((next) => {
@@ -198,25 +196,22 @@ export function ClipboardHistorySection({
                           onError("无法同步剪贴板历史");
                       });
                   }}
-                >
-                  从系统剪贴板同步
-                </button>
+                  disabled={!historyEnabled || !persistedHistoryEnabled}
+                  label="从系统剪贴板同步"
+                />
               )}
               {client && entries.length > 0 && (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!historyEnabled}
-                  onClick={() => {
+                <ActionButton
+                  action={() => {
                     if (!clearArmed) {
                       setClearArmed(true);
                       return;
                     }
                     void mutate(() => client.clear(), "无法清空剪贴板历史，请稍后重试。");
                   }}
-                >
-                  {clearArmed ? "确认清空" : "清空历史"}
-                </button>
+                  disabled={!historyEnabled}
+                  label={clearArmed ? "确认清空" : "清空历史"}
+                />
               )}
             </div>
           </div>
@@ -246,50 +241,35 @@ export function ClipboardHistorySection({
                   </span>
                   <span className={settings.clipboardActions}>
                     {client.copy && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => void client.copy!(entry.text)}
-                      >
-                        重新复制
-                      </button>
+                      <ActionButton action={() => void client.copy!(entry.text)} label="重新复制" />
                     )}
                     {cloudRequest && (
-                      <button
-                        type="button"
-                        className="secondary"
+                      <ActionButton
+                        action={() => void sendToCloud(entry.text)}
                         disabled={cloud !== "ready" || sending}
-                        onClick={() => void sendToCloud(entry.text)}
-                      >
-                        发到云剪贴板
-                      </button>
+                        label="发到云剪贴板"
+                      />
                     )}
                     {client.setPinned && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
-                        onClick={() =>
+                      <ActionButton
+                        action={() =>
                           void mutate(
                             () => client.setPinned!(entry.text, !entry.pinned),
                             "无法更新剪贴板固定状态",
                           )
                         }
-                      >
-                        {entry.pinned ? "取消固定" : "固定"}
-                      </button>
+                        ariaLabel={`${entry.pinned ? "取消固定" : "固定"}剪贴板记录`}
+                        label={entry.pinned ? "取消固定" : "固定"}
+                      />
                     )}
                     {client.remove && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        aria-label="删除剪贴板记录"
-                        onClick={() =>
+                      <ActionButton
+                        action={() =>
                           void mutate(() => client.remove!(entry.text), "无法删除剪贴板记录")
                         }
-                      >
-                        删除
-                      </button>
+                        ariaLabel="删除剪贴板记录"
+                        label="删除"
+                      />
                     )}
                   </span>
                 </div>
