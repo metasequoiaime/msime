@@ -507,8 +507,10 @@ fn parse_options(bytes: &[u8]) -> Result<EngineOptions, &'static str> {
     if bytes.len() > REQUEST_LIMIT {
         return Err("invalid snapshot options");
     }
-    let options: HostOptions =
-        serde_json::from_slice(bytes).map_err(|_| "invalid snapshot options")?;
+    let options = serde_json::from_slice(bytes)
+        .ok()
+        .and_then(HostOptions::from_document)
+        .ok_or("invalid snapshot options")?;
     validate_options(options)
 }
 fn validate_options(options: HostOptions) -> Result<EngineOptions, &'static str> {

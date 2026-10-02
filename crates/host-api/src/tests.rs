@@ -3204,6 +3204,40 @@ fn test_host_with_pinyin_fixture(root: &std::path::Path, preferences: Preference
 }
 
 #[test]
+fn session_reads_live_preferences_when_the_options_copy_carries_a_retired_field() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = directory.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let mut stale = serde_json::to_value(chinese_preferences()).unwrap();
+    stale["autocorrect"] = json!(true);
+    let options = |preferences_directory: &std::path::Path| {
+        json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences_directory": preferences_directory, "preferences": stale }).to_string()
+    };
+    let create =
+        |options: String| read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+
+    // Nothing to stand in for the copy: refused as before, and the directory is not created by looking.
+    let missing = directory.path().join("missing");
+    assert_eq!(
+        create(options(&missing))["error"],
+        "invalid options document"
+    );
+    assert!(!missing.exists());
+
+    let state = path("state");
+    PreferencesStore::new(&state)
+        .save(0, chinese_preferences())
+        .unwrap();
+    let created = create(options(&state));
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
+#[test]
 fn settled_rerank_without_movement_omits_the_unused_view() {
     let directory = tempfile::tempdir().unwrap();
     let handle = test_host(directory.path());

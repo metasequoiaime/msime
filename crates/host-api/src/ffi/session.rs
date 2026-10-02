@@ -14,8 +14,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         }
         // SAFETY: guaranteed by the C caller's documented buffer contract.
         let bytes = unsafe { std::slice::from_raw_parts(options, length) };
-        let options: HostOptions =
-            serde_json::from_slice(bytes).map_err(|_| "invalid options document")?;
+        let options = serde_json::from_slice(bytes)
+            .ok()
+            .and_then(HostOptions::from_document)
+            .ok_or("invalid options document")?;
         if options.api_version != 1 {
             return Err("unsupported host API version".into());
         }

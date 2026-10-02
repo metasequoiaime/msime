@@ -1041,8 +1041,10 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
     if bytes.len() > DICTIONARY_REQUEST_LIMIT {
         return Err("invalid dictionary buffer".into());
     }
-    let options: HostOptions =
-        serde_json::from_slice(bytes).map_err(|_| "invalid dictionary request".to_owned())?;
+    let options = serde_json::from_slice(bytes)
+        .ok()
+        .and_then(HostOptions::from_document)
+        .ok_or_else(|| "invalid dictionary request".to_owned())?;
     if options.api_version != 1 {
         return Err("unsupported host API version".into());
     }
@@ -1428,8 +1430,8 @@ impl DictionaryOptions {
         if let Some(object) = document.as_object_mut() {
             object.remove("candidate_skin_catalog");
         }
-        let options: HostOptions =
-            serde_json::from_value(document).map_err(|_| "invalid host options".to_owned())?;
+        let options = HostOptions::from_document(document)
+            .ok_or_else(|| "invalid host options".to_owned())?;
         if options.api_version != 1 {
             return Err("unsupported host API version".into());
         }

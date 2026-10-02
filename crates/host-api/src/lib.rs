@@ -766,6 +766,21 @@ struct HostOptions {
 }
 
 impl HostOptions {
+    /// Parses a HostOptions document. Its `preferences` is the copy taken when the runtime options were prepared, and upgrades carry that copy forward unchanged (`refresh_options_file`), so a preference a later build retires leaves the document unreadable and every session, snapshot and dictionary request refused: #2830 retired `autocorrect`, and macOS input stopped with it, every key passing through as if in English mode. When the copy is refused, the live preferences.json under `preferences_directory`, which the settings surfaces keep current and repair, stands in for it; the hosts apply that document once the session opens in any case. A document whose copy parses is used as it is.
+    pub(crate) fn from_document(mut document: Value) -> Option<Self> {
+        if let Ok(options) = Self::deserialize(&document) {
+            return Some(options);
+        }
+        let directory = std::path::PathBuf::from(document.get("preferences_directory")?.as_str()?);
+        // load() creates the directory it is given; a host that never wrote preferences there has nothing to stand in.
+        if !directory.is_absolute() || !directory.join("preferences.json").is_file() {
+            return None;
+        }
+        let snapshot = PreferencesStore::new(&directory).load().ok()?;
+        document["preferences"] = serde_json::to_value(snapshot.preferences).ok()?;
+        Self::deserialize(&document).ok()
+    }
+
     fn into_engine_options(self) -> EngineOptions {
         let dictionaries = self
             .language_dictionaries
