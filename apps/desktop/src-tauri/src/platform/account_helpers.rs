@@ -2,6 +2,13 @@ use msime_client_core::account::AccountError;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Create a snapshot scratch directory only when every path component is a real directory.
+/// Snapshot writers pass paths in this directory to native bridges, so following a replaced
+/// temporary-directory symlink would redirect cloud data outside the app's scratch area.
+pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()> {
+    crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
+}
+
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
@@ -24,7 +31,7 @@ pub(crate) fn snapshot_text_within_limit(bytes: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::cleanup_stale_snapshot_previews;
+    use super::{cleanup_stale_snapshot_previews, prepare_snapshot_directory};
 
     #[test]
     fn stale_snapshot_cleanup_removes_only_download_ndjson_files() {
@@ -38,6 +45,21 @@ mod tests {
         assert!(!directory.path().join("download-old.ndjson").exists());
         assert!(directory.path().join("download-in-progress").exists());
         assert!(directory.path().join("export-old.ndjson").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_directory_rejects_symlinked_ancestors() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("snapshots");
+        symlink(outside.path(), &linked).unwrap();
+
+        let nested = linked.join("missing");
+        assert!(prepare_snapshot_directory(&nested).is_err());
+        assert!(!outside.path().join("missing").exists());
     }
 }
 

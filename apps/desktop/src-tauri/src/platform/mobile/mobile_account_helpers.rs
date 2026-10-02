@@ -1,6 +1,6 @@
 pub(crate) use crate::platform::account_helpers::{
     account_command_error, account_value, call_session, cleanup_stale_snapshot_previews,
-    snapshot_text_within_limit,
+    prepare_snapshot_directory, snapshot_text_within_limit,
 };
 pub(crate) use crate::platform::mobile::mobile_account_preferences::valid_mobile_haptic_strength;
 use crate::shared::account_dto::{
