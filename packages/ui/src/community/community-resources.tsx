@@ -13,8 +13,8 @@ import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-de
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
+import { CommunityDetailHeader } from "./community-detail-header";
 import {
-  CommunityRemovedBadge,
   CommunityReportSection,
   communityReportedNotice,
   type CommunityModeration,
@@ -513,17 +513,13 @@ function ResourceDetail({
         </p>
       )}
       <section className={`section ${style.detail}`}>
-        <div className={style.detailTitle}>
-          <div className={style.headingBody}>
-            <h2 className={style.headingTitle}>{item.name}</h2>
-            <p className={style.headingNote}>
-              {item.author} · v{item.revision}
-            </p>
-          </div>
-          {item.owned && <span className={style.detailBadge}>我的作品</span>}
-          <CommunityRemovedBadge owned={item.owned} moderation={item.moderation} />
-        </div>
-        {item.description && <p className={style.description}>{item.description}</p>}
+        <CommunityDetailHeader
+          title={item.name}
+          note={`${item.author} · v${item.revision}`}
+          owned={item.owned}
+          moderation={item.moderation}
+          description={item.description}
+        />
         <p className={style.metrics}>
           {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
           {communityRating(item.rating_count, item.rating_average)} ·{" "}
