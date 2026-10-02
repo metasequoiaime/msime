@@ -26,6 +26,7 @@ import { PluginViewHeader } from "./plugin-view-header";
 import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
 import { SummaryRow } from "./summary-row";
 import { SwitchRow } from "./switch-row";
+import { ActionButton } from "./action-button";
 
 function ActionBlock({ note, children }: { note?: ReactNode; children?: ReactNode }) {
   return (
@@ -329,18 +330,22 @@ function PackActions({
                 : "在「声音与效果」把发声方式设为按键旋律后，打字时就会弹这段旋律。"
             }
           >
-            <button type="button" className="secondary" disabled={current} onClick={onSelect}>
-              {current ? "使用中" : "设为按键旋律"}
-            </button>
+            <ActionButton
+              action={onSelect}
+              disabled={current}
+              label={current ? "使用中" : "设为按键旋律"}
+            />
           </ActionBlock>
         );
       }
       const current = preferences.key_sound.pack === pack.id;
       return (
         <ActionBlock note="按键、上屏和成就音效都取自当前音效包；开关和音量在「声音与效果」里。">
-          <button type="button" className="secondary" disabled={current} onClick={onSelect}>
-            {current ? "使用中" : "设为当前音效包"}
-          </button>
+          <ActionButton
+            action={onSelect}
+            disabled={current}
+            label={current ? "使用中" : "设为当前音效包"}
+          />
         </ActionBlock>
       );
     }
@@ -350,17 +355,12 @@ function PackActions({
       return (
         <ActionBlock note="特效包决定样式、强度、颜色和时长，使用后「声音与效果」里的样式和强度不再生效。">
           {current ? (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => onChange({ ...preferences, effect_pack: "" })}
-            >
-              停用
-            </button>
+            <ActionButton
+              action={() => onChange({ ...preferences, effect_pack: "" })}
+              label="停用"
+            />
           ) : (
-            <button type="button" className="secondary" onClick={onSelect}>
-              使用此特效包
-            </button>
+            <ActionButton action={onSelect} label="使用此特效包" />
           )}
         </ActionBlock>
       );
@@ -376,19 +376,16 @@ function PackActions({
               : "在「声音与效果」打开背景音乐后播放。"
           }
         >
-          <button type="button" className="secondary" disabled={current} onClick={onSelect}>
-            {current ? "使用中" : "设为当前音乐包"}
-          </button>
+          <ActionButton
+            action={onSelect}
+            disabled={current}
+            label={current ? "使用中" : "设为当前音乐包"}
+          />
           {current && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() =>
-                onChange({ ...preferences, music: { ...preferences.music, pack: "" } })
-              }
-            >
-              不再使用
-            </button>
+            <ActionButton
+              action={() => onChange({ ...preferences, music: { ...preferences.music, pack: "" } })}
+              label="不再使用"
+            />
           )}
         </ActionBlock>
       );
@@ -458,9 +455,7 @@ function PackActions({
           />
           {onOpenPage && (
             <ActionBlock note="辅助码的开关和显示方式在「输入 → 辅助码」里。">
-              <button type="button" className="secondary" onClick={() => onOpenPage("input")}>
-                前往辅助码设置
-              </button>
+              <ActionButton action={() => onOpenPage("input")} label="前往辅助码设置" />
             </ActionBlock>
           )}
         </>
@@ -488,9 +483,7 @@ function PackActions({
           {!quickPhraseMode && (
             <ActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
               {onOpenPage && (
-                <button type="button" className="secondary" onClick={() => onOpenPage("input")}>
-                  前往输入设置
-                </button>
+                <ActionButton action={() => onOpenPage("input")} label="前往输入设置" />
               )}
             </ActionBlock>
           )}

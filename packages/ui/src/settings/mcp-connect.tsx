@@ -5,6 +5,7 @@ import * as settings from "./settings-style";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
+import { ActionButton } from "./action-button";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -287,9 +288,7 @@ export function McpConnectSection({
     const text = tokensText(tokens);
     return (
       <div className={settings.managerActions}>
-        <button type="button" className="secondary" onClick={() => copy(key, text)}>
-          {copied === key ? "已复制" : label}
-        </button>
+        <ActionButton action={() => copy(key, text)} label={copied === key ? "已复制" : label} />
       </div>
     );
   }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { useMountedRef } from "./use-mounted-ref";
+import { ActionButton } from "./action-button";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -216,9 +217,7 @@ export function VocabularyReviewPage({
     return (
       <section className={page}>
         <p className={empty}>{error || "无法读取背单词进度。"}</p>
-        <button className="secondary" onClick={() => void update(() => client.load())}>
-          重试
-        </button>
+        <ActionButton action={() => update(() => client.load())} label="重试" />
       </section>
     );
   }

@@ -11,6 +11,7 @@ import { rowTitle } from "../core/platform-controls-style";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 import { useMountedRef } from "./use-mounted-ref";
+import { ActionButton } from "./action-button";
 
 export interface PersonalDictionaryImportClient {
   importPersonal?: (
@@ -138,17 +139,12 @@ export function PersonalDictionaryImportCard({
   const content = (
     <>
       <div className={settings.managerActions}>
-        <button
-          type="button"
-          className="secondary"
+        <ActionButton
+          action={() => input.current?.click()}
           disabled={busy}
-          onClick={() => input.current?.click()}
-        >
-          选择 JSON 文件
-        </button>
-        <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
-          保存示例文件
-        </button>
+          label="选择 JSON 文件"
+        />
+        <ActionButton action={saveExample} disabled={busy} label="保存示例文件" />
         <input
           ref={input}
           hidden
