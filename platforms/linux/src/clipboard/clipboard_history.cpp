@@ -138,6 +138,6 @@ int main(int argc, char **argv) {
       return save(path, items) ? 0 : 1;
     } catch (...) { return 2; }
   }
-  if (op == "clear") { std::error_code error; return std::filesystem::remove(path, error) || !std::filesystem::exists(path) ? 0 : 1; }
+  if (op == "clear") return msime::linux_host::remove_clipboard_file(path) ? 0 : 1;
   return 2;
 }
