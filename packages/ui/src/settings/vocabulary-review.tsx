@@ -362,21 +362,23 @@ export function VocabularyReviewPage({
             <p className={empty}>今天的复习已经完成。</p>
           ) : (
             <>
-              <button
-                type="button"
+              <ActionButton
+                action={() => setRevealed(true)}
+                ariaLabel={revealed ? `${card.word} 的释义` : `显示 ${card.word} 的释义`}
+                ariaPressed={revealed}
                 className={cardFace(mobile)}
-                aria-label={revealed ? `${card.word} 的释义` : `显示 ${card.word} 的释义`}
-                aria-pressed={revealed}
-                onClick={() => setRevealed(true)}
-              >
-                <p className={cardWord(mobile)}>{card.word}</p>
-                {card.phonetic && <p className={cardPhonetic}>{card.phonetic}</p>}
-                {revealed ? (
-                  <p className={cardMeaning}>{card.meaning}</p>
-                ) : (
-                  <p className={cardHint}>点击查看释义</p>
-                )}
-              </button>
+                label={
+                  <>
+                    <p className={cardWord(mobile)}>{card.word}</p>
+                    {card.phonetic && <p className={cardPhonetic}>{card.phonetic}</p>}
+                    {revealed ? (
+                      <p className={cardMeaning}>{card.meaning}</p>
+                    ) : (
+                      <p className={cardHint}>点击查看释义</p>
+                    )}
+                  </>
+                }
+              />
               <div className={answerRow}>
                 <ActionButton
                   action={() => void answer(false)}
