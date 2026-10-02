@@ -6,8 +6,8 @@
 // The page model of the native Windows settings window (main.cpp): which pages exist, in which sidebar group, which of them this process draws, and which it hands to the shared desktop app (MSIME.exe). Kept free of Windows and WinRT headers so a host unit test can check it against the route vocabulary of ShellSurfaces.h. Labels live beside the controls in main.cpp; this header stays ASCII.
 namespace msime::settings {
 
-// Who serves a page. Native pages are drawn by this window. Shell pages belong to the shared desktop app and are opened there on the matching route instead of being rewritten here. The download page only hands out the product's download address.
-enum class PageHost { Native, Shell, Download };
+// Who serves a page. Native pages are drawn by this window. Shell pages belong to the shared desktop app and are opened there on the matching route instead of being rewritten here.
+enum class PageHost { Native, Shell };
 
 // A surface of the shared desktop app, in the two-field form ShellSurfaceRequest carries: a settings category travels as `page` and a panel as `panel`, never both.
 struct ShellTarget {
@@ -22,30 +22,29 @@ struct Page {
   ShellTarget shell;
 };
 
-inline constexpr std::size_t page_group_count = 5;
+inline constexpr std::size_t page_group_count = 6;
 
-// The design's sidebar, in its order and grouping (appearance, input, other input methods, cross-platform services, and the tail group).
-inline constexpr std::array<Page, 19> pages{{
-    {"themes", 0, PageHost::Native, {}},
-    {"candidate", 0, PageHost::Native, {}},
-    {"toolbar", 0, PageHost::Native, {}},
-    {"typing", 1, PageHost::Native, {}},
-    {"expression", 1, PageHost::Native, {}},
-    {"shortcuts", 1, PageHost::Native, {}},
-    {"lexicon", 1, PageHost::Native, {}},
-    // Sound packs, music and command tables are imported and chosen in the shared app, which reads packs from a folder or archive the user picks; this window only opens it there.
-    {"plugins", 1, PageHost::Shell, {"", "plugins"}},
+// 侧栏，顺序和分组与共享设置 UI 的 `settingsNavGroups`（`packages/ui/src/settings/settings-page-registry.ts`）一致：打字、外观、更多输入方式、工具、账户与社区、支持。打字排在外观之前，因为打字会反复调整，外观通常只设一次。分组标题在 `main.cpp` 里。
+inline constexpr std::array<Page, 18> pages{{
+    {"typing", 0, PageHost::Native, {}},
+    {"expression", 0, PageHost::Native, {}},
+    {"shortcuts", 0, PageHost::Native, {}},
+    {"lexicon", 0, PageHost::Native, {}},
+    {"themes", 1, PageHost::Native, {}},
+    {"candidate", 1, PageHost::Native, {}},
+    {"toolbar", 1, PageHost::Native, {}},
     {"osk", 2, PageHost::Native, {}},
     {"voice", 2, PageHost::Native, {}},
     {"hand", 2, PageHost::Native, {}},
-    {"account", 3, PageHost::Shell, {"", "account"}},
     {"clip", 3, PageHost::Shell, {"cloud-clipboard", ""}},
     {"stats", 3, PageHost::Shell, {"", "typing-statistics"}},
-    {"community", 3, PageHost::Shell, {"", "community"}},
-    {"download", 3, PageHost::Download, {}},
-    {"dev", 4, PageHost::Native, {}},
-    {"feedback", 4, PageHost::Native, {}},
-    {"about", 4, PageHost::Native, {}},
+    // Sound packs, music and command tables are imported and chosen in the shared app, which reads packs from a folder or archive the user picks; this window only opens it there.
+    {"plugins", 3, PageHost::Shell, {"", "plugins"}},
+    {"account", 4, PageHost::Shell, {"", "account"}},
+    {"community", 4, PageHost::Shell, {"", "community"}},
+    {"dev", 5, PageHost::Native, {}},
+    {"feedback", 5, PageHost::Native, {}},
+    {"about", 5, PageHost::Native, {}},
 }};
 
 inline constexpr std::string_view default_page = "typing";
@@ -78,12 +77,12 @@ struct RouteAlias {
   std::string_view page;
 };
 
-// Every settings category the shared route vocabulary knows (client-core host_surface::SettingsCategory), mapped to the page that now holds it. An id keeps the meaning it has on every other host: `appearance` is the candidate window page and `skin` the theme page. The tray opens `skin`, `dictionary` and `about`, and the other desktop launchers use the same names.
+// 共享路由词汇表（`client-core` 的 `host_surface::SettingsCategory`）认识的每个设置类别，映射到现在承载它的页面。每个 id 保持它在其他所有宿主上的含义：`appearance` 是候选窗口页，`skin` 是主题页。托盘会打开 `skin`、`dictionary` 和 `about`，其他桌面启动入口也用同样的名字。`download` 不再是独立页面：它的链接放在关于页的版本组里，与共享设置 UI 一致。
 inline constexpr std::array<RouteAlias, 24> route_aliases{{
     {"account", "account"},
     {"chat", "expression"},
     {"community", "community"},
-    {"download", "download"},
+    {"download", "about"},
     {"appearance", "candidate"},
     {"input", "typing"},
     {"expression", "expression"},

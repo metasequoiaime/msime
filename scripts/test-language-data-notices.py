@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Check that the licences of the Cantonese and Zhuyin data travel through every platform's notice channel.
 
-The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Only macOS offers the two schemes and ships their dictionaries, but the scheme code is in the engine every platform ships, so every platform's notice channel carries both texts, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
+The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers the two schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries both texts, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
-The licence files name the upstream commit they cover. When resources/dictionary-sources.lock.json pins a source, every pin of that repository has to be at the same commit, so a re-pin that forgets the notice fails here; a source the lock does not pin yet prints a skip line.
+许可证文件写明它覆盖的上游提交。两份数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip。
 """
 import json
 import sys
@@ -11,16 +11,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
-# Each licence file with the repository it covers, the commit it was written for, and phrases it must keep: the attribution or copyright line, the licence body, the changes or source pointer, and the exclusions.
+# 粤拼与注音的源文件只从 msime-dictionary 的 sources release 附件取用。
+DICTIONARY_RELEASES = "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v"
+# 每个许可证文件对应的上游仓库、它覆盖的提交、锁文件里这份数据所在的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
 LICENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (
         "rime/rime-cantonese",
         "259f0e48bba840c3a2e0d117539e96937f3d89bc",
+        "yue/",
         ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml"),
     ),
     "resources/licenses/libchewing-data-LGPL-2.1.txt": (
         "chewing/libchewing-data",
         "c44e81aef24b06f1509f19e1be54c99812d0c43f",
+        "tw/",
         ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS"),
     ),
 }
@@ -41,9 +45,9 @@ NOTICE_CHANNELS = {
 }
 # The overviews say what each text covers, so they also have to name the pinned commit.
 OVERVIEWS = ("platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/linux/data/THIRD_PARTY_NOTICES.txt", "platforms/windows/Collect-Notices.ps1", "docs/third-party.md")
-# The vi crate behind Vietnamese mode is MIT. Windows and Linux collect crate licences from Cargo metadata, so only the macOS bundle, where Vietnamese ships and crates are listed by hand, carries its text explicitly.
+# The vi crate behind Vietnamese mode is MIT. The macOS bundle and the Windows package, where Vietnamese ships and notices are listed by hand, carry its text explicitly.
 VI_LICENCE = "resources/licenses/vi-MIT.txt"
-VI_CHANNELS = ("platforms/macos/CMakeLists.txt", "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/macos/tests/settings/bundle_contents.py")
+VI_CHANNELS = ("platforms/macos/CMakeLists.txt", "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/macos/tests/settings/bundle_contents.py", "platforms/windows/Collect-Notices.ps1", "platforms/windows/tests/tools/collect_notices.ps1")
 failures = []
 
 
@@ -54,7 +58,7 @@ def check(condition: bool, message: str) -> None:
 
 def main() -> int:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
-    for relative, (repository, commit, phrases) in LICENCES.items():
+    for relative, (repository, commit, directory, phrases) in LICENCES.items():
         licence = ROOT / relative
         if not licence.is_file():
             failures.append(f"{relative} is missing")
@@ -70,14 +74,15 @@ def main() -> int:
             check(commit in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name {repository} commit {commit}")
 
         references = [entry["commit"] for entry in lock["references"].values() if repository in entry["repository"]]
-        files = [entry["url"] for entry in lock["files"] if f"/{repository}/" in entry["url"]]
+        files = [entry["url"] for entry in lock["files"] if entry["path"].startswith(directory)]
         if not references and not files:
             print(f"skipped: lock pin, resources/dictionary-sources.lock.json does not pin {repository} yet")
             continue
         check(references == [commit], f"the sources lock references {repository} at {references}, the notices cover {commit}; update {relative} and the channels together with the pin")
-        check(bool(files), f"the sources lock references {repository} but pins no file from it")
+        check(bool(files), f"the sources lock references {repository} but pins no file under {directory}")
         for url in files:
-            check(f"/{commit}/" in url, f"the sources lock pins {url}, which is not at the commit {relative} covers ({commit})")
+            check(url.startswith(DICTIONARY_RELEASES), f"the sources lock pins {url} under {directory}, which is not a msime-dictionary sources release asset")
+        check(not any(f"/{repository}/" in entry["url"] for entry in lock["files"]), f"the sources lock still downloads from {repository} directly; pin msime-dictionary's {directory} assets instead")
 
     vi_licence = ROOT / VI_LICENCE
     check(vi_licence.is_file() and "Copyright 2020, Hung Nguyen" in vi_licence.read_text(encoding="utf-8"), f"{VI_LICENCE} is missing or lost the vi copyright line")
@@ -89,7 +94,7 @@ def main() -> int:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, vi in {len(VI_CHANNELS)} macOS channels")
+    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, vi in {len(VI_CHANNELS)} macOS and Windows channels")
     return 0
 
 

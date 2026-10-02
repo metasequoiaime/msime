@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum CommunityResourceKind: String, Codable, CaseIterable, Identifiable, Sendable {
   case dictionary, reply
@@ -52,6 +53,22 @@ enum CommunityLibrary {
   private static let maximumItems = 50
   private static let maximumJavaScriptInteger = 9_007_199_254_740_991
 
+  private static func rejectSymlinkAncestors(_ path: URL) throws {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        guard status.st_mode & S_IFMT != S_IFLNK else { throw PersonalDictionaryStore.StoreError.unavailable }
+      } else if errno != ENOENT {
+        throw PersonalDictionaryStore.StoreError.unavailable
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { break }
+      current = parent
+    }
+  }
+
   private static func file(in directory: URL? = nil) -> URL? {
     (directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier))?
@@ -59,6 +76,7 @@ enum CommunityLibrary {
   }
   static func read(in directory: URL? = nil) throws -> [CommunityResource] {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
+    try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return [] }
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= maximumBytes else {
       throw PersonalDictionaryStore.StoreError.invalidState
@@ -92,6 +110,7 @@ enum CommunityLibrary {
     guard let file = file(in: directory) else { throw PersonalDictionaryStore.StoreError.unavailable }
     let data = try JSONEncoder().encode(items)
     guard data.count <= maximumBytes else { throw PersonalDictionaryStore.StoreError.tooManyRequests }
+    try rejectSymlinkAncestors(file)
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
   }

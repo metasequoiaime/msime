@@ -15,6 +15,45 @@ fn emoji_group_page_capacity_reserves_the_first_page_size() {
     assert!(positions.capacity() >= 7);
 }
 
+/// 插件符号组追加在内置组之后：符号以插件名为上级分类，颜文字排在 All 之后；没写关键词时用符号本身搜索。
+#[test]
+fn plugin_symbol_groups_follow_the_built_in_catalog() {
+    use msime_client_core::plugins::symbol_set::SymbolTab;
+    let group =
+        |tab, title: &str, keywords: &str, items: &[&str]| msime_host_api::PluginSymbolGroup {
+            pack: "arrows".into(),
+            pack_name: "箭头大全".into(),
+            tab,
+            title: title.into(),
+            keywords: keywords.into(),
+            items: items.iter().map(|item| (*item).to_owned()).collect(),
+        };
+    let built_in = |title: &str| super::EmojiCatalogGroup {
+        title: title.into(),
+        parent: None,
+        icon: String::new(),
+        items: Vec::new(),
+    };
+    let mut kaomoji = vec![built_in("All")];
+    let mut symbols = vec![built_in("数学")];
+    super::append_plugin_symbol_groups(
+        vec![
+            group(SymbolTab::Symbols, "箭头", "jiantou", &["→", "←"]),
+            group(SymbolTab::Kaomoji, "开心", "", &["(^_^)"]),
+        ],
+        &mut kaomoji,
+        &mut symbols,
+    );
+    assert_eq!(symbols.len(), 2);
+    assert_eq!(symbols[1].title, "箭头");
+    assert_eq!(symbols[1].parent.as_deref(), Some("箭头大全"));
+    assert_eq!(symbols[1].icon, "→");
+    assert_eq!(symbols[1].items[1].keywords, "jiantou");
+    assert_eq!(kaomoji[0].title, "All");
+    assert_eq!(kaomoji[1].title, "开心");
+    assert_eq!(kaomoji[1].items[0].keywords, "(^_^)");
+}
+
 #[test]
 fn runtime_options_fallback_reserves_all_candidate_slots() {
     let candidates: Vec<std::path::PathBuf> =
@@ -186,44 +225,92 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
     let directory = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("zhuyin.db"), b"sqlite").unwrap();
-    let offered = |host_options: Option<&serde_json::Value>| {
-        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
-        super::drop_uninstalled_language_schemes(&mut capabilities, host_options);
+    // Every host narrows the schemes the same way.
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+    ] {
+        let cantonese = directory.join("cantonese.db");
+        if cantonese.exists() {
+            std::fs::remove_file(&cantonese).unwrap();
+        }
+        let offered = |host_options: Option<&serde_json::Value>| {
+            let mut capabilities = HostCapabilities::for_platform(platform);
+            super::drop_uninstalled_language_schemes(&mut capabilities, host_options, false);
+            capabilities.input_schemes
+        };
+        let without_both = vec![
+            InputScheme::Quanpin,
+            InputScheme::Shuangpin,
+            InputScheme::Wubi,
+            InputScheme::Japanese,
+            InputScheme::Korean,
+            InputScheme::Vietnamese,
+        ];
+        assert_eq!(offered(None), without_both, "{platform:?}");
+        assert_eq!(
+            offered(Some(&serde_json::json!({}))),
+            without_both,
+            "{platform:?}"
+        );
+        // A relative directory is not trusted to mean the installed one.
+        assert_eq!(
+            offered(Some(
+                &serde_json::json!({ "language_dictionaries": "language-dictionaries" })
+            )),
+            without_both,
+            "{platform:?}"
+        );
+        let named = serde_json::json!({ "language_dictionaries": directory });
+        let mut with_zhuyin = without_both.clone();
+        with_zhuyin.insert(5, InputScheme::Zhuyin);
+        assert_eq!(offered(Some(&named)), with_zhuyin, "{platform:?}");
+        std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+        assert_eq!(
+            offered(Some(&named)),
+            HostCapabilities::for_platform(platform).input_schemes,
+            "{platform:?}"
+        );
+    }
+    // Without the Windows fallback a document naming only its resources offers neither.
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    let resources_only = serde_json::json!({ "resources": root.path().join("resources") });
+    super::drop_uninstalled_language_schemes(&mut capabilities, Some(&resources_only), false);
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Cantonese));
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Zhuyin));
+}
+
+#[test]
+fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_not_name() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("language-dictionaries");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+    let offered = |host_options: &serde_json::Value| {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Windows);
+        super::drop_uninstalled_language_schemes(&mut capabilities, Some(host_options), true);
         capabilities.input_schemes
     };
-    let without_both = vec![
-        InputScheme::Quanpin,
-        InputScheme::Shuangpin,
-        InputScheme::Wubi,
-        InputScheme::Japanese,
-        InputScheme::Korean,
-        InputScheme::Vietnamese,
-    ];
-    assert_eq!(offered(None), without_both);
-    assert_eq!(offered(Some(&serde_json::json!({}))), without_both);
-    // A relative directory is not trusted to mean the installed one.
-    assert_eq!(
-        offered(Some(
-            &serde_json::json!({ "language_dictionaries": "language-dictionaries" })
-        )),
-        without_both
-    );
-    let named = serde_json::json!({ "language_dictionaries": directory });
-    let mut with_zhuyin = without_both.clone();
-    with_zhuyin.insert(5, InputScheme::Zhuyin);
-    assert_eq!(offered(Some(&named)), with_zhuyin);
-    std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
-    assert_eq!(
-        offered(Some(&named)),
-        HostCapabilities::for_platform(HostPlatform::Macos).input_schemes
-    );
-    // Hosts that never offer the schemes are left as they are.
-    let mut windows = HostCapabilities::for_platform(HostPlatform::Windows);
-    super::drop_uninstalled_language_schemes(&mut windows, None);
-    assert_eq!(
-        windows.input_schemes,
-        HostCapabilities::for_platform(HostPlatform::Windows).input_schemes
-    );
+    let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
+    assert!(schemes.contains(&InputScheme::Cantonese));
+    assert!(!schemes.contains(&InputScheme::Zhuyin));
+    assert!(schemes.contains(&InputScheme::Vietnamese));
+    // A relative resources directory is not trusted to locate the installed dictionaries.
+    let relative = offered(&serde_json::json!({ "resources": "resources" }));
+    assert!(!relative.contains(&InputScheme::Cantonese));
+    // A document that names the directory is taken at its word.
+    let elsewhere = root.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let named = offered(&serde_json::json!({
+        "resources": root.path().join("resources"),
+        "language_dictionaries": elsewhere,
+    }));
+    assert!(!named.contains(&InputScheme::Cantonese));
 }
 
 #[test]
@@ -399,6 +486,26 @@ fn ios_first_run_host_options_use_packaged_resources_and_shared_state() {
     .expect("first-run options");
     assert_eq!(document["resources"], "/fixture/resources");
     assert_eq!(document["state_root"], "/fixture/shared-state");
+    assert!(document.get("language_dictionaries").is_none());
+}
+
+#[test]
+fn ios_first_run_host_options_name_the_bundled_language_dictionaries() {
+    let bundle = tempfile::tempdir().expect("bundle");
+    let resources = bundle.path().join("EngineResources");
+    let dictionaries = bundle.path().join("language-dictionaries");
+    std::fs::create_dir_all(&resources).expect("resources");
+    std::fs::create_dir_all(&dictionaries).expect("dictionaries");
+    let empty = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert!(empty.get("language_dictionaries").is_none());
+    std::fs::write(dictionaries.join("zhuyin.db"), b"fixture").expect("zhuyin.db");
+    let document = super::ios_host_options_document(None, &resources, bundle.path())
+        .expect("first-run options");
+    assert_eq!(
+        document["language_dictionaries"],
+        dictionaries.to_str().expect("utf-8 path")
+    );
 }
 
 #[test]

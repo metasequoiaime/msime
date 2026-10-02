@@ -26,6 +26,8 @@ export interface VoiceCredentialControlProps {
     ) => ReturnType<ProviderCredentialClient["saveVoice"]>,
     success: string,
   ) => Promise<void>;
+  /** 见 `VoiceCredentialSectionProps.grouped`。 */
+  grouped?: boolean;
 }
 
 /** Connects the Linux voice credential state to the shared credential editor. */
@@ -40,6 +42,7 @@ export function VoiceCredentialControl({
   providerCredentialBusy,
   providerCredentialMessages,
   runVoiceCredential,
+  grouped,
 }: VoiceCredentialControlProps) {
   if (!available) return null;
   const provider =
@@ -48,6 +51,7 @@ export function VoiceCredentialControl({
       : (voiceInput.polish_provider ?? "siliconflow");
   return (
     <VoiceCredentialSection
+      grouped={grouped}
       kind={kind}
       provider={provider}
       model={(kind === "asr" ? voiceInput.asr_model : voiceInput.polish_model) ?? ""}
@@ -67,7 +71,7 @@ export function VoiceCredentialControl({
         void runVoiceCredential(
           kind,
           (credentials) => credentials.saveVoice(credential),
-          "凭据已保存，语音 provider 下次请求时生效。",
+          "凭据已保存，语音服务下次请求时生效。",
         )
       }
       onClear={() =>

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Row, Select } from "../core/platform-controls";
+import { SelectRow } from "./select-row";
+import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
@@ -44,39 +45,35 @@ export function PolishPromptSection({
 
   return (
     <>
-      <Row title="润色方案">
-        <Select
-          aria-label="润色方案"
-          value={selectedSlot}
-          onChange={(event) => {
-            const nextSlot = normalizePolishSlot(event.target.value);
-            const nextDefault = isPolishCustomSlot(nextSlot)
-              ? (customPrompts[nextSlot as keyof PolishCustomPromptValues] ?? "")
-              : polishPresetPrompt(nextSlot);
-            onSelectPrompt(nextSlot, nextDefault);
-          }}
-        >
-          {POLISH_PRESET_IDS.map((id) => (
-            <option key={id} value={id}>
-              {POLISH_PRESET_NAMES[id]}
-            </option>
-          ))}
-          <CustomPromptSlotOptions />
-        </Select>
-      </Row>
+      <SelectRow
+        title="润色方案"
+        aria-label="润色方案"
+        value={selectedSlot}
+        onChange={(event) => {
+          const nextSlot = normalizePolishSlot(event.target.value);
+          const nextDefault = isPolishCustomSlot(nextSlot)
+            ? (customPrompts[nextSlot as keyof PolishCustomPromptValues] ?? "")
+            : polishPresetPrompt(nextSlot);
+          onSelectPrompt(nextSlot, nextDefault);
+        }}
+      >
+        {POLISH_PRESET_IDS.map((id) => (
+          <option key={id} value={id}>
+            {POLISH_PRESET_NAMES[id]}
+          </option>
+        ))}
+        <CustomPromptSlotOptions />
+      </SelectRow>
       <div className={settings.managerBlock}>
-        <label className={settings.field}>
-          <span>
-            <span data-row-title="">润色提示词</span>{" "}
-            {customSlot ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"}
-          </span>
-          <textarea
-            aria-label="润色提示词"
-            className={settings.promptInput}
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value, customSlot)}
-          />
-        </label>
+        <SettingsTextareaField
+          label="润色提示词"
+          ariaLabel="润色提示词"
+          description={
+            customSlot ? "这一段会保存到所选的自定义方案" : "内置方案的完整提示词，可以就地修改"
+          }
+          value={prompt}
+          onChange={(value) => onPromptChange(value, customSlot)}
+        />
         <div className={settings.managerActions}>
           <button
             type="button"

@@ -164,7 +164,8 @@ if(BUILD_TESTING)
   target_compile_definitions(fcitx5-native-test PRIVATE
     MSIME_SYSTEM_OPTIONS="${CMAKE_CURRENT_BINARY_DIR}/first-run-absent/runtime-options.json"
     MSIME_BINDIR="${CMAKE_CURRENT_BINARY_DIR}/first-run-bin"
-    MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor")
+    MSIME_ICON_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data/icons/hicolor"
+    MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../tests/runtime/zhuyin_dictionary.py")
   # The candidate card's brand mark, decoded from the icons the package installs.
   add_executable(linux-candidate-fcitx-logo-test ../tests/candidate/candidate_fcitx_logo.cpp)
   target_compile_options(linux-candidate-fcitx-logo-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)

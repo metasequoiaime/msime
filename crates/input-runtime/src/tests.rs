@@ -65,6 +65,23 @@ fn provider_connect_rejects_untrusted_filesystem_endpoints() {
     assert!(UnixSocketProvider::new(&alias).connect().is_none());
     drop(listener);
 
+    let outside = root.path().join("outside");
+    let outside_nested = outside.join("nested");
+    std::fs::create_dir_all(&outside_nested).unwrap();
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(&outside_nested, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let outside_socket = outside_nested.join("provider.sock");
+    let listener = UnixListener::bind(&outside_socket).unwrap();
+    let inside = root.path().join("inside");
+    std::fs::create_dir(&inside).unwrap();
+    std::os::unix::fs::symlink(&outside, inside.join("linked")).unwrap();
+    assert!(
+        UnixSocketProvider::new(inside.join("linked/nested/provider.sock"))
+            .connect()
+            .is_none()
+    );
+    drop(listener);
+
     let socket = root.path().join("private.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -2968,6 +2985,8 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,

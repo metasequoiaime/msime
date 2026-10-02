@@ -87,167 +87,14 @@ export function SkinSettingsPage() {
   return (
     <>
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="主题">
-        <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
-        {host?.candidate_panel_limit && (
-          <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-        )}
-        <ThemeCarousel
-          labels={[
-            ...themeCatalog.map((entry) => entry.title),
-            ...packages.map((skin) => skin.name),
-          ]}
-          selectedIndex={
-            packageInUse >= 0
-              ? themeCatalog.length + packageInUse
-              : Math.max(
-                  themeCatalog.findIndex((entry) => entry.id === globalTheme),
-                  0,
-                )
-          }
-        >
-          {themeCatalog.map((entry) => {
-            const id = entry.id;
-            // The custom card draws what the custom theme is assembled from without a package: its base and pickers. Each package has its own card after the built-in ones.
-            // A package the custom theme names but the scan did not list (removed, not scanned yet, or a host without a scanner) is drawn as the custom theme over its base, so the 自定义 card stays the one in use.
-            const selected = globalTheme === id && (id !== "custom" || packageInUse < 0);
-            const fixedAppearance =
-              id === "custom"
-                ? themeEntry(draft.custom_theme?.base ?? "system").appearance
-                : entry.appearance;
-            // Only `system`, and a custom theme over it, follow the light/dark mode; a built-in theme is one fixed palette.
-            const previewTheme = fixedAppearance ?? skinPreviewThemes[id] ?? candidatePreviewTheme;
-            return (
-              <article aria-label={entry.title} className={settings.skinCard(selected)} key={id}>
-                <div className={settings.skinCardHeader} data-skin-card-header="">
-                  <div className={settings.skinCardBody}>
-                    <span className={settings.skinCardTitle}>
-                      {entry.title} ({previewTheme === "dark" ? "Dark" : "Light"})
-                      {selected && <span className={settings.skinCardInUse}>使用中</span>}
-                    </span>
-                    <span className={settings.skinCardDescription}>
-                      {globalThemeDescription(entry, linuxPlatform)}
-                    </span>
-                  </div>
-                  <div className={settings.skinCardActions}>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-label={entry.title}
-                      aria-checked={selected}
-                      className={settings.skinSwitch(selected)}
-                      onClick={() =>
-                        onPreferencesChange(
-                          id === "custom"
-                            ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
-                              {
-                                global_theme: "custom",
-                                custom_theme: { ...draft.custom_theme, candidate_skin: null },
-                              }
-                            : { global_theme: id },
-                        )
-                      }
-                    >
-                      <span className={settings.skinSwitchKnob(selected)} />
-                    </button>
-                    {fixedAppearance === null && (
-                      <button
-                        type="button"
-                        className={settings.skinPreviewSwitch}
-                        onClick={() =>
-                          setSkinPreviewThemes((current) => ({
-                            ...current,
-                            [id]:
-                              (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
-                          }))
-                        }
-                      >
-                        {previewTheme === "dark" ? "预览浅色" : "预览深色"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div
-                  className={settings.skinCardPreview}
-                  data-skin-preview=""
-                  data-global-theme={id}
-                  data-preview-theme={previewTheme}
-                  style={
-                    id === "custom"
-                      ? customCandidateStyle(
-                          draft.custom_theme?.base,
-                          draft.custom_theme?.candidate_colors,
-                        )
-                      : themeCandidateStyle(id)
-                  }
-                  aria-hidden="true"
-                >
-                  <div className={settings.skinCandidateStages}>
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
-                      <SkinCandidatePreview orientation="horizontal" />
-                    </div>
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
-                      <SkinCandidatePreview orientation="vertical" />
-                    </div>
-                  </div>
-                  {/* A touch host has no floating toolbar; the theme's other surface there is the keyboard, which the 键盘 page used to show a second set of these cards for. */}
-                  {mobilePlatform ? (
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
-                      <ScreenKeyboardPreview
-                        theme={previewTheme}
-                        skin={id === "custom" ? keyboardThemeId("custom", draft.custom_theme) : id}
-                        customDesign={id === "custom" ? customTouchKeyboardSkin : undefined}
-                        compact
-                      />
-                    </div>
-                  ) : (
-                    !linuxPlatform && (
-                      <div className={settings.skinPreviewStage} data-skin-stage="">
-                        <SkinToolbarPreview />
-                      </div>
-                    )
-                  )}
-                </div>
-              </article>
-            );
-          })}
-          {packages.map((skin) => (
-            <ExternalSkinCard
-              key={`package:${skin.id}`}
-              skin={skin}
-              selected={skin.id === skinInUse}
-              // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
-              layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
-              // The package's manifest base becomes the custom theme's base, which is what `resolve()` draws under the package, so the previews match and removing the package keeps that base.
-              onSelect={(id, base) =>
-                onPreferencesChange({
-                  global_theme: "custom",
-                  custom_theme: { ...draft.custom_theme, base, candidate_skin: id },
-                })
-              }
-              readImage={client.readSkinImage}
-              readFont={client.readSkinFont}
-              readToolbarCss={client.readSkinToolbarCss}
-              revision={skins.revision}
-              activeTheme={candidatePreviewTheme}
-              toolbarPreview={!linuxPlatform}
-              onPublish={
-                candidateSkins
-                  ? (id) => {
-                      setPublished(null);
-                      setPublishSkinId(id);
-                    }
-                  : undefined
-              }
-            />
-          ))}
-        </ThemeCarousel>
-        {published && (
-          <p role="status" className={settings.externalMeta}>
-            {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
-          </p>
-        )}
         <div className={settings.groups}>
-          <GroupList title="外观">
+          <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
+          {/* 这条说明指出面板会忽略本页的皮肤和颜色，而它们在别处都无法编辑，所以除了「候选窗口」预览下方，这里也保留一份。 */}
+          {host?.candidate_panel_limit && (
+            <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
+          )}
+          {/* 颜色模式排在卡片之前，因为每张卡片的明暗预览都以它为起点。 */}
+          <GroupList title="明暗">
             <Row title="颜色模式" description="设置窗口和各界面的默认明暗模式">
               <Segmented
                 aria-label="颜色模式"
@@ -256,12 +103,182 @@ export function SkinSettingsPage() {
                 onChange={(theme) => onPreferencesChange({ theme })}
               />
             </Row>
+          </GroupList>
+          <ThemeCarousel
+            labels={[
+              ...themeCatalog.map((entry) => entry.title),
+              ...packages.map((skin) => skin.name),
+            ]}
+            selectedIndex={
+              packageInUse >= 0
+                ? themeCatalog.length + packageInUse
+                : Math.max(
+                    themeCatalog.findIndex((entry) => entry.id === globalTheme),
+                    0,
+                  )
+            }
+          >
+            {themeCatalog.map((entry) => {
+              const id = entry.id;
+              // The custom card draws what the custom theme is assembled from without a package: its base and pickers. Each package has its own card after the built-in ones.
+              // A package the custom theme names but the scan did not list (removed, not scanned yet, or a host without a scanner) is drawn as the custom theme over its base, so the 自定义 card stays the one in use.
+              const selected = globalTheme === id && (id !== "custom" || packageInUse < 0);
+              const fixedAppearance =
+                id === "custom"
+                  ? themeEntry(draft.custom_theme?.base ?? "system").appearance
+                  : entry.appearance;
+              // Only `system`, and a custom theme over it, follow the light/dark mode; a built-in theme is one fixed palette.
+              const previewTheme =
+                fixedAppearance ?? skinPreviewThemes[id] ?? candidatePreviewTheme;
+              return (
+                <article aria-label={entry.title} className={settings.skinCard(selected)} key={id}>
+                  <div className={settings.skinCardHeader} data-skin-card-header="">
+                    <div className={settings.skinCardBody}>
+                      <span className={settings.skinCardTitle}>
+                        {entry.title}（{previewTheme === "dark" ? "深色" : "浅色"}）
+                        {selected && <span className={settings.skinCardInUse}>使用中</span>}
+                      </span>
+                      <span className={settings.skinCardDescription}>
+                        {globalThemeDescription(entry, linuxPlatform)}
+                      </span>
+                    </div>
+                    <div className={settings.skinCardActions}>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-label={entry.title}
+                        aria-checked={selected}
+                        className={settings.skinSwitch(selected)}
+                        onClick={() =>
+                          onPreferencesChange(
+                            id === "custom"
+                              ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
+                                {
+                                  global_theme: "custom",
+                                  custom_theme: { ...draft.custom_theme, candidate_skin: null },
+                                }
+                              : { global_theme: id },
+                          )
+                        }
+                      >
+                        <span className={settings.skinSwitchKnob(selected)} />
+                      </button>
+                      {fixedAppearance === null && (
+                        <button
+                          type="button"
+                          className={settings.skinPreviewSwitch}
+                          onClick={() =>
+                            setSkinPreviewThemes((current) => ({
+                              ...current,
+                              [id]:
+                                (current[id] ?? candidatePreviewTheme) === "dark"
+                                  ? "light"
+                                  : "dark",
+                            }))
+                          }
+                        >
+                          {previewTheme === "dark" ? "预览浅色" : "预览深色"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className={settings.skinCardPreview}
+                    data-skin-preview=""
+                    data-global-theme={id}
+                    data-preview-theme={previewTheme}
+                    style={
+                      id === "custom"
+                        ? customCandidateStyle(
+                            draft.custom_theme?.base,
+                            draft.custom_theme?.candidate_colors,
+                          )
+                        : themeCandidateStyle(id)
+                    }
+                    aria-hidden="true"
+                  >
+                    <div className={settings.skinCandidateStages}>
+                      <div className={settings.skinPreviewStage} data-skin-stage="">
+                        <SkinCandidatePreview orientation="horizontal" />
+                      </div>
+                      <div className={settings.skinPreviewStage} data-skin-stage="">
+                        <SkinCandidatePreview orientation="vertical" />
+                      </div>
+                    </div>
+                    {/* A touch host has no floating toolbar; the theme's other surface there is the keyboard, which the 键盘 page used to show a second set of these cards for. */}
+                    {mobilePlatform ? (
+                      <div className={settings.skinPreviewStage} data-skin-stage="">
+                        <ScreenKeyboardPreview
+                          theme={previewTheme}
+                          skin={
+                            id === "custom" ? keyboardThemeId("custom", draft.custom_theme) : id
+                          }
+                          customDesign={id === "custom" ? customTouchKeyboardSkin : undefined}
+                          compact
+                        />
+                      </div>
+                    ) : (
+                      !linuxPlatform && (
+                        <div className={settings.skinPreviewStage} data-skin-stage="">
+                          <SkinToolbarPreview />
+                        </div>
+                      )
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            {packages.map((skin) => (
+              <ExternalSkinCard
+                key={`package:${skin.id}`}
+                skin={skin}
+                selected={skin.id === skinInUse}
+                // A host that draws one layout judges a skin by that layout, not by a setting it ignores.
+                layout={host?.fixed_candidate_layout ?? draft.candidate_layout ?? "vertical"}
+                // The package's manifest base becomes the custom theme's base, which is what `resolve()` draws under the package, so the previews match and removing the package keeps that base.
+                onSelect={(id, base) =>
+                  onPreferencesChange({
+                    global_theme: "custom",
+                    custom_theme: { ...draft.custom_theme, base, candidate_skin: id },
+                  })
+                }
+                readImage={client.readSkinImage}
+                readFont={client.readSkinFont}
+                readToolbarCss={client.readSkinToolbarCss}
+                revision={skins.revision}
+                activeTheme={candidatePreviewTheme}
+                toolbarPreview={!linuxPlatform}
+                onPublish={
+                  candidateSkins
+                    ? (id) => {
+                        setPublished(null);
+                        setPublishSkinId(id);
+                      }
+                    : undefined
+                }
+              />
+            ))}
+          </ThemeCarousel>
+          {published && (
+            <p role="status" className={settings.externalMeta}>
+              {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
+            </p>
+          )}
+          <GroupList title="更多皮肤">
             <ExternalSkinDirectoryRow
               skins={skins}
               scannable={!!client.scanSkinCatalog}
               openable={!!client.openSkinDirectory}
               importsSkin={importsSkin}
             />
+            {/* 有社区客户端的桌面宿主会在侧栏列出「社区」，候选皮肤从上面各自的卡片发布；这一行是手机进入键盘皮肤图库的入口。 */}
+            {mobilePlatform && client.communitySkins && (
+              <Row title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
+                <button type="button" className="secondary" onClick={() => openCommunity("all")}>
+                  去社区发现皮肤
+                </button>
+              </Row>
+            )}
           </GroupList>
           <GroupList title="自定义主题">
             {mobileKeyboardFeedback?.candidatePaletteFollowsDesktop !== undefined && (
@@ -322,17 +339,7 @@ export function SkinSettingsPage() {
                 />
               </div>
             )}
-            {/* A desktop host with a community client lists 社区 in its sidebar, and its candidate skins are published from their cards below; this row is the phone's route to the keyboard-skin gallery. */}
-            {mobilePlatform && client.communitySkins && (
-              <Row title="社区皮肤" description="看看别人做的键盘皮肤，可以直接试用或保存">
-                <button type="button" className="secondary" onClick={() => openCommunity("all")}>
-                  去社区发现皮肤
-                </button>
-              </Row>
-            )}
           </GroupList>
-        </div>
-        <div className={settings.groups}>
           {/* Each surface can still hold its own light or dark over the colour mode; the design folds these under 高级 on the theme page. */}
           <ThemeSettingsSection
             preferences={draft}

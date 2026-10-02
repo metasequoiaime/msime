@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// The user's own candidate glosses, `custom_translations.txt` in the Engine's user directory.
 ///
@@ -63,8 +64,25 @@ enum CustomTranslations {
     }
   }
 
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        if status.st_mode & S_IFMT == S_IFLNK { return true }
+      } else if errno != ENOENT {
+        return true
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { return false }
+      current = parent
+    }
+  }
+
   /// The file as text without its BOM, or empty when there is none yet.
   static func read(at url: URL) throws -> String {
+    guard !rejectsSymlinkAncestors(url) else { throw Failure.storage }
     let data: Data
     do {
       data = try BoundedFileReader.read(from: url, maximumBytes: maximumBytes)
@@ -82,6 +100,7 @@ enum CustomTranslations {
   /// Writes beside the target and moves it into place, so a failure leaves the previous file whole. An empty document removes the file, which is what "no overlay" means to the Engine.
   static func write(_ text: String, to url: URL) throws {
     guard text.utf8.count <= maximumBytes, !text.contains("\0") else { throw Failure.tooLarge }
+    guard !rejectsSymlinkAncestors(url) else { throw Failure.storage }
     let manager = FileManager.default
     if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       do { try manager.removeItem(at: url) } catch CocoaError.fileNoSuchFile {} catch { throw Failure.storage }

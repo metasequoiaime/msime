@@ -334,6 +334,8 @@ static void TestBackspaceHoldDoesNotEscapeComposition() {
     assert(![controller handleEvent:backspace(YES) client:nextClient]);
     assert(session.commandCalls == callsBeforeSwitch + 1);
     assert(![[controller valueForKey:@"backspaceHoldArmed"] boolValue]);
+    // 上面的换客户端按键让这个控制器成了焦点控制器（MSIMEFocusedController）。它在 main 的自动释放池里一直活着，635195ce0 起系统的模式报告和方案菜单项都转交给焦点控制器，不清掉的话后面 TestSystemInputModeReport 与 TestOptInSchemeModes 的报告都会落到这里。
+    if (MSIMEFocusedController == controller) MSIMEFocusedController = nil;
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 static NSDictionary *PassthroughStatisticsCall(NSString *root, NSDictionary *action) {
@@ -1799,6 +1801,8 @@ static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     assert(!appearance.englishMode && client.selectedModes.count == 0);
 
     // 日 moves the scheme to japanese, 英 over it leaves the scheme alone, and 中 goes back to the Chinese scheme japanese was entered from.
+    // 回到的方案取决于系统是否启用了「双」模式（只读查询 TIS）：启用时选「中」表示全拼（见 MSIMESchemeForReportedInputMode）。装过本输入法的开发机上「双」通常已启用，CI 上没有；两条分支由 InputModeIdentifiersTest 用桩函数确定地覆盖，这里只验证控制器把报告接到了这条规则上。
+    NSString *returned = MSIMEInputSourceIsEnabled(MSIMEShuangpinInputModeID) ? @"quanpin" : @"shuangpin";
     NSString *scheme = appearance.inputScheme;
     appearance.inputScheme = @"shuangpin";
     [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
@@ -1809,20 +1813,20 @@ static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
     [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"japanese"] && !appearance.englishMode && client.selectedModes.count == 0);
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
-    assert([appearance.inputScheme isEqual:@"shuangpin"] && !appearance.englishMode && client.selectedModes.count == 0);
+    assert([appearance.inputScheme isEqual:returned] && !appearance.englishMode && client.selectedModes.count == 0);
 
     // 한 does the same for korean, straight from 日 too, and 中 still goes back to the Chinese scheme both were entered from.
     [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
-    assert([appearance.inputScheme isEqual:@"korean"] && [appearance.lastChineseScheme isEqual:@"shuangpin"] &&
+    assert([appearance.inputScheme isEqual:@"korean"] && [appearance.lastChineseScheme isEqual:returned] &&
            !appearance.englishMode && client.selectedModes.count == 0);
     [controller systemDidReportInputMode:MSIMEJapaneseInputModeID client:client];
     [controller systemDidReportInputMode:MSIMEKoreanInputModeID client:client];
-    assert([appearance.inputScheme isEqual:@"korean"] && [appearance.lastChineseScheme isEqual:@"shuangpin"] &&
+    assert([appearance.inputScheme isEqual:@"korean"] && [appearance.lastChineseScheme isEqual:returned] &&
            client.selectedModes.count == 0);
     [controller systemDidReportInputMode:MSIMEEnglishInputModeID client:client];
     assert([appearance.inputScheme isEqual:@"korean"] && appearance.englishMode && client.selectedModes.count == 0);
     [controller systemDidReportInputMode:MSIMEChineseInputModeID client:client];
-    assert([appearance.inputScheme isEqual:@"shuangpin"] && !appearance.englishMode && client.selectedModes.count == 0);
+    assert([appearance.inputScheme isEqual:returned] && !appearance.englishMode && client.selectedModes.count == 0);
     appearance.inputScheme = scheme;
     appearance.englishMode = english;
 }

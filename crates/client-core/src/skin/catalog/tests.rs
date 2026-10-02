@@ -976,6 +976,25 @@ fn a_symlinked_manifest_is_rejected_even_when_it_stays_inside_the_package() {
     assert!(scan(root.path()).packages.is_empty());
 }
 
+#[test]
+#[cfg(unix)]
+fn a_symlinked_catalog_root_is_not_scanned() {
+    use std::os::unix::fs::symlink;
+
+    let state = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let package = resource_package(outside.path());
+    fs::write(package.join("images/sample.png"), b"synthetic").unwrap();
+    let root = state.path().join("skins");
+    symlink(outside.path(), &root).unwrap();
+
+    let catalog = scan(&root);
+    assert!(catalog.packages.is_empty());
+    assert!(catalog.issues.is_empty());
+    assert!(load_package(&root, "sample").is_err());
+    assert!(read_resource(&root, "sample", "images/sample.png").is_err());
+}
+
 /// The layout msime-skins (github.com/metasequoiaime/msime-skins) writes: a decoration with its own image and alignment, a background image, a corner radius, a toolbar palette per mode, a translation colour and licence metadata.
 fn styled_package(root: &Path) -> std::path::PathBuf {
     let skin = root.join("bigfish");

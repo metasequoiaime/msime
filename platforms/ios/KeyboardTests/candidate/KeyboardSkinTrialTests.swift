@@ -1,6 +1,27 @@
 import XCTest
 
 final class KeyboardSkinTrialTests: XCTestCase {
+  func testTrialRejectsASymlinkedSharedDirectoryBeforeWritingExternalFile() throws {
+    #if canImport(Darwin)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-trial-link-\(UUID().uuidString)")
+    let outside = FileManager.default.temporaryDirectory.appendingPathComponent("msime-trial-target-\(UUID().uuidString)")
+    let suite = "trial-link-tests-\(UUID())"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    defer {
+      defaults.removePersistentDomain(forName: suite)
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked", isDirectory: true), withDestinationURL: outside)
+
+    XCTAssertThrowsError(try KeyboardSkinTrialStore(directory: root.appendingPathComponent("linked"), defaults: defaults,
+      stateRoot: root.appendingPathComponent("state")).begin(name: "测试", design: CustomKeyboardSkin()))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent("KeyboardSkinTrial.json").path))
+    #endif
+  }
+
   func testTrialRestoresExactCustomDesignAndMissingSelection() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let suite = "trial-tests-\(UUID())"

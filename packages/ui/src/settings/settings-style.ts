@@ -44,7 +44,6 @@ export const rowStack =
 
 // ---- the theme page: its card gallery ----
 
-export const skinIntro = "mt-0 mb-3.5 leading-relaxed text-muted";
 export const externalHeading =
   "mx-1 mt-7 mb-3 flex items-start justify-between gap-[18px] [&>div]:min-w-0";
 export const externalActions =
@@ -107,9 +106,6 @@ export const skinCandidateStages = "flex flex-wrap items-start [&>*]:max-w-full 
 
 // ---- the floating toolbar editor ----
 
-export const toolbarPreviewArea =
-  "min-h-[190px] overflow-hidden bg-subtle px-6 pt-5 pb-[30px] max-phone:px-4";
-export const toolbarPreviewLabel = "mb-7 text-xs text-muted";
 export const toolbarPreview = (enabled: boolean) =>
   `mx-auto flex min-h-[35px] w-max max-w-full origin-center items-center gap-1.5 rounded-lg border border-white/15 bg-[#1a1a1a] px-[7px] py-1 whitespace-nowrap text-white shadow-[4px_4px_4px_rgba(0,0,0,0.3)] ${
     enabled ? "" : "opacity-45"
@@ -121,11 +117,12 @@ export const toolbarRequiredLabel = "ml-auto text-xs text-muted";
 
 // ---- shortcuts ----
 
-export const shortcutIntro = "leading-relaxed text-secondary";
 /** A key chord shown as the control of a shortcut row. */
 export const shortcutKey =
   "min-w-30 rounded-[5px] border border-edge bg-[var(--button-secondary-bg)] px-2 py-1 text-center font-[inherit] text-xs text-body";
 export const shortcutRowDanger = "text-danger";
+/** 一行里并列的几组按键，例如「向前 / 向后翻页」同时开着的几种翻页键；排在行标题下方、靠左换行，标题保持一行。 */
+export const shortcutKeys = "mt-1 flex flex-wrap justify-start gap-1.5";
 
 // ---- service actions ----
 
@@ -139,6 +136,9 @@ export const serviceConfirmation =
 // Settings save themselves, so the row has no primary button: 恢复默认设置 sits left, and the save status takes the free space so it and the 重试 / 重新读取 shown after a failure sit right. `secondary`'s top margin is cleared so the row lines up.
 export const settingsActions =
   "flex flex-wrap items-center gap-3 [&>span]:ml-auto [&>span]:text-xs [&>span]:text-muted [&>span[role=alert]]:text-danger [&>.secondary]:mt-0";
+/** 自定义释义编辑器下方唯一的一行小字：收录了多少条释义、自动保存进行到哪一步，以及保存失败时需要的「重试」。页面自己的页脚报告整页设置的状态，所以这里只保留一行文字，不再出现第二个页脚。 */
+export const customGlossesStatus =
+  "mt-2 mb-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted [&>span[role=alert]]:text-danger [&>.secondary]:mt-0";
 export const settingsWarning = "mt-1.5 mb-0 text-[13px] leading-normal text-[#a2543a]";
 
 // ---- clipboard, quick phrases, personal dictionary ----
@@ -185,9 +185,9 @@ export const empty = "text-muted";
 
 // ---- panel launchers ----
 
-/** A launcher's live preview, shown as the last block of its group. */
+/** 预览块：屏幕键盘、手写、候选窗口和悬浮工具栏页的实时预览都用它，放在它所画的那组设置上方或组内。 */
 export const groupPreview =
-  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] max-phone:px-4";
+  "min-w-0 border-t border-[var(--p-row-divider)] px-6 pt-5 pb-[30px] first:border-t-0 max-phone:px-4";
 export const launchCard = "overflow-hidden p-0";
 export const launchRow = "px-6 py-5";
 export const openButton = "mt-0 min-w-18 shrink-0 grow-0 basis-auto";
@@ -258,6 +258,9 @@ export const sidebarSection = (first: boolean) =>
       ? ""
       : "mt-3.5 mac:mt-[18px] linux:mt-2.5 hm2:mt-3 ipad:mt-5 win:mt-1 win:border-t win:border-[rgba(255,255,255,0.0837)] win:pt-1 win:light-theme:border-[rgba(0,0,0,0.0803)]"
   }`;
+/** 侧栏一组页面的组名：小号灰字，水平内边距取导航项的 `--p-nav-pad`，与下面的页名左对齐。iPad 的每组是一张圆角卡片，组名放进卡片里会像多出一行，所以 iPad 不显示。 */
+export const sidebarGroupTitle =
+  "mt-1 mb-0.5 [padding:var(--p-nav-pad)] text-[11px] font-semibold text-[var(--p-sub)] select-none ipad:hidden";
 /** The item glyphs ship light and are inverted on a light theme. Windows draws them at 16, macOS at 15, HarmonyOS at 17, GNOME at 18 and iPadOS at 20. */
 export const sidebarGlyph =
   "block size-4 object-contain opacity-90 light-theme:[filter:invert(1)_brightness(0.25)] mac:size-[15px] linux:size-[18px] hm2:size-[17px] ipad:size-5";

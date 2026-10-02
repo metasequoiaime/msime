@@ -1,15 +1,39 @@
 import type { EffectStyle, PluginPreferences } from "./plugin-preferences";
 import type { PluginKind, PluginPackage } from "./plugin-types";
 
+/** 各类插件统一的显示名。设置页、社区页和管理后台、官网都用这一套；旋律音效包另写作 `melodyKindLabel`。 */
 export const kindLabels: Record<PluginKind, string> = {
   sound: "音效包",
   music: "音乐包",
   command_table: "指令表",
   effect: "特效包",
+  phrase_table: "短语表",
+  helpcode: "辅助码表",
+  wordbook: "单词本",
+  symbol_set: "符号集",
 };
 
+/** 按键旋律（`mode = "sequence"` 的音效包）的类型显示名。 */
+export const melodyKindLabel = "音效包·旋律";
+
+/** 一个包的类型显示名：旋律音效包显示为「音效包·旋律」，其余用 `kindLabels`。 */
+export function packKindLabel(pack: Pick<PluginPackage, "kind" | "mode">): string {
+  return pack.kind === "sound" && pack.mode === "sequence"
+    ? melodyKindLabel
+    : kindLabels[pack.kind];
+}
+
 /** The order the 我的插件 list groups the installed packs in. */
-export const kindOrder: readonly PluginKind[] = ["sound", "effect", "music", "command_table"];
+export const kindOrder: readonly PluginKind[] = [
+  "sound",
+  "effect",
+  "music",
+  "command_table",
+  "phrase_table",
+  "helpcode",
+  "wordbook",
+  "symbol_set",
+];
 
 export const effectStyleOptions: readonly { value: EffectStyle; label: string }[] = [
   { value: "off", label: "关闭" },
@@ -58,6 +82,9 @@ export function pluginErrorMessage(error: unknown, fallback: string): string {
 export function packLabel(pack: PluginPackage): string {
   return pack.builtin ? `${pack.name}（内置）` : pack.name;
 }
+
+/** 短语表详情最多预览的行数。 */
+export const PHRASE_PREVIEW_ROWS = 20;
 
 export function commandSummary(pack: PluginPackage): string {
   const commands = pack.commands ?? [];
@@ -110,7 +137,37 @@ export function packMarker(
       const position = preferences.command_tables.indexOf(pack.id);
       return position >= 0 ? `已启用 · 第 ${position + 1} 位` : null;
     }
+    case "phrase_table": {
+      const position = preferences.phrase_tables.indexOf(pack.id);
+      return position >= 0 ? `已启用 · 第 ${position + 1} 位` : null;
+    }
+    case "helpcode":
+      return helpcodePackUses(preferences, pack.id);
+    // 单词本没有偏好：选中哪本书在背单词里；符号集装上就显示。
+    case "wordbook":
+    case "symbol_set":
+      return null;
   }
+}
+
+/** 单词本插件在背单词里的词书 id：`client-core::plugins::wordbook_pack::book_id`。 */
+export function wordbookPackBookId(id: string): string {
+  return `pack-${id}`;
+}
+
+/** 单词本详情预览的单词数。 */
+export const WORDBOOK_PREVIEW_WORDS = 5;
+
+/** 符号集详情每组预览的项数。 */
+export const SYMBOL_PREVIEW_ITEMS = 16;
+
+/** 辅助码表包用在哪个方案上：「用于全拼」「用于双拼」「用于全拼和双拼」，都没用时为 null。 */
+export function helpcodePackUses(preferences: PluginPreferences, id: string): string | null {
+  const schemes = [
+    preferences.helpcode_pack_quanpin === id ? "全拼" : null,
+    preferences.helpcode_pack_shuangpin === id ? "双拼" : null,
+  ].filter(Boolean);
+  return schemes.length > 0 ? `用于${schemes.join("和")}` : null;
 }
 
 /** A selection naming a pack the catalog does not have, and what it is selected as. `mismatched` is set when a sound pack by that id is installed but in the other mode (a melody named as the key-sound pack, or the reverse), so it cannot be played the way it is selected. */
@@ -141,6 +198,9 @@ export function missingSelections(
   add("effect", preferences.effect_pack, "当前特效包");
   add("music", preferences.music.pack, "当前音乐包");
   for (const id of preferences.command_tables) add("command_table", id, "已启用的指令表");
+  for (const id of preferences.phrase_tables) add("phrase_table", id, "已启用的短语表");
+  add("helpcode", preferences.helpcode_pack_quanpin, "全拼辅助码");
+  add("helpcode", preferences.helpcode_pack_shuangpin, "双拼辅助码");
   return missing;
 }
 

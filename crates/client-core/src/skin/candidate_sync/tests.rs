@@ -774,6 +774,29 @@ fn a_missing_skin_root_deletes_nothing_once_packages_are_remembered() {
 
 #[cfg(unix)]
 #[test]
+fn a_symlinked_skin_root_deletes_nothing_once_packages_are_remembered() {
+    use std::os::unix::fs::symlink;
+
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    let outside = tempfile::tempdir().unwrap();
+    write_skin(outside.path(), "outside", "外部", 2);
+    fs::remove_dir_all(&fixture.root).unwrap();
+    symlink(outside.path(), &fixture.root).unwrap();
+    fixture.library.calls();
+
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Storage)
+    );
+    assert!(outside.path().join("outside/skin.toml").is_file());
+    assert!(!fixture.library.calls().contains(&"unpublish".to_owned()));
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn an_unreadable_skin_root_deletes_nothing() {
     use std::os::unix::fs::PermissionsExt;
     let fixture = Fixture::new();

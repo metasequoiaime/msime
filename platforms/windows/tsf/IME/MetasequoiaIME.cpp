@@ -1151,9 +1151,11 @@ void CMetasequoiaIME::_RequestLocalSessionReset(_In_opt_ ITfContext *preferredCo
     {
         _KEYSTROKE_STATE keyState = {};
         keyState.Category = CATEGORY_COMPOSING;
-        // A Korean syllable is text the user already wrote, so leaving the context commits it where every other composition is discarded.
-        keyState.Function = Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) ? FUNCTION_COMMIT_SYLLABLE
-                                                                                           : FUNCTION_CANCEL;
+        // A Korean syllable, a Zhuyin conversion or a Vietnamese word is text the user already wrote (scheme::CommitsOnBlur), so leaving the context commits it where every other composition is discarded.
+        keyState.Function =
+            msime::windows::scheme::CommitsOnBlur(Global::InputModeScheme.load(std::memory_order_relaxed))
+                ? FUNCTION_COMMIT_SYLLABLE
+                : FUNCTION_CANCEL;
         _localResetEditSessionQueued = true;
         _queuedLocalResetToken = resetToken;
         const HRESULT resetRequestHr =
@@ -1821,7 +1823,6 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::SmartPunctuationRepeatToChineseChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PairedPunctuationChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::MicrosoftShuangpinChanged ||
-             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CapsLockChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::TsfDiagnosticLogChanged))
         {
@@ -1835,6 +1836,11 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 }
             }
             validFrame = hasTerminator && (buf.data[0] == L'0' || buf.data[0] == L'1') && buf.data[1] == L'\0';
+        }
+        // The mode code is not a boolean: Korean and the schemes after it send '2' and up, which the boolean check above would drop and leave the previous mode keyed.
+        if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
+        {
+            validFrame = msime::windows::scheme::is_input_mode_payload(buf.data, std::size(buf.data));
         }
         if (validFrame && buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationLockChanged)
         {
@@ -2016,8 +2022,9 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
         {
-            Global::JapaneseInputModeEnabled.store(buf.data[0] == L'1', std::memory_order_relaxed);
-            Global::KoreanInputModeEnabled.store(buf.data[0] == L'2', std::memory_order_relaxed);
+            Global::InputModeScheme.store(
+                msime::windows::scheme::mode_scheme(msime::windows::scheme::input_mode_from_code(buf.data[0])),
+                std::memory_order_relaxed);
             const HWND ownerWindow = pIME->_msgWndHandle;
             if (ownerWindow && IsWindow(ownerWindow))
             {
@@ -2460,11 +2467,12 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                                ? static_cast<int>(result.view.scheme)
                                : -1;
                 };
-                // A scheme switch discards the Engine's composition, but a Korean syllable is already on screen as text. Commit what the composition shows once the switch has happened, or the next key would replace it.
-                const bool koreanComposing = pIME->_IsComposing() && pIME->_pContext && hostScheme() == 4;
+                // A scheme switch discards the Engine's composition, but a Korean syllable, a Zhuyin conversion or a Vietnamese word is already on screen as text (scheme::CommitsOnBlur). Commit what the composition shows once the switch has happened, or the next key would replace it.
+                const int composingScheme = pIME->_IsComposing() && pIME->_pContext ? hostScheme() : -1;
                 std::string ignored, error;
                 (void)host->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);
-                if (koreanComposing && hostScheme() != 4 && pIME->_IsComposing() && pIME->_pContext)
+                if (msime::windows::scheme::CommitsOnBlur(composingScheme) && hostScheme() != composingScheme &&
+                    pIME->_IsComposing() && pIME->_pContext)
                 {
                     _KEYSTROKE_STATE keyState = {};
                     keyState.Category = CATEGORY_COMPOSING;

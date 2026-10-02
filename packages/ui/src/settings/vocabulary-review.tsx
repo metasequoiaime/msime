@@ -41,6 +41,8 @@ export type VocabularyWordbook = {
   total: number;
   /** A bundled book cannot be deleted; an imported one can. */
   builtin: boolean;
+  /** 来自单词本插件：在插件页卸载，这里不能删除。旧宿主不发这个字段。 */
+  pack?: boolean;
 };
 
 /** One card, already resolved from the wordbook by the host. */
@@ -275,7 +277,7 @@ export function VocabularyReviewPage({
               <option value="">未选择</option>
               {books.map((book) => (
                 <option key={book.id} value={book.id}>
-                  {book.name}（{book.total} 词）
+                  {book.name}（{book.total} 词）{book.pack ? " · 插件" : ""}
                 </option>
               ))}
             </select>
@@ -327,7 +329,10 @@ export function VocabularyReviewPage({
             </>
           )}
           {importNote && <p className={note}>{importNote}</p>}
-          {client.removeWordbook && selectedBook && !selectedBook.builtin && (
+          {selectedBook?.pack && (
+            <p className={note}>这本书来自插件，在「插件」页卸载；卸载后复习进度仍会保留。</p>
+          )}
+          {client.removeWordbook && selectedBook && !selectedBook.builtin && !selectedBook.pack && (
             <button
               className="secondary"
               disabled={busy}

@@ -163,3 +163,28 @@ fn the_binary_reports_and_exits_the_same_way() {
     assert_eq!(output.status.code(), Some(EXIT_INVALID));
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("error "));
 }
+
+/// client-core 与社区后端共用的 fixture 包：`valid/` 下的每个都报 ok，`invalid/` 下的每个都报 plugin_invalid，退出码随之而定。
+#[test]
+fn the_shared_fixture_packs_validate_as_their_folder_says() {
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../client-core/tests/fixtures/plugin-packs");
+    for (group, expected_status) in [("valid", EXIT_OK), ("invalid", EXIT_INVALID)] {
+        let mut packs: Vec<PathBuf> = fs::read_dir(fixtures.join(group))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        packs.sort();
+        assert!(!packs.is_empty(), "{group}");
+        for pack in packs {
+            let (status, out, err) = invoke(&[Path::new("validate"), &pack]);
+            assert_eq!(status, expected_status, "{}: {out}{err}", pack.display());
+            let prefix = if expected_status == EXIT_OK {
+                "ok ".to_owned()
+            } else {
+                format!("error {}: plugin_invalid: ", pack.display())
+            };
+            assert!(out.starts_with(&prefix), "{}: {out}", pack.display());
+        }
+    }
+}

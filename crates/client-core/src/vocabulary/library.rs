@@ -50,6 +50,13 @@ pub struct WordbookSummary {
     /// always false; it is the field the picker's delete affordance keys off, and bundled books
     /// will set it when they are shipped.
     pub builtin: bool,
+    /// 来自单词本插件（id 是 `pack-<插件 id>`）：在插件页卸载，不能在背单词里删除。导入的书永远是 false，`index.json` 因此不变。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pack: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -225,6 +232,7 @@ impl WordbookLibrary {
             name: book.name.clone(),
             total: book.entries.len(),
             builtin: false,
+            pack: false,
         };
         match index.books.iter_mut().find(|entry| entry.id == summary.id) {
             Some(existing) => *existing = summary,
@@ -300,6 +308,7 @@ mod tests {
                 name: "我的词表".to_owned(),
                 total: 2,
                 builtin: false,
+                pack: false,
             }]
         );
         assert_eq!(library.load("user-1").unwrap().as_ref(), Some(&book));

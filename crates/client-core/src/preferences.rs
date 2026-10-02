@@ -349,10 +349,36 @@ pub enum TouchKeyboardScheme {
     Handwriting,
     ThoughtfulReply,
     Korean,
+    /// 粤拼 26 键: toneless Jyutping on the pinyin 26-key letters (`InputScheme::Cantonese`).
+    Cantonese,
+    /// 大千注音: bopomofo on the four-row Dachen keyboard, each key sending its Dachen ASCII key (`InputScheme::Zhuyin`).
+    Zhuyin,
+    /// 越南语 26 键: Vietnamese on the Latin 26-key letters, composed by the method in `Preferences::vietnamese` (`InputScheme::Vietnamese`).
+    Vietnamese,
 }
 
 impl TouchKeyboardScheme {
-    pub const ALL: [Self; 12] = [
+    /// Every touch scheme in picker order. Schemes are appended, never reordered.
+    pub const ALL: [Self; 15] = [
+        Self::Quanpin,
+        Self::NineKey,
+        Self::Xiaohe,
+        Self::Ziranma,
+        Self::Microsoft,
+        Self::Shoudao,
+        Self::Wubi,
+        Self::JapaneseNineKey,
+        Self::Japanese,
+        Self::Handwriting,
+        Self::ThoughtfulReply,
+        Self::Korean,
+        Self::Cantonese,
+        Self::Zhuyin,
+        Self::Vietnamese,
+    ];
+
+    /// The schemes a keyboard shows before the user picks any: all but Cantonese, Zhuyin and Vietnamese, which the user turns on, as on macOS where their input modes start disabled. A document without `touch_keyboard_schemes` therefore keeps the keyboard it always had.
+    pub const DEFAULT_ENABLED: [Self; 12] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -378,7 +404,7 @@ pub struct TouchKeyboardSchemePreferences {
 }
 
 fn default_touch_keyboard_schemes() -> BTreeSet<TouchKeyboardScheme> {
-    TouchKeyboardScheme::ALL.into_iter().collect()
+    TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
 }
 
 impl Default for TouchKeyboardSchemePreferences {
@@ -1276,6 +1302,15 @@ pub struct PluginPreferences {
     pub combo_counter: bool,
     /// Play the key sound pack's commit sample, pitched up, when the count reaches one of `plugins::COMBO_MILESTONES`.
     pub combo_tier_sound: bool,
+    /// K 模式读取的已安装短语表包，按优先级排列，最多 `MAX_PHRASE_TABLES` 个。为空时不写进文档，没有这个键的旧版本照样能读。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub phrase_tables: Vec<String>,
+    /// 全拼方案选用的已安装辅助码表包；为空表示沿用 `quanpin_helpcode.schema`；包载入失败时也回退到那个方案。为空时不写进文档。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub helpcode_pack_quanpin: String,
+    /// 双拼方案选用的已安装辅助码表包，规则同 `helpcode_pack_quanpin`。
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub helpcode_pack_shuangpin: String,
 }
 
 impl Default for PluginPreferences {
@@ -1292,6 +1327,9 @@ impl Default for PluginPreferences {
             effect_pack: String::new(),
             combo_counter: false,
             combo_tier_sound: false,
+            phrase_tables: Vec::new(),
+            helpcode_pack_quanpin: String::new(),
+            helpcode_pack_shuangpin: String::new(),
         }
     }
 }
@@ -1299,6 +1337,8 @@ impl Default for PluginPreferences {
 impl PluginPreferences {
     /// Most command tables enabled at once.
     pub const MAX_COMMAND_TABLES: usize = 16;
+    /// 同时启用的短语表包上限。
+    pub const MAX_PHRASE_TABLES: usize = 16;
 
     fn is_default(&self) -> bool {
         *self == Self::default()
@@ -1316,6 +1356,12 @@ impl PluginPreferences {
             && self.command_tables.len() <= Self::MAX_COMMAND_TABLES
             && self.command_tables.iter().enumerate().all(|(index, id)| {
                 crate::skin::catalog::safe_id(id) && !self.command_tables[..index].contains(id)
+            })
+            && pack(&self.helpcode_pack_quanpin)
+            && pack(&self.helpcode_pack_shuangpin)
+            && self.phrase_tables.len() <= Self::MAX_PHRASE_TABLES
+            && self.phrase_tables.iter().enumerate().all(|(index, id)| {
+                crate::skin::catalog::safe_id(id) && !self.phrase_tables[..index].contains(id)
             })
     }
 }

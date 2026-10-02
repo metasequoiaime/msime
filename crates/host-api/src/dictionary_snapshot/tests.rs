@@ -122,6 +122,28 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
     assert!(super::inspect_snapshot(&file).is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn inspection_rejects_a_snapshot_below_a_symlinked_parent() {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let body = concat!(
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#,
+        "\n"
+    );
+    let digest = hex::encode(Sha256::digest(body.as_bytes()));
+    let snapshot = format!("{body}{{\"type\":\"footer\",\"records\":1,\"sha256\":\"{digest}\"}}\n");
+    fs::write(outside.path().join("snapshot.ndjson"), snapshot).unwrap();
+    symlink(outside.path(), root.path().join("linked")).unwrap();
+
+    let path = root.path().join("linked/snapshot.ndjson");
+    assert!(super::inspect_snapshot(&path).is_err());
+}
+
 #[test]
 fn restore_reinspects_the_exact_file_before_upload() {
     use msime_client_core::account::AccountDictionarySnapshotRestore;
@@ -272,6 +294,8 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -367,6 +391,8 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,
@@ -595,6 +621,8 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_alternatives: true,
         vietnamese_input_method: 0,
         vietnamese_tone_style: 0,

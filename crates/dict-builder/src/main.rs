@@ -130,7 +130,7 @@ enum Command {
     Places(Places),
     /// Write the Korean Hanja table (crates/engine/src/korean/hanja.tsv) from the libhangul hanja.txt pinned under hanja/ in the sources lock.
     Hanja(Hanja),
-    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db) with their licence texts and checksums, from the sources pinned under cantonese/ and zhuyin/ in the sources lock.
+    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock.
     Languages(Languages),
 }
 

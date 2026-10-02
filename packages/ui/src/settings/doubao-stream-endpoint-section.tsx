@@ -3,7 +3,7 @@ import {
   doubaoStreamEndpointId,
   findDoubaoStreamEndpoint,
 } from "../voice/voice-providers";
-import { Row, Select } from "../core/platform-controls";
+import { Row } from "../core/platform-controls";
 
 export interface DoubaoStreamEndpointSectionProps {
   endpoint: string;
@@ -55,19 +55,12 @@ export function DoubaoStreamEndpointSection({
   endpoint,
   onChange,
 }: DoubaoStreamEndpointSectionProps) {
-  const selected = doubaoStreamEndpointId(endpoint);
   return (
     <Row
       title="流式接口"
       description="整句流式边录边传、说完返回整句，服务方称准确率更高并推荐用于输入法；双向流式返回增量结果，流式预编辑刷新更频繁。选择后写入下方接口地址。"
     >
-      <Select
-        aria-label="流式接口"
-        value={selected}
-        onChange={(event) => updateDoubaoStreamEndpoint(event.target.value, onChange)}
-      >
-        <DoubaoStreamEndpointOptions />
-      </Select>
+      <DoubaoStreamEndpointSelect endpoint={endpoint} onChange={onChange} />
     </Row>
   );
 }

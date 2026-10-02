@@ -72,7 +72,7 @@ export function UtilitiesSettingsSection({
                 className="secondary"
                 onClick={() => void onOpenPanel(openCloudDictionary)}
               >
-                打开云词典
+                打开云词库
               </button>
             )}
           </>

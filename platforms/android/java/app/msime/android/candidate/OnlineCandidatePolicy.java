@@ -40,6 +40,14 @@ public final class OnlineCandidatePolicy {
             + "|assistant=" + field(assistant);
     }
 
+    /** 判断失败请求是否仍可释放当前签名，让同一输入在下一次渲染时重试。 */
+    public static boolean shouldReleaseAfterFailure(String requestSignature,
+            String currentSignature, long requestEpoch, long currentEpoch,
+            long targetSession, long currentSession) {
+        return requestEpoch == currentEpoch && targetSession == currentSession
+            && requestSignature != null && requestSignature.equals(currentSignature);
+    }
+
     /** Whether the cloud provider should be asked for this query. */
     public static boolean requestsCloud(boolean cloudCandidates, boolean cloudEligible) {
         return cloudCandidates && cloudEligible;

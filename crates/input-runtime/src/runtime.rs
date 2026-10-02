@@ -503,6 +503,23 @@ impl<E: InputEngine> Runtime<E> {
         self.refresh()
     }
 
+    /// 把宿主给的辅助码表交给引擎（`None` 回到方案自己的表），并刷新视图里的候选和辅助码注释。
+    pub fn set_helpcode_table(&mut self, table: Option<SharedKeymap>) -> Result<(), RuntimeError> {
+        self.advance()?;
+        self.engine.set_helpcode_table(table)?;
+        self.refresh()
+    }
+
+    /// 把新的 K 模式宿主短语表交给引擎；打开的 K 模式列表据此重建，所以视图要刷新。
+    pub fn set_quick_phrase_table(
+        &mut self,
+        table: &[QuickPhraseEntry],
+    ) -> Result<(), RuntimeError> {
+        self.advance()?;
+        self.engine.set_quick_phrase_table(table)?;
+        self.refresh()
+    }
+
     /// Hand the Engine a new `@` name list, refreshing the view as `set_command_table` does.
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Result<(), RuntimeError> {
         self.advance()?;

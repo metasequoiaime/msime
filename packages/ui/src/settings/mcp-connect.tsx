@@ -4,6 +4,7 @@ import { errorCode } from "../core/error-code";
 import * as settings from "./settings-style";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
+import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -45,7 +46,7 @@ const permissionFlags = [
   {
     flag: "--allow-write",
     title: "允许修改设置",
-    detail: "修改快捷短语和设置、制作候选框皮肤",
+    detail: "修改快捷短语和设置、制作候选窗口皮肤",
   },
   {
     flag: "--allow-dictionary-read",
@@ -66,67 +67,94 @@ function shellQuote(value: string, windows: boolean): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-/** The server's argument list: the runtime options, then the chosen flags. */
-function serverArgs(server: McpServerStatus, flags: readonly McpFlag[]): string[] {
-  return [...(server.options ? ["--options", server.options] : []), ...flags];
-}
-
-/** `msime-mcp` with the runtime options and the chosen flags, quoted for the shell. */
 function isWindowsPath(path: string): boolean {
   return /^[A-Za-z]:\\/.test(path);
 }
 
-function serverProgram(server: McpServerStatus, flags: readonly McpFlag[]): string {
+const program = (text: string): SyntaxToken => ({ text, kind: "program" });
+const flag = (text: string): SyntaxToken => ({ text, kind: "flag" });
+const placeholder = (text: string): SyntaxToken => ({ text, kind: "placeholder" });
+
+/** `msime-mcp` with the runtime options and the chosen flags, quoted for the shell. */
+function serverProgram(server: McpServerStatus, flags: readonly McpFlag[]): SyntaxToken[] {
   const windows = isWindowsPath(server.command);
-  return [server.command, ...serverArgs(server, flags)]
-    .map((part) => shellQuote(part, windows))
-    .join(" ");
+  const options: SyntaxToken[] = server.options
+    ? [flag("--options"), plain(" "), { text: shellQuote(server.options, windows), kind: "string" }]
+    : [];
+  return [
+    program(shellQuote(server.command, windows)),
+    ...[options, ...flags.map((name) => [flag(name)])]
+      .filter((part) => part.length > 0)
+      .flatMap((part) => [plain(" "), ...part]),
+  ];
 }
 
 function installCommand(
   assistant: "claude_code" | "codex",
   server: McpServerStatus,
   flags: readonly McpFlag[],
-): string {
-  const program = serverProgram(server, flags);
-  return assistant === "claude_code"
-    ? `claude mcp add --scope user msime -- ${program}`
-    : `codex mcp add msime -- ${program}`;
+): SyntaxToken[] {
+  const head =
+    assistant === "claude_code"
+      ? [program("claude"), plain(" mcp add "), flag("--scope"), plain(" user msime ")]
+      : [program("codex"), plain(" mcp add msime ")];
+  return [...head, flag("--"), plain(" "), ...serverProgram(server, flags)];
 }
 
 /** What to tell an assistant that works in a terminal, such as in its AGENTS.md or CLAUDE.md: the same tools without registering a server, one command per tool. */
-function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]): string {
-  const program = serverProgram(server, flags);
+function terminalInstructions(server: McpServerStatus, flags: readonly McpFlag[]): SyntaxToken[] {
+  const msime = serverProgram(server, flags);
   // Neither cmd nor Windows PowerShell passes a quoted JSON argument intact, so on Windows the arguments go through a file.
   const call = isWindowsPath(server.command)
-    ? `把 JSON 参数以 UTF-8 写进一个文件，再运行 ${program} call <工具名> @<文件路径>`
-    : `${program} call <工具名> '<JSON 参数>'，参数中有单引号时改为写进 UTF-8 文件并传 @<文件路径>`;
+    ? [
+        plain("把 JSON 参数以 UTF-8 写进一个文件，再运行 "),
+        ...msime,
+        plain(" call "),
+        placeholder("<工具名>"),
+        plain(" "),
+        placeholder("@<文件路径>"),
+      ]
+    : [
+        ...msime,
+        plain(" call "),
+        placeholder("<工具名>"),
+        plain(" "),
+        { text: "'<JSON 参数>'", kind: "string" } as const,
+        plain("，参数中有单引号时改为写进 UTF-8 文件并传 "),
+        placeholder("@<文件路径>"),
+      ];
   return [
-    "水杉输入法（MSIME）可以在终端里直接管理：",
-    `- 查看可用的工具和参数：${program} tools`,
-    `- 调用一个工具，参数是 JSON 对象，输出 JSON：${call}`,
-    `- 排查输入法问题（卡顿、候选框不见了）的步骤：${program} prompt diagnose`,
-  ].join("\n");
+    plain("水杉输入法（MSIME）可以在终端里直接管理：\n- 查看可用的工具和参数："),
+    ...msime,
+    plain(" tools\n- 调用一个工具，参数是 JSON 对象，输出 JSON："),
+    ...call,
+    plain("\n- 排查输入法问题（卡顿、候选窗口不见了）的步骤："),
+    ...msime,
+    plain(" prompt diagnose"),
+  ];
 }
 
 /** Removes an earlier registration: both assistants refuse to add a name that is already there, so changing the permissions means removing it first. */
-function removeCommand(assistant: "claude_code" | "codex"): string {
+function removeCommand(assistant: "claude_code" | "codex"): SyntaxToken[] {
   return assistant === "claude_code"
-    ? "claude mcp remove --scope user msime"
-    : "codex mcp remove msime";
+    ? [program("claude"), plain(" mcp remove "), flag("--scope"), plain(" user msime")]
+    : [program("codex"), plain(" mcp remove msime")];
 }
 
-/** The host's JSON entry with the chosen flags added to `args`; the entry as the host wrote it when no flag is chosen or it is not the expected shape. */
-function configWithFlags(config: string, flags: readonly McpFlag[]): string {
-  if (flags.length === 0) return config;
+/** The host's JSON entry with the chosen flags added to `args`; the entry as the host wrote it, uncoloured, when no flag is chosen and it is not laid out as `JSON.stringify` would, or when it is not the expected shape. */
+function configWithFlags(config: string, flags: readonly McpFlag[]): SyntaxToken[] {
   try {
     const parsed = JSON.parse(config) as { mcpServers?: { msime?: { args?: unknown } } };
+    if (flags.length === 0) {
+      // The host writes it with serde_json's pretty printer, which lays it out exactly as JSON.stringify does; anything else is shown as written rather than reformatted.
+      return JSON.stringify(parsed, null, 2) === config ? jsonTokens(parsed) : [plain(config)];
+    }
     const entry = parsed.mcpServers?.msime;
-    if (!entry || !Array.isArray(entry.args)) return config;
+    if (!entry || !Array.isArray(entry.args)) return [plain(config)];
     entry.args = [...entry.args, ...flags];
-    return JSON.stringify(parsed, null, 2);
+    return jsonTokens(parsed);
   } catch {
-    return config;
+    return [plain(config)];
   }
 }
 
@@ -254,8 +282,9 @@ export function McpConnectSection({
   const shownTab = tabs.some((option) => option.value === tab) ? tab : "claude_code";
   const client = writableClients.find((candidate) => candidate.id === shownTab);
 
-  function copyButton(key: string, label: string, text: string) {
+  function copyButton(key: string, label: string, tokens: readonly SyntaxToken[]) {
     if (!copyText) return null;
+    const text = tokensText(tokens);
     return (
       <div className={settings.managerActions}>
         <button type="button" className="secondary" onClick={() => copy(key, text)}>
@@ -269,8 +298,8 @@ export function McpConnectSection({
     <GroupList title="连接 AI 助手">
       <div className={settings.managerBlock} role="group" aria-label="连接 AI 助手">
         <p className={settings.managerNote}>
-          连接后，把输入法的问题（卡顿、候选框不见了）直接告诉 AI
-          助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选框皮肤。通过
+          连接后，把输入法的问题（卡顿、候选窗口不见了）直接告诉 AI
+          助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选窗口皮肤。通过
           MCP 在本机运行，不联网，除了开关诊断日志不改动任何设置。
         </p>
         {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
@@ -292,24 +321,22 @@ export function McpConnectSection({
                     在终端运行下面的命令，然后重新启动{" "}
                     {shownTab === "claude_code" ? "Claude Code" : "Codex"}：
                   </p>
-                  <pre
+                  <SyntaxBlock
                     className={command}
                     aria-label={
                       shownTab === "claude_code" ? "Claude Code 安装命令" : "Codex 安装命令"
                     }
-                  >
-                    {installCommand(shownTab, server, flags)}
-                  </pre>
+                    tokens={installCommand(shownTab, server, flags)}
+                  />
                   {copyButton(shownTab, "复制命令", installCommand(shownTab, server, flags))}
                   <p className={settings.managerNote}>之前添加过的，先运行这条：</p>
-                  <pre
+                  <SyntaxBlock
                     className={command}
                     aria-label={
                       shownTab === "claude_code" ? "Claude Code 移除命令" : "Codex 移除命令"
                     }
-                  >
-                    {removeCommand(shownTab)}
-                  </pre>
+                    tokens={removeCommand(shownTab)}
+                  />
                   {copyButton(`${shownTab}-remove`, "复制移除命令", removeCommand(shownTab))}
                 </>
               )}
@@ -320,9 +347,11 @@ export function McpConnectSection({
                     等）直接调用同一组工具，权限开关相同，不用重启助手。把下面这段话告诉助手，或放进项目的
                     AGENTS.md / CLAUDE.md：
                   </p>
-                  <pre className={command} aria-label="命令行用法">
-                    {terminalInstructions(server, flags)}
-                  </pre>
+                  <SyntaxBlock
+                    className={command}
+                    aria-label="命令行用法"
+                    tokens={terminalInstructions(server, flags)}
+                  />
                   {copyButton("terminal", "复制说明", terminalInstructions(server, flags))}
                 </>
               )}
@@ -354,9 +383,11 @@ export function McpConnectSection({
               {shownTab === "json" && (
                 <>
                   <p className={settings.managerNote}>粘贴到任意支持 MCP 的助手的配置中：</p>
-                  <pre className={code} aria-label="MCP 配置">
-                    {configWithFlags(server.config, flags)}
-                  </pre>
+                  <SyntaxBlock
+                    className={code}
+                    aria-label="MCP 配置"
+                    tokens={configWithFlags(server.config, flags)}
+                  />
                   {copyButton("json", "复制配置", configWithFlags(server.config, flags))}
                 </>
               )}

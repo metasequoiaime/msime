@@ -20,11 +20,8 @@ test("keeps utility page fieldsets composed behind one component", () => {
         mobile: false,
         keybindings: {} as never,
         onKeybindingsChange: vi.fn(),
-        onInputModeHUDChange: vi.fn(),
         showModeSwitchShortcuts: false,
         macos: false,
-        showInputModeHUD: false,
-        inputModeHUD: false,
         showFullwidthChord: false,
         fullwidthChord: "",
         windows: false,
@@ -34,10 +31,6 @@ test("keeps utility page fieldsets composed behind one component", () => {
         onNumberRowSelectionChange: vi.fn(),
         showPanelShortcuts: false,
         harmony: false,
-        showDesktopMaintenanceShortcuts: false,
-        linux: false,
-        maintenanceChord: "",
-        showRestartInputMethod: false,
       }}
       utilities={{
         disabled: false,

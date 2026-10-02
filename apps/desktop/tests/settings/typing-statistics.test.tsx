@@ -82,7 +82,7 @@ function deferred<T>() {
 test("desktop settings omit typing statistics without the Android capability", async () => {
   render(<SettingsPage client={baseClient()} />);
   await settingsFormReady();
-  expect(screen.queryByRole("button", { name: "统计" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打字统计" })).toBeNull();
 });
 
 test("desktop statistics split into content tabs over the cumulative and selected-day scopes", async () => {
@@ -92,7 +92,7 @@ test("desktop statistics split into content tabs over the cumulative and selecte
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("23");
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
@@ -112,7 +112,9 @@ test("desktop statistics split into content tabs over the cumulative and selecte
   fireEvent.click(screen.getByRole("button", { name: `${label(0)}，4 字符` }));
   const selectedTotal = screen.getByLabelText("当前范围输入字符数");
   expect(selectedTotal.textContent).toBe("4");
-  expect(selectedTotal.parentElement?.querySelector("span")?.textContent).toBe(label(0));
+  expect(selectedTotal.parentElement?.parentElement?.querySelector("span")?.textContent).toBe(
+    label(0),
+  );
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
   expect(screen.getByLabelText(/汉字 4 字符/)).not.toBeNull();
   expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("4");
@@ -246,7 +248,7 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(await screen.findByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.getByText("近 12 个月，颜色越深输入越多")).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "每日输入热力图" });
@@ -304,7 +306,7 @@ test("desktop statistics refresh when the settings window regains focus", async 
       client={{ ...baseClient(), typingStatistics: { load, setEnabled: vi.fn(), reset: vi.fn() } }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   await screen.findByLabelText("当前范围输入字符数");
   load.mockClear();
   let finish!: (value: TypingStatisticsStatus) => void;
@@ -371,7 +373,7 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
     reset: vi.fn().mockResolvedValue(status(cleared)),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   const toggle = await screen.findByRole("checkbox", { name: "记录打字统计" });
   fireEvent.click(toggle);
   await waitFor(() => expect(typingStatistics.setEnabled).toHaveBeenCalledWith(false));
@@ -399,7 +401,7 @@ test("never-written status explains the empty local-only data channel", async ()
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(await screen.findByText(/键盘从未写入过统计/)).not.toBeNull();
   expect(screen.getByText(/不保存输入内容/)).not.toBeNull();
 });
@@ -415,7 +417,7 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
 
   // 30 of 50 commits came from the first candidate.
@@ -448,7 +450,7 @@ test("statistics written before candidate positions existed render an empty stat
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "候选" }));
   expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();
   expect(screen.queryByLabelText("候选命中位置分布")).toBeNull();
@@ -468,7 +470,7 @@ test("Korean input has its own scheme and language slices", async () => {
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
   expect(screen.getByLabelText(/^韩语 5 字符/)).not.toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "模式" }));
@@ -490,7 +492,7 @@ test("Cantonese and Zhuyin count as Chinese mode and Vietnamese has its own slic
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
   expect(screen.getByLabelText(/^粤拼 3 字符/)).not.toBeNull();
   expect(screen.getByLabelText(/^注音 2 字符/)).not.toBeNull();
@@ -523,7 +525,7 @@ test("desktop statistics draw an ANSI key heatmap for the cumulative or selected
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
   fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
   expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
@@ -557,7 +559,7 @@ test("statistics written before keys were counted show an empty key heatmap", as
     reset: vi.fn(),
   };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
   expect(await screen.findByText("这段时间还没有按键记录")).toBeTruthy();
   expect(screen.queryByRole("group", { name: "按键热力图" })).toBeNull();

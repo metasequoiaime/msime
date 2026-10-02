@@ -1,0 +1,11 @@
+schema_version = 1
+kind = "symbol_set"
+id = "fixture-symbols"
+name = "Fixture"
+version = "1.0.0"
+license = "CC0-1.0"
+author = "MSIME"
+description = "Shared parser fixture"
+permissions = []
+
+groups = []

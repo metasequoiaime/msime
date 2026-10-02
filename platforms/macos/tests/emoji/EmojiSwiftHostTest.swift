@@ -39,6 +39,40 @@ import SQLite3
     assert(symbols.count == 1)
     let otherParent = try MacEmojiCatalog.loadAll(resources: directory.path, search: "", category: "symbols", group: "fixture", parent: "missing")
     assert(otherParent.isEmpty)
-    print("Swift dynamic host lookup, cursor collection, previews and filters passed against native SQLite")
+    // 符号集插件经真实宿主读取：资源目录里没有 others.db 也能列出，没有插件时是空列表。
+    let bare = directory.appendingPathComponent("bare-resources")
+    let plugins = directory.appendingPathComponent("plugins")
+    try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: false)
+    let empty = try MacEmojiCatalog.loadPluginSymbolGroups(resources: bare.path, plugins: plugins.path)
+    assert(empty.isEmpty)
+    let pack = plugins.appendingPathComponent("symbol_set/fixture-symbols")
+    try FileManager.default.createDirectory(at: pack, withIntermediateDirectories: true)
+    try """
+      schema_version = 1
+      kind = "symbol_set"
+      id = "fixture-symbols"
+      name = "Fixture"
+      version = "1.0.0"
+      license = "CC0-1.0"
+
+      [[groups]]
+      tab = "symbols"
+      title = "Arrows"
+      keywords = "synthetic arrow"
+      items = ["→", "←"]
+
+      [[groups]]
+      tab = "kaomoji"
+      title = "Happy"
+      items = ["(＾▽＾)"]
+      """.write(to: pack.appendingPathComponent("plugin.toml"), atomically: true, encoding: .utf8)
+    let installed = try MacEmojiCatalog.loadPluginSymbolGroups(resources: bare.path, plugins: plugins.path)
+    assert(installed == [
+      MacEmojiPluginSymbolGroup(pack: "fixture-symbols", packName: "Fixture", tab: .symbols, title: "Arrows", keywords: "synthetic arrow", items: ["→", "←"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-symbols", packName: "Fixture", tab: .kaomoji, title: "Happy", keywords: "", items: ["(＾▽＾)"])])
+    let relative = try MacEmojiCatalog.request(resources: bare.path,
+      parameters: ["list_plugin_symbol_groups": true, "plugins": "relative/plugins"], requiresCatalog: false)
+    assert(relative["error"] != nil)
+    print("Swift dynamic host lookup, cursor collection, previews, filters and plugin symbol groups passed against native SQLite")
   }
 }

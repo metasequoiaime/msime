@@ -8,7 +8,6 @@ import { useSettingsContentScrollReset } from "./settings/use-settings-content-s
 import { MobileSettingsTabs } from "./settings/mobile-settings-tabs";
 import { SettingsPageHeader } from "./settings/settings-page-header";
 import {
-  mobilePrimaryPageIds,
   mobileTabForPage,
   requestedPage,
   type MobilePrimaryPageId,
@@ -20,7 +19,11 @@ import {
   type SettingsPageId,
 } from "./settings/settings-page-registry";
 import { settingsPageProjections } from "./settings/settings-page-projections";
-import { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
+import {
+  canReloadSettingsPage,
+  canRestoreDefaultsOnPage,
+  isSettingsFormPage,
+} from "./settings/settings-page-visibility";
 import { settingsInputPreferences } from "./settings/settings-input-preferences";
 import { aiSettingsPreferences } from "./settings/ai-settings-preferences";
 import { diagnosticLogPreferences } from "./settings/diagnostic-log-preferences";
@@ -59,6 +62,7 @@ export {
   selectHomeTouchKeyboardScheme,
   updateTouchKeyboardSchemeEnabled,
   allTouchKeyboardSchemes,
+  defaultTouchKeyboardSchemes,
 } from "./settings/touch-keyboard-scheme-helpers";
 import { settingsPlatformPresentation } from "./settings/settings-platform-presentation";
 import { settingsPageEnvironment } from "./settings/settings-page-environment";
@@ -196,8 +200,12 @@ export {
   settingsSidebarGroups,
   type SettingsSidebarGroupsOptions,
 } from "./settings/sidebar-groups";
-export { canReloadSettingsPage, isSettingsFormPage } from "./settings/settings-page-visibility";
-export type { SettingsPageId } from "./settings/mobile-navigation";
+export {
+  canReloadSettingsPage,
+  canRestoreDefaultsOnPage,
+  isSettingsFormPage,
+} from "./settings/settings-page-visibility";
+export type { ExportedSettingsPageId as SettingsPageId } from "./settings/settings-page-registry";
 export {
   useSettingsDictionaryState,
   type UseSettingsDictionaryStateOptions,
@@ -417,7 +425,6 @@ import { createSettingsReloadAction } from "./settings/settings-reload-action";
 import { deepEqual } from "./core/deep-equal";
 import { createSettingsPageSelection } from "./settings/settings-page-selection";
 import { createSettingsDraftActions } from "./settings/settings-draft-actions";
-import { createHelpcodeSettingsActions } from "./settings/helpcode-settings-actions";
 import { createSettingsStatusActions } from "./settings/settings-status-actions";
 import { createSettingsExternalActions } from "./settings/settings-external-actions";
 import { createSettingsNavigationActions } from "./settings/settings-navigation-actions";
@@ -426,7 +433,6 @@ import { AiSettingsPage } from "./settings/pages/ai-page";
 import { InputSettingsPage } from "./settings/pages/input-page";
 import { ExpressionSettingsPage } from "./settings/pages/expression-page";
 import { DeveloperSettingsPage } from "./settings/pages/developer-page";
-import { DownloadSettingsPage } from "./settings/pages/download-page";
 import { DictionarySettingsPage } from "./settings/pages/dictionary-page";
 import { AppearanceSettingsPage } from "./settings/pages/appearance-page";
 import { SkinSettingsPage } from "./settings/pages/skin-page";
@@ -438,8 +444,11 @@ import { PluginsSettingsPage } from "./settings/pages/plugins-page";
 import type { PluginClient } from "./settings/plugins-section";
 import type { PluginPreferences } from "./settings/plugin-preferences";
 import { AboutSettingsPage } from "./settings/pages/about-page";
-import { HelpcodeSettingsPage } from "./settings/pages/helpcode-page";
-import type { CustomHelpcodeSchema, HelpcodePreferences } from "./settings/pages/helpcode-page";
+import type {
+  CustomHelpcodeSchema,
+  HelpcodePackOption,
+  HelpcodePreferences,
+} from "./settings/pages/helpcode-page";
 import type { ClipboardHistoryClient } from "./settings/clipboard-history-section";
 import type { CloudClipboardRequest } from "./settings/cloud-clipboard-send";
 import { type FuzzyPinyinPreferences } from "./settings/fuzzy-pinyin-section";
@@ -454,7 +463,7 @@ import { HelpSettingsPage } from "./settings/help-settings-page";
 import type { MobileKeyboardFeedbackClient } from "./settings/mobile-keyboard-feedback-section";
 import { HandwritingSettingsPage } from "./settings/pages/handwriting-page";
 import { FeedbackSettingsPage } from "./settings/pages/feedback-page";
-import { allTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
+import { defaultTouchKeyboardSchemes } from "./settings/touch-keyboard-scheme-helpers";
 import { logo } from "./settings/settings-options";
 import type { CommunitySkinClient } from "./community/community-skins";
 import { communityDestinationView } from "./community/community-destination";
@@ -536,6 +545,10 @@ export {
   type AccountConfirmationAction,
   type AccountConfirmationProps,
 } from "./account/account-confirmation";
+export {
+  AccountIdentityDetails,
+  type AccountIdentityDetailsProps,
+} from "./account/account-identity-details";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
 export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {
@@ -550,7 +563,12 @@ export {
   type ChatModel,
   type ChatModels,
 } from "./chat/chat-page";
-export { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
+export {
+  HomePage,
+  MoreSettingsPage,
+  type HomePageActions,
+  type MoreSettingsGroup,
+} from "./keyboard/home-page";
 export {
   WelcomeFlowPage,
   type OnboardingActions,
@@ -576,7 +594,10 @@ export {
 export { SettingsStartupPage } from "./settings/settings-startup-page";
 export {
   HelpcodeSettingsPage,
+  HelpcodeSettingsGroup,
+  type HelpcodeSettingsGroupProps,
   type CustomHelpcodeSchema,
+  type HelpcodePackOption,
   type HelpcodePreferences,
   type HelpcodeSchema,
   type HelpcodeSettings,
@@ -689,7 +710,12 @@ export {
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
-export { VoiceLanguageOptions, type VoiceLanguageOptionsProps } from "./voice/voice-language-options";
+export { FeedbackKindOptions } from "./settings/feedback-kind-options";
+export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
+export {
+  VoiceLanguageOptions,
+  type VoiceLanguageOptionsProps,
+} from "./voice/voice-language-options";
 export {
   CloudPinyinSchemeOptions,
   CloudShuangpinProfileOptions,
@@ -726,7 +752,11 @@ export {
   type CandidateSizingPreferences,
 } from "./settings/candidate-sizing-section";
 export {
+  CandidateFontPresetRow,
+  CandidateScaleRow,
   CandidateWindowStyleSection,
+  type CandidateFontPresetRowProps,
+  type CandidateScaleRowProps,
   type CandidateWindowStyleSectionPreferences,
   type CandidateWindowStyleSectionProps,
 } from "./settings/candidate-window-style-section";
@@ -736,6 +766,10 @@ export {
   CandidateFollowCursorSection,
   type CandidateFollowCursorSectionProps,
 } from "./settings/candidate-follow-cursor-section";
+export {
+  CandidatePageNumberSection,
+  type CandidatePageNumberSectionProps,
+} from "./settings/candidate-page-number-section";
 export {
   CandidatePanelLimitSection,
   type CandidatePanelLimit,
@@ -789,6 +823,7 @@ export {
   type CloudCandidatesSectionProps,
 } from "./settings/cloud-candidates-section";
 export {
+  TelemetryRow,
   TelemetrySection,
   usageReportingDescription,
   type TelemetrySectionProps,
@@ -835,10 +870,6 @@ export {
   type CandidateShortcutsSectionProps,
 } from "./settings/candidate-shortcuts-section";
 export {
-  MaintenanceShortcutsSection,
-  type MaintenanceShortcutsSectionProps,
-} from "./settings/maintenance-shortcuts-section";
-export {
   InputMethodServiceSection,
   type InputMethodServiceSectionProps,
 } from "./settings/input-method-service-section";
@@ -847,10 +878,8 @@ export {
   type DataDirectoryInfo,
   type DataDirectorySectionProps,
 } from "./settings/data-directory-section";
-export {
-  LicenseUninstallSection,
-  type LicenseUninstallSectionProps,
-} from "./settings/license-uninstall-section";
+export { LicenseRows, type LicenseRowsProps } from "./settings/license-rows";
+export { UninstallSection, type UninstallSectionProps } from "./settings/uninstall-section";
 export {
   DiagnosticLogsSection,
   type DiagnosticLogPreferences,
@@ -1000,6 +1029,10 @@ export {
   type VoiceCredentialStatus,
 } from "./settings/voice-credential-section";
 export {
+  VoiceProviderSelect,
+  type VoiceProviderSelectProps,
+} from "./settings/voice-provider-select";
+export {
   CredentialTestSection,
   type CredentialTestSectionProps,
   type CredentialTestState,
@@ -1024,6 +1057,10 @@ export {
   type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export { SettingTextarea, type SettingTextareaProps } from "./settings/setting-textarea";
+export {
+  SettingsTextareaField,
+  type SettingsTextareaFieldProps,
+} from "./settings/settings-textarea-field";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {
   AiCredentialSection,
@@ -1045,6 +1082,21 @@ export {
   type TencentTranslationSectionProps,
 } from "./settings/tencent-translation-section";
 export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-setting-row";
+export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
+export { SelectRow, type SelectRowProps } from "./settings/select-row";
+export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
+export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
+export {
+  PasswordSettingField,
+  type PasswordSettingFieldProps,
+} from "./settings/password-setting-field";
+export { TextSettingField, type TextSettingFieldProps } from "./settings/text-setting-field";
+export { SelectSettingField, type SelectSettingFieldProps } from "./settings/select-setting-field";
+export { ModelSettingField, type ModelSettingFieldProps } from "./settings/model-setting-field";
+export {
+  EndpointSettingField,
+  type EndpointSettingFieldProps,
+} from "./settings/endpoint-setting-field";
 export {
   LinuxTencentCredentialsSection,
   type LinuxTencentCredentialsSectionProps,
@@ -1116,6 +1168,8 @@ export {
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";
 export {
+  CommunityDialogActions,
+  type CommunityDialogActionsProps,
   CommunityDialogHeader,
   type CommunityDialogHeaderProps,
 } from "./community/community-dialog";
@@ -1162,13 +1216,42 @@ export {
   type CommunityScopeButtonsProps,
 } from "./community/community-scope-buttons";
 export {
+  communityPublishFields,
+  handleCommunityPublishKeyDown,
+  type CommunityPublishFields,
+} from "./community/community-publish-validation";
+export {
   CommunityResourceScopeButtons,
   type CommunityResourceScopeButtonsProps,
 } from "./community/community-resource-scope-buttons";
 export {
+  CommunityGalleryLoadMore,
+  type CommunityGalleryLoadMoreProps,
+} from "./community/community-gallery-load-more";
+export {
+  CommunityCardAuthor,
+  type CommunityCardAuthorProps,
+} from "./community/community-card-author";
+export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
 } from "./community/community-skin-publication-fields";
+export {
+  CommunityRightsAgreement,
+  type CommunityRightsAgreementProps,
+} from "./community/community-rights-agreement";
+export {
+  CommunityTextareaField,
+  type CommunityTextareaFieldProps,
+} from "./community/community-textarea-field";
+export {
+  CommunityInputField,
+  type CommunityInputFieldProps,
+} from "./community/community-input-field";
+export {
+  CommunitySelectField,
+  type CommunitySelectFieldProps,
+} from "./community/community-select-field";
 export { CandidateSkinPublishDialog } from "./community/candidate-skin-publish-dialog";
 export {
   CommunityPluginPublishDialog,
@@ -1274,6 +1357,10 @@ export {
 } from "./keyboard/cloud-dictionary-entry-form";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
+  CloudDictionaryPagination,
+  type CloudDictionaryPaginationProps,
+} from "./keyboard/cloud-dictionary-pagination";
+export {
   CloudDictionaryKindTabs,
   type CloudDictionaryKindTabsProps,
 } from "./keyboard/cloud-dictionary-kind-tabs";
@@ -1281,6 +1368,14 @@ export {
   CloudDictionaryKindSelect,
   type CloudDictionaryKindSelectProps,
 } from "./keyboard/cloud-dictionary-kind-select";
+export {
+  CloudDictionarySelectField,
+  type CloudDictionarySelectFieldProps,
+} from "./keyboard/cloud-dictionary-select-field";
+export {
+  CloudDictionaryQueryToolbar,
+  type CloudDictionaryQueryToolbarProps,
+} from "./keyboard/cloud-dictionary-query-toolbar";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
 export {
   customTranslationsExample,
@@ -1406,6 +1501,10 @@ export interface HostCapabilities {
   music?: boolean;
   /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. Absent on a host older than the field. */
   typing_effects?: boolean;
+  /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。旧宿主没有这个字段。 */
+  wordbook_packs?: boolean;
+  /** 符号面板显示已安装的符号集插件。旧宿主没有这个字段。 */
+  symbol_set_packs?: boolean;
   /** The input schemes this host offers; the others are shown disabled. Absent on a host older than the field, which offers 全拼, 双拼, 五笔, 日文 and 韩文. */
   input_schemes?: InputScheme[];
 }
@@ -1815,7 +1914,7 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
-  /** macOS can atomically restore packaged dictionaries and clear all learning state. */
+  /** 原子地恢复内置词库并清除全部学习数据；宿主只在真正能清除的平台（三个桌面宿主）上提供它。 */
   resetLearnedData?: () => Promise<void>;
   /**
    * What a restore-to-defaults would write, without writing it. The host decides what survives --
@@ -1966,6 +2065,61 @@ type SettingsPageProps = {
   onReplayOnboarding?: () => void;
 };
 
+/** 宿主资源目录里找到的自定义辅助码表；宿主不支持扫描或读取失败时为空。 */
+function useCustomHelpcodeSchemas(
+  reader: SettingsClient["listHelpcodeSchemas"],
+): CustomHelpcodeSchema[] {
+  const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  useEffect(() => {
+    let active = true;
+    if (!reader) {
+      setSchemas([]);
+      return () => {
+        active = false;
+      };
+    }
+    void reader()
+      .then((next) => {
+        if (active) setSchemas(next);
+      })
+      .catch(() => {
+        if (active) setSchemas([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [reader]);
+  return schemas;
+}
+
+/** 已安装的辅助码表插件，每次进入「输入」页时重读，在别处导入或删除的包下次进来就能看到。 */
+function useHelpcodePacks(
+  catalog: PluginClient["catalog"] | undefined,
+  inputPageOpen: boolean,
+): HelpcodePackOption[] {
+  const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
+  useEffect(() => {
+    if (!catalog || !inputPageOpen) return;
+    let active = true;
+    void catalog()
+      .then((next) => {
+        if (!active) return;
+        setPacks(
+          next.packages
+            .filter((pack) => pack.kind === "helpcode")
+            .map((pack) => ({ id: pack.id, name: pack.name })),
+        );
+      })
+      .catch(() => {
+        if (active) setPacks([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [catalog, inputPageOpen]);
+  return packs;
+}
+
 // The state, effects and handlers behind the settings window. The shell below and every page component read the same values - the pages through `SettingsFormContext` - so splitting the page into files changed where the markup lives, not what it closes over.
 function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps) {
   const { confirm, confirmation } = useConfirm();
@@ -2024,10 +2178,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    showWordbookPacks,
+    showSymbolSetPacks,
   } = capabilities;
   const {
     fullwidthChord,
-    maintenanceChord,
     releasesPageUrl: platformReleasesPageUrl,
     licenseUrl: platformLicenseUrl,
     issuesUrl: platformIssuesUrl,
@@ -2096,7 +2251,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       initialPage ?? restoredMobilePage ?? (client.home ? "home" : undefined),
       pages,
       settingsPageAliases,
-      "appearance",
+      "input",
     ),
   );
   const [accountLoginReturnPage, setAccountLoginReturnPage] = useState<SettingsPageId | null>(null);
@@ -2118,6 +2273,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     readAppVersion: client.readAppVersion,
     fallbackVersion: fallbackAppVersion,
   });
+  const customHelpcodeSchemas = useCustomHelpcodeSchemas(client.listHelpcodeSchemas);
+  const helpcodePacks = useHelpcodePacks(client.plugins?.catalog, page === "input");
   const {
     value: mobileKeyboardFeedback,
     busy: mobileKeyboardFeedbackBusy,
@@ -2342,7 +2499,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     inputModeHUD,
   } = settingsInputPreferences(draft);
   const touchKeyboardSchemes = draft?.touch_keyboard_schemes ?? {
-    enabled: allTouchKeyboardSchemes,
+    enabled: defaultTouchKeyboardSchemes,
   };
   const {
     selected: selectedTouchKeyboardScheme,
@@ -2436,9 +2593,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, so the group also follows the host's `helpcode_shift_entry`; the platform names stay for hosts that predate the capability. HarmonyOS ships the same input: its ChineseHelpcodePolicy is the Android one, ported, and the session calls it on every shifted key.
   const showHelpcode =
     !mobilePlatform || showHelpcodeShiftEntry || androidPlatform || harmonyPlatform;
-  // The local MCP server, the diagnostic logs and the data directory are what 开发者选项 holds; a host with none of them has no such page.
+  // 维护与诊断页收纳输入法服务（重启、重新注册）、诊断日志、数据目录、本地 MCP 服务和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||
+    Boolean(showRestartInputMethod) ||
     !client.host ||
     linuxPlatform ||
     windowsPlatform ||
@@ -2496,7 +2654,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
       accountLoginReturnPage,
     });
   const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
-  // The design's row that opens a page from inside another, e.g. AI 辅助 on 表达.
+  // 设计稿里从一个页面内部打开另一个页面的行，例如「标点与翻译」上的「AI 辅助」。
   const pageEntry = (id: SettingsPageId) => availablePages.find((item) => item.id === id);
   const { openCommunity, openLocalDesigns } = useSettingsDestinationActions({
     selectPage,
@@ -2537,6 +2695,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showEnglishSuggestions,
     showHelpcodeShiftEntry,
     showHelpcode,
+    customHelpcodeSchemas,
+    helpcodePacks,
     showShuangpinPreedit,
     showCharacterWidth,
     showVoiceCommitMode,
@@ -2551,10 +2711,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showCandidateCornerRadius,
     showInputModeHUD,
     showVoiceCaptureDevices,
-    showDesktopMaintenanceShortcuts,
     showFullwidthChord,
     fullwidthChord,
-    maintenanceChord,
     clientHostedPlatform,
     platformLicenseUrl,
     platformReleasesPageUrl,
@@ -2573,6 +2731,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     showTypingEffects,
     showTypingEffectStyles,
     showTypingEffectPacks,
+    showWordbookPacks,
+    showSymbolSetPacks,
     snapshot,
     draft,
     setDraft,
@@ -2789,29 +2949,8 @@ export type SettingsPageModel = ReturnType<typeof useSettingsPageModel>;
 export function SettingsPage(props: SettingsPageProps) {
   const { onReplayOnboarding } = props;
   const model = useSettingsPageModel(props);
-  const [customHelpcodeSchemas, setCustomHelpcodeSchemas] = useState<CustomHelpcodeSchema[]>([]);
   // The 插件 page shows either the installed packs (a page of the settings form) or the community gallery, which has its own search form and so is drawn outside the settings one.
   const [pluginView, setPluginView] = useState<"mine" | "community">("mine");
-  useEffect(() => {
-    let active = true;
-    const reader = props.client.listHelpcodeSchemas;
-    if (!reader) {
-      setCustomHelpcodeSchemas([]);
-      return () => {
-        active = false;
-      };
-    }
-    void reader()
-      .then((schemas) => {
-        if (active) setCustomHelpcodeSchemas(schemas);
-      })
-      .catch(() => {
-        if (active) setCustomHelpcodeSchemas([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [props.client.listHelpcodeSchemas]);
   // Filters the sidebar by page name; the model does not need it, since it never leaves the shell.
   const [navQuery, setNavQuery] = useState("");
   // The phone page that has scrolled its large title away, which brings in the compact bar. Keyed by page so that arriving on another page, which opens at its top, never inherits the bar.
@@ -2869,9 +3008,6 @@ export function SettingsPage(props: SettingsPageProps) {
     initialCommunityScope,
     initialCommunityMine,
   } = model;
-  const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({
-    setDraft: model.setDraft,
-  });
   const reloadSettings = createSettingsReloadAction({ dirty, reload, confirm });
   const { onOpenPage } = createSettingsPageSelection({ selectPage });
   const statusActions = createSettingsStatusActions({
@@ -2911,8 +3047,8 @@ export function SettingsPage(props: SettingsPageProps) {
   // macOS keeps its native traffic lights over the page (an overlay title bar), and a phone's frame belongs to the OS, so only the platforms that draw their own caption get one. The host still exposes the window commands on mobile because the same Tauri app binary backs both, so the presence of a command is not the question -- the platform is.
   const titlebarShown =
     !mobilePlatform && !macShell && Boolean(client.windowControl || client.beginWindowDrag);
-  const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "候选窗口";
-  // A sub-page (AI 辅助 under 表达, 背单词 under 词库, 帮助 under 反馈) names its parent on the way back.
+  const pageTitle = availablePages.find((item) => item.id === page)?.title ?? "输入";
+  // 子页面（「标点与翻译」下的「AI 辅助」、「词库」下的「背单词」、「帮助与反馈」下的「帮助」）在返回时写出父页面的名字。
   const parentPage =
     navigationPage !== page ? availablePages.find((item) => item.id === navigationPage) : undefined;
   // A phone collapses the large title into a compact bar on the 设置 tab's pages, the way the design does; the other tabs and the untitled pages have no large title to collapse.
@@ -2923,22 +3059,15 @@ export function SettingsPage(props: SettingsPageProps) {
   const searchInSidebar =
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
   const navNeedle = navQuery.trim().toLocaleLowerCase();
-  // The iPad's tab bar carries 社区, 统计 and 我的, so its settings sidebar does not list them a second time.
-  const splitSidebarGroups = ipadShell
-    ? sidebarGroups
-        .map((group) =>
-          group.filter(
-            (item) =>
-              item.id === "home" || !mobilePrimaryPageIds.includes(item.id as MobilePrimaryPageId),
-          ),
-        )
-        .filter((group) => group.length > 0)
-    : sidebarGroups;
+  // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
-    ? splitSidebarGroups
-        .map((group) => group.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)))
-        .filter((group) => group.length > 0)
-    : splitSidebarGroups;
+    ? sidebarGroups
+        .map((group) => ({
+          ...group,
+          pages: group.pages.filter((item) => item.title.toLocaleLowerCase().includes(navNeedle)),
+        }))
+        .filter((group) => group.pages.length > 0)
+    : sidebarGroups;
   const navSearchField = (
     <>
       <svg
@@ -2963,7 +3092,7 @@ export function SettingsPage(props: SettingsPageProps) {
         onKeyDown={(event) => {
           if (event.key === "Escape") setNavQuery("");
           if (event.key !== "Enter") return;
-          const first = shownSidebarGroups[0]?.[0];
+          const first = shownSidebarGroups[0]?.pages[0];
           if (first) selectPage(first.id);
         }}
       />
@@ -3019,11 +3148,18 @@ export function SettingsPage(props: SettingsPageProps) {
           {searchInSidebar && <label className={settings.sidebarSearch}>{navSearchField}</label>}
           {shownSidebarGroups.map((group, index) => (
             <div
-              key={group[0].id}
+              key={group.pages[0].id}
               className={settings.sidebarSection(index === 0)}
               data-sidebar-section=""
+              role={group.title ? "group" : undefined}
+              aria-label={group.title}
             >
-              {group.map((item) => (
+              {group.title && (
+                <div className={settings.sidebarGroupTitle} aria-hidden="true">
+                  {group.title}
+                </div>
+              )}
+              {group.pages.map((item) => (
                 <NavItem
                   key={item.id}
                   label={item.title}
@@ -3116,9 +3252,14 @@ export function SettingsPage(props: SettingsPageProps) {
             )}
             {page === "more" && (
               <MoreSettingsPage
-                groups={mobileSecondaryGroups.map((group) =>
-                  group.map((item) => ({ id: item.id, title: item.title, icon: item.icon })),
-                )}
+                groups={mobileSecondaryGroups.map((group) => ({
+                  title: group.title,
+                  pages: group.pages.map((item) => ({
+                    id: item.id,
+                    title: item.title,
+                    icon: item.icon,
+                  })),
+                }))}
                 onOpenPage={onOpenPage}
               />
             )}
@@ -3255,15 +3396,6 @@ export function SettingsPage(props: SettingsPageProps) {
                   <AppearanceSettingsPage />
                   <FloatingToolbarSettingsPage />
                   <InputSettingsPage />
-                  <HelpcodeSettingsPage
-                    value={draft}
-                    customSchemas={customHelpcodeSchemas}
-                    mobile={mobilePlatform}
-                    showShiftEntry={model.showHelpcodeShiftEntry}
-                    disabled={busy}
-                    hidden={page !== "input" || !model.showHelpcode}
-                    onChange={onHelpcodeChange}
-                  />
                   <ExpressionSettingsPage />
                   <AiSettingsPage />
                   <ShortcutSettingsPage />
@@ -3275,7 +3407,6 @@ export function SettingsPage(props: SettingsPageProps) {
                   <PluginsSettingsPage
                     hidden={Boolean(client.communityPlugins) && pluginView === "community"}
                   />
-                  <DownloadSettingsPage />
                   <DeveloperSettingsPage />
                   <FeedbackSettingsPage />
                   <HelpSettingsPage
@@ -3298,7 +3429,9 @@ export function SettingsPage(props: SettingsPageProps) {
                   busy={busy}
                   saveState={saveState}
                   saveError={saveError}
-                  showRestoreDefaults={Boolean(client.loadDefaultPreferences)}
+                  showRestoreDefaults={
+                    Boolean(client.loadDefaultPreferences) && canRestoreDefaultsOnPage(page)
+                  }
                   onRestoreDefaults={onRestoreDefaults}
                   onRetry={() => void retrySave()}
                   // Settings save themselves, so reading them again is only a way out of a failure: a save or load that failed, or an error the page is showing.

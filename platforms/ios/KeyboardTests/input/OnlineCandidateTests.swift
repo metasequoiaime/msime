@@ -179,6 +179,19 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNotEqual(OnlineCandidateProvider.signature(splitCache), OnlineCandidateProvider.signature(splitIdentity))
   }
 
+  func testCloudSuccessStillAllowsRetryWhenAIHasNoAnswer() {
+    XCTAssertTrue(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: false),
+      "云候选成功但 AI 没有结果时必须释放签名，以便同一组字重试 AI")
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: true, aiApplied: true))
+    XCTAssertFalse(
+      OnlineCandidateProvider.shouldRetryAfterFetch(
+        cloudRequested: true, cloudApplied: true, aiRequested: false, aiApplied: false))
+  }
+
   private func type(_ bridge: MetasequoiaInputSessionBridge, _ letters: String) {
     _ = bridge.cancel()
     for letter in letters { _ = bridge.handleCharacter(String(letter)) }

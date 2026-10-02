@@ -12,7 +12,7 @@ void require(bool value, int line) {
                              std::to_string(line));
 }
 #define REQUIRE(value) require((value), __LINE__)
-// Any scheme that is not Japanese or Korean; the policy only distinguishes those two.
+// Any scheme whose candidates the user dictionary may edit; the policy only distinguishes the ones whose candidates it may not.
 constexpr unsigned quanpin = 0;
 } // namespace
 
@@ -46,7 +46,13 @@ int main() {
     for (unsigned source = 0; source < 32; ++source)
       REQUIRE(!candidate_actions_available(candidate_scheme_korean, source));
 
-    // Other schemes are not Japanese or Korean by accident of numbering.
+    // Cantonese and Zhuyin read their own language dictionaries, which the Engine never writes.
+    for (unsigned source = 0; source < 32; ++source) {
+      REQUIRE(!candidate_actions_available(candidate_scheme_cantonese, source));
+      REQUIRE(!candidate_actions_available(candidate_scheme_zhuyin, source));
+    }
+
+    // Other schemes are not refused by accident of numbering.
     REQUIRE(candidate_actions_available(1, candidate_source_database));
     REQUIRE(candidate_actions_available(2, candidate_source_database));
 

@@ -14,6 +14,19 @@ final class CustomTranslationsTests: XCTestCase {
     super.tearDown()
   }
 
+  func testWriteRejectsASymlinkedUserDirectoryBeforeWritingExternalFile() throws {
+    #if canImport(Darwin)
+    let linked = state.appendingPathComponent("linked", isDirectory: true)
+    let outside = state.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: outside)
+    let url = linked.appendingPathComponent(CustomTranslations.fileName)
+
+    XCTAssertThrowsError(try CustomTranslations.write("你好\thello\n", to: url))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outside.appendingPathComponent(CustomTranslations.fileName).path))
+    #endif
+  }
+
   func testParsingFollowsTheEngineRules() {
     let text = "\u{FEFF}# comment\r\n你好\thello\n\n刚才\ta moment ago\r\nserendipity\t意外发现\n\tno source\nno gloss\t\nnotab\n你好\thi again\n  spaced \t  gloss  \n"
     XCTAssertEqual(CustomTranslations.parse(text),

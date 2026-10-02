@@ -21,8 +21,10 @@ struct EngineView {
   std::vector<EngineCandidate> candidates;
   uint64_t generation = 0;
   std::size_t caret = 0;
-  // 0 quanpin, 1 shuangpin, 2 wubi, 3 japanese, 4 korean.
+  // The Engine's SchemeType ordinal; the numbers are named in common/InputSchemeTraits.h.
   uint32_t scheme = 0;
+  // The non-letter keys that spell the composition rather than end it (Zhuyin's digit and punctuation keys, VNI's tone digits); empty when every such key is punctuation.
+  std::string spelling_symbols;
 };
 struct EngineResult {
   bool handled = false;

@@ -1,6 +1,5 @@
-import { SecretInput } from "../core/secret-input";
-import { SettingField } from "./setting-field";
-import { EndpointInput } from "./endpoint-input";
+import { EndpointSettingField } from "./endpoint-setting-field";
+import { SecretSettingField } from "./secret-setting-field";
 
 export interface PolishCredentialFieldsSectionProps {
   endpoint: string;
@@ -18,16 +17,19 @@ export function PolishCredentialFieldsSection({
 }: PolishCredentialFieldsSectionProps) {
   return (
     <>
-      <SettingField label="润色接口地址" description="留空使用当前 provider 默认地址">
-        <EndpointInput
-          label="润色接口地址"
-          value={endpoint}
-          onChange={onEndpointChange}
-        />
-      </SettingField>
-      <SettingField label="润色 API Token" description="仅保存在本机设置中">
-        <SecretInput label="润色 API Token" value={token} onChange={onTokenChange} />
-      </SettingField>
+      <EndpointSettingField
+        label="润色接口地址"
+        inputLabel="润色接口地址"
+        description="留空使用当前服务的默认地址"
+        value={endpoint}
+        onChange={onEndpointChange}
+      />
+      <SecretSettingField
+        label="润色 API Token"
+        description="仅保存在本机设置中"
+        value={token}
+        onChange={onTokenChange}
+      />
     </>
   );
 }

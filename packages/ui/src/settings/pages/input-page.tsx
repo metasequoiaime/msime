@@ -1,50 +1,67 @@
-import { defaultNavigation } from "../navigation-section";
+import { NavigationSection, defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
-import { GroupList, Row, Switch } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { InputSchemeSettingsContent } from "../input-scheme-settings-content";
 import { supportedInputSchemes } from "../input-scheme-options";
 import { InputSharedSettingsSection } from "../input-shared-settings-section";
 import { LocalModesSection } from "../local-modes-section";
 import { CharacterWidthRow } from "../punctuation-section";
+import { FuzzyPinyinSection } from "../fuzzy-pinyin-section";
+import { SentenceAssociationSection } from "../sentence-association-section";
+import { MobileEnglishSuggestionsRow } from "../mobile-keyboard-feedback-section";
+import { HelpcodeSettingsGroup } from "./helpcode-page";
 import { createUtilitiesSettingsActions } from "../utilities-settings-actions";
 import { createSettingsDraftActions } from "../settings-draft-actions";
+import { createHelpcodeSettingsActions } from "../helpcode-settings-actions";
 
 /** The 输入 page of the settings form. */
 export function InputSettingsPage() {
   const {
     client,
+    confirm,
     host,
     iosPlatform,
+    linuxPlatform,
     mobilePlatform,
     macosPlatform,
     showModeScope,
     showCharacterWidth,
     showInputModeHUD,
     showPluginTriggers,
+    showHelpcode,
+    showHelpcodeShiftEntry,
+    customHelpcodeSchemas,
+    helpcodePacks,
     translationProvider,
     draft,
     setDraft,
     busy,
     page,
+    selectPage,
     macosShuangpinKeymap,
     setShuangpinKeymap,
     macosWubiAutoCommitUnique,
     setWubiAutoCommitUnique,
     wordCharacter,
     frequency,
+    fuzzyPinyin,
     touchKeyboardSchemes,
     selectedTouchKeyboardScheme,
     selectTouchKeyboardScheme,
     setTouchKeyboardSchemeEnabled,
     localModes,
+    mobileKeyboardFeedback,
+    mobileKeyboardFeedbackBusy,
+    saveMobileKeyboardFeedback,
   } = useSettingsForm();
   const { onLocalModesChange } = createUtilitiesSettingsActions({ setDraft });
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const { onChange: onHelpcodeChange } = createHelpcodeSettingsActions({ setDraft });
   const navigation = draft.navigation ?? defaultNavigation;
   return (
     <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
-      {/* The groups keep the reference window's order of these settings; each row is present whenever the reference shows it and hidden, not removed, while the chosen scheme makes it moot, as the reference does. */}
+      {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
       <div className={settings.groups}>
         <InputSchemeSettingsContent
           grouped
@@ -75,64 +92,87 @@ export function InputSettingsPage() {
           navigation={navigation}
           frequency={frequency}
           ios={iosPlatform}
-          showInputModeHUD={showInputModeHUD && !macosPlatform}
+          // 中英文切换提示在所有平台都放在这里；macOS 以前把它放在快捷键页。
+          showInputModeHUD={showInputModeHUD}
           showModeScope={showModeScope}
+          modeExtra={
+            <LinkRow
+              title="中英混输"
+              description="中文输入时在候选项中补充英文单词，在「标点与翻译」页设置"
+              onClick={() => selectPage("expression")}
+            />
+          }
+          paging={
+            <NavigationSection
+              navigation={navigation}
+              wordCharacter={wordCharacter}
+              linux={linuxPlatform}
+              onChange={(next) =>
+                onPreferencesChange({
+                  // 只有占用了「以词定字」按键的翻页键才会改动它；否则未设置的值保持未设置。
+                  ...(next.wordCharacter !== wordCharacter
+                    ? { word_character: next.wordCharacter }
+                    : {}),
+                  navigation: next.navigation,
+                })
+              }
+            />
+          }
+          beforeLearning={
+            <SentenceAssociationSection
+              value={draft.sentence_association}
+              mobile={mobilePlatform}
+              onChange={(sentence_association) => onPreferencesChange({ sentence_association })}
+            />
+          }
+          afterLearning={
+            // iOS 的英文建议存在原生 App Group 里，读写走 mobileKeyboardFeedback，与屏幕键盘页的按键反馈同一个来源。
+            iosPlatform &&
+            client.mobileKeyboardFeedback &&
+            mobileKeyboardFeedback && (
+              <MobileEnglishSuggestionsRow
+                value={mobileKeyboardFeedback}
+                busy={mobileKeyboardFeedbackBusy}
+                onChange={(value) => void saveMobileKeyboardFeedback(value)}
+              />
+            )
+          }
           outputExtra={
             showCharacterWidth ? (
               <CharacterWidthRow preferences={draft} onChange={onPreferencesChange} />
             ) : null
           }
           beforeFrequency={
-            <GroupList title="整句联想">
-              <Row
-                title="本地整句联想"
-                description="把词库组合出的整句加入候选；关闭后仍保留单词候选。"
-              >
-                <Switch
-                  checked={draft.sentence_association?.word_lattice ?? true}
-                  onChange={(checked) =>
-                    onPreferencesChange({
-                      sentence_association: {
-                        ...draft.sentence_association,
-                        word_lattice: checked,
-                      },
-                    })
-                  }
+            <>
+              <LocalModesSection
+                preferences={localModes}
+                ios={iosPlatform}
+                triggers={showPluginTriggers}
+                mentions={showPluginTriggers && Boolean(client.plugins)}
+                translationService={translationProvider !== "none"}
+                onChange={onLocalModesChange}
+              />
+              {client.fuzzyPinyin && (
+                <GroupList title="模糊音">
+                  <FuzzyPinyinSection
+                    collapsible
+                    preferences={fuzzyPinyin}
+                    onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
+                    confirm={confirm}
+                  />
+                </GroupList>
+              )}
+              {showHelpcode && (
+                <HelpcodeSettingsGroup
+                  value={draft}
+                  customSchemas={customHelpcodeSchemas}
+                  packs={helpcodePacks}
+                  mobile={mobilePlatform}
+                  showShiftEntry={showHelpcodeShiftEntry}
+                  onChange={onHelpcodeChange}
                 />
-              </Row>
-              <Row
-                title={mobilePlatform ? "键盘神经联想" : "桌面神经联想"}
-                description="使用随包的神经模型重排整句候选；没有模型时保持现有候选。"
-              >
-                <Switch
-                  checked={
-                    mobilePlatform
-                      ? (draft.sentence_association?.neural_keyboard ?? false)
-                      : (draft.sentence_association?.neural_desktop ?? false)
-                  }
-                  onChange={(checked) =>
-                    onPreferencesChange({
-                      sentence_association: {
-                        ...draft.sentence_association,
-                        ...(mobilePlatform
-                          ? { neural_keyboard: checked }
-                          : { neural_desktop: checked }),
-                      },
-                    })
-                  }
-                />
-              </Row>
-            </GroupList>
-          }
-          afterFrequency={
-            <LocalModesSection
-              preferences={localModes}
-              ios={iosPlatform}
-              triggers={showPluginTriggers}
-              mentions={showPluginTriggers && Boolean(client.plugins)}
-              translationService={translationProvider !== "none"}
-              onChange={onLocalModesChange}
-            />
+              )}
+            </>
           }
           onPreferencesChange={onPreferencesChange}
         />

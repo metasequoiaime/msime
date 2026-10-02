@@ -44,6 +44,39 @@ int main() {
         assert([NSFileManager.defaultManager removeItemAtURL:symlinkRoot error:nil]);
         assert([NSFileManager.defaultManager removeItemAtURL:outside error:nil]);
 
+        NSURL *linkedContainer = [NSURL fileURLWithPath:[NSTemporaryDirectory()
+                                                          stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+        NSURL *linkedOutside = [NSURL fileURLWithPath:[NSTemporaryDirectory()
+                                                        stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+        assert([NSFileManager.defaultManager createDirectoryAtURL:linkedContainer
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:nil]);
+        assert([NSFileManager.defaultManager createDirectoryAtURL:linkedOutside
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:nil]);
+        NSURL *linkedAlias = [linkedContainer URLByAppendingPathComponent:@"linked"];
+        assert([NSFileManager.defaultManager createSymbolicLinkAtURL:linkedAlias
+                                               withDestinationURL:linkedOutside
+                                                              error:nil]);
+        NSURL *linkedRoot = [linkedAlias URLByAppendingPathComponent:@"session"];
+        rejected = false;
+        try {
+            DictionarySessionLease rejectedLease(linkedRoot);
+        } catch (const std::exception &) {
+            rejected = true;
+        }
+        assert(rejected);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:
+            [linkedOutside URLByAppendingPathComponent:@"dictionary-sessions.lock"].path]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:
+            [linkedOutside URLByAppendingPathComponent:@"dictionary-publication.lock"].path]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:
+            [linkedOutside URLByAppendingPathComponent:@"session"].path]);
+        assert([NSFileManager.defaultManager removeItemAtURL:linkedContainer error:nil]);
+        assert([NSFileManager.defaultManager removeItemAtURL:linkedOutside error:nil]);
+
         NSURL *gateRoot = [NSURL fileURLWithPath:[NSTemporaryDirectory()
                                                    stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
         NSURL *gateOutside = [NSURL fileURLWithPath:[NSTemporaryDirectory()

@@ -32,7 +32,7 @@ const wordCharacterKeyOptions = [
   { value: "minus_equal", label: "- / =" },
 ] as const satisfies readonly { value: WordCharacterPreferences["keys"]; label: string }[];
 
-/** Shared 以词定字 controls and their mutual exclusion with paging shortcuts: rows of the 选词 group. */
+/** 共用的以词定字设置及其与翻页键的互斥：输入页「选词与翻页」组里的几行。 */
 export function WordCharacterSection({
   preferences,
   navigation,

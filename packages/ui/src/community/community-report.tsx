@@ -1,5 +1,6 @@
 import { useState } from "react";
 import * as style from "./community-style";
+import { CommunityTextareaField } from "./community-textarea-field";
 
 /** What a report names, as `POST /v1/community/reports` and client-core's `CommunityReportKind` spell it. */
 export type CommunityReportKind =
@@ -91,18 +92,15 @@ export function CommunityReportSection({ actionBusy, onReport }: CommunityReport
           </label>
         ))}
       </fieldset>
-      <label className={style.field}>
-        补充说明（选填）
-        <textarea
-          className={style.textArea}
-          aria-label="举报补充说明"
-          maxLength={communityReportDetailLimit}
-          rows={3}
-          value={detail}
-          disabled={actionBusy}
-          onChange={(event) => setDetail(event.target.value)}
-        />
-      </label>
+      <CommunityTextareaField
+        label="补充说明（选填）"
+        ariaLabel="举报补充说明"
+        maxLength={communityReportDetailLimit}
+        rows={3}
+        value={detail}
+        disabled={actionBusy}
+        onChange={setDetail}
+      />
       <div className={style.confirmationActions}>
         <button
           type="button"

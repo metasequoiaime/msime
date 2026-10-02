@@ -69,7 +69,7 @@ test("Linux settings tests translation configuration through its provider", asyn
     .mockResolvedValue({ ok: true, message: "连接成功，当前配置有效。" });
   mount(testApiCredential);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 NiuTrans 配置" }));
   await screen.findByText("连接成功，当前配置有效。");
   expect(testApiCredential).toHaveBeenCalledWith("translation.niutrans", {
@@ -87,7 +87,7 @@ test("Linux voice and AI tests never send private tokens from preferences", asyn
   await screen.findByText("fixture ok");
   fireEvent.click(screen.getByRole("button", { name: "测试语音润色配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(2));
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
   await vi.waitFor(() => expect(testApiCredential).toHaveBeenCalledTimes(3));
@@ -113,7 +113,7 @@ test("provider transport failures remain actionable and stale results disappear 
   const testApiCredential = vi.fn().mockRejectedValue({ code: "unavailable" });
   mount(testApiCredential);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   fireEvent.click(screen.getByRole("button", { name: "测试 AI 辅助配置" }));
   await screen.findByText("无法连接 provider，请确认服务已启动。");

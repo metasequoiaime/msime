@@ -34,6 +34,6 @@ test("keeps the feedback fieldset boundary and controls", () => {
     />,
   );
 
-  expect(screen.getByRole("group", { name: "反馈" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "帮助与反馈" })).toBeTruthy();
   expect(screen.getByText("synthetic diagnostics")).toBeTruthy();
 });

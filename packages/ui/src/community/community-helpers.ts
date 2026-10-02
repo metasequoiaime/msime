@@ -1,4 +1,5 @@
 import { errorCode } from "../core/error-code";
+import { runAsyncAction } from "../core/async-action";
 import { pluginErrorMessage } from "../settings/plugins-section";
 import type { CommunityResourceKind, CommunityResourceScope } from "./community-resources";
 
@@ -203,6 +204,69 @@ export function candidateSkinMegabytes(bytes: number): string {
 
 export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
+}
+
+type CurrentGeneration = { current: number };
+type RunningAction = { current: boolean };
+
+export interface CommunityActionOptions {
+  busy: boolean;
+  generation: number;
+  clientGeneration: CurrentGeneration;
+  actionRunning: RunningAction;
+  setBusy: (busy: boolean) => void;
+  setError: (message: string) => void;
+  setNotice?: (message: string) => void;
+  setSignInRequired?: (value: boolean) => void;
+  formatError: (error: unknown) => string;
+  isCurrent?: () => boolean;
+  operation: (isCurrent: () => boolean) => Promise<void>;
+}
+
+/** Runs a guarded community action with shared busy, generation, and error handling. */
+export async function runCommunityAction({
+  busy,
+  generation,
+  clientGeneration,
+  actionRunning,
+  setBusy,
+  setError,
+  setNotice,
+  setSignInRequired,
+  formatError,
+  isCurrent,
+  operation,
+}: CommunityActionOptions): Promise<void> {
+  actionRunning.current = true;
+  setSignInRequired?.(false);
+  const current = isCurrent ?? (() => generation === clientGeneration.current);
+  try {
+    await runAsyncAction(
+      {
+        busy,
+        isCurrent: current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      operation,
+      {
+        formatError,
+        onError: (error) => setSignInRequired?.(communityNeedsSignIn(error)),
+      },
+    );
+  } finally {
+    if (generation === clientGeneration.current) actionRunning.current = false;
+  }
+}
+
+export type CommunityPublishActionOptions = CommunityActionOptions & {
+  setSignInRequired: (value: boolean) => void;
+};
+
+/** Runs a guarded community publish action with sign-in handling. */
+export function runCommunityPublishAction(options: CommunityPublishActionOptions): Promise<void> {
+  return runCommunityAction(options);
 }
 
 /** Append only items whose ids are not already present, preserving source order. */

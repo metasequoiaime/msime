@@ -21,5 +21,5 @@ test("renders the selected auth mode and forwards changes", () => {
 
 test("uses provider wording on Linux", () => {
   render(<DoubaoAuthModeSection value="legacy" linux onChange={vi.fn()} />);
-  expect(screen.getByText("provider 服务必须与此模式匹配")).toBeTruthy();
+  expect(screen.getByText("语音服务必须与此模式匹配")).toBeTruthy();
 });

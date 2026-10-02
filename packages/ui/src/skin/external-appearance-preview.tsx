@@ -18,7 +18,7 @@ import {
   type ResolveThemeRequest,
 } from "../theme/global-theme";
 import type { SkinImageReader } from "./skin-image";
-import { SkinCandidatePreview } from "./skin-candidate-preview";
+import { ReservedCandidatePreview, type PreviewReserve } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
 import { candidateFamilyStyle } from "../candidate/candidate-font-family";
 import { candidateOpacityPercent, candidateWindowStyle } from "../candidate/candidate-window-style";
@@ -54,6 +54,7 @@ function LoadedPreview({
   resolve,
   helpcode,
   theme,
+  reserve,
 }: {
   skin: ExternalSkin;
   preferences: Preferences;
@@ -61,6 +62,7 @@ function LoadedPreview({
   resolve?: (request: ResolveThemeRequest) => Promise<ResolvedTheme>;
   helpcode: boolean;
   theme: "dark" | "light";
+  reserve?: PreviewReserve;
 }) {
   const scope = `appearance-external-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const layout = preferences.candidate_layout ?? "vertical";
@@ -115,7 +117,8 @@ function LoadedPreview({
         aria-hidden="true"
       >
         <div className={settings.skinPreviewStage} data-skin-stage="">
-          <SkinCandidatePreview
+          <ReservedCandidatePreview
+            reserve={reserve}
             orientation={layout}
             count={preferences.candidate_page_size}
             preedit={preferences.candidate_preedit_style !== "empty"}
@@ -148,6 +151,7 @@ export function ExternalAppearancePreview({
   revision,
   helpcode,
   theme,
+  reserve,
 }: {
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
@@ -158,6 +162,8 @@ export function ExternalAppearancePreview({
   revision: number;
   helpcode: boolean;
   theme: "dark" | "light";
+  /** 见 `ReservedCandidatePreview`。 */
+  reserve?: PreviewReserve;
 }) {
   const [refresh, setRefresh] = useState(0);
   const id = preferences.custom_theme?.candidate_skin;
@@ -214,6 +220,7 @@ export function ExternalAppearancePreview({
           resolve={resolve}
           helpcode={helpcode}
           theme={drawn}
+          reserve={reserve}
         />
       )}
     </>

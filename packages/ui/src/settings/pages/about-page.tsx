@@ -2,18 +2,19 @@ import * as doc from "../document-style";
 import { logo } from "../settings-options";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList } from "../../core/platform-controls";
-import { LicenseUninstallSection } from "../license-uninstall-section";
-import { TelemetrySection } from "../telemetry-section";
+import { GroupList, LinkRow } from "../../core/platform-controls";
+import { LicenseRows } from "../license-rows";
+import { TelemetryRow } from "../telemetry-section";
 import { AboutHeroSection } from "../about-hero-section";
 import { createAboutSettingsActions } from "../about-settings-actions";
+import { OtherPlatformDownloadRows } from "./download-page";
 
 const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
 // Linux links to the data-flow document that ships with this code, as the Windows reference links its own PRIVACY.md; the Linux section of msime.app/privacy/ describes a host without an update check and with Secret Service credentials, and this one has the update check and keeps provider credentials in 0600 files.
 const linuxPrivacyUrl = "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md";
 
-/** The 关于 page of the settings form. */
+/** 设置表单的「关于」页：品牌头部、「版本与更新」（含原「其他平台下载」页的几行）和「许可与隐私」。卸载在「维护与诊断」。 */
 export function AboutSettingsPage() {
   const {
     client,
@@ -25,14 +26,7 @@ export function AboutSettingsPage() {
     draft,
     setDraft,
     busy,
-    removeUserDataOnUninstall,
-    setRemoveUserDataOnUninstall,
-    uninstallConfirmation,
-    uninstallBusy,
-    uninstallResult,
-    requestUninstall,
     confirmUninstall,
-    cancelUninstall,
     page,
     updateStatus,
     updateBusy,
@@ -44,7 +38,7 @@ export function AboutSettingsPage() {
     chooseDataDirectory,
     selectPage,
   } = useSettingsForm();
-  const { onCheckForUpdate, onConfirmUninstall, onTelemetryChange } = createAboutSettingsActions({
+  const { onCheckForUpdate, onTelemetryChange } = createAboutSettingsActions({
     checkForUpdate,
     chooseDataDirectory,
     confirmUninstall,
@@ -57,7 +51,7 @@ export function AboutSettingsPage() {
         <GroupList>
           <AboutHeroSection logo={logo} description={platformAboutDescription} />
         </GroupList>
-        <GroupList title="版本与条款">
+        <GroupList title="版本与更新">
           <div className={`${doc.linkRow} ${doc.versionRow}`}>
             <div>
               <div className={doc.linkTitle}>当前版本</div>
@@ -102,17 +96,18 @@ export function AboutSettingsPage() {
               </button>
             </div>
           )}
-          <button
-            type="button"
-            className={doc.linkRow}
+          <OtherPlatformDownloadRows />
+        </GroupList>
+        <GroupList title="许可与隐私">
+          <LinkRow
+            title="开源许可协议"
+            external
             onClick={() => void openExternalUrl(platformLicenseUrl)}
-          >
-            <span className={doc.linkTitle}>开源许可协议</span>
-            <span aria-hidden="true">↗</span>
-          </button>
-          <button
-            type="button"
-            className={doc.linkRow}
+          />
+          {macosPlatform && <LicenseRows openThirdPartyLicenses={client.openThirdPartyLicenses} />}
+          <LinkRow
+            title="隐私政策"
+            external
             onClick={() =>
               void openExternalUrl(
                 linuxPlatform
@@ -122,26 +117,9 @@ export function AboutSettingsPage() {
                     : privacyUrl,
               )
             }
-          >
-            <span className={doc.linkTitle}>隐私政策</span>
-            <span aria-hidden="true">↗</span>
-          </button>
-        </GroupList>
-        {macosPlatform && (
-          <LicenseUninstallSection
-            openThirdPartyLicenses={client.openThirdPartyLicenses}
-            uninstallInputSource={client.uninstallInputSource}
-            removeUserData={removeUserDataOnUninstall}
-            uninstallBusy={uninstallBusy}
-            uninstallConfirmation={uninstallConfirmation}
-            uninstallResult={uninstallResult}
-            onRemoveUserDataChange={setRemoveUserDataOnUninstall}
-            onRequestUninstall={requestUninstall}
-            onConfirmUninstall={onConfirmUninstall}
-            onCancelUninstall={cancelUninstall}
           />
-        )}
-        <TelemetrySection value={draft?.usage_reporting} onChange={onTelemetryChange} />
+          <TelemetryRow value={draft?.usage_reporting} onChange={onTelemetryChange} />
+        </GroupList>
       </div>
     </fieldset>
   );

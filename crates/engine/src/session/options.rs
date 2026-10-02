@@ -2,11 +2,13 @@
 
 use std::path::PathBuf;
 
+use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    QuickPhraseEntry, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
+    WubiInputOptions,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -27,6 +29,8 @@ pub struct SessionOptions {
     /// Where `zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
     pub helpcode_schema: String,
+    /// 宿主给的辅助码表；有它时直接装上它，不再按 `helpcode_schema` 读表（名字仍然要合法）。`Session::set_helpcode_table` 可以实时替换。
+    pub helpcode_table: Option<SharedKeymap>,
     /// `autocorrect_type` bits; 0 keeps the user's spelling. Either of transposition and neighbor also enables missing and extra letters, and on inputs of three or more complete syllables offers a sentence that reads one syllable as a typo. Committing the raw letters while a correction is offered turns correction off for that exact input.
     pub autocorrect_types: u32,
     pub helpcode: bool,
@@ -52,6 +56,8 @@ pub struct SessionOptions {
     pub command_table: Vec<CommandTableEntry>,
     /// The `@` mode's names and places; `Session::set_mention_entries` replaces it live.
     pub mention_entries: Vec<MentionEntry>,
+    /// K 模式在数据库行之后追加的宿主短语；`Session::set_quick_phrase_table` 可以实时替换。
+    pub quick_phrase_table: Vec<QuickPhraseEntry>,
 }
 
 impl SessionOptions {
@@ -67,6 +73,7 @@ impl SessionOptions {
             cantonese_dictionary: PathBuf::new(),
             zhuyin_dictionary: PathBuf::new(),
             helpcode_schema: "lantian".to_owned(),
+            helpcode_table: None,
             autocorrect_types: 0,
             helpcode: true,
             chinese_punctuation: true,
@@ -85,6 +92,7 @@ impl SessionOptions {
             rescoring_context: String::new(),
             command_table: Vec::new(),
             mention_entries: Vec::new(),
+            quick_phrase_table: Vec::new(),
         }
     }
 }

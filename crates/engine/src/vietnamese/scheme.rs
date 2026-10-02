@@ -132,6 +132,7 @@ impl VietnameseScheme {
             raw_with_cases
         };
         self.reset();
+        self.raw.reserve(source.len());
         for key in source.bytes() {
             if key.is_ascii_alphabetic() || self.claims_digit(key) {
                 self.raw.push(char::from(key));
@@ -181,6 +182,17 @@ mod tests {
 
     fn vni(keys: &str) -> String {
         typed(InputMethod::Vni, ToneStyle::Modern, keys).preedit()
+    }
+
+    #[test]
+    fn set_raw_input_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 3 { '_' } else { 'a' })
+            .collect();
+        let mut scheme = VietnameseScheme::new(InputMethod::Telex, ToneStyle::Modern);
+        scheme.set_raw_input(&source, "");
+        assert_eq!(scheme.raw.len(), 80);
+        assert_eq!(scheme.raw.capacity(), source.len());
     }
 
     #[test]

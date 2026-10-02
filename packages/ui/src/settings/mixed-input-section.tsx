@@ -1,5 +1,6 @@
-import { Row, Select, Switch } from "../core/platform-controls";
+import { Row, Switch } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SelectRow } from "./select-row";
 
 export type MixedInputPreferences = {
   english: boolean;
@@ -33,7 +34,7 @@ export interface MixedInputSectionProps {
   onChange: (preferences: MixedInputPreferences) => void;
 }
 
-/** Shared mixed Chinese and English candidate controls: the leading rows of the 多语言候选 group on the 表达 page. */
+/** 共享的中英混输候选控件：「标点与翻译」页「多语言与释义」组开头的几行。 */
 export function MixedInputSection({ preferences, onChange }: MixedInputSectionProps) {
   return (
     <>
@@ -44,21 +45,21 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
             onChange={(english) => onChange({ ...preferences, english })}
           />
         </Row>
-        <Row title="触发字符数" description="预编辑字母达到该长度后才出现英文候选项">
-          <Select
-            disabled={!preferences.english}
-            value={preferences.minimum_prefix}
-            onChange={(event) =>
-              onChange({ ...preferences, minimum_prefix: Number(event.target.value) })
-            }
-          >
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <SelectRow
+          title="触发字符数"
+          description="预编辑字母达到该长度后才出现英文候选项"
+          disabled={!preferences.english}
+          value={preferences.minimum_prefix}
+          onChange={(event) =>
+            onChange({ ...preferences, minimum_prefix: Number(event.target.value) })
+          }
+        >
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </SelectRow>
       </div>
       {supplementalOptions.map(([key, label, description]) => (
         <Row key={key} title={label} description={description}>

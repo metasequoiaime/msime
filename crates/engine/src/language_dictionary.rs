@@ -120,13 +120,9 @@ impl LanguageDictionary {
         limit: usize,
     ) -> Result<Vec<(String, LanguageEntry)>> {
         // Keys are space-joined syllables, so every key starting with `prefix` sorts at or after it and before `prefix` with its last character incremented.
-        let Some(last) = prefix.chars().next_back() else {
+        let Some(upper) = completion_upper_bound(prefix) else {
             return Ok(Vec::new());
         };
-        let Some(next) = char::from_u32(u32::from(last) + 1) else {
-            return Ok(Vec::new());
-        };
-        let upper = format!("{}{next}", &prefix[..prefix.len() - last.len_utf8()]);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare_cached(
             "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND instr(substr(key, length(?1) + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?3",
@@ -142,6 +138,16 @@ impl LanguageDictionary {
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
+}
+
+fn completion_upper_bound(prefix: &str) -> Option<String> {
+    let last = prefix.chars().next_back()?;
+    let next = char::from_u32(u32::from(last) + 1)?;
+    let head = &prefix[..prefix.len() - last.len_utf8()];
+    let mut upper = String::with_capacity(head.len() + next.len_utf8());
+    upper.push_str(head);
+    upper.push(next);
+    Some(upper)
 }
 
 #[cfg(test)]
@@ -185,6 +191,12 @@ mod tests {
 
     fn message(error: EngineError) -> String {
         error.to_string()
+    }
+
+    #[test]
+    fn completion_upper_bound_increments_only_the_last_character() {
+        assert_eq!(completion_upper_bound("nei h").as_deref(), Some("nei i"));
+        assert_eq!(completion_upper_bound("ㄋㄧˇ").as_deref(), Some("ㄋㄧˈ"));
     }
 
     #[test]

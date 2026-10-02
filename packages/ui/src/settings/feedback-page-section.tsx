@@ -8,7 +8,7 @@ export type FeedbackPageSectionProps = {
 /** Feedback page fieldset shared by desktop and mobile settings hosts. */
 export function FeedbackPageSection({ disabled, hidden, ...props }: FeedbackPageSectionProps) {
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="反馈">
+    <fieldset disabled={disabled} hidden={hidden} aria-label="帮助与反馈">
       <FeedbackSettingsSection {...props} />
     </fieldset>
   );

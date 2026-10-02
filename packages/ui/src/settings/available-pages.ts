@@ -1,4 +1,4 @@
-import { pages } from "./mobile-navigation";
+import { pages } from "./settings-page-registry";
 
 export interface AvailablePageCapabilities {
   home: boolean;
@@ -10,6 +10,8 @@ export interface AvailablePageCapabilities {
   floatingToolbar: boolean;
   /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   plugins: boolean;
+  /** 「维护与诊断」页：宿主提供诊断日志、数据目录或 MCP 时才有。旧调用方不传这一项，按没有处理。 */
+  developer?: boolean;
   mobile: boolean;
 }
 
@@ -25,6 +27,7 @@ export function availableSettingsPages(capabilities: AvailablePageCapabilities) 
       (item.id !== "community" || capabilities.community) &&
       (item.id !== "floating-toolbar" || capabilities.floatingToolbar) &&
       (item.id !== "plugins" || capabilities.plugins) &&
+      (item.id !== "developer" || Boolean(capabilities.developer)) &&
       (item.id !== "more" || capabilities.mobile),
   );
 }

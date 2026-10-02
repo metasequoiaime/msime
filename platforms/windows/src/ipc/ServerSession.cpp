@@ -1,6 +1,7 @@
 #include "ServerSession.h"
 #include "CandidateCompletionPolicy.h"
 #include "EditPolicy.h"
+#include "InputSchemeTraits.h"
 #include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include "PunctuationPolicy.h"
@@ -78,13 +79,18 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
     input_enabled_ = enabled;
   }
 }
+nlohmann::json ServerSession::cancel_again(nlohmann::json result) {
+  // With a Korean Hanja or Zhuyin list open MSIME_CANCEL only closes the list and the composition stays (msime_client.h), and the first one on a Vietnamese word only shows its raw keys again; a second one discards it.
+  if (result.at("commit").is_null() &&
+      scheme::AlwaysInlinePreedit(static_cast<int>(result.at("view").value("scheme", 0u))) &&
+      !result.at("view").at("editing_text").get<std::string>().empty())
+    return response(msime_client_command(session_, MSIME_CANCEL));
+  return result;
+}
 void ServerSession::cancel_composition(uint64_t epoch) {
   check_active(epoch);
   auto result = response(msime_client_command(session_, MSIME_CANCEL));
-  // With a Korean Hanja list open MSIME_CANCEL only closes the list and the syllable keeps composing (msime_client.h); a second one discards it.
-  if (result.at("commit").is_null() && result.at("view").value("scheme", 0u) == 4u &&
-      !result.at("view").at("editing_text").get<std::string>().empty())
-    result = response(msime_client_command(session_, MSIME_CANCEL));
+  result = cancel_again(std::move(result));
   if (!result.at("commit").is_null() ||
       !result.at("view").at("editing_text").get<std::string>().empty() ||
       !result.at("view").at("candidates").empty())
@@ -165,10 +171,12 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   // more candidates would have been worse, committing candidate 17 for a
   // letter press. Typing shuangpin through this path could not work at all,
   // and nothing noticed because these suites had never been run.
-  // Korean has candidates only while its Hanja list is open, and a digit then chooses from it. Otherwise a digit is text that ends the syllable, which the Engine does when it receives it as a character.
+  // Korean and Zhuyin have candidates only while their list is open, and a digit then chooses from it; Vietnamese has none. Otherwise a digit is text, which the Engine spells or lets end the composition when it receives it as a character.
   const bool selection_digit =
       digit_key >= '1' && digit_key <= '9' &&
-      !(current.is_object() && current.value("scheme", 0u) == 4u && current.at("candidates").empty());
+      !(current.is_object() &&
+        scheme::AlwaysInlinePreedit(static_cast<int>(current.value("scheme", 0u))) &&
+        current.at("candidates").empty());
   if (selection_digit && !current.is_null() &&
       digit_selects_candidate(
           current.at("local_mode").get<std::string>(),
@@ -203,6 +211,11 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
       return {client_, epoch_, packet.request_id, false, std::move(result)};
     }
     result = response(msime_client_command(session_, action.value));
+    // A reset discards the composition, as the TIP discards it from its own host session. Escape on a word whose first cancel only shows its raw keys again stops there, as the TIP does (scheme::CancelRestoresRaw).
+    if (action.kind == KeyKind::LocalReset &&
+        !(packet.keycode == kVirtualKeyEscape &&
+          scheme::CancelRestoresRaw(static_cast<int>(result.at("view").value("scheme", 0u)))))
+      result = cancel_again(std::move(result));
     if (action.kind == KeyKind::CancelAndForward ||
         action.kind == KeyKind::LocalReset)
       result["handled"] = false;
@@ -243,11 +256,11 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  // Japanese (3) and Korean (4) are schemes, not local modes; no local mode is ever named after them. Both keep '-' and '=' as text rather than paging keys.
-  const auto scheme = current.value("scheme", 0u);
+  // Japanese, Korean, Zhuyin and Vietnamese are schemes, not local modes; no local mode is ever named after them. They keep '-' and '=' as text rather than paging keys: Zhuyin's list pages with Page Up/Down and the arrows (KoreanHanjaKey.h).
+  const int scheme = static_cast<int>(current.value("scheme", 0u));
   action = navigation_action(packet, bindings,
                              current.at("local_mode").get<std::string>() == "unicode",
-                             scheme == 3u || scheme == 4u);
+                             scheme == scheme::Japanese || scheme::AlwaysInlinePreedit(scheme));
   if (!action)
     return std::nullopt;
   auto result = action->command
@@ -564,11 +577,11 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
   if (!input_enabled_)
     return std::nullopt;
   const auto current = view();
-  // Korean's '-', '=', '[' and ']' are punctuation, with or without a Hanja list open: the Engine closes the list and writes the Hangul with the mark, as on every other host, rather than taking an edge character of a single Hanja.
+  // Korean's '-', '=', '[' and ']' are punctuation, with or without a Hanja list open: the Engine closes the list and writes the Hangul with the mark, as on every other host, rather than taking an edge character of a single Hanja. Zhuyin and Vietnamese compose in the TIP's own host session the same way, so neither takes an edge character either.
   // A key the Engine spells in its current state (V mode's '-') is input, as `edit_kind` routes it; taking it here first would commit the highlighted row instead.
   if (current.at("local_mode") == "unknown" ||
       current.at("editing_text").get<std::string>().empty() ||
-      current.value("scheme", 0u) == 4u ||
+      scheme::AlwaysInlinePreedit(static_cast<int>(current.value("scheme", 0u))) ||
       spelled_by_engine(current.value("spelling_symbols", std::string{}),
                         static_cast<uint32_t>(packet.wch)) ||
       !word_character_edge(packet, binding, current.value("scheme", 0u) == 3u))

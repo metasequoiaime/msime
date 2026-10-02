@@ -232,7 +232,7 @@ export function ExternalSkinCard({
       <div className={settings.skinCardHeader} data-skin-card-header="">
         <div className={settings.skinCardBody}>
           <span className={settings.skinCardTitle}>
-            {skin.name} ({theme === "dark" ? "Dark" : "Light"})
+            {skin.name}（{theme === "dark" ? "深色" : "浅色"}）
             {selected && <span className={settings.skinCardInUse}>使用中</span>}
           </span>
           <span className={settings.skinCardDescription}>

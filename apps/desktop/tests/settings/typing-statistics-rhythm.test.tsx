@@ -41,8 +41,8 @@ test("the rhythm cards read the measured activity", async () => {
   // 360 characters over two active minutes.
   expect((await screen.findByLabelText("今日输入速度")).textContent).toContain("180");
   expect(screen.getByLabelText("平均输入速度").textContent).toContain("180");
-  // The source prints the cumulative active time under the average speed.
-  expect(screen.getByText("字 / 分钟 · 共 2分")).toBeTruthy();
+  // 平均输入速度下方写着累计活跃时长。
+  expect(screen.getByText("共 2分")).toBeTruthy();
   expect(screen.getByLabelText("今日活跃时长").textContent).toContain("2分");
   expect(screen.getByLabelText("连续输入天数").textContent).toContain("1");
   expect(screen.getByLabelText("今日各时段输入分布")).toBeTruthy();
@@ -57,7 +57,7 @@ test("a document with no measured activity says so instead of showing a zero spe
   expect((await screen.findByLabelText("今日输入速度")).textContent).toContain("0");
   // Nothing has ever timed typing here, which is different from typing at zero speed.
   expect(screen.getByText(/还没有测量到活跃时长/)).toBeTruthy();
-  expect(screen.queryByText(/字 \/ 分钟 · 共/)).toBeNull();
+  expect(screen.queryByText(/^共 /)).toBeNull();
   // No hours recorded, so the section is absent rather than drawn empty.
   expect(screen.queryByLabelText("今日各时段输入分布")).toBeNull();
 });

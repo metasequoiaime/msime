@@ -5,10 +5,10 @@ export interface AboutHeroSectionProps {
   description: string;
 }
 
-/** Brand header shared by the about page on desktop and mobile hosts. */
+/** 关于页的品牌页首，桌面和触屏宿主共用。它放在一个无标题的组里，由组提供底色和圆角，自身不再画一层卡片。 */
 export function AboutHeroSection({ logo, description }: AboutHeroSectionProps) {
   return (
-    <div className={`section ${doc.hero}`}>
+    <div className={doc.hero}>
       <div className={doc.mark}>
         <img src={logo} alt="水杉 IME" />
       </div>

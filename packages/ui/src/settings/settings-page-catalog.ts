@@ -1,6 +1,7 @@
 import { availableSettingsPages, type AvailablePageCapabilities } from "./available-pages";
 import { mobileHiddenPageIds as getMobileHiddenPageIds } from "./mobile-hidden-pages";
-import { splitMobilePages, type SettingsPageId } from "./mobile-navigation";
+import { splitMobilePages } from "./mobile-navigation";
+import type { ExportedSettingsPageId } from "./settings-page-registry";
 import { settingsSidebarGroups, type SettingsSidebarGroupsOptions } from "./sidebar-groups";
 
 export interface SettingsPageCatalogOptions extends AvailablePageCapabilities {
@@ -13,7 +14,7 @@ export interface SettingsPageCatalogOptions extends AvailablePageCapabilities {
   macos: SettingsSidebarGroupsOptions["macos"];
 }
 
-/** Assembles the host-aware page registry and the desktop/mobile projections of that registry. */
+/** 按宿主能力组装页面列表及其桌面、手机投影。页面和分组都取自 `settings-page-registry`，与共享设置外壳一致。 */
 export function settingsPageCatalog(options: SettingsPageCatalogOptions) {
   const availablePages = availableSettingsPages({
     home: options.home,
@@ -24,6 +25,7 @@ export function settingsPageCatalog(options: SettingsPageCatalogOptions) {
     community: options.community,
     floatingToolbar: options.floatingToolbar,
     plugins: options.plugins,
+    developer: options.developer,
     mobile: options.mobile,
   });
   // Physical-keyboard shortcuts and a desktop floating toolbar have no phone
@@ -36,7 +38,7 @@ export function settingsPageCatalog(options: SettingsPageCatalogOptions) {
   // those hosts keep the page even when their other hardware shortcuts are hidden.
   // The shortcuts page itself follows the projected capabilities rather than a
   // platform name so a mobile device with a physical keyboard can still reach it.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = getMobileHiddenPageIds({
+  const mobileHiddenPageIds: readonly ExportedSettingsPageId[] = getMobileHiddenPageIds({
     modeSwitchShortcuts: options.modeSwitchShortcuts,
     panelShortcuts: options.panelShortcuts,
     desktopMaintenanceShortcuts: options.desktopMaintenanceShortcuts,

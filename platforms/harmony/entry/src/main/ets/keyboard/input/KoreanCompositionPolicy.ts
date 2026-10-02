@@ -18,11 +18,6 @@ export class KoreanCompositionPolicy {
     return schemeName === "korean" && !english && localMode === "none";
   }
 
-  /** The composition to draw: the Hangul for Korean, the spelling for every other scheme. */
-  static reading(korean: boolean, editing: string, preedit: string): string {
-    return korean && editing.length > 0 ? preedit : editing;
-  }
-
   /**
    * Whether the Hanja list of the composing syllable is open: the Korean rules hold (see `active`) and the view carries candidates, since the Engine offers none in this scheme until MSIME_CONVERT_HANJA, so no separate view field is needed.
    */

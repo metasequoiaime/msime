@@ -3,10 +3,10 @@ import { keyboardThemeId } from "../../theme/global-theme";
 import { ScreenKeyboardPreview } from "../../keyboard/screen-keyboard-preview";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList, LinkRow, Row } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
-import * as controls from "../../core/platform-controls-style";
 import { createSettingsDraftActions } from "../settings-draft-actions";
+import { OpenPanelButton } from "../open-panel-button";
 
 /** The 屏幕键盘 page of the settings form. */
 export function ScreenKeyboardSettingsPage() {
@@ -40,27 +40,37 @@ export function ScreenKeyboardSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "screen-keyboard"} aria-label="屏幕键盘">
       <div className={settings.groups}>
-        {/* The keyboard's own light/dark override sits with the other per-surface overrides under 主题 › 高级 (dc.html); this row only points there. */}
-        <GroupList title="外观">
-          <button
-            type="button"
-            className={`${controls.row} w-full cursor-pointer border-0 text-left hover:bg-[var(--p-hover)]`}
-            aria-label="屏幕键盘外观"
-            aria-describedby="screen-keyboard-look"
-            onClick={() => selectPage("skin")}
-          >
-            <span className={controls.rowText}>
-              <span className={controls.rowTitle}>屏幕键盘外观</span>
-              <span id="screen-keyboard-look" className={controls.rowDescription}>
-                主题与明暗外观在「主题」页的「高级」中设置
-              </span>
-            </span>
-            <span className={controls.rowDescription} aria-hidden="true">
-              ›
-            </span>
-          </button>
+        {/* 预览放在它所展示的尺寸控件上方；在预览上拖动调的是同一个间距。启动按钮只在宿主能唤出自己的屏幕键盘面板时才存在。 */}
+        <GroupList title="屏幕键盘">
+          {client.openScreenKeyboard && (
+            <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
+              <OpenPanelButton
+                action={() => openPanel(client.openScreenKeyboard)}
+                className={`secondary ${settings.openButton}`}
+              />
+            </Row>
+          )}
+          <div className={settings.groupPreview} aria-label="屏幕键盘预览">
+            <div className={settings.panelPreviewLabel}>预览</div>
+            <div
+              aria-label="拖动预览调整键盘间距"
+              onPointerDown={beginTouchGeometryDrag}
+              onPointerMove={updateTouchGeometryDrag}
+              onPointerUp={endTouchGeometryDrag}
+              onPointerCancel={endTouchGeometryDrag}
+              style={{ touchAction: "none" }}
+            >
+              <ScreenKeyboardPreview
+                theme={keyboardPreviewTheme}
+                skin={keyboardThemeId(globalTheme, draft.custom_theme)}
+                customDesign={customTouchKeyboardSkin}
+                keySpacingTenths={touchKeySpacingTenths}
+                rowSpacingTenths={touchRowSpacingTenths}
+                heightAdjustment={touchKeyboardHeightAdjustment}
+              />
+            </div>
+          </div>
         </GroupList>
-        {/* The global theme, 我的皮肤 and its editor are on the 主题 page, which is where the design picks the keyboard's look along with every other surface's. */}
         <TouchKeyboardGeometrySection
           heightAdjustment={touchKeyboardHeightAdjustment}
           keySpacingTenths={touchKeySpacingTenths}
@@ -96,40 +106,18 @@ export function ScreenKeyboardSettingsPage() {
           value={mobileKeyboardFeedback}
           busy={mobileKeyboardFeedbackBusy}
           ios={iosPlatform}
+          // 「英文建议」管的是候选，放在输入页的「候选与联想」组。
+          showEnglishSuggestions={false}
           onChange={(value) => void saveMobileKeyboardFeedback(value)}
           onPreview={() => void previewMobileKeyboardHaptics()}
         />
-        <GroupList title="屏幕键盘">
-          <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
-            <button
-              type="button"
-              className={`secondary ${settings.openButton}`}
-              disabled={!client.openScreenKeyboard}
-              onClick={() => void openPanel(client.openScreenKeyboard)}
-            >
-              打开
-            </button>
-          </Row>
-          <div className={settings.groupPreview} aria-label="屏幕键盘预览">
-            <div className={settings.panelPreviewLabel}>预览</div>
-            <div
-              aria-label="拖动预览调整键盘间距"
-              onPointerDown={beginTouchGeometryDrag}
-              onPointerMove={updateTouchGeometryDrag}
-              onPointerUp={endTouchGeometryDrag}
-              onPointerCancel={endTouchGeometryDrag}
-              style={{ touchAction: "none" }}
-            >
-              <ScreenKeyboardPreview
-                theme={keyboardPreviewTheme}
-                skin={keyboardThemeId(globalTheme, draft.custom_theme)}
-                customDesign={customTouchKeyboardSkin}
-                keySpacingTenths={touchKeySpacingTenths}
-                rowSpacingTenths={touchRowSpacingTenths}
-                heightAdjustment={touchKeyboardHeightAdjustment}
-              />
-            </div>
-          </div>
+        {/* 键盘自己的明暗覆盖与其他按界面的覆盖一起放在「主题 › 高级」下（dc.html）；这一行只是指向那里。全局主题、「我的皮肤」和它的编辑器也都在「主题」页。 */}
+        <GroupList title="外观">
+          <LinkRow
+            title="屏幕键盘外观"
+            description="主题与明暗外观在「主题」页的「高级」中设置"
+            onClick={() => selectPage("skin")}
+          />
         </GroupList>
       </div>
     </fieldset>

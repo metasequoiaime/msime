@@ -78,7 +78,9 @@ impl KoreanScheme {
         } else {
             raw_with_cases
         };
-        self.raw = source.chars().filter(char::is_ascii_alphabetic).collect();
+        let mut filtered = String::with_capacity(source.len());
+        filtered.extend(source.chars().filter(char::is_ascii_alphabetic));
+        self.raw = filtered;
         self.committed.clear();
         self.hanja = false;
     }
@@ -216,6 +218,17 @@ mod tests {
         restored.handle_key(SchemeKey::Letter(b'g'));
         assert_eq!(restored.take_committed(), "안녕");
         assert_eq!(restored.preedit(), "ㅎ");
+    }
+
+    #[test]
+    fn set_raw_input_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 0 { '1' } else { 'a' })
+            .collect();
+        let mut scheme = KoreanScheme::new();
+        scheme.set_raw_input(&source, "");
+        assert_eq!(scheme.raw.len(), 80);
+        assert_eq!(scheme.raw.capacity(), source.len());
     }
 
     #[test]

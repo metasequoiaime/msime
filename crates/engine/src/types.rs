@@ -899,6 +899,15 @@ pub struct CommandTableEntry {
     pub template: String,
 }
 
+/// 宿主提供的一条 K 模式短语（来自已启用的短语表插件）。宿主已经校验过；Engine 仍然跳过它用不了的行，而不是照单全收。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickPhraseEntry {
+    /// 1..=32 个小写 ASCII 字母，即 K 之后输入的编码。
+    pub key: String,
+    /// 上屏的文本。
+    pub text: String,
+}
+
 /// One name or place of the host's mention list (`@` mode).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MentionEntry {

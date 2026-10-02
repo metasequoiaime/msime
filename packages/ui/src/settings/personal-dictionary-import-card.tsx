@@ -7,6 +7,7 @@ import {
   type PersonalDictionaryImportEntry,
 } from "../dictionary/dictionary-file";
 import { GroupList } from "../core/platform-controls";
+import { rowTitle } from "../core/platform-controls-style";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 import { useMountedRef } from "./use-mounted-ref";
@@ -21,12 +22,15 @@ export interface PersonalDictionaryImportClient {
 export interface PersonalDictionaryImportCardProps {
   dictionary: PersonalDictionaryImportClient;
   platform?: string;
+  /** 词库页把它并进「导入与导出」组时为真：画成组内带名字的一块（`role="group"`），不再自成一组。 */
+  embedded?: boolean;
 }
 
 /** Imports an Apple-compatible personal dictionary into the host's sync queue. */
 export function PersonalDictionaryImportCard({
   dictionary,
   platform,
+  embedded = false,
 }: PersonalDictionaryImportCardProps) {
   const input = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
@@ -124,76 +128,95 @@ export function PersonalDictionaryImportCard({
         .join(" · ")
     : "";
 
+  const note = (
+    <>
+      导入 Apple 兼容的 JSON 词条，确认后加入
+      {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
+      键盘同步队列；文件内容不会上传。
+    </>
+  );
+  const content = (
+    <>
+      <div className={settings.managerActions}>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => input.current?.click()}
+        >
+          选择 JSON 文件
+        </button>
+        <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
+          保存示例文件
+        </button>
+        <input
+          ref={input}
+          hidden
+          type="file"
+          aria-label="选择个人词库 JSON 文件"
+          accept=".json,application/json"
+          onChange={(event) => {
+            void chooseFile(event.currentTarget.files?.[0]);
+            event.currentTarget.value = "";
+          }}
+        />
+      </div>
+      {busy && <p role="status">正在读取或加入同步队列…</p>}
+      {fileName && entries && (
+        <div className={settings.importPreview}>
+          <strong>{fileName}</strong>
+          <span>
+            已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
+          </span>
+          {entries.map((entry, index) => (
+            <div key={`${entry.kind}-${entry.key}-${index}`}>
+              <span>{entry.value}</span>
+              <code>
+                {personalDictionaryKindTitle(entry.kind)} · {entry.key}
+              </code>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      {entries && (
+        <button
+          type="button"
+          className="primary"
+          disabled={busy}
+          onClick={() => void importEntries()}
+        >
+          确认导入
+        </button>
+      )}
+    </>
+  );
+  if (embedded) {
+    return (
+      <div className={settings.managerBlock} role="group" aria-label="个人词库文件">
+        <div>
+          <span className={rowTitle} data-row-title="">
+            个人词库文件
+          </span>
+          <p className={settings.managerNote}>{note}</p>
+        </div>
+        {content}
+      </div>
+    );
+  }
   return (
     <GroupList title="个人词库文件">
-      <p className={settings.groupNote}>
-        导入 Apple 兼容的 JSON 词条，确认后加入
-        {platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}
-        键盘同步队列；文件内容不会上传。
-      </p>
-      <div className={settings.managerBlock}>
-        <div className={settings.managerActions}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() => input.current?.click()}
-          >
-            选择 JSON 文件
-          </button>
-          <button type="button" className="secondary" disabled={busy} onClick={saveExample}>
-            保存示例文件
-          </button>
-          <input
-            ref={input}
-            hidden
-            type="file"
-            aria-label="选择个人词库 JSON 文件"
-            accept=".json,application/json"
-            onChange={(event) => {
-              void chooseFile(event.currentTarget.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-        </div>
-        {busy && <p role="status">正在读取或加入同步队列…</p>}
-        {fileName && entries && (
-          <div className={settings.importPreview}>
-            <strong>{fileName}</strong>
-            <span>
-              已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
-            </span>
-            {entries.map((entry, index) => (
-              <div key={`${entry.kind}-${entry.key}-${index}`}>
-                <span>{entry.value}</span>
-                <code>
-                  {personalDictionaryKindTitle(entry.kind)} · {entry.key}
-                </code>
-              </div>
-            ))}
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-        {notice && (
-          <p role="status" className="notice">
-            {notice}
-          </p>
-        )}
-        {entries && (
-          <button
-            type="button"
-            className="primary"
-            disabled={busy}
-            onClick={() => void importEntries()}
-          >
-            确认导入
-          </button>
-        )}
-      </div>
+      <p className={settings.groupNote}>{note}</p>
+      <div className={settings.managerBlock}>{content}</div>
     </GroupList>
   );
 }

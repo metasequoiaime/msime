@@ -899,6 +899,10 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     assert_eq!(defaults.effect_style, crate::plugins::EffectStyle::Off);
     assert_eq!(defaults.effect_intensity, 50);
     assert!(defaults.effect_pack.is_empty());
+    assert!(defaults.phrase_tables.is_empty());
+    assert!(
+        defaults.helpcode_pack_quanpin.is_empty() && defaults.helpcode_pack_shuangpin.is_empty()
+    );
     assert!(!defaults.combo_counter && !defaults.combo_tier_sound);
 
     // Untouched, the section is not written, so a build from before plugins reads the document; a document from before plugins loads with them off and is not rewritten.
@@ -946,6 +950,9 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
             effect_pack: "neon".into(),
             combo_counter: true,
             combo_tier_sound: true,
+            phrase_tables: vec!["office".into(), "names".into()],
+            helpcode_pack_quanpin: "radicals".into(),
+            helpcode_pack_shuangpin: "strokes".into(),
         },
         ..Preferences::default()
     };
@@ -967,6 +974,25 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
     unselected.plugins.effect_pack.clear();
     let unselected = serde_json::to_value(&unselected).unwrap();
     assert!(unselected["plugins"].get("effect_pack").is_none());
+    assert_eq!(
+        plugins["phrase_tables"],
+        serde_json::json!(["office", "names"])
+    );
+    assert_eq!(plugins["helpcode_pack_quanpin"], "radicals");
+    assert_eq!(plugins["helpcode_pack_shuangpin"], "strokes");
+    // 没选短语表和辅助码表包时这三个键都不写，没有它们的旧版本照样能读。
+    let mut unselected = chosen.clone();
+    unselected.plugins.phrase_tables.clear();
+    unselected.plugins.helpcode_pack_quanpin.clear();
+    unselected.plugins.helpcode_pack_shuangpin.clear();
+    let unselected = serde_json::to_value(&unselected).unwrap();
+    for key in [
+        "phrase_tables",
+        "helpcode_pack_quanpin",
+        "helpcode_pack_shuangpin",
+    ] {
+        assert!(unselected["plugins"].get(key).is_none(), "{key}");
+    }
     assert_eq!(plugins["combo_counter"], true);
     assert_eq!(plugins["combo_tier_sound"], true);
     // Restoring defaults turns them all off again.
@@ -999,7 +1025,7 @@ fn plugin_preferences_are_off_by_default_and_absent_from_older_documents() {
 
 #[test]
 fn plugin_preferences_are_validated() {
-    let invalid: [fn(&mut PluginPreferences); 10] = [
+    let invalid: [fn(&mut PluginPreferences); 16] = [
         |plugins| plugins.key_sound.volume = 101,
         |plugins| plugins.effect_intensity = 101,
         |plugins| plugins.music.volume = 255,
@@ -1014,6 +1040,16 @@ fn plugin_preferences_are_validated() {
                 .map(|index| format!("table{index}"))
                 .collect()
         },
+        |plugins| plugins.phrase_tables = vec!["office".into(), "office".into()],
+        |plugins| plugins.phrase_tables = vec![String::new()],
+        |plugins| plugins.phrase_tables = vec!["../office".into()],
+        |plugins| {
+            plugins.phrase_tables = (0..=PluginPreferences::MAX_PHRASE_TABLES)
+                .map(|index| format!("phrases{index}"))
+                .collect()
+        },
+        |plugins| plugins.helpcode_pack_quanpin = "Radicals".into(),
+        |plugins| plugins.helpcode_pack_shuangpin = "../strokes".into(),
     ];
     for (index, change) in invalid.into_iter().enumerate() {
         let mut preferences = Preferences::default();
@@ -1931,7 +1967,7 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     let loaded = store.load().unwrap();
     assert_eq!(
         loaded.preferences.touch_keyboard_schemes.enabled,
-        TouchKeyboardScheme::ALL.into_iter().collect()
+        TouchKeyboardScheme::DEFAULT_ENABLED.into_iter().collect()
     );
     assert_eq!(loaded.preferences.touch_keyboard_schemes.selected, None);
     assert_eq!(fs::read(store.path()).unwrap(), legacy);
@@ -1978,6 +2014,64 @@ fn touch_keyboard_scheme_visibility_matches_apple_order_and_fallback_contract() 
     fs::write(store.path(), &bytes).unwrap();
     assert!(store.load().is_err());
     assert_eq!(fs::read(store.path()).unwrap(), bytes);
+}
+
+#[test]
+fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
+    assert_eq!(
+        TouchKeyboardScheme::ALL[..12],
+        TouchKeyboardScheme::DEFAULT_ENABLED
+    );
+    assert_eq!(
+        TouchKeyboardScheme::ALL[12..],
+        [
+            TouchKeyboardScheme::Cantonese,
+            TouchKeyboardScheme::Zhuyin,
+            TouchKeyboardScheme::Vietnamese,
+        ]
+    );
+    for (scheme, id) in [
+        (TouchKeyboardScheme::Cantonese, "cantonese"),
+        (TouchKeyboardScheme::Zhuyin, "zhuyin"),
+        (TouchKeyboardScheme::Vietnamese, "vietnamese"),
+    ] {
+        assert_eq!(serde_json::to_value(scheme).unwrap(), id);
+        assert!(!TouchKeyboardSchemePreferences::default()
+            .enabled
+            .contains(&scheme));
+    }
+    // The picker grid follows ALL, and a set orders the same way.
+    let all: Vec<_> = TouchKeyboardScheme::ALL
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(all, TouchKeyboardScheme::ALL);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                scheme: InputScheme::Zhuyin,
+                touch_keyboard_schemes: TouchKeyboardSchemePreferences {
+                    enabled: [TouchKeyboardScheme::Quanpin, TouchKeyboardScheme::Zhuyin]
+                        .into_iter()
+                        .collect(),
+                    selected: Some(TouchKeyboardScheme::Zhuyin),
+                },
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    let document: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+    assert_eq!(
+        document["preferences"]["touch_keyboard_schemes"],
+        serde_json::json!({"enabled": ["quanpin", "zhuyin"], "selected": "zhuyin"})
+    );
+    assert_eq!(store.load().unwrap(), saved);
 }
 
 #[test]

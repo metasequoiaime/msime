@@ -52,6 +52,15 @@ int main() {
     if (result.view.scheme != 0)
       return EXIT_FAILURE;
   }
+  // A Zhuyin view names the keys that spell its composition, so the TIP keeps them in the composition instead of committing.
+  {
+    EngineResult zhuyin;
+    const std::string spelled =
+        R"({"ok":true,"value":{"handled":true,"commit":null,"diagnostic":null,"view":{"preedit":"你","editing_text":"su3","reading":"","caret_position":3,"scheme":6,"spelling_symbols":"1234567890,./;- ","candidates":[]}}})";
+    if (!EngineSessionAdapter::parse_result(spelled, &zhuyin, &error) || zhuyin.view.scheme != 6 ||
+        zhuyin.view.spelling_symbols != "1234567890,./;- " || !result.view.spelling_symbols.empty())
+      return EXIT_FAILURE;
+  }
   if (EngineSessionAdapter::parse_result(
           R"({"ok":false,"error":"redacted"})", &result, &error))
     return EXIT_FAILURE;

@@ -50,7 +50,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
             &options,
-            &applied.plugins.command_tables,
+            &applied.plugins,
         );
         plugin_tables.fill(
             &plugin_tables::PluginTables::default(),

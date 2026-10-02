@@ -512,9 +512,12 @@ test("lists the installed packs by kind with what each is used as, and removes o
   const rows = within(sounds).getAllByRole("button");
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["默认", "小星星", "打字机"]);
   expect(rows.every((row) => row.getAttribute("type") === "button")).toBe(true);
-  expect(rows[0].textContent).toBe("默认1.0.0 · 内置›");
-  expect(rows[1].textContent).toBe("小星星1.0.0 · 按键旋律 · 内置当前旋律›");
+  expect(rows[0].textContent).toBe("默认›");
+  expect(rows[1].textContent).toBe("小星星按键旋律当前旋律›");
   expect(rows[2].textContent).toBe("打字机1.0.0 · 作者 测试者使用中›");
+  // 导入是少见的操作，所以这一行放在已安装的插件之后，而不是夹在上面的设置入口和插件列表之间。
+  const importGroup = screen.getByRole("region", { name: "导入插件" });
+  expect(list.compareDocumentPosition(importGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(within(list).getByRole("button", { name: "雨声" }).textContent).not.toContain("使用中");
   expect(screen.getByText("音效包 broken 无法载入：缺少 plugin.toml")).toBeTruthy();
 
@@ -964,6 +967,25 @@ test("fills the defaults the document leaves out and forgets removed packs", () 
       plugins: { effect_pack: "neon" } as unknown as Preferences["plugins"],
     }).effect_pack,
   ).toBe("neon");
+  // 短语表和辅助码表包的选择同样在保存时保留，缺省时为空。
+  expect(defaultPluginPreferences).toMatchObject({
+    phrase_tables: [],
+    helpcode_pack_quanpin: "",
+    helpcode_pack_shuangpin: "",
+  });
+  expect(
+    pluginPreferences({
+      plugins: {
+        phrase_tables: ["office"],
+        helpcode_pack_quanpin: "radicals",
+        helpcode_pack_shuangpin: "strokes",
+      } as unknown as Preferences["plugins"],
+    }),
+  ).toMatchObject({
+    phrase_tables: ["office"],
+    helpcode_pack_quanpin: "radicals",
+    helpcode_pack_shuangpin: "strokes",
+  });
   // A document written before the effect fields reads them as their defaults, and one that has them keeps them.
   expect(
     pluginPreferences({
@@ -1083,7 +1105,7 @@ test("offers the built-in places under the @ switch, switchable only while @ is 
 });
 
 test("says /fy needs a translation service only while none is chosen", () => {
-  const notice = /fy 翻译需要先在「表达 → 候选词翻译」选择翻译服务/;
+  const notice = /fy 翻译需要先在「标点与翻译 → 候选词翻译」选择翻译服务/;
   render(
     <LocalModesSection
       preferences={defaultLocalModes}
@@ -1259,4 +1281,181 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
   );
   await settingsFormReady();
   expect(screen.queryByRole("button", { name: "插件" })).toBeNull();
+});
+
+test("a phrase table shows its rows and is enabled in priority order", async () => {
+  const phrases = Array.from({ length: 25 }, (_, index) => ({
+    key: `k${String.fromCharCode(97 + (index % 26))}`,
+    text: `短语${index}`,
+  }));
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({ id: "office", kind: "phrase_table", name: "办公短语", phrases }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenPage = vi.fn();
+  const { onChange } = renderSection(
+    { client, quickPhraseMode: false, onOpenPage },
+    { ...defaultPluginPreferences, phrase_tables: ["home"] },
+  );
+  await openPack("办公短语");
+  expect(screen.getByText("短语表")).toBeTruthy();
+  expect(screen.getByText("短语（25）")).toBeTruthy();
+  expect(screen.getByText("短语0")).toBeTruthy();
+  expect(screen.getByText("短语19")).toBeTruthy();
+  expect(screen.queryByText("短语20")).toBeNull();
+  expect(screen.getByText("只显示前 20 条。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "启用" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    phrase_tables: ["home", "office"],
+  });
+  // K 模式关闭时提示，并能跳到输入页。
+  expect(screen.getByText(/快捷短语（K 模式）已关闭/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "前往输入设置" }));
+  expect(onOpenPage).toHaveBeenCalledWith("input");
+});
+
+test("an enabled phrase table that is gone is listed as missing and can be dropped", async () => {
+  const { onChange } = renderSection(
+    {},
+    { ...defaultPluginPreferences, phrase_tables: ["gone", "other"] },
+  );
+  const list = await screen.findByLabelText("已安装的插件");
+  fireEvent.click(await within(list).findByRole("button", { name: "gone（未找到）" }));
+  fireEvent.click(screen.getByRole("button", { name: "移除" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    phrase_tables: ["other"],
+  });
+  expect(
+    withPackSelected(defaultPluginPreferences, { kind: "phrase_table", id: "a" }).phrase_tables,
+  ).toEqual(["a"]);
+  expect(
+    withoutRemovedPack(
+      { ...defaultPluginPreferences, phrase_tables: ["a", "b"] },
+      "phrase_table",
+      "a",
+    ).phrase_tables,
+  ).toEqual(["b"]);
+});
+
+test("a helpcode pack shows its preview and is used per scheme", async () => {
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "radicals",
+          kind: "helpcode",
+          name: "部首码",
+          table: "table.txt",
+          entries: 3000,
+          preview: [
+            { character: "一", code: "yi" },
+            { character: "丁", code: "di" },
+          ],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenPage = vi.fn();
+  const { onChange } = renderSection(
+    { client, helpcode: true, onOpenPage },
+    { ...defaultPluginPreferences, helpcode_pack_shuangpin: "radicals" },
+  );
+  const list = await screen.findByLabelText("已安装的插件");
+  expect(within(list).getByRole("button", { name: "部首码" }).textContent).toContain("用于双拼");
+  await openPack("部首码");
+  expect(screen.getByText("辅助码表")).toBeTruthy();
+  expect(screen.getByText("辅助码（3000 个字）")).toBeTruthy();
+  expect(screen.getByText("只显示前 2 个字。")).toBeTruthy();
+  fireEvent.click(screen.getByRole("switch", { name: "用于全拼" }));
+  expect(onChange).toHaveBeenLastCalledWith({
+    ...defaultPluginPreferences,
+    helpcode_pack_quanpin: "radicals",
+    helpcode_pack_shuangpin: "radicals",
+  });
+  fireEvent.click(screen.getByRole("switch", { name: "用于双拼" }));
+  expect(onChange).toHaveBeenLastCalledWith(defaultPluginPreferences);
+  fireEvent.click(screen.getByRole("button", { name: "前往辅助码设置" }));
+  expect(onOpenPage).toHaveBeenCalledWith("input");
+  expect(
+    withoutRemovedPack(
+      {
+        ...defaultPluginPreferences,
+        helpcode_pack_quanpin: "radicals",
+        helpcode_pack_shuangpin: "b",
+      },
+      "helpcode",
+      "radicals",
+    ),
+  ).toEqual({ ...defaultPluginPreferences, helpcode_pack_shuangpin: "b" });
+});
+
+test("a wordbook pack previews its words and opens 背单词 on its book", async () => {
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "cs-words",
+          kind: "wordbook",
+          name: "计算机词汇",
+          file: "words.tsv",
+          word_count: 300,
+          first_words: ["algorithm", "cache", "compiler", "kernel", "thread"],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  const onOpenWordbook = vi.fn();
+  renderSection({ client, wordbookPacks: true, onOpenWordbook });
+  await openPack("计算机词汇");
+  expect(screen.getByText("单词本")).toBeTruthy();
+  expect(screen.getByText("单词（300）")).toBeTruthy();
+  expect(screen.getByText("thread")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "去背单词" }));
+  expect(onOpenWordbook).toHaveBeenCalledWith("pack-cs-words");
+  expect(withoutRemovedPack(defaultPluginPreferences, "wordbook", "cs-words")).toBe(
+    defaultPluginPreferences,
+  );
+});
+
+test("a symbol set lists its groups and says when the panel does not show it", async () => {
+  const items = Array.from({ length: 20 }, (_, index) => `s${index}`);
+  const client = fakeClient({
+    catalog: vi.fn(async () => ({
+      packages: [
+        ...catalog.packages,
+        pack({
+          id: "math",
+          kind: "symbol_set",
+          name: "数学符号",
+          groups: [
+            { tab: "symbols", title: "运算", keywords: "", items },
+            { tab: "kaomoji", title: "开心", keywords: "kaixin", items: ["(^_^)"] },
+          ],
+        }),
+      ],
+      issues: [],
+    })),
+  });
+  renderSection({ client });
+  await openPack("数学符号");
+  expect(screen.getByText("符号集")).toBeTruthy();
+  expect(screen.getByText("符号 · 运算（20）")).toBeTruthy();
+  expect(screen.getByText("颜文字 · 开心（1）")).toBeTruthy();
+  expect(screen.getByText(`${items.slice(0, 16).join(" ")} …`)).toBeTruthy();
+  expect(screen.getByText("这台设备的符号面板不显示插件符号集。")).toBeTruthy();
+  cleanup();
+  renderSection({ client, symbolSetPacks: true });
+  await openPack("数学符号");
+  expect(screen.getByText(/装上即在符号面板里显示/)).toBeTruthy();
 });

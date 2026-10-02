@@ -14,7 +14,7 @@ pub const KEY_LIMIT: usize = 64;
 
 /// The entries that are usable of a host list: non-empty text within the candidate text bound, a key of lowercase letters and single apostrophes between them, the first entry of a text, at most `LIST_LIMIT`.
 pub fn usable_mentions(entries: &[MentionEntry]) -> Vec<MentionEntry> {
-    let mut usable: Vec<MentionEntry> = Vec::new();
+    let mut usable: Vec<MentionEntry> = Vec::with_capacity(LIST_LIMIT.min(entries.len()));
     for entry in entries {
         if usable.len() == LIST_LIMIT {
             break;
@@ -134,6 +134,16 @@ mod tests {
             mention("深圳市", "shen'zhen'shi"),
             mention("Alice", ""),
         ])
+    }
+
+    #[test]
+    fn usable_mentions_reserves_the_input_bound() {
+        let entries = [
+            mention("甲", "jia"),
+            mention("乙", "yi"),
+            mention("丙", "bing"),
+        ];
+        assert_eq!(usable_mentions(&entries).capacity(), entries.len());
     }
 
     fn words(code: &str) -> Vec<String> {

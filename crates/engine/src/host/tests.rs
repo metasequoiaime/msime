@@ -52,6 +52,8 @@ fn options(root: &Path) -> EngineOptions {
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
+        helpcode_table: None,
         sentence_association: SentenceAssociationOptions {
             word_lattice: true,
             neural_keyboard: false,
@@ -2010,6 +2012,10 @@ fn generated_mode_options(root: &Path) -> EngineOptions {
         text: "Alice".into(),
         key: String::new(),
     }];
+    value.quick_phrase_table = vec![QuickPhraseEntry {
+        key: "dh".into(),
+        text: "电话".into(),
+    }];
     value
 }
 
@@ -2030,6 +2036,7 @@ fn generated_local_modes_map_through_the_options() {
     .unwrap();
     assert!(!defaults.local_expression && !defaults.local_command && !defaults.local_mention);
     assert!(defaults.command_table.is_empty() && defaults.mention_entries.is_empty());
+    assert!(defaults.quick_phrase_table.is_empty());
     let value = generated_mode_options(dir.path());
     let mapped = super::options::session_options(&value).unwrap();
     assert!(
@@ -2037,6 +2044,7 @@ fn generated_local_modes_map_through_the_options() {
     );
     assert_eq!(mapped.command_table, value.command_table);
     assert_eq!(mapped.mention_entries, value.mention_entries);
+    assert_eq!(mapped.quick_phrase_table, value.quick_phrase_table);
     let off = super::options::session_options(&options(dir.path())).unwrap();
     assert!(!off.local_modes.expression && !off.local_modes.command && !off.local_modes.mention);
 }

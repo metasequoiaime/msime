@@ -1,4 +1,7 @@
 import * as style from "./community-style";
+import { CommunityRightsAgreement } from "./community-rights-agreement";
+import { CommunityInputField } from "./community-input-field";
+import { CommunityTextareaField } from "./community-textarea-field";
 
 export interface CommunitySkinPublicationFieldsProps {
   name: string;
@@ -24,40 +27,31 @@ export function CommunitySkinPublicationFields({
 }: CommunitySkinPublicationFieldsProps) {
   return (
     <>
-      <label className={style.field}>
-        皮肤名称
-        <input
-          className={style.fieldControl}
-          aria-label="发布皮肤名称"
-          maxLength={32}
-          value={name}
-          disabled={busy}
-          onChange={(event) => onNameChange(event.target.value)}
-        />
-      </label>
-      <label className={style.field}>
-        设计说明
-        <textarea
-          className={style.textArea}
-          aria-label="发布设计说明"
-          maxLength={280}
-          rows={4}
-          value={description}
-          disabled={busy}
-          onChange={(event) => onDescriptionChange(event.target.value)}
-        />
-      </label>
-      <label className={style.agreement}>
-        <input
-          className={style.agreementBox}
-          type="checkbox"
-          aria-label="确认拥有发布素材权利"
-          checked={agreed}
-          disabled={busy}
-          onChange={(event) => onAgreedChange(event.target.checked)}
-        />
-        {agreementText}
-      </label>
+      <CommunityInputField
+        label="皮肤名称"
+        ariaLabel="发布皮肤名称"
+        maxLength={32}
+        value={name}
+        disabled={busy}
+        onChange={onNameChange}
+      />
+      <CommunityTextareaField
+        label="设计说明"
+        ariaLabel="发布设计说明"
+        maxLength={280}
+        rows={4}
+        value={description}
+        disabled={busy}
+        onChange={onDescriptionChange}
+      />
+      <CommunityRightsAgreement
+        agreementText={agreementText}
+        ariaLabel="确认拥有发布素材权利"
+        checked={agreed}
+        disabled={busy}
+        checkboxClassName={style.agreementBox}
+        onChange={onAgreedChange}
+      />
     </>
   );
 }

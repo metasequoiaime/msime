@@ -66,7 +66,7 @@ export function PluginMentionsView({
       <GroupList>
         <div className={settings.managerBlock}>
           <p className={settings.managerNote}>
-            在「输入 → 实用功能」打开 @ 名字与地点后，按 @
+            在「输入 → 快捷模式」打开 @ 名字与地点后，按 @
             再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
           </p>
           {mentions.map((entry, index) => (

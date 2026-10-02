@@ -1,21 +1,25 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { boundedGraphemes } from "../core/text";
+import {
+  communityPublishFields,
+  handleCommunityPublishKeyDown,
+} from "./community-publish-validation";
 import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
-import { runAsyncAction } from "../core/async-action";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { renderSkinPreview } from "../skin/skin-preview-render";
 import {
   candidateSkinMegabytes,
   candidateSkinMessage,
-  communityNeedsSignIn,
+  runCommunityPublishAction,
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
+import { CommunitySelectField } from "./community-select-field";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -271,48 +275,35 @@ export function CandidateSkinPublishDialog({
     }
   };
 
-  const normalizedName = name.trim();
-  const normalizedDescription = description.trim();
-  const nameValid =
-    normalizedName.length > 0 &&
-    boundedGraphemes(normalizedName, 32) === normalizedName &&
-    [...normalizedName].length <= 32;
-  const descriptionValid = [...normalizedDescription].length <= 280;
+  const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+    communityPublishFields(name, description);
   const ready = Boolean(pack) && !packLoading && nameValid && descriptionValid && agreed;
 
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !skinId) return;
     const generation = clientGeneration.current;
-    actionRunning.current = true;
-    setSignInRequired(false);
-    try {
-      await runAsyncAction(
-        {
-          busy,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy,
-          setError,
-        },
-        async (isCurrent) => {
-          const published = await client.publish(
-            skinId,
-            publicationId,
-            normalizedName,
-            normalizedDescription,
-            visibility,
-            category,
-          );
-          if (!isCurrent()) return;
-          await onPublished(published);
-        },
-        {
-          formatError: (publishError) => candidateSkinMessage(publishError, true),
-          onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
-        },
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
+    await runCommunityPublishAction({
+      busy,
+      generation,
+      clientGeneration,
+      actionRunning,
+      setBusy,
+      setError,
+      setSignInRequired,
+      formatError: (publishError) => candidateSkinMessage(publishError, true),
+      operation: async (isCurrent) => {
+        const published = await client.publish(
+          skinId,
+          publicationId,
+          normalizedName,
+          normalizedDescription,
+          visibility,
+          category,
+        );
+        if (!isCurrent()) return;
+        await onPublished(published);
+      },
+    });
   };
 
   const openFolder = async () => {
@@ -325,14 +316,6 @@ export function CandidateSkinPublishDialog({
     }
   };
 
-  // Enter in a text field would otherwise submit whichever form this dialog sits in.
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
-      event.preventDefault();
-      if (event.target.type !== "checkbox") void submit();
-    }
-  };
-
   return (
     <div className={style.backdrop}>
       <div
@@ -340,7 +323,7 @@ export function CandidateSkinPublishDialog({
         role="dialog"
         aria-modal="true"
         aria-label="发布候选窗皮肤"
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
       >
         <CommunityDialogHeader
           title="发布候选窗皮肤"
@@ -358,22 +341,19 @@ export function CandidateSkinPublishDialog({
           </p>
         )}
         {options.length > 0 && (
-          <label className={style.field}>
-            发布皮肤
-            <select
-              className={style.fieldControl}
-              aria-label="发布皮肤"
-              value={skinId}
-              disabled={busy}
-              onChange={(event) => setSkinId(event.target.value)}
-            >
-              {options.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <CommunitySelectField
+            label="发布皮肤"
+            ariaLabel="发布皮肤"
+            value={skinId}
+            disabled={busy}
+            onChange={setSkinId}
+          >
+            {options.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+              </option>
+            ))}
+          </CommunitySelectField>
         )}
         <fieldset className={style.field} disabled={busy}>
           <legend>谁可以看到</legend>
@@ -529,10 +509,7 @@ export function CandidateSkinPublishDialog({
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}
-        <div className={style.dialogActions}>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            取消
-          </button>
+        <CommunityDialogActions busy={busy} onClose={onClose}>
           {packError && licenseless && (
             <button
               type="button"
@@ -553,7 +530,7 @@ export function CandidateSkinPublishDialog({
               {busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
             </button>
           )}
-        </div>
+        </CommunityDialogActions>
       </div>
     </div>
   );

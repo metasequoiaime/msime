@@ -10,6 +10,7 @@ import type {
   PluginClient,
   PluginKind,
   PluginPackage,
+  PluginSettingsPage,
 } from "./plugin-types";
 import { PluginListView } from "./plugin-list-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
@@ -23,7 +24,11 @@ export type {
   PluginCommand,
   PluginIssue,
   PluginKind,
+  PluginHelpcodeEntry,
   PluginPackage,
+  PluginPhrase,
+  PluginSettingsPage,
+  PluginSymbolGroup,
 } from "./plugin-types";
 export { kindLabels, pluginErrorMessage } from "./plugin-catalog-helpers";
 export { MAX_MENTIONS, mentionListIssue } from "./plugin-mentions-view";
@@ -44,6 +49,18 @@ export interface PluginsSectionProps {
   effectStyles?: boolean;
   /** The host draws an installed effect pack's style and parameters (`msime_client_typing_effect_settings`); only read where `effectStyles` is true. */
   effectPacks?: boolean;
+  /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`；关闭时短语表详情提示去打开。 */
+  quickPhraseMode?: boolean;
+  /** 宿主使用辅助码（设置里显示辅助码这一组）；辅助码表包只在这时标记和报告缺失。 */
+  helpcode?: boolean;
+  /** 宿主的背单词书目列出单词本插件（`HostCapabilities.wordbook_packs`）。 */
+  wordbookPacks?: boolean;
+  /** 宿主的符号面板显示符号集插件（`HostCapabilities.symbol_set_packs`）。 */
+  symbolSetPacks?: boolean;
+  /** 在背单词里选中一本书并打开背单词；没有背单词的宿主为空。 */
+  onOpenWordbook?: (book: string) => void;
+  /** 打开设置里的另一页（输入、背单词）；没有时详情里不显示这些链接。 */
+  onOpenPage?: (page: PluginSettingsPage) => void;
   /** Loads the catalog and the name list each time this turns true, so a pack copied in by hand shows up on the next visit. Turning false also closes any open view, so the next visit starts at the list. */
   active: boolean;
   onChange: (preferences: PluginPreferences) => void;
@@ -76,6 +93,12 @@ export function PluginsSection({
   typingEffects = false,
   effectStyles = false,
   effectPacks = false,
+  quickPhraseMode = true,
+  helpcode = false,
+  wordbookPacks = false,
+  symbolSetPacks = false,
+  onOpenWordbook,
+  onOpenPage,
   active,
   onChange,
   onError,
@@ -172,15 +195,16 @@ export function PluginsSection({
     setView(listView);
   };
 
-  const { command_tables } = preferences;
+  const { command_tables, phrase_tables } = preferences;
   const effectPacksDrawn = typingEffects && effectStyles && effectPacks;
   const packsListed = Boolean(client) && catalogState === "loaded";
   // The pack kinds the host acts on: only their selections are reported missing or marked in use.
   const actedKinds = new Set<PluginKind>([
     ...(keySound ? (["sound"] as const) : []),
     ...(music ? (["music"] as const) : []),
-    ...(triggers ? (["command_table"] as const) : []),
+    ...(triggers ? (["command_table", "phrase_table"] as const) : []),
     ...(effectPacksDrawn ? (["effect"] as const) : []),
+    ...(helpcode ? (["helpcode"] as const) : []),
   ]);
   // Selections naming a pack that is gone, for each kind the host acts on, listed so they can be dropped.
   const missing = packsListed ? missingSelections(preferences, catalog.packages, actedKinds) : [];
@@ -265,6 +289,14 @@ export function PluginsSection({
         : command_tables.filter((table) => table !== id),
     });
 
+  const setPhraseTable = (id: string, enabled: boolean) =>
+    onChange({
+      ...preferences,
+      phrase_tables: enabled
+        ? [...phrase_tables.filter((table) => table !== id), id]
+        : phrase_tables.filter((table) => table !== id),
+    });
+
   const mentionIssue = mentionListIssue(mentions);
   const mentionsDirty = JSON.stringify(mentions) !== JSON.stringify(savedMentions);
   mentionsDirtyRef.current = mentionsDirty;
@@ -300,9 +332,16 @@ export function PluginsSection({
             music={music}
             triggers={triggers}
             effectPacks={effectPacksDrawn}
+            quickPhraseMode={quickPhraseMode}
+            helpcode={helpcode}
+            wordbookPacks={wordbookPacks}
+            symbolSetPacks={symbolSetPacks}
+            onOpenWordbook={onOpenWordbook}
             working={working}
             onChange={onChange}
             onCommandTable={setCommandTable}
+            onPhraseTable={setPhraseTable}
+            onOpenPage={onOpenPage}
             onRemove={(target) => void removePack(target)}
             onBack={backToList}
           />

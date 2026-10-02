@@ -119,9 +119,9 @@ mod tests {
         );
     }
 
-    /// The full build from the pinned sources, cached in the repository's `target/dict-cache` (downloaded on first use, about 12 MB).
+    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 12 MB）。
     #[test]
-    #[ignore = "downloads the pinned rime-cantonese and libchewing-data files on first use"]
+    #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼与注音源文件"]
     fn builds_from_the_pinned_sources() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let sources = Sources {

@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
-import { GroupList, Row, Select, Switch } from "../core/platform-controls";
-import { POLISH_PROVIDER_OPTIONS, VoiceProviderOptions } from "../voice/voice-provider-options";
+import { GroupList, Row } from "../core/platform-controls";
+import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import * as settings from "./settings-style";
+import { VoiceProviderSelect } from "./voice-provider-select";
+import { TextInputRow } from "./text-input-row";
+import { SwitchRow } from "./switch-row";
 
 export interface VoicePolishSectionProps {
   enabled: boolean;
@@ -9,6 +12,8 @@ export interface VoicePolishSectionProps {
   model: string;
   providerPreset?: ReactNode;
   children?: ReactNode;
+  /** 润色关闭时只留开关，服务、凭据、方案与提示词都收起；打开后原样展开，已填的值不受影响。语音页用它，旧面板不传，始终展开。 */
+  collapsible?: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
@@ -21,34 +26,36 @@ export function VoicePolishSection({
   model,
   providerPreset,
   children,
+  collapsible = false,
   onEnabledChange,
   onProviderChange,
   onModelChange,
 }: VoicePolishSectionProps) {
+  const expanded = !collapsible || enabled;
   return (
-    <GroupList title="文本润色 provider">
+    <GroupList title="文本润色">
       <p className={settings.groupNote}>识别结果可交给用户管理的服务润色</p>
-      <Row title="启用润色">
-        <Switch aria-label="启用文本润色" checked={enabled} onChange={onEnabledChange} />
-      </Row>
-      <Row title="服务提供商">
-        <Select
-          aria-label="文本润色服务提供商"
-          value={provider}
-          onChange={(event) => onProviderChange(event.target.value)}
-        >
-          <VoiceProviderOptions options={POLISH_PROVIDER_OPTIONS} />
-        </Select>
-      </Row>
-      {providerPreset}
-      <Row title="模型">
-        <input
-          aria-label="文本润色模型"
-          value={model}
-          onChange={(event) => onModelChange(event.target.value)}
-        />
-      </Row>
-      {children}
+      <SwitchRow
+        title="启用润色"
+        aria-label="启用文本润色"
+        checked={enabled}
+        onChange={onEnabledChange}
+      />
+      {expanded && (
+        <>
+          <Row title="服务提供商">
+            <VoiceProviderSelect
+              options={POLISH_PROVIDER_OPTIONS}
+              ariaLabel="文本润色服务提供商"
+              value={provider}
+              onChange={onProviderChange}
+            />
+          </Row>
+          {providerPreset}
+          <TextInputRow title="模型" label="文本润色模型" value={model} onChange={onModelChange} />
+          {children}
+        </>
+      )}
     </GroupList>
   );
 }

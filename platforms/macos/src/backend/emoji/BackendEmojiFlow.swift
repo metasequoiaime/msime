@@ -61,6 +61,16 @@ enum MacEmojiFlow {
     }
   }
 
+  /// 把分节各自排好的流式单元按节顺序接成一列，行号依次续接，供跨节的上下方向键使用；矩形仍是各节内的坐标。
+  static func stacked(_ sections: [[MacEmojiFlowCell]]) -> [MacEmojiFlowCell] {
+    var base = 0
+    return sections.flatMap { cells -> [MacEmojiFlowCell] in
+      let shifted = cells.map { MacEmojiFlowCell(rect: $0.rect, row: base + $0.row, fontSize: $0.fontSize) }
+      base += (cells.map(\.row).max() ?? -1) + 1
+      return shifted
+    }
+  }
+
   static func vertical(from index: Int, direction: Int, cells: [MacEmojiFlowCell]) -> Int? {
     guard cells.indices.contains(index) else { return nil }
     let current = cells[index]

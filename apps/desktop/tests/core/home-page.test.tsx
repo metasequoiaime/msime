@@ -28,6 +28,9 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
   expect(screen.getByText("夜青 · 小鹤双拼")).toBeTruthy();
   expect(screen.getByRole("img", { name: "屏幕键盘完整布局预览" })).toBeTruthy();
   expect(screen.getByText("高情商回复")).toBeTruthy();
+  // 磁贴与主题页同名；「全部设置」的副标题按导航分组概括。
+  expect(screen.getByRole("button", { name: /^主题/ })).toBeTruthy();
+  expect(screen.getByText("打字、外观、语音与词库")).toBeTruthy();
 });
 
 // Each shortcut is meant to be recognisable by its own colour rather than by reading the label, so
@@ -35,7 +38,7 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
 // tiles are styled with utilities now, and a class name there is no longer a stable handle.
 test("home shortcuts expose a distinct visual tile for each function", () => {
   render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);
-  const grid = screen.getByRole("button", { name: /皮肤/ }).parentElement!;
+  const grid = screen.getByRole("button", { name: /^主题/ }).parentElement!;
   const tiles = [...grid.querySelectorAll("button")];
   expect(tiles).toHaveLength(6);
 
@@ -48,7 +51,7 @@ test("routes home shortcuts to the shared settings pages", () => {
   const onOpenPage = vi.fn();
   render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} />);
 
-  fireEvent.click(screen.getByRole("button", { name: /皮肤/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^主题/ }));
   fireEvent.click(screen.getByRole("button", { name: /输入方案/ }));
   fireEvent.click(screen.getByRole("button", { name: /按键/ }));
   // The row used to land on 外观 alone; it opens the 全部设置 list now, which is where every page
@@ -167,7 +170,7 @@ test("opens the Android emoji and clipboard tools inside the mobile shell", () =
   expect(openClipboardPanel).toHaveBeenCalledOnce();
 });
 
-test("opens Android on home and preserves the appearance fallback without home capability", async () => {
+test("opens Android on home and falls back to the first navigation page without home capability", async () => {
   render(
     <SettingsPage
       client={{
@@ -185,9 +188,7 @@ test("opens Android on home and preserves the appearance fallback without home c
   cleanup();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
   await settingsFormReady();
-  expect(screen.getByRole("button", { name: "候选窗口" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  expect(screen.getByRole("button", { name: "输入" }).getAttribute("aria-current")).toBe("page");
   expect(screen.queryByRole("region", { name: "首页" })).toBeNull();
 });
 

@@ -8,26 +8,23 @@ export interface PreeditSettingsPreferences {
   shuangpin_preedit_uses_raw?: boolean;
   tsf_preedit_style?: TsfPreeditStyle;
   candidate_preedit_style?: CandidatePreeditStyle;
-  show_candidate_page_number?: boolean;
 }
 
 export interface PreeditSettingsSectionProps {
   preferences: PreeditSettingsPreferences;
   mobile: boolean;
   showShuangpinPreedit: boolean;
-  showPageNumber?: boolean;
   inlinePreedit?: boolean;
   inlinePreeditBusy: boolean;
   onChange: (patch: Partial<PreeditSettingsPreferences>) => void;
   onInlinePreeditChange?: (enabled: boolean) => void;
 }
 
-/** Shared preedit presentation controls for physical and touch keyboard hosts: the rows of the 候选窗口 page's 预编辑 group. */
+/** 实体键盘和触屏键盘宿主共用的预编辑显示控件：「候选窗口」页「预编辑」组的各行，候选窗口自己的预编辑在前，写进应用里的预编辑在最后。 */
 export function PreeditSettingsSection({
   preferences,
   mobile,
   showShuangpinPreedit,
-  showPageNumber = false,
   inlinePreedit,
   inlinePreeditBusy,
   onChange,
@@ -35,6 +32,15 @@ export function PreeditSettingsSection({
 }: PreeditSettingsSectionProps) {
   return (
     <>
+      <Row title={mobile ? "候选栏预编辑" : "候选窗口预编辑"}>
+        <PreeditStyleSelect
+          mode="candidate"
+          value={preferences.candidate_preedit_style ?? "pinyin"}
+          onChange={(value) =>
+            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
+          }
+        />
+      </Row>
       {showShuangpinPreedit && (
         <Row
           title="双拼预编辑"
@@ -64,23 +70,6 @@ export function PreeditSettingsSection({
             mode="inline"
             value={preferences.tsf_preedit_style ?? "raw"}
             onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
-          />
-        </Row>
-      )}
-      <Row title={mobile ? "候选栏预编辑" : "候选窗预编辑"}>
-        <PreeditStyleSelect
-          mode="candidate"
-          value={preferences.candidate_preedit_style ?? "pinyin"}
-          onChange={(value) =>
-            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
-          }
-        />
-      </Row>
-      {showPageNumber && (
-        <Row title="显示页码" description="显示候选列表的当前页与总页数；关闭后仍可正常翻页。">
-          <Switch
-            checked={preferences.show_candidate_page_number !== false}
-            onChange={(checked) => onChange({ show_candidate_page_number: checked })}
           />
         </Row>
       )}

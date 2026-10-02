@@ -29,7 +29,7 @@ size_t find(const std::vector<TrayMenuItem> &items, TrayMenuCommand command) {
   throw std::runtime_error("Tray menu row missing");
 }
 int main() {
-  TrayMenuCapabilities all{true, true, true, true, true, true};
+  TrayMenuCapabilities all{true, true, true, true, true, true, true, true};
   TrayMenuState state;
   state.chinese = true;
   state.fullwidth = false;
@@ -61,6 +61,9 @@ int main() {
         {K::Item, C::SelectWubi},
         {K::Item, C::SelectJapanese},
         {K::Item, C::SelectKorean},
+        {K::Item, C::SelectCantonese},
+        {K::Item, C::SelectZhuyin},
+        {K::Item, C::SelectVietnamese},
         {K::Separator, C::OpenSettings},
         {K::Tool, C::ToggleFloatingToolbar},
         {K::Tool, C::OpenEmojiPanel},
@@ -86,9 +89,10 @@ int main() {
     require(items[9].label == "输入方案");
     require(items[10].label == "全拼" && items[11].label == "双拼（小鹤）" &&
             items[12].label == "五笔 86" && items[13].label == "日文" &&
-            items[14].label == "韩文");
-    require(items[22].label == "主题" && items[23].label == "词库…" &&
-            items[24].label == "设置…" && items[25].label == "关于水杉输入法");
+            items[14].label == "韩文" && items[15].label == "粤拼" &&
+            items[16].label == "注音" && items[17].label == "越南文");
+    require(items[25].label == "主题" && items[26].label == "词库…" &&
+            items[27].label == "设置…" && items[28].label == "关于水杉输入法");
   }
 
   // Hints: the configured CN/EN key, the TIP's own shortcuts and the theme name.
@@ -123,7 +127,8 @@ int main() {
           !checked(items, TrayMenuCommand::SelectJapanese) &&
           !checked(items, TrayMenuCommand::SelectKorean));
   // Exactly one scheme is marked, whichever it is.
-  for (const char *scheme : {"quanpin", "shuangpin", "wubi", "japanese", "korean"}) {
+  for (const char *scheme : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin",
+                             "vietnamese"}) {
     auto next = state;
     next.scheme = scheme;
     const auto rows = tray_menu_items(all, next);
@@ -131,7 +136,8 @@ int main() {
     for (auto command :
          {TrayMenuCommand::SelectQuanpin, TrayMenuCommand::SelectShuangpin,
           TrayMenuCommand::SelectWubi, TrayMenuCommand::SelectJapanese,
-          TrayMenuCommand::SelectKorean})
+          TrayMenuCommand::SelectKorean, TrayMenuCommand::SelectCantonese,
+          TrayMenuCommand::SelectZhuyin, TrayMenuCommand::SelectVietnamese})
       marked += checked(rows, command) ? 1 : 0;
     require(marked == 1);
   }
@@ -150,6 +156,20 @@ int main() {
     const auto rows = tray_menu_items(all, korean);
     require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "韩文");
     require(checked(rows, TrayMenuCommand::SelectKorean));
+  }
+  {
+    // Vietnamese is a language of its own; Cantonese and Zhuyin write Chinese, so the language row stays 中文 for them.
+    auto vietnamese = state;
+    vietnamese.scheme = "vietnamese";
+    auto rows = tray_menu_items(all, vietnamese);
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "越南文");
+    require(checked(rows, TrayMenuCommand::SelectVietnamese));
+    for (const char *chinese : {"cantonese", "zhuyin"}) {
+      auto next = state;
+      next.scheme = chinese;
+      rows = tray_menu_items(all, next);
+      require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "中文");
+    }
   }
   // The shuangpin row names the stored layout, and falls back to the plain name.
   require(tray_menu_shuangpin_label("ziranma") == "双拼（自然码）");
@@ -221,6 +241,17 @@ int main() {
         TrayMenuCommand::OpenTheme, TrayMenuCommand::OpenDictionary,
         TrayMenuCommand::OpenSettings, TrayMenuCommand::OpenAbout})
     require(!available(limited, command));
+  // Cantonese and Zhuyin need their dictionary beside the resources; without it the Engine would run another scheme, so the row is disabled. Vietnamese needs no data.
+  require(!available(limited, TrayMenuCommand::SelectCantonese) &&
+          !available(limited, TrayMenuCommand::SelectZhuyin) &&
+          available(limited, TrayMenuCommand::SelectVietnamese));
+  {
+    auto cantonese_only = server_only;
+    cantonese_only.cantonese = true;
+    const auto rows = tray_menu_items(cantonese_only, state);
+    require(available(rows, TrayMenuCommand::SelectCantonese) &&
+            !available(rows, TrayMenuCommand::SelectZhuyin));
+  }
   // Modes and stored switches need no shell.
   for (auto command :
        {TrayMenuCommand::SelectChinese, TrayMenuCommand::ToggleFullwidth,
@@ -237,12 +268,24 @@ int main() {
   require(near(geometry.size.width, 260.0));
   const double expected_height =
       metrics.padding * 2.0 + metrics.header_height +
-      metrics.separator_height * 5.0 + metrics.row_height * 14.0 +
+      metrics.separator_height * 5.0 + metrics.row_height * 17.0 +
       metrics.label_height + metrics.tool_height;
   require(near(geometry.size.height, expected_height));
   require(near(tray_menu_size(items, metrics).height, expected_height));
-  // Small enough for a 1080p work area at 150% scaling.
-  require(geometry.size.height < 1040.0 / 1.5);
+  // Eight schemes make the design's card taller than a 1080p work area at 150% scaling; fitted to it, the command rows shorten and nothing is clipped. A card that fits keeps the design's metrics.
+  {
+    const double work = 1040.0 / 1.5;
+    require(geometry.size.height > work);
+    const auto fitted = tray_menu_fitted_metrics(items, metrics, work);
+    require(fitted.row_height < metrics.row_height &&
+            fitted.row_height >= tray_menu_compact_row_height);
+    require(tray_menu_geometry(items, fitted).size.height <= work + 0.001);
+    require(near(tray_menu_fitted_metrics(items, metrics, 1400.0).row_height,
+                 metrics.row_height));
+    // A work area too short even for compact rows stops at the compact height; the placement clamps what is left.
+    require(near(tray_menu_fitted_metrics(items, metrics, 300.0).row_height,
+                 tray_menu_compact_row_height));
+  }
   // Rows stack without gaps, inside the padding.
   require(near(geometry.rows[0].top, metrics.padding));
   require(near(geometry.rows[0].bottom, metrics.padding + metrics.header_height));
@@ -363,7 +406,7 @@ int main() {
     selected.scheme = scheme;
     require(checked(tray_menu_items(all, selected), row.command));
   }
-  require(scheme_rows == 5);
+  require(scheme_rows == 8);
   require(!tray_menu_scheme(TrayMenuCommand::SelectChinese));
   require(!tray_menu_scheme(TrayMenuCommand::OpenSettings));
 }

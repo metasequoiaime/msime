@@ -295,6 +295,12 @@ pub struct HostCapabilities {
     /// every press fails. The same rule the other optional capabilities follow.
     #[serde(default)]
     pub vocabulary_review: bool,
+    /// 背单词书目里列出单词本插件（`pack-<插件 id>` 词书）：宿主把插件目录交给背单词的入口。缺省 false，旧宿主不会让插件详情里的「去背单词」指向一本它列不出来的书。
+    #[serde(default)]
+    pub wordbook_packs: bool,
+    /// 宿主的符号面板显示已安装的符号集插件。缺省 false；每个宿主在接入它的那次改动里打开，没打开时插件详情说明本机的符号面板不显示插件符号集。
+    #[serde(default)]
+    pub symbol_set_packs: bool,
     /// The host plays the sound packs in `plugins`: a sample per key class, the melody, the commit sound and the achievement jingle. Only an input process that sees the keys can, and only where it has somewhere to play them; a host without the player keeps the settings but offers no switches for them.
     #[serde(default)]
     pub key_sound: bool,
@@ -331,7 +337,7 @@ const BASE_INPUT_SCHEMES: [InputScheme; 5] = [
     InputScheme::Korean,
 ];
 
-/// The base schemes plus Cantonese, Zhuyin and Vietnamese, which only the macOS host offers.
+/// The base schemes plus Cantonese, Zhuyin and Vietnamese, which every host offers.
 const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
     InputScheme::Quanpin,
     InputScheme::Shuangpin,
@@ -347,13 +353,9 @@ fn base_input_schemes() -> Vec<InputScheme> {
     BASE_INPUT_SCHEMES.to_vec()
 }
 
-/// The schemes this build hands to its Engine. host-api falls back from any other scheme a preferences document names, so a host that never offers a scheme never runs it either. All eight on macOS, the one host that routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries; the base five everywhere else. Cantonese and Zhuyin still fall back on macOS when their dictionary is not installed.
+/// The schemes this build hands to its Engine: all eight on every host, since each one routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese and Zhuyin still fall back when their dictionary is not installed.
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
-    if cfg!(target_os = "macos") {
-        &ALL_INPUT_SCHEMES
-    } else {
-        &BASE_INPUT_SCHEMES
-    }
+    &ALL_INPUT_SCHEMES
 }
 
 impl HostCapabilities {
@@ -598,6 +600,10 @@ impl HostCapabilities {
             // no platform here that can and one that cannot. The flag exists for the version
             // skew: a host binary older than the entry point sends no field and gets `false`.
             vocabulary_review: true,
+            // 桌面宿主的背单词由 Tauri 层传入插件目录；HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 不传插件目录。
+            wordbook_packs: platform.is_desktop(),
+            // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
+            symbol_set_packs: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
             key_sound: platform.is_desktop(),
             plugin_triggers: platform.is_desktop(),
@@ -606,12 +612,8 @@ impl HostCapabilities {
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
             candidate_panel_limit: None,
-            // Only the macOS host routes the Cantonese, Zhuyin and Vietnamese keys and ships their dictionaries.
-            input_schemes: if platform == HostPlatform::Macos {
-                ALL_INPUT_SCHEMES.to_vec()
-            } else {
-                base_input_schemes()
-            },
+            // Every host routes the Cantonese, Zhuyin and Vietnamese keys and ships their dictionaries.
+            input_schemes: ALL_INPUT_SCHEMES.to_vec(),
         }
     }
 }
@@ -625,7 +627,7 @@ pub enum SettingsCategory {
     Account,
     Chat,
     Community,
-    /// 其他平台下载: where to get the client for the user's other devices.
+    /// 其他平台下载：在其他设备上安装客户端的链接。它已不再单独成页，两行链接放在关于页，共享 UI 经 `settingsPageAliases` 为这个 id 打开关于页。宿主仍会发送它。
     Download,
     Appearance,
     Input,

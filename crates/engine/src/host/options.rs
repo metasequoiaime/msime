@@ -7,13 +7,14 @@ use std::path::{Path, PathBuf};
 use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
+use crate::helpcode::SharedKeymap;
 use crate::paths::RuntimePaths;
 use crate::session::SessionOptions;
 use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind,
-    WubiInputOptions,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, SentenceAssociationOptions,
+    ShuangpinProfileKind, WubiInputOptions,
 };
 use crate::user_dictionary::generation::prepare_runtime_paths;
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
@@ -42,6 +43,8 @@ pub struct EngineOptions {
     /// Display only: filtering stays on while annotations are hidden.
     pub show_helpcode: bool,
     pub helpcode_schema: String,
+    /// 宿主给的辅助码表（已安装的辅助码表插件）；有它时 Engine 直接用它，`helpcode_schema` 只用来校验和作为回退。
+    pub helpcode_table: Option<SharedKeymap>,
     pub chinese_punctuation: bool,
     pub paired_punctuation: bool,
     pub punctuation_lock: u8,
@@ -70,6 +73,8 @@ pub struct EngineOptions {
     pub command_table: Vec<CommandTableEntry>,
     /// The `@` mode's names and places, the user's own list. Entries the engine cannot use are dropped, and at most `local::mention::LIST_LIMIT` are kept.
     pub mention_entries: Vec<MentionEntry>,
+    /// K 模式在数据库行之后追加的宿主短语（已启用的短语表插件）。用不了的行被丢弃，最多保留 `local::quick_phrase::TABLE_LIMIT` 行。
+    pub quick_phrase_table: Vec<QuickPhraseEntry>,
     pub sentence_association: SentenceAssociationOptions,
     pub rescoring_context: String,
     /// Ask for every whole-sentence reading; the runtime reorders and crops them.
@@ -115,6 +120,7 @@ pub fn prepare_options(
         helpcode: true,
         show_helpcode: true,
         helpcode_schema: "ziranma".to_owned(),
+        helpcode_table: None,
         chinese_punctuation: true,
         paired_punctuation: true,
         punctuation_lock: 0,
@@ -138,6 +144,7 @@ pub fn prepare_options(
         local_mention: false,
         command_table: Vec::new(),
         mention_entries: Vec::new(),
+        quick_phrase_table: Vec::new(),
         sentence_association: SentenceAssociationOptions::default(),
         rescoring_context: String::new(),
         sentence_alternatives: false,
@@ -192,6 +199,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     session.punctuation_lock = i32::from(options.punctuation_lock);
     session.helpcode = options.helpcode;
     session.helpcode_schema = options.helpcode_schema.clone();
+    session.helpcode_table = options.helpcode_table.clone();
     session.frequency = FrequencyAdjustmentOptions {
         mode,
         trigger_count: i32::from(options.frequency_trigger_count),
@@ -220,6 +228,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     session.command_table = options.command_table.clone();
     session.mention_entries = options.mention_entries.clone();
+    session.quick_phrase_table = options.quick_phrase_table.clone();
     session.sentence_alternatives = options.sentence_alternatives;
     session.sentence_association = options.sentence_association;
     session.rescoring_context = options.rescoring_context.clone();

@@ -45,6 +45,8 @@ try {
         'target/release/msime-desktop.exe',
         'target/handwriting-model/handwriting-zh_CN.model',
         'target/handwriting-model/HandwritingModel-LICENSE.txt',
+        'target/language-dictionaries/zhuyin.db',
+        'target/language-dictionaries/libchewing_data_LICENSE.txt',
         'resources/helpcodes/helpcode.txt',
         'resources/helpcodes/NOTICE.md',
         'resources/sound-packs/default/plugin.toml',
@@ -122,6 +124,17 @@ try {
         if (-not (Test-Path (Join-Path $installer $file))) { throw "Missing packaged file: $file" }
     }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
+    # The Zhuyin dictionary travels beside resources with its licence; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
+    foreach ($name in @('zhuyin.db', 'libchewing_data_LICENSE.txt')) {
+        if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
+    }
+    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/cantonese.db')) { throw 'Packaged a Cantonese dictionary that was not provided' }
+    Write-Fixture 'target/language-dictionaries/cantonese.db'
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'rime_cantonese_LICENSE' }
+    if (-not $rejected) { throw 'A language dictionary without its licence was accepted' }
+    Remove-Item (Join-Path $fixture 'target/language-dictionaries/cantonese.db') -Force
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     foreach ($testFile in @(
         'server_exe/MetasequoiaImeServerTests.exe',
         'server_exe/MetasequoiaImeServerTests.pdb',

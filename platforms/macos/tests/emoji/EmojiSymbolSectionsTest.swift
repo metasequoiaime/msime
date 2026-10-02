@@ -22,6 +22,20 @@ import SwiftUI
     let searched = source.filter { $0.group == "second" }
     assert(MacEmojiSymbolSections.split(searched).map(\.start) == [0])
     assert(MacEmojiSymbolSections.split(Array(source.dropFirst(6))).map(\.start) == [0, 1, 3])
+    // 颜文字：插件组排在内置 All 之后，下标在拼接后的列表里连续；没有内置命中时不出现 All。
+    let plugins = [
+      MacEmojiPluginSymbolGroup(pack: "fixture-p", packName: "Pack", tab: .kaomoji, title: "Happy", keywords: "smile", items: ["(^_^)", "(^o^)"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-p", packName: "Pack", tab: .symbols, title: "Stars", keywords: "", items: ["★"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-q", packName: "Other", tab: .kaomoji, title: "All", keywords: "", items: ["(-_-)"])]
+    let builtIn = items("kaomoji", 3)
+    let kaomoji = MacEmojiSymbolSections.kaomoji(builtIn: builtIn, plugins: plugins, search: "")
+    assert(kaomoji.map(\.title) == ["All", "Happy", "All"] && kaomoji.map(\.start) == [0, 3, 5])
+    assert(Set(kaomoji.map(\.id)).count == 3)
+    assert(kaomoji.flatMap(\.items).map(\.text) == builtIn.map(\.text) + ["(^_^)", "(^o^)", "(-_-)"])
+    let smile = MacEmojiSymbolSections.kaomoji(builtIn: [], plugins: plugins, search: "SMILE")
+    assert(smile.map(\.title) == ["Happy"] && smile.map(\.start) == [0] && smile[0].items.count == 2)
+    assert(MacEmojiSymbolSections.kaomoji(builtIn: builtIn, plugins: [], search: "").map(\.title) == ["All"])
+    assert(MacEmojiSymbolSections.kaomoji(builtIn: [], plugins: [], search: "").isEmpty)
     // Windows non-flow arrows retain flat-index strides even across partial section rows.
     assert(MacEmojiGridCommand.down.destination(from: 1, count: source.count, columns: 6) == 7)
     assert(MacEmojiGridCommand.up.destination(from: 7, count: source.count, columns: 6) == 1)

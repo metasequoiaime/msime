@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { LearningDataSection } from "@msime/ui";
+import { utilityCss } from "../support/utility-css";
 
 afterEach(() => {
   cleanup();
@@ -27,4 +28,13 @@ test("learning data section disables the reset button while busy", () => {
   expect(
     (screen.getByRole("button", { name: "清除全部学习数据" }) as HTMLButtonElement).disabled,
   ).toBe(true);
+});
+
+test("learning data section draws its reset as the shared danger button", () => {
+  render(<LearningDataSection onReset={vi.fn()} disabled={false} />);
+
+  expect(screen.getByRole("button", { name: "清除全部学习数据" }).className).toBe(
+    "secondary danger-button",
+  );
+  expect(utilityCss("danger-button")).toContain("color: var(--danger-text)");
 });

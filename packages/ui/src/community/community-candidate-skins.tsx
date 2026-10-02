@@ -18,6 +18,11 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinCardMetrics } from "./community-skin-card-metrics";
+import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityInstallButton } from "./community-install-button";
+import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -218,13 +223,13 @@ function CommunityCandidateSkinCard({
         className={style.cardStage}
       />
       <strong className={style.cardTitle}>{skin.name}</strong>
-      <span className={style.cardAuthor}>
-        {communitySkinCategoryLabel(skin.category) &&
-          `${communitySkinCategoryLabel(skin.category)} · `}
-        {skin.owned ? "我的作品" : skin.author}
-        {skin.visibility === "private" && " · 私有"}
-        {skin.owned && skin.moderation === "removed" && " · 已下架"}
-      </span>
+      <CommunityCardAuthor
+        prefix={communitySkinCategoryLabel(skin.category) ?? undefined}
+        author={skin.author}
+        owned={skin.owned}
+        private={skin.visibility === "private"}
+        removed={skin.moderation === "removed"}
+      />
       <CommunitySkinCardMetrics
         downloads={skin.downloads}
         ratingCount={skin.rating_count}
@@ -429,15 +434,7 @@ export function CommunityCandidateSkinsPage({
     const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
       <div className={style.page}>
-        <button
-          type="button"
-          className={style.back}
-          disabled={actionBusy}
-          onClick={closeDetail}
-          aria-label="返回社区"
-        >
-          ← 社区
-        </button>
+        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
         {errorAlert}
         <section className={`section ${style.detail}`}>
           <CandidateSkinPreviewImage
@@ -489,37 +486,21 @@ export function CommunityCandidateSkinsPage({
               )}
             </>
           ) : (
-            <button
-              type="button"
-              className={`primary ${style.action}`}
-              disabled={actionBusy || detailBusy || confirmReplace}
-              onClick={() => void install(false)}
-            >
-              {actionBusy ? "正在安装…" : "一键安装"}
-            </button>
+            <CommunityInstallButton
+              actionBusy={actionBusy}
+              detailBusy={detailBusy}
+              confirmReplace={confirmReplace}
+              onInstall={() => void install(false)}
+            />
           )}
           {confirmReplace && (
-            <div className={style.confirmation} role="alertdialog" aria-label="确认替换皮肤">
-              <p>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</p>
-              <div className={style.confirmationActions}>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={actionBusy}
-                  onClick={() => void install(true)}
-                >
-                  替换安装
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={actionBusy}
-                  onClick={() => setConfirmReplace(false)}
-                >
-                  取消
-                </button>
-              </div>
-            </div>
+            <CommunityReplaceConfirmation
+              ariaLabel="确认替换皮肤"
+              message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+              actionBusy={actionBusy}
+              onConfirm={() => void install(true)}
+              onCancel={() => setConfirmReplace(false)}
+            />
           )}
           {selected.owned && (
             <button
@@ -619,21 +600,12 @@ export function CommunityCandidateSkinsPage({
           />
         ))}
       </div>
-      {hasMore && (
-        <button
-          type="button"
-          className={`secondary ${style.more}`}
-          disabled={listBusy}
-          onClick={() => void requestList(activeSearch, true)}
-        >
-          加载更多
-        </button>
-      )}
-      {listBusy && (
-        <p role="status" className={style.notice}>
-          正在读取候选窗皮肤…
-        </p>
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={hasMore}
+        busy={listBusy}
+        loadingText="正在读取候选窗皮肤…"
+        onLoadMore={() => void requestList(activeSearch, true)}
+      />
       {publishOpen && localSkins && (
         <CandidateSkinPublishDialog
           client={client}

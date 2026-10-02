@@ -115,31 +115,32 @@ pub fn load_helpcode_keymap(resources: &Path, schema: &str) -> Result<HelpcodeKe
         }
     }
     let bytes = match File::open(&path) {
-        Ok(file) => {
-            if file
-                .metadata()
-                .map(|metadata| metadata.len())
-                .unwrap_or(MAX_HELPCODE_BYTES + 1)
-                > MAX_HELPCODE_BYTES
-            {
-                return Ok(HelpcodeKeymap::default());
-            }
-            let mut bytes = Vec::new();
-            // Bound the read again in case the file grows after the metadata check.
-            if file
-                .take(MAX_HELPCODE_BYTES + 1)
-                .read_to_end(&mut bytes)
-                .is_err()
-                || bytes.len() as u64 > MAX_HELPCODE_BYTES
-            {
-                return Ok(HelpcodeKeymap::default());
-            }
-            bytes
-        }
+        Ok(file) => match read_helpcode_file(file) {
+            Some(bytes) => bytes,
+            None => return Ok(HelpcodeKeymap::default()),
+        },
         // The C++ reads the table through an `ifstream` that is never checked (helpcode_utils.cpp:57-67), so any open or read failure (a resource tree without the built-in file, which fixtures and hosts rely on for the default `lantian` schema, a directory in its place, no permission, a Windows sharing violation on a custom table being edited, an I/O error) gives an empty table and the session is still created.
         Err(_) => return Ok(HelpcodeKeymap::default()),
     };
     Ok(HelpcodeKeymap::from_codes(parse_helpcode_table(&bytes)))
+}
+
+fn read_helpcode_file(file: File) -> Option<Vec<u8>> {
+    let size = file.metadata().ok()?.len();
+    if size > MAX_HELPCODE_BYTES {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).ok()?);
+    // Bound the read again in case the file grows after the metadata check.
+    if file
+        .take(MAX_HELPCODE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() as u64 > MAX_HELPCODE_BYTES
+    {
+        return None;
+    }
+    Some(bytes)
 }
 
 fn parse_helpcode_table(bytes: &[u8]) -> HashMap<String, String> {
@@ -506,6 +507,18 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn bounded_helpcode_read_reserves_file_size() {
+        let resources = tempfile::tempdir().unwrap();
+        let path = resources.path().join("table.txt");
+        let contents = b"\xE4\xBD\xA0=aa\n\xE5\xA5\xBD=bb\n";
+        std::fs::write(&path, contents).unwrap();
+
+        let bytes = read_helpcode_file(File::open(path).unwrap()).unwrap();
+        assert_eq!(bytes, contents);
+        assert_eq!(bytes.capacity(), contents.len());
     }
 
     #[cfg(unix)]

@@ -142,14 +142,14 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
       client={{
         load: async () => initial,
         save,
-        // macOS always reports mode-switch shortcuts, and the HUD lives with the chords it reacts to.
+        // 中英文切换提示在所有平台都放在输入页「中英文」组，macOS 也不例外。
         host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "快捷键" }));
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("switch", {
-    name: "切换中英文时显示提示",
+    name: "中英文切换提示",
   }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
@@ -223,20 +223,24 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   const save = vi.fn().mockResolvedValue(initial);
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   await settingsFormReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
-  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
+  // 总开关关着时规则列表收起，只留总开关。
   expect(enabled.checked).toBe(false);
-  expect(rule.disabled).toBe(true);
+  expect(screen.queryByRole("checkbox", { name: "模糊音规则 z-zh" })).toBeNull();
   fireEvent.click(enabled);
+  const rule = screen.getByRole("checkbox", { name: "模糊音规则 z-zh" }) as HTMLInputElement;
   expect(rule.checked).toBe(true);
   fireEvent.click(rule);
   expect(rule.checked).toBe(false);
   fireEvent.click(rule);
   expect(rule.checked).toBe(true);
   fireEvent.click(enabled);
+  expect(screen.queryByRole("checkbox", { name: "模糊音规则 z-zh" })).toBeNull();
+  // 关掉再打开，之前选的规则原样还在。
+  fireEvent.click(enabled);
   expect(rule.checked).toBe(true);
-  expect(rule.disabled).toBe(true);
+  expect(rule.disabled).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
   expect((await screen.findByRole("alertdialog")).textContent).toContain("所有模糊音规则会被清空");
   await answerConfirm("confirm");
@@ -251,7 +255,7 @@ test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
     preferences,
   }));
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const enabled = screen.getByRole("switch", { name: "启用模糊音" }) as HTMLInputElement;
   fireEvent.click(enabled);
   for (const id of [
@@ -346,6 +350,55 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("switch", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
+test("touch hosts offering Cantonese, Zhuyin and Vietnamese list their touch schemes last and off", async () => {
+  const host = {
+    platform: "android",
+    input_schemes: [
+      "quanpin",
+      "shuangpin",
+      "wubi",
+      "japanese",
+      "korean",
+      "cantonese",
+      "zhuyin",
+      "vietnamese",
+    ],
+  } as HostCapabilities;
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const group = screen.getByRole("group", { name: "输入方案" });
+  expect(
+    within(group)
+      .getAllByRole("button")
+      .map((button) => button.textContent?.replace("✓", "")),
+  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键"]);
+  expect(within(group).getAllByRole("switch")).toHaveLength(15);
+  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键"]) {
+    expect(
+      (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
+    ).toBe(false);
+  }
+});
+
+test("a touch host without the Cantonese dictionary does not list the Cantonese touch scheme", async () => {
+  const host = {
+    platform: "ios",
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean", "zhuyin", "vietnamese"],
+  } as HostCapabilities;
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, host }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.queryByRole("switch", { name: "显示输入方案 粤拼 26 键" })).toBeNull();
+  expect(screen.getByRole("switch", { name: "显示输入方案 大千注音" })).toBeTruthy();
+});
+
 test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
@@ -355,7 +408,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   const enabled = render(
     <SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
@@ -368,7 +421,7 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
   });
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   expect(screen.queryByRole("switch", { name: "显示英文释义" })).toBeNull();
 });
 
@@ -387,7 +440,7 @@ test("Android English suggestions default on and persist independently", async (
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   const toggle = screen.getByRole("switch", { name: "英文建议" }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   expect(screen.getByText(/英文 26 键直接输入时/)).toBeDefined();
@@ -408,7 +461,7 @@ test("Linux can expose the shared offline candidate gloss setting", async () => 
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   expect(screen.getByRole("switch", { name: "显示英文释义" })).toBeTruthy();
 });
 
@@ -431,12 +484,18 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "手写输入" }));
+  // 每个平台只有一组：开启步骤、隐私说明和 SDK 隐私行都在这一组里，隐私文案只出现一次。
+  const handwriting = screen.getByRole("group", { name: "手写输入" });
+  expect(
+    [...handwriting.querySelectorAll("[data-group-title]")].map((node) => node.textContent),
+  ).toEqual(["iOS 键盘手写"]);
+  expect(within(handwriting).getAllByText(/笔迹和识别结果不会上传/)).toHaveLength(1);
   expect(screen.getByText(/首次在键盘中使用手写时下载中文模型/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"),
   );
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   const toggle = screen.getByRole("switch", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
@@ -482,7 +541,7 @@ test("mobile input settings expose the keyboard AI entry", async () => {
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   expect(screen.getByText(/切换到高情商回复键盘/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "配置键盘 AI" }));
   expect(await screen.findByText("启用 AI 辅助")).toBeDefined();
@@ -868,7 +927,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   const english = (await screen.findByRole("switch", { name: /^中英混输/ })) as HTMLInputElement;
   const emoji = screen.getByRole("switch", { name: /^emoji 混输/ }) as HTMLInputElement;
   const kaomoji = screen.getByRole("switch", { name: /^颜文字混输/ }) as HTMLInputElement;
@@ -905,7 +964,7 @@ test("traditional Chinese output toggle persists", async () => {
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const toggle = (await screen.findByRole("switch", {
-    name: "简繁输入",
+    name: "繁体输出",
   })) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
@@ -1047,7 +1106,7 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   const endpoint = (await screen.findByLabelText("AI 接口地址")) as HTMLInputElement;
   const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
@@ -1125,7 +1184,7 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
@@ -1175,7 +1234,7 @@ test("a provider-credential host runs the AI service controls without a token", 
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
   expect(screen.queryByLabelText("AI API Token")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
@@ -1227,8 +1286,8 @@ test("input parity controls persist cloud, translation and punctuation settings"
   expect(((await screen.findByLabelText("默认中英文")) as HTMLSelectElement).value).toBe("chinese");
   // Anchored: the emoji and kaomoji toggles mention 云候选 in their own descriptions.
   fireEvent.click(await screen.findByRole("switch", { name: /^云候选/ }));
-  // Translation and punctuation are on the 表达 page; both pages edit one draft.
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  // 翻译和标点都在「标点与翻译」页；两个页面编辑的是同一份草稿。
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("switch", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
@@ -1262,7 +1321,7 @@ test("Android candidate translations persist an optional second language", async
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -1293,7 +1352,7 @@ test("macOS candidate translations expose the shared second language", async () 
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
@@ -1338,7 +1397,7 @@ test("mobile translation languages stay editable for offline English glosses", a
       }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
   const secondary = screen.getByRole("combobox", {
     name: "候选词翻译第二种语言",
@@ -1367,7 +1426,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
     host: { platform: "ios" } as HostCapabilities,
   };
   const first = render(<SettingsPage client={client} />);
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   expect(
     (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
@@ -1378,7 +1437,7 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
   ).toContain("已保存");
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
-  fireEvent.click(await screen.findByRole("button", { name: "表达" }));
+  fireEvent.click(await screen.findByRole("button", { name: "标点与翻译" }));
   expect(
     [
       ...(screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
@@ -1487,16 +1546,12 @@ test("word-to-character and paging disable each other while preserving the chose
   expect(word.checked).toBe(true);
   expect(minus.disabled).toBe(true);
   fireEvent.click(word);
-  // Paging is on the 候选窗口 page and 以词定字 on 输入; both edit one draft.
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  // 翻页方式和以词定字同在输入页「选词与翻页」组，在一处勾选会同屏改掉另一处。
   fireEvent.click(screen.getByRole("checkbox", { name: "[ / ]" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(word.checked).toBe(false);
   fireEvent.click(word);
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
   expect((screen.getByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement).checked).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "- / =" }));
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(minus.disabled).toBe(false);
   fireEvent.click(minus);
   saveSettingsNow();
@@ -1526,7 +1581,7 @@ test("paging defaults match Windows and individual edits persist", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const brackets = (await screen.findByRole("checkbox", { name: "[ / ]" })) as HTMLInputElement;
   expect(brackets.checked).toBe(false);
   for (const name of [
@@ -1567,9 +1622,9 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const wheel = (await screen.findByRole("checkbox", {
-    name: "鼠标滚轮（候选面板支持时翻页）",
+    name: "鼠标滚轮（候选窗口支持时翻页）",
   })) as HTMLInputElement;
   expect(wheel.checked).toBe(false);
   fireEvent.click(wheel);
@@ -1599,8 +1654,8 @@ test("Linux explains what the mouse-wheel paging switch does on IBus and Fcitx5"
       />,
     );
     await settingsReady();
-    fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
-    await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" });
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    await screen.findByRole("checkbox", { name: "鼠标滚轮（候选窗口支持时翻页）" });
     const note = screen.queryByText(/在 IBus 候选窗口上滚动即翻页/);
     if (shown) {
       expect(note?.textContent).toContain("关闭时滚轮不做任何事");
@@ -1648,24 +1703,59 @@ test("helpcode schemes save independently and retain disabled selections", async
   });
 });
 
+// 输入页的辅助码组从插件目录读出已安装的辅助码表，作为两个方案下拉框的选项。
+test("the 输入 page offers installed helpcode packs as helpcode schemes", async () => {
+  const catalog = vi.fn().mockResolvedValue({
+    packages: [{ id: "radicals", kind: "helpcode", name: "部首码" }],
+    issues: [],
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        plugins: {
+          catalog,
+          importPack: vi.fn(),
+          remove: vi.fn(),
+          loadMentions: vi.fn().mockResolvedValue([]),
+          saveMentions: vi.fn(),
+        } as never,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const quanpin = (await screen.findByRole("combobox", {
+    name: "全拼辅助码方案",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(within(quanpin).getByRole("option", { name: "部首码（插件）" })));
+  const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码方案" });
+  expect(within(shuangpin).getByRole("option", { name: "部首码（插件）" })).toBeTruthy();
+});
+
 test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("候选操作")).toBeDefined();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
+  // 开着的几组翻页键合在同一行里，不再各占一行同名的「向前 / 向后翻页」。
+  expect(screen.getAllByText("向前 / 向后翻页")).toHaveLength(1);
+  // 以词定字默认开着，用 [ / ] 上屏首字和末字。
+  expect(screen.getByText("以词定字（上屏首字 / 末字）")).toBeDefined();
   expect(screen.getByText("↑ / ↓")).toBeDefined();
   expect(screen.getByText("Home / End")).toBeDefined();
   // Home/End move across the whole candidate list, as on Windows, not within the current page.
   expect(screen.getByText("移动到候选列表首项 / 末项（页码随之切换）")).toBeDefined();
-  expect(screen.getByText("Ctrl+Shift+Alt+C")).toBeDefined();
+  expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
 });
 
 function candidateThemeNote() {
   return screen.getByText(/^预览跟随颜色模式/).textContent;
 }
 
-test("Linux appearance and maintenance copy names both hosts and the Fcitx5 reload", async () => {
+test("Linux appearance and service copy names both hosts and the Fcitx5 reload", async () => {
   render(
     <SettingsPage
       client={{
@@ -1679,17 +1769,11 @@ test("Linux appearance and maintenance copy names both hosts and the Fcitx5 relo
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(await screen.findByRole("combobox", { name: "候选窗口主题" })).toBeDefined();
-  expect(candidateThemeNote()).toBe("预览跟随颜色模式；IBus 候选窗与 Fcitx5 经典界面按此明暗着色");
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(
-    await screen.findByText("在当前 IBus 或 Fcitx5 输入上下文中维护候选与重启服务"),
-  ).toBeDefined();
-  // Fcitx5 hosts MSIME in process, so the Fcitx5 half must read as a plugin reset that spares other input methods, not a restart.
-  // The chord sits in the row's control slot; the row itself carries the title that explains it.
-  const restartRow =
-    screen.getByText("Ctrl+Shift+Alt+R").parentElement?.parentElement?.textContent ?? "";
-  expect(restartRow).toContain("IBus 执行 ibus restart");
-  expect(restartRow).toContain("Fcitx5 重置水杉插件，不影响其他输入法");
+  expect(candidateThemeNote()).toBe(
+    "预览跟随颜色模式；IBus 候选窗口与 Fcitx5 经典界面按此明暗着色",
+  );
+  // 重启输入法服务在「维护与诊断」页；Fcitx5 hosts MSIME in process, so its half reads as a plugin reload rather than a restart.
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const service = screen.getByRole("region", { name: "输入法服务" }).textContent ?? "";
   expect(service).toContain("重启 IBus 输入法服务");
   expect(service).toContain("使用 Fcitx5 时重载水杉插件");
@@ -1714,7 +1798,7 @@ test.each(["windows", "macos"] as const)(
   },
 );
 
-test("macOS maintenance shortcuts use the current input context and Option", async () => {
+test("the macOS shortcuts page omits the maintenance chords and 维护与诊断 still restarts", async () => {
   const restartInputMethod = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
@@ -1733,15 +1817,11 @@ test("macOS maintenance shortcuts use the current input context and Option", asy
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(await screen.findByText("输入上下文维护快捷键")).toBeDefined();
-  expect(
-    screen.getByText("仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"),
-  ).toBeDefined();
-  for (const key of ["1–8", "C", "R", "T"])
-    expect(screen.getByText(`Ctrl+Shift+Option+${key}`)).toBeDefined();
-  expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
-  expect(screen.getByText("重新注册并重启当前输入法")).toBeDefined();
-  expect(screen.getByText("立即退出当前输入法进程")).toBeDefined();
+  // The maintenance chords are not listed on the shortcuts page.
+  expect(await screen.findByRole("group", { name: "快捷键" })).toBeDefined();
+  expect(screen.queryByText("输入上下文维护快捷键")).toBeNull();
+  expect(screen.queryByText("Ctrl+Shift+Option+T")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   fireEvent.click(screen.getByRole("button", { name: "重新注册" }));
   await waitFor(() => expect(restartInputMethod).toHaveBeenCalledOnce());
   expect(await screen.findByText("已重新注册输入源。")).toBeDefined();
@@ -1760,7 +1840,7 @@ test("Linux restart copy covers both input method frameworks", async () => {
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(
     await screen.findByText(
       "重启 IBus 输入法服务；使用 Fcitx5 时重载水杉插件，关闭并重建所有输入会话，不影响其他输入法。",
@@ -1784,7 +1864,7 @@ test("macOS service page exposes installation separately from re-registration", 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
   await waitFor(() => expect(installInputSource).toHaveBeenCalledOnce());
@@ -2041,7 +2121,7 @@ test("the start-time input method report is macOS only", async () => {
   expect(screen.queryByLabelText("水杉输入法安装状态")).toBeNull();
 });
 
-test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
+test("macOS 维护与诊断 page exposes reversible uninstall with explicit data removal", async () => {
   const uninstallInputSource = vi.fn().mockResolvedValue(undefined);
   render(
     <SettingsPage
@@ -2050,13 +2130,29 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
         save: vi.fn(),
         restartInputMethod: vi.fn().mockResolvedValue(undefined),
         uninstallInputSource,
+        dataDirectory: {
+          status: vi.fn().mockResolvedValue({ path: "/synthetic/default-state", isDefault: true }),
+          pick: vi.fn(),
+          move: vi.fn(),
+        },
         host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
       }}
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  expect(await screen.findByText("卸载水杉输入法")).toBeDefined();
-  expect(screen.getByText("© 2026 Metasequoia IME")).toBeDefined();
+  const about = await screen.findByRole("group", { name: "关于" });
+  expect(within(about).getByText("© 2026 Metasequoia IME")).toBeDefined();
+  // 卸载属于维护，不是产品信息：它已从「关于」移出，放在「维护与诊断」的最后。
+  expect(within(about).queryByText("卸载水杉输入法")).toBeNull();
+  const groupTitles = (scope: HTMLElement) =>
+    [...scope.querySelectorAll("[data-group-title]")].map((node) => node.textContent);
+  expect(groupTitles(about)).toEqual(["版本与更新", "许可与隐私"]);
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
+  const developer = await screen.findByRole("group", { name: "维护与诊断" });
+  expect(await within(developer).findByText("卸载水杉输入法")).toBeDefined();
+  expect(await within(developer).findByText("/synthetic/default-state")).toBeDefined();
+  // 基础的服务操作在前，破坏性的那个在最后。
+  expect(groupTitles(developer)).toEqual(["输入法服务", "诊断日志", "数据目录", "卸载"]);
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
@@ -2092,7 +2188,7 @@ test("macOS developer page moves the shared data root only after an explicit con
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByText("/synthetic/default-state")).toBeDefined();
   expect(screen.getByText("（默认）")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
@@ -2126,7 +2222,7 @@ test("Linux developer page moves the data root and says the fixed configuration 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByText("/synthetic/home/.config/msime-client")).toBeDefined();
   expect(screen.getByRole("group", { name: "数据目录" }).textContent).toContain(
     "凭据固定保存在 ~/.config/msime-client",
@@ -2164,7 +2260,7 @@ test("Linux data move reports busy input sessions and a restart it could not do"
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByText("/synthetic/home/.config/msime-client")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
   await answerConfirm("confirm");
@@ -2220,7 +2316,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   })) as HTMLInputElement;
   expect(unicode.checked).toBe(true);
   fireEvent.click(unicode);
-  fireEvent.click(screen.getByRole("button", { name: "表达" }));
+  fireEvent.click(screen.getByRole("button", { name: "标点与翻译" }));
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect(unicode.checked).toBe(false);
   saveSettingsNow();
@@ -2298,7 +2394,7 @@ test("clipboard history defaults off, clears when disabled, and saves independen
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   const clipboard = (await screen.findByRole("switch", {
     name: "剪贴板管理",
   })) as HTMLInputElement;
@@ -2335,7 +2431,7 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText("synthetic pinned")).toBeDefined();
   expect(screen.getByText(/已固定/)).toBeDefined();
 
@@ -2373,7 +2469,7 @@ test("iOS clipboard history follows keyboard permission instead of the desktop p
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText("synthetic mobile")).toBeDefined();
   expect(screen.queryByRole("switch", { name: "剪贴板管理" })).toBeNull();
   expect(screen.queryByRole("button", { name: "从系统剪贴板同步" })).toBeNull();
@@ -2655,7 +2751,8 @@ test("dictionary fallback import uses 10000 by default and preserves an explicit
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
-  const manager = screen.getByRole("region", { name: "本地词库管理" });
+  // 导入在词库页的「导入与导出」组。
+  const manager = screen.getByRole("region", { name: "导入与导出" });
   fireEvent.change(within(manager).getByLabelText("导入"), {
     target: {
       files: [
@@ -2881,14 +2978,14 @@ test("macOS reveals the diagnostic log in Finder and names what it records", asy
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   const log = await screen.findByLabelText("输入法日志");
   // The macOS log covers key latency, candidate placement and statistics failures as well as focus and preferences, and the copy points at the action instead of a path the Finder hides.
   // The switch is named by its row and described by the row's text.
   const description =
     document.getElementById(log.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
   expect(description).toContain("超过 8 毫秒的按键处理耗时");
-  expect(description).toContain("候选窗的显示位置");
+  expect(description).toContain("候选窗口的显示位置");
   expect(description).toContain("输入统计写入失败");
   expect(description).toContain("不记录按键、输入内容或候选文本");
   expect(description).toContain("在 Finder 中显示");
@@ -2915,7 +3012,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   expect(await screen.findByLabelText("输入法日志")).toBeDefined();
   // Without the host callback, as on the phones, there is no button that would fail when pressed.
   expect(screen.queryByRole("button", { name: "在 Finder 中显示" })).toBeNull();
@@ -2934,7 +3031,7 @@ test("the diagnostic log action needs a host that can reveal the file", async ()
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "开发者选项" }));
+  fireEvent.click(screen.getByRole("button", { name: "维护与诊断" }));
   // Outside macOS the action opens the folder and says so.
   fireEvent.click(await screen.findByRole("button", { name: "打开日志目录" }));
   expect(openDiagnosticLogDirectory).toHaveBeenCalledTimes(1);
@@ -3003,6 +3100,10 @@ test("macOS exposes learning data reset and keeps its confirmation flow", async 
   );
 
   await screen.findByRole("region", { name: "学习数据" });
+  // 破坏性操作使用共享的 `danger-button` 工具类（见 `learning-data-section.test.tsx`）。
+  expect(
+    screen.getByRole("button", { name: "清除全部学习数据" }).classList.contains("danger-button"),
+  ).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "清除全部学习数据" }));
   await answerConfirm("confirm");
   await waitFor(() => expect(resetLearnedData).toHaveBeenCalledTimes(1));
@@ -3093,7 +3194,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   const rows = [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
   const secondaryLabels = rows.map((row) => row.querySelector("strong")?.textContent ?? "");
   expect(secondaryLabels).toContain("输入");
-  expect(secondaryLabels).toContain("云剪贴板");
+  expect(secondaryLabels).toContain("剪贴板");
   expect(secondaryLabels).not.toContain("辅助码");
   // A touch host calls the shortcut page 外接键盘快捷键, and this one routes no hardware chords.
   expect(secondaryLabels).not.toContain("外接键盘快捷键");
@@ -3134,7 +3235,36 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   expect(within(feedback).getByLabelText("振动强度")).toBeTruthy();
   fireEvent.click(within(feedback).getByRole("button", { name: "试一下振动" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith("medium"));
-  fireEvent.click(within(feedback).getByLabelText("英文建议"));
+  // 「英文建议」管的是候选，在输入页「候选与联想」组，不在按键反馈里重复出现。
+  expect(within(feedback).queryByLabelText("英文建议")).toBeNull();
+});
+
+test("iOS English suggestions sit with the candidate settings on the input page", async () => {
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+  });
+  const save = vi.fn().mockImplementation(async (settings) => settings);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load, save },
+      }}
+    />,
+  );
+  const candidates = await screen.findByRole("region", { name: "候选与联想" });
+  const toggle = (await within(candidates).findByRole("switch", {
+    name: "英文建议",
+  })) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ englishSuggestions: false })),
   );
@@ -3289,6 +3419,83 @@ test("the touch toolbar switches appear only on a host that reads them and save 
   });
 });
 
+test("the theme page runs from the colour mode to the per-surface overrides", async () => {
+  render(
+    <SettingsPage
+      initialPage="skin"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+        host: {
+          platform: "linux",
+          candidate_panel_limit: "fcitx_theme",
+          candidate_row_colors: true,
+          candidate_selection_appearance: true,
+          candidate_border_color: true,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const skin = screen.getByRole("group", { name: "主题" });
+  const groups = [...skin.querySelectorAll("[data-group-title]")].map((title) => title.textContent);
+  expect(groups).toEqual(["明暗", "更多皮肤", "自定义主题", "高级"]);
+  // 颜色模式自成一组，排在卡片之前，卡片的明暗预览以它为起点。
+  const mode = within(skin).getByRole("radiogroup", { name: "颜色模式" });
+  const firstCard = skin.querySelector("article")!;
+  expect(mode.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // 颜色从背景排到边框。
+  const colours = [
+    ...within(skin)
+      .getByRole("region", { name: "自定义主题" })
+      .querySelectorAll("[data-row-title]"),
+  ].map((title) => title.textContent);
+  expect(colours).toEqual([
+    "候选表面色",
+    "候选文字颜色",
+    "候选编号颜色",
+    "候选强调色",
+    "候选选中色",
+    "候选悬停色",
+    "候选边框色",
+  ]);
+  // Linux 面板的说明放在页首，排在那些皮肤和颜色会被该面板忽略的组之前。
+  const note = within(skin).getByText(/Fcitx5 正在使用你在 Fcitx5 配置中选择的经典界面主题/);
+  expect(note.compareDocumentPosition(mode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("the floating toolbar page leads with its preview, then 显示, 按钮 and 尺寸", async () => {
+  render(
+    <SettingsPage
+      initialPage="floating-toolbar"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: {
+          platform: "windows",
+          floating_toolbar: true,
+          floating_toolbar_components: true,
+          floating_toolbar_appearance: true,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const toolbar = screen.getByRole("group", { name: "悬浮工具栏" });
+  const preview = within(toolbar).getByLabelText("悬浮工具栏预览");
+  const groups = [...toolbar.querySelectorAll("[data-group-title]")];
+  expect(groups.map((title) => title.textContent)).toEqual(["显示", "按钮", "尺寸"]);
+  expect(
+    preview.compareDocumentPosition(groups[0]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // 预览自成一块，不是「显示」组里的一行。
+  expect(
+    within(screen.getByRole("region", { name: "显示" })).queryByLabelText("悬浮工具栏预览"),
+  ).toBeNull();
+  expect(within(toolbar).getByRole("group", { name: "按钮" })).toBeTruthy();
+});
+
 test("the iOS skin page hands the candidate strip to the desktop candidate skin", async () => {
   const load = vi.fn().mockResolvedValue({
     soundEnabled: true,
@@ -3368,7 +3575,10 @@ test("iOS describes local modes and 以词定字 the way its keyboard reaches th
   const input = await screen.findByRole("group", { name: "输入" }, { timeout: 3000 });
   expect(within(input).getByText(/「更多 → 本地输入」里选「快捷短语」/)).toBeTruthy();
   expect(within(input).getByText(/「更多 → 本地输入」里选「英文补全」/)).toBeTruthy();
-  expect(within(input).queryByText(/Shift\+[A-Z]/)).toBeNull();
+  // 只看快捷模式组：同页「选词与翻页」组的翻页方式里有 Shift+Tab 这样的键名。
+  expect(
+    within(within(input).getByRole("region", { name: "快捷模式" })).queryByText(/Shift\+[A-Z]/),
+  ).toBeNull();
   expect(within(input).getByText(/长按两个字以上的候选/)).toBeTruthy();
   expect(within(input).queryByText("以词定字快捷键")).toBeNull();
 });
@@ -3494,7 +3704,7 @@ test("mobile account deep links participate in the back stack", async () => {
     const bar = screen.getByRole("navigation", { name: "主要功能" });
     fireEvent.click(within(bar).getByRole("button", { name: "我的" }));
     // 反馈 and 关于 live in 我的 on a touch host, so the 全部设置 list does not repeat them.
-    expect(screen.queryByRole("button", { name: "反馈" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "帮助与反馈" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "关于" }));
     expect(window.history.state).toEqual(
       expect.objectContaining({ msimeSettings: true, page: "about" }),
@@ -3519,16 +3729,16 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
       preferences,
     })),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   // The layout is a segmented control: one radio per arrangement.
   const layout = await screen.findByRole("radiogroup", { name: "候选项排列方式" });
   expect((within(layout).getByRole("radio", { name: "纵向" }) as HTMLInputElement).checked).toBe(
     true,
   );
-  expect((screen.getByLabelText("候选窗字号") as HTMLSelectElement).value).toBe("18");
-  expect((screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement).value).toBe("15");
+  expect((screen.getByLabelText("字号") as HTMLSelectElement).value).toBe("18");
+  expect((screen.getByLabelText("预编辑字号") as HTMLSelectElement).value).toBe("15");
   fireEvent.click(within(layout).getByRole("radio", { name: "横向" }));
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "主题" }));
   expect(screen.getByRole("switch", { name: /跟随系统/ }).getAttribute("aria-checked")).toBe(
     "true",
@@ -3555,7 +3765,7 @@ test("macOS exposes the shuangpin preedit presentation and persists the expanded
     save,
     host: { platform: "macos" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const preedit = (await screen.findByRole("combobox", {
     name: "双拼预编辑",
   })) as HTMLSelectElement;
@@ -3576,7 +3786,7 @@ test("font family controls validate drafts and save Unicode without touching the
     preferences,
   }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
   // An empty family holds the automatic save back, and submitting the form does not force one.
   fireEvent.change(primary, { target: { value: "" } });
@@ -3623,7 +3833,7 @@ test("the candidate window page has no fallback font editor and keeps the stored
       }}
     />,
   );
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   expect(screen.queryByRole("button", { name: "添加补充字体" })).toBeNull();
   expect(screen.queryByLabelText(/^补充字体/)).toBeNull();
   expect(screen.queryByText(/补充字体/)).toBeNull();
@@ -3653,7 +3863,7 @@ test("on Windows the main font leads the fallback chain", async () => {
       }}
     />,
   );
-  const primary = await screen.findByLabelText("候选窗主字体");
+  const primary = await screen.findByLabelText("主字体");
   for (const typed of ["L", "LX", "LXGW WenKai"])
     fireEvent.change(primary, { target: { value: typed } });
   saveSettingsNow();
@@ -4522,6 +4732,11 @@ test("candidate text colour loads, previews, saves and resets to theme", async (
   expect(preview.style.getPropertyValue("--cand-text")).toBe("#123456");
   fireEvent.change(color, { target: { value: "#abcdef" } });
   expect(preview.style.getPropertyValue("--cand-num")).toBe("#ABCDEF9D");
+  // 「主题」页上的「自定义」卡片根据同一份草稿重绘；「候选窗口」页已经没有预览，它就是颜色选择器旁边的预览。
+  const customCard = document.querySelector<HTMLElement>(
+    'article [data-skin-preview][data-global-theme="custom"]',
+  )!;
+  expect(customCard.style.getPropertyValue("--cand-text")).toBe("#ABCDEF");
   expect(save).not.toHaveBeenCalled();
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -4560,7 +4775,7 @@ test("a picker used over a built-in theme customizes that theme, and the package
   const save = vi
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => saved, save }} />);
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
   const color = (await screen.findByLabelText("候选文字颜色")) as HTMLInputElement;
   fireEvent.change(color, { target: { value: "#ff0000" } });
   const preview = screen
@@ -4630,9 +4845,9 @@ test("complete candidate and preedit font sizes load, preview independently and 
   const save = vi
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => saved, save }} />);
-  const size = (await screen.findByLabelText("候选窗字号")) as HTMLSelectElement;
-  const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => saved, save }} />);
+  const size = (await screen.findByLabelText("字号")) as HTMLSelectElement;
+  const preedit = screen.getByLabelText("预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
   expect(preedit.value).toBe("27");
   expect([...size.options].map((option) => option.value)).toEqual(
@@ -4668,27 +4883,31 @@ test("complete candidate and preedit font sizes load, preview independently and 
 
 test("appearance preview follows drafts and skin selection before they are saved", async () => {
   const save = vi.fn();
-  render(<SettingsPage client={{ load: async () => initial, save }} />);
+  render(<SettingsPage initialPage="appearance" client={{ load: async () => initial, save }} />);
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
-  expect(preview.querySelectorAll(".cand")).toHaveLength(5);
+  // 只数实际样例；预留高度的那份不可见样例不带 `data-preview-layout`，固定按纵向、滑块最大值排。
+  expect(preview.querySelectorAll("[data-preview-layout] .cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
+  expect(preview.querySelectorAll("[data-preview-reserve] .wnd-v .cand")).toHaveLength(9);
   expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
   fireEvent.click(
     within(screen.getByRole("radiogroup", { name: "候选项排列方式" })).getByRole("radio", {
       name: "横向",
     }),
   );
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
   // The brand mark leads the top row, ahead of the reading.
   expect(preview.querySelector(".pinyin > .candidate-brand + .text")).not.toBeNull();
-  fireEvent.change(screen.getByLabelText("候选窗预编辑"), { target: { value: "empty" } });
+  fireEvent.change(screen.getByLabelText("候选窗口预编辑"), { target: { value: "empty" } });
   // With the reading hidden the row stays for the mark alone.
   expect(
     preview.querySelector(".container.preedit-hidden > .candidate-brand-row > .candidate-brand"),
   ).not.toBeNull();
-  expect(preview.querySelectorAll(".cand")).toHaveLength(9);
+  expect(preview.querySelectorAll("[data-preview-layout] .cand")).toHaveLength(9);
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
+  // 切到横向后预留的仍是纵向九项，预览框高度不变。
+  expect(preview.querySelectorAll("[data-preview-reserve] .wnd-v .cand")).toHaveLength(9);
   expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
   expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(true);
   expect(
@@ -4710,6 +4929,7 @@ test("appearance preview follows drafts and skin selection before they are saved
 test("appearance preview identifies external skins instead of showing a false built-in match", async () => {
   render(
     <SettingsPage
+      initialPage="appearance"
       client={{
         load: async () => ({
           ...initial,
@@ -4733,6 +4953,7 @@ test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)(
   async (scheme) => {
     render(
       <SettingsPage
+        initialPage="appearance"
         client={{
           load: async () => ({
             ...initial,
@@ -4748,7 +4969,9 @@ test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)(
       />,
     );
     const preview = await screen.findByRole("region", { name: "候选窗口预览" });
-    expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
+    expect(preview.querySelectorAll("[data-preview-layout] .cand-helpcode")).toHaveLength(
+      scheme === "shuangpin" ? 5 : 0,
+    );
   },
 );
 
@@ -5069,7 +5292,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("快速上手")).toBeDefined();
   expect(screen.getByText(/Win \+ Space/)).toBeDefined();
@@ -5085,7 +5308,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
     ),
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   expect(await screen.findByText("GitHub Issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
@@ -5104,7 +5327,7 @@ test("Linux help quick start covers both Fcitx5 and IBus", async () => {
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const intro = await screen.findByText(/Linux 桌面环境下的中文输入法/);
   expect(intro.textContent).toContain("Fcitx5");
@@ -5130,7 +5353,7 @@ test("Linux help network section says what goes online and where credentials liv
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   const network = await screen.findByText(/日常拼音输入无需联网/);
   const text = network.textContent ?? "";
@@ -5162,7 +5385,7 @@ test("Android help and about pages use mobile instructions and project links", a
   render(<SettingsPage client={client} />);
   await settingsReady();
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/语言和输入法/)).toBeDefined();
@@ -5182,7 +5405,7 @@ test("Android help and about pages use mobile instructions and project links", a
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   await waitFor(() =>
     expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
@@ -5237,14 +5460,14 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
     />,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   expect(await screen.findByText("允许完全访问")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "打开系统键盘设置" }));
   await waitFor(() => expect(openSystemKeyboardSettings).toHaveBeenCalledOnce());
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
     target: { value: "候选词不对" },
   });
@@ -5289,10 +5512,10 @@ test("macOS support pages use client project and privacy links", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
-  fireEvent.click(screen.getByRole("button", { name: "查看许可全文" }));
+  fireEvent.click(screen.getByRole("button", { name: "第三方组件许可" }));
   await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
     target: { value: "候选词不对" },
   });
@@ -5323,7 +5546,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   // macOS answers the three questions as term/description rows, not prose, so the page carries the
@@ -5350,7 +5573,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
       }}
     />,
   );
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   // 帮助 is an entry on the 反馈 page, which is only drawn once the settings have loaded.
   fireEvent.click(await screen.findByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/iOS 平台的中文输入法/)).toBeDefined();
@@ -5361,11 +5584,8 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
 });
 
-// Every host but macOS lists the sidebar flat, so this is the order a Windows user sees and the
-// order the HarmonyOS settings window shows. Pinned against the reference window's own sidebar so
-// inserting a page cannot quietly move the reference's pages around it.
-// The design's navigation (dc.html `NAV`): five groups, in order. A page the host does not offer drops out of its group rather than leaving a gap, and the sub-pages are reached from inside their parent page.
-test("the sidebar follows the design's five groups", async () => {
+// 设置导航（`settingsNavGroups`）：六组，按顺序排列，每组带组名。宿主不提供的页从所在组里消失而不留空位，子页从父页里进入。
+test("the sidebar follows the six titled navigation groups", async () => {
   render(
     <SettingsPage
       client={{
@@ -5381,18 +5601,24 @@ test("the sidebar follows the design's five groups", async () => {
     [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
   );
   expect(groups).toEqual([
+    ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["输入", "表达", "快捷键", "词库"],
     ["屏幕键盘", "语音输入", "手写输入"],
-    ["云剪贴板", "其他平台下载"],
-    ["开发者选项", "反馈", "关于"],
+    ["剪贴板"],
+    ["维护与诊断", "帮助与反馈", "关于"],
   ]);
-  for (const title of ["AI 辅助", "AI 对话", "背单词", "帮助", "辅助码"]) {
+  // 组名对辅助技术可见；只剩一项的「工具」组也能看出它属于哪一类。
+  expect(
+    within(sidebar)
+      .getAllByRole("group")
+      .map((group) => group.getAttribute("aria-label")),
+  ).toEqual(["打字", "外观", "更多输入方式", "工具", "支持"]);
+  for (const title of ["AI 辅助", "AI 对话", "背单词", "帮助", "辅助码", "其他平台下载"]) {
     expect(groups.flat()).not.toContain(title);
   }
 });
 
-test("macOS shortcut page owns the mode HUD and the full-width chord", async () => {
+test("macOS shortcut page owns the full-width chord and the input page the mode HUD", async () => {
   const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
   render(
     <SettingsPage
@@ -5406,10 +5632,17 @@ test("macOS shortcut page owns the mode HUD and the full-width chord", async () 
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   // The chords are named for the keys a Mac keyboard actually has.
-  expect(await screen.findByText("单击 Control 切换中英文")).toBeDefined();
-  expect(screen.getByText("Control+Option+Space 切换中英文")).toBeDefined();
-  const hud = screen.getByRole("switch", { name: "切换中英文时显示提示" });
-  expect((hud as HTMLInputElement).checked).toBe(true);
+  const languageSwitch = (await screen.findByRole("combobox", {
+    name: "切换中英文",
+  })) as HTMLSelectElement;
+  expect(Array.from(languageSwitch.options).map((option) => option.text)).toEqual([
+    "Shift",
+    "单击 Control",
+    "Control+Option+Space",
+    "不使用",
+  ]);
+  // 中英文切换提示不在快捷键页重复出现。
+  expect(screen.queryByRole("switch", { name: "切换中英文时显示提示" })).toBeNull();
   const fullWidth = screen.getByRole("switch", { name: "Option+Shift+H 切换全半角" });
   expect((fullWidth as HTMLInputElement).checked).toBe(true);
   fireEvent.click(fullWidth);
@@ -5421,9 +5654,12 @@ test("macOS shortcut page owns the mode HUD and the full-width chord", async () 
       keybindings: expect.objectContaining({ toggle_fullwidth_option_shift_h: false }),
     }),
   );
-  // The HUD toggle moved here from the input page rather than being shown twice.
+  // 它和其他平台一样在输入页「中英文」组。
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.queryByRole("switch", { name: "中英文切换提示" })).toBeNull();
+  const hud = within(screen.getByRole("region", { name: "中英文" })).getByRole("switch", {
+    name: "中英文切换提示",
+  });
+  expect((hud as HTMLInputElement).checked).toBe(true);
 });
 
 test("the feedback report leads with the release and the scheme", async () => {
@@ -5439,7 +5675,7 @@ test("the feedback report leads with the release and the scheme", async () => {
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -5462,7 +5698,7 @@ test("a host that cannot name its release still reports something", async () => 
     />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
   fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
   const report = copyText.mock.calls[0][0] as string;
@@ -5482,7 +5718,7 @@ test("the full-width chord row is macOS only", async () => {
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
-  expect(await screen.findByText("单击 Ctrl 切换中英文")).toBeDefined();
+  expect(await screen.findByRole("option", { name: "单击 Ctrl" })).toBeDefined();
   expect(screen.queryByRole("switch", { name: "Option+Shift+H 切换全半角" })).toBeNull();
 });
 
@@ -5542,6 +5778,26 @@ test("restore defaults declined leaves the draft alone", async () => {
   expect(loadDefaultPreferences).not.toHaveBeenCalled();
 });
 
+test("restore defaults sits in the footer of preference pages only", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        loadDefaultPreferences: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.getByRole("button", { name: "恢复默认设置" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByRole("group", { name: "关于" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "主题" }));
+  expect(await screen.findByRole("button", { name: "恢复默认设置" })).toBeTruthy();
+});
+
 test("a host without the defaults command shows no restore button", async () => {
   render(
     <SettingsPage
@@ -5556,11 +5812,8 @@ test("a host without the defaults command shows no restore button", async () => 
   expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
 });
 
-// The reference window's 外观 page, in its order. Only the sections it also has are pinned, and only their relative order, so a host that hides a section (no candidate font control) does not fail this. Its colour and theme sections are on the 主题 page now, as the design groups them.
-// The reference window's 输入 page, in its order, same rules as the appearance one below: only the
-// sections it also has, only their relative order. The settings this client adds -- 全拼纠错, 模糊音,
-// 全角输入, 英文建议 and the rest -- sit next to the reference section they belong with, so
-// they are free to move without touching this list.
+// 「候选窗口」页也不再沿用参考窗口「外观」页的顺序：它从基础排到进阶（见下面的外观顺序测试），只有参考窗口也有的那些部分在这里固定下来。它的颜色和主题部分在「主题」页，那里现在是它们唯一的入口。
+// 输入页不再沿用参考窗口的顺序，改按「基础 → 进阶」排（见下面的输入页顺序用例），规则和外观页那条相同：只钉列出的那些节，只钉它们的相对顺序。列表之外的设置（全角输入、整句联想、英文建议等）可以在所属组里自由移动，不用改列表。
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
 // A row built from the platform primitives marks its name with `data-row-title` instead, and a group of them its own with `data-group-title`: the reference's 拼音方案调频 is a section of three settings, which is a group here.
@@ -5589,7 +5842,7 @@ const sectionTitles = (scope: HTMLElement) =>
 const referenceSections: {
   page: string;
   button: string;
-  // A sub-page is opened from inside its parent, and a group that shares its page with others (辅助码 on 输入) is found by its own name.
+  // 子页从父页里进入；与别的组共用一页的组（输入页上的辅助码）按组名找它的 region。
   via?: string;
   group?: string;
   titles: string[];
@@ -5598,16 +5851,14 @@ const referenceSections: {
     page: "appearance",
     button: "候选窗口",
     titles: [
-      "候选窗口跟随光标",
-      "候选窗主字体",
-      "候选窗字号",
-      "候选窗预编辑字号",
-      "每页候选项数量",
       "候选项排列方式",
+      "每页候选项数量",
+      "跟随光标",
+      "主字体",
+      "字号",
+      "预编辑字号",
+      "候选窗口预编辑",
       "行内预编辑",
-      "候选窗预编辑",
-      // The reference keeps paging on its 输入 page; the design puts it with the candidate window it pages.
-      "翻页方式",
     ],
   },
   {
@@ -5620,9 +5871,11 @@ const referenceSections: {
       "五笔方案",
       "日语方案",
       "以词定字",
+      // 参考窗口也把翻页放在输入页；这里放在「选词与翻页」组，和与它互斥的以词定字同屏。
+      "翻页方式",
       "默认中英文",
       "中英文状态",
-      "简繁输入",
+      "繁体输出",
       "云候选",
       "拼音方案调频",
       // The reference's 实用功能 modes; the design keeps them with the other ways of typing.
@@ -5639,7 +5892,7 @@ const referenceSections: {
   {
     // The reference's 输入 sections that shape what is written rather than how it is typed.
     page: "expression",
-    button: "表达",
+    button: "标点与翻译",
     titles: [
       "候选词翻译",
       // 中文标点 is the reference's 始终使用英文标点 with the opposite polarity on the same `chinese_punctuation` preference, so the reference's wording would mislabel the toggle.
@@ -5668,13 +5921,13 @@ const referenceSections: {
   },
   {
     page: "tools",
-    button: "云剪贴板",
+    button: "剪贴板",
     titles: ["剪贴板管理"],
   },
   {
     page: "floating-toolbar",
     button: "悬浮工具栏",
-    titles: ["在桌面显示悬浮工具栏", "工具栏缩放", "图标尺寸", "工具栏组件"],
+    titles: ["在桌面显示悬浮工具栏", "按钮", "工具栏缩放", "图标尺寸"],
   },
   {
     page: "screen-keyboard",
@@ -5694,9 +5947,11 @@ const referenceSections: {
       "语音输入",
       // 来源：ASR API。
       "识别服务",
-      "豆包识别选项",
-      // 来源：文本润色 API。
-      "文本润色 provider",
+      // 来源的「豆包识别选项」一节并进了「识别服务配置」组，紧接豆包自己的设置；这里钉组名和其中一行。
+      "识别服务配置",
+      "数字格式化",
+      // 来源：文本润色 API。组名不带 provider 字样。
+      "文本润色",
       "录音时静音其他声音",
       // 来源：语音输入快捷键。三个长按组合的键名按平台改写（Option/Command 对 Alt/Win），
       // 所以这里只钉小节本身，键名由各自平台的用例覆盖。
@@ -5734,7 +5989,7 @@ const referenceSections: {
   {
     page: "ai",
     button: "AI 辅助",
-    via: "表达",
+    via: "标点与翻译",
     titles: [
       // 来源：启用 AI 联想。这里的开关还管 iOS 键盘的 AI 回复与 Android 的选中文字润色，
       // 所以名字不按来源收窄到候选联想。
@@ -5759,9 +6014,9 @@ const referenceSections: {
     ],
   },
   {
-    // The reference keeps its logs on 关于; the design moves them to 开发者选项.
+    // 参考窗口把日志放在「关于」；设计稿把它们移到「维护与诊断」。
     page: "developer",
-    button: "开发者选项",
+    button: "维护与诊断",
     titles: [
       // 来源另有「TSF 端日志」，那是 Windows 的 TIP 进程，按平台门控。
       "Server 端日志",
@@ -5770,7 +6025,7 @@ const referenceSections: {
   {
     page: "help",
     button: "帮助",
-    via: "反馈",
+    via: "帮助与反馈",
     titles: ["快速上手", "基本功能"],
   },
 ];
@@ -5791,6 +6046,8 @@ test.each(referenceSections)(
             edit: vi.fn(),
           },
           scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+          // 桌面宿主都注入了这个动作（main.tsx），屏幕键盘页只在有它时才画「打开屏幕键盘」。
+          openScreenKeyboard: vi.fn(),
           // The capabilities `host_surface.rs` gives the Windows host, since these are the
           // reference's own sections: several of them are behind a capability and a bare fixture
           // would assert they are missing when the host simply never declared it.
@@ -5813,7 +6070,9 @@ test.each(referenceSections)(
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
-    const page = await screen.findByRole("group", { name: group ?? button });
+    const page = group
+      ? await screen.findByRole("region", { name: group })
+      : await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
   },
@@ -5896,13 +6155,17 @@ test.each(referenceSections)(
             edit: vi.fn(),
           },
           scanSkinCatalog: vi.fn().mockResolvedValue({ directory: "", packages: [], issues: [] }),
+          // main.tsx 在 macOS 上同样注入它，见上一张表。
+          openScreenKeyboard: vi.fn(),
         }}
       />,
     );
     await settingsReady();
     if (via) fireEvent.click(screen.getByRole("button", { name: via }));
     fireEvent.click(screen.getByRole("button", { name: button }));
-    const page = await screen.findByRole("group", { name: group ?? button });
+    const page = group
+      ? await screen.findByRole("region", { name: group })
+      : await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     const wanted = titles.filter((title) => !(title in macosAbsentSections));
     expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
@@ -5934,8 +6197,8 @@ test.each([
     <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
   );
   await settingsReady();
-  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
-  const page = await screen.findByRole("group", { name: "反馈" });
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  const page = await screen.findByRole("group", { name: "帮助与反馈" });
   for (const channel of ["GitHub Issues", "QQ 交流群", "Telegram 群组"]) {
     expect(within(page).getByText(channel)).toBeTruthy();
   }
@@ -5943,8 +6206,45 @@ test.each([
   // than no card.
   expect(within(page).getByText("群号：829919142")).toBeTruthy();
   expect(within(page).getByText("t.me/msimegroup")).toBeTruthy();
-  // The reference closes the page by saying what to attach to a report.
-  expect(within(page).getByText("提交问题时建议附上")).toBeTruthy();
+  // 报告组说明提交报告时要附上什么。
+  expect(within(page).getByText(/提交问题时建议附上/)).toBeTruthy();
+});
+
+test("the feedback page opens with 帮助 and links the report to 诊断日志", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "帮助与反馈" }));
+  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  const help = within(page).getByRole("button", { name: "帮助" });
+  const kind = within(page).getByRole("combobox", { name: "反馈类型" });
+  expect(help.compareDocumentPosition(kind) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(page).queryByText("提交问题时建议附上")).toBeNull();
+  fireEvent.click(within(page).getByRole("button", { name: "诊断日志" }));
+  expect(await screen.findByRole("heading", { name: "维护与诊断" })).toBeDefined();
+});
+
+test("the feedback page has no 诊断日志 link where 维护与诊断 has no logs", async () => {
+  render(
+    <SettingsPage
+      initialPage="feedback"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
+  const page = await screen.findByRole("group", { name: "帮助与反馈" });
+  expect(await within(page).findByRole("combobox", { name: "反馈类型" })).toBeDefined();
+  expect(within(page).queryByRole("button", { name: "诊断日志" })).toBeNull();
 });
 
 /**
@@ -5961,10 +6261,12 @@ const referenceOptions: {
   control: string;
   // A choice drawn as a segmented control is a radio group rather than a select.
   role?: "radiogroup";
+  // 控件所在的组收起时，先打开的那个开关（如语音页的文本润色）。
+  expand?: string;
   options: string[];
 }[] = [
   {
-    // A segmented control in the design's 窗口布局 group, with the reference's two choices.
+    // 该页「布局」组里的一个分段控件，提供参考窗口的两个选项。
     page: "appearance",
     button: "候选窗口",
     control: "候选项排列方式",
@@ -5980,19 +6282,19 @@ const referenceOptions: {
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗预编辑",
+    control: "候选窗口预编辑",
     options: ["拼音分词", "不显示"],
   },
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗字号",
+    control: "字号",
     options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
   },
   {
     page: "appearance",
     button: "候选窗口",
-    control: "候选窗预编辑字号",
+    control: "预编辑字号",
     options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
   },
   {
@@ -6024,7 +6326,7 @@ const referenceOptions: {
   },
   {
     page: "expression",
-    button: "表达",
+    button: "标点与翻译",
     control: "触发字符数",
     options: ["1", "2", "3", "4", "5", "6", "7", "8"],
   },
@@ -6076,11 +6378,13 @@ const referenceOptions: {
     page: "voice",
     button: "语音输入",
     control: "润色方案",
+    // 语音页在润色关闭时只留开关，方案随润色一起展开。
+    expand: "启用文本润色",
     options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
   },
   {
     page: "expression",
-    button: "表达",
+    button: "标点与翻译",
     control: "固定标点",
     options: ["跟随中英文状态", "始终使用中文标点", "始终使用英文标点"],
   },
@@ -6125,7 +6429,7 @@ test.each(
   ),
 )(
   "$control offers the reference window's choices on $platform",
-  async ({ button, control, role, options, host }) => {
+  async ({ button, control, role, expand, options, host }) => {
     render(
       <SettingsPage
         client={{
@@ -6142,6 +6446,7 @@ test.each(
     );
     await settingsReady();
     fireEvent.click(screen.getByRole("button", { name: button }));
+    if (expand) fireEvent.click(await screen.findByRole("switch", { name: expand }));
     if (role === "radiogroup") {
       const group = await screen.findByRole("radiogroup", { name: control });
       expect(
@@ -6157,7 +6462,7 @@ test.each(
 );
 
 test.each(optionHosts)(
-  "the input page follows the reference window's order on %s",
+  "the input page goes from the basic groups to the advanced ones on %s",
   async (_platform, host) => {
     render(
       <SettingsPage
@@ -6165,70 +6470,158 @@ test.each(optionHosts)(
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
           host,
+          fuzzyPinyin: true,
         }}
       />,
     );
     await settingsReady();
-    // The page starts on 候选窗口, and a hidden fieldset is out of the accessibility tree.
     fireEvent.click(screen.getByRole("button", { name: "输入" }));
     const input = await screen.findByRole("group", { name: "输入" });
+    // 组的顺序：方案 → 中英文 → 选词与翻页 → 候选与联想 → 输出 → 快捷模式 → 模糊音 → 辅助码 → 拼音方案调频。不再沿用参考窗口的顺序。
+    const groups = [...input.querySelectorAll("[data-group-title]")].map(
+      (node) => node.textContent ?? "",
+    );
+    expect(groups).toEqual([
+      "方案",
+      "中英文",
+      "选词与翻页",
+      "候选与联想",
+      "输出",
+      "快捷模式",
+      "模糊音",
+      "辅助码",
+      "拼音方案调频",
+    ]);
     const present = sectionTitles(input);
-    // The reference's 输入 page less what the design moved: 翻页方式 to 候选窗口, and translation, punctuation and mixed input to 表达.
-    const reference = [
+    const expected = [
       "输入模式",
       "输入方案",
       "双拼方案",
+      // 五笔、日语只有一个方案，只在对应方案下显示，但仍在页面里。
       "五笔方案",
       "日语方案",
-      "以词定字",
       "默认中英文",
       "中英文状态",
-      "简繁输入",
+      "以词定字",
+      "翻页方式",
       "云候选",
+      "繁体输出",
       "拼音方案调频",
     ];
-    const ordered = present.filter((text) => reference.includes(text));
+    const ordered = present.filter((text) => expected.includes(text));
     // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
     // the tree, so collapse a repeat rather than reading it as a move.
     const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
-    expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
-    // Every one of them is on both hosts once the moved sections are out, so none may go missing here.
-    expect(collapsed.length).toBe(reference.length);
+    expect(collapsed).toEqual(expected);
   },
 );
 
 test.each(optionHosts)(
-  "the appearance page follows the reference window's order on %s",
+  "the appearance page runs basic to advanced on %s",
   async (_platform, host) => {
     render(
       <SettingsPage
+        initialPage="appearance"
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host,
+          host: { ...host, candidate_page_number: true, shuangpin_preedit: true },
         }}
       />,
     );
     await settingsReady();
     const appearance = screen.getByRole("group", { name: "候选窗口" });
     const present = sectionTitles(appearance);
-    // The reference's 外观 page less its colour and theme sections, which the design moves to 主题.
-    const reference = [
-      "候选窗口跟随光标",
-      "候选窗主字体",
-      "候选窗字号",
-      "候选窗预编辑字号",
-      "每页候选项数量",
+    // 先是候选的排列，然后是绘制大小、外围的窗口，最后是预编辑。该页不再沿用参考窗口的顺序，颜色和明暗只在「主题」页，「窗口样式」链接到那里。
+    const expected = [
+      "布局",
       "候选项排列方式",
+      "每页候选项数量",
+      "显示页码",
+      "跟随光标",
+      "字体与大小",
+      "候选字体",
+      "主字体",
+      "字号",
+      "预编辑字号",
+      "窗口样式",
+      "预编辑",
+      "候选窗口预编辑",
+      "双拼预编辑",
       "行内预编辑",
-      "候选窗预编辑",
     ];
-    const ordered = present.filter((text) => reference.includes(text));
-    expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
-    // Every host shows 候选窗主字体 now, Windows included, so none may go missing.
-    expect(ordered.length).toBe(reference.length);
+    const ordered = present.filter((text) => expected.includes(text));
+    expect(ordered).toEqual(expected);
+    // 每项偏好只有一个入口：主题和颜色选择器不在这里重复。
+    expect(within(appearance).queryByRole("combobox", { name: "主题" })).toBeNull();
+    expect(appearance.querySelector('input[type="color"]')).toBeNull();
+    const link = within(appearance).getByRole("button", { name: "颜色与明暗" });
+    fireEvent.click(link);
+    expect(screen.getByRole("group", { name: "主题" }).hidden).toBe(false);
   },
 );
+
+test("the page number row needs a host that draws one", async () => {
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", candidate_font_controls: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "候选窗口" });
+  expect(within(appearance).queryByLabelText("显示页码")).toBeNull();
+});
+
+test("the page number switch saves show_candidate_page_number", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "windows", candidate_page_number: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const toggle = screen.getByLabelText("显示页码") as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  fireEvent.click(toggle);
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    7,
+    expect.objectContaining({ show_candidate_page_number: false }),
+  );
+});
+
+test("the 中英混输 link on the input page opens 标点与翻译", async () => {
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const mode = screen.getByRole("region", { name: "中英文" });
+  fireEvent.click(within(mode).getByRole("button", { name: "中英混输" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("标点与翻译");
+  expect(screen.getByRole("switch", { name: /^中英混输/ })).toBeTruthy();
+});
 
 test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
   render(
@@ -6267,7 +6660,7 @@ test("other hosts keep the shuangpin profile menu editable", async () => {
   expect(menu.disabled).toBe(false);
 });
 
-test("macOS sidebar uses the same five groups", async () => {
+test("macOS sidebar uses the same six groups", async () => {
   render(
     <SettingsPage
       client={{
@@ -6283,11 +6676,11 @@ test("macOS sidebar uses the same five groups", async () => {
     [...section.querySelectorAll("button")].map((item) => item.textContent ?? ""),
   );
   expect(groups).toEqual([
+    ["输入", "标点与翻译", "快捷键", "词库"],
     ["主题", "候选窗口", "悬浮工具栏"],
-    ["输入", "表达", "快捷键", "词库"],
     ["屏幕键盘", "语音输入", "手写输入"],
-    ["云剪贴板", "其他平台下载"],
-    ["开发者选项", "反馈", "关于"],
+    ["剪贴板"],
+    ["维护与诊断", "帮助与反馈", "关于"],
   ]);
 });
 
@@ -6622,7 +7015,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   };
   const expected = {
     warning:
-      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请务必核对下面的校验值。",
     verify: {
       command: "Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256",
       sha256: digest,
@@ -6633,7 +7026,7 @@ test("installer trust uses sha256sum on Linux and keeps Get-FileHash on Windows"
   // Without a digest the unsigned warning points at the .sha256 file the release carries.
   expect(describeInstallerTrust({ ...windows, installerSha256: null }, "windows")).toEqual({
     warning:
-      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
+      "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。请从发行页一并下载 MetasequoiaIME_Setup_v1.2.0.exe.sha256，用 Get-FileHash .\\MetasequoiaIME_Setup_v1.2.0.exe -Algorithm SHA256 核对。",
     verify: null,
   });
 });
@@ -6834,16 +7227,16 @@ test("macOS routes input-session panels through the native input-method process"
   expect(screen.getByText(/需要当前输入法进程提供 IMK 输入会话/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "打开" })).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText(/请从输入法菜单中的「云剪贴板…」打开云剪贴板/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "打开云剪贴板" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "打开云词典" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "打开云词库" })).toBeNull();
   expect(client.openHandwriting).not.toHaveBeenCalled();
   expect(client.openCloudClipboard).not.toHaveBeenCalled();
   expect(client.openCloudDictionary).not.toHaveBeenCalled();
 });
 
-test("the 云剪贴板 page sends a history entry through the host's cloud clipboard, macOS included", async () => {
+test("the 剪贴板 page sends a history entry through the host's cloud clipboard, macOS included", async () => {
   const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
   const cloudClipboardRequest = vi
     .fn()
@@ -6867,7 +7260,7 @@ test("the 云剪贴板 page sends a history entry through the host's cloud clipb
   await settingsReady();
   expect(cloudClipboardRequest).not.toHaveBeenCalled();
 
-  fireEvent.click(screen.getByRole("button", { name: "云剪贴板" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText("synthetic cloud")).toBeDefined();
   const send = screen.getByRole("button", { name: "发到云剪贴板" });
   await waitFor(() => expect(send.hasAttribute("disabled")).toBe(false));
@@ -7555,7 +7948,7 @@ test("saves edited preferences against the loaded revision", async () => {
       preferences,
     })),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   // Nothing is written until the edits pause for the autosave delay.
@@ -7576,7 +7969,7 @@ test("a late preference save is ignored after settings unmounts", async () => {
         }),
     ),
   };
-  const view = render(<SettingsPage client={client} />);
+  const view = render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   saveSettingsNow();
@@ -7603,7 +7996,7 @@ test("macOS offers the same candidate page sizes as every other host and keeps t
     save,
     host: { platform: "macos" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7624,7 +8017,7 @@ test("a saved page size below the reference's three stays in range and selected"
     save: vi.fn(),
     host: { platform: "windows" } as HostCapabilities,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7685,9 +8078,9 @@ test("an edit made while a save is in flight is kept and saved after it", async 
   expect(client.save).toHaveBeenCalledTimes(1);
   expect(screen.getByText("正在保存…")).toBeTruthy();
   // Nothing is locked while the first save runs.
-  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
   await act(async () => finishes[0](initial));
-  expect((screen.getByLabelText("候选窗字号") as HTMLSelectElement).value).toBe("20");
+  expect((screen.getByLabelText("字号") as HTMLSelectElement).value).toBe("20");
   await waitFor(() => expect(client.save).toHaveBeenCalledTimes(2));
   expect(client.save).toHaveBeenLastCalledWith(8, {
     ...initial.preferences,
@@ -7763,7 +8156,7 @@ test("a conflict that keeps recurring preserves edits and offers an explicit rel
     load: vi.fn().mockResolvedValue(initial),
     save: vi.fn().mockRejectedValue({ code: "conflict" }),
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = await screen.findByRole("slider", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   saveSettingsNow();
@@ -7796,7 +8189,7 @@ test.each(["windows", "macos", "linux"])(
       }),
       host: { platform } as never,
     };
-    render(<SettingsPage client={client} />);
+    render(<SettingsPage initialPage="appearance" client={client} />);
     const size = (await screen.findByRole("slider", {
       name: "每页候选项数量",
     })) as HTMLInputElement;
@@ -7849,7 +8242,7 @@ test("this window's own save echoed back by the monitor is not reported as anoth
     }),
     host: { platform: "linux" } as never,
   };
-  render(<SettingsPage client={client} />);
+  render(<SettingsPage initialPage="appearance" client={client} />);
   const size = (await screen.findByRole("slider", {
     name: "每页候选项数量",
   })) as HTMLInputElement;
@@ -7914,17 +8307,19 @@ test("category navigation preserves one draft and saves edits across pages", asy
     })),
   };
   render(<SettingsPage client={client} />);
-  const appearance = screen.getByRole("button", { name: "候选窗口" });
-  expect(appearance.getAttribute("aria-current")).toBe("page");
-  const pageSize = await screen.findByRole("slider", { name: "每页候选项数量" });
-  fireEvent.change(pageSize, { target: { value: "9" } });
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
-  expect(screen.queryByRole("slider", { name: "每页候选项数量" })).toBeNull();
-  fireEvent.click(screen.getByRole("switch", { name: "全拼辅助码" }));
-  fireEvent.click(appearance);
-  expect((screen.getByRole("slider", { name: "每页候选项数量" }) as HTMLInputElement).value).toBe(
-    "9",
+  // 设置窗口落在导航第一页「输入」。
+  const input = screen.getByRole("button", { name: "输入" });
+  expect(input.getAttribute("aria-current")).toBe("page");
+  fireEvent.click(await screen.findByRole("switch", { name: "全拼辅助码" }));
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("候选窗口");
+  expect(screen.queryByRole("switch", { name: "全拼辅助码" })).toBeNull();
+  fireEvent.change(screen.getByRole("slider", { name: "每页候选项数量" }), {
+    target: { value: "9" },
+  });
+  fireEvent.click(input);
+  expect((screen.getByRole("switch", { name: "全拼辅助码" }) as HTMLInputElement).checked).toBe(
+    false,
   );
   saveSettingsNow();
   await screen.findByText("已保存");
@@ -7941,8 +8336,8 @@ test("category navigation opens every shared settings page at the top", async ()
   await settingsReady();
   const content = screen.getByRole("main");
   content.scrollTop = 480;
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("输入");
+  fireEvent.click(screen.getByRole("button", { name: "候选窗口" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("候选窗口");
   expect(content.scrollTop).toBe(0);
 });
 
@@ -8023,11 +8418,17 @@ test("a host can open the settings window on the section its menu named", async 
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
   cleanup();
 
-  // An id this build does not have keeps the default section rather than
-  // opening an empty one.
+  // 本版本没有的页面 id 落到默认页（导航第一页「输入」），而不是打开一个空页面。
   render(<SettingsPage client={client} initialPage="not-a-page" />);
   await settingsFormReady();
-  expect(screen.getByRole("heading", { name: "候选窗口" })).toBeDefined();
+  expect(screen.getByRole("heading", { name: "输入" })).toBeDefined();
+  cleanup();
+
+  // 「其他平台下载」已并入关于页：按旧 id 打开的宿主落到关于页，那里有这两行。
+  render(<SettingsPage client={client} initialPage="download" />);
+  expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "其他平台下载" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "历史版本" })).toBeDefined();
 });
 
 test("a host that fixes the candidate page size and layout does not offer them", async () => {
@@ -8109,4 +8510,166 @@ test("a host without a repair keeps the unreadable-document message alone", asyn
   const alert = await screen.findByRole("alert");
   expect(alert.textContent).toContain("配置文件无法读取");
   expect(within(alert).queryByRole("button")).toBeNull();
+});
+
+const pageGroupTitles = (page: HTMLElement) =>
+  [...page.querySelectorAll("[data-group-title]")].map((node) => node.textContent ?? "");
+
+// 屏幕键盘页：预览在它影响的尺寸滑块上方，工具栏从尺寸组拆出来，跳到主题的入口放在最后。
+test("the screen-keyboard page puts the preview above the size controls", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openScreenKeyboard: vi.fn().mockResolvedValue(undefined),
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  expect(pageGroupTitles(page)).toEqual(["屏幕键盘", "尺寸", "工具栏", "外观"]);
+  const keyboard = within(page).getByRole("region", { name: "屏幕键盘" });
+  expect(within(keyboard).getByText("打开屏幕键盘")).toBeTruthy();
+  expect(within(keyboard).getByLabelText("屏幕键盘预览")).toBeTruthy();
+  expect(within(page).getByRole("region", { name: "工具栏" }).textContent).toContain(
+    "顶部语音入口",
+  );
+  expect(within(page).getByRole("region", { name: "尺寸" }).textContent).not.toMatch(
+    /Apple|Engine/,
+  );
+});
+
+test("the screen-keyboard page offers no launch button the host cannot honour", async () => {
+  render(
+    <SettingsPage
+      initialPage="screen-keyboard"
+      client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "屏幕键盘" });
+  expect(within(page).queryByText("打开屏幕键盘")).toBeNull();
+  expect(within(page).getByLabelText("屏幕键盘预览")).toBeTruthy();
+});
+
+// 词库页：先是词库本身，再是导入导出，然后是词库信息和背单词入口，清除学习数据放在页末。
+test("the dictionary page ends with the learning data reset", async () => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        resetLearnedData: vi.fn().mockResolvedValue(undefined),
+        dictionary: {
+          list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+          edit: vi.fn(),
+          importPersonal: vi.fn(),
+        },
+        // 背单词入口只在宿主提供 vocabularyReview 时出现；这里提供它，好钉住「更多」在导入导出之后。
+        vocabularyReview: {
+          load: vi.fn(),
+          answer: vi.fn(),
+          setSettings: vi.fn(),
+          reset: vi.fn(),
+        },
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "词库" });
+  const groups = pageGroupTitles(page);
+  const expected = ["本地词库管理", "导入与导出", "更多", "学习数据"];
+  expect(groups.filter((title) => expected.includes(title))).toEqual(expected);
+  expect(groups.at(-1)).toBe("学习数据");
+  const transfer = within(page).getByRole("region", { name: "导入与导出" });
+  expect(within(transfer).getByLabelText("本地词库文件格式")).toBeTruthy();
+  expect(within(transfer).getByRole("group", { name: "个人词库文件" })).toBeTruthy();
+  expect(within(page).getByRole("region", { name: "本地词库管理" }).textContent).not.toContain(
+    "Engine",
+  );
+});
+
+// 清除学习数据只看宿主有没有提供这个动作，不再限于 macOS。
+test.each(["windows", "linux"])("%s offers the learning data reset too", async (platform) => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        resetLearnedData: vi.fn().mockResolvedValue(undefined),
+        dictionary: {} as never,
+        host: { platform } as HostCapabilities,
+      }}
+    />,
+  );
+  await screen.findByRole("region", { name: "学习数据" });
+  expect(screen.getByRole("button", { name: "清除全部学习数据" })).toBeTruthy();
+});
+
+test("a host without the reset has no learning data group", async () => {
+  render(
+    <SettingsPage
+      initialPage="dictionary"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dictionary: {} as never,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.queryByRole("region", { name: "学习数据" })).toBeNull();
+});
+
+// AI 辅助页用和其他页一样的分组：服务 → 联想 → 提示词 → 测试工具，接口地址收在「更多选项」里，提示词只显示所选槽位的一段。
+test("the AI page is grouped like the other pages", async () => {
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{
+        load: vi.fn().mockResolvedValue({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            ai_assistant: {
+              enabled: true,
+              provider: "deepseek",
+              model: "deepseek-v4-flash",
+              endpoint: "https://api.deepseek.com/chat/completions",
+              candidate_limit: 3,
+              token: "",
+              tokens: {},
+              prompt_id: "custom_2",
+              prompt_custom_1: "",
+              prompt_custom_2: "second",
+              prompt_custom_3: "",
+            },
+          },
+        }),
+        save: vi.fn(),
+        aiAssistant: { models: vi.fn(), complete: vi.fn() } as never,
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const page = screen.getByRole("group", { name: "AI 辅助" });
+  expect(page.querySelector(".section")).toBeNull();
+  expect(pageGroupTitles(page)).toEqual(["服务", "联想", "提示词", "测试工具"]);
+  const endpoint = within(page).getByLabelText("AI 接口地址");
+  const more = endpoint.closest("details");
+  expect(more).not.toBeNull();
+  expect(more!.open).toBe(false);
+  expect(within(page).getByRole("region", { name: "联想" }).textContent).toContain("候选数量");
+  expect((within(page).getByLabelText("自定义提示词二") as HTMLTextAreaElement).value).toBe(
+    "second",
+  );
+  expect(within(page).queryByLabelText("自定义提示词一")).toBeNull();
+  expect(within(page).queryByLabelText("自定义提示词三")).toBeNull();
 });

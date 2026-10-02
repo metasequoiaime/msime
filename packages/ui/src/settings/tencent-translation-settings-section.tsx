@@ -13,7 +13,6 @@ export interface TencentTranslationSettingsSectionProps {
   linux: boolean;
   available: boolean;
   linuxCredentialsAvailable: boolean;
-  enabled: boolean;
   secretId: string;
   secretKey: string;
   region: string;
@@ -23,7 +22,6 @@ export interface TencentTranslationSettingsSectionProps {
   input: LinuxTencentCredentialInput;
   busy: boolean;
   message?: CredentialStatusMessageValue;
-  onToggle: (enabled: boolean) => void;
   onSecretIdChange: (value: string) => void;
   onSecretKeyChange: (value: string) => void;
   onRegionChange: (value: string) => void;
@@ -40,7 +38,6 @@ export function TencentTranslationSettingsSection({
   linux,
   available,
   linuxCredentialsAvailable,
-  enabled,
   secretId,
   secretKey,
   region,
@@ -50,7 +47,6 @@ export function TencentTranslationSettingsSection({
   input,
   busy,
   message,
-  onToggle,
   onSecretIdChange,
   onSecretKeyChange,
   onRegionChange,
@@ -75,14 +71,12 @@ export function TencentTranslationSettingsSection({
     </LinuxTencentCredentialsSection>
   ) : (
     <TencentTranslationSection
-      enabled={enabled}
       available={available}
       secretId={secretId}
       secretKey={secretKey}
       region={region}
       credentialIssue={credentialIssue}
       showMissingCredentialsWarning={showMissingCredentialsWarning}
-      onToggle={onToggle}
       onSecretIdChange={onSecretIdChange}
       onSecretKeyChange={onSecretKeyChange}
       onRegionChange={onRegionChange}

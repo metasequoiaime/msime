@@ -287,7 +287,9 @@ impl ZhuyinScheme {
         let mut list = Vec::new();
         for start in 0..count {
             let key = self.key(start, count);
-            for entry in self.dictionary.lookup(&key, usize::MAX)? {
+            let entries = self.dictionary.lookup(&key, usize::MAX)?;
+            list.reserve(entries.len());
+            for entry in entries {
                 list.push(ListCandidate {
                     text: entry.text,
                     start,
@@ -618,6 +620,7 @@ mod tests {
         type_keys(&mut scheme, "u4");
         assert!(scheme.handle_key(ZhuyinKey::OpenList).unwrap());
         assert_eq!(scheme.candidates().len(), 215);
+        assert_eq!(scheme.list.capacity(), scheme.list.len());
         assert_eq!(scheme.candidates()[214].text, texts[214]);
     }
 

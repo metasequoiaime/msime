@@ -1,6 +1,6 @@
-import { Row } from "../core/platform-controls";
+import { Row, Select } from "../core/platform-controls";
 import * as settings from "./settings-style";
-import { SettingField } from "./setting-field";
+import { SelectSettingField } from "./select-setting-field";
 
 export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account";
 
@@ -20,13 +20,8 @@ export function TranslationServiceSelectorSection({
   showAccountProvider,
   onChange,
 }: TranslationServiceSelectorSectionProps) {
-  const selector = (
-    <select
-      aria-label="候选词翻译服务"
-      disabled={!available}
-      value={provider}
-      onChange={(event) => onChange(event.target.value as TranslationProvider)}
-    >
+  const options = (
+    <>
       <option value="none">关闭</option>
       <option value="tencent">腾讯云机器翻译</option>
       <option value="niutrans">小牛翻译（NiuTrans）</option>
@@ -34,16 +29,33 @@ export function TranslationServiceSelectorSection({
       {showAccountProvider && (
         <option value="account">水杉账号（候选词发送到 api.msime.app）</option>
       )}
-    </select>
+    </>
   );
 
   return grouped ? (
     <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
-      <Row title="翻译服务">{selector}</Row>
+      <Row title="翻译服务">
+        <Select
+          aria-label="候选词翻译服务"
+          disabled={!available}
+          value={provider}
+          onChange={(event) => onChange(event.target.value as TranslationProvider)}
+        >
+          {options}
+        </Select>
+      </Row>
     </div>
   ) : (
     <div className="section" role="group" aria-label="候选词翻译服务">
-      <SettingField label="翻译服务">{selector}</SettingField>
+      <SelectSettingField
+        label="翻译服务"
+        inputLabel="候选词翻译服务"
+        disabled={!available}
+        value={provider}
+        onChange={(value) => onChange(value as TranslationProvider)}
+      >
+        {options}
+      </SelectSettingField>
     </div>
   );
 }

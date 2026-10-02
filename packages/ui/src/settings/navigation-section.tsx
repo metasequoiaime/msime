@@ -17,7 +17,7 @@ const navigationOptions: [keyof NavigationPreferences, string][] = [
   ["brackets", "[ / ]"],
   ["tab", "Shift+Tab / Tab"],
   ["page_up_down", "PageUp / PageDown"],
-  ["mouse_wheel", "鼠标滚轮（候选面板支持时翻页）"],
+  ["mouse_wheel", "鼠标滚轮（候选窗口支持时翻页）"],
   ["arrows", "上 / 下（移动候选项）"],
 ];
 
@@ -34,7 +34,7 @@ export interface NavigationSectionProps {
   }) => void;
 }
 
-/** Shared candidate paging controls and their mutual exclusion with 以词定字: the contents of the 翻页 group. */
+/** 共用的候选翻页设置及其与以词定字的互斥：输入页「选词与翻页」组里以词定字之后的部分。 */
 export function NavigationSection({
   navigation,
   wordCharacter,

@@ -77,6 +77,16 @@ int main() {
     std::ifstream in(file, std::ios::binary);
     assert(std::string(std::istreambuf_iterator<char>(in), {}) == cleared);
   }
+
+  const auto escaped_root = root / "escaped";
+  const auto escaped_outside = root / "escaped-outside";
+  std::filesystem::create_directories(escaped_outside / "nested");
+  std::filesystem::create_directory_symlink(escaped_outside, escaped_root);
+  const auto escaped_file = *candidate_panel_status_file(
+      (escaped_root / "nested").c_str());
+  assert(!write_candidate_panel_status(escaped_file, document));
+  assert(!std::filesystem::exists(escaped_outside / "nested/candidate-panel.json"));
+
   // A directory other users can write to is refused.
   std::filesystem::permissions(file.parent_path(), std::filesystem::perms::others_write, std::filesystem::perm_options::add);
   assert(!write_candidate_panel_status(file, document));

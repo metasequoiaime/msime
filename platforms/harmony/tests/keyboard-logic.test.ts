@@ -32,6 +32,10 @@ import {
   normalizeGroups,
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
+import {
+  MAX_PLUGIN_SYMBOL_GROUPS,
+  PluginSymbolGroupPolicy,
+} from "../entry/src/main/ets/keyboard/emoji/PluginSymbolGroupPolicy";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
@@ -373,6 +377,9 @@ import {
 import { FloatingToolbarDragPolicy } from "../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy";
 import { InlinePreeditPolicy } from "../entry/src/main/ets/keyboard/input/InlinePreeditPolicy";
 import { DubeolsikLayout } from "../entry/src/main/ets/keyboard/input/DubeolsikLayout";
+import { ZhuyinLayout } from "../entry/src/main/ets/keyboard/input/ZhuyinLayout";
+import { SchemeCompositionPolicy } from "../entry/src/main/ets/keyboard/input/SchemeCompositionPolicy";
+import { SchemeTraits } from "../entry/src/main/ets/keyboard/SchemeTraits";
 import {
   KOREAN_SCHEME,
   KoreanCompositionPolicy,
@@ -671,6 +678,17 @@ group("counts a held physical key once", () => {
 });
 
 group("bounds and deduplicates asynchronous online AI candidates", () => {
+  const signature = "7:ni'hao:fixture:true:";
+  check(
+    OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 7, 7),
+    "a failed current online request can be retried",
+  );
+  check(
+    !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7) &&
+      !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
+      !OnlineCandidatePolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
+    "a stale online failure cannot clear a newer request",
+  );
   const response = JSON.stringify({
     choices: [
       {
@@ -737,6 +755,26 @@ group("keeps translation provider policy bounded and credential-free in signatur
       target_language: "en",
     }).includes("niutrans:account"),
     "cache scope identifies the provider account",
+  );
+  const signature = TranslationPolicy.signature(query);
+  check(
+    TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 7, 7),
+    "a failed current translation request can be retried",
+  );
+  check(
+    !TranslationPolicy.shouldReleaseAfterFailure(signature, "new", 4, 4, 7, 7) &&
+      !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 3, 4, 7, 7) &&
+      !TranslationPolicy.shouldReleaseAfterFailure(signature, signature, 4, 4, 8, 7),
+    "a stale translation failure cannot clear a newer request",
+  );
+  check(
+    TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", false, true),
+    "offline rows do not hide a failed online provider",
+  );
+  check(
+    !TranslationPolicy.shouldReleaseAfterProviderFailure("tencent", true, true) &&
+      !TranslationPolicy.shouldReleaseAfterProviderFailure("", false, true),
+    "complete or disabled providers keep a usable translation signature",
   );
 });
 
@@ -913,6 +951,14 @@ group("projects the same form factor into every settings capability", () => {
   check(
     desktop.keySound && desktop.music && desktop.pluginTriggers && desktop.typingEffects,
     "2-in-1 settings offer key sounds, background music, the V, / and @ modes and the typing effects",
+  );
+  check(
+    desktop.wordbookPacks && !phone.wordbookPacks,
+    "only the 2-in-1, where packs are installed, lists wordbook packs in 背单词",
+  );
+  check(
+    desktop.symbolSetPacks && !phone.symbolSetPacks,
+    "only the 2-in-1, where packs are installed, shows symbol set packs in the emoji panel",
   );
   check(
     !phone.keySound && !phone.music && !phone.pluginTriggers && !phone.typingEffects,
@@ -1604,8 +1650,9 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
     "an all-unknown list falls back to quanpin rather than an empty keyboard",
   );
   check(
-    KeyboardScheme.enabledFromPreferenceIds(null).length === KeyboardScheme.SCHEMES.length,
-    "a null list means everything is enabled",
+    KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 3,
+    "a null list means every scheme but the three the user turns on",
   );
 });
 
@@ -6697,6 +6744,162 @@ group("engine catalog groups are bounded before reaching the touch panel", () =>
   check(normalizeSymbolGroups(undefined).length === 0, "a malformed symbol response is empty");
 });
 
+group("symbol set packs are appended after the built-in kaomoji and symbol groups", () => {
+  // 合成的插件回复：两个插件按名称排好序，组按清单顺序。
+  const plugins = PluginSymbolGroupPolicy.parse([
+    {
+      pack: "arrows-pack",
+      pack_name: "Math",
+      tab: "symbols",
+      title: "Arrows",
+      keywords: "arrow 箭头",
+      items: ["→", "←"],
+    },
+    {
+      pack: "arrows-pack",
+      pack_name: "Math",
+      tab: "kaomoji",
+      title: "Happy",
+      keywords: "",
+      items: ["(^_^)"],
+    },
+    {
+      pack: "arrows-pack",
+      pack_name: "Math",
+      tab: "symbols",
+      title: "More",
+      keywords: "",
+      items: ["→", "⇒"],
+    },
+    {
+      pack: "stars-pack",
+      pack_name: "星星",
+      tab: "symbols",
+      title: "Stars",
+      keywords: "star",
+      items: ["★"],
+    },
+    {
+      pack: "stars-pack",
+      pack_name: "星星",
+      tab: "kaomoji",
+      title: "Happy",
+      keywords: "smile",
+      items: ["(^o^)"],
+    },
+  ]);
+  check(
+    plugins.length === 5 && plugins[0].packName === "Math",
+    "valid plugin groups are kept in order",
+  );
+
+  const symbols = PluginSymbolGroupPolicy.symbolTabs(
+    [
+      { parent: "Math", title: "Math" },
+      { parent: "Math", title: "Numbers" },
+      { parent: "Arrows and lines", title: "Arrows" },
+    ],
+    plugins,
+  );
+  check(
+    symbols.map((tab) => tab.title).join(",") === "Math,Arrows,Math,星星",
+    "each built-in parent keeps its first title and each pack follows as its own parent named after it",
+  );
+  check(
+    symbols[0].catalogParent === "Math" && !symbols[0].plugin && symbols[0].items.length === 0,
+    "a built-in symbol tab is still read from the catalog by its parent",
+  );
+  check(
+    new Set(symbols.map((tab) => tab.key)).size === symbols.length,
+    "a pack named like a built-in parent still has its own tab key",
+  );
+  check(
+    symbols[2].plugin && symbols[2].items.map((item) => item.text).join("") === "→←→⇒",
+    "a pack's symbols groups run in manifest order with nothing deduplicated",
+  );
+  check(
+    symbols[2].items[0].annotation === "arrow 箭头" && symbols[2].items[2].annotation === "",
+    "each item carries its own group's keywords",
+  );
+
+  const kaomoji = PluginSymbolGroupPolicy.kaomojiTabs(["All", "Happy"], plugins);
+  check(
+    kaomoji.map((tab) => tab.title).join(",") === "All,Happy,Happy,Happy",
+    "plugin kaomoji groups follow the built-in ones, one tab per group, not merged by title",
+  );
+  check(
+    kaomoji[1].catalogGroup === "Happy" && kaomoji[2].plugin && kaomoji[2].catalogGroup === "",
+    "only built-in kaomoji tabs are read from the catalog",
+  );
+  check(
+    new Set(kaomoji.map((tab) => tab.key)).size === kaomoji.length,
+    "kaomoji tabs with the same title keep distinct keys",
+  );
+
+  const searched = PluginSymbolGroupPolicy.pluginItems(symbols);
+  check(
+    searched.length === 5 &&
+      searched.some((item) => EmojiPanelKeyPolicy.matches(item.text, item.annotation, "箭头")) &&
+      searched.some((item) => EmojiPanelKeyPolicy.matches(item.text, item.annotation, "STAR")) &&
+      searched.some((item) => EmojiPanelKeyPolicy.matches(item.text, item.annotation, "⇒")),
+    "plugin items are searched by their group's keywords and by their own text",
+  );
+
+  const empty = PluginSymbolGroupPolicy.symbolTabs([{ parent: "Math", title: "Math" }], []);
+  check(
+    empty.length === 1 && PluginSymbolGroupPolicy.kaomojiTabs(["All"], []).length === 1,
+    "without plugins the panel keeps only the built-in groups",
+  );
+  check(
+    PluginSymbolGroupPolicy.symbolTabs([], plugins)
+      .map((tab) => tab.title)
+      .join(",") === "Math,星星",
+    "plugin groups still show when the built-in catalog is unavailable",
+  );
+});
+
+group("plugin symbol groups are validated before they reach the panel", () => {
+  const valid = {
+    pack: "p",
+    pack_name: "P",
+    tab: "symbols",
+    title: "T",
+    keywords: "k",
+    items: ["a"],
+  };
+  const parsed = PluginSymbolGroupPolicy.parse([
+    valid,
+    { ...valid, tab: "emoji" },
+    { ...valid, title: "  " },
+    { ...valid, pack_name: "x".repeat(129) },
+    { ...valid, items: "a" },
+    { ...valid, items: ["", " ", "x".repeat(65), 7] },
+    { ...valid, keywords: 3, items: ["b", "", "c"] },
+    null,
+    "not an object",
+  ]);
+  check(
+    parsed.length === 2 && parsed[1].keywords === "" && parsed[1].items.join("") === "bc",
+    "bad groups and bad items are dropped, a missing keyword list reads as none",
+  );
+  check(
+    PluginSymbolGroupPolicy.parse(undefined).length === 0 &&
+      PluginSymbolGroupPolicy.parse({ plugin_symbol_groups: [valid] }).length === 0,
+    "a malformed reply leaves only the built-in groups",
+  );
+  check(
+    PluginSymbolGroupPolicy.parse(Array.from({ length: MAX_PLUGIN_SYMBOL_GROUPS + 5 }, () => valid))
+      .length === MAX_PLUGIN_SYMBOL_GROUPS,
+    "an oversized reply is cut at the group ceiling rather than discarded",
+  );
+  check(
+    PluginSymbolGroupPolicy.parse([
+      { ...valid, items: Array.from({ length: 600 }, (_u, i) => `${i}`) },
+    ])[0].items.length === 512,
+    "a group is cut at the item ceiling",
+  );
+});
+
 function clip(text: string, at: number, pinned = false): ClipboardHistoryItem {
   return { text, at, pinned };
 }
@@ -10011,7 +10214,7 @@ group("keypad digits reach both digit paths", () => {
 group("Ctrl+Shift+F switches simplified and traditional, not the character width", () => {
   const routing: InputModeRouting = new InputModeRouting();
   routing.use(DEFAULT_MODE_BINDINGS);
-  // Windows `HandleImeKey` answers `IsCharacterSetShortcut` with `SetConfiguredCharacterSet`; the settings page labels the binding 切换简繁.
+  // Windows 的 `HandleImeKey` 用 `SetConfiguredCharacterSet` 响应 `IsCharacterSetShortcut`；设置页把这个绑定标为「切换繁体输出」。
   check(
     routing.accept(modeKey(2022, true, 0, { ctrlKey: true, shiftKey: true })) ===
       ModeGesture.TOGGLE_CHARACTER_SET,
@@ -10837,12 +11040,15 @@ group("Korean draws the syllable, not the key letters behind it", () => {
     "the keyboard's own choice is Korean only outside English",
   );
   check(
-    KoreanCompositionPolicy.reading(true, "sud", "녕") === "녕",
+    SchemeCompositionPolicy.reading(SchemeTraits.KOREAN, "sud", "녕") === "녕",
     "editing_text holds the letters of the open syllable; the strip draws the syllable",
   );
-  check(KoreanCompositionPolicy.reading(true, "", "") === "", "nothing open draws nothing");
   check(
-    KoreanCompositionPolicy.reading(false, "nihao", "ni hao") === "nihao",
+    SchemeCompositionPolicy.reading(SchemeTraits.KOREAN, "", "") === "",
+    "nothing open draws nothing",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.QUANPIN, "nihao", "ni hao") === "nihao",
     "every other scheme keeps drawing its spelling",
   );
   check(
@@ -10855,9 +11061,8 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[KeyboardScheme.SCHEMES.length - 1] === KeyboardScheme.KOREAN &&
-      KeyboardScheme.SCHEMES.length === 12,
-    "appended last, as the shared twelve-entry picker has it",
+    KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 15,
+    "appended after the first eleven, as the shared fifteen-entry picker has it",
   );
   check(
     KeyboardScheme.fromPreferenceId("korean") === KeyboardScheme.KOREAN,
@@ -10956,6 +11161,19 @@ group("account sync carries the Korean scheme", () => {
     syncFeedback,
   );
   check(applied.preferences.scheme === "korean", "and applied from another device");
+});
+
+group("account sync leaves the scheme out for Cantonese, Zhuyin and Vietnamese", () => {
+  for (const scheme of ["cantonese", "zhuyin", "vietnamese"]) {
+    const values = localAccountPreferences({ scheme }, syncFeedback);
+    check(!("input.schema" in values), `${scheme} never uploads an input schema`);
+    const merged = mergeAccountPreferences(
+      { revision: 3, settings: { "input.schema": "wubi" } },
+      values,
+      fullPreferenceSchema(),
+    );
+    check(merged.settings["input.schema"] === "wubi", `${scheme} keeps the account's scheme`);
+  }
 });
 
 group("a hardware keyboard on Korean composes letters and hands the rest back in order", () => {
@@ -12605,6 +12823,438 @@ group("a picked pack is copied for import only within client-core's bounds", () 
   check(
     PluginImportPolicy.ARCHIVE_NAME.endsWith(".zip"),
     "the staged archive keeps the extension client-core goes by, whatever the picked name",
+  );
+});
+
+group("the scheme traits answer as the Engine's SchemeType predicates", () => {
+  check(
+    SchemeTraits.NAMES.length === 8 &&
+      SchemeTraits.fromName("cantonese") === SchemeTraits.CANTONESE &&
+      SchemeTraits.fromName("zhuyin") === SchemeTraits.ZHUYIN &&
+      SchemeTraits.fromName("vietnamese") === SchemeTraits.VIETNAMESE &&
+      SchemeTraits.fromName("nope") === -1,
+    "the wire names index the scheme numbers, and an unknown name is -1",
+  );
+  for (const unknown of [-1, 8, 99]) {
+    check(
+      !SchemeTraits.isChinese(unknown) &&
+        !SchemeTraits.usesChinesePunctuation(unknown) &&
+        !SchemeTraits.commitsOnBlur(unknown) &&
+        !SchemeTraits.locksCaret(unknown),
+      `scheme ${unknown}, which no build knows, answers false`,
+    );
+  }
+  check(
+    SchemeTraits.isChinese(SchemeTraits.CANTONESE) &&
+      SchemeTraits.isChinese(SchemeTraits.ZHUYIN) &&
+      !SchemeTraits.isChinese(SchemeTraits.VIETNAMESE),
+    "Cantonese and Zhuyin are Chinese; Vietnamese is a language of its own",
+  );
+  check(
+    !SchemeTraits.scriptConversionApplies(SchemeTraits.CANTONESE) &&
+      !SchemeTraits.scriptConversionApplies(SchemeTraits.ZHUYIN),
+    "Cantonese and Zhuyin are Traditional as typed",
+  );
+  check(
+    SchemeTraits.usesChinesePunctuation(SchemeTraits.ZHUYIN) &&
+      !SchemeTraits.usesChinesePunctuation(SchemeTraits.VIETNAMESE) &&
+      !SchemeTraits.widensFullWidth(SchemeTraits.VIETNAMESE),
+    "Vietnamese writes half-width ASCII marks",
+  );
+  check(
+    SchemeTraits.hostSmartPunctuation(SchemeTraits.CANTONESE) &&
+      !SchemeTraits.hostSmartPunctuation(SchemeTraits.ZHUYIN),
+    "smart punctuation runs for Cantonese, not over the Dachen keys",
+  );
+  check(
+    SchemeTraits.commitsOnBlur(SchemeTraits.ZHUYIN) &&
+      SchemeTraits.commitsOnBlur(SchemeTraits.VIETNAMESE) &&
+      !SchemeTraits.commitsOnBlur(SchemeTraits.CANTONESE) &&
+      !SchemeTraits.commitsOnBlur(SchemeTraits.QUANPIN),
+    "a Zhuyin conversion and a Vietnamese word are committed on blur, a spelling is not",
+  );
+  check(
+    SchemeTraits.hasOpenableCandidateList(SchemeTraits.ZHUYIN) &&
+      !SchemeTraits.hasOpenableCandidateList(SchemeTraits.VIETNAMESE) &&
+      SchemeTraits.cancelKeepsComposition(SchemeTraits.VIETNAMESE),
+    "Zhuyin opens its list as Korean does; Vietnamese has none but keeps the first Cancel",
+  );
+});
+
+group("a Zhuyin or Vietnamese composition is drawn as the text it writes", () => {
+  check(
+    SchemeCompositionPolicy.rulesScheme(SchemeTraits.ZHUYIN, true, "none") === -1 &&
+      SchemeCompositionPolicy.rulesScheme(SchemeTraits.ZHUYIN, false, "emoji") === -1 &&
+      SchemeCompositionPolicy.selectedRulesScheme("vietnamese", false, "none") ===
+        SchemeTraits.VIETNAMESE,
+    "no scheme's own rules hold under English or a local mode",
+  );
+  check(
+    SchemeCompositionPolicy.reading(SchemeTraits.ZHUYIN, "su3", "你") === "你" &&
+      SchemeCompositionPolicy.reading(SchemeTraits.VIETNAMESE, "Vieejt", "Việt") === "Việt" &&
+      SchemeCompositionPolicy.reading(SchemeTraits.CANTONESE, "nei", "你") === "nei" &&
+      SchemeCompositionPolicy.reading(-1, "su3", "你") === "su3",
+    "Zhuyin and Vietnamese draw the preedit, Cantonese and English the spelling",
+  );
+  check(
+    SchemeCompositionPolicy.caret(SchemeTraits.VIETNAMESE, 2, "Việt") === 4 &&
+      SchemeCompositionPolicy.caret(SchemeTraits.CANTONESE, 2, "nei") === 2,
+    "the caret stays at the end of a written composition, and is the Engine's in a spelling",
+  );
+  check(
+    SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, true, 0) &&
+      !SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, false, 5) &&
+      !SchemeCompositionPolicy.listOpen(SchemeTraits.ZHUYIN, undefined, 5),
+    "the Zhuyin list is open when the view says so, never from a candidate count",
+  );
+  check(
+    SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, undefined, 3) &&
+      !SchemeCompositionPolicy.listOpen(SchemeTraits.KOREAN, false, 0) &&
+      !SchemeCompositionPolicy.listOpen(-1, true, 3),
+    "a Korean view without the flag still says so with its Hanja rows",
+  );
+});
+
+group(
+  "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
+  () => {
+    check(
+      KeyboardScheme.SCHEMES.length === 15 &&
+        KeyboardScheme.SCHEMES[11] === KeyboardScheme.KOREAN &&
+        KeyboardScheme.SCHEMES[12] === KeyboardScheme.CANTONESE &&
+        KeyboardScheme.SCHEMES[13] === KeyboardScheme.ZHUYIN &&
+        KeyboardScheme.SCHEMES[14] === KeyboardScheme.VIETNAMESE,
+      "appended after Korean, in the shared picker's order",
+    );
+    check(
+      !KeyboardScheme.DEFAULT_ENABLED.includes(KeyboardScheme.CANTONESE) &&
+        !KeyboardScheme.DEFAULT_ENABLED.includes(KeyboardScheme.ZHUYIN) &&
+        !KeyboardScheme.DEFAULT_ENABLED.includes(KeyboardScheme.VIETNAMESE) &&
+        KeyboardScheme.DEFAULT_ENABLED.includes(KeyboardScheme.KOREAN),
+      "none of the three is on until the user turns it on",
+    );
+    check(
+      KeyboardScheme.enabledFromPreferenceIds(["vietnamese", "zhuyin", "cantonese"])
+        .map((scheme: SchemeDefinition): string => scheme.preferenceId)
+        .join() === "cantonese,zhuyin,vietnamese",
+      "the preference ids resolve, in the fixed order",
+    );
+    check(
+      KeyboardScheme.languageDictionary("cantonese") === "cantonese.db" &&
+        KeyboardScheme.languageDictionary("zhuyin") === "zhuyin.db" &&
+        KeyboardScheme.languageDictionary("vietnamese") === null &&
+        KeyboardScheme.languageDictionary("quanpin") === null,
+      "Cantonese and Zhuyin read their own lexicon; Vietnamese needs none",
+    );
+    const enabled: SchemeDefinition[] = [
+      KeyboardScheme.QUANPIN,
+      KeyboardScheme.CANTONESE,
+      KeyboardScheme.ZHUYIN,
+      KeyboardScheme.VIETNAMESE,
+    ];
+    const onlyCantonese = (file: string): boolean => file === "cantonese.db";
+    check(
+      KeyboardScheme.withInstalledDictionaries(enabled, onlyCantonese)
+        .map((scheme: SchemeDefinition): string => scheme.engineScheme)
+        .join() === "quanpin,cantonese,vietnamese",
+      "an enabled scheme whose dictionary is missing is hidden",
+    );
+    check(
+      KeyboardScheme.withInstalledDictionaries([KeyboardScheme.ZHUYIN], () => false)[0] ===
+        KeyboardScheme.QUANPIN,
+      "and a keyboard left with nothing falls back to 全拼",
+    );
+    check(
+      KeyboardScheme.fromPreferences("cantonese", null, "twenty_six_key") ===
+        KeyboardScheme.CANTONESE &&
+        KeyboardScheme.fromPreferences("zhuyin", null, "twenty_six_key") ===
+          KeyboardScheme.ZHUYIN &&
+        KeyboardScheme.fromPreferences("vietnamese", null, "nine_key") ===
+          KeyboardScheme.VIETNAMESE,
+      "the Engine schemes resolve to their cards",
+    );
+    check(
+      KeyboardScheme.engineSchemeName(5) === "cantonese" &&
+        KeyboardScheme.engineSchemeName(6) === "zhuyin" &&
+        KeyboardScheme.engineSchemeName(7) === "vietnamese",
+      "five, six and seven name the new schemes",
+    );
+    const vietnamese: PreferenceMapping = KeyboardScheme.mapping(
+      KeyboardScheme.VIETNAMESE,
+      "wubi",
+      null,
+    );
+    check(
+      vietnamese.scheme === "vietnamese" && vietnamese.lastChineseScheme === "wubi",
+      "Vietnamese keeps the Chinese scheme to go back to",
+    );
+    check(
+      KeyboardScheme.mapping(KeyboardScheme.ZHUYIN, "wubi", null).lastChineseScheme === "zhuyin" &&
+        KeyboardScheme.mapping(KeyboardScheme.CANTONESE, "wubi", null).lastChineseScheme ===
+          "cantonese" &&
+        KeyboardScheme.mapping(KeyboardScheme.QUANPIN, "zhuyin", null).lastChineseScheme ===
+          "quanpin",
+      "Cantonese and Zhuyin are themselves the Chinese scheme 中文 goes back to",
+    );
+    check(
+      KeyboardScheme.mapping(KeyboardScheme.JAPANESE, "cantonese", null).lastChineseScheme ===
+        "cantonese",
+      "and a Japanese switch remembers either",
+    );
+    check(
+      TypingStatisticsPolicy.source("cantonese", "xiaohe", false, false, "none") === "cantonese" &&
+        TypingStatisticsPolicy.source("zhuyin", "xiaohe", false, false, "none") === "zhuyin" &&
+        TypingStatisticsPolicy.source("vietnamese", "xiaohe", false, false, "none") ===
+          "vietnamese",
+      "each counts under its own typing source",
+    );
+    check(
+      !ChineseOutputPolicy.applies(false, 5, "none") &&
+        !ChineseOutputPolicy.applies(false, 6, "none") &&
+        !ChineseOutputPolicy.applies(false, 7, "none") &&
+        ChineseOutputPolicy.applies(false, 2, "none"),
+      "the Simplified-to-Traditional switch converts none of them",
+    );
+    check(
+      !CandidateManagementAction.candidateActionsAvailable("cantonese", 0) &&
+        !CandidateManagementAction.candidateActionsAvailable("zhuyin", 0) &&
+        !CandidateManagementAction.candidateActionsAvailable("vietnamese", 0) &&
+        CandidateManagementAction.candidateActionsAvailable("wubi", 0),
+      "none of them learns into the main dictionary, so none offers dictionary actions",
+    );
+    check(
+      FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+        ...FloatingToolbarLayout.idleState(),
+        vietnamese: true,
+      }) === "越" &&
+        FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, FloatingToolbarLayout.idleState()) ===
+          "中",
+      "the toolbar wears 越 for Vietnamese and 中 for the Chinese schemes",
+    );
+  },
+);
+
+group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
+  check(
+    ZhuyinLayout.ROWS.map((row: string[]): number => row.length).join() === "11,10,10,10" &&
+      ZhuyinLayout.ROWS.flat().length === 41,
+    "41 keys in four rows",
+  );
+  check(
+    ZhuyinLayout.ROWS.flat().every((key: string): boolean => ZhuyinLayout.face(key) !== key),
+    "every key wears a symbol or a tone mark",
+  );
+  check(
+    ZhuyinLayout.face("1") === "ㄅ" &&
+      ZhuyinLayout.face("u") === "ㄧ" &&
+      ZhuyinLayout.face("-") === "ㄦ" &&
+      ZhuyinLayout.face("/") === "ㄥ",
+    "the libchewing Dachen table",
+  );
+  check(
+    ZhuyinLayout.face("6") === "ˊ" &&
+      ZhuyinLayout.face("3") === "ˇ" &&
+      ZhuyinLayout.face("4") === "ˋ" &&
+      ZhuyinLayout.face("7") === "˙" &&
+      ZhuyinLayout.label("3") === "三声" &&
+      ZhuyinLayout.label("q") === "ㄆ",
+    "the tone keys wear their marks and are read by name",
+  );
+  check(
+    ZhuyinLayout.selectsWhileListOpen("1") &&
+      ZhuyinLayout.selectsWhileListOpen("9") &&
+      !ZhuyinLayout.selectsWhileListOpen("0") &&
+      !ZhuyinLayout.selectsWhileListOpen("q"),
+    "only 1-9 would pick a row from an open list",
+  );
+  check(
+    ZhuyinLayout.claimsSymbol(",") &&
+      ZhuyinLayout.claimsSymbol("5") &&
+      ZhuyinLayout.claimsSymbol("-") &&
+      !ZhuyinLayout.claimsSymbol("?") &&
+      !ZhuyinLayout.claimsSymbol("("),
+    "the symbol layer types a mark the Dachen editor would compose, and routes the rest",
+  );
+  const threeRows: number = 44 * 3;
+  check(
+    ZhuyinLayout.rowHeight(threeRows, 7) * 4 + 7 * 3 === threeRows + 7 * 2,
+    "four rows and their gaps fill the three letter rows and theirs",
+  );
+  check(
+    KeyAccessibilityPolicy.zhuyinList(false) === "选字" &&
+      KeyAccessibilityPolicy.zhuyinList(true) === "关闭候选列表",
+    "選 is read as what the next tap does",
+  );
+});
+
+group("touch Return ends a Vietnamese word and still does its own work", () => {
+  check(
+    ReturnKeyAction.dispatch(false, true, 0, false, false, true) ===
+      ReturnDispatch.FINISH_THEN_EDITOR &&
+      ReturnKeyAction.dispatch(false, true, 2, false, false, true) ===
+        ReturnDispatch.FINISH_THEN_EDITOR &&
+      ReturnKeyAction.dispatch(false, false, 0, false, false, true) === ReturnDispatch.EDITOR,
+    "a composing word is committed ahead of the line break",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED &&
+      ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "Zhuyin keeps the shared rule: the open list's row, else the conversion",
+  );
+});
+
+group("a hardware keyboard on Zhuyin and Vietnamese composes what the Engine spells", () => {
+  const key = (over: Record<string, unknown> = {}): HardwareKey => ({
+    keyCode: 2001,
+    unicodeChar: 0x31,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  const spelling = (symbols: string): HardwareSpelling => ({
+    ...PLAIN_SPELLING,
+    spellingSymbols: symbols,
+  });
+  const IDLE: HardwareSpelling = spelling("125890,./;-");
+  const DACHEN: HardwareSpelling = spelling("1234567890,./;- ");
+  const LIST_OPEN: HardwareSpelling = spelling("0,./;-");
+  const zhuyin = (
+    hardware: HardwareKey,
+    composing: boolean,
+    symbols: HardwareSpelling,
+    listOpen: boolean = false,
+  ): HardwareKeyDecision =>
+    HardwareKeyRouter.route(
+      hardware,
+      composing,
+      true,
+      true,
+      undefined,
+      false,
+      false,
+      "disabled",
+      listOpen,
+      symbols,
+      false,
+      false,
+      false,
+      listOpen,
+      SchemeTraits.ZHUYIN,
+    );
+  const idleDigit: HardwareKeyDecision = zhuyin(key(), false, IDLE);
+  check(
+    idleDigit.action === HardwareKeyAction.COMPOSE && idleDigit.character === 0x31,
+    "an idle 1 is ㄅ",
+  );
+  check(
+    zhuyin(key({ keyCode: 2003, unicodeChar: 0x33 }), false, IDLE).action !==
+      HardwareKeyAction.COMPOSE,
+    "an idle tone digit is not",
+  );
+  check(
+    zhuyin(key({ keyCode: 2003, unicodeChar: 0x33 }), true, DACHEN).action ===
+      HardwareKeyAction.COMPOSE,
+    "while composing it is the third tone",
+  );
+  check(
+    zhuyin(key({ keyCode: 2043, unicodeChar: 0x2c }), true, DACHEN).action ===
+      HardwareKeyAction.COMPOSE,
+    "a comma while composing is ㄝ",
+  );
+  check(
+    zhuyin(key({ keyCode: 2013, unicodeChar: 0 }), true, DACHEN).action ===
+      HardwareKeyAction.CONVERT_HANJA,
+    "Down opens the list over the conversion",
+  );
+  check(
+    zhuyin(key({ keyCode: 2013, unicodeChar: 0 }), true, LIST_OPEN, true).action !==
+      HardwareKeyAction.CONVERT_HANJA,
+    "and moves within it once it is open",
+  );
+  const pick: HardwareKeyDecision = zhuyin(
+    key({ keyCode: 2002, unicodeChar: 0x32 }),
+    true,
+    LIST_OPEN,
+    true,
+  );
+  check(
+    pick.action === HardwareKeyAction.SELECT && pick.index === 1,
+    "with the list open 2 picks the second row",
+  );
+  check(
+    zhuyin(key({ keyCode: 2050, unicodeChar: 0x20 }), true, LIST_OPEN, true).action ===
+      HardwareKeyAction.COMMIT,
+    "and Space the highlighted one",
+  );
+  check(
+    zhuyin(key({ keyCode: 2014, unicodeChar: 0 }), true, DACHEN).action ===
+      HardwareKeyAction.COMMIT_THEN_RELEASE &&
+      zhuyin(key({ keyCode: 2014, unicodeChar: 0, ctrlKey: true }), true, DACHEN).action ===
+        HardwareKeyAction.COMMIT_THEN_RELEASE,
+    "the conversion has no caret inside it, so the caret keys commit it and move",
+  );
+  check(
+    zhuyin(key({ unicodeChar: 0x21, shiftKey: true }), true, DACHEN).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Shift+1 is a mark, not a pick from a list that is not open",
+  );
+
+  const vietnamese = (
+    hardware: HardwareKey,
+    composing: boolean,
+    symbols: HardwareSpelling = PLAIN_SPELLING,
+  ): HardwareKeyDecision =>
+    HardwareKeyRouter.route(
+      hardware,
+      composing,
+      true,
+      true,
+      undefined,
+      false,
+      false,
+      "disabled",
+      false,
+      symbols,
+      false,
+      false,
+      false,
+      false,
+      SchemeTraits.VIETNAMESE,
+    );
+  const capital: HardwareKeyDecision = vietnamese(
+    key({ keyCode: 2017, unicodeChar: 0x56, shiftKey: true }),
+    false,
+  );
+  check(
+    capital.action === HardwareKeyAction.COMPOSE && capital.character === 0x56,
+    "a capital starts a word in its own case",
+  );
+  check(
+    vietnamese(key({ keyCode: 2006, unicodeChar: 0x36 }), false).action ===
+      HardwareKeyAction.RELEASE,
+    "an idle digit is the application's",
+  );
+  check(
+    vietnamese(key({ keyCode: 2006, unicodeChar: 0x36 }), true, spelling("0123456789")).action ===
+      HardwareKeyAction.COMPOSE,
+    "a VNI digit marks the composing word",
+  );
+  check(
+    vietnamese(key({ keyCode: 2006, unicodeChar: 0x36 }), true).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "a Telex digit ends the word and is typed after it",
+  );
+  check(
+    vietnamese(key({ keyCode: 2044, unicodeChar: 0x2e }), true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "a mark commits the word with it",
+  );
+  check(
+    vietnamese(key({ keyCode: 2098, unicodeChar: 0 }), true).action !==
+      HardwareKeyAction.CONVERT_HANJA,
+    "Vietnamese has no list for the Hanja key to open",
   );
 });
 

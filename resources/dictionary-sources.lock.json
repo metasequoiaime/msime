@@ -225,32 +225,32 @@
       "size": 6452537
     },
     {
-      "path": "cantonese/jyut6ping3.chars.dict.yaml",
-      "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/jyut6ping3.chars.dict.yaml",
+      "path": "yue/jyut6ping3.chars.dict.yaml",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/jyut6ping3.chars.dict.yaml",
       "sha256": "9b053a594c80eae76545bcdd83239884a49b1ba48b89ca0ab9e8daac79f33013",
       "size": 345329
     },
     {
-      "path": "cantonese/jyut6ping3.words.dict.yaml",
-      "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/jyut6ping3.words.dict.yaml",
+      "path": "yue/jyut6ping3.words.dict.yaml",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/jyut6ping3.words.dict.yaml",
       "sha256": "54d174ad2bb997e4a678b7b076b84e4dc5914481b32467cdea3b43e88b7d5474",
       "size": 2630257
     },
     {
-      "path": "cantonese/essay-cantonese.txt",
-      "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/essay-cantonese.txt",
+      "path": "yue/essay-cantonese.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/essay-cantonese.txt",
       "sha256": "d08836175f598219f43c2f2f9e12e12711212dbefe08d57b2eddb7a9d9f22a5d",
       "size": 3416812
     },
     {
-      "path": "zhuyin/tsi.csv",
-      "url": "https://raw.githubusercontent.com/chewing/libchewing-data/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing/tsi.csv",
+      "path": "tw/tsi.csv",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/tsi.csv",
       "sha256": "c889a1ac3ae1901b3f8f62748bc41b958f010bf995f7f88dbaf9e3494f341428",
       "size": 5244487
     },
     {
-      "path": "zhuyin/word.csv",
-      "url": "https://raw.githubusercontent.com/chewing/libchewing-data/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing/word.csv",
+      "path": "tw/word.csv",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/word.csv",
       "sha256": "da55b8e599c1389bc486453554f3410cf9c621d0ffff0ce38855698d26b3892a",
       "size": 399905
     }

@@ -9,10 +9,8 @@ test("builds provider controls that update the matching preference fields", () =
   const providers = createTranslationProviderSettings({
     client: {
       providerCredentials: undefined,
-      customTranslations: { load: async () => "", save: async () => undefined },
     },
     candidateTranslations: true,
-    mobile: false,
     linux: false,
     windows: true,
     macos: false,
@@ -32,18 +30,10 @@ test("builds provider controls that update the matching preference fields", () =
     providerCredentialMessages: {},
     runProviderCredential: async () => undefined,
     credentialTestControl: () => null,
-    customTranslationsText: "",
-    customTranslationsPlaceholder: "synthetic",
-    customTranslationsNotice: "",
-    customTranslationsSummary: "",
-    customTranslationsSaveState: "idle",
-    customTranslationsSaveError: "",
-    onCustomTranslationsChange: () => undefined,
-    onFlushCustomTranslations: () => undefined,
     onPreferencesChange: (patch) => updates.push(patch),
-    setTranslationProvider: () => undefined,
   } satisfies TranslationProviderSettingsOptions);
 
+  expect(providers.provider).toBe("tencent");
   providers.tencent.onSecretIdChange("synthetic-id");
   providers.tencent.onSecretKeyChange("synthetic-key");
   providers.tencent.onRegionChange("ap-synthetic");

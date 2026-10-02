@@ -46,7 +46,7 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 // Only the Unix socket streaming entry point takes raw callback context.
 #[cfg(unix)]
@@ -383,11 +383,16 @@ impl HostSession {
         options.local_expression = snapshot.preferences.local_modes.expression;
         options.local_command = snapshot.preferences.local_modes.command;
         options.local_mention = snapshot.preferences.local_modes.mention;
+        // 先定下辅助码设置：插件表的戳要看当前方案的辅助码是否打开、选了哪个辅助码表包。
+        let helpcode = helpcode_for_scheme(&snapshot.preferences, scheme);
+        options.helpcode = helpcode.enabled;
+        options.show_helpcode = helpcode.show_in_candidate_window;
+        options.helpcode_schema = helpcode.schema.as_str().into();
         let plugin_root = self.plugin_roots.installed.as_deref();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_root,
             &options,
-            &snapshot.preferences.plugins.command_tables,
+            &snapshot.preferences.plugins,
         );
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
         options.sentence_association =
@@ -398,10 +403,6 @@ impl HostSession {
         // better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
         apply_local_mode_resource_gates(&mut options);
-        let helpcode = helpcode_for_scheme(&snapshot.preferences, scheme);
-        options.helpcode = helpcode.enabled;
-        options.show_helpcode = helpcode.show_in_candidate_window;
-        options.helpcode_schema = helpcode.schema.as_str().into();
         options.paired_punctuation = snapshot.preferences.paired_punctuation;
         options.punctuation_lock = punctuation_lock_code(snapshot.preferences.punctuation_lock);
         options.chinese_punctuation = engine_chinese_punctuation(
@@ -473,14 +474,10 @@ impl HostSession {
         Ok(fallback)
     }
 
-    /// Bring the `/` command table and the `@` name list up to date with the plugins directory, for a field that just gained focus: the settings page may have imported a table or edited the names since. Reads nothing when no file moved.
+    /// 输入框获得焦点时，让 `/` 指令表、K 模式短语表、辅助码表和 `@` 名单跟上插件目录：设置页可能刚导入了表或改了名单。没有文件变动时什么都不读。
     fn refresh_plugin_tables(&mut self) -> Result<(), String> {
         let root = self.plugin_roots.installed.as_deref();
-        let tables = plugin_tables::PluginTables::stamp(
-            root,
-            &self.options,
-            &self.applied.plugins.command_tables,
-        );
+        let tables = plugin_tables::PluginTables::stamp(root, &self.options, &self.applied.plugins);
         if tables.commands_differ(&self.plugin_tables) {
             let table = tables.command_table(root);
             self.runtime
@@ -494,6 +491,20 @@ impl HostSession {
                 .set_mention_entries(&entries)
                 .map_err(|e| e.to_string())?;
             self.options.mention_entries = entries;
+        }
+        if tables.phrases_differ(&self.plugin_tables) {
+            let table = tables.quick_phrase_table(root);
+            self.runtime
+                .set_quick_phrase_table(&table)
+                .map_err(|e| e.to_string())?;
+            self.options.quick_phrase_table = table;
+        }
+        if tables.helpcode_differs(&self.plugin_tables) {
+            let table = tables.helpcode_table(root);
+            self.runtime
+                .set_helpcode_table(table.clone())
+                .map_err(|e| e.to_string())?;
+            self.options.helpcode_table = table;
         }
         self.plugin_tables = tables;
         Ok(())
@@ -803,6 +814,8 @@ impl HostOptions {
             local_mention: self.preferences.local_modes.mention,
             command_table: Vec::new(),
             mention_entries: Vec::new(),
+            quick_phrase_table: Vec::new(),
+            helpcode_table: None,
             sentence_association: engine_sentence_association(
                 &self.preferences.sentence_association,
             ),
@@ -875,7 +888,7 @@ fn language_dictionaries_directory(resources: &std::path::Path) -> Option<std::p
 }
 
 /// The `language_dictionaries` value HostOptions records for `resources`: the directory beside them, only when it holds a dictionary, so a host without them writes the document it always did.
-fn installed_language_dictionaries(resources: &std::path::Path) -> Option<String> {
+pub fn installed_language_dictionaries(resources: &std::path::Path) -> Option<String> {
     if language_dictionaries_beside(resources).is_empty() {
         return None;
     }
@@ -920,11 +933,52 @@ fn without_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
 ///
 /// Failing to write the marker is not failing to start. The next launch hashes again, which is the
 /// behaviour this function replaces, so the cost of that miss is the cost of doing nothing here.
+fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
+    let mut current = PathBuf::new();
+    let mut saw_prefix_alias = false;
+    let mut saw_real_component = false;
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => current.push(component),
+            Component::CurDir => {}
+            Component::ParentDir => current.push(component),
+            Component::Normal(_) => {
+                current.push(component);
+                match std::fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        let system_alias = path.is_absolute()
+                            && !saw_real_component
+                            && !saw_prefix_alias
+                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                        if index + 1 == components.len()
+                            || saw_real_component
+                            || saw_prefix_alias
+                            || !system_alias
+                        {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidInput,
+                                "state root contains a symbolic link",
+                            ));
+                        }
+                        saw_prefix_alias = true;
+                    }
+                    Ok(_) => saw_real_component = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn verify_resources_once(
     resources: &std::path::Path,
     specification: &ResourceSet,
     state_root: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    reject_symlinked_state_root(state_root)?;
     match std::fs::symlink_metadata(state_root) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             return Err(std::io::Error::new(
@@ -1079,23 +1133,33 @@ fn reject_symlinked_options_parent(path: &Path) -> std::io::Result<()> {
 ///
 /// Returns whether the file was rewritten. Run it before the caller's own sessions exist. The previous generation is never modified, so a host still using it keeps working until it restarts. A symlink, or a document whose paths do not follow the layout `prepare_host_configuration` produces, is left alone rather than guessed at. When the recorded resources do not match the compiled lock the error is [`DictionaryOutdated`] and the file is left as it was.
 pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std::error::Error>> {
-    refresh_options_file(path, false)
+    refresh_options_file(path, false, None)
 }
 
-/// [`refresh_host_options`], and also keep `language_dictionaries` in step with the Cantonese and Zhuyin dictionaries installed beside the resources, whatever the generation; otherwise a current file is only read.
+/// 给自带一份已校验资源的宿主用的 [`refresh_host_options`]（macOS 设置应用 bundle 里的 `EngineResources` 就是这样一份）：记录的资源目录与编译进来的词库锁不符（[`DictionaryOutdated`]）时，改用 `bundled` 准备新代次，此后 `resources` 指向它。
 ///
-/// Only the input method process itself calls this, at its start, before any session reads the file. Every input method session re-reads the document and `HostOptions` rejects unknown keys, so a key added to a document that an older running input method still reads would stop it from opening sessions. The settings app can be upgraded while the previous input method keeps running, which is why its own refresh is [`refresh_host_options`]; an input method running this code understands the key it writes.
+/// 记录的资源目录不一定是安装包会替换的那一个。手工暂存到 Application Support 的目录、在输入法「准备词库」里选的目录，都停在暂存时的代次上，之后每次升级都以 [`DictionaryOutdated`] 失败，用户既拿不到新词库，也拿不到安装包放在自带资源旁的粤语与注音词库。记录的目录仍是当前代次，或者失败是别的原因时，处理与 [`refresh_host_options`] 完全相同；这里同样不碰 `language_dictionaries`。
+pub fn refresh_host_options_from(
+    path: &std::path::Path,
+    bundled: &std::path::Path,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    refresh_options_file(path, false, Some(bundled))
+}
+
+/// 在 [`refresh_host_options`] 之外，不论代次是否变化，都让 `language_dictionaries` 跟上资源目录旁实际安装的粤语与注音词库；两项都不需要改时只读一次文件。代次准备失败也不会挡住这一项：仍按记录的资源目录更新这个键，然后再返回准备失败的错误，`resources` 与 `dictionaries` 保持原样。
+///
+/// 只有输入法进程自己在启动时、任何会话读取这份文件之前调用它。每个输入法会话都会重读这份文件，而 `HostOptions` 拒绝未知键，往一个仍被旧版输入法读取的文件里加键会让它再也开不了会话。设置应用升级后旧版输入法可能还在运行，所以设置应用自己的刷新是 [`refresh_host_options`]；运行这段代码的输入法认识它写入的键。
 pub fn refresh_host_options_with_language_dictionaries(
     path: &std::path::Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    refresh_options_file(path, true)
+    refresh_options_file(path, true, None)
 }
 
 fn refresh_options_file(
     path: &std::path::Path,
     language_dictionaries: bool,
+    bundled: Option<&std::path::Path>,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    use std::io::Write as _;
     reject_symlinked_options_parent(path)?;
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file() {
@@ -1121,31 +1185,57 @@ fn refresh_options_file(
     let prepared = refreshed_host_options(
         &document,
         &specification.generation()?,
+        bundled,
         |resources, state| {
             Ok(serde_json::from_str(
                 &prepare_host_configuration(resources, state).map_err(outdated_resources)?,
             )?)
         },
-    )?;
+    );
+    // 语言词库随安装包到来，与词库代次无关；代次准备失败（最常见的是没有任何安装包会升级的资源目录，见 `refresh_host_options_from`）不能让它们进不了配置。
     let languages = if language_dictionaries {
-        with_installed_language_dictionaries(prepared.as_ref().unwrap_or(&document))?
+        let current = match &prepared {
+            Ok(Some(prepared)) => prepared,
+            _ => &document,
+        };
+        with_installed_language_dictionaries(current)?
     } else {
         None
+    };
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            if let Some(languages) = languages {
+                replace_options_file(path, &metadata, &languages)?;
+            }
+            return Err(error);
+        }
     };
     let Some(refreshed) = languages.or(prepared) else {
         return Ok(false);
     };
+    replace_options_file(path, &metadata, &refreshed)?;
+    Ok(true)
+}
+
+/// 用 `document` 原子替换 `path` 处的配置文件，保留原有权限。
+fn replace_options_file(
+    path: &std::path::Path,
+    metadata: &std::fs::Metadata,
+    document: &Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
     let parent = path.parent().ok_or("runtime options have no directory")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary
         .as_file()
         .set_permissions(metadata.permissions())?;
-    let mut serialized = serde_json::to_vec_pretty(&refreshed)?;
+    let mut serialized = serde_json::to_vec_pretty(document)?;
     serialized.push(b'\n');
     temporary.write_all(&serialized)?;
     temporary.as_file().sync_all()?;
     temporary.persist(path)?;
-    Ok(true)
+    Ok(())
 }
 
 /// The `resources`, `dictionaries` and state directory of a document in the layout `prepare_host_configuration` produces, or `None` for any other document.
@@ -1168,11 +1258,12 @@ fn prepared_layout(document: &Value) -> Option<(&Path, &Path, &Path)> {
     .then_some((resources, dictionaries, state))
 }
 
-/// The options `refresh_host_options` would publish, or `None` when the document is current or not in the prepared layout.
+/// `refresh_host_options` 会发布的配置；文件已是当前代次或不符合准备布局时为 `None`。记录的资源目录是 [`DictionaryOutdated`]、而宿主自带 `bundled` 资源时，改用它准备代次。
 fn refreshed_host_options(
     document: &Value,
     generation: &str,
-    prepare: impl FnOnce(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
+    bundled: Option<&Path>,
+    mut prepare: impl FnMut(&Path, &Path) -> Result<Value, Box<dyn std::error::Error>>,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let Some((resources, dictionaries, state)) = prepared_layout(document) else {
         return Ok(None);
@@ -1180,7 +1271,12 @@ fn refreshed_host_options(
     if dictionaries.file_name().and_then(|name| name.to_str()) == Some(generation) {
         return Ok(None);
     }
-    let prepared = prepare(resources, state)?;
+    let prepared = match (prepare(resources, state), bundled) {
+        (Err(error), Some(bundled)) if error.is::<DictionaryOutdated>() && bundled != resources => {
+            prepare(bundled, state)?
+        }
+        (prepared, _) => prepared?,
+    };
     let mut refreshed = document.clone();
     for key in ["resources", "dictionaries"] {
         refreshed[key] = prepared
@@ -1398,6 +1494,13 @@ pub fn local_emoji_catalog_slice(
             complete: page.complete,
         })
         .map_err(|_| "local emoji catalog unavailable")
+}
+
+pub use msime_client_core::plugins::symbol_set::PluginSymbolGroup;
+
+/// 插件目录 `root` 下已安装的符号集的全部组，供宿主追加到内置符号目录之后：`symbols` 组放在以 `pack_name` 为上级分类的分组下，`kaomoji` 组放在颜文字的 All 之后。读几个小清单：不要在按键路径上调用。
+pub fn plugin_symbol_groups(root: &std::path::Path) -> Vec<PluginSymbolGroup> {
+    msime_client_core::plugins::symbol_set::plugin_symbol_groups(root)
 }
 
 #[derive(Clone, Debug, Serialize)]

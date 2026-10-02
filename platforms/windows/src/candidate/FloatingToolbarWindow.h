@@ -28,11 +28,10 @@ public:
   ~FloatingToolbarWindow();
   // Share the candidate card's resolved tokens so one theme covers the surface.
   void set_palette(CandidatePalette palette);
-  // Caps Lock and the Japanese and Korean modes change what the language button shows.
+  // Caps Lock and the input mode change what the language button shows.
   void set_language_state(ToolbarLanguageState state) {
     if (state.caps_lock == language_.caps_lock &&
-        state.japanese == language_.japanese &&
-        state.korean == language_.korean &&
+        state.mode == language_.mode &&
         state.dedicated_english == language_.dedicated_english)
       return;
     language_ = state;
@@ -135,7 +134,7 @@ private:
   std::optional<size_t> pressed_;
   std::optional<FocusLease> pressed_lease_;
   bool tracking_mouse_ = false;
-  // Caps Lock and the Japanese and Korean input modes, which the language button reflects.
+  // Caps Lock and the input mode, which the language button reflects.
   ToolbarLanguageState language_;
   // True once the toolbar has been positioned. The default corner is only for
   // the first placement; afterwards the user's own position is preserved.

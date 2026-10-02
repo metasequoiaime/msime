@@ -46,6 +46,12 @@ enum CommunitySkinCategory: String, CaseIterable, Identifiable, Codable, Sendabl
   }
 }
 
+enum CommunitySkinCategorySelectionPolicy {
+  static func afterFailedLoad(previous: CommunitySkinCategory?) -> CommunitySkinCategory? {
+    previous
+  }
+}
+
 struct CommunityPage: Decodable, Sendable { let skins: [CommunitySkin]; let has_more: Bool }
 struct CommunityChallenge: Decodable, Sendable { let challenge_id: String; let nonce: String }
 typealias CommunityUser = BackendAccountClient.User

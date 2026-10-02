@@ -1,9 +1,32 @@
 import type { EffectStyle } from "./plugin-preferences";
 
 /** Mirrors `client-core::plugins::PluginKind`. */
-export type PluginKind = "sound" | "music" | "command_table" | "effect";
+export type PluginKind =
+  | "sound"
+  | "music"
+  | "command_table"
+  | "effect"
+  | "phrase_table"
+  | "helpcode"
+  | "wordbook"
+  | "symbol_set";
 
 export type PluginCommand = { trigger: string; title: string; template: string };
+
+/** 辅助码表的一条：`client-core::plugins::helpcode_pack::HelpcodeEntry`。 */
+export type PluginHelpcodeEntry = { character: string; code: string };
+
+/** 符号集的一组：`client-core::plugins::symbol_set::SymbolGroup`。 */
+export type PluginSymbolGroup = {
+  tab: "symbols" | "kaomoji";
+  title: string;
+  /** 没写时为空串。 */
+  keywords: string;
+  items: string[];
+};
+
+/** 短语表的一行：`client-core::plugins::phrase_table::PhraseRow`。 */
+export type PluginPhrase = { key: string; text: string };
 
 /** One pack as `client-core::plugins::scan` lists it: the manifest's fields, with the content of its kind flattened in. */
 export type PluginPackage = {
@@ -22,6 +45,18 @@ export type PluginPackage = {
   tracks?: string[];
   /** Command tables. */
   commands?: PluginCommand[];
+  /** 短语表。 */
+  phrases?: PluginPhrase[];
+  /** 辅助码表：码表文件名、条数和前几条。 */
+  table?: string;
+  entries?: number;
+  preview?: PluginHelpcodeEntry[];
+  /** 单词本：词表文件名、单词数和前几个单词。 */
+  file?: string;
+  word_count?: number;
+  first_words?: string[];
+  /** 符号集的各组。 */
+  groups?: PluginSymbolGroup[];
   /** Effect packs: `client-core::plugins::effect_pack::EffectPack`, never `off`. */
   style?: EffectStyle;
   intensity?: number;
@@ -29,6 +64,9 @@ export type PluginPackage = {
   duration_ms?: number | null;
   particles?: number | null;
 };
+
+/** 插件详情可以链接过去的设置页：辅助码和快捷模式都在「输入」页。 */
+export type PluginSettingsPage = "input" | "vocabulary";
 
 /** A folder under the plugins directory that is not a loadable pack, and why. */
 export type PluginIssue = { kind: PluginKind; folder: string; reason: string };

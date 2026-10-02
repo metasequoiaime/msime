@@ -101,6 +101,7 @@ pub fn read_account_avatar_upload(path: &Path) -> Result<AccountAvatarImage, Acc
     if !path.is_absolute() {
         return Err(AccountError::Invalid);
     }
+    crate::storage::reject_symlink(path).map_err(|_| AccountError::Invalid)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| AccountError::Invalid)?;
     if !metadata.file_type().is_file() {
         return Err(AccountError::Invalid);

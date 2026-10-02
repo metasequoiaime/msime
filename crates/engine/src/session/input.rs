@@ -26,8 +26,8 @@ use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
-    KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions, SchemeKey,
-    SchemeType, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
+    QuickPhraseEntry, SchemeKey, SchemeType, ShuangpinProfileKind, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::ngram_store::PersonalNgramStore;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -174,12 +174,19 @@ impl InputSession {
             return Err(EngineError::invalid(diagnostics::INVALID_SESSION_OPTIONS));
         }
         // A missing custom table passes the name check; its load error (`UNKNOWN_HELPCODE_SCHEMA`) is what the caller sees.
-        session.install_helpcode_keymap(&options.helpcode_schema)?;
+        match &options.helpcode_table {
+            // 宿主给了表（辅助码表插件）就直接用它，不读 schema 对应的文件。
+            Some(table) => session.install_helpcode_table(table.clone()),
+            None => session.install_helpcode_keymap(&options.helpcode_schema)?,
+        }
         session.frequency = options.frequency;
         session.english_options = options.english;
         session.set_local_mode_options(options.local_modes);
         session.queries.set_command_table(&options.command_table);
         session.queries.set_mentions(&options.mention_entries);
+        session
+            .queries
+            .set_quick_phrase_table(&options.quick_phrase_table);
         session.expressive_options = options.expressive;
         session.set_wubi_input_options(options.wubi);
         session.set_personal_context_enabled(options.personal_context);
@@ -841,6 +848,14 @@ impl InputSession {
             .flatten()
     }
 
+    /// 替换 K 模式的宿主短语表；K 模式打开时刷新屏幕上的列表。
+    pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) -> Option<String> {
+        self.queries.set_quick_phrase_table(table);
+        (self.local_mode == LocalInputMode::QuickPhrase)
+            .then(|| self.update_local_candidates())
+            .flatten()
+    }
+
     /// Replaces the `@` mode's list, refreshing the list on screen when that mode is open.
     pub fn set_mention_entries(&mut self, entries: &[MentionEntry]) -> Option<String> {
         self.queries.set_mentions(entries);
@@ -941,6 +956,11 @@ impl InputSession {
         }
         // The reference threw for a custom table that went missing after the name check; the public setter reports that as false, and the old keymap stays in force.
         self.install_helpcode_keymap(schema).is_ok()
+    }
+
+    /// 换上宿主给的辅助码表（辅助码表插件），替换当前的表。
+    pub fn set_helpcode_table(&mut self, table: SharedKeymap) {
+        self.install_helpcode_table(table);
     }
 
     pub fn set_helpcode_enabled(&mut self, enabled: bool) {
@@ -1144,10 +1164,14 @@ impl InputSession {
 
     fn install_helpcode_keymap(&mut self, schema: &str) -> Result<()> {
         let keymap = Arc::new(load_helpcode_keymap(&self.paths.resources, schema)?);
+        self.install_helpcode_table(keymap);
+        Ok(())
+    }
+
+    fn install_helpcode_table(&mut self, keymap: SharedKeymap) {
         self.helpcode_keymap = Some(keymap.clone());
         self.engine.set_helpcode_keymap(Some(keymap));
         self.update_mixed_candidates();
-        Ok(())
     }
 
     fn set_autocorrect_types(&mut self, types: u32) {

@@ -1,5 +1,4 @@
-import { ModelSelect } from "./model-select";
-import { SettingField } from "./setting-field";
+import { ModelSettingField } from "./model-setting-field";
 
 export interface ProviderPreset {
   models?: readonly string[];
@@ -31,15 +30,15 @@ export function ProviderPresetSection({
   return (
     <div className={className}>
       {models.length > 0 && (
-        <SettingField label="预置模型" description="服务商已知支持的模型；也可以在模型框中自行填写">
-          <ModelSelect
-            models={models}
-            model={model}
-            ariaLabel={`${label}预置模型`}
-            emptyLabel="自定义模型…"
-            onSelect={onSelectModel}
-          />
-        </SettingField>
+        <ModelSettingField
+          label="预置模型"
+          inputLabel={`${label}预置模型`}
+          description="服务商已知支持的模型；也可以在模型框中自行填写"
+          models={models}
+          model={model}
+          emptyLabel="自定义模型…"
+          onSelect={onSelectModel}
+        />
       )}
       {linkable && (
         <button

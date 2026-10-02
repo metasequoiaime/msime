@@ -2,6 +2,7 @@
 #include "CandidateActionAvailability.h"
 #include "ChineseTextConversion.h"
 #include "FocusGate.h"
+#include "InputSchemeTraits.h"
 #include "ReplyComposer.h"
 #include "WubiCodeHintPolicy.h"
 
@@ -71,6 +72,8 @@ struct CandidatePresentation {
   // The 0-based page on show and how many pages the Engine has so far, for the pager in the preedit row. Both zero draw no pager. The count grows as the user pages, because the Engine fetches candidates lazily.
   size_t page = 0;
   size_t page_count = 0;
+  // Whether the mouse may pick a row, page the list or open a row's menu. False for a list driven from the keyboard only (scheme::KeyboardOnlyCandidateList).
+  bool pointer_input = true;
 };
 // Copy the view's page position into `output`, dropping one that is not a page of the count rather than drawing "4 / 3".
 inline void candidate_presentation_page(CandidatePresentation &output,
@@ -145,6 +148,8 @@ candidate_presentation_from_view(const FocusLease &lease,
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
   candidate_presentation_page(output, view);
+  output.pointer_input = !scheme::KeyboardOnlyCandidateList(
+      static_cast<int>(view.value("scheme", 0u)));
   output.visible = true;
   return output;
 }
@@ -209,6 +214,8 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   if (!output.candidates.empty() && highlighted != 1)
     throw std::invalid_argument("Invalid candidate highlight");
   candidate_presentation_page(output, view);
+  output.pointer_input = !scheme::KeyboardOnlyCandidateList(
+      static_cast<int>(view.value("scheme", 0u)));
   output.visible = true;
   return output;
 }

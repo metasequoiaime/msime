@@ -645,6 +645,11 @@ pub(crate) struct EmojiCatalogQuery {
     pub(crate) parent: String,
     #[serde(default)]
     pub(crate) cursor: bool,
+    /// 插件目录的绝对路径，`list_plugin_symbol_groups` 从这里读符号集。
+    #[serde(default)]
+    pub(crate) plugins: Option<String>,
+    #[serde(default)]
+    pub(crate) list_plugin_symbol_groups: bool,
 }
 
 /// Query the local verified `others.db` Emoji catalog without a provider socket.
@@ -688,6 +693,17 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             let groups = msime_engine::host::emoji_catalog_groups(resources, &query.panel.category)
                 .map_err(|_| "local emoji catalog unavailable")?;
             return Ok(json!({"groups": groups}));
+        }
+        if query.list_plugin_symbol_groups {
+            // 符号集插件不依赖 others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
+            let groups = match query.plugins.as_deref() {
+                None => Vec::new(),
+                Some(plugins) if std::path::Path::new(plugins).is_absolute() => {
+                    crate::plugin_symbol_groups(std::path::Path::new(plugins))
+                }
+                Some(_) => return Err("plugins path must be absolute".into()),
+            };
+            return Ok(json!({ "plugin_symbol_groups": groups }));
         }
         if query.list_symbol_groups {
             let groups = msime_engine::host::emoji_symbol_groups(resources)

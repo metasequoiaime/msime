@@ -100,6 +100,32 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// 断言 `file` 是 msime-dictionary 某个 `sources-vX.Y.Z` release 的附件：附件是平铺的，URL 末段就是锁文件路径的文件名。
+#[cfg(test)]
+pub(crate) fn assert_dictionary_release_asset(file: &PinnedFile) {
+    const RELEASES: &str =
+        "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v";
+    let rest = file.url.strip_prefix(RELEASES).unwrap_or_else(|| {
+        panic!(
+            "{} is not a msime-dictionary sources release asset",
+            file.url
+        )
+    });
+    let (version, name) = rest
+        .split_once('/')
+        .unwrap_or_else(|| panic!("{}", file.url));
+    let parts: Vec<&str> = version.split('.').collect();
+    assert!(
+        parts.len() == 3
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
+        "{}",
+        file.url
+    );
+    assert_eq!(Some(name), file.path.rsplit('/').next(), "{}", file.url);
+}
+
 fn matches(path: &Path, file: &PinnedFile) -> Result<bool> {
     Ok(std::fs::metadata(path)?.len() == file.size && sha256_file(path)? == file.sha256)
 }

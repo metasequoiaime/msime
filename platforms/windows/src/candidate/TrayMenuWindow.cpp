@@ -165,6 +165,11 @@ void TrayMenuWindow::show(int icon_center_x, int icon_top) {
   hovered_ = no_row;
   const auto &work = monitor.rcWork;
   dpi_ = GetDpiForWindow(window_);
+  metrics_ = tray_menu_fitted_metrics(
+      items_, TrayMenuMetrics{},
+      static_cast<double>(work.bottom - work.top) * 96.0 /
+          static_cast<double>(dpi_));
+  geometry_ = tray_menu_geometry(items_, metrics_);
   const auto bounds =
       tray_menu_bounds(icon_center_x, icon_top, work.left, work.top, work.right,
                        work.bottom, dpi_, geometry_.size);

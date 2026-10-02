@@ -1,0 +1,41 @@
+import type { SentenceAssociationPreferences } from "../index";
+import { Row, Switch } from "../core/platform-controls";
+
+export interface SentenceAssociationSectionProps {
+  value: SentenceAssociationPreferences | undefined;
+  /** 触屏宿主写 `neural_keyboard`，桌面宿主写 `neural_desktop`，行名也随之改为「键盘」或「桌面」。 */
+  mobile: boolean;
+  onChange: (value: SentenceAssociationPreferences) => void;
+}
+
+/** 本地整句联想与神经联想两个开关：输入页「候选与联想」组里的两行。 */
+export function SentenceAssociationSection({
+  value,
+  mobile,
+  onChange,
+}: SentenceAssociationSectionProps) {
+  return (
+    <>
+      <Row title="本地整句联想" description="把词库组合出的整句加入候选；关闭后仍保留单词候选。">
+        <Switch
+          checked={value?.word_lattice ?? true}
+          onChange={(checked) => onChange({ ...value, word_lattice: checked })}
+        />
+      </Row>
+      <Row
+        title={mobile ? "键盘神经联想" : "桌面神经联想"}
+        description="使用随包的神经模型重排整句候选；没有模型时保持现有候选。"
+      >
+        <Switch
+          checked={mobile ? (value?.neural_keyboard ?? false) : (value?.neural_desktop ?? false)}
+          onChange={(checked) =>
+            onChange({
+              ...value,
+              ...(mobile ? { neural_keyboard: checked } : { neural_desktop: checked }),
+            })
+          }
+        />
+      </Row>
+    </>
+  );
+}

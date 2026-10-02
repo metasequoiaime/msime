@@ -168,7 +168,7 @@ export function describeInstallerTrust(
   const name = update.installerName ?? "MetasequoiaIME_Setup_v<版本>.exe";
   // The shipped settings page's wording: an unsigned installer is not only a SmartScreen prompt, it also loses uiAccess, so the candidate window cannot float above elevated programs.
   const unsigned =
-    "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗无法浮在以管理员身份运行的程序之上）。";
+    "该版本未经代码签名，SmartScreen 会拦截，且 uiAccess 失效（候选窗口无法浮在以管理员身份运行的程序之上）。";
   if (update.signed === false && !update.installerSha256)
     return {
       warning: `${unsigned}请从发行页一并下载 ${name}.sha256，用 Get-FileHash .\\${name} -Algorithm SHA256 核对。`,

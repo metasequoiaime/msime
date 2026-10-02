@@ -32,6 +32,12 @@ fn english_position_context(input: &str) -> String {
     context
 }
 
+fn plain_position_context(context: &str) -> String {
+    let mut plain = String::with_capacity(context.len());
+    plain.extend(context.chars().filter(|character| *character != '\''));
+    plain
+}
+
 impl InputSession {
     /// Prefix or engine rows, then personal context rerank, mixed English / emoji / kaomoji, fixed positions (input_session.cpp:1057-1078).
     pub(super) fn update_mixed_candidates(&mut self) {
@@ -248,7 +254,7 @@ impl InputSession {
         }
         // Positions are stored under one canonical cut, so the same letters typed with or without apostrophes share them.
         let plain = if context.contains('\'') {
-            Cow::Owned(context.chars().filter(|c| *c != '\'').collect())
+            Cow::Owned(plain_position_context(context.as_ref()))
         } else {
             Cow::Borrowed(context.as_ref())
         };
@@ -425,10 +431,20 @@ impl InputSession {
 
 #[cfg(test)]
 mod tests {
-    use super::english_position_context;
+    use super::{english_position_context, plain_position_context};
 
     #[test]
     fn english_position_context_preserves_non_ascii_while_lowercasing_ascii() {
         assert_eq!(english_position_context("HeLLo 世界"), "english:hello 世界");
+    }
+
+    #[test]
+    fn plain_position_context_reserves_source_capacity() {
+        let source: String = (0..100)
+            .map(|index| if index % 5 == 0 { '\'' } else { 'a' })
+            .collect();
+        let plain = plain_position_context(&source);
+        assert_eq!(plain, source.replace('\'', ""));
+        assert_eq!(plain.capacity(), source.len());
     }
 }

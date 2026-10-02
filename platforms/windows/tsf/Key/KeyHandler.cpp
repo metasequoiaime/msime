@@ -17,6 +17,7 @@
 #include "../Utils/PerfTimer.h"
 #include "../HostRawCommit.h"
 #include "../HostCharacterResult.h"
+#include "../HostComposition.h"
 #include "../HostKoreanKey.h"
 #include "../KeyboardCancellation.h"
 #include "../../../../shared/input/CompositionDisplay.h"
@@ -160,8 +161,8 @@ VOID CMetasequoiaIME::_DeleteCandidateList(BOOL isForce, _In_opt_ ITfContext *pC
         PerfTimer endCandidateTimer;
         CCandidateListUIPresenter *pPresenter = _pCandidateListUIPresenter;
         _pCandidateListUIPresenter = nullptr;
-        // In Korean the only list is the Hanja list, and it can close while the syllable keeps composing; the Server follows that from the keys themselves.
-        if (Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+        // In Korean and Zhuyin the only list is the one the user opens, and it can close while the composition keeps going; the Server follows that from the keys themselves.
+        if (msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)))
         {
             pPresenter->_ForgetCandidateUiSession();
         }
@@ -255,31 +256,34 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
                                                bool replayKey)
 {
     std::wstring text;
+    bool keyText = msime::tsf::is_host_text_key(wch);
+    // Set when the host had already let go of the composition the document still shows.
+    bool hostLetGo = true;
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     if (host && host->valid())
     {
-        std::string raw, error;
-        msime::tsf::EngineResult result;
-        if (host->command(MSIME_FINISH_COMPOSITION, &raw, &error) &&
-            msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.has_commit &&
-            !result.commit.empty() && result.commit.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
+        std::string error;
+        auto ended = msime::tsf::EndHostComposition(*host, Global::InputModeScheme.load(std::memory_order_relaxed),
+                                                    wch, &error);
+        hostLetGo = ended.hostLetGo;
+        keyText = ended.keyFollows;
+        if (!ended.commit.empty() && ended.commit.size() <= static_cast<size_t>((std::numeric_limits<int>::max)()))
         {
-            const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
-                                                   static_cast<int>(result.commit.size()), nullptr, 0);
+            const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ended.commit.data(),
+                                                   static_cast<int>(ended.commit.size()), nullptr, 0);
             if (length > 0)
             {
                 text.assign(static_cast<size_t>(length), L'\0');
-                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.commit.data(),
-                                        static_cast<int>(result.commit.size()), text.data(), length) != length)
+                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, ended.commit.data(),
+                                        static_cast<int>(ended.commit.size()), text.data(), length) != length)
                     text.clear();
             }
         }
     }
-    const bool keyText = msime::tsf::is_korean_text_key(wch);
     GlobalIme::word_for_creating_word.clear();
     GlobalIme::pending_create_word_preedit.clear();
     // No commit from the host means focus or a scheme change already made it let go of the syllable. The composition still shows that syllable, so it is ended first, which leaves that text in the document as the commit, and the key's character goes in after it.
-    if (text.empty()) _HandleCompleteCommitFirst(ec, pContext);
+    if (hostLetGo) _HandleCompleteCommitFirst(ec, pContext);
     if (keyText) text.push_back(wch);
     if (!text.empty())
     {
@@ -292,19 +296,34 @@ HRESULT CMetasequoiaIME::_HandleSyllableCommit(TfEditCookie ec, _In_ ITfContext 
     }
     _HandleCompleteCommitFirst(ec, pContext);
     // A caret or editing key goes on to the application without reaching the Server, whose own session still holds the syllable. The routed clear a terminated composition sends keeps the two in step; keys with text reach the Server and end the syllable there themselves.
-    if (code != 0 && !keyText && Global::g_connected) SendHideCandidateWndEventToUIProcess();
-    if (replayKey && code != 0 && !keyText) _QueueKoreanSyllableKeyReplay(code);
+    if (code != 0 && !msime::tsf::is_host_text_key(wch) && Global::g_connected) SendHideCandidateWndEventToUIProcess();
+    if (replayKey && code != 0 && !msime::tsf::is_host_text_key(wch)) _QueueKoreanSyllableKeyReplay(code);
     return S_OK;
 }
 
 namespace
 {
-// Under the Korean rules the Engine lists candidates only after MSIME_CONVERT_HANJA, so a composing Korean view with candidates is the Hanja list (msime_client.h). The TIP never enters a local or dedicated English mode in Korean, the two states that keep their own rules there.
+// Under the Korean and Zhuyin rules the Engine lists candidates only after MSIME_OPEN_CANDIDATE_LIST (or Zhuyin's Space), so a composing view with candidates is the open list (msime_client.h). The TIP never enters a local or dedicated English mode in either scheme, the two states that keep their own rules there.
 bool KoreanHanjaListOpen(const msime::tsf::EngineView &view)
 {
-    return view.scheme == 4 && !view.editing_text.empty() && !view.candidates.empty();
+    return msime::windows::scheme::OpensCandidateList(static_cast<int>(view.scheme)) && !view.editing_text.empty() &&
+           !view.candidates.empty();
 }
 } // namespace
+
+CMetasequoiaIME::HostComposedView CMetasequoiaIME::_ReadHostComposedView() const
+{
+    HostComposedView result;
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    if (!host || !host->valid()) return result;
+    std::string raw, error;
+    msime::tsf::EngineResult current;
+    if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &current, &error))
+        return result;
+    result.listOpen = KoreanHanjaListOpen(current.view);
+    result.spellingSymbols = std::move(current.view.spelling_symbols);
+    return result;
+}
 
 bool CMetasequoiaIME::_IsKoreanHanjaListOpen() const
 {
@@ -326,12 +345,13 @@ HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext 
     if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &current, &error))
         return E_FAIL;
     const auto key = msime::windows::korean_hanja_key(code, static_cast<uint32_t>(wch));
-    const bool trigger = code == msime::tsf::kVirtualKeyHanja;
+    const int scheme = static_cast<int>(current.view.scheme);
     const bool listOpen = KoreanHanjaListOpen(current.view);
+    const bool trigger = msime::windows::opens_candidate_list(scheme, code, listOpen);
     if (!trigger && !listOpen)
     {
-        // A key queued behind the one that closed the list, or classified before the list opened: it does what it does with no list. It was eaten, so a caret or editing key is replayed to the application after the syllable.
-        switch (msime::tsf::korean_key_action(code, wch, true))
+        // A key queued behind the one that closed the list, or classified before the list opened: it does what it does with no list. It was eaten, so a caret or editing key is replayed to the application after the composition.
+        switch (msime::tsf::host_composed_key_action(scheme, code, wch, true, false, current.view.spelling_symbols))
         {
         case msime::tsf::KoreanKeyAction::CommitWithText:
             return _HandleSyllableCommit(ec, pContext, code, wch);
@@ -349,7 +369,11 @@ HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext 
 
     raw.clear();
     bool applied = false;
-    if (key.kind == msime::windows::KoreanHanjaKeyKind::Select)
+    if (trigger)
+    {
+        applied = host->command(MSIME_OPEN_CANDIDATE_LIST, &raw, &error);
+    }
+    else if (key.kind == msime::windows::KoreanHanjaKeyKind::Select)
     {
         // A digit past the visible page chooses nothing and is swallowed, as with any candidate list.
         if (key.value >= current.view.candidates.size()) return S_OK;
@@ -381,7 +405,7 @@ HRESULT CMetasequoiaIME::_HandleKoreanHanjaKey(TfEditCookie ec, _In_ ITfContext 
         _smartPunctuationShadowValid = true;
         return _HandleCompleteCommitFirst(ec, pContext);
     }
-    // The list opened, moved or closed and the syllable is still composing. A closed list takes the presenter with it (quietly, see _DeleteCandidateList), so a later commit does not hide a composition the Server is still holding.
+    // The list opened, moved or closed and the composition is still going: a Zhuyin choice fixes that reading and keeps composing. A closed list takes the presenter with it (quietly, see _DeleteCandidateList), so a later commit does not hide a composition the Server is still holding.
     if (result.view.candidates.empty()) _DeleteCandidateList(FALSE, pContext);
     if (result.view.editing_text.empty()) return _HandleCompleteCommitFirst(ec, pContext);
     return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
@@ -519,12 +543,23 @@ bool CMetasequoiaIME::_CancelHostComposition()
     if (!host || !host->valid()) return true;
     std::string raw, error;
     if (!host->command(MSIME_CANCEL, &raw, &error)) return false;
-    // With a Korean Hanja list open MSIME_CANCEL only closes the list and the syllable keeps composing (msime_client.h), so a second one discards it.
+    // With a Korean Hanja or Zhuyin list open MSIME_CANCEL only closes the list and the composition stays (msime_client.h), and the first one on a Vietnamese word only shows its raw keys again, so a second one discards it.
     msime::tsf::EngineResult result;
-    if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) && result.view.scheme == 4 &&
+    if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
+        msime::windows::scheme::AlwaysInlinePreedit(static_cast<int>(result.view.scheme)) &&
         !result.has_commit && !result.view.editing_text.empty())
         return host->command(MSIME_CANCEL, &raw, &error);
     return true;
+}
+
+HRESULT CMetasequoiaIME::_HandleEscape(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    // A Vietnamese word shows its raw keys again on the first Escape and keeps composing; the next Escape discards it like every other composition.
+    auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
+    std::string error;
+    if (host && host->valid() && _IsComposing() && msime::tsf::RestoreHostRawOnEscape(*host, &error))
+        return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext, FANY_IME_NO_REQUEST_ID);
+    return _HandleCancel(ec, pContext);
 }
 
 HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContext)
@@ -774,6 +809,16 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
     CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
     pCompositionProcessorEngine = _pCompositionProcessorEngine;
 
+    // A Zhuyin or Vietnamese key classified as input behind the deferred-key barrier was judged from the static spelling rules (VNI's digits, Dachen's keys with the list projected closed). The live view decides: a key it does not spell ends the composition and follows it, as the Server's session takes the same key.
+    if (const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+        scheme != msime::windows::scheme::Korean && msime::windows::scheme::AlwaysInlinePreedit(scheme) &&
+        msime::tsf::is_korean_text_key(wch) && pCompositionProcessorEngine->GetHostEngineAdapter() &&
+        pCompositionProcessorEngine->GetHostEngineAdapter()->valid() &&
+        !msime::tsf::spelled_key(_ReadHostComposedView().spellingSymbols, wch))
+    {
+        return _HandleSyllableCommit(ec, pContext, static_cast<UINT>(wch), wch);
+    }
+
     if ((_pCandidateListUIPresenter != nullptr) && (_candidateMode != CANDIDATE_INCREMENTAL))
     {
         _HandleCompositionFinalize(ec, pContext, FALSE);
@@ -825,7 +870,8 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
     {
         std::string raw, error;
         msime::tsf::EngineResult result;
-        if (composingBeforeKey && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) && _IsComposing())
+        const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
+        if (composingBeforeKey && msime::windows::scheme::AlwaysInlinePreedit(scheme) && _IsComposing())
         {
             // The composition still shows a syllable the host has already let go of: focus moved, or an edit session that would have ended the composition was refused. That syllable is text now, so end the composition around it and let this letter start the next one after it.
             std::string viewRaw, viewError;
@@ -1004,9 +1050,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
     {
         CStringRange curReadingStr;
         std::wstring readingStr = readingStrings.GetAt(0)->ToWString();
-        // Korean always marks its composition inline: the syllable is Hangul the user is writing, not a reading, and hiding it would leave nothing on screen to show which jamo Backspace removes.
+        // Korean, Zhuyin and Vietnamese always mark their composition inline: it is the text the user is writing, not a reading, and until a list is opened there is no candidate window to show it in (scheme::AlwaysInlinePreedit).
         const std::string_view preeditStyle =
-            Global::KoreanInputModeEnabled.load(std::memory_order_relaxed) &&
+            msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
                     GlobalSettings::getTsfPreeditStyle() == GlobalSettings::TsfPreeditStyle::Empty
                 ? GlobalSettings::TsfPreeditStyle::Raw
                 : std::string_view(GlobalSettings::getTsfPreeditStyle());
@@ -1070,9 +1116,9 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
 
         const size_t preeditPrefixLength =
             preeditStyle == GlobalSettings::TsfPreeditStyle::Empty ? 0 : GlobalIme::word_for_creating_word.size();
-        // A Korean syllable has no caret inside it: the Engine ignores caret moves there, so the caret always follows the last jamo.
+        // A Korean syllable, a Zhuyin conversion and a Vietnamese word have no caret inside them: the Engine ignores caret moves there, so the caret always follows the last key (scheme::LocksCaret).
         const DWORD_PTR displayCaret =
-            Global::KoreanInputModeEnabled.load(std::memory_order_relaxed)
+            msime::windows::scheme::LocksCaret(Global::InputModeScheme.load(std::memory_order_relaxed))
                 ? curReadingStr.GetLength()
                 : MapRawCaretToPreedit(pCompositionProcessorEngine->GetKeystrokeBuffer(),
                                        pCompositionProcessorEngine->GetCaretPosition(), curReadingStr.ToWString(),
@@ -1153,9 +1199,10 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
             setTextElapsedMs = setTextTimer.ElapsedMs();
         }
     }
-    else if (_pCandidateListUIPresenter && Global::KoreanInputModeEnabled.load(std::memory_order_relaxed))
+    else if (_pCandidateListUIPresenter &&
+             msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)))
     {
-        // A letter typed into an open Hanja list closed it and keeps composing: the presenter goes with the list, quietly (see _DeleteCandidateList).
+        // A letter typed into an open Hanja or Zhuyin list closed it and keeps composing: the presenter goes with the list, quietly (see _DeleteCandidateList).
         _DeleteCandidateList(FALSE, pContext);
     }
     else if (_pCandidateListUIPresenter)

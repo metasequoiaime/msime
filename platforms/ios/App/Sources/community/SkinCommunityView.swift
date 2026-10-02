@@ -58,8 +58,15 @@ struct SkinCommunityView: View {
     let selected = category == value
     return Button {
       guard !selected else { return }
+      let previous = category
       category = value
-      run { try await load() }
+      run {
+        do { try await load() }
+        catch {
+          category = CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: previous)
+          throw error
+        }
+      }
     } label: {
       Text(title).font(.system(size: 13, weight: selected ? .semibold : .regular))
         .foregroundStyle(selected ? MetasequoiaTheme.accent : Color.secondary)

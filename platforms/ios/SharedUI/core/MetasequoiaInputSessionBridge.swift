@@ -460,6 +460,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case .wubi: engineScheme = "wubi"
     case .japanese, .japaneseNineKey: engineScheme = "japanese"
     case .korean: engineScheme = "korean"
+    case .cantonese: engineScheme = "cantonese"
+    case .zhuyin: engineScheme = "zhuyin"
+    case .vietnamese: engineScheme = "vietnamese"
     case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
     case .quanpin, .nineKey, .handwriting, .thoughtfulReply: engineScheme = "quanpin"
     }
@@ -476,8 +479,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let selectedID = selected.sharedIdentifier
     let mapping: (inout [String: Any]) -> Void = { preferences in
       preferences["scheme"] = engineScheme
-      // `last_chinese_scheme` is the Chinese scheme to come back to, so neither Japanese nor Korean replaces it.
-      if engineScheme != "japanese" && engineScheme != "korean" {
+      // `last_chinese_scheme` is the Chinese scheme to come back to, so Japanese, Korean and Vietnamese, which write other languages, never replace it; Cantonese and Zhuyin are Chinese schemes and do.
+      if !["japanese", "korean", "vietnamese"].contains(engineScheme) {
         preferences["last_chinese_scheme"] = engineScheme
       }
       if let profile = selected.shuangpinProfile {
@@ -991,6 +994,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
   /// Korean Hangul (Dubeolsik). Switching discards an open syllable, so callers finish the composition first.
   func switchToKorean() -> MetasequoiaInputSnapshot { switchScheme("korean", profile: nil) }
+  /// Cantonese Jyutping. Without cantonese.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed.
+  func switchToCantonese() -> MetasequoiaInputSnapshot { switchScheme("cantonese", profile: nil) }
+  /// Dachen Zhuyin with Traditional output. Without zhuyin.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed. Switching discards an open conversion, so callers finish the composition first.
+  func switchToZhuyin() -> MetasequoiaInputSnapshot { switchScheme("zhuyin", profile: nil) }
+  /// Vietnamese Telex and VNI, composed in place with no candidates. Switching discards an open word, so callers finish the composition first.
+  func switchToVietnamese() -> MetasequoiaInputSnapshot { switchScheme("vietnamese", profile: nil) }
 
   func editCandidate(at index: UInt, expectedWord: String, action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
     guard let row = (try? currentCandidates())?[safe: Int(index)],

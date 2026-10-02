@@ -49,6 +49,9 @@ struct TrayMenuCapabilities {
   bool keyboard_panel = false;
   bool voice_input = false;
   bool settings = false;
+  // The Cantonese and Zhuyin dictionaries installed beside the resources (language-dictionaries/cantonese.db and zhuyin.db). Without one the Engine answers that scheme with quanpin, so its row is disabled rather than selecting a scheme that would type pinyin.
+  bool cantonese = false;
+  bool zhuyin = false;
 };
 // What the menu shows, sampled by the Server each time the card opens or redraws after a switch.
 struct TrayMenuState {
@@ -101,6 +104,12 @@ inline const char *tray_menu_scheme(TrayMenuCommand command) {
     return "japanese";
   if (command == TrayMenuCommand::SelectKorean)
     return "korean";
+  if (command == TrayMenuCommand::SelectCantonese)
+    return "cantonese";
+  if (command == TrayMenuCommand::SelectZhuyin)
+    return "zhuyin";
+  if (command == TrayMenuCommand::SelectVietnamese)
+    return "vietnamese";
   return nullptr;
 }
 // Shortcuts the TIP binds itself (KeyEventSink.cpp and the preserved keys in CompositionProcessorEngine.cpp); they are fixed, unlike the CN/EN key.
@@ -156,14 +165,19 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
   };
   const bool japanese = state.scheme == "japanese";
   const bool korean = state.scheme == "korean";
+  const bool vietnamese = state.scheme == "vietnamese";
   const bool language_known = state.chinese.has_value();
   // In the Engine's English mode the TIP may still report Chinese, and the toolbar shows English then too.
   const bool english =
       language_known && (!*state.chinese || state.dedicated_english);
   header("水杉输入法");
   separator();
-  // Japanese and Korean are the non-English language of their schemes, as the toolbar's 日 and 한 buttons show.
-  row(TrayMenuCommand::SelectChinese, japanese ? "日文" : korean ? "韩文" : "中文",
+  // Japanese, Korean and Vietnamese are the non-English language of their schemes, as the toolbar's 日, 한 and 越 buttons show. Cantonese and Zhuyin write Chinese.
+  row(TrayMenuCommand::SelectChinese,
+      japanese     ? "日文"
+      : korean     ? "韩文"
+      : vietnamese ? "越南文"
+                   : "中文",
       language_known, language_known && !english, state.language_hint);
   row(TrayMenuCommand::SelectEnglish, "英文", language_known, english);
   separator();
@@ -184,6 +198,11 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
   row(TrayMenuCommand::SelectWubi, "五笔 86", true, state.scheme == "wubi");
   row(TrayMenuCommand::SelectJapanese, "日文", true, japanese);
   row(TrayMenuCommand::SelectKorean, "韩文", true, korean);
+  row(TrayMenuCommand::SelectCantonese, "粤拼", capabilities.cantonese,
+      state.scheme == "cantonese");
+  row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin,
+      state.scheme == "zhuyin");
+  row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
   separator();
   // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.
   tool(TrayMenuCommand::ToggleFloatingToolbar, "工具栏", 0xE7C4, L"栏",
@@ -309,6 +328,26 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   }
   geometry.size.height = top + metrics.padding;
   return geometry;
+}
+// The metrics to draw `items` with inside `available_height` DIPs of work area: the design's own when they fit, otherwise command rows shortened as far as `compact_row_height`, so the eight schemes and the settings pages stay reachable on a 1080p screen at 150% without clipping the last rows.
+inline constexpr double tray_menu_compact_row_height = 28.0;
+inline TrayMenuMetrics tray_menu_fitted_metrics(
+    const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
+    double available_height) {
+  const double height = tray_menu_geometry(items, metrics).size.height;
+  if (height <= available_height)
+    return metrics;
+  const auto rows = static_cast<double>(
+      std::count_if(items.begin(), items.end(), [](const TrayMenuItem &item) {
+        return item.kind == TrayMenuRowKind::Item;
+      }));
+  if (rows == 0.0)
+    return metrics;
+  TrayMenuMetrics fitted = metrics;
+  fitted.row_height = (std::max)(tray_menu_compact_row_height,
+                                 metrics.row_height -
+                                     (height - available_height) / rows);
+  return fitted;
 }
 inline TrayMenuSize tray_menu_size(const std::vector<TrayMenuItem> &items,
                                    const TrayMenuMetrics &metrics) {

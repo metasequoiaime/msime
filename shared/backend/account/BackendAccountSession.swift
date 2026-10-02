@@ -410,12 +410,9 @@ actor BackendAccountSession {
     generation += 1
     refreshing?.cancel(); refreshing = nil
     saved = nil; loaded = true
-    // Under the lock, so a refresh another process has in flight cannot write its tokens back after this clear.
-    do { try await refreshLock.run { try await self.clearStorage() } }
-    catch let failure as BackendAccountClient.Failure where failure.status == 0 {
-      // The lock could not be taken. Clearing can only remove the session, so it still happens rather than leaving the user signed in.
-      try storage.clear()
-    }
+    // 清理必须在共享锁内完成，避免另一个进程正在刷新的 token 在注销后写回。
+    // 如果暂时拿不到锁就保留持久化会话；无锁清理会让进行中的刷新重新复活已注销的会话。
+    try await refreshLock.run { try await self.clearStorage() }
   }
   private func clearStorage() throws { try storage.clear() }
   func logout(all: Bool = false) async throws {

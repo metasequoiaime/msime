@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct KeyboardSkinTrial: Codable, Identifiable {
   let id: UUID
@@ -29,7 +30,23 @@ struct KeyboardSkinTrialStore {
     self.defaults = defaults
     self.stateRoot = stateRoot
   }
+  private func rejectSymlinkAncestors(_ path: URL) throws {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        guard status.st_mode & S_IFMT != S_IFLNK else { throw PersonalDictionaryStore.StoreError.unavailable }
+      } else if errno != ENOENT {
+        throw PersonalDictionaryStore.StoreError.unavailable
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { break }
+      current = parent
+    }
+  }
   func begin(name: String, design: CustomKeyboardSkin) throws -> KeyboardSkinTrial {
+    try rejectSymlinkAncestors(file)
     try restorePending()
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences(stateRoot: stateRoot)
     let custom = document?["custom_theme"] as? [String: Any]
@@ -62,6 +79,7 @@ struct KeyboardSkinTrialStore {
     try finish(trial.id, keep: false)
   }
   private func pending() throws -> KeyboardSkinTrial? {
+    try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return nil }
     guard let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 2_000_000 else {
       throw PersonalDictionaryStore.StoreError.invalidState

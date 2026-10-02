@@ -56,7 +56,7 @@
 
 ## 开发
 
-贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md) 和[第三方组件清单](docs/third-party.md)；它们列出第三方通知、资源许可、敏感文件检查和验证边界。各平台宿主的构建、测试与安装细节以对应的 `platforms/<os>/README.md` 为准。制作音效包、音乐包、指令表或特效包，见[扩展包作者指南](docs/plugins.md)。
+贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md) 和[第三方组件清单](docs/third-party.md)；它们列出第三方通知、资源许可、敏感文件检查和验证边界。各平台宿主的构建、测试与安装细节以对应的 `platforms/<os>/README.md` 为准。制作音效包、音乐包、指令表、特效包、短语表、辅助码表、单词本或符号集，见[插件作者指南](docs/plugins.md)。
 
 跨平台的本地验证入口是 `bash scripts/verify-local.sh`：`--quick` 只跑编译阶段，是合并前的门禁；无参数跑全量，包含 Rust 测试、fmt、clippy、依赖审计、前端 lint 与类型检查、各原生宿主的 ctest 以及整句转换与逐键延迟评测。每个阶段把失败的测试名与 `scripts/known-failures.txt` 比对，只对不在清单里的名字失败。`git config core.hooksPath .githooks` 可以把 `--quick` 挂到 pre-push 上。
 

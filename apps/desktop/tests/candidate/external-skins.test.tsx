@@ -111,7 +111,7 @@ function packageCard(
   return <ExternalSkinCard {...cardProps} skin={skin} {...props} />;
 }
 
-// The theme page, where each package is a card of the carousel and the directory is the 外部皮肤 row of the 外观 group.
+// 主题页：每个皮肤包是轮播里的一张卡片，皮肤目录是「更多皮肤」组里的「外部皮肤」一行。
 function openSkinPage(client: Partial<SettingsClient> = {}) {
   return render(
     <SettingsPage
@@ -686,7 +686,7 @@ test("an external card is styled as the built-in theme cards are", async () => {
   expect(toggle.firstElementChild?.className).toBe(settingsStyle.skinSwitchKnob(false));
   // The title carries the drawn mode as the built-in titles do.
   expect(card.querySelector("[data-skin-card-header] span")?.textContent).toBe(
-    "Sample skin (Dark)",
+    "Sample skin（深色）",
   );
   expect(within(card).getByRole("button", { name: "预览浅色" }).className).toBe(
     settingsStyle.skinPreviewSwitch,
@@ -1090,12 +1090,12 @@ test("the Linux skin page describes the candidate window only", async () => {
   const external = await screen.findByRole("article", { name: /Sample skin/ });
   // Both Linux hosts present the toolbar as an input method menu, which no skin styles.
   expect(
-    screen.getByText("选择候选窗使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   // Every page is mounted at once; the toolbar page itself still names the toolbar.
   expect(within(external.closest("fieldset")!).queryByText(/悬浮工具栏/)).toBeNull();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(external.querySelectorAll("[data-skin-stage]")).toHaveLength(2);
   expect(readSkinToolbarCss).not.toHaveBeenCalled();
@@ -1110,10 +1110,10 @@ test("the Windows skin page keeps the toolbar preview", async () => {
   );
   await settingsFormReady();
   expect(
-    screen.getByText("选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
+    screen.getByText("选择候选窗口和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"),
   ).toBeTruthy();
   const builtin = screen.getByRole("article", { name: "夜青" });
-  expect(within(builtin).getByText("深色候选窗、悬浮工具栏与键盘")).toBeTruthy();
+  expect(within(builtin).getByText("深色候选窗口、悬浮工具栏与键盘")).toBeTruthy();
   expect(builtin.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });
 

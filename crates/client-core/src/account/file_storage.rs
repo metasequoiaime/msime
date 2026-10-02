@@ -119,6 +119,15 @@ fn decode(bytes: &[u8]) -> Result<SavedAccountSession, AccountError> {
     })
 }
 
+fn read_session_file(file: File) -> Result<Vec<u8>, AccountError> {
+    crate::bounded_io::read_bounded_file_with(
+        file,
+        MAX_SESSION_BYTES,
+        || AccountError::Storage,
+        |_| AccountError::Storage,
+    )
+}
+
 impl AccountSessionStorage for FileAccountSessionStorage {
     fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
         let path = self.path();
@@ -142,13 +151,7 @@ impl AccountSessionStorage for FileAccountSessionStorage {
             }
         }
         // The file can be replaced after symlink_metadata returns. Read through a bounded handle so the size check cannot turn into an unbounded allocation.
-        let mut bytes = Vec::new();
-        File::open(&path)
-            .and_then(|file| file.take(MAX_SESSION_BYTES + 1).read_to_end(&mut bytes))
-            .map_err(|_| AccountError::Storage)?;
-        if bytes.len() as u64 > MAX_SESSION_BYTES {
-            return Err(AccountError::Storage);
-        }
+        let bytes = read_session_file(File::open(&path).map_err(|_| AccountError::Storage)?)?;
         decode(&bytes).map(Some)
     }
 
@@ -191,5 +194,22 @@ impl AccountSessionStorage for FileAccountSessionStorage {
         // Released when the handle closes at the end of this call.
         let _lock = self.lock()?;
         body()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_file_read_reserves_file_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.json");
+        let contents = br#"{"tokens":{},"expiresAt":0}"#;
+        std::fs::write(&path, contents).unwrap();
+
+        let bytes = read_session_file(File::open(path).unwrap()).unwrap();
+        assert_eq!(bytes, contents);
+        assert_eq!(bytes.capacity(), contents.len());
     }
 }

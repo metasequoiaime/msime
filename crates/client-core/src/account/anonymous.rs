@@ -156,6 +156,15 @@ fn prepare_directory(directory: &Path) -> Result<(), AccountError> {
     Ok(())
 }
 
+fn read_private_file(file: std::fs::File) -> Result<Vec<u8>, AccountError> {
+    crate::bounded_io::read_bounded_file_with(
+        file,
+        MAX_FILE_BYTES,
+        || AccountError::Storage,
+        |_| AccountError::Storage,
+    )
+}
+
 fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, AccountError> {
     if let Some(parent) = path.parent() {
         crate::storage::reject_symlink(parent).map_err(|_| AccountError::Storage)?;
@@ -180,14 +189,7 @@ fn read_private_json<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Acco
         }
     }
     // Bound the read through the handle so a concurrent replacement cannot bypass the size limit.
-    let file = std::fs::File::open(path).map_err(|_| AccountError::Storage)?;
-    let mut bytes = Vec::new();
-    file.take(MAX_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| AccountError::Storage)?;
-    if bytes.len() as u64 > MAX_FILE_BYTES {
-        return Err(AccountError::Storage);
-    }
+    let bytes = read_private_file(std::fs::File::open(path).map_err(|_| AccountError::Storage)?)?;
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| AccountError::Storage)
@@ -407,6 +409,18 @@ mod tests {
         }
         assert!(!valid_anonymous_subject("msime-ABCDEFGHIJKLMNOP"));
         assert!(!valid_anonymous_subject("someone@example.com"));
+    }
+
+    #[test]
+    fn anonymous_json_file_read_reserves_file_size() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("identity.json");
+        let contents = br#"{"subject":"msime-synthetic","secret":"synthetic"}"#;
+        std::fs::write(&path, contents).unwrap();
+
+        let bytes = read_private_file(std::fs::File::open(path).unwrap()).unwrap();
+        assert_eq!(bytes, contents);
+        assert_eq!(bytes.capacity(), contents.len());
     }
 
     #[cfg(unix)]

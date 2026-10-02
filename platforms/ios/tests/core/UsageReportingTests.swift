@@ -35,6 +35,26 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(permissions?.intValue, 0o600)
   }
 
+  func testCrashDiagnosticDoesNotFollowCrashDirectorySymlink() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: root.appendingPathComponent("telemetry-crashes"),
+      withDestinationURL: outside
+    )
+
+    UsageReporting.storeCrashDiagnostic(message: "Synthetic crash", stack: "0 synthetic + 1", in: root)
+
+    let outsideFiles = try FileManager.default.contentsOfDirectory(at: outside, includingPropertiesForKeys: nil)
+    XCTAssertTrue(outsideFiles.isEmpty)
+  }
+
   func testUsageReportingIsOnUnlessTurnedOff() {
     XCTAssertTrue(UsageReporting.isEnabled(in: nil))
     XCTAssertTrue(UsageReporting.isEnabled(in: [:]))

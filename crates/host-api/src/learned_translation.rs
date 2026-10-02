@@ -10,28 +10,43 @@ use msime_client_core::translation::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 fn reject_symlinked_path(path: &Path) -> Result<(), &'static str> {
-    let mut current = path;
-    loop {
-        match fs::symlink_metadata(current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err("learned translation storage unavailable")
-            }
-            Ok(_) => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let Some(parent) = current.parent() else {
-                    return Ok(());
-                };
-                if parent == current {
-                    return Ok(());
+    let mut current = PathBuf::new();
+    let mut saw_prefix_alias = false;
+    let mut saw_real_component = false;
+    let components: Vec<_> = path.components().collect();
+    for (index, component) in components.iter().enumerate() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => current.push(component),
+            Component::CurDir => {}
+            Component::ParentDir => current.push(component),
+            Component::Normal(_) => {
+                current.push(component);
+                match fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        let system_alias = path.is_absolute()
+                            && !saw_real_component
+                            && !saw_prefix_alias
+                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                        if index + 1 == components.len()
+                            || saw_real_component
+                            || saw_prefix_alias
+                            || !system_alias
+                        {
+                            return Err("learned translation storage unavailable");
+                        }
+                        saw_prefix_alias = true;
+                    }
+                    Ok(_) => saw_real_component = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err("learned translation storage unavailable"),
                 }
-                current = parent;
             }
-            Err(_) => return Err("learned translation storage unavailable"),
         }
     }
+    Ok(())
 }
 
 fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {
@@ -421,6 +436,29 @@ mod tests {
 
         assert_eq!(run(&write), Err("learned translation storage unavailable"));
         assert!(!outside.path().join("missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_an_existing_directory_below_a_symlinked_ancestor() {
+        use std::os::unix::fs::symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("linked");
+        symlink(outside.path(), &linked).unwrap();
+        std::fs::create_dir(outside.path().join("existing")).unwrap();
+        let write = request(
+            &linked.join("existing"),
+            "remember",
+            json!([{"text":"Hello","direction":"english_to_chinese","translation":"你好"}]),
+        );
+
+        assert_eq!(run(&write), Err("learned translation storage unavailable"));
+        assert!(!outside
+            .path()
+            .join("existing/translation-glosses.db")
+            .exists());
     }
 
     #[cfg(unix)]

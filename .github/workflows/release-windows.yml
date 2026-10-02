@@ -33,12 +33,13 @@ jobs:
         shell: pwsh
         # rust-toolchain.toml pins the compiler; adding targets from the repository root installs that toolchain first.
         run: rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
-      - name: Fetch the settled-rerank model and offline candidate glosses
-        # bash stops at the first failing command; a multi-line pwsh step only reports the last one.
+      - name: Fetch the settled-rerank model, offline candidate glosses and language dictionaries
+        # bash stops at the first failing command; a multi-line pwsh step only reports the last one. The Cantonese and Zhuyin dictionaries are skipped until resources/language-dictionaries.lock.json pins a release.
         shell: bash
         run: |
           python scripts/fetch_settled_model.py
           python scripts/fetch_offline_glosses.py
+          python scripts/fetch_language_dictionaries.py
       # Build-Client.ps1 takes installed dependency prefixes rather than a vcpkg toolchain, so the manifest is installed into one prefix per architecture: x64 for the Server, Watchdog and 64-bit TSF DLL, x86 for the 32-bit TSF DLL.
       # Restore and save separately so a run that fails after this point still keeps the installed dependencies for the retry.
       - id: vcpkg-cache

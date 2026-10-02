@@ -14,6 +14,7 @@
 		06C0DC73A2904D844E9F263D /* BackendAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19F8ACF95D8D139766DE57C /* BackendAccountSession.swift */; };
 		0AC3662BFC8F6EBED4E88BC9 /* ChineseOutputPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C145F7BC7086F115FAFB0EB /* ChineseOutputPreference.swift */; };
 		0B6FD8917DF822000D055927 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F74DC4303FDC2F4243BA895 /* BackendSnapshotClient.swift */; };
+		0B72777975019D4C6A12B252 /* language-dictionaries in Resources */ = {isa = PBXBuildFile; fileRef = 172FB71DC6EE82E7EC1EABB8 /* language-dictionaries */; };
 		0E00C414501D58F3317F4A9C /* GeneratedKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C64BF3A6B4F4FFC72A93789C /* GeneratedKeyboardSkin.swift */; };
 		0ECEDE40EEC734CD6F81693A /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0601AF2216631F597091878D /* SkinKeySurfaceView.swift */; };
 		104E1CAFEE0AFE0FBC071699 /* KeyboardMorePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5162B860BA8A9667EE021CC3 /* KeyboardMorePickerView.swift */; };
@@ -90,6 +91,7 @@
 		C6A12BB8538CE401604BC83D /* SpaceCursorMovement.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75721721EBDDB48CD7EA549 /* SpaceCursorMovement.swift */; };
 		C73D082F6F53705A53708BA1 /* KeyboardEmojiCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B103DA6DD106AA9D14B57A94 /* KeyboardEmojiCatalog.swift */; };
 		CAFEAD76DD5FE67C20ADFBA4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 98611478FD4AF2B810CEC8C2 /* LaunchScreen.storyboard */; };
+		D724EA11920D7AE889D60EDA /* language-dictionaries in Resources */ = {isa = PBXBuildFile; fileRef = 172FB71DC6EE82E7EC1EABB8 /* language-dictionaries */; };
 		D8414DAF30187A98DCD0CDC7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */; };
 		DB785D951F9C60D67F86C451 /* BackendChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824C4DA2719128F513958F63 /* BackendChatClient.swift */; };
 		DBBB9F427FC71BBD1EC522AC /* PersonalWordBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94881C41AED22D9B2F933C2 /* PersonalWordBridge.swift */; };
@@ -157,6 +159,7 @@
 		0F47EE795ECA1FBB7D9E26F9 /* macos_handwriting.rs */ = {isa = PBXFileReference; path = macos_handwriting.rs; sourceTree = "<group>"; };
 		0FEFADA947C248A24EB2010E /* BackendAnonymousAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendAnonymousAccount.swift; sourceTree = "<group>"; };
 		159C9B2101D487C95D1D7EAA /* CandidateGlossPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidateGlossPreference.swift; sourceTree = "<group>"; };
+		172FB71DC6EE82E7EC1EABB8 /* language-dictionaries */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "language-dictionaries"; path = "../../../../../target/ios/language-dictionaries"; sourceTree = SOURCE_ROOT; };
 		1871A909CC66930FD1C28007 /* ClipboardHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryStore.swift; sourceTree = "<group>"; };
 		1D23612A8B289EA59FAFD1EE /* credential_command_tests.rs */ = {isa = PBXFileReference; path = credential_command_tests.rs; sourceTree = "<group>"; };
 		1DF62219E32D76A859348EEA /* TypingStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TypingStatistics.swift; sourceTree = "<group>"; };
@@ -676,6 +679,7 @@
 				CA7532A3A45BCCE17C7C2A01 /* assets */,
 				EDF911F7A18B9E07AD87CE50 /* Assets.xcassets */,
 				E07F242557DABCAD24CC0987 /* EngineResources */,
+				172FB71DC6EE82E7EC1EABB8 /* language-dictionaries */,
 				98611478FD4AF2B810CEC8C2 /* LaunchScreen.storyboard */,
 				0E5E0C96B259271DD473FEA4 /* account */,
 				58BBA3C7FD2BC26EE3631DC4 /* clients */,
@@ -884,6 +888,7 @@
 			files = (
 				D8414DAF30187A98DCD0CDC7 /* Assets.xcassets in Resources */,
 				F660AA35500C0AA23B797598 /* EngineResources in Resources */,
+				0B72777975019D4C6A12B252 /* language-dictionaries in Resources */,
 				F982D840DBB10915477794BE /* KeyboardBrand.png in Resources */,
 				CAFEAD76DD5FE67C20ADFBA4 /* LaunchScreen.storyboard in Resources */,
 				FBDFC1B867E44837A18A0FD2 /* MLKit-Dependencies.txt in Resources */,
@@ -898,6 +903,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5B0B7522FBAA213613F6EC70 /* EngineResources in Resources */,
+				D724EA11920D7AE889D60EDA /* language-dictionaries in Resources */,
 				B7ED9C9AA3A071164CF21256 /* KeyboardBrand.png in Resources */,
 				8EF9B63059B6AF23638D55E2 /* PrivacyInfo.xcprivacy in Resources */,
 			);

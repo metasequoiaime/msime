@@ -284,3 +284,23 @@ test("a host without panels keeps the review on the page rather than losing it",
   expect(screen.getByRole("button", { name: "认识" })).toBeTruthy();
   expect(screen.getByLabelText("词书")).toBeTruthy();
 });
+
+test("a wordbook from a plugin is marked and cannot be deleted here", async () => {
+  const removeWordbook = vi.fn(async () => status());
+  const fromPack = client({
+    removeWordbook,
+    load: vi.fn(async () =>
+      status({
+        wordbooks: [
+          { id: "cet-4", name: "CET-4", total: 4500, builtin: true },
+          { id: "pack-cs-words", name: "计算机词汇", total: 300, builtin: false, pack: true },
+        ],
+        settings: { wordbook: "pack-cs-words", newPerDay: 20, sessionLimit: 200 },
+      }),
+    ),
+  });
+  render(<VocabularyReviewPage client={fromPack} />);
+  expect(await screen.findByRole("option", { name: "计算机词汇（300 词） · 插件" })).toBeTruthy();
+  expect(screen.getByText(/这本书来自插件，在「插件」页卸载/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "删除这个词表" })).toBeNull();
+});

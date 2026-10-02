@@ -4,9 +4,15 @@ import Foundation
   static var lastRequest: NSDictionary = [:]
   static var groups: Any = ["Z", "A"]
   static var symbolGroups: Any = [["parent": "P1", "title": "Shared"], ["parent": "P2", "title": "Shared"], ["parent": "P1", "title": "Other"]]
+  static var pluginGroups: NSDictionary = ["plugin_symbol_groups": [
+    ["pack": "fixture-arrows", "pack_name": "Arrows", "tab": "symbols", "title": "Basic", "keywords": "arrow direction", "items": ["←", "→"]],
+    ["pack": "fixture-arrows", "pack_name": "Arrows", "tab": "kaomoji", "title": "Pointing", "keywords": "", "items": ["(☞ﾟ∀ﾟ)☞"]],
+    ["pack": "fixture-math", "pack_name": "Math", "tab": "symbols", "title": "Operators", "keywords": "", "items": ["±", "→"]]
+  ]]
   @objc class func emojiCatalogRequest(_ request: NSDictionary) -> NSDictionary {
     lastRequest = request
     if request["list_groups"] as? Bool == true { return ["groups": groups] }
+    if request["list_plugin_symbol_groups"] as? Bool == true { return pluginGroups }
     if request["list_symbol_groups"] as? Bool == true { return ["symbol_groups": symbolGroups] }
     return ["items": [["text": "😀", "annotation": "笑脸", "group": "Smileys"]]]
   }
@@ -67,6 +73,68 @@ import Foundation
     catch {}
     do { _ = try MacEmojiCatalog.load(resources: directory.path, search: "", offset: -1); assertionFailure("accepted negative offset") }
     catch {}
+    try pluginChecks()
     print("Emoji catalog decoding checks passed")
+  }
+}
+
+extension EmojiCatalogTest {
+  static func pluginChecks() throws {
+    // 插件组不依赖 others.db：这个目录里没有 others.db。
+    let resources = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+    let plugins = "/synthetic/preferences/plugins"
+    let groups = try MacEmojiCatalog.loadPluginSymbolGroups(resources: resources, plugins: plugins)
+    assert(StubEmojiSession.lastRequest["list_plugin_symbol_groups"] as? Bool == true)
+    assert(StubEmojiSession.lastRequest["plugins"] as? String == plugins)
+    assert(StubEmojiSession.lastRequest["resources"] as? String == resources)
+    assert(groups.count == 3)
+    assert(groups[0] == MacEmojiPluginSymbolGroup(pack: "fixture-arrows", packName: "Arrows", tab: .symbols,
+      title: "Basic", keywords: "arrow direction", items: ["←", "→"]))
+    assert(groups[1].tab == .kaomoji && groups[1].keywords.isEmpty)
+    do { _ = try MacEmojiCatalog.loadPluginSymbolGroups(resources: resources, plugins: "relative/plugins"); assertionFailure("accepted relative plugins") }
+    catch {}
+    do { _ = try MacEmojiCatalog.loadPluginSymbolGroups(resources: "relative", plugins: plugins); assertionFailure("accepted relative resources") }
+    catch {}
+
+    // 目录推导：偏好目录下的 plugins；没有或相对的偏好目录没有插件，也不发请求。
+    assert(MacEmojiPluginSymbolGroup.directory(preferencesDirectory: "/synthetic/preferences") == plugins)
+    assert(MacEmojiPluginSymbolGroup.directory(preferencesDirectory: "") == nil)
+    assert(MacEmojiPluginSymbolGroup.directory(preferencesDirectory: "relative") == nil)
+    StubEmojiSession.lastRequest = [:]
+    assert(MacEmojiCatalog.installedPluginSymbolGroups(resources: resources, preferencesDirectory: "").isEmpty)
+    assert(StubEmojiSession.lastRequest.count == 0)
+    assert(MacEmojiCatalog.installedPluginSymbolGroups(resources: resources, preferencesDirectory: "/synthetic/preferences") == groups)
+
+    // 符号页：没有搜索词时只给选中插件包的组，内置分类下没有插件项；有搜索词时跨包匹配关键词或文本。
+    let arrows = MacEmojiPluginSymbolGroup.parentID(pack: "fixture-arrows")
+    assert(MacEmojiPluginSymbolGroup.isParentID(arrows) && !MacEmojiPluginSymbolGroup.isParentID("Arrows"))
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "", parent: arrows)
+      == [.init(text: "←", annotation: "", group: "Basic"), .init(text: "→", annotation: "", group: "Basic")])
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "", parent: "P1").isEmpty)
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "", parent: "").isEmpty)
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "DIRECTION", parent: "").map(\.text) == ["←", "→"])
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "→", parent: "").map(\.group) == ["Basic", "Operators"])
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "missing", parent: "").isEmpty)
+    // 颜文字组只出现在颜文字页。
+    assert(MacEmojiPluginSymbolGroup.symbolItems(groups, search: "☞", parent: "").isEmpty)
+    let kaomoji = MacEmojiPluginSymbolGroup.kaomojiSections(groups, search: "")
+    assert(kaomoji.map(\.title) == ["Pointing"] && kaomoji[0].items.map(\.text) == ["(☞ﾟ∀ﾟ)☞"])
+    assert(MacEmojiPluginSymbolGroup.kaomojiSections(groups, search: "missing").isEmpty)
+
+    // 插件请求失败或响应不合法时，面板拿到空列表，只显示内置目录。
+    let invalid: [NSDictionary] = [["error": "unavailable"], [:], ["plugin_symbol_groups": 1],
+      ["plugin_symbol_groups": [["pack": "p", "pack_name": "P", "tab": "emoji", "title": "T", "keywords": "", "items": ["x"]]]],
+      ["plugin_symbol_groups": [["pack": "p", "pack_name": "P", "tab": "symbols", "title": "T", "items": ["x"]]]],
+      ["plugin_symbol_groups": [["pack": "p", "pack_name": "P", "tab": "symbols", "title": "T", "keywords": "", "items": [""]]]],
+      ["plugin_symbol_groups": [["pack": "", "pack_name": "P", "tab": "symbols", "title": "T", "keywords": "", "items": ["x"]]]]]
+    for response in invalid {
+      StubEmojiSession.pluginGroups = response
+      do { _ = try MacEmojiCatalog.loadPluginSymbolGroups(resources: resources, plugins: plugins); assertionFailure("accepted invalid plugin groups") }
+      catch {}
+      assert(MacEmojiCatalog.installedPluginSymbolGroups(resources: resources, preferencesDirectory: "/synthetic/preferences").isEmpty)
+    }
+    StubEmojiSession.pluginGroups = ["plugin_symbol_groups": []]
+    let none = try MacEmojiCatalog.loadPluginSymbolGroups(resources: resources, plugins: plugins)
+    assert(none.isEmpty)
   }
 }

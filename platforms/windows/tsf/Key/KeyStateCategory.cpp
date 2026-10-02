@@ -330,6 +330,7 @@ HRESULT CKeyStateComposing::HandleKeyConvertWildCard(KeyHandlerEditSessionDTO dt
 
 HRESULT CKeyStateComposing::HandleKeyCancel(KeyHandlerEditSessionDTO dto)
 {
+    if (dto.code == VK_ESCAPE) return _pTextService->_HandleEscape(dto.ec, dto.pContext);
     return _pTextService->_HandleCancel(dto.ec, dto.pContext);
 }
 
@@ -404,6 +405,7 @@ HRESULT CKeyStateCandidate::HandleKeyConvert(KeyHandlerEditSessionDTO dto)
 //_HandleCancel
 HRESULT CKeyStateCandidate::HandleKeyCancel(KeyHandlerEditSessionDTO dto)
 {
+    if (dto.code == VK_ESCAPE) return _pTextService->_HandleEscape(dto.ec, dto.pContext);
     return _pTextService->_HandleCancel(dto.ec, dto.pContext);
 }
 

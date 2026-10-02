@@ -618,6 +618,11 @@ final class SkinCommunityCategoryTests: XCTestCase {
                    ["自然", "国风", "二次元", "可爱", "美食", "科技夜色", "简约", "其他"])
   }
 
+  func testFailedCategoryLoadRestoresDisplayedSelection() {
+    XCTAssertEqual(CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: .nature), .nature)
+    XCTAssertNil(CommunitySkinCategorySelectionPolicy.afterFailedLoad(previous: nil))
+  }
+
   func testCategoryRequestsCarryIncludeAndFilter() async throws {
     CategoryRecordingProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral

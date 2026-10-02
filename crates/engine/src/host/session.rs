@@ -14,7 +14,7 @@ use crate::local::database::LocalDatabaseLease;
 use crate::pinyin::segment::is_complete_pinyin_input;
 use crate::types::{
     CandidateEdge, CandidateSource, CommandTableEntry, CommandTranslationQuery, KeyResult,
-    LocalInputMode, MentionEntry, OnlineQuery, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, MentionEntry, OnlineQuery, QuickPhraseEntry, SchemeType, ShuangpinProfileKind,
 };
 use crate::user_dictionary::ngram_store::flush_journal;
 use crate::user_dictionary::removal::learn_entered_english_word;
@@ -126,10 +126,13 @@ impl Session {
         let profile = shuangpin_profile(options)?;
         // The engine loads its own copy for filtering; this one only annotates, and exists only while helpcode is on (bridge.cpp:431-435).
         let helpcode_keymap = if options.helpcode {
-            Some(Arc::new(load_helpcode_keymap(
-                Path::new(&options.resources),
-                &options.helpcode_schema,
-            )?))
+            match &options.helpcode_table {
+                Some(table) => Some(table.clone()),
+                None => Some(Arc::new(load_helpcode_keymap(
+                    Path::new(&options.resources),
+                    &options.helpcode_schema,
+                )?)),
+            }
         } else {
             None
         };
@@ -277,6 +280,31 @@ impl Session {
     /// Replace the `/` mode's command table live; `EngineOptions::command_table` is what a rebuilt session starts with.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) -> Result<()> {
         match self.inner.set_command_table(table) {
+            Some(diagnostic) => Err(EngineError::failed(&diagnostic)),
+            None => Ok(()),
+        }
+    }
+
+    /// 实时替换宿主给的辅助码表（辅助码表插件）；`None` 回到 `helpcode_schema` 对应的表。重建的会话从 `EngineOptions::helpcode_table` 开始。
+    pub fn set_helpcode_table(&mut self, table: Option<SharedKeymap>) -> Result<()> {
+        let keymap = match &table {
+            Some(table) => table.clone(),
+            None => Arc::new(load_helpcode_keymap(
+                Path::new(&self.options.resources),
+                &self.options.helpcode_schema,
+            )?),
+        };
+        self.inner.set_helpcode_table(keymap.clone());
+        if self.helpcode_enabled {
+            self.helpcode_keymap = Some(keymap);
+        }
+        self.options.helpcode_table = table;
+        Ok(())
+    }
+
+    /// 实时替换 K 模式的宿主短语表；重建的会话从 `EngineOptions::quick_phrase_table` 开始。
+    pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) -> Result<()> {
+        match self.inner.set_quick_phrase_table(table) {
             Some(diagnostic) => Err(EngineError::failed(&diagnostic)),
             None => Ok(()),
         }

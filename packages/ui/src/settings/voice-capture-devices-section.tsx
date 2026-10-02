@@ -1,6 +1,8 @@
 import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device-picker";
-import { GroupList, Row, Select } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SelectRow } from "./select-row";
+import { TextInputRow } from "./text-input-row";
 
 export type VoiceCaptureBackendOption = readonly [string, string];
 export type VoiceCaptureBackend =
@@ -38,25 +40,24 @@ export function VoiceCaptureDevicesSection({
   return (
     <GroupList title="录音设备">
       <p className={settings.groupNote}>保存后从下一次录音生效，不打断当前录音</p>
-      <Row title="录音后端">
-        <Select
-          aria-label="录音后端"
-          value={backend}
-          onChange={(event) => onBackendChange(event.target.value as VoiceCaptureBackend, "")}
-        >
-          <option value="">{windows ? "系统默认" : "沿用服务设置"}</option>
-          {backendOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-          {backend && !backendOptions.some(([value]) => value === backend) && (
-            <option value={backend} disabled>
-              {backend}（此平台不可用）
-            </option>
-          )}
-        </Select>
-      </Row>
+      <SelectRow
+        title="录音后端"
+        aria-label="录音后端"
+        value={backend}
+        onChange={(event) => onBackendChange(event.target.value as VoiceCaptureBackend, "")}
+      >
+        <option value="">{windows ? "系统默认" : "沿用服务设置"}</option>
+        {backendOptions.map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+        {backend && !backendOptions.some(([value]) => value === backend) && (
+          <option value={backend} disabled>
+            {backend}（此平台不可用）
+          </option>
+        )}
+      </SelectRow>
       <div className={settings.groupBlock}>
         <VoiceDevicePicker
           read={readDevices}
@@ -65,7 +66,7 @@ export function VoiceCaptureDevicesSection({
           choose={onBackendChange}
         />
       </div>
-      <Row
+      <TextInputRow
         title="麦克风设备"
         description={
           windows
@@ -74,14 +75,11 @@ export function VoiceCaptureDevicesSection({
               ? "刷新列表并选择麦克风，保存的是设备类型与地址，重启后仍然有效。留空使用系统默认设备；已选设备拔掉后回到系统默认，不会中断录音。系统语音识别由服务自行取音，不受此项影响。"
               : "填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。"
         }
-      >
-        <input
-          aria-label="麦克风设备"
-          maxLength={windows ? 1024 : 128}
-          value={device}
-          onChange={(event) => onDeviceChange(event.target.value)}
-        />
-      </Row>
+        label="麦克风设备"
+        maxLength={windows ? 1024 : 128}
+        value={device}
+        onChange={onDeviceChange}
+      />
     </GroupList>
   );
 }

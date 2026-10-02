@@ -40,6 +40,7 @@ export function AiSettingsPage() {
 
   return (
     <AiSettingsContent
+      grouped
       disabled={busy}
       hidden={page !== "ai"}
       client={client}

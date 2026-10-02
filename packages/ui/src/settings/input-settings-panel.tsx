@@ -12,6 +12,7 @@ import { NavigationSection, defaultNavigation } from "./navigation-section";
 import type { TouchKeyboardScheme as TouchKeyboardSchemePreference } from "./touch-keyboard-scheme-helpers";
 import { TranslationSettingsContent } from "./translation-settings-content";
 import { createTranslationSettingsBindings } from "./translation-settings-bindings";
+import { CustomTranslationsSection } from "./custom-translations-section";
 import { type TranslationProvider } from "./translation-service-selector-section";
 import { FuzzyPinyinSection } from "./fuzzy-pinyin-section";
 import { PunctuationSection } from "./punctuation-section";
@@ -171,6 +172,48 @@ export function InputSettingsPanel({
   previewMobileKeyboardHaptics,
 }: InputSettingsPanelProps) {
   const { onPreferencesChange } = createSettingsDraftActions({ setDraft });
+  const translation = createTranslationSettingsBindings({
+    client,
+    candidateTranslations,
+    mobile: mobilePlatform,
+    linux: linuxPlatform,
+    windows: windowsPlatform,
+    macos: macosPlatform,
+    customTranslation,
+    tencentTranslation,
+    niutrans,
+    translationProvider,
+    providerCredentials,
+    tencentCredentialInput,
+    updateTencentCredentialInput,
+    providerCredentialBusy,
+    providerCredentialMessages,
+    runProviderCredential,
+    credentialTestControl,
+    customTranslationsText,
+    customTranslationsPlaceholder,
+    customTranslationsNotice,
+    customTranslationsSummary,
+    customTranslationsSaveState,
+    customTranslationsSaveError,
+    onCustomTranslationsChange: setCustomTranslationsText,
+    onFlushCustomTranslations: () => void flushCustomTranslations(),
+    onPreferencesChange,
+    setTranslationProvider,
+    serviceCredentialEnabled: tencentTranslation.enabled,
+    android: androidPlatform,
+    ios: iosPlatform,
+    harmony: harmonyPlatform,
+    translationAccount: draft.translation_account ?? false,
+    translationTargetLanguage,
+    translationSecondaryLanguage,
+    candidateGlossLanguagesEnabled,
+    visibleTranslationLanguages,
+    visibleSecondaryLanguages,
+    onDeviceMissingLanguages,
+    openSettings: client.onDeviceTranslation?.openSettings,
+    onError,
+  });
   return (
     <fieldset disabled={disabled} hidden={hidden} aria-label="输入">
       {iosPlatform && (
@@ -220,49 +263,10 @@ export function InputSettingsPanel({
         }
       />
       <TranslationSettingsContent
-        {...createTranslationSettingsBindings({
-          client,
-          candidateTranslations,
-          mobile: mobilePlatform,
-          linux: linuxPlatform,
-          windows: windowsPlatform,
-          macos: macosPlatform,
-          customTranslation,
-          tencentTranslation,
-          niutrans,
-          translationProvider,
-          providerCredentials,
-          tencentCredentialInput,
-          updateTencentCredentialInput,
-          providerCredentialBusy,
-          providerCredentialMessages,
-          runProviderCredential,
-          credentialTestControl,
-          customTranslationsText,
-          customTranslationsPlaceholder,
-          customTranslationsNotice,
-          customTranslationsSummary,
-          customTranslationsSaveState,
-          customTranslationsSaveError,
-          onCustomTranslationsChange: setCustomTranslationsText,
-          onFlushCustomTranslations: () => void flushCustomTranslations(),
-          onPreferencesChange,
-          setTranslationProvider,
-          serviceCredentialEnabled: tencentTranslation.enabled,
-          android: androidPlatform,
-          ios: iosPlatform,
-          harmony: harmonyPlatform,
-          translationAccount: draft.translation_account ?? false,
-          translationTargetLanguage,
-          translationSecondaryLanguage,
-          candidateGlossLanguagesEnabled,
-          visibleTranslationLanguages,
-          visibleSecondaryLanguages,
-          onDeviceMissingLanguages,
-          openSettings: client.onDeviceTranslation?.openSettings,
-          onError,
-        })}
+        candidate={translation.candidate}
+        providers={translation.providers}
       />
+      {translation.customGlosses && <CustomTranslationsSection {...translation.customGlosses} />}
       <InputSharedSettingsSection
         preferences={draft}
         wordCharacter={wordCharacter}

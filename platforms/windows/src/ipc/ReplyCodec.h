@@ -1,5 +1,6 @@
 #pragma once
 #include "windows_ipc.h"
+#include "InputSchemeTraits.h"
 #include "../../../shared/contracts/voice_composition_pipe.h"
 #include <array>
 #include <optional>
@@ -84,9 +85,8 @@ struct TsfLocalConfig {
   bool smart_punctuation_direct_letter = false;
   bool paired_punctuation = true;
   bool microsoft_shuangpin = false;
-  bool japanese_input_mode = false;
-  // Rides on the same input-mode frame as Japanese; the two schemes exclude each other.
-  bool korean_input_mode = false;
+  // The configured scheme's family, sent as the InputModeChanged code (common/InputSchemeTraits.h).
+  scheme::InputMode input_mode = scheme::InputMode::Chinese;
   bool tsf_diagnostic_log = false;
   // 0 follow, 1 always Chinese, 2 always English.
   uint8_t punctuation_lock = 0;

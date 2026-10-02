@@ -192,7 +192,12 @@ fn normalize_syllable(syllable: &str) -> String {
 
 /// Split stored pinyin into normalized syllables on apostrophes, whitespace, hyphens and tone digits. `None` if anything is left that is not a syllable.
 fn normalized_syllables(pinyin: &str) -> Option<Vec<String>> {
-    let mut syllables = Vec::new();
+    let token_capacity = pinyin
+        .chars()
+        .filter(|ch| *ch == '\'' || *ch == '-' || ch.is_whitespace() || ch.is_ascii_digit())
+        .count()
+        .saturating_add(1);
+    let mut syllables = Vec::with_capacity(token_capacity);
     let mut current = String::new();
     let mut chars = pinyin.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -333,6 +338,13 @@ mod tests {
         );
         let capped = hotwords_from_entries(entries.iter().map(|(t, p)| (*t, *p)), 2);
         assert_eq!(capped.len(), 2);
+    }
+
+    #[test]
+    fn normalized_syllables_reserve_one_slot_per_token_boundary() {
+        let syllables = normalized_syllables("a b c d e").unwrap();
+        assert_eq!(syllables, ["a", "b", "c", "d", "e"]);
+        assert_eq!(syllables.capacity(), 5);
     }
 
     #[test]

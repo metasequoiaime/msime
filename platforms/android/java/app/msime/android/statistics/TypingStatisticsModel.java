@@ -47,7 +47,8 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> CHARACTER_KINDS = kinds();
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
-        "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi");
+        "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
+        "cantonese", "zhuyin");
 
     private final boolean enabled;
     private final long total;
@@ -229,6 +230,7 @@ public final class TypingStatisticsModel {
         slices.add(new Slice("chinese", "中文模式", chinese));
         slices.add(new Slice("japanese", "日语模式", values.getOrDefault("japanese", 0L)));
         slices.add(new Slice("korean", "韩语模式", values.getOrDefault("korean", 0L)));
+        slices.add(new Slice("vietnamese", "越南语模式", values.getOrDefault("vietnamese", 0L)));
         slices.add(new Slice("english", "英文模式", values.getOrDefault("english", 0L)));
         slices.add(new Slice("handwriting", "手写输入", values.getOrDefault("handwriting", 0L)));
         slices.add(new Slice("local", "本地输入", values.getOrDefault("local", 0L)));
@@ -298,6 +300,9 @@ public final class TypingStatisticsModel {
         titles.put("wubi", "86 五笔");
         titles.put("japanese", "日语");
         titles.put("korean", "韩语");
+        titles.put("cantonese", "粤拼");
+        titles.put("zhuyin", "注音");
+        titles.put("vietnamese", "越南语");
         titles.put("handwriting", "手写");
         titles.put("english", "英文键盘");
         titles.put("local", "本地输入");

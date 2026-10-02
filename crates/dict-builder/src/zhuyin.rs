@@ -1,4 +1,4 @@
-//! `zhuyin.db`: the bopomofo dictionary of the Zhuyin scheme, built from libchewing-data (LGPL-2.1-or-later, see `resources/licenses/libchewing-data-LGPL-2.1.txt`) at the commit `resources/dictionary-sources.lock.json` pins under `zhuyin/`, in the schema `msime_engine::language_dictionary` defines.
+//! `zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `tw/` 下，锁文件按 `tw/` 路径从它的 `sources-v*` release 附件固定。
 //!
 //! Two files are read, both `text,frequency,reading` CSV with `#` header lines: `tsi.csv` (phrases and characters with their use counts) and `word.csv` (every character with each of its readings, all at frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character weighs 0 unless `tsi.csv` gives the same character and reading a count.
 //!
@@ -14,8 +14,8 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::sqlite;
 
-pub const PHRASES: &str = "zhuyin/tsi.csv";
-pub const CHARACTERS: &str = "zhuyin/word.csv";
+pub const PHRASES: &str = "tw/tsi.csv";
+pub const CHARACTERS: &str = "tw/word.csv";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "libchewing-data";
 /// The SPDX identifier recorded as the database's `license`, as the CSV headers declare it.
@@ -417,13 +417,13 @@ mod tests {
                 .join("../../resources/dictionary-sources.lock.json"),
         )
         .unwrap();
-        let commit = &lock.references[REFERENCE].commit;
+        assert_eq!(lock.references[REFERENCE].commit.len(), 40);
         let mut pinned: Vec<&str> = lock
             .files
             .iter()
-            .filter(|file| file.url.contains("/chewing/libchewing-data/"))
+            .filter(|file| file.path.starts_with("tw/"))
             .map(|file| {
-                assert!(file.url.contains(&format!("/{commit}/")), "{}", file.url);
+                crate::sources::assert_dictionary_release_asset(file);
                 file.path.as_str()
             })
             .collect();

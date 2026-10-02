@@ -612,7 +612,10 @@ private struct IOSKeyboardPreferenceStore {
   static let schemeOrder = [
     "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
     "japaneseNineKey", "japanese", "korean", "handwriting", "thoughtfulReply",
+    "cantonese", "zhuyin", "vietnamese",
   ]
+  /// Schemes a keyboard with no stored `enabledInputSchemes` leaves off, so adding them does not change existing keyboards; the user turns them on in settings.
+  static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese"]
   /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
   static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
   static let hapticStrengths = ["light", "medium", "strong"]
@@ -638,7 +641,7 @@ private struct IOSKeyboardPreferenceStore {
   private func enabledSchemes() -> [String] {
     migrateJapaneseSchemes()
     guard let stored = defaults.stringArray(forKey: "enabledInputSchemes") else {
-      return Self.schemeOrder
+      return Self.schemeOrder.filter { !Self.optInSchemes.contains($0) }
     }
     let enabled = Self.schemeOrder.filter(stored.contains)
     return enabled.isEmpty ? ["quanpin"] : enabled

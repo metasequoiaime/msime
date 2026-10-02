@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import * as style from "./community-style";
 
 export interface CommunityDialogHeaderProps {
@@ -26,6 +27,28 @@ export function CommunityDialogHeader({
       >
         ×
       </button>
+    </div>
+  );
+}
+
+export interface CommunityDialogActionsProps {
+  busy?: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+/** Shared footer layout and cancel control used by community dialogs. */
+export function CommunityDialogActions({
+  busy = false,
+  onClose,
+  children,
+}: CommunityDialogActionsProps) {
+  return (
+    <div className={style.dialogActions}>
+      <button type="button" className="secondary" disabled={busy} onClick={onClose}>
+        取消
+      </button>
+      {children}
     </div>
   );
 }

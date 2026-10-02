@@ -1,26 +1,29 @@
 import { AppearanceCandidatePreview } from "../../candidate/appearance-candidate-preview";
 import { CandidateFontControls } from "../../candidate/candidate-font-controls";
-import { defaultNavigation } from "../navigation-section";
 import { useSettingsForm } from "../settings-form-context";
 import * as settings from "../settings-style";
-import { GroupList } from "../../core/platform-controls";
+import { GroupList, LinkRow } from "../../core/platform-controls";
 import { CandidateFollowCursorSection } from "../candidate-follow-cursor-section";
+import { CandidatePageNumberSection } from "../candidate-page-number-section";
 import { CandidateSizingSection } from "../candidate-sizing-section";
 import { CandidatePageSizeSection } from "../candidate-page-size-section";
+import { offeredCandidatePageSizes } from "../candidate-page-size";
 import { CandidateLayoutSection } from "../candidate-layout-section";
 import { PreeditSettingsSection } from "../preedit-settings-section";
-import { NavigationSection } from "../navigation-section";
 import { appearanceSettingsPreferences } from "../appearance-settings-preferences";
 import { CandidatePanelLimitSection } from "../candidate-panel-limit-section";
 import { CandidateFontUnsupportedNotice } from "../candidate-font-unsupported-notice";
 import { createAppearanceSettingsActions } from "../appearance-settings-actions";
-import { CandidateWindowStyleSection } from "../candidate-window-style-section";
+import {
+  CandidateFontPresetRow,
+  CandidateScaleRow,
+  CandidateWindowStyleSection,
+} from "../candidate-window-style-section";
 
 /** The 候选窗口 page of the settings form (route id `appearance`). */
 export function AppearanceSettingsPage() {
   const {
     client,
-    linuxPlatform,
     mobilePlatform,
     host,
     showCandidateFontControls,
@@ -28,13 +31,9 @@ export function AppearanceSettingsPage() {
     showCandidateEnglishFont,
     showShuangpinPreedit,
     showCandidateFollowCursor,
-    showCandidateRowColors,
     showCandidateWindowScale,
     showCandidateWindowOpacity,
     showCandidateCornerRadius,
-    candidatePreviewTheme,
-    customColors,
-    onCandidateColorChange,
     snapshot,
     draft,
     setDraft,
@@ -43,81 +42,62 @@ export function AppearanceSettingsPage() {
     mobileKeyboardFeedback,
     mobileKeyboardFeedbackBusy,
     saveMobileKeyboardFeedback,
-    wordCharacter,
+    selectPage,
   } = useSettingsForm();
-  const navigation = draft.navigation ?? defaultNavigation;
   const appearanceActions = createAppearanceSettingsActions({
     mobileKeyboardFeedback,
     saveMobileKeyboardFeedback,
     setDraft,
   });
-  const showWindowGroup =
-    host?.fixed_candidate_page_size === undefined || host?.fixed_candidate_layout === undefined;
+  const showPageNumber = host?.candidate_page_number === true;
+  const showLayoutGroup =
+    host?.fixed_candidate_page_size === undefined ||
+    host?.fixed_candidate_layout === undefined ||
+    showPageNumber ||
+    showCandidateFollowCursor;
+  const surfaceName = mobilePlatform ? "候选栏" : "候选窗口";
+  // 预览按下面「布局」组能选到的最高排布预留高度：排列方式能改时按纵向，每页数量能改时按滑块的最大值，两者都固定（iOS）时不预留。
+  const layoutFixed = host?.fixed_candidate_layout !== undefined;
+  const pageSizeFixed = host?.fixed_candidate_page_size !== undefined;
+  const previewReserve =
+    layoutFixed && pageSizeFixed
+      ? undefined
+      : {
+          orientation: layoutFixed ? (draft.candidate_layout ?? "vertical") : ("vertical" as const),
+          count: pageSizeFixed
+            ? draft.candidate_page_size
+            : Math.max(...offeredCandidatePageSizes(draft.candidate_page_size)),
+        };
   return (
     <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="候选窗口">
-      <AppearanceCandidatePreview
-        preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
-        scan={client.scanSkinCatalog}
-        readImage={client.readSkinImage}
-        resolveTheme={client.resolveTheme}
-        resolveFonts={client.resolveFontFamilies}
-        active={page === "appearance"}
-        revision={snapshot?.revision ?? 0}
-        mobile={mobilePlatform}
-      />
-      {host?.candidate_panel_limit && (
-        <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
-      )}
-      {/* The groups keep the reference window's order of these settings (following, fonts, page size and layout, preedit, paging); the design's 窗口布局 group leads with the layout instead. */}
+      {/* 从基础到进阶：候选怎么排列、绘制多大、外围的窗口，最后是预编辑。颜色和明暗只在「主题」编辑，「窗口样式」链接过去；「翻页方式」在「输入」页，挨着「以词定字」。 */}
       <div className={settings.groups}>
-        <CandidateWindowStyleSection
-          preferences={draft}
-          colors={customColors}
-          previewTheme={candidatePreviewTheme}
-          platform={host?.platform}
-          showFontPresets={showCandidateFontControls}
-          showRowColors={showCandidateRowColors}
-          showScale={showCandidateWindowScale}
-          showOpacity={showCandidateWindowOpacity}
-          showCornerRadius={showCandidateCornerRadius}
-          onChange={appearanceActions.onPreferencesChange}
-          onColorChange={onCandidateColorChange}
-        />
-        {showCandidateFollowCursor && (
-          <GroupList title="位置">
-            <CandidateFollowCursorSection
-              value={draft.candidate_follow_cursor}
-              onChange={(candidate_follow_cursor) =>
-                appearanceActions.onPreferencesChange({ candidate_follow_cursor })
-              }
-            />
-          </GroupList>
-        )}
-        <GroupList title="字体">
-          {showCandidateFontControls ? (
-            <>
-              <CandidateFontControls
-                value={draft}
-                onChange={appearanceActions.onPreferencesChange}
-                readFonts={client.listFontFamilies}
-                windows={host?.platform === "windows"}
-                englishFont={showCandidateEnglishFont}
-                mobile={mobilePlatform}
-              />
-              <CandidateSizingSection
-                preferences={draft}
-                mobile={mobilePlatform}
-                showFontControls
-                showPreeditFont={showCandidatePreeditFont}
-                onChange={appearanceActions.onPreferencesChange}
-              />
-            </>
-          ) : (
-            <CandidateFontUnsupportedNotice />
+        {/* 预览放在页首，它画的是下面所有组的设置；Linux 上由桌面环境接管候选面板时，限制说明紧跟在预览下面。 */}
+        <GroupList>
+          <AppearanceCandidatePreview
+            preferences={appearanceSettingsPreferences(draft, host?.platform === "windows")}
+            scan={client.scanSkinCatalog}
+            readImage={client.readSkinImage}
+            resolveTheme={client.resolveTheme}
+            resolveFonts={client.resolveFontFamilies}
+            active={page === "appearance"}
+            revision={snapshot?.revision ?? 0}
+            mobile={mobilePlatform}
+            reserve={previewReserve}
+          />
+          {host?.candidate_panel_limit && (
+            <CandidatePanelLimitSection limit={host.candidate_panel_limit} />
           )}
         </GroupList>
-        {showWindowGroup && (
-          <GroupList title={mobilePlatform ? "布局" : "窗口布局"}>
+        {showLayoutGroup && (
+          <GroupList title="布局">
+            <CandidateLayoutSection
+              value={draft.candidate_layout}
+              fixed={host?.fixed_candidate_layout !== undefined}
+              onChange={(candidate_layout) =>
+                appearanceActions.onPreferencesChange({ candidate_layout })
+              }
+            />
             {/* The iOS strip pages in nines whatever this says, so a selector there would change nothing. */}
             <CandidatePageSizeSection
               value={draft.candidate_page_size}
@@ -126,41 +106,77 @@ export function AppearanceSettingsPage() {
                 appearanceActions.onPreferencesChange({ candidate_page_size })
               }
             />
-            <CandidateLayoutSection
-              value={draft.candidate_layout}
-              fixed={host?.fixed_candidate_layout !== undefined}
-              onChange={(candidate_layout) =>
-                appearanceActions.onPreferencesChange({ candidate_layout })
-              }
-            />
+            {showPageNumber && (
+              <CandidatePageNumberSection
+                value={draft.show_candidate_page_number}
+                onChange={(show_candidate_page_number) =>
+                  appearanceActions.onPreferencesChange({ show_candidate_page_number })
+                }
+              />
+            )}
+            {showCandidateFollowCursor && (
+              <CandidateFollowCursorSection
+                value={draft.candidate_follow_cursor}
+                onChange={(candidate_follow_cursor) =>
+                  appearanceActions.onPreferencesChange({ candidate_follow_cursor })
+                }
+              />
+            )}
           </GroupList>
         )}
+        <GroupList title="字体与大小">
+          {showCandidateFontControls ? (
+            <>
+              <CandidateFontPresetRow
+                preferences={draft}
+                platform={host?.platform}
+                onChange={appearanceActions.onPreferencesChange}
+              />
+              <CandidateFontControls
+                value={draft}
+                onChange={appearanceActions.onPreferencesChange}
+                readFonts={client.listFontFamilies}
+                windows={host?.platform === "windows"}
+                englishFont={showCandidateEnglishFont}
+              />
+              <CandidateSizingSection
+                preferences={draft}
+                showFontControls
+                showPreeditFont={showCandidatePreeditFont}
+                onChange={appearanceActions.onPreferencesChange}
+              />
+            </>
+          ) : (
+            <CandidateFontUnsupportedNotice />
+          )}
+          {showCandidateWindowScale && (
+            <CandidateScaleRow
+              preferences={draft}
+              onChange={appearanceActions.onPreferencesChange}
+            />
+          )}
+        </GroupList>
+        <CandidateWindowStyleSection
+          preferences={draft}
+          showOpacity={showCandidateWindowOpacity}
+          showCornerRadius={showCandidateCornerRadius}
+          onChange={appearanceActions.onPreferencesChange}
+        >
+          <LinkRow
+            title="颜色与明暗"
+            description={`${surfaceName}的颜色和明暗在「主题」页设置`}
+            onClick={() => selectPage("skin")}
+          />
+        </CandidateWindowStyleSection>
         <GroupList title="预编辑">
           <PreeditSettingsSection
             preferences={draft}
             mobile={mobilePlatform}
             showShuangpinPreedit={showShuangpinPreedit}
-            showPageNumber={host?.candidate_page_number === true}
             inlinePreedit={mobileKeyboardFeedback?.inlinePreedit}
             inlinePreeditBusy={mobileKeyboardFeedbackBusy}
             onChange={appearanceActions.onPreferencesChange}
             onInlinePreeditChange={appearanceActions.onInlinePreeditChange}
-          />
-        </GroupList>
-        <GroupList title="翻页">
-          <NavigationSection
-            navigation={navigation}
-            wordCharacter={wordCharacter}
-            linux={linuxPlatform}
-            onChange={(next) =>
-              appearanceActions.onPreferencesChange({
-                // Only a paging key that takes 以词定字's key touches it; otherwise an unset value stays unset.
-                ...(next.wordCharacter !== wordCharacter
-                  ? { word_character: next.wordCharacter }
-                  : {}),
-                navigation: next.navigation,
-              })
-            }
           />
         </GroupList>
       </div>

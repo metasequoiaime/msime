@@ -23,7 +23,7 @@ jobs:
         run: rustup toolchain install
       - name: Build msime-dict-build
         run: cargo build --release --locked -p msime-dict-builder
-      # Downloads only the rime-cantonese and libchewing-data files resources/dictionary-sources.lock.json pins, verifies each by size and SHA-256, and fails below the verify floors. The desktop dictionary product (release-dictionary.yml) is not touched.
+      # 只下载 resources/dictionary-sources.lock.json 在 yue/、tw/ 下固定的 msime-dictionary 附件（rime-cantonese 与 libchewing-data 的原样副本），逐个校验大小与 SHA-256，低于 verify 下限即失败。不碰桌面词库产品（release-dictionary.yml）。
       - name: Build language dictionaries
         run: target/release/msime-dict-build languages --cache target/dictionary-sources --out target/language-dictionaries
       - name: Verify language dictionaries

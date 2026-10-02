@@ -754,6 +754,8 @@ export function platformCssVariables(tokens: PlatformTokens): Record<string, str
     "--p-sel-border": select.border,
     "--p-sel-pad": select.pad,
     "--p-sel-fs": select.size,
+    // 无边框的下拉框按当前选中项定宽，否则同一组里选项长短不同的两行文字会离箭头远近不一；有边框的（Windows）保持固定宽度。
+    "--p-sel-sizing": select.border === "none" ? "content" : "fixed",
     "--p-btn-bg": button.bg,
     "--p-btn-fg": button.fg,
     "--p-btn-border": button.border,

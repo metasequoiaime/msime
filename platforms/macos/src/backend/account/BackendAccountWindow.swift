@@ -19,13 +19,13 @@ final class MacAccountModel: NSObject, ObservableObject {
   private let account: BackendAccountSession
   private let anonymousAccount: BackendAccountSession
   private let closeAccountWindows: @MainActor () -> Void
-  private let discardAnonymous: () -> Void
+  private let discardAnonymous: () async throws -> Void
   private var pending: Task<Void, Never>?
 
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
        anonymousAccount: BackendAccountSession = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage()),
        closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() },
-       discardAnonymous: @escaping () -> Void = BackendAnonymousAccount.discard) {
+       discardAnonymous: @escaping () async throws -> Void = BackendAnonymousAccount.discard) {
     self.client = client; self.account = account; self.anonymousAccount = anonymousAccount
     self.closeAccountWindows = closeAccountWindows
     self.discardAnonymous = discardAnonymous
@@ -77,7 +77,7 @@ final class MacAccountModel: NSObject, ObservableObject {
       try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code)
       if replacingAnonymous {
         try await self.anonymousAccount.forget()
-        self.discardAnonymous()
+        try await self.discardAnonymous()
       }
       let user = try await self.account.user()
       try Task.checkCancellation()
@@ -108,7 +108,7 @@ final class MacAccountModel: NSObject, ObservableObject {
         try await self.client.deleteAccount(token: identity.token)
         self.closeAccountWindows()
         try await session.forget()
-        if self.anonymous { self.discardAnonymous() }
+        if self.anonymous { try await self.discardAnonymous() }
       } else {
         // Hide private views before awaiting logout, including offline failures.
         self.closeAccountWindows()

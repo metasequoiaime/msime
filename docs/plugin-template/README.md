@@ -17,3 +17,11 @@ target/debug/msime-pack validate docs/plugin-template
 ```
 
 输出 `ok example-keys sound 1.0.0` 就可以在设置的「插件」页里用「导入文件夹」安装。完整的格式、限制和其他类型见 [docs/plugins.md](../plugins.md)。
+
+## 其他类型
+
+这个文件夹本身就是一个包，包里不能有子文件夹，所以其他类型的模板不放在这里：
+
+- 短语表（`phrase_table`）和符号集（`symbol_set`）只有清单，把上面的 `[sounds]` 和两段音频换成 [docs/plugins.md](../plugins.md) 对应一节里的 `[[phrases]]` 或 `[[groups]]` 即可，`mode` 一行也要删掉。
+- 辅助码表（`helpcode`）和单词本（`wordbook`）各需要一个数据文件：辅助码表在 `[helpcode] table` 里点名一个 `.txt`，单词本在 `[wordbook] file` 里点名一个 `.tsv`。单词本的 `id` 只能用小写字母、数字和 `-`，不超过 59 个字符。
+- 每种类型能通过校验的完整例子在 `crates/client-core/tests/fixtures/plugin-packs/valid/` 下，按 `<类型>-<用例>` 命名；`invalid/` 下是会被拒绝的例子。[metasequoiaime/msime-plugins](https://github.com/metasequoiaime/msime-plugins) 的 `templates/` 里也有每种类型的模板。

@@ -998,7 +998,7 @@ void CandidateWindow::paint() {
     rendered_(*painted_);
 }
 std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
-  if (!click_ || !painted_ || !IsWindowVisible(window_))
+  if (!click_ || !painted_ || !painted_->pointer_input || !IsWindowVisible(window_))
     return std::nullopt;
   RECT bounds{};
   if (!GetClientRect(window_, &bounds))
@@ -1024,7 +1024,8 @@ std::optional<CandidateClick> CandidateWindow::hit(int x, int y) {
                         candidate.generation, candidate.index};
 }
 std::optional<bool> CandidateWindow::pager_hit(int x, int y) {
-  if (!page_ || !painted_ || !painted_pager_ || !IsWindowVisible(window_))
+  if (!page_ || !painted_ || !painted_->pointer_input || !painted_pager_ ||
+      !IsWindowVisible(window_))
     return std::nullopt;
   const double scale = layout_scale(painted_dpi_);
   // The same conversion into the visible card as hit().
@@ -1100,7 +1101,8 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
           self->wheel_accumulator_ = 0;
           return DefWindowProcW(window, message, wparam, lparam);
         }
-        if (!self->page_ || !self->painted_ || !IsWindowVisible(window)) {
+        if (!self->page_ || !self->painted_ || !self->painted_->pointer_input ||
+            !IsWindowVisible(window)) {
           self->wheel_accumulator_ = 0;
           return 0;
         }

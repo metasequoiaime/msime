@@ -1,5 +1,5 @@
 import type { Preferences } from "../index";
-import { SkinCandidatePreview } from "../skin/skin-candidate-preview";
+import { ReservedCandidatePreview, type PreviewReserve } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateFamilyStyle } from "./candidate-font-family";
 import { candidateWindowStyle } from "./candidate-window-style";
@@ -9,7 +9,6 @@ import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 import * as settings from "../settings/settings-style";
-import { SettingSectionHeader } from "../settings/setting-action-header";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
   customCandidateStyle,
@@ -28,6 +27,7 @@ export function AppearanceCandidatePreview({
   active = true,
   revision = 0,
   mobile = false,
+  reserve,
 }: {
   preferences: Preferences;
   scan?: () => Promise<SkinCatalog>;
@@ -38,6 +38,8 @@ export function AppearanceCandidatePreview({
   active?: boolean;
   revision?: number;
   mobile?: boolean;
+  /** 设置页按能切换的最高排布预留预览高度，见 `ReservedCandidatePreview`；不传就随样例伸缩。 */
+  reserve?: PreviewReserve;
 }) {
   const preferences = useResolvedCandidateFonts(
     storedPreferences,
@@ -61,11 +63,10 @@ export function AppearanceCandidatePreview({
     (schemeHelpcode.show_in_candidate_window ?? true);
   const surfaceName = mobile ? "候选栏" : "候选窗口";
   return (
-    <section className="section" aria-label={`${surfaceName}预览`}>
-      <SettingSectionHeader
-        title={`${surfaceName}预览`}
-        description="固定样例随当前设置草稿变化，不代表实际输入候选。"
-      />
+    <section className={settings.groupPreview} aria-label={`${surfaceName}预览`}>
+      <div className={settings.panelPreviewLabel}>
+        预览：固定样例随当前设置草稿变化，不代表实际输入候选。
+      </div>
       {builtin ? (
         <div
           data-skin-preview=""
@@ -83,7 +84,8 @@ export function AppearanceCandidatePreview({
           aria-hidden="true"
         >
           <div className={settings.skinPreviewStage} data-skin-stage="">
-            <SkinCandidatePreview
+            <ReservedCandidatePreview
+              reserve={reserve}
               orientation={preferences.candidate_layout ?? "vertical"}
               count={preferences.candidate_page_size}
               preedit={preferences.candidate_preedit_style !== "empty"}
@@ -101,6 +103,7 @@ export function AppearanceCandidatePreview({
           active={active}
           revision={revision}
           helpcode={helpcode}
+          reserve={reserve}
         />
       )}
     </section>

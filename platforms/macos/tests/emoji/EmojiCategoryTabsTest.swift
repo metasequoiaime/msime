@@ -23,6 +23,20 @@ import SwiftUI
       _ = try MacEmojiCategoryIcons.symbolTabs(groups) { _ in throw NSError(domain: "Synthetic", code: 1) }
       assertionFailure("symbol error swallowed")
     } catch { }
+    // 插件包排在内置分类之后，每个包一个分类，同名的包也分开；颜文字组和空组不提供图标。
+    let plugins = [
+      MacEmojiPluginSymbolGroup(pack: "fixture-b", packName: "Shared", tab: .kaomoji, title: "k", keywords: "", items: ["(^_^)"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-b", packName: "Shared", tab: .symbols, title: "empty", keywords: "", items: []),
+      MacEmojiPluginSymbolGroup(pack: "fixture-b", packName: "Shared", tab: .symbols, title: "one", keywords: "", items: ["★", "☆"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-b", packName: "Shared", tab: .symbols, title: "two", keywords: "", items: ["♠"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-c", packName: "Shared", tab: .symbols, title: "one", keywords: "", items: ["♣"]),
+      MacEmojiPluginSymbolGroup(pack: "fixture-d", packName: "fixture-a", tab: .kaomoji, title: "only", keywords: "", items: ["(-_-)"])]
+    let pluginTabs = MacEmojiCategoryIcons.pluginSymbolTabs(plugins)
+    assert(pluginTabs.map(\.id) == [MacEmojiPluginSymbolGroup.parentID(pack: "fixture-b"), MacEmojiPluginSymbolGroup.parentID(pack: "fixture-c")])
+    assert(pluginTabs.map(\.title) == ["Shared", "Shared"] && pluginTabs.map(\.icon) == ["★", "♣"])
+    let merged = symbols + pluginTabs
+    assert(Set(merged.map(\.id)).count == merged.count && !merged.prefix(symbols.count).contains { MacEmojiPluginSymbolGroup.isParentID($0.id) })
+    assert(MacEmojiCategoryIcons.pluginSymbolTabs([]).isEmpty)
     let idle = MacEmojiSymbolGroup.queryFilters(search: "", parent: "fixture-a", group: "one")
     assert(idle.parent == "fixture-a" && idle.group == "one")
     let searching = MacEmojiSymbolGroup.queryFilters(search: "synthetic", parent: "fixture-a", group: "one")

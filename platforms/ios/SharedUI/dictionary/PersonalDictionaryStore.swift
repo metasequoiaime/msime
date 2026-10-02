@@ -204,6 +204,24 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     return encoder
   }
 
+  /// Shared App Group state must stay inside the container. Reject a
+  /// pre-existing symlink before any directory creation or file access.
+  private func rejectSymlinkAncestors(_ path: URL) throws {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        guard status.st_mode & S_IFMT != S_IFLNK else { throw StoreError.unavailable }
+      } else if errno != ENOENT {
+        throw StoreError.unavailable
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { break }
+      current = parent
+    }
+  }
+
   init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
     self.directory = directory?.appendingPathComponent("PersonalDictionary", isDirectory: true)
   }
@@ -214,6 +232,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
   }
 
   private func readFile(at file: URL) throws -> PersonalDictionaryState {
+    try rejectSymlinkAncestors(file)
     guard FileManager.default.fileExists(atPath: file.path) else { return PersonalDictionaryState() }
     let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
     guard size <= maximumBytes else { throw StoreError.invalidState }
@@ -242,6 +261,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard let directory else { throw StoreError.unavailable }
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("sync.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
@@ -261,6 +281,7 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     guard let directory else { throw StoreError.unavailable }
     Self.processLock.lock()
     defer { Self.processLock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("sync.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)

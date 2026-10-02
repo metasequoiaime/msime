@@ -4,6 +4,7 @@ import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
 import {
   MAX_COMMAND_TABLES,
+  MAX_PHRASE_TABLES,
   withPackSelected,
   DEFAULT_MELODY_PACK,
   DEFAULT_SOUND_PACK,
@@ -15,10 +16,15 @@ import {
   kindLabels,
   missingReason,
   missingTitle,
+  packKindLabel,
+  PHRASE_PREVIEW_ROWS,
+  WORDBOOK_PREVIEW_WORDS,
+  SYMBOL_PREVIEW_ITEMS,
+  wordbookPackBookId,
   type MissingSelection,
 } from "./plugin-catalog-helpers";
 import { PluginViewHeader } from "./plugin-view-header";
-import type { PluginPackage } from "./plugin-types";
+import type { PluginPackage, PluginSettingsPage } from "./plugin-types";
 
 /** A row whose trailing edge is a read-only value rather than a control. */
 function InfoRow({ title, children }: { title: string; children: ReactNode }) {
@@ -46,9 +52,22 @@ export interface PluginDetailViewProps {
   triggers: boolean;
   /** The host draws an installed effect pack: `typingEffects && effectStyles && effectPacks`. */
   effectPacks: boolean;
+  /** 快捷短语（K 模式）是否打开：`local_modes.quick_phrase`。 */
+  quickPhraseMode: boolean;
+  /** 宿主使用辅助码（设置里有辅助码这一组）。 */
+  helpcode: boolean;
+  /** 宿主的背单词书目列出单词本插件。 */
+  wordbookPacks: boolean;
+  /** 宿主的符号面板显示符号集插件。 */
+  symbolSetPacks: boolean;
+  /** 在背单词里选中这本书并打开背单词；没有背单词的宿主为空。 */
+  onOpenWordbook?: (book: string) => void;
   working: boolean;
   onChange: (preferences: PluginPreferences) => void;
   onCommandTable: (id: string, enabled: boolean) => void;
+  onPhraseTable: (id: string, enabled: boolean) => void;
+  /** 打开设置里的另一页；宿主没有页面导航时为空，链接不显示。 */
+  onOpenPage?: (page: PluginSettingsPage) => void;
   onRemove: (pack: PluginPackage) => void;
   onBack: () => void;
 }
@@ -61,9 +80,16 @@ export function PluginDetailView({
   music,
   triggers,
   effectPacks,
+  quickPhraseMode,
+  helpcode,
+  wordbookPacks,
+  symbolSetPacks,
+  onOpenWordbook,
   working,
   onChange,
   onCommandTable,
+  onPhraseTable,
+  onOpenPage,
   onRemove,
   onBack,
 }: PluginDetailViewProps) {
@@ -72,11 +98,7 @@ export function PluginDetailView({
     <>
       <PluginViewHeader title={pack.name} onBack={onBack} />
       <GroupList title="信息">
-        <InfoRow title="类型">
-          {pack.kind === "sound" && pack.mode === "sequence"
-            ? "音效包 · 按键旋律"
-            : kindLabels[pack.kind]}
-        </InfoRow>
+        <InfoRow title="类型">{packKindLabel(pack)}</InfoRow>
         <InfoRow title="版本">{pack.version}</InfoRow>
         {pack.author && <InfoRow title="作者">{pack.author}</InfoRow>}
         <InfoRow title="许可证">{pack.license}</InfoRow>
@@ -92,9 +114,16 @@ export function PluginDetailView({
           music={music}
           triggers={triggers}
           effectPacks={effectPacks}
+          quickPhraseMode={quickPhraseMode}
+          helpcode={helpcode}
+          wordbookPacks={wordbookPacks}
+          symbolSetPacks={symbolSetPacks}
+          onOpenWordbook={onOpenWordbook}
           onSelect={select}
           onChange={onChange}
           onCommandTable={onCommandTable}
+          onPhraseTable={onPhraseTable}
+          onOpenPage={onOpenPage}
         />
       </GroupList>
       {!pack.builtin && (
@@ -116,8 +145,65 @@ export function PluginDetailView({
   );
 }
 
-/** The kind-specific content: a music pack's tracks, a command table's commands, an effect pack's style and parameters. */
+/** 各类型自己的内容：音乐包的曲目、指令表的指令、特效包的样式和参数、短语表的行数与前几行、辅助码表的条数与前几条。 */
 function PackContent({ pack }: { pack: PluginPackage }) {
+  if (pack.kind === "symbol_set") {
+    return (
+      <>
+        {(pack.groups ?? []).map((group, index) => (
+          <GroupList
+            key={`${index}/${group.title}`}
+            title={`${group.tab === "kaomoji" ? "颜文字" : "符号"} · ${group.title}（${group.items.length}）`}
+          >
+            <p className={`${settings.groupNote} break-anywhere`}>
+              {group.items.slice(0, SYMBOL_PREVIEW_ITEMS).join(" ")}
+              {group.items.length > SYMBOL_PREVIEW_ITEMS ? " …" : ""}
+            </p>
+          </GroupList>
+        ))}
+      </>
+    );
+  }
+  if (pack.kind === "wordbook") {
+    const words = (pack.first_words ?? []).slice(0, WORDBOOK_PREVIEW_WORDS);
+    return (
+      <GroupList title={`单词（${pack.word_count ?? words.length}）`}>
+        {words.map((word) => (
+          <Row key={word} title={word} />
+        ))}
+        {(pack.word_count ?? 0) > words.length && (
+          <p className={settings.groupNote}>只显示前 {words.length} 个单词。</p>
+        )}
+      </GroupList>
+    );
+  }
+  if (pack.kind === "helpcode") {
+    const preview = pack.preview ?? [];
+    return (
+      <GroupList title={`辅助码（${pack.entries ?? preview.length} 个字）`}>
+        {preview.map((entry) => (
+          <Row key={entry.character} title={entry.character} description={entry.code} />
+        ))}
+        {(pack.entries ?? 0) > preview.length && (
+          <p className={settings.groupNote}>只显示前 {preview.length} 个字。</p>
+        )}
+      </GroupList>
+    );
+  }
+  if (pack.kind === "phrase_table") {
+    const phrases = pack.phrases ?? [];
+    const shown = phrases.slice(0, PHRASE_PREVIEW_ROWS);
+    return (
+      <GroupList title={`短语（${phrases.length}）`}>
+        {shown.map((phrase, index) => (
+          <Row key={`${index}/${phrase.key}`} title={phrase.key} description={phrase.text} />
+        ))}
+        {phrases.length > shown.length && (
+          <p className={settings.groupNote}>只显示前 {PHRASE_PREVIEW_ROWS} 条。</p>
+        )}
+      </GroupList>
+    );
+  }
   if (pack.kind === "music") {
     const tracks = pack.tracks ?? [];
     return (
@@ -180,9 +266,16 @@ function PackActions({
   music,
   triggers,
   effectPacks,
+  quickPhraseMode,
+  helpcode,
+  wordbookPacks,
+  symbolSetPacks,
+  onOpenWordbook,
   onSelect,
   onChange,
   onCommandTable,
+  onPhraseTable,
+  onOpenPage,
 }: {
   pack: PluginPackage;
   preferences: PluginPreferences;
@@ -190,9 +283,16 @@ function PackActions({
   music: boolean;
   triggers: boolean;
   effectPacks: boolean;
+  quickPhraseMode: boolean;
+  helpcode: boolean;
+  wordbookPacks: boolean;
+  symbolSetPacks: boolean;
+  onOpenWordbook?: (book: string) => void;
   onSelect: () => void;
   onChange: (preferences: PluginPreferences) => void;
   onCommandTable: (id: string, enabled: boolean) => void;
+  onPhraseTable: (id: string, enabled: boolean) => void;
+  onOpenPage?: (page: PluginSettingsPage) => void;
 }) {
   switch (pack.kind) {
     case "sound": {
@@ -294,6 +394,93 @@ function PackActions({
         </Row>
       );
     }
+    case "symbol_set":
+      return (
+        <ActionBlock
+          note={
+            symbolSetPacks
+              ? "装上即在符号面板里显示：符号组以插件名为分类排在内置符号之后，颜文字组排在颜文字的 All 之后。卸载后不再显示。"
+              : "这台设备的符号面板不显示插件符号集。"
+          }
+        />
+      );
+    case "wordbook": {
+      if (!wordbookPacks || !onOpenWordbook)
+        return <ActionBlock note="这台设备的背单词不列出单词本插件。" />;
+      return (
+        <ActionBlock note="这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => onOpenWordbook(wordbookPackBookId(pack.id))}
+          >
+            去背单词
+          </button>
+        </ActionBlock>
+      );
+    }
+    case "helpcode": {
+      if (!helpcode) return <ActionBlock note="这台设备不使用辅助码。" />;
+      const toggle = (key: "helpcode_pack_quanpin" | "helpcode_pack_shuangpin", on: boolean) =>
+        onChange({ ...preferences, [key]: on ? pack.id : "" });
+      return (
+        <>
+          <Row title="用于全拼" description="替换全拼的辅助码方案；关闭后回到原来的方案。">
+            <Switch
+              checked={preferences.helpcode_pack_quanpin === pack.id}
+              onChange={(on) => toggle("helpcode_pack_quanpin", on)}
+            />
+          </Row>
+          <Row title="用于双拼" description="替换双拼的辅助码方案；关闭后回到原来的方案。">
+            <Switch
+              checked={preferences.helpcode_pack_shuangpin === pack.id}
+              onChange={(on) => toggle("helpcode_pack_shuangpin", on)}
+            />
+          </Row>
+          {onOpenPage && (
+            <ActionBlock note="辅助码的开关和显示方式在「输入 → 辅助码」里。">
+              <button type="button" className="secondary" onClick={() => onOpenPage("input")}>
+                前往辅助码设置
+              </button>
+            </ActionBlock>
+          )}
+        </>
+      );
+    }
+    case "phrase_table": {
+      if (!triggers) return <ActionBlock note="这台设备不支持快捷短语插件。" />;
+      const position = preferences.phrase_tables.indexOf(pack.id);
+      const full = position < 0 && preferences.phrase_tables.length >= MAX_PHRASE_TABLES;
+      return (
+        <>
+          <Row
+            title="启用"
+            description={
+              position >= 0
+                ? `第 ${position + 1} 位。同一编码下靠前的表先列出。`
+                : full
+                  ? `最多启用 ${MAX_PHRASE_TABLES} 个短语表。`
+                  : "启用后排在已启用的短语表之后。"
+            }
+          >
+            <Switch
+              checked={position >= 0}
+              disabled={full}
+              onChange={(enabled) => onPhraseTable(pack.id, enabled)}
+            />
+          </Row>
+          {!quickPhraseMode && (
+            <ActionBlock note="快捷短语（K 模式）已关闭。在「输入 → 快捷模式」打开后，按 Shift+K 再输入编码即可用到短语表。">
+              {onOpenPage && (
+                <button type="button" className="secondary" onClick={() => onOpenPage("input")}>
+                  前往输入设置
+                </button>
+              )}
+            </ActionBlock>
+          )}
+        </>
+      );
+    }
   }
 }
 
@@ -311,7 +498,13 @@ export function MissingPluginView({
 }) {
   const label = kindLabels[entry.kind];
   const action =
-    entry.kind === "sound" ? "改回默认" : entry.kind === "command_table" ? "移除" : "不再使用";
+    entry.kind === "sound"
+      ? "改回默认"
+      : entry.kind === "command_table" || entry.kind === "phrase_table"
+        ? "移除"
+        : entry.kind === "helpcode"
+          ? "改回原来的方案"
+          : "不再使用";
   const note = entry.mismatched
     ? `设置里${entry.uses.join("、")}是「${entry.id}」，${missingReason(entry)}。可以${action}，或者在「我的插件」里打开另一个${label}。`
     : `设置里${entry.uses.join("、")}是「${entry.id}」，但这个${label}已不在本机，可能被删除或无法载入。可以重新导入它，或者${action}。`;

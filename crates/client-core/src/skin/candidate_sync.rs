@@ -380,6 +380,9 @@ pub fn sync_candidate_skins(
     remote: &impl CandidateSkinSyncRemote,
 ) -> Result<CandidateSkinSyncReport, AccountError> {
     let _run = lock_runs();
+    if crate::storage::reject_symlink(root).is_err() {
+        return Err(AccountError::Storage);
+    }
     let user = remote.user_id()?.ok_or(AccountError::Unauthorized)?;
     let mut state = load_state(state_path);
     if state.user_id != user {

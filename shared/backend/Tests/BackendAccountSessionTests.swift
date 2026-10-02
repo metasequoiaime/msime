@@ -56,6 +56,14 @@ private final class SharedStoreAPI: BackendSessionAPI, @unchecked Sendable {
     return try onRefresh(token)
   }
 }
+
+private struct FailingRefreshLock: BackendRefreshLock {
+  var sharedAcrossProcesses: Bool { true }
+  func run<T: Sendable>(_ body: @Sendable () async throws -> T) async throws -> T {
+    throw BackendAccountClient.Failure(status: 0)
+  }
+}
+
 final class BackendAccountSessionTests: XCTestCase {
   func testSignInRejectsUnboundedExpiryFromAPI() async throws {
     let invalid = BackendAccountClient.Tokens(access_token: String(repeating: "a", count: 64),
@@ -320,6 +328,22 @@ final class BackendAccountSessionTests: XCTestCase {
     XCTAssertEqual(api.refreshCount, 0)
     XCTAssertEqual(try storage.load()?.tokens.refresh_token, String(repeating: "f", count: 64), "the stored session is kept")
   }
+
+  func testSignOutDoesNotClearWhenTheSharedLockCannotBeTaken() async throws {
+    let stored = BackendSavedSession(tokens: SharedStoreAPI.tokens("a", "f"), expiresAt: Date().addingTimeInterval(600))
+    let storage = MemorySessions(stored)
+    let session = BackendAccountSession(api: SharedStoreAPI { _ in SharedStoreAPI.tokens("b", "c") },
+                                        storage: storage, refreshLock: FailingRefreshLock())
+    do {
+      try await session.forget()
+      XCTFail("sign-out must report a lock failure")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 0)
+    }
+    XCTAssertEqual(try storage.load()?.tokens.refresh_token, stored.tokens.refresh_token,
+                   "an unlocked clear could race an in-flight refresh and resurrect the session")
+  }
+
   func testActorThatLoadedNothingSeesLaterSignIn() async throws {
     let storage = MemorySessions(nil)
     let api = SharedStoreAPI { _ in throw BackendAccountClient.Failure(status: 401) }

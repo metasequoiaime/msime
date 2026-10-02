@@ -3,9 +3,10 @@ import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../the
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
-import { Checks, GroupList, Row, Select, Switch } from "../../core/platform-controls";
+import { Checks, GroupList, Row, Switch } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
+import { SelectRow } from "../select-row";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -63,15 +64,10 @@ export function FloatingToolbarSettingsPage() {
   return (
     <fieldset disabled={busy} hidden={page !== "floating-toolbar"} aria-label="悬浮工具栏">
       <div className={settings.groups}>
-        <GroupList title="显示">
-          <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
-            <Switch
-              checked={floatingToolbar.enabled}
-              onChange={(enabled) => onToolbarChange({ enabled })}
-            />
-          </Row>
-          <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
-            <div className={settings.toolbarPreviewLabel}>预览</div>
+        {/* 预览放在页首：下面每一组改的都是它画出的内容。 */}
+        <GroupList>
+          <div className={settings.groupPreview} aria-label="悬浮工具栏预览">
+            <div className={settings.panelPreviewLabel}>预览</div>
             <div
               className={settings.skinCardPreview}
               data-skin-preview=""
@@ -95,56 +91,20 @@ export function FloatingToolbarSettingsPage() {
             </div>
           </div>
         </GroupList>
-        <GroupList title="尺寸">
-          {showToolbarAppearance ? (
-            <>
-              <Row title="工具栏缩放" description="相对系统 DPI 的额外缩放，不改变系统显示缩放">
-                <Select
-                  value={floatingToolbar.scale_percent}
-                  onChange={(event) =>
-                    onToolbarChange({
-                      scale_percent: Number(
-                        event.target.value,
-                      ) as FloatingToolbarPreferences["scale_percent"],
-                    })
-                  }
-                >
-                  {floatingToolbarScales.map((value) => (
-                    <option key={value} value={value}>
-                      {value}%
-                    </option>
-                  ))}
-                </Select>
-              </Row>
-              <Row title="图标尺寸" description="图标基准大小（像素），再乘以上方缩放">
-                <Select
-                  value={floatingToolbar.font_size}
-                  onChange={(event) =>
-                    onToolbarChange({
-                      font_size: Number(
-                        event.target.value,
-                      ) as FloatingToolbarPreferences["font_size"],
-                    })
-                  }
-                >
-                  {floatingToolbarFontSizes.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </Select>
-              </Row>
-            </>
-          ) : (
-            <FloatingToolbarPlatformNotice />
-          )}
+        <GroupList title="显示">
+          <Row title="在桌面显示悬浮工具栏" description="快速访问输入法状态与常用功能">
+            <Switch
+              checked={floatingToolbar.enabled}
+              onChange={(enabled) => onToolbarChange({ enabled })}
+            />
+          </Row>
         </GroupList>
         {showToolbarComponents && (
           <GroupList title="按钮">
             <div className={settings.groupBlock}>
               <Checks
-                legend="工具栏组件"
-                description="勾选要显示在悬浮工具栏中的功能"
+                legend="按钮"
+                description="勾选要显示在悬浮工具栏上的按钮"
                 items={[
                   // The mode switch is the toolbar's reason to exist, so its box is drawn checked and cannot be cleared.
                   {
@@ -169,6 +129,50 @@ export function FloatingToolbarSettingsPage() {
             </div>
           </GroupList>
         )}
+        <GroupList title="尺寸">
+          {showToolbarAppearance ? (
+            <>
+              <SelectRow
+                title="工具栏缩放"
+                description="相对系统 DPI 的额外缩放，不改变系统显示缩放"
+                value={floatingToolbar.scale_percent}
+                onChange={(event) =>
+                  onToolbarChange({
+                    scale_percent: Number(
+                      event.target.value,
+                    ) as FloatingToolbarPreferences["scale_percent"],
+                  })
+                }
+              >
+                {floatingToolbarScales.map((value) => (
+                  <option key={value} value={value}>
+                    {value}%
+                  </option>
+                ))}
+              </SelectRow>
+              <SelectRow
+                title="图标尺寸"
+                description="图标基准大小（像素），再乘以上方缩放"
+                value={floatingToolbar.font_size}
+                onChange={(event) =>
+                  onToolbarChange({
+                    font_size: Number(
+                      event.target.value,
+                    ) as FloatingToolbarPreferences["font_size"],
+                  })
+                }
+              >
+                {floatingToolbarFontSizes.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </SelectRow>
+            </>
+          ) : (
+            <FloatingToolbarPlatformNotice buttons={showToolbarComponents} />
+          )}
+        </GroupList>
       </div>
     </fieldset>
   );

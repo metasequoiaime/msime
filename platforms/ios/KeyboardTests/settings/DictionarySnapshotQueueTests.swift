@@ -4,6 +4,30 @@ import XCTest
 import Darwin
 
 final class DictionarySnapshotQueueTests: XCTestCase {
+  func testSnapshotDirectorySymlinkFailsClosedBeforeCreatingExternalState() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-directory-link-test-\(UUID().uuidString)")
+    let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-directory-link-target-\(UUID().uuidString)")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outsideDirectory)
+    }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+      at: root.appendingPathComponent("DictionarySnapshots", isDirectory: true),
+      withDestinationURL: outsideDirectory)
+
+    do {
+      try DictionarySnapshotQueue(directory: root).publishLocalVersion(first)
+      XCTFail("a symlinked snapshot directory must be rejected")
+    } catch DictionarySnapshotQueue.Failure.unavailable {
+      // Expected: snapshot state must stay inside the App Group directory.
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: outsideDirectory.appendingPathComponent("state.lock").path))
+  }
+
   func testStateLockSymlinkFailsClosedBeforeLockingExternalTarget() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-lock-test-\(UUID().uuidString)")
     let outsideDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("msime-snapshot-state-target-\(UUID().uuidString)")

@@ -12,14 +12,16 @@ use crate::local::emoji::{query_emoji, query_kaomoji, MIXED_RESULT_LIMIT, MODE_R
 use crate::local::expression::query_expression;
 use crate::local::jianpin::{query_jianpin, result_limit};
 use crate::local::mention::{mention_annotation, query_mentions, usable_mentions};
-use crate::local::quick_phrase::query_quick_phrases;
+use crate::local::quick_phrase::{
+    merge_quick_phrases, query_quick_phrases, usable_quick_phrase_table,
+};
 use crate::local::unicode::query_unicode;
 use crate::local::LocalQueryResult;
 use crate::paths::RuntimePaths;
 use crate::shuangpin::profile::profile;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, LocalInputMode, MentionEntry,
-    MixedExpressiveOptions, SchemeType, ShuangpinProfileKind, WordItem,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, ShuangpinProfileKind, WordItem,
 };
 
 pub const MIXED_ENGLISH_LIMIT: usize = 5;
@@ -31,6 +33,8 @@ pub struct CandidateQueries {
     english: Option<EnglishDictionary>,
     /// The host's command table, usable rows only.
     command_table: Vec<CommandTableEntry>,
+    /// 宿主的短语表（插件），只保留能用的行，按编码排序。
+    quick_phrase_table: Vec<QuickPhraseEntry>,
     /// The host's mention list, usable entries only.
     mentions: Vec<MentionEntry>,
     /// Whether `@` mode offers the embedded places after the list.
@@ -44,6 +48,7 @@ impl CandidateQueries {
             profile,
             english: None,
             command_table: Vec::new(),
+            quick_phrase_table: Vec::new(),
             mentions: Vec::new(),
             mention_places: false,
         }
@@ -52,6 +57,11 @@ impl CandidateQueries {
     /// Keeps the rows `/` mode can use and drops the rest.
     pub fn set_command_table(&mut self, table: &[CommandTableEntry]) {
         self.command_table = usable_command_table(table);
+    }
+
+    /// 保留 K 模式能用的宿主短语行，丢弃其余。
+    pub fn set_quick_phrase_table(&mut self, table: &[QuickPhraseEntry]) {
+        self.quick_phrase_table = usable_quick_phrase_table(table);
     }
 
     /// Keeps the entries `@` mode can use and drops the rest.
@@ -114,9 +124,11 @@ impl CandidateQueries {
             LocalInputMode::None => LocalQueryResult::default(),
             LocalInputMode::Unicode => rows(query_unicode(code)),
             LocalInputMode::DateTime => rows(query_date_time(code, now)),
-            LocalInputMode::QuickPhrase => {
-                query_quick_phrases(code, &self.paths.dictionary(assets::MAIN_DICTIONARY))
-            }
+            LocalInputMode::QuickPhrase => merge_quick_phrases(
+                code,
+                query_quick_phrases(code, &self.paths.dictionary(assets::MAIN_DICTIONARY)),
+                &self.quick_phrase_table,
+            ),
             LocalInputMode::Emoji => query_emoji(
                 code,
                 scheme,

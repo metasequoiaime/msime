@@ -72,6 +72,27 @@ fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
         && msime_client_core::is_bounded_text(endpoint, 2048)
 }
 
+#[cfg(unix)]
+fn provider_path_has_no_symlink_ancestors(path: &Path) -> bool {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                #[cfg(target_os = "macos")]
+                if ancestor == Path::new("/tmp") || ancestor == Path::new("/var") {
+                    continue;
+                }
+                return false;
+            }
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    true
+}
+
 // Read one newline-delimited response before the deadline, retaining only the
 // line itself and refusing to grow the buffer past the provider contract.
 #[cfg(unix)]
@@ -190,6 +211,9 @@ impl UnixSocketProvider {
     pub(crate) fn connect(&self) -> Option<UnixStream> {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
+        if !provider_path_has_no_symlink_ancestors(&self.path) {
+            return None;
+        }
         let parent = self.path.parent()?;
         let parent_metadata = std::fs::symlink_metadata(parent).ok()?;
         let socket_metadata = std::fs::symlink_metadata(&self.path).ok()?;

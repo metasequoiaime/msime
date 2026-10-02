@@ -44,10 +44,25 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
     self.directory = directory?.appendingPathComponent("VoiceHandoff", isDirectory: true)
   }
 
+  private func rejectSymlinkAncestors(_ path: URL) throws {
+    var current = path.standardizedFileURL
+    while current.path != "/" {
+      if current.path == "/var" || current.path == "/tmp" { break }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        guard status.st_mode & S_IFMT != S_IFLNK else { throw Failure.unavailable }
+      } else if errno != ENOENT {
+        throw Failure.unavailable
+      }
+      current = current.deletingLastPathComponent()
+    }
+  }
+
   private func locked<T>(_ action: (URL) throws -> T) throws -> T {
     guard let directory else { throw Failure.unavailable }
     Self.lock.lock()
     defer { Self.lock.unlock() }
+    try rejectSymlinkAncestors(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let descriptor = open(directory.appendingPathComponent("transfer.lock").path,
                           O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
