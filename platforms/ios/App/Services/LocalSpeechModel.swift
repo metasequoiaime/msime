@@ -78,8 +78,9 @@ struct LocalSpeechModelManifest: Equatable {
 
   /// Resolve a manifest member and keep symlinks and traversal from escaping the installed model.
   private static func containedPath(_ name: String, in directory: URL) -> URL? {
-    let member = URL(fileURLWithPath: name)
-    guard member.pathComponents.first != "/", !member.pathComponents.contains("..") else { return nil }
+    // 按清单里写的字符串本身检查。`URL(fileURLWithPath:)` 会把相对名拼到进程的当前目录上，`pathComponents` 永远以 `/` 开头、`..` 也已被消掉，结果是每个模型文件都被拒绝。
+    let components = (name as NSString).pathComponents
+    guard !name.isEmpty, !name.hasPrefix("/"), !components.contains("..") else { return nil }
     let root = directory.resolvingSymlinksInPath().standardizedFileURL
     let candidate = directory.appendingPathComponent(name).resolvingSymlinksInPath().standardizedFileURL
     let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
