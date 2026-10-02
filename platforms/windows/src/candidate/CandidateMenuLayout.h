@@ -59,6 +59,7 @@ candidate_menu_items(size_t code_points, bool actionable = true) {
 inline std::vector<CandidateMenuItem>
 candidate_menu_submenu_items(bool actionable = true, int fixed_position = 0) {
   std::vector<CandidateMenuItem> items;
+  items.reserve(7);
   for (unsigned position = 1; position <= 5; ++position)
     items.push_back({CandidateMenuCommand::FixAtPosition,
                      "第 " + std::to_string(position) + " 位", false, false,
