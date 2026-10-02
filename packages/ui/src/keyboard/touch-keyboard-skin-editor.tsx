@@ -564,32 +564,26 @@ export function TouchKeyboardSkinEditor({
         </div>
         <div className={skin.editorHeadingActions}>
           {aiSkins && library && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => setAiGenerationOpen(true)}
               className="primary"
               disabled={disabled || libraryBusy}
-              onClick={() => setAiGenerationOpen(true)}
-            >
-              AI 皮肤抽卡
-            </button>
+              label="AI 皮肤抽卡"
+            />
           )}
           {library && (
-            <button
-              type="button"
-              className="primary"
-              disabled={disabled || libraryBusy || saved.length >= 12}
-              onClick={() => {
+            <ActionButton
+              action={() => {
                 setSkinName(`我的设计 ${saved.length + 1}`);
                 setNameEditor({ operation: "create" });
                 setLibraryNotice("");
               }}
-            >
-              保存设计
-            </button>
+              className="primary"
+              disabled={disabled || libraryBusy || saved.length >= 12}
+              label="保存设计"
+            />
           )}
-          <button type="button" className="secondary" onClick={onClose}>
-            完成
-          </button>
+          <ActionButton action={onClose} className="secondary" label="完成" />
         </div>
       </div>
       {aiGenerationOpen && aiSkins && library && (
