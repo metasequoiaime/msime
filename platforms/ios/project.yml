@@ -93,6 +93,8 @@ targets:
         PRODUCT_NAME: MSIMEApp
         # 发布时由 upload-testflight.sh 在命令行传入描述文件名，配合 CODE_SIGN_STYLE=Manual 让 App 与键盘各用各的 App Store 描述文件；本地开发不传，值为空，仍是自动签名。
         PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_APP_PROFILE)"
+        # 出口合规：只用系统提供的 HTTPS 等豁免加密。写进 Info.plist 后上传的构建自带答案，不会停在 App Store Connect 的「缺少合规信息」而无法分发给 TestFlight 测试组（此前每个构建都在网页上手动答「否」）。
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
         # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEApp。

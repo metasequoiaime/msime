@@ -3065,6 +3065,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。";
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -3243,6 +3244,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "水杉输入法";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "仅在你开始语音输入时录音：本地模型在本机识别，系统语音识别交由 iOS 处理，其他识别服务会把录音发送到你配置的服务。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅在你选择“系统语音识别”并开始录音时，用 iOS 的语音识别把录音转成文字。";
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
