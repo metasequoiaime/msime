@@ -6985,7 +6985,11 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   const std::pair languages{cantonese, zhuyin};
   if (scheme_menu_languages_ == languages) return;
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
-  scheme_menu_entries_ = {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_};
+  scheme_menu_entries_.clear();
+  scheme_menu_entries_.reserve(8);
+  scheme_menu_entries_.insert(
+      scheme_menu_entries_.end(),
+      {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_});
   if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
   if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
   scheme_menu_entries_.insert(scheme_menu_entries_.end(),
