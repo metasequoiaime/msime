@@ -283,7 +283,7 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     check_root(root)?;
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
-    if !target.exists() {
+    if fs::symlink_metadata(&target).is_err() {
         return Ok(());
     }
     // Renamed aside first so a deletion interrupted halfway never leaves a directory that still carries its manifest.
@@ -562,7 +562,7 @@ fn write_manifest(dir: &Path, manifest: &Value) -> Result<(), LocalModelError> {
 fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelError> {
     let target = root.join(id);
     let aside = root.join(format!(".old-{}-{}", id, unique_suffix()));
-    let replaced = if target.exists() {
+    let replaced = if fs::symlink_metadata(&target).is_ok() {
         fs::rename(&target, &aside)?;
         true
     } else {

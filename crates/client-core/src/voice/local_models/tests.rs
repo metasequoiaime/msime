@@ -523,6 +523,33 @@ fn symlinked_root_ancestors_with_existing_descendants_are_rejected() {
         .is_none());
 }
 
+#[cfg(unix)]
+#[test]
+fn dangling_model_slots_can_be_replaced_and_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("fixture");
+    let missing = root.path().join("missing");
+    std::os::unix::fs::symlink(&missing, &target).unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(root.path(), &model, "", &fetcher, &AtomicBool::new(false));
+    let installed = result.unwrap();
+    assert!(installed.join(MANIFEST_FILE).is_file());
+    assert!(!fs::symlink_metadata(&installed)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+
+    let remove_root = tempfile::tempdir().unwrap();
+    let remove_id = default_model_id();
+    let dangling = remove_root.path().join(remove_id);
+    std::os::unix::fs::symlink(remove_root.path().join("missing"), &dangling).unwrap();
+    remove(remove_root.path(), remove_id).unwrap();
+    assert!(fs::symlink_metadata(&dangling).is_err());
+}
+
 #[test]
 fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     let root = tempfile::tempdir().unwrap();
