@@ -8082,6 +8082,50 @@ fn the_selected_helpcode_pack_replaces_the_scheme_table() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
+/// 包坏了、回退的自定义辅助码表也被删了：会话照常创建，聚焦和偏好更新都不失败，Engine 用空表；之后每次聚焦也不再重试。
+#[test]
+fn a_broken_helpcode_pack_with_a_missing_fallback_never_fails_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let custom = dir.path().join("resources/helpcodes/custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("mine.txt"), "你=zz\n").unwrap();
+    install_helpcode_pack(dir.path(), "radicals", "你=ab\n");
+    let mut preferences = chinese_preferences();
+    preferences.scheme = msime_client_core::preferences::InputScheme::Quanpin;
+    preferences.quanpin_helpcode.schema =
+        msime_client_core::preferences::HelpcodeSchema::Custom("custom/mine".into());
+    preferences.plugins.helpcode_pack_quanpin = "radicals".into();
+    let handle = plugin_host(dir.path(), preferences.clone());
+    assert_eq!(session_helpcode(handle).as_deref(), Some("ab"));
+
+    // 聚焦时发现包坏了，回退的表也没了：装上空表，聚焦成功，之后的聚焦也成功。
+    std::fs::remove_file(custom.join("mine.txt")).unwrap();
+    std::fs::write(
+        dir.path().join("state/plugins/helpcode/radicals/table.txt"),
+        "不是码表\n",
+    )
+    .unwrap();
+    for _ in 0..2 {
+        let focused = read(msime_client_focus(handle, true));
+        assert_eq!(focused["ok"], true, "{focused}");
+        assert_eq!(session_helpcode(handle).as_deref(), Some(""));
+    }
+
+    // 偏好更新照样重建 Engine，不因回退的表缺失而推迟。
+    preferences.quanpin_helpcode.show_in_candidate_window =
+        !preferences.quanpin_helpcode.show_in_candidate_window;
+    let updated = update(handle, 1, &preferences);
+    assert_eq!(updated["value"]["deferred"], false, "{updated}");
+    assert_eq!(session_helpcode(handle).as_deref(), Some(""));
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+
+    // 一开始就是这样也能创建会话。
+    let handle = plugin_host(dir.path(), preferences);
+    assert_eq!(session_helpcode(handle).as_deref(), Some(""));
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 /// Switching the `/` mode on, or enabling another table, goes through the ordinary preference update and reads the tables then.
 #[test]
 fn preference_updates_load_the_enabled_command_tables() {

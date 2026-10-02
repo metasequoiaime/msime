@@ -7,10 +7,12 @@ use msime_client_core::plugins::{
 };
 use msime_client_core::preferences::PluginPreferences;
 use msime_engine::host::{
-    CommandTableEntry, EngineOptions, HelpcodeKeymap, MentionEntry, QuickPhraseEntry, SharedKeymap,
+    load_helpcode_keymap, CommandTableEntry, EngineOptions, HelpcodeKeymap, MentionEntry,
+    QuickPhraseEntry, SharedKeymap,
 };
 use msime_engine::SchemeType;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 /// What a file looked like when it was read; `None` when it was not there.
@@ -39,6 +41,9 @@ fn directory_stamp(directory: &Path) -> Vec<(String, FileStamp)> {
     stamps
 }
 
+/// 选中的辅助码表包：包 id、回退的方案名和包目录的戳。
+type HelpcodeStamp = (String, String, Vec<(String, FileStamp)>);
+
 /// The files a session's Engine options were filled from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct PluginTables {
@@ -48,8 +53,8 @@ pub(crate) struct PluginTables {
     mentions: Option<FileStamp>,
     /// K 模式打开时，启用的短语表 id 与各自清单的戳。
     phrases: Option<Vec<(String, FileStamp)>>,
-    /// 辅助码打开、当前方案是全拼或双拼并选了辅助码表包时，包 id 与包目录的戳。
-    helpcode: Option<(String, Vec<(String, FileStamp)>)>,
+    /// 辅助码打开、当前方案是全拼或双拼并选了辅助码表包时，包 id、回退用的 `helpcode_schema` 与包目录的戳。回退方案也算在戳里：包坏掉时用的是它，换了方案就要重新决定用哪张表。
+    helpcode: Option<HelpcodeStamp>,
 }
 
 impl PluginTables {
@@ -81,7 +86,11 @@ impl PluginTables {
                 .then(|| manifests(PluginKind::PhraseTable, &plugins.phrase_tables)),
             helpcode: Self::helpcode_pack(options, plugins).map(|id| {
                 let directory = kind_directory(root, PluginKind::Helpcode).join(id);
-                (id.to_owned(), directory_stamp(&directory))
+                (
+                    id.to_owned(),
+                    options.helpcode_schema.clone(),
+                    directory_stamp(&directory),
+                )
             }),
         }
     }
@@ -118,13 +127,29 @@ impl PluginTables {
         self.helpcode != previous.helpcode
     }
 
-    /// 选中的辅助码表包的码表；没选包，或包载入失败时为 `None`，Engine 于是退回方案原来的 `schema`，设置页把这个包报告为未找到。
-    pub(crate) fn helpcode_table(&self, root: Option<&Path>) -> Option<SharedKeymap> {
-        let (Some(root), Some((id, _))) = (root, &self.helpcode) else {
+    /// 选中的辅助码表包的码表；没选包时为 `None`。包载入失败时也是 `None`，Engine 于是退回方案原来的 `schema`，设置页把这个包报告为未找到；但回退的表本身也读不出来时（典型是已被删掉的 `custom/<stem>`）给一张空表：`None` 会让 Engine 去读那张表，`Session::new` 因此失败，偏好就再也应用不上。
+    pub(crate) fn helpcode_table(
+        &self,
+        root: Option<&Path>,
+        options: &EngineOptions,
+    ) -> Option<SharedKeymap> {
+        let (Some(root), Some((id, schema, _))) = (root, &self.helpcode) else {
             return None;
         };
-        let codes = helpcode_pack::load_codes(root, id).ok()?;
-        Some(std::sync::Arc::new(HelpcodeKeymap::from_codes(codes)))
+        let error = match helpcode_pack::load_codes(root, id) {
+            Ok(codes) => return Some(Arc::new(HelpcodeKeymap::from_codes(codes))),
+            Err(error) => error,
+        };
+        eprintln!("msime: helpcode pack {id} unavailable, falling back to {schema}: {error}");
+        match load_helpcode_keymap(Path::new(&options.resources), schema) {
+            Ok(_) => None,
+            Err(error) => {
+                eprintln!(
+                    "msime: helpcode schema {schema} unavailable, using an empty table: {error}"
+                );
+                Some(Arc::new(HelpcodeKeymap::default()))
+            }
+        }
     }
 
     /// 启用的短语表合并后的行；K 模式关闭时为空。
@@ -196,7 +221,7 @@ impl PluginTables {
             options.quick_phrase_table = self.quick_phrase_table(root);
         }
         if self.helpcode_differs(previous) {
-            options.helpcode_table = self.helpcode_table(root);
+            options.helpcode_table = self.helpcode_table(root, options);
         }
     }
 }

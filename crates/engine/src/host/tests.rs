@@ -638,6 +638,36 @@ fn custom_helpcode_table_is_loaded_by_the_engine_session() {
     assert!(session.character(b'A', true).unwrap().handled);
 }
 
+/// 辅助码表插件坏掉后宿主用 `None` 退回方案原来的表；那张表是已被删掉的 `custom/<stem>` 时装上空表，不让宿主的每次聚焦都失败。
+#[test]
+fn a_missing_fallback_schema_gives_an_empty_helpcode_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    let custom = Path::new(&value.resources).join("helpcodes").join("custom");
+    std::fs::create_dir_all(&custom).unwrap();
+    std::fs::write(custom.join("synthetic.txt"), "你=ab\n").unwrap();
+    value.helpcode = true;
+    value.helpcode_schema = "custom/synthetic".into();
+    value.helpcode_table = Some(std::sync::Arc::new(HelpcodeKeymap::from_codes(
+        [("你".to_owned(), "cd".to_owned())].into_iter().collect(),
+    )));
+    let mut session = Session::new(&value).unwrap();
+    std::fs::remove_file(custom.join("synthetic.txt")).unwrap();
+
+    session
+        .set_helpcode_table(None)
+        .expect("a missing fallback schema failed the replacement");
+    type_text(&mut session, b"ni");
+    let view = session.snapshot().unwrap();
+    assert!(
+        view.candidate_annotations.iter().all(String::is_empty),
+        "{:?}",
+        view.candidate_annotations
+    );
+    // 回退仍然缺失时再换一次也一样。
+    session.set_helpcode_table(None).unwrap();
+}
+
 /// The jiajia table this repository carries is injected rather than shipped inside a locked archive, so it is the one that can go missing, be truncated by a bad merge or be saved in an encoding the engine reads as nothing. An entry the parser rejects is silently absent at runtime, which is why this loads it through the engine's own loader and counts.
 #[test]
 fn the_carried_jiajia_table_parses_the_way_the_engine_reads_it() {

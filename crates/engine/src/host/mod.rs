@@ -10,7 +10,7 @@ pub mod session;
 mod tests;
 pub mod text;
 
-pub use crate::helpcode::{HelpcodeKeymap, SharedKeymap};
+pub use crate::helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 pub use crate::local::catalog::{EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
 pub use crate::shuangpin::hints::ShuangpinKeyHint;
 pub use crate::types::{
