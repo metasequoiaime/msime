@@ -1260,9 +1260,10 @@ export function TypingStatisticsPage({
   const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  // 打开页面时先看按键热力图，它排在标签行的第一位；标签只存在组件状态里，不跨次打开记忆。
   const [contentTab, setContentTab] = useState<
-    "trend" | "kind" | "mode" | "scheme" | "ranks" | "keys"
-  >("trend");
+    "keys" | "trend" | "kind" | "mode" | "scheme" | "ranks"
+  >("keys");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const requestRef = useRef<Promise<TypingStatisticsStatus> | null>(null);
@@ -1682,12 +1683,12 @@ export function TypingStatisticsPage({
       <div className={segmented(6)} role="tablist" aria-label="统计内容">
         {(
           [
+            ["keys", "按键"],
             ["trend", "趋势"],
             ["kind", "类型"],
             ["mode", "模式"],
             ["scheme", "方案"],
             ["ranks", "候选"],
-            ["keys", "按键"],
           ] as const
         ).map(([value, label]) => (
           <button

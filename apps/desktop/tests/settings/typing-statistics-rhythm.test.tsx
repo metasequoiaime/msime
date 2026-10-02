@@ -9,6 +9,11 @@ import {
 
 afterEach(cleanup);
 
+// 页面默认打开「按键」，时段分布、速度趋势和按日明细都在「趋势」标签下。
+async function openTrend() {
+  fireEvent.click(await screen.findByRole("tab", { name: "趋势" }));
+}
+
 function today(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -45,6 +50,7 @@ test("the rhythm cards read the measured activity", async () => {
   expect(screen.getByText("共 2分")).toBeTruthy();
   expect(screen.getByLabelText("今日活跃时长").textContent).toContain("2分");
   expect(screen.getByLabelText("连续输入天数").textContent).toContain("1");
+  await openTrend();
   expect(screen.getByLabelText("今日各时段输入分布")).toBeTruthy();
   expect(screen.getByLabelText("9 时，360 字符")).toBeTruthy();
 });
@@ -89,6 +95,7 @@ const detailed: TypingStatistics = {
 
 test("the desktop page lists recorded days in the per-day detail table", async () => {
   render(<TypingStatisticsPage client={client(detailed)} />);
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "按日明细 · 最近 30 天" })).toBeTruthy();
   const table = screen.getByRole("table", { name: "按日明细 · 最近 30 天" });
   expect(
@@ -147,6 +154,7 @@ test("today's hours are set against the usual day once earlier days recorded hou
       })}
     />,
   );
+  await openTrend();
   expect(await screen.findByRole("img", { name: "今日各时段输入分布，与平时对比" })).toBeTruthy();
   expect(screen.getByText("平时（前 1 天平均）")).toBeTruthy();
   expect(screen.getByLabelText("21 时，0 字符").getAttribute("title")).toBe(
@@ -171,6 +179,7 @@ test("the speed trend explains itself until a day holds a minute of typing", asy
       })}
     />,
   );
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "速度趋势" })).toBeTruthy();
   expect(screen.queryByRole("img", { name: /每日输入速度折线图/ })).toBeNull();
   expect(screen.getByText(/还没有测量到足够的活跃时长/)).toBeTruthy();

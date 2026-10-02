@@ -71,6 +71,11 @@ function baseClient(): SettingsClient {
   return { load: async () => preferences, save: vi.fn() };
 }
 
+// 页面默认打开「按键」，每日趋势和日历热力图都在「趋势」标签下。
+async function openTrend() {
+  fireEvent.click(await screen.findByRole("tab", { name: "趋势" }));
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -97,6 +102,20 @@ test("desktop statistics split into content tabs over the cumulative and selecte
   expect(screen.queryByRole("form", { name: "设置" })).toBeNull();
   expect(screen.queryByRole("button", { name: "重新读取" })).toBeNull();
   expect(screen.queryByRole("button", { name: "7 天" })).toBeNull();
+  // 打开时停在排第一的「按键」标签上。
+  const tabs = within(screen.getByRole("tablist", { name: "统计内容" })).getAllByRole("tab");
+  expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "按键",
+    "趋势",
+    "类型",
+    "模式",
+    "方案",
+    "候选",
+  ]);
+  expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
+  await openTrend();
   expect(screen.getByRole("heading", { name: "每日趋势 · 近 30 天" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
@@ -138,7 +157,11 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(await screen.findByRole("tab", { name: "趋势" })).toBeTruthy();
+  expect((await screen.findByRole("tab", { name: "按键" })).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  await openTrend();
   expect(screen.getByRole("heading", { name: /每日趋势 · 近 30 天/ })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "字符类型" })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
@@ -169,12 +192,12 @@ test("the phone tab strip has a column for every tab", async () => {
   const strip = await screen.findByRole("tablist", { name: "统计内容" });
   const tabs = within(strip).getAllByRole("tab");
   expect(tabs.map((tab) => tab.textContent)).toEqual([
+    "按键",
     "趋势",
     "类型",
     "模式",
     "方案",
     "候选",
-    "按键",
   ]);
   expect(strip.className).toContain(`grid-cols-${tabs.length}`);
 });
@@ -196,6 +219,7 @@ test("mobile statistic tabs use Apple chart shapes", async () => {
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("img", { name: "每日输入趋势折线图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "类型" }));
@@ -223,6 +247,7 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("group", { name: "每日输入热力图" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: `热力图：${label(-1)}，6 字符` }));
@@ -249,6 +274,7 @@ test("desktop statistics show a 12-month calendar heatmap with Monday-first week
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  await openTrend();
   expect(await screen.findByRole("heading", { name: "日历热力图" })).toBeTruthy();
   expect(screen.getByText("近 12 个月，颜色越深输入越多")).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "每日输入热力图" });
@@ -290,6 +316,7 @@ test("mobile statistics refresh when the settings surface returns to the foregro
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+  await openTrend();
   await screen.findByRole("heading", { name: /每日趋势/ });
   load.mockClear();
   now += 1_001;
@@ -526,9 +553,8 @@ test("desktop statistics draw an ANSI key heatmap for the cumulative or selected
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
-  expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
-  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
-  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  // 按键是默认标签，不用点就能看到热力图。
+  expect(await screen.findByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
   const heatmap = screen.getByRole("group", { name: "按键热力图" });
   expect(within(heatmap).getByRole("img", { name: "A，123 次" })).toBeTruthy();
   expect(within(heatmap).getByRole("img", { name: "Z，500 次" })).toBeTruthy();
@@ -593,9 +619,7 @@ test("the phone's 按键 tab draws the soft keyboard and a nine-key grid once it
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
-  expect(screen.queryByRole("heading", { name: /按键热力图/ })).toBeNull();
-  fireEvent.click(await screen.findByRole("tab", { name: "按键" }));
-  expect(screen.getByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "按键热力图 · 累计" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
   const heatmap = screen.getByRole("group", { name: "按键热力图" });
   expect(within(heatmap).getByRole("img", { name: "Q，9 次" })).toBeTruthy();
