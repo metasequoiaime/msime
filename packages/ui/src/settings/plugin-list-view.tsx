@@ -12,6 +12,7 @@ import {
   type MissingSelection,
 } from "./plugin-catalog-helpers";
 import type { PluginCatalogResult, PluginKind } from "./plugin-types";
+import { ActionButton } from "./action-button";
 
 /** A row that opens a view, in the markup `SubPageEntries` gives its rows: named by its title, described by its description and its trailing marker. `rowKey` is what focus returns to when the view is closed. */
 function PluginNavRow({
@@ -209,22 +210,16 @@ export function PluginListView({
               </span>
             </span>
             <span className={`${settings.managerActions} shrink-0`}>
-              <button
-                type="button"
-                className="secondary"
+              <ActionButton
+                action={() => onImport("folder")}
                 disabled={working}
-                onClick={() => onImport("folder")}
-              >
-                导入文件夹
-              </button>
-              <button
-                type="button"
-                className="secondary"
+                label="导入文件夹"
+              />
+              <ActionButton
+                action={() => onImport("archive")}
                 disabled={working}
-                onClick={() => onImport("archive")}
-              >
-                导入 .zip
-              </button>
+                label="导入 .zip"
+              />
             </span>
           </div>
           {notice && (

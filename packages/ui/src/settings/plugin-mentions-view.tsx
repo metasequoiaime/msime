@@ -3,6 +3,7 @@ import { GroupList } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { MentionEntry } from "./plugin-types";
+import { ActionButton } from "./action-button";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
@@ -92,16 +93,13 @@ export function PluginMentionsView({
                   onChange={(event) => updateMention(index, { key: event.target.value })}
                 />
               </label>
-              <button
-                type="button"
-                className="secondary"
-                aria-label={`删除第 ${index + 1} 行`}
-                onClick={() =>
+              <ActionButton
+                action={() =>
                   setMentions((current) => current.filter((_, position) => position !== index))
                 }
-              >
-                删除
-              </button>
+                ariaLabel={`删除第 ${index + 1} 行`}
+                label="删除"
+              />
             </div>
           ))}
           {issue && dirty && (
@@ -110,22 +108,17 @@ export function PluginMentionsView({
             </p>
           )}
           <div className={settings.managerActions}>
-            <button
-              type="button"
-              className="secondary"
+            <ActionButton
+              action={() => setMentions((current) => [...current, { text: "", key: "" }])}
               disabled={mentions.length >= MAX_MENTIONS}
-              onClick={() => setMentions((current) => [...current, { text: "", key: "" }])}
-            >
-              添加
-            </button>
-            <button
-              type="button"
+              label="添加"
+            />
+            <ActionButton
+              action={onSave}
               className="primary"
               disabled={working || !dirty || issue !== null}
-              onClick={onSave}
-            >
-              保存名单
-            </button>
+              label="保存名单"
+            />
           </div>
         </div>
       </GroupList>
