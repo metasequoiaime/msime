@@ -21,6 +21,7 @@ import {
 } from "../candidate/candidate-window-style";
 import * as settings from "./settings-style";
 import { SegmentedRow } from "./segmented-row";
+import { SliderRow } from "./slider-row";
 
 export type CandidateWindowStyleSectionPreferences = Pick<
   Preferences,
@@ -76,16 +77,14 @@ export interface CandidateScaleRowProps {
 export function CandidateScaleRow({ preferences, onChange }: CandidateScaleRowProps) {
   const scale = candidateScalePercent(preferences.candidate_scale_percent);
   return (
-    <Row title="整体大小" description={`${scale}%，字号与窗口尺寸一起缩放`}>
-      <span className={settings.sliderControl}>
-        <Slider
-          {...candidateScaleSlider}
-          value={scale}
-          valueText={`${scale}%`}
-          onChange={(value) => onChange(candidateScalePatch(value))}
-        />
-      </span>
-    </Row>
+    <SliderRow
+      title="整体大小"
+      description={`${scale}%，字号与窗口尺寸一起缩放`}
+      {...candidateScaleSlider}
+      value={scale}
+      valueText={`${scale}%`}
+      onChange={(value) => onChange(candidateScalePatch(value))}
+    />
   );
 }
 
