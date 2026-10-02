@@ -214,6 +214,9 @@ aux_typing_statistics_messages(bool english, std::wstring characters) {
   prefix += english ? L"|E|" : L"|C|";
   const size_t room = max_aux_message_bytes / sizeof(wchar_t) - prefix.size();
   std::vector<std::wstring> messages;
+  const size_t message_count =
+      characters.empty() ? 0 : (characters.size() - 1) / room + 1;
+  messages.reserve(message_count);
   for (size_t offset = 0; offset < characters.size(); offset += room)
     messages.push_back(prefix + characters.substr(offset, room));
   return messages;

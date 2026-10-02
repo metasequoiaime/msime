@@ -162,8 +162,12 @@ int main() {
     require(chinese && !chinese->english && chinese->characters == L",13");
     require(aux_typing_statistics_messages(true, L"").empty());
     const std::wstring many(300, L'x');
+    const auto room = max_aux_message_bytes / sizeof(wchar_t) -
+                      std::wstring_view(L"TypingStatistics|E|").size();
     size_t carried = 0;
-    for (const auto &message : aux_typing_statistics_messages(true, many)) {
+    const auto many_messages = aux_typing_statistics_messages(true, many);
+    require(many_messages.capacity() == (many.size() + room - 1) / room);
+    for (const auto &message : many_messages) {
       require(message.size() * sizeof(wchar_t) <= max_aux_message_bytes);
       const auto piece = parse_aux_typing_statistics(message);
       require(piece.has_value());
