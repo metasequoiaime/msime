@@ -3025,6 +3025,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const searchInTitlebar = winShell && titlebarShown;
   const searchInSidebar =
     macShell || settingsPlatform === "hm2" || ipadShell || (winShell && !titlebarShown);
+  const sidebarBrandShown = !mobilePlatform && !titlebarShown;
   const navNeedle = navQuery.trim().toLocaleLowerCase();
   // iPad 的标签栏已有社区、统计和我的；`settingsPageProjections` 在手机和 iPad 上都不把这几个标签页列进侧栏，这里不必再过滤一次。
   const shownSidebarGroups = navNeedle
@@ -3104,11 +3105,16 @@ export function SettingsPage(props: SettingsPageProps) {
           {macShell && (
             <div className={settings.macosDragRow} data-window-drag="" {...windowDragHandlers} />
           )}
-          {/* The brand heads the column only where no caption carries it: a desktop window without window commands, or a phone host wide enough for the sidebar. The macOS and HarmonyOS 2-in-1 designs open the column on the search instead. */}
           {ipadShell && <h2 className={settings.sidebarTitle}>设置</h2>}
-          {!titlebarShown && !macShell && !ipadShell && settingsPlatform !== "hm2" && (
-            <div className={settings.sidebarHeader}>
-              <img src={logo} alt="" />
+          {/* 品牌（图标加名称）放在侧栏顶部、搜索框之上，只在没有自绘标题栏的桌面窗口出现：macOS 排在红绿灯那一行下面，并和那一行一样可以拖动窗口；HarmonyOS 2in1 与没有窗口命令的桌面窗口直接起头。Windows 和 Linux 的标题栏已经写着品牌，手机和 iPad 的界面由系统和标签栏承担，都不再画一份。图标是装饰，名称就是文字本身。 */}
+          {sidebarBrandShown && (
+            <div
+              className={settings.sidebarHeader}
+              data-sidebar-brand=""
+              data-window-drag={macShell ? "" : undefined}
+              {...(macShell ? windowDragHandlers : {})}
+            >
+              <img src={logo} alt="" draggable={false} />
               <span>水杉输入法</span>
             </div>
           )}
