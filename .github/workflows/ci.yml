@@ -26,7 +26,7 @@ on:
 concurrency:
   # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
   group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

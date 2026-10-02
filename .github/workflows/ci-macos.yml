@@ -31,7 +31,9 @@ concurrency:
   #
   # 拉取请求那一半按 PR 号而不是 head 分支名:head.ref 是 head 仓库上的裸名字,这是个公开仓库,fork 里的 `fix/foo` 和本仓的 `fix/foo` 会落进同一个组、互相取消。非 PR 事件仍旧回退到 ref_name,行为不变。
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  #
+  # Only pull_request runs cancel their superseded predecessor. A push run on develop or main is the check run on that commit, and a release branch is cut from a develop commit: if the next develop push cancelled it, the release PR would carry those cancelled runs as failed checks (ci.yml, ci-docs.yml, ci-ios.yml and ci-platforms.yml follow the same rule).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
