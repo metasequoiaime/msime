@@ -700,6 +700,7 @@ export {
   type PreeditStyleSelectMode,
   type PreeditStyleSelectProps,
 } from "./settings/preedit-style-select";
+export { PreeditStyleRow, type PreeditStyleRowProps } from "./settings/preedit-style-row";
 export {
   CandidateColorsSection,
   type CandidateColorKey,

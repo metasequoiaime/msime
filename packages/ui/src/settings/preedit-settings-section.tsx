@@ -1,5 +1,4 @@
-import { Row } from "../core/platform-controls";
-import { PreeditStyleSelect } from "./preedit-style-select";
+import { PreeditStyleRow } from "./preedit-style-row";
 import { SwitchRow } from "./switch-row";
 
 export type TsfPreeditStyle = "raw" | "pinyin" | "empty";
@@ -33,26 +32,20 @@ export function PreeditSettingsSection({
 }: PreeditSettingsSectionProps) {
   return (
     <>
-      <Row title={mobile ? "候选栏预编辑" : "候选窗口预编辑"}>
-        <PreeditStyleSelect
-          mode="candidate"
-          value={preferences.candidate_preedit_style ?? "pinyin"}
-          onChange={(value) =>
-            onChange({ candidate_preedit_style: value as CandidatePreeditStyle })
-          }
-        />
-      </Row>
+      <PreeditStyleRow
+        title={mobile ? "候选栏预编辑" : "候选窗口预编辑"}
+        mode="candidate"
+        value={preferences.candidate_preedit_style ?? "pinyin"}
+        onChange={(value) => onChange({ candidate_preedit_style: value as CandidatePreeditStyle })}
+      />
       {showShuangpinPreedit && (
-        <Row
+        <PreeditStyleRow
           title="双拼预编辑"
           description="仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。"
-        >
-          <PreeditStyleSelect
-            mode="shuangpin"
-            value={preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
-            onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
-          />
-        </Row>
+          mode="shuangpin"
+          value={preferences.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
+          onChange={(value) => onChange({ shuangpin_preedit_uses_raw: value === "raw" })}
+        />
       )}
       {inlinePreedit !== undefined ? (
         <SwitchRow
@@ -63,13 +56,12 @@ export function PreeditSettingsSection({
           onChange={(checked) => onInlinePreeditChange?.(checked)}
         />
       ) : (
-        <Row title="行内预编辑">
-          <PreeditStyleSelect
-            mode="inline"
-            value={preferences.tsf_preedit_style ?? "raw"}
-            onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
-          />
-        </Row>
+        <PreeditStyleRow
+          title="行内预编辑"
+          mode="inline"
+          value={preferences.tsf_preedit_style ?? "raw"}
+          onChange={(value) => onChange({ tsf_preedit_style: value as TsfPreeditStyle })}
+        />
       )}
     </>
   );
