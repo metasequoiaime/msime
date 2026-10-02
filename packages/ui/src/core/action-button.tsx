@@ -8,6 +8,7 @@ export interface ActionButtonProps {
   ariaLabel?: string;
   ariaBusy?: boolean;
   ariaPressed?: boolean;
+  ariaExpanded?: boolean;
 }
 
 /** Shared button for an action that may be asynchronous or unavailable. */
@@ -19,6 +20,7 @@ export function ActionButton({
   ariaLabel,
   ariaBusy,
   ariaPressed,
+  ariaExpanded,
 }: ActionButtonProps) {
   return (
     <button
@@ -28,6 +30,7 @@ export function ActionButton({
       aria-label={ariaLabel}
       aria-busy={ariaBusy}
       aria-pressed={ariaPressed}
+      aria-expanded={ariaExpanded}
       onClick={() => void action?.()}
     >
       {label}

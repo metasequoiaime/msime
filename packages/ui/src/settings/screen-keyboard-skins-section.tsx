@@ -2,6 +2,7 @@ import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-design";
 import * as skin from "../keyboard/touch-skin-style";
 import * as settings from "./settings-style";
+import { ActionButton } from "../core/action-button";
 
 export interface ScreenKeyboardSkinsSectionProps {
   theme: "dark" | "light";
@@ -50,14 +51,12 @@ export function ScreenKeyboardSkinsSection({
           </button>
         </article>
       </div>
-      <button
-        type="button"
+      <ActionButton
+        action={onToggleEditor}
+        ariaExpanded={editorOpen}
         className={`secondary ${skin.editorOpen}`}
-        aria-expanded={editorOpen}
-        onClick={onToggleEditor}
-      >
-        {editorOpen ? "收起自定义编辑器" : "设计我的皮肤"}
-      </button>
+        label={editorOpen ? "收起自定义编辑器" : "设计我的皮肤"}
+      />
     </div>
   );
 }
