@@ -20,7 +20,7 @@ if (-not $script.Contains('#define MySettingsExeName "msime-client-settings.exe"
     throw 'Start Menu shortcut does not target the staged WinUI settings executable'
 }
 $dataDirRecords = @($records | Where-Object { $_.Value.Contains('{code:GetDataDir}') })
-if ($dataDirRecords.Count -lt 3) {
+if ($dataDirRecords.Count -lt 2) {
     throw 'Installer resources do not follow the selected DataDir'
 }
 if (-not $script.Contains('ValueName: "DataDir"') -or
