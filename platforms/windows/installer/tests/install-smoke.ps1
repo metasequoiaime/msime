@@ -100,7 +100,8 @@ foreach ($item in $seeded.GetEnumerator()) {
 }
 $runtimeOptions = Join-Path $movedDir 'runtime-options.json'
 Check (-not ((Test-Path -LiteralPath $runtimeOptions) -and (Get-Content -LiteralPath $runtimeOptions -Raw) -eq 'smoke-stale-runtime-options')) 'move leaves the old runtime-options.json behind'
-Check (Test-Path -LiteralPath (Join-Path $movedDir 'msime.db') -PathType Leaf) 'moved DataDir has the package dictionary'
+# The package carries no dictionary in DataDir since #2830; its app_data items are the helpcodes, audio cues and built-in sound packs, so the default sound pack stands for them.
+Check (Test-Path -LiteralPath (Join-Path $movedDir 'sound-packs\default\plugin.toml') -PathType Leaf) 'moved DataDir has the package app_data'
 $left = @(Get-ChildItem -LiteralPath $dataDir -Force | ForEach-Object Name)
 Check ($left.Count -eq 1 -and $left[0] -eq 'moved') "previous DataDir emptied around the nested new one ($($left -join ', '))"
 
