@@ -551,6 +551,19 @@ fn dangling_model_slots_can_be_replaced_and_removed() {
 }
 
 #[test]
+fn removing_a_stray_file_model_slot_succeeds_and_cleans_it() {
+    let root = tempfile::tempdir().unwrap();
+    let id = default_model_id();
+    let target = root.path().join(id);
+    fs::write(&target, b"stray slot").unwrap();
+
+    remove(root.path(), id).unwrap();
+
+    assert!(fs::symlink_metadata(&target).is_err());
+    assert!(root_entries(root.path()).is_empty());
+}
+
+#[test]
 fn listing_reports_installed_models_and_removal_accepts_catalog_ids_only() {
     let root = tempfile::tempdir().unwrap();
     let id = default_model_id();

@@ -283,13 +283,18 @@ pub fn remove(root: &Path, id: &str) -> Result<(), LocalModelError> {
     check_root(root)?;
     let target = root.join(&model.id);
     remove_leftovers(root, &model.id);
-    if fs::symlink_metadata(&target).is_err() {
-        return Ok(());
-    }
+    let target_is_dir = match fs::symlink_metadata(&target) {
+        Ok(metadata) => metadata.is_dir(),
+        Err(_) => return Ok(()),
+    };
     // Renamed aside first so a deletion interrupted halfway never leaves a directory that still carries its manifest.
     let aside = root.join(format!(".old-{}-{}", model.id, unique_suffix()));
     fs::rename(&target, &aside)?;
-    fs::remove_dir_all(&aside)?;
+    if target_is_dir {
+        fs::remove_dir_all(&aside)?;
+    } else {
+        fs::remove_file(&aside)?;
+    }
     Ok(())
 }
 
