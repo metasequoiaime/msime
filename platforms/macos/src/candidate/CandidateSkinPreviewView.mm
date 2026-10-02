@@ -69,11 +69,11 @@ struct ToolbarPreviewInputs
 ToolbarPreviewInputs ToolbarInputs(MSIMEAppearancePreferences *preferences)
 {
     // What MetasequoiaFloatingToolbarPanel -applySizingPreferences: makes of an empty dictionary, which is the state a preview with no preferences behind it is in: 100%, 24pt, and every component but the screen keyboard.
-    static const BOOL defaults[9] = {YES, YES, YES, YES, YES, YES, NO, YES, YES};
+    static const BOOL defaults[10] = {YES, YES, YES, YES, YES, YES, YES, NO, YES, YES};
     ToolbarPreviewInputs inputs = {0, 100.0, 24.0};
     NSArray<NSNumber *> *enabled = preferences == nil
         ? nil
-        : @[@(preferences.floatingToolbarEnglishMode), @(preferences.floatingToolbarPunctuation),
+        : @[@(preferences.floatingToolbarEnglishMode), @(preferences.floatingToolbarInputScheme), @(preferences.floatingToolbarPunctuation),
             @(preferences.floatingToolbarFullWidth), @(preferences.floatingToolbarCharacterSet),
             @(preferences.floatingToolbarEmoji), @(preferences.floatingToolbarHandwriting),
             @(preferences.floatingToolbarScreenKeyboard), @(preferences.floatingToolbarVoice),
@@ -93,7 +93,7 @@ NSSize ToolbarPreviewSize(NSUInteger components, CGFloat scalePercent, CGFloat f
 {
     const CGFloat scale = scalePercent / 100.0;
     CGFloat count = 0.0;
-    for (NSUInteger index = 0; index < 9; ++index) count += (components & (1u << index)) != 0 ? 1.0 : 0.0;
+    for (NSUInteger index = 0; index < 10; ++index) count += (components & (1u << index)) != 0 ? 1.0 : 0.0;
     const CGFloat gaps = count > 0.0 ? count - 1.0 : 0.0;
     return NSMakeSize(ceil((count * (fontSize + 8.0) + gaps * 2.0 + 6.0 + 46.2) * scale),
                       ceil((fontSize + 20.0) * scale));
@@ -396,7 +396,7 @@ void DrawScaledPreviewCandidates(NSRect rect, CGFloat scale, const msime::mac::R
 // What each component puts on its button, in the order of FloatingToolbarComponentKeys(): a title, or the SF Symbol the panel gives the button instead. The four titled buttons carry the state they toggle, so these are the ones the panel starts in — Chinese input, Chinese punctuation, half width, simplified output.
 NSArray<NSArray<NSString *> *> *ToolbarPreviewGlyphs()
 {
-    return @[ @[@"中", @""], @[@"。", @""], @[@"半", @""], @[@"简", @""], @[@"", @"face.smiling"],
+    return @[ @[@"中", @""], @[@"", @"list.bullet"], @[@"。", @""], @[@"半", @""], @[@"简", @""], @[@"", @"face.smiling"],
               @[@"", @"hand.draw"], @[@"", @"keyboard"], @[@"", @"mic.fill"], @[@"", @"gearshape"] ];
 }
 
@@ -875,7 +875,7 @@ NSDictionary<NSAttributedStringKey, id> *PreviewCaptionAttributes()
     const ToolbarPreviewInputs toolbar = ToolbarInputs(self.preferences);
     const NSSize size = ToolbarPreviewSize(toolbar.components, toolbar.scalePercent, toolbar.fontSize);
     NSUInteger count = 0;
-    for (NSUInteger index = 0; index < 9; ++index) count += (toolbar.components & (1u << index)) != 0 ? 1 : 0;
+    for (NSUInteger index = 0; index < 10; ++index) count += (toolbar.components & (1u << index)) != 0 ? 1 : 0;
     self.accessibilityValue = [NSString stringWithFormat:@"%lu 个按钮，%ld × %ld pt", (unsigned long)count,
                                                          static_cast<long>(size.width), static_cast<long>(size.height)];
     self.accessibilityHelp = @"预览会随工具栏按钮、工具栏缩放和工具栏字号实时变化";

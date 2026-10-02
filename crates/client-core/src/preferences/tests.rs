@@ -2435,7 +2435,7 @@ fn floating_toolbar_component_defaults_and_roundtrip() {
     assert!(
         defaults.enabled && defaults.english_mode && defaults.fullwidth && defaults.punctuation
     );
-    assert!(defaults.character_set && defaults.settings);
+    assert!(defaults.character_set && defaults.settings && defaults.input_scheme);
     // The compact toolbar: these four are opt-in, so a new profile gets five buttons and turns on
     // the ones it wants. Emoji is one of the reference's own components and still defaults off here;
     // the Windows installer template keeps it on by setting every component explicitly.
@@ -2458,6 +2458,7 @@ fn legacy_preferences_without_toolbar_use_component_defaults() {
     assert!(restored.preferences.floating_toolbar.enabled);
     assert!(restored.preferences.floating_toolbar.english_mode);
     assert!(restored.preferences.floating_toolbar.fullwidth);
+    assert!(restored.preferences.floating_toolbar.input_scheme);
     assert!(!restored.preferences.floating_toolbar.screen_keyboard);
 }
 

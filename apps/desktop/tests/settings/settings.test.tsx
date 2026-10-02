@@ -2926,6 +2926,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     vocabulary_review: false,
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
+    floating_toolbar_input_scheme: false,
     number_row_selection: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
@@ -3165,6 +3166,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
     vocabulary_review: false,
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
+    floating_toolbar_input_scheme: false,
     number_row_selection: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
@@ -5267,6 +5269,8 @@ test("floating toolbar settings use Windows defaults and persist independently",
     floating_toolbar: {
       enabled: false,
       english_mode: false,
+      // 默认开启，这里没动过。
+      input_scheme: true,
       fullwidth: false,
       punctuation: true,
       character_set: true,
@@ -5308,6 +5312,9 @@ test("the toolbar's handwriting and voice switches follow the host that draws th
   // compact one. Turning one on must move only that one.
   expect(handwriting.checked).toBe(false);
   expect(voice.checked).toBe(false);
+  // 切换输入方案的按钮默认开启。
+  const inputScheme = screen.getByRole("checkbox", { name: "切换输入方案" }) as HTMLInputElement;
+  expect(inputScheme.checked).toBe(true);
 
   fireEvent.click(handwriting);
   saveSettingsNow();
@@ -5318,6 +5325,7 @@ test("the toolbar's handwriting and voice switches follow the host that draws th
   ];
   expect(saved.floating_toolbar.handwriting).toBe(true);
   expect(saved.floating_toolbar.voice).toBe(false);
+  expect(saved.floating_toolbar.input_scheme).toBe(true);
 });
 
 test("a host without those toolbar buttons is not offered their switches", async () => {
@@ -5330,6 +5338,7 @@ test("a host without those toolbar buttons is not offered their switches", async
           ...macosHostCapabilities,
           floating_toolbar_handwriting: false,
           floating_toolbar_voice: false,
+          floating_toolbar_input_scheme: false,
         } as HostCapabilities,
       }}
     />,
@@ -5341,6 +5350,7 @@ test("a host without those toolbar buttons is not offered their switches", async
   expect(await screen.findByRole("checkbox", { name: "表情与符号" })).toBeTruthy();
   expect(screen.queryByRole("checkbox", { name: "手写识别板" })).toBeNull();
   expect(screen.queryByRole("checkbox", { name: "语音输入" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "切换输入方案" })).toBeNull();
 });
 
 test("help, about and feedback pages expose their Windows content and actions", async () => {
@@ -6164,9 +6174,10 @@ const macosHostCapabilities = testHost({
   floating_toolbar: true,
   floating_toolbar_appearance: true,
   floating_toolbar_components: true,
-  // Only this host's toolbar carries these two buttons, so only here are their switches offered.
+  // 只有这个宿主的工具栏画手写、语音和切换输入方案三个按钮，所以只在这里提供它们的开关。
   floating_toolbar_handwriting: true,
   floating_toolbar_voice: true,
+  floating_toolbar_input_scheme: true,
   mode_switch_shortcuts: true,
   panel_shortcuts: true,
   number_row_selection: false,

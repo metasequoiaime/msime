@@ -143,6 +143,8 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
     pub floating_toolbar_voice: bool,
+    /// 工具栏带切换输入方案的按钮。目前只有 macOS 的工具栏画它，其它宿主不提供这个开关。
+    pub floating_toolbar_input_scheme: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -380,6 +382,7 @@ impl HostCapabilities {
             // Only this client's macOS toolbar draws these two.
             floating_toolbar_handwriting: platform == HostPlatform::Macos,
             floating_toolbar_voice: platform == HostPlatform::Macos,
+            floating_toolbar_input_scheme: platform == HostPlatform::Macos,
             // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,

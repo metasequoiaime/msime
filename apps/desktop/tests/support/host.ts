@@ -26,6 +26,7 @@ export function testHost(
     floating_toolbar_components: false,
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
+    floating_toolbar_input_scheme: false,
     mode_switch_shortcuts: false,
     panel_shortcuts: false,
     number_row_selection: false,

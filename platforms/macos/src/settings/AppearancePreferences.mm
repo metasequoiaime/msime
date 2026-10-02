@@ -272,7 +272,7 @@ static NSString *const VoiceHotkeyCtrlOptionKey = @"MSIMEClientVoiceHotkeyCtrlOp
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
-    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting",
+    return @[@"english_mode", @"input_scheme", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting",
              @"screen_keyboard", @"voice", @"settings"];
 }
 static BOOL ValidToolbarScale(id value) {
@@ -479,7 +479,8 @@ static NSDictionary<NSString *, MSIMESettingProbe> *SettingProbes() {
             WordCharacterKey : ^id(MSIMEAppearancePreferences *p) { return p.wordCharacterOptions ?: NSNull.null; },
             FloatingToolbarKey : ^id(MSIMEAppearancePreferences *p) { return @(p.floatingToolbarEnabled); },
             FloatingToolbarOptionsKey : ^id(MSIMEAppearancePreferences *p) {
-                return @{@"english_mode" : @(p.floatingToolbarEnglishMode), @"punctuation" : @(p.floatingToolbarPunctuation),
+                return @{@"english_mode" : @(p.floatingToolbarEnglishMode), @"input_scheme" : @(p.floatingToolbarInputScheme),
+                         @"punctuation" : @(p.floatingToolbarPunctuation),
                          @"fullwidth" : @(p.floatingToolbarFullWidth), @"character_set" : @(p.floatingToolbarCharacterSet),
                          @"emoji" : @(p.floatingToolbarEmoji), @"handwriting" : @(p.floatingToolbarHandwriting),
                          @"screen_keyboard" : @(p.floatingToolbarScreenKeyboard), @"voice" : @(p.floatingToolbarVoice),
@@ -891,6 +892,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSButton *_toolbarCharacterSetButton;
     NSButton *_toolbarEmojiButton;
     NSButton *_toolbarHandwritingButton;
+    NSButton *_toolbarInputSchemeButton;
     NSButton *_toolbarScreenKeyboardButton;
     NSButton *_toolbarVoiceButton;
     NSButton *_toolbarSettingsButton;
@@ -1305,6 +1307,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     toolbar[@"character_set"] = @(self.floatingToolbarCharacterSet);
     toolbar[@"emoji"] = @(self.floatingToolbarEmoji);
     toolbar[@"handwriting"] = @(self.floatingToolbarHandwriting);
+    toolbar[@"input_scheme"] = @(self.floatingToolbarInputScheme);
     toolbar[@"screen_keyboard"] = @(self.floatingToolbarScreenKeyboard);
     toolbar[@"voice"] = @(self.floatingToolbarVoice);
     toolbar[@"settings"] = @(self.floatingToolbarSettings);
@@ -1915,6 +1918,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:NO]; }
 - (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
 // The handwriting panel and voice buttons, which the reference's toolbar does not have.
+// 切换输入方案的按钮默认开启，与 client-core 的 FloatingToolbarPreferences::default() 一致。
+- (BOOL)floatingToolbarInputScheme { return [self floatingToolbarBoolean:@"input_scheme" defaultValue:YES]; }
+- (void)setFloatingToolbarInputScheme:(BOOL)value { [self setFloatingToolbarBoolean:@"input_scheme" value:value]; }
 - (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:NO]; }
 - (void)setFloatingToolbarHandwriting:(BOOL)value { [self setFloatingToolbarBoolean:@"handwriting" value:value]; }
 - (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:NO]; }
@@ -2722,6 +2728,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _toolbarCharacterSetButton.state = self.floatingToolbarCharacterSet ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarEmojiButton.state = self.floatingToolbarEmoji ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarHandwritingButton.state = self.floatingToolbarHandwriting ? NSControlStateValueOn : NSControlStateValueOff;
+    _toolbarInputSchemeButton.state = self.floatingToolbarInputScheme ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarScreenKeyboardButton.state = self.floatingToolbarScreenKeyboard ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarVoiceButton.state = self.floatingToolbarVoice ? NSControlStateValueOn : NSControlStateValueOff;
     _toolbarSettingsButton.state = self.floatingToolbarSettings ? NSControlStateValueOn : NSControlStateValueOff;
@@ -2848,7 +2855,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         @[ @(learning), @[_frequencyModeButton, _frequencyTriggerButton] ],
         // The step is read only by the linear mode — host-api passes frequency_linear_step to the engine whatever the mode is (crates/host-api/src/lib.rs) and the engine then ignores it — so it is live only where it does something.
         @[ @(learning && [self.frequencyAdjustmentMode isEqual:@"linear"]), @[_frequencyStepButton] ],
-        @[ @(toolbar), @[_toolbarEnglishModeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
+        @[ @(toolbar), @[_toolbarEnglishModeButton, _toolbarInputSchemeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
                          _toolbarCharacterSetButton, _toolbarEmojiButton, _toolbarHandwritingButton,
                          _toolbarScreenKeyboardButton, _toolbarVoiceButton, _toolbarSettingsButton,
                          _toolbarThemeButton, _toolbarScaleButton, _toolbarFontSizeButton] ],
@@ -3237,14 +3244,14 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _mixedEmojiToggle = MSIMESettingSwitch(self, @selector(mixedEmojiChanged:), @"Emoji 混输");
     _mixedKaomojiToggle = MSIMESettingSwitch(self, @selector(mixedKaomojiChanged:), @"颜文字混输");
     _toolbarToggle = MSIMESettingSwitch(self, @selector(toolbarChanged:), @"显示浮动工具栏");
-    // Nine checkboxes for the nine buttons MSIMEFloatingToolbarPanel draws. Three of them are new:
-    // without them the 中/英, 手写 and 语音 buttons were on the toolbar with no way to take them off.
+    // 十个复选框，对应 MSIMEFloatingToolbarPanel 画的十个按钮。中/英、手写和语音三个曾经没有开关，按钮在工具栏上却无法去掉；切换方案按钮是后加的，默认开启。
     _toolbarEnglishModeButton = [NSButton checkboxWithTitle:@"中英文按钮" target:self action:@selector(toolbarEnglishModeChanged:)];
     _toolbarPunctuationButton = [NSButton checkboxWithTitle:@"标点按钮" target:self action:@selector(toolbarPunctuationChanged:)];
     _toolbarFullWidthButton = [NSButton checkboxWithTitle:@"全半角按钮" target:self action:@selector(toolbarFullWidthChanged:)];
     _toolbarCharacterSetButton = [NSButton checkboxWithTitle:@"简繁按钮" target:self action:@selector(toolbarCharacterSetChanged:)];
     _toolbarEmojiButton = [NSButton checkboxWithTitle:@"Emoji 按钮" target:self action:@selector(toolbarEmojiChanged:)];
     _toolbarHandwritingButton = [NSButton checkboxWithTitle:@"手写按钮" target:self action:@selector(toolbarHandwritingChanged:)];
+    _toolbarInputSchemeButton = [NSButton checkboxWithTitle:@"切换方案按钮" target:self action:@selector(toolbarInputSchemeChanged:)];
     _toolbarScreenKeyboardButton = [NSButton checkboxWithTitle:@"屏幕键盘按钮" target:self action:@selector(toolbarScreenKeyboardChanged:)];
     _toolbarVoiceButton = [NSButton checkboxWithTitle:@"语音按钮" target:self action:@selector(toolbarVoiceChanged:)];
     _toolbarSettingsButton = [NSButton checkboxWithTitle:@"设置按钮" target:self action:@selector(toolbarSettingsChanged:)];
@@ -3843,11 +3850,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         [self settingRow:@"悬浮工具栏主题" detail:@"覆盖颜色模式，只影响悬浮工具栏。" control:_toolbarThemeButton],
         MSIMECardSeparator(),
         MSIMECardHeader(@"工具栏按钮"),
-        // In the order the toolbar draws them, so that the grid reads left to right as the toolbar
-        // does — MSIMEFloatingToolbarPanel lays its nine buttons out in the order of
-        // FloatingToolbarComponentKeys().
+        // 按工具栏画它们的顺序排列，网格从左到右读起来和工具栏一致——MSIMEFloatingToolbarPanel 按 FloatingToolbarComponentKeys() 的顺序排它的十个按钮。
         [self settingCheckboxes:@[
-            _toolbarEnglishModeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
+            _toolbarEnglishModeButton, _toolbarInputSchemeButton, _toolbarPunctuationButton, _toolbarFullWidthButton,
             _toolbarCharacterSetButton, _toolbarEmojiButton, _toolbarHandwritingButton,
             _toolbarScreenKeyboardButton, _toolbarVoiceButton, _toolbarSettingsButton,
         ] columns:2],
@@ -4489,6 +4494,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)mixedKaomojiChanged:(NSSwitch *)sender { self.mixedKaomojiInput = sender.state == NSControlStateValueOn; }
 - (void)toolbarChanged:(NSSwitch *)sender { self.floatingToolbarEnabled = sender.state == NSControlStateValueOn; }
 - (void)toolbarEnglishModeChanged:(NSButton *)sender { self.floatingToolbarEnglishMode = sender.state == NSControlStateValueOn; }
+- (void)toolbarInputSchemeChanged:(NSButton *)sender { self.floatingToolbarInputScheme = sender.state == NSControlStateValueOn; }
 - (void)toolbarHandwritingChanged:(NSButton *)sender { self.floatingToolbarHandwriting = sender.state == NSControlStateValueOn; }
 - (void)toolbarVoiceChanged:(NSButton *)sender { self.floatingToolbarVoice = sender.state == NSControlStateValueOn; }
 - (void)toolbarThemeChanged:(NSPopUpButton *)sender { self.toolbarTheme = SurfaceThemes()[sender.indexOfSelectedItem]; }

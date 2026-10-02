@@ -1034,6 +1034,9 @@ pub struct FloatingToolbarPreferences {
     pub enabled: bool,
     #[serde(default = "enabled_by_default")]
     pub english_mode: bool,
+    /// 切换输入方案的按钮：点开列出全拼、双拼、五笔、粤拼、注音等方案。默认开启——在 macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置里添加，这个按钮让不加入口也能切换。目前只有 macOS 的工具栏画它（见 `HostCapabilities::floating_toolbar_input_scheme`）。
+    #[serde(default = "enabled_by_default")]
+    pub input_scheme: bool,
     #[serde(default = "default_toolbar_scale")]
     pub scale_percent: u16,
     #[serde(default = "default_toolbar_font_size")]
@@ -1107,6 +1110,7 @@ impl Default for FloatingToolbarPreferences {
         Self {
             enabled: true,
             english_mode: true,
+            input_scheme: true,
             scale_percent: 100,
             font_size: 24,
             fullwidth: true,

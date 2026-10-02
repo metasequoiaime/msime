@@ -177,6 +177,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic) BOOL floatingToolbarEmoji;
 /// The handwriting panel and voice buttons, which only this client's toolbar has.
 @property(nonatomic) BOOL floatingToolbarHandwriting;
+@property(nonatomic) BOOL floatingToolbarInputScheme;
 @property(nonatomic) BOOL floatingToolbarScreenKeyboard;
 @property(nonatomic) BOOL floatingToolbarVoice;
 @property(nonatomic) BOOL floatingToolbarSettings;

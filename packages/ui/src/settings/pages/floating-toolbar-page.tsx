@@ -12,6 +12,7 @@ import { SwitchRow } from "../switch-row";
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
   | "english_mode"
+  | "input_scheme"
   | "fullwidth"
   | "punctuation"
   | "character_set"
@@ -28,9 +29,16 @@ type FloatingToolbarOptionKey = keyof Pick<
 const floatingToolbarOptions: [
   FloatingToolbarOptionKey,
   string,
-  keyof Pick<HostCapabilities, "floating_toolbar_handwriting" | "floating_toolbar_voice"> | null,
+  (
+    | keyof Pick<
+        HostCapabilities,
+        "floating_toolbar_handwriting" | "floating_toolbar_voice" | "floating_toolbar_input_scheme"
+      >
+    | null
+  ),
 ][] = [
   ["english_mode", "英文输入模式", null],
+  ["input_scheme", "切换输入方案", "floating_toolbar_input_scheme"],
   ["fullwidth", "全角 / 半角", null],
   ["punctuation", "中英文标点", null],
   ["character_set", "简繁切换", null],

@@ -1434,6 +1434,8 @@ export interface HostCapabilities {
   floating_toolbar_handwriting: boolean;
   /** The toolbar carries a voice input button, for the same reason. */
   floating_toolbar_voice: boolean;
+  /** 工具栏带切换输入方案的按钮（目前只有 macOS）。 */
+  floating_toolbar_input_scheme: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection: boolean;
@@ -1825,6 +1827,8 @@ export { dictionaryKindKeyHint } from "./settings/pages/dictionary-page";
 export type FloatingToolbarPreferences = {
   enabled: boolean;
   english_mode: boolean;
+  /** 切换输入方案的按钮。 */
+  input_scheme: boolean;
   fullwidth: boolean;
   punctuation: boolean;
   character_set: boolean;

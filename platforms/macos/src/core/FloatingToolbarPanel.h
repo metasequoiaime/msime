@@ -19,6 +19,8 @@
 - (void)floatingToolbarDidRequestCheckForUpdates:(MetasequoiaFloatingToolbarPanel *)toolbar;
 - (void)floatingToolbarDidRequestOpenWebsite:(MetasequoiaFloatingToolbarPanel *)toolbar;
 - (void)floatingToolbarDidRequestHide:(MetasequoiaFloatingToolbarPanel *)toolbar;
+/// 切换输入方案按钮弹出的菜单：可用的方案，正在用的那个打勾，选中即切换。
+- (NSMenu *)floatingToolbarInputSchemeMenu:(MetasequoiaFloatingToolbarPanel *)toolbar;
 @end
 
 FOUNDATION_EXPORT NSRect MetasequoiaFloatingToolbarFrame(NSRect proposedFrame, NSRect visibleFrame, BOOL hasSavedFrame);

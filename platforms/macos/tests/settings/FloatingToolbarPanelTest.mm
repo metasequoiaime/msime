@@ -18,6 +18,7 @@
 @property(nonatomic) NSUInteger updateRequests;
 @property(nonatomic) NSUInteger websiteRequests;
 @property(nonatomic) NSUInteger hideRequests;
+@property(nonatomic) NSUInteger inputSchemeMenuRequests;
 @end
 
 @implementation FloatingToolbarTestDelegate
@@ -34,6 +35,11 @@
 - (void)floatingToolbarDidRequestCheckForUpdates:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_updateRequests; }
 - (void)floatingToolbarDidRequestOpenWebsite:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_websiteRequests; }
 - (void)floatingToolbarDidRequestHide:(MSIMEFloatingToolbarPanel *)toolbar { (void)toolbar; ++_hideRequests; }
+- (NSMenu *)floatingToolbarInputSchemeMenu:(MSIMEFloatingToolbarPanel *)toolbar {
+    (void)toolbar;
+    ++_inputSchemeMenuRequests;
+    return [[NSMenu alloc] initWithTitle:@"输入方案"];
+}
 @end
 
 static NSButton *FindButton(NSView *view, NSString *identifier) {
@@ -73,10 +79,10 @@ int main() {
 
         NSRect visible = NSMakeRect(-1200.0, -800.0, 1920.0, 1080.0);
         NSRect defaultFrame = MSIMEFloatingToolbarFrame(NSMakeRect(0.0, 0.0, 1.0, 1.0), visible, NO);
-        // Five buttons: emoji, handwriting, voice and the screen keyboard are opt-in.
-        assert(defaultFrame.size.width == 221.0 && defaultFrame.size.height == 44.0);
-        assert(defaultFrame.size.width == ExpectedWidth(5, 24, 1));
-        assert(defaultFrame.origin.x == NSMaxX(visible) - 241.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
+        // 六个按钮：表情、手写、语音和屏幕键盘需要手动打开，切换输入方案默认开启。
+        assert(defaultFrame.size.width == 255.0 && defaultFrame.size.height == 44.0);
+        assert(defaultFrame.size.width == ExpectedWidth(6, 24, 1));
+        assert(defaultFrame.origin.x == NSMaxX(visible) - 275.0 && defaultFrame.origin.y == NSMinY(visible) + 20.0);
         NSRect restored = MSIMEFloatingToolbarFrame(NSMakeRect(-4000.0, 4000.0, 1.0, 1.0), visible, YES);
         assert(restored.origin.x == NSMinX(visible) + 12.0 && restored.origin.y == NSMaxY(visible) - 56.0);
         assert(MetasequoiaFloatingToolbarShouldShow(YES, YES, NO));
@@ -169,6 +175,9 @@ int main() {
         NSButton *handwriting = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarHandwriting");
         NSButton *keyboard = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarScreenKeyboard");
         NSButton *voice = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarVoice");
+        NSButton *inputScheme = FindButton(panel.contentView, @"MetasequoiaFloatingToolbarInputScheme");
+        assert(inputScheme && inputScheme.image && [inputScheme.accessibilityLabel isEqualToString:@"切换输入方案"]);
+        assert([inputScheme.toolTip isEqualToString:inputScheme.accessibilityLabel]);
         NSView *logo = FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo");
         assert(logo != nil && [logo.accessibilityLabel isEqualToString:@"水杉输入法"]);
         // The four opt-in buttons, after the empty snapshot above: built, labelled and off the row until
@@ -264,7 +273,7 @@ int main() {
                 // the frame: setVisible: applies it when the toolbar is placed. Resizing a hidden window
                 // would otherwise persist a frame through its autosave name.
                 const NSSize preferred = [[panel valueForKey:@"preferredSize"] sizeValue];
-                assert(preferred.width == ExpectedWidth(5, size.doubleValue, factor));
+                assert(preferred.width == ExpectedWidth(6, size.doubleValue, factor));
                 assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
                 // Every size here scales to a multiple of half a point, which is a whole pixel on a Retina screen and not on a 1x one - the CI runner's display - where AppKit rounds the first item too.
                 assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
@@ -291,7 +300,7 @@ int main() {
                 assert(NSEqualSizes(stablePreferred, [[panel valueForKey:@"preferredSize"] sizeValue]));
                 [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size, @"screen_keyboard": @YES}}];
                 assert(!keyboard.hidden && keyboard.superview != nil);
-                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, size.doubleValue, factor));
+                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(7, size.doubleValue, factor));
                 assert([keyboard.contentTintColor isEqual:settings.contentTintColor]);
                 NSImage *expectedKeyboard = [keyboard.image imageWithSymbolConfiguration:
                     [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
@@ -300,7 +309,7 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(221.0, 44.0)));
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(255.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
         // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
@@ -316,7 +325,7 @@ int main() {
         NSArray<NSButton *> *optionalButtons = @[inputMode, punctuation, fullWidth, traditional, emoji, keyboard, settings];
         NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
         for (NSUInteger mask = 0; mask < 128; ++mask) {
-            NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
+            NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO, @"input_scheme": @NO} mutableCopy];
             // Handwriting and voice are absent from every mask below, and absent now means off, so they
             // add nothing to the count.
             NSUInteger count = 0;
@@ -337,7 +346,7 @@ int main() {
             assert(divider.hidden == (count == 0) && std::abs(NSMinX(logoRect)) < 0.01 && std::abs(NSWidth(logoRect) - 57.0) <= 1.0 / panel.backingScaleFactor);
             assert(std::abs(NSMinX(dividerRect) - NSMaxX(logoRect) - 4.5) <= 1.0 / panel.backingScaleFactor && std::abs(NSWidth(dividerRect) - 1.8) <= 1.0 / panel.backingScaleFactor);
             CGFloat previousRight = NSMaxX(dividerRect);
-            for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
+            for (NSButton *button in @[inputMode, inputScheme, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
                 if (button.hidden) continue;
                 const NSRect rect = [button convertRect:button.bounds toView:panel.contentView];
                 assert(NSMinX(rect) >= previousRight);
@@ -346,7 +355,7 @@ int main() {
             }
         }
         // With every button off the divider goes, but the logo stays so the panel can still be dragged.
-        [panel applySizingPreferences:@{@"floating_toolbar": @{@"english_mode": @NO, @"punctuation": @NO, @"fullwidth": @NO, @"character_set": @NO, @"emoji": @NO, @"handwriting": @NO, @"screen_keyboard": @NO, @"voice": @NO, @"settings": @NO}}];
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"english_mode": @NO, @"input_scheme": @NO, @"punctuation": @NO, @"fullwidth": @NO, @"character_set": @NO, @"emoji": @NO, @"handwriting": @NO, @"screen_keyboard": @NO, @"voice": @NO, @"settings": @NO}}];
         assert(FindView(panel.contentView, @"MetasequoiaFloatingToolbarLogo") == handle && !handle.hidden && divider.hidden);
         assert([[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(0, 24, 1));
         [panel applySizingPreferences:@{}];
@@ -355,11 +364,16 @@ int main() {
             assert(button.hidden == (button == keyboard || button == emoji));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 221.0);
+        assert(!inputScheme.hidden);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 255.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 221.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 255.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
-        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(6, 24, 1));
+        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(7, 24, 1));
+        // 切换输入方案按钮可以单独关掉。
+        [panel applySizingPreferences:@{@"floating_toolbar": @{@"input_scheme": @NO}}];
+        assert(inputScheme.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == ExpectedWidth(5, 24, 1));
+        [panel applySizingPreferences:@{}];
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
@@ -478,6 +492,9 @@ int main() {
         assert(delegate.emojiRequests == 1 && delegate.characterPaletteRequests == 0);
         SendButton(handwriting);
         assert(delegate.handwritingRequests == 1);
+        // 点切换输入方案按钮向代理要菜单；空菜单不弹出。
+        SendButton(inputScheme);
+        assert(delegate.inputSchemeMenuRequests == 1);
         SendButton(keyboard);
         assert(delegate.keyboardRequests == 1 && delegate.emojiRequests == 1);
         SendButton(voice);

@@ -50,6 +50,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     vocabulary_review: false,
     floating_toolbar_handwriting: false,
     floating_toolbar_voice: false,
+    floating_toolbar_input_scheme: false,
     number_row_selection: false,
     candidate_preedit_font: true,
     candidate_page_number: false,
