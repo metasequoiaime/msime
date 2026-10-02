@@ -215,10 +215,14 @@ check_app() {
   local file
   while IFS= read -r -d '' file; do
     if file -b "$file" | grep -q '^Mach-O'; then
-      lipo "$file" -verify_arch "${architectures[@]}" || {
-        echo "not universal ($(lipo -archs "$file")): $file" >&2
-        exit 1
-      }
+      # lipo -verify_arch 一次只接受一种架构（传多个会报 requires exactly one input file），所以逐个核对。
+      local architecture
+      for architecture in "${architectures[@]}"; do
+        lipo "$file" -verify_arch "$architecture" || {
+          echo "missing $architecture ($(lipo -archs "$file")): $file" >&2
+          exit 1
+        }
+      done
     fi
   done < <(find "$root" -type f -print0)
 }
