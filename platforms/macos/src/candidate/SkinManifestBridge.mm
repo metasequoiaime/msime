@@ -416,6 +416,7 @@ SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
         NSArray *issues = catalog[@"issues"];
         if ([issues isKindOfClass:NSArray.class])
         {
+            result.issues.reserve(issues.count);
             for (NSDictionary *issue in issues)
             {
                 if ([issue isKindOfClass:NSDictionary.class])
