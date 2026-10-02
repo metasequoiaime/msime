@@ -61,6 +61,10 @@ def main() -> int:
     for mode in visible:
         if mode not in modes:
             failures.append(f"tsVisibleInputModeOrderedArrayKey lists {mode}, which tsInputModeListKey does not declare")
+    # imklaunchagent refuses any other form and never launches the input method on demand, which greys its modes out in the input menu.
+    connection = plist.get("InputMethodConnectionName")
+    if bundle and connection != f"{bundle}_Connection":
+        failures.append(f"InputMethodConnectionName is {connection!r}; imklaunchagent only launches the input method under {bundle}_Connection")
 
     # The bundle's own identifier names the input method in System Settings; the mode identifiers name the entries in the input menu.
     identifiers = {value for value in (bundle, source) if value} | set(modes)

@@ -20,7 +20,8 @@
 <key>NSSpeechRecognitionUsageDescription</key><string>选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。</string>
 <key>LSBackgroundOnly</key><true/>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
-<key>InputMethodConnectionName</key><string>MSIMEClientPreviewConnection</string>
+<!-- imklaunchagent on macOS 27 refuses a connection name that is not `<CFBundleIdentifier>_Connection` ("unrecognized 'InputMethodConnectionName' value") and then never launches the input method on demand: its modes stay grey in the input menu until something else starts the process. input_method_main.mm serves the name read from here, and info-plist-names checks its form. -->
+<key>InputMethodConnectionName</key><string>app.msime.inputmethod.MetasequoiaIME_Connection</string>
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
 <key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>

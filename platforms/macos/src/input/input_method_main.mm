@@ -82,7 +82,10 @@ int main(int argc, const char *argv[]) {
         // Recover a prior crashed capture before accepting new IMK sessions.
         // A running owner holds the journal lock, so this cannot undo its mute.
         [[[MSIMEVoiceAudioMuter alloc] init] restore];
-        __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:@"MSIMEClientPreviewConnection" bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
+        // The name imklaunchagent looks the bundle up by; Info.plist.in says why its form matters.
+        NSString *connectionName = NSBundle.mainBundle.infoDictionary[@"InputMethodConnectionName"];
+        if (![connectionName isKindOfClass:NSString.class] || connectionName.length == 0) return 1;
+        __attribute__((objc_precise_lifetime)) IMKServer *server = [[IMKServer alloc] initWithName:connectionName bundleIdentifier:NSBundle.mainBundle.bundleIdentifier];
         if (!server) return 1;
         // Turn on, once each, the input modes this version added and the install that brought it did not register. The opt-in modes are only recorded, and turned off once if the system turned them on.
         NSString *const offeredModesKey = @"MSIMEOfferedInputModes";
