@@ -36,6 +36,7 @@ import {
 import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
+import { ActionButton } from "../core/action-button";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
@@ -216,15 +217,13 @@ function AiSkinGeneration({
             <h2>AI 皮肤抽卡</h2>
             <p>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
           </div>
-          <button
-            type="button"
+          <ActionButton
+            action={onClose}
             className={community.dialogClose}
             disabled={busy}
-            onClick={onClose}
             aria-label="关闭 AI 皮肤抽卡"
-          >
-            ×
-          </button>
+            label="×"
+          />
         </div>
         {proposals.length === 0 && (
           <div className={doc.mysteryCards} aria-hidden="true">
@@ -235,28 +234,24 @@ function AiSkinGeneration({
             ))}
           </div>
         )}
-        <button
-          type="button"
+        <ActionButton
+          action={() => generate()}
           className="primary"
           disabled={busy}
-          onClick={() => void generate()}
           aria-label="抽三张皮肤"
-        >
-          {proposals.length ? "再抽三张" : "抽三张皮肤"}
-        </button>
+          label={proposals.length ? "再抽三张" : "抽三张皮肤"}
+        />
         <p className={doc.generationNote}>
           AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。
         </p>
         {busy && (
           <p role="status">
             主题插画已完成 {completed}/3，可能需要几分钟…{" "}
-            <button
-              type="button"
+            <ActionButton
+              action={() => client.cancel(requestRef.current)}
               className="secondary"
-              onClick={() => void client.cancel(requestRef.current)}
-            >
-              取消
-            </button>
+              label="取消"
+            />
           </p>
         )}
         {message && <p role="status">{message}</p>}
@@ -269,39 +264,34 @@ function AiSkinGeneration({
                 <p>{proposal.description}</p>
                 <ScreenKeyboardPreview theme="light" skin="custom" customDesign={proposal.design} />
                 <div className={doc.cardActions}>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => {
+                  <ActionButton
+                    action={() => {
                       onUse(proposal.design);
                       onClose();
                     }}
-                  >
-                    使用并继续编辑
-                  </button>
-                  <button
-                    type="button"
+                    className="primary"
+                    label="使用并继续编辑"
+                  />
+                  <ActionButton
+                    action={async () => {
+                      await save(proposal);
+                    }}
                     className="secondary"
                     disabled={Boolean(item)}
-                    onClick={() => void save(proposal)}
-                  >
-                    {item ? "已保存" : "保存到我的皮肤"}
-                  </button>
+                    label={item ? "已保存" : "保存到我的皮肤"}
+                  />
                   {communitySkins && (
-                    <button
-                      type="button"
+                    <ActionButton
+                      action={async () => {
+                        const value = await save(proposal);
+                        if (value) {
+                          setPublishing(value);
+                          setPublishDescription(proposal.description);
+                        }
+                      }}
                       className="secondary"
-                      onClick={() =>
-                        void save(proposal).then((value) => {
-                          if (value) {
-                            setPublishing(value);
-                            setPublishDescription(proposal.description);
-                          }
-                        })
-                      }
-                    >
-                      发布到社区
-                    </button>
+                      label="发布到社区"
+                    />
                   )}
                 </div>
               </article>
