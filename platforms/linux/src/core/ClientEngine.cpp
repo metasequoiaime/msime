@@ -3298,6 +3298,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(profile, profile_menu);
   // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于, then the tools that depend on the moment (voice, candidate actions, nine-key spellings, clipboard history) and the three option groups holding every other switch. 中文/英文 is the one InputMode toggle Shift flips, labelled 中文 and checked while letters compose; the Engine's dedicated English mode (EnglishMode, Ctrl+Shift+E) is a different feature and sits in 输入选项 beside 英文候选. Nesting keeps each key, so activation and the by-key updates below do not change.
   std::vector<IBusProperty *> design_panel_actions;
+  design_panel_actions.reserve(3);
   for (const auto &action : desktop_panel_actions)
     if (action.design_menu) design_panel_actions.push_back(desktop_panel_property(engine, action));
   if (registration) {
