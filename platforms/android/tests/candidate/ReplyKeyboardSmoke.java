@@ -77,6 +77,14 @@ public final class ReplyKeyboardSmoke {
                 + "{\"id\":\"last\",\"kind\":\"reply\",\"name\":\"last\",\"content\":{\"prompt\":\"last\"}}]");
             try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
             catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
+            Files.writeString(file, "[{\"id\":\"long\",\"kind\":\"reply\",\"name\":\"x\",\"content\":{\"prompt\":\""
+                + "x".repeat(2_001) + "\"}}]");
+            try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
+            Files.writeString(file, "[{\"id\":\"same\",\"kind\":\"reply\",\"name\":\"x\",\"content\":{\"prompt\":\"x\"}},"
+                + "{\"id\":\"same\",\"kind\":\"reply\",\"name\":\"y\",\"content\":{\"prompt\":\"y\"}}]");
+            try { CommunityReplyLibrary.read(file); throw new AssertionError(); }
+            catch (java.io.IOException expected) { check(expected.getMessage().contains("Invalid")); }
 
             outside = Files.createTempDirectory("msime-community-outside");
             Path linkedParent = directory.resolve("linked-parent");
