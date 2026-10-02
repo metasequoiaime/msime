@@ -94,6 +94,15 @@ public final class WebSocketFramesSmoke {
         byte[] masked = {(byte) 0x82, (byte) 0x83, 0, 0, 0, 0, 1, 2, 3};
         check(WebSocketFrames.decode(masked, masked.length) == null,
             "a server frame claiming to be masked is a protocol error, not something to unmask");
+        byte[] reserved = {(byte) 0xc2, 0};
+        check(WebSocketFrames.decode(reserved, reserved.length) == null,
+            "a frame with an RSV bit is refused when no extension was negotiated");
+        byte[] fragmentedPing = {0x09, 0};
+        check(WebSocketFrames.decode(fragmentedPing, fragmentedPing.length) == null,
+            "a control frame must not be fragmented");
+        byte[] oversizedPing = {(byte) 0x89, 126, 0, 126};
+        check(WebSocketFrames.decode(oversizedPing, oversizedPing.length) == null,
+            "a control frame must fit in 125 payload bytes");
         byte[] huge = {(byte) 0x82, 127, 0x7f, -1, -1, -1, -1, -1, -1, -1};
         check(WebSocketFrames.decode(huge, huge.length) == null,
             "a frame this host could not hold is refused rather than allocated");

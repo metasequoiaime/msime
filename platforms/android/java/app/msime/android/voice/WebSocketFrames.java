@@ -129,6 +129,7 @@ public final class WebSocketFrames {
         if (buffer == null || available < 2) return null;
         boolean fin = (buffer[0] & 0x80) != 0;
         int opcode = buffer[0] & 0x0f;
+        if ((buffer[0] & 0x70) != 0) return null;
         if ((buffer[1] & 0x80) != 0) return null;
         long length = buffer[1] & 0x7f;
         int offset = 2;
@@ -146,7 +147,8 @@ public final class WebSocketFrames {
         }
         // A frame this host could not hold is refused rather than allocated: the recogniser sends
         // transcripts, and anything of this size is a wrong endpoint or a hostile one.
-        if (length < 0 || length > 8L * 1024 * 1024) return null;
+        if (length < 0 || length > 8L * 1024 * 1024
+                || ((opcode & 0x8) != 0 && (!fin || length > 125))) return null;
         if (available < offset + length) return null;
         byte[] payload = new byte[(int) length];
         System.arraycopy(buffer, offset, payload, 0, (int) length);
