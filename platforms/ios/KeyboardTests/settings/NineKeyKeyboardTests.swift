@@ -1554,7 +1554,11 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testSuspendReleasesDictionaryAccessAndResumeStillConverts() throws {
-    let bridge = MetasequoiaInputSessionBridge()
+    // 用自己的状态目录。默认目录是模拟器里各用例共用的偏好文档，前面的用例经由键盘选过的方案（比如五笔）会留在里面，这里的全拼输入就得不到「你好」。
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-suspend-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     var snapshot = bridge.cancel()
     for letter in "nihao" { snapshot = bridge.handleCharacter(String(letter)) }
     XCTAssertTrue(snapshot.candidates.contains("你好"))
