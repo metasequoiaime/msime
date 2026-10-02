@@ -75,7 +75,10 @@ pub(crate) fn replace_directory(
     target: &Path,
     backup: &Path,
 ) -> Result<(), &'static str> {
-    let had_previous = target.exists();
+    // `exists()` follows links and reports false for a dangling link, even though the
+    // destination name still blocks the publish rename. Inspect the directory entry itself so
+    // files and links are moved aside just like an existing directory.
+    let had_previous = std::fs::symlink_metadata(target).is_ok();
     if had_previous && std::fs::rename(target, backup).is_err() {
         let _ = std::fs::remove_dir_all(staging);
         return Err("storage");
@@ -88,7 +91,7 @@ pub(crate) fn replace_directory(
         return Err("storage");
     }
     if had_previous {
-        let _ = std::fs::remove_dir_all(backup);
+        let _ = remove_leftover(backup);
     }
     Ok(())
 }
@@ -190,6 +193,37 @@ mod tests {
         assert!(!root.join("sakura").join("stale.css").exists());
         assert!(root.join("sakura").join("skin.toml").is_file());
         assert!(!root.join(".replaced-sakura").exists());
+    }
+
+    #[test]
+    fn import_cleans_the_backup_when_an_existing_skin_slot_is_a_file() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("sakura"), b"stray slot").unwrap();
+
+        import(&picked(files.path(), "sakura"), &root).unwrap();
+
+        assert!(root.join("sakura").join("skin.toml").is_file());
+        assert!(!root.join(".replaced-sakura").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_replaces_a_dangling_skin_slot_link_without_following_it() {
+        let files = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = state.path().join("skins");
+        std::fs::create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("missing"), root.join("sakura")).unwrap();
+
+        import(&picked(files.path(), "sakura"), &root).unwrap();
+
+        assert!(root.join("sakura").join("skin.toml").is_file());
+        assert!(!root.join(".replaced-sakura").exists());
+        assert!(!outside.path().join("missing").exists());
     }
 
     #[test]

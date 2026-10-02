@@ -76,7 +76,7 @@ pub fn parse(
     let mut state_dir = None;
     let mut allow_write = false;
     let mut allow_dictionary_read = false;
-    let mut positional = Vec::new();
+    let mut positional = Vec::with_capacity(4);
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.to_str() {
