@@ -808,6 +808,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
+    // 粤拼和注音只在测试宿主带了对应词库时才有卡片（#2704）；词库是可选资源，CI 不暂存，所以按实际提供的方案逐张检查，缺词库的方案必须不出卡片。
+    let offered = InputSchemePreference.offeredSchemes
+    let withheld = ChineseInputScheme.allCases.filter { !offered.contains($0) }
+    XCTAssertTrue(withheld.allSatisfy(\.needsLanguageDictionary), "only a scheme whose dictionary is missing may be left off: \(withheld)")
     for width in [320.0, 414.0] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
@@ -818,12 +822,15 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let picker = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardSchemePicker" })
       XCTAssertEqual(picker.bounds.height, 260 + KeyboardViewController.stripExtraHeight)
-      for scheme in ChineseInputScheme.allCases {
+      for scheme in offered {
         let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
         XCTAssertGreaterThanOrEqual(card.bounds.width, 60)
         XCTAssertGreaterThanOrEqual(card.bounds.height, 62)
       }
-      let lowestCard = try ChineseInputScheme.allCases
+      for scheme in withheld {
+        XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "schemeCard-\(scheme.rawValue)" }, scheme.rawValue)
+      }
+      let lowestCard = try offered
         .map { scheme -> CGFloat in
           let card = try button("schemeCard-\(scheme.rawValue)", in: controller)
           return card.convert(card.bounds, to: picker).maxY
