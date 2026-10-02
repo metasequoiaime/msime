@@ -438,6 +438,7 @@ public:
     const auto value = Value(key);
     if (!value || value.ValueType() != JsonValueType::Array)
       return result;
+    result.reserve(value.GetArray().Size());
     for (auto const &item : value.GetArray())
       if (item.ValueType() == JsonValueType::String)
         result.emplace_back(item.GetString().c_str());
