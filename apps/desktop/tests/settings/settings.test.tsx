@@ -4586,6 +4586,7 @@ test("Android AI skin draw prepares artwork, saves a proposal and continues edit
     fireEvent.click(draw);
   });
   await screen.findByRole("heading", { name: "AI 测试 1" });
+  expect(screen.getByRole("button", { name: "抽三张皮肤" })).toBeTruthy();
   fireEvent.click(screen.getAllByRole("button", { name: "保存到我的皮肤" })[0]);
   await screen.findByText("已保存到“我的皮肤”。");
   expect(aiSkins.generate).toHaveBeenCalledTimes(1);

@@ -238,7 +238,7 @@ function AiSkinGeneration({
           action={() => generate()}
           className="primary"
           disabled={busy}
-          aria-label="抽三张皮肤"
+          ariaLabel="抽三张皮肤"
           label={proposals.length ? "再抽三张" : "抽三张皮肤"}
         />
         <p className={doc.generationNote}>
