@@ -6,12 +6,15 @@ on:
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an ios-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
       ref: {description: 要构建并发布的分支、标签或提交（默认 main；触发时选的分支只决定用哪份 workflow 文件）, required: false, default: main, type: string}
+      testflight: {description: 签名归档并上传 App Store Connect（内部测试组自动拿到）, required: false, default: true, type: boolean}
+      testflight_external: {description: 上传后加入外部测试组并提交 TestFlight 审核, required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-ios, cancel-in-progress: false}
 jobs:
   release:
     runs-on: macos-15
-    timeout-minutes: 60
+    # 模拟器包之外还要再编一次真机版并上传 App Store Connect。
+    timeout-minutes: 120
     # The same Xcode ci-ios.yml builds and tests with; the image default is older and is not what the project is verified against.
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -56,6 +59,98 @@ jobs:
           name: msime-ios-${{ steps.version.outputs.value }}
           path: dist/msime-ios-${{ steps.version.outputs.value }}.tar.gz
           if-no-files-found: error
+      # 以下把同一份代码签名上传 TestFlight。流程取自 2026-09 的旧 release-ios.yml 与 #518 的修正：内部测试组自动拿到每个上传的构建，不能也不必再加；外部组要显式加入并提交审核；分发前要等 App Store Connect 处理完。
+      - name: Prepare iOS signing and App Store Connect credentials
+        if: ${{ inputs.testflight }}
+        id: signing
+        env:
+          IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_APP_PROFILE_BASE64: ${{ secrets.IOS_APP_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYBOARD_PROFILE_BASE64: ${{ secrets.IOS_KEYBOARD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
+          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for name in IOS_API_KEY_BASE64 IOS_API_KEY_ID IOS_APP_PROFILE_BASE64 IOS_KEYBOARD_PROFILE_BASE64 IOS_CERTIFICATE_BASE64 IOS_CERTIFICATE_PASSWORD IOS_KEYCHAIN_PASSWORD IOS_TEAM_ID; do
+            [[ -n "${!name:-}" ]] || { echo "Secret behind $name is not set" >&2; exit 1; }
+          done
+          dir="$RUNNER_TEMP/ios-signing"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          printf '%s' "$IOS_API_KEY_BASE64" | base64 -D > "$dir/AuthKey_${IOS_API_KEY_ID}.p8"
+          printf '%s' "$IOS_APP_PROFILE_BASE64" | base64 -D > "$dir/app.mobileprovision"
+          printf '%s' "$IOS_KEYBOARD_PROFILE_BASE64" | base64 -D > "$dir/keyboard.mobileprovision"
+          printf '%s' "$IOS_CERTIFICATE_BASE64" | base64 -D > "$dir/distribution.p12"
+          chmod 600 "$dir"/*
+          keychain="$RUNNER_TEMP/msime-ios-signing.keychain-db"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$keychain"
+          security import "$dir/distribution.p12" -k "$keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          security find-identity -v -p codesigning "$keychain" | grep -Fq 'Apple Distribution:' \
+            || { echo 'The certificate holds no Apple Distribution identity with its private key' >&2; exit 1; }
+          # 描述文件必须对上 bundle id 与 App Group，否则要到归档末尾才失败。
+          check_profile() {
+            local profile=$1 bundle=$2
+            security cms -D -i "$profile" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.${bundle}" \
+              || { echo "$profile is not for $bundle" >&2; exit 1; }
+            security cms -D -i "$profile" | plutil -extract Entitlements xml1 -o - - | plutil -convert json -o - - \
+              | jq -e '."com.apple.security.application-groups" | index("group.app.msime.ios")' >/dev/null \
+              || { echo "$profile lacks group.app.msime.ios" >&2; exit 1; }
+          }
+          check_profile "$dir/app.mobileprovision" app.msime.ios
+          check_profile "$dir/keyboard.mobileprovision" app.msime.ios.keyboard
+          printf 'dir=%s\nkeychain=%s\n' "$dir" "$keychain" >> "$GITHUB_OUTPUT"
+      - name: Upload the signed build to App Store Connect
+        if: ${{ inputs.testflight }}
+        env:
+          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"
+          MSIME_IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MSIME_IOS_AUTH_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          MSIME_IOS_AUTH_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          SIGNING_DIR: ${{ steps.signing.outputs.dir }}
+          MSIME_IOS_VERSION: ${{ steps.version.outputs.value }}
+          # 每次上传的构建号必须比同一版本已上传的大；本 workflow 的运行序号只增不减。
+          MSIME_IOS_BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-apple-ios
+          command -v pod >/dev/null || brew install cocoapods
+          export MSIME_IOS_AUTH_KEY_PATH="$SIGNING_DIR/AuthKey_${MSIME_IOS_AUTH_KEY_ID}.p8"
+          export MSIME_IOS_APP_PROFILE_PATH="$SIGNING_DIR/app.mobileprovision"
+          export MSIME_IOS_KEYBOARD_PROFILE_PATH="$SIGNING_DIR/keyboard.mobileprovision"
+          resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
+          bash platforms/ios/build-app.sh "$resource_dir" testflight
+      - name: Hand the build to its testers
+        if: ${{ inputs.testflight }}
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          SIGNING_DIR: ${{ steps.signing.outputs.dir }}
+          IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
+          IOS_INTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP }}
+          IOS_EXTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
+          EXTERNAL: ${{ inputs.testflight_external }}
+        run: |
+          set -euo pipefail
+          if [[ "$EXTERNAL" == true ]]; then group=$IOS_EXTERNAL_GROUP; review=--submit-review; else group=$IOS_INTERNAL_GROUP; review=; fi
+          [[ -n "$IOS_APP_ID" && -n "$group" ]] || { echo 'IOS_APP_STORE_CONNECT_APP_ID and the TestFlight group variables must be set' >&2; exit 1; }
+          # runner 的 Homebrew Python 是 externally-managed（PEP 668），不加 --break-system-packages 就拒绝安装。
+          python3 -m pip install --quiet --disable-pip-version-check --break-system-packages 'pyjwt[crypto]==2.10.1'
+          python3 platforms/ios/scripts/submit_testflight_review.py \
+            --app "$IOS_APP_ID" --build-version "$BUILD_NUMBER" --group "$group" ${review:+$review} \
+            --key-id "$IOS_API_KEY_ID" --issuer-id "$IOS_API_KEY_ISSUER_ID" --key-path "$SIGNING_DIR/AuthKey_${IOS_API_KEY_ID}.p8"
+      - name: Remove the signing keychain and keys
+        if: ${{ always() && steps.signing.outputs.keychain != '' }}
+        env: {KEYCHAIN: "${{ steps.signing.outputs.keychain }}", SIGNING_DIR: "${{ steps.signing.outputs.dir }}"}
+        run: |
+          security delete-keychain "$KEYCHAIN" || true
+          rm -rf -- "$SIGNING_DIR"
       # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather
       # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent iOS release

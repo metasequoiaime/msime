@@ -91,6 +91,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios
         PRODUCT_NAME: MSIMEApp
+        # 发布时由 upload-testflight.sh 在命令行传入描述文件名，配合 CODE_SIGN_STYLE=Manual 让 App 与键盘各用各的 App Store 描述文件；本地开发不传，值为空，仍是自动签名。
+        PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_APP_PROFILE)"
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
         # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEApp。
@@ -191,6 +193,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
+        # 同 MSIMEApp，见那里的说明。
+        PROVISIONING_PROFILE_SPECIFIER: "$(MSIME_IOS_KEYBOARD_PROFILE)"
         CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
         SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h"
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
