@@ -1,4 +1,5 @@
 import * as style from "./community-style";
+import { ActionButton } from "../core/action-button";
 
 export function CommunityBackButton({
   disabled,
@@ -8,15 +9,13 @@ export function CommunityBackButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <ActionButton
+      action={onClick}
       className={style.back}
       disabled={disabled}
-      onClick={onClick}
-      aria-label="返回社区"
-    >
-      ← 社区
-    </button>
+      ariaLabel="返回社区"
+      label="← 社区"
+    />
   );
 }
 
@@ -28,8 +27,11 @@ export function CommunityLoadMoreButton({
   onClick: () => void;
 }) {
   return (
-    <button type="button" className={`secondary ${style.more}`} disabled={disabled} onClick={onClick}>
-      加载更多
-    </button>
+    <ActionButton
+      action={onClick}
+      className={`secondary ${style.more}`}
+      disabled={disabled}
+      label="加载更多"
+    />
   );
 }
