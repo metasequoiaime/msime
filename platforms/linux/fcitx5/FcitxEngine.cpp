@@ -3586,6 +3586,8 @@ public:
     const auto scheme = state_.view_.value("scheme", 0u);
     if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item->source()))
       return actions;
+    // One pin, one optional removal, five fixed positions, and one optional clear.
+    actions.reserve(8);
     const auto make = [](int id, const char *text) {
       fcitx::CandidateAction action;
       action.setId(id);
