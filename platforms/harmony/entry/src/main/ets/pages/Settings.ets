@@ -929,8 +929,12 @@ class SettingsBridge {
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.txt`;
     let destination: string = '';
     try {
-      if (!fs.accessSync(directory)) {
-        fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(this.stateDirectory)) {
+        return JSON.stringify({ ok: false, error: 'export_storage' });
+      }
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      if (!this.safeDirectory(directory) || this.symbolicLink(staging)) {
+        return JSON.stringify({ ok: false, error: 'export_storage' });
       }
       const file: fs.File = fs.openSync(staging, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
@@ -1089,7 +1093,18 @@ class SettingsBridge {
     }
     const staging: string = `${context.cacheDir}/plugin-import/${util.generateRandomUUID(false)}`;
     try {
+      const pluginRoot: string = `${context.cacheDir}/plugin-import`;
+      if (!this.safeDirectory(context.cacheDir)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
+      if (!fs.accessSync(pluginRoot)) fs.mkdirSync(pluginRoot, true);
+      if (!this.safeDirectory(pluginRoot)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
       fs.mkdirSync(staging, true);
+      if (!this.safeDirectory(staging)) {
+        return JSON.stringify({ ok: false, error: 'storage' });
+      }
       let source: string;
       if (folder) {
         source = `${staging}/${PluginImportPolicy.FOLDER_NAME}`;
@@ -1123,9 +1138,7 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'storage' });
     } finally {
       try {
-        if (fs.accessSync(staging)) {
-          fs.rmdirSync(staging);
-        }
+        StagedResources.removeDirectory(staging);
       } catch (error) {
         KeyboardLog.error(`plugin import staging not removed: ${describeError(error)}`);
       }
