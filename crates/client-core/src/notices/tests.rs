@@ -175,6 +175,51 @@ fn an_unknown_platform_is_refused() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn cache_read_ignores_a_symlinked_cache_file() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let external = tempfile::NamedTempFile::new().unwrap();
+    let cached = NoticeCache {
+        feed: "app/windows".into(),
+        attempted_at_unix_ms: 1,
+        items: vec![notice("external")],
+        dismissed: Vec::new(),
+    };
+    std::fs::write(external.path(), serde_json::to_vec(&cached).unwrap()).unwrap();
+    symlink(external.path(), directory.path().join(NOTICES_FILE)).unwrap();
+
+    let store = NoticeStore::new(directory.path());
+    assert!(store.read().items.is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn cache_read_ignores_a_symlinked_cache_directory() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let cached = NoticeCache {
+        feed: "app/windows".into(),
+        attempted_at_unix_ms: 1,
+        items: vec![notice("external")],
+        dismissed: Vec::new(),
+    };
+    std::fs::write(
+        external.path().join(NOTICES_FILE),
+        serde_json::to_vec(&cached).unwrap(),
+    )
+    .unwrap();
+    let linked = directory.path().join("linked");
+    symlink(external.path(), &linked).unwrap();
+
+    let store = NoticeStore::new(linked);
+    assert!(store.read().items.is_empty());
+}
+
 #[test]
 fn the_feed_is_fetched_anonymously_and_bad_items_are_left_out() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

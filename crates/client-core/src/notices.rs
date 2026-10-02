@@ -215,7 +215,17 @@ impl NoticeStore {
     }
 
     fn read(&self) -> NoticeCache {
-        File::open(self.directory.join(NOTICES_FILE))
+        let path = self.directory.join(NOTICES_FILE);
+        if !self.directory.is_absolute() || crate::storage::reject_symlink(&path).is_err() {
+            return NoticeCache::default();
+        }
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            return NoticeCache::default();
+        };
+        if !metadata.file_type().is_file() {
+            return NoticeCache::default();
+        }
+        File::open(path)
             .ok()
             .and_then(|file| crate::bounded_io::read_bounded(file, MAX_CACHE_BYTES).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())

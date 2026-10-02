@@ -92,22 +92,12 @@ export function DictionaryEntries({
                 )}
               </span>
               <span>
-                <button
-                  type="button"
-                  className="secondary"
+                <ActionButton
+                  action={() => onEdit(entry)}
                   disabled={busy}
-                  onClick={() => onEdit(entry)}
-                >
-                  {entry.source === "bundled" ? "调权重" : "编辑"}
-                </button>{" "}
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => onRemove(entry)}
-                >
-                  删除
-                </button>
+                  label={entry.source === "bundled" ? "调权重" : "编辑"}
+                />{" "}
+                <ActionButton action={() => onRemove(entry)} disabled={busy} label="删除" />
               </span>
             </li>
           ))}

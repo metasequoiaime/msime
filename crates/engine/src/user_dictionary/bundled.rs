@@ -97,15 +97,7 @@ pub fn dictionary_table_entries(
             .is_ok_and(|found| found.is_some())
         };
 
-    let tables: Vec<String> = match kind {
-        // Every syllable count of the query's initial, the overflow bucket included, since separators are ignored and the query does not say how many syllables the key has.
-        PersonalDictionaryKind::Pinyin => (1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1)
-            .filter_map(|syllables| format::quanpin_table(syllables, code.as_bytes()[0]))
-            .collect(),
-        PersonalDictionaryKind::Wubi => vec!["wubi86".to_owned()],
-        PersonalDictionaryKind::QuickPhrase => vec!["quick_parases".to_owned()],
-        PersonalDictionaryKind::English => vec!["english_words".to_owned()],
-    };
+    let tables = lookup_tables(kind, &code);
     let (key_column, value_column) = if english {
         ("word", "display")
     } else {
@@ -338,6 +330,32 @@ fn bundled_table(kind: PersonalDictionaryKind, key: &str) -> Option<String> {
     }
 }
 
+/// Every table a prefix lookup can inspect: all numbered pinyin tables plus
+/// the overflow bucket, or the single table used by another dictionary kind.
+fn lookup_tables(kind: PersonalDictionaryKind, code: &str) -> Vec<String> {
+    let capacity = match kind {
+        PersonalDictionaryKind::Pinyin => format::MAXIMUM_NUMBERED_SYLLABLES + 1,
+        PersonalDictionaryKind::Wubi
+        | PersonalDictionaryKind::QuickPhrase
+        | PersonalDictionaryKind::English => 1,
+    };
+    let mut tables = Vec::with_capacity(capacity);
+    match kind {
+        // Every syllable count of the query's initial, the overflow bucket included, since separators are ignored and the query does not say how many syllables the key has.
+        PersonalDictionaryKind::Pinyin => {
+            for syllables in 1..=format::MAXIMUM_NUMBERED_SYLLABLES + 1 {
+                if let Some(table) = format::quanpin_table(syllables, code.as_bytes()[0]) {
+                    tables.push(table);
+                }
+            }
+        }
+        PersonalDictionaryKind::Wubi => tables.push("wubi86".to_owned()),
+        PersonalDictionaryKind::QuickPhrase => tables.push("quick_parases".to_owned()),
+        PersonalDictionaryKind::English => tables.push("english_words".to_owned()),
+    }
+    tables
+}
+
 /// The query folded to the form codes of the kind are stored in, or `None` when it holds a character no such code can contain. Pinyin drops its separators so a query matches a key however it was split (J:2033-2049).
 fn lookup_code(kind: PersonalDictionaryKind, query: &str) -> Option<String> {
     let mut code = String::with_capacity(query.len());
@@ -448,6 +466,18 @@ mod tests {
 
     fn values(rows: &[DictionaryTableEntry]) -> Vec<&str> {
         rows.iter().map(|row| row.entry.value.as_str()).collect()
+    }
+
+    #[test]
+    fn lookup_tables_reserve_the_bounded_table_count() {
+        use PersonalDictionaryKind::*;
+
+        let pinyin = lookup_tables(Pinyin, "ni");
+        assert_eq!(pinyin.len(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
+        assert_eq!(pinyin.capacity(), format::MAXIMUM_NUMBERED_SYLLABLES + 1);
+
+        let wubi = lookup_tables(Wubi, "wqv");
+        assert_eq!(wubi.capacity(), 1);
     }
 
     #[test]
