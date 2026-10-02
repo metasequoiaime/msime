@@ -1,5 +1,5 @@
 import type { ChineseScheme, InputScheme } from "../index";
-import { Row, Segmented } from "../core/platform-controls";
+import { SegmentedRow } from "./segmented-row";
 import {
   baseInputSchemes,
   fallbackChineseScheme,
@@ -59,21 +59,22 @@ export function InputModeSection({
         ? `${base}；此平台暂不支持${unsupported.map((mode) => inputModeLabels[mode]).join("、")}`
         : base;
   return (
-    <Row title="输入模式" description={description} hidden={hidden}>
-      <Segmented
-        options={options}
-        value={isChineseScheme(scheme) ? "chinese" : scheme}
-        onChange={(mode) =>
-          onChange(
-            mode === "chinese"
-              ? { scheme: chineseFallback }
-              : {
-                  last_chinese_scheme: isChineseScheme(scheme) ? scheme : lastChineseScheme,
-                  scheme: mode,
-                },
-          )
-        }
-      />
-    </Row>
+    <SegmentedRow
+      title="输入模式"
+      description={description}
+      hidden={hidden}
+      options={options}
+      value={isChineseScheme(scheme) ? "chinese" : scheme}
+      onChange={(mode) =>
+        onChange(
+          mode === "chinese"
+            ? { scheme: chineseFallback }
+            : {
+                last_chinese_scheme: isChineseScheme(scheme) ? scheme : lastChineseScheme,
+                scheme: mode,
+              },
+        )
+      }
+    />
   );
 }
