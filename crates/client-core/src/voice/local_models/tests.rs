@@ -316,6 +316,21 @@ fn reinstalling_replaces_the_previous_install() {
 }
 
 #[test]
+fn reinstalling_replaces_a_regular_model_slot_without_leaving_an_old_file() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("fixture"), b"stray slot file").unwrap();
+    let archive = good_archive();
+    let model = fixture_model(&archive);
+    let fetcher = fetcher_for(&archive, "");
+
+    let (result, _) = run(root.path(), &model, "", &fetcher, &AtomicBool::new(false));
+
+    let installed = result.unwrap();
+    assert!(installed.join(MANIFEST_FILE).is_file());
+    assert_eq!(root_entries(root.path()), vec!["fixture"]);
+}
+
+#[test]
 fn installing_clears_a_stray_file_left_by_an_interrupted_install() {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join(".staging-fixture-dead"), b"stray leftover").unwrap();

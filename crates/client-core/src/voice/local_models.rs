@@ -591,7 +591,7 @@ fn publish(root: &Path, id: &str, staged: &Path) -> Result<PathBuf, LocalModelEr
         return Err(error.into());
     }
     if replaced {
-        let _ = fs::remove_dir_all(&aside);
+        remove_leftover(&aside);
     }
     Ok(target)
 }
