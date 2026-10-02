@@ -1,4 +1,4 @@
-import { Row } from "../core/platform-controls";
+import { Row, Select } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SelectSettingField } from "./select-setting-field";
 
@@ -35,14 +35,14 @@ export function TranslationServiceSelectorSection({
   return grouped ? (
     <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
       <Row title="翻译服务">
-        <select
+        <Select
           aria-label="候选词翻译服务"
           disabled={!available}
           value={provider}
           onChange={(event) => onChange(event.target.value as TranslationProvider)}
         >
           {options}
-        </select>
+        </Select>
       </Row>
     </div>
   ) : (

@@ -57,9 +57,9 @@ export const segmentInput = "sr-only";
 
 // ---- select ----
 
-/** The native element and its own arrow are kept (see UPSTREAM.md); only the box around it follows the platform. */
+/** 保留原生元素和它自带的箭头（见 UPSTREAM.md），只有外框跟随平台。无边框的平台用 `--p-sel-sizing: content` 让宽度贴合当前选中项：原生 select 默认按最长的选项定宽，同一组里选项长短不同的两行会一行文字贴着箭头、一行文字远离箭头。Windows 的下拉框有边框，保持默认的固定宽度。 */
 export const select =
-  "min-w-0 rounded-[var(--p-r-ctl)] [background:var(--p-sel-bg)] [border:var(--p-sel-border)] [padding:var(--p-sel-pad)] [font-size:var(--p-sel-fs)] [color:var(--p-sel-fg)]";
+  "min-w-0 rounded-[var(--p-r-ctl)] [background:var(--p-sel-bg)] [border:var(--p-sel-border)] [padding:var(--p-sel-pad)] [font-size:var(--p-sel-fs)] [color:var(--p-sel-fg)] [field-sizing:var(--p-sel-sizing,fixed)]";
 
 // ---- checks ----
 
