@@ -11,6 +11,7 @@ import {
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
+import { CommunityCardAuthor } from "./community-card-author";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
@@ -116,10 +117,11 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.kind === "dictionary" ? "字" : "话"}
       </span>
       <strong className={style.cardTitle}>{item.name}</strong>
-      <span className={style.cardAuthor}>
-        {item.owned ? "我的作品" : item.author}
-        {item.owned && item.moderation === "removed" && " · 已下架"}
-      </span>
+      <CommunityCardAuthor
+        author={item.author}
+        owned={item.owned}
+        removed={item.moderation === "removed"}
+      />
       <span className={style.resourceDescription}>
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复模板")}
       </span>
