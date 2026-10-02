@@ -307,12 +307,18 @@ ModelDescription read_model(const std::string &directory) {
   return model;
 }
 
-int thread_count(int requested) {
+} // namespace
+
+int local_asr_thread_count(int requested) {
   if (requested > 0)
-    return requested;
+    return (std::min)(requested, 4);
   const unsigned hardware = std::max(1u, std::thread::hardware_concurrency());
   return static_cast<int>(std::clamp(hardware / 2u, 1u, 4u));
 }
+
+namespace {
+
+int thread_count(int requested) { return local_asr_thread_count(requested); }
 
 std::string lower(std::string_view text) {
   std::string out(text);

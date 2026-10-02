@@ -29,6 +29,8 @@ bool sherpa_runtime_available();
 std::string sherpa_runtime_error();
 // Whether `path` is an installed model directory: it exists and holds the manifest.
 bool is_local_model_dir(std::string_view path);
+// 规范宿主传入的线程数：零和负数使用基于硬件的小默认值，显式值也限制上限以免拖慢设备。
+int local_asr_thread_count(int requested);
 
 struct LocalAsrOptions {
   std::string model_dir;

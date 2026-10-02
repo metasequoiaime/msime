@@ -30,6 +30,7 @@ int main() {
     assert(!is_local_model_dir((root / "model").u8string()));
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
+    assert(local_asr_thread_count(5) == 4);
 
     // 会话 API 自身必须执行已安装模型边界；独立 helper 直接构造会话，不经过 provider 封装层。
     set_sherpa_library_path((root / "no-such-runtime").u8string());
