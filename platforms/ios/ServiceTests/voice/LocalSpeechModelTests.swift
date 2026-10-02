@@ -145,6 +145,15 @@ final class LocalSpeechModelTests: XCTestCase {
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: old, root: root))
   }
 
+  func testManagedRootSymlinkCannotExposeAnExternalModel() throws {
+    let root = scratch.appendingPathComponent("voice-models", isDirectory: true)
+    let outside = try makeModel(id: "zipformer", manifest: ["kind": "online_transducer", "files": [:]], files: [])
+    try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside.deletingLastPathComponent())
+
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: root.appendingPathComponent("zipformer").path,
+                                                  root: root))
+  }
+
   func testCatalogEntriesDecodeWithDefaultsForMissingFields() throws {
     let json = #"{"models":[{"id":"a","title":"A","streaming":true,"default":true,"memory":314572800,"archive_size":10,"installed_size":20,"license_spdx":"Apache-2.0"},{"id":"b","desktop_only":true,"installed":true,"path":"/x/b"}],"default":"a"}"#
     let catalog = try JSONDecoder().decode(LocalSpeechModelStore.Catalog.self, from: Data(json.utf8))

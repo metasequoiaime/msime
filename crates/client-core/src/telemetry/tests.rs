@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpListener;
+use std::sync::{Arc, Barrier};
 
 /// 2026-10-01T12:00:00Z.
 fn noon() -> SystemTime {
@@ -366,6 +367,55 @@ fn a_retry_after_defers_every_flush_until_it_passes() {
         .unwrap();
     assert_eq!(report.sent, 1);
     assert_eq!(later.ids().len(), 1);
+}
+
+struct PausingSender {
+    entered: Arc<Barrier>,
+    release: Arc<Barrier>,
+    delivery: Delivery,
+}
+
+impl TelemetrySender for PausingSender {
+    fn send(&self, _body: &[u8]) -> Delivery {
+        self.entered.wait();
+        self.release.wait();
+        self.delivery
+    }
+}
+
+#[test]
+fn a_concurrent_flush_does_not_clear_another_flush_retry_deadline() {
+    let (_directory, store) = store();
+    store.begin_session(&app(), noon()).unwrap();
+
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    let first = store.clone();
+    let first_sender = PausingSender {
+        entered: entered.clone(),
+        release: release.clone(),
+        delivery: Delivery::Accepted,
+    };
+    let first_thread = std::thread::spawn(move || first.flush(&first_sender, noon()).unwrap());
+
+    entered.wait();
+    let second_sender = ScriptedSender::new([Delivery::RetryAfter(Some(Duration::from_secs(120)))]);
+    let second = store.clone();
+    let second_report = second.flush(&second_sender, noon()).unwrap();
+    assert_eq!(second_report.remaining, 1);
+
+    release.wait();
+    first_thread.join().unwrap();
+
+    let idle = ScriptedSender::new([]);
+    let deferred = store
+        .flush(&idle, noon() + Duration::from_secs(60))
+        .unwrap();
+    assert!(
+        deferred.deferred,
+        "a concurrent success must not erase Retry-After"
+    );
+    assert!(idle.ids().is_empty());
 }
 
 #[test]

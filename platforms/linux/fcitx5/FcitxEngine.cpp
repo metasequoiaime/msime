@@ -66,6 +66,7 @@
 #include "../src/core/InputSchemes.h"
 #include "../src/system/TypingStatistics.h"
 #include "SystemTheme.h"
+#include "PrecedingCharacters.h"
 #include "../src/voice/VoiceAction.h"
 #include "../src/voice/VoiceHotwords.h"
 #include "../src/voice/VoiceProviderOptions.h"
@@ -2808,18 +2809,7 @@ public:
         !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
       return std::nullopt;
     const auto &text = surrounding.text();
-    const auto length = fcitx::utf8::lengthValidated(text);
-    if (length == fcitx::utf8::INVALID_LENGTH || surrounding.cursor() > length)
-      return std::nullopt;
-    const auto available = std::min<size_t>(count, surrounding.cursor());
-    std::vector<std::string> characters;
-    auto start = fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - available);
-    for (size_t index = 0; index < available; ++index) {
-      const auto next = fcitx::utf8::nextChar(start);
-      characters.emplace_back(start, next);
-      start = next;
-    }
-    return characters;
+    return preceding_characters(text, surrounding.cursor(), count);
   }
   bool composingOrCandidates() const {
     return msime::linux_host::view_has_composition(

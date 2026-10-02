@@ -169,15 +169,15 @@ public final class VoiceResultStore {
 
     private static void rejectSymlinkComponents(Path path) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
-        Path existing = absolute;
-        while (existing != null
-                && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-            existing = existing.getParent();
+        Path current = absolute.getRoot();
+        if (current == null) throw new IOException("voice result path unavailable");
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            // macOS 的临时目录通过受信任的 /var 别名暴露。
+            if (!current.toString().equals("/var") && !current.toString().equals("/tmp")
+                    && Files.isSymbolicLink(current))
+                throw new IOException("voice result path contains a symbolic link");
         }
-        if (existing == null || Files.isSymbolicLink(existing))
-            throw new IOException("voice result path contains a symbolic link");
-        if (!Files.isDirectory(existing, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("voice result directory is not a directory");
     }
 
     private static Entry readFile(Path result, long nowMillis) throws Failure, IOException {

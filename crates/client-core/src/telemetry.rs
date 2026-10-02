@@ -474,9 +474,17 @@ impl TelemetryStore {
         if !done.is_empty() {
             self.write_queue(&queue)?;
         }
-        let deadline = retry_after.map_or(0, |delay| {
-            unix_ms(now).saturating_add(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX))
-        });
+        let now_ms = unix_ms(now);
+        let deadline = match retry_after {
+            Some(delay) => {
+                // 请求在途期间，另一个 flush 可能已经记录了更长的退避时间。
+                let proposed =
+                    now_ms.saturating_add(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX));
+                state.retry_after_unix_ms.max(proposed)
+            }
+            None if state.retry_after_unix_ms > now_ms => state.retry_after_unix_ms,
+            None => 0,
+        };
         if state.retry_after_unix_ms != deadline {
             state.retry_after_unix_ms = deadline;
             self.write_state(&state)?;

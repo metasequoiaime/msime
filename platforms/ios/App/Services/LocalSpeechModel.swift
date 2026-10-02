@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// An installed on-device model as its `msime-model.json` describes it: the same manifest and the same rules `shared/voice/LocalAsr.cpp` applies on the desktops, so a model directory means the same thing on every platform.
 struct LocalSpeechModelManifest: Equatable {
@@ -267,7 +268,9 @@ enum LocalSpeechModelLocation {
   static func root(fileManager: FileManager = .default) throws -> URL {
     var root = try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
       .appendingPathComponent("voice-models", isDirectory: true)
+    guard !rejectsSymlinkAncestors(root) else { throw CocoaError(.fileWriteNoPermission) }
     try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+    guard !rejectsSymlinkAncestors(root) else { throw CocoaError(.fileWriteNoPermission) }
     // Hundreds of megabytes that can be downloaded again do not belong in a device backup.
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
@@ -280,7 +283,7 @@ enum LocalSpeechModelLocation {
     let trimmed = storedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let stored = URL(fileURLWithPath: trimmed, isDirectory: true)
-    guard let root else { return nil }
+    guard let root, !rejectsSymlinkAncestors(root) else { return nil }
     let managedRoot = root.resolvingSymlinksInPath().standardizedFileURL
     let resolvedStored = stored.resolvingSymlinksInPath().standardizedFileURL
     if isWithin(resolvedStored, root: managedRoot), LocalSpeechModelManifest.isModelDirectory(resolvedStored) {
@@ -303,5 +306,22 @@ enum LocalSpeechModelLocation {
   private static func isWithin(_ child: URL, root: URL) -> Bool {
     let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
     return child.path != root.path && child.path.hasPrefix(rootPath)
+  }
+
+  /// 模型根目录由应用管理；先解析再检查包含关系会让被替换的根目录暴露受管范围外的文件。
+  private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
+    var current = path.standardizedFileURL
+    while true {
+      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
+      var status = stat()
+      if lstat(current.path, &status) == 0 {
+        if status.st_mode & S_IFMT == S_IFLNK { return true }
+      } else if errno != ENOENT {
+        return true
+      }
+      let parent = current.deletingLastPathComponent()
+      if parent == current { return false }
+      current = parent
+    }
   }
 }
