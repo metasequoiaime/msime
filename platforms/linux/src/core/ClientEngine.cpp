@@ -2548,8 +2548,9 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
     // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
-    std::vector<std::pair<const char *, std::string>> candidate_commands = {
-        {"CandidatePin", msime::linux_host::candidate_pin_label}};
+    std::vector<std::pair<const char *, std::string>> candidate_commands;
+    candidate_commands.reserve(7);
+    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
     if (msime::linux_host::candidate_dictionary_removal_available(
             scheme, source, candidate_text))
       candidate_commands.emplace_back("CandidateRemove", "删除候选");
