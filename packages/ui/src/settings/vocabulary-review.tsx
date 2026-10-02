@@ -312,14 +312,14 @@ export function VocabularyReviewPage({
                   if (file) void chooseFile(file);
                 }}
               />
-              <button
+              <ActionButton
+                action={() => fileRef.current?.click()}
+                ariaBusy={busy}
+                ariaLabel="导入词表文件"
                 className="secondary"
                 disabled={busy}
-                onClick={() => fileRef.current?.click()}
-                aria-label="导入词表文件"
-              >
-                导入词表（CSV / TXT）
-              </button>
+                label="导入词表（CSV / TXT）"
+              />
               <p className={note}>
                 每行一个词，用逗号或制表符分隔：<code>单词,音标,释义</code> 或{" "}
                 <code>单词,释义</code>

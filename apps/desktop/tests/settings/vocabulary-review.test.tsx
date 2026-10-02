@@ -217,6 +217,25 @@ test("a host that cannot import a file renders no import button", async () => {
   expect(await screen.findByRole("button", { name: "导入词表文件" })).toBeTruthy();
 });
 
+test("marks the import action busy while another vocabulary operation runs", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const reset = vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)));
+  render(
+    <VocabularyReviewPage
+      client={client({ reset, importWordbook: vi.fn(async () => status()) })}
+    />,
+  );
+
+  const importButton = await screen.findByRole("button", { name: "导入词表文件" });
+  fireEvent.click(screen.getByRole("button", { name: "清空复习进度" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  expect(importButton.getAttribute("aria-busy")).toBe("true");
+  expect((importButton as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("a word list over 1 MiB is refused with a message instead of failing silently", async () => {
   const importWordbook = vi.fn(async () => status());
   const { container } = render(<VocabularyReviewPage client={client({ importWordbook })} />);
