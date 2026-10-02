@@ -423,13 +423,10 @@ function PackActions({
         return <ActionBlock note="这台设备的背单词不列出单词本插件。" />;
       return (
         <ActionBlock note="这本书出现在背单词的词书里。卸载插件后复习进度仍会保留，重新安装后可以接着复习。">
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => onOpenWordbook(wordbookPackBookId(pack.id))}
-          >
-            去背单词
-          </button>
+          <ActionButton
+            action={() => onOpenWordbook(wordbookPackBookId(pack.id))}
+            label="去背单词"
+          />
         </ActionBlock>
       );
     }
