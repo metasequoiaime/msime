@@ -3,6 +3,7 @@ import type { WindowControl } from "../keyboard/window-host";
 import { windowIcons } from "./app-resources";
 import * as settings from "./settings-style";
 import type { useSettingsWindowInteractions } from "./use-settings-window-interactions";
+import { ActionButton } from "../core/action-button";
 
 type WindowInteractions = ReturnType<typeof useSettingsWindowInteractions>;
 
@@ -49,29 +50,45 @@ export function WindowTitlebar({
       )}
       {windowControl && (
         <span className={settings.windowControls} {...keepPointer}>
-          <button type="button" aria-label="最小化" onClick={() => void windowControl("minimize")}>
-            <img className={settings.windowIcon} src={windowIcons.minimize} alt="" draggable={false} />
-          </button>
-          <button
-            type="button"
-            aria-label={maximized ? "还原" : "最大化"}
-            onClick={() => void windowControl(maximized ? "restore" : "maximize")}
-          >
-            <img
-              className={settings.windowIcon}
-              src={maximized ? windowIcons.restore : windowIcons.maximize}
-              alt=""
-              draggable={false}
-            />
-          </button>
-          <button
-            type="button"
+          <ActionButton
+            action={() => void windowControl("minimize")}
+            ariaLabel="最小化"
+            className=""
+            label={
+              <img
+                className={settings.windowIcon}
+                src={windowIcons.minimize}
+                alt=""
+                draggable={false}
+              />
+            }
+          />
+          <ActionButton
+            action={() => void windowControl(maximized ? "restore" : "maximize")}
+            ariaLabel={maximized ? "还原" : "最大化"}
+            className=""
+            label={
+              <img
+                className={settings.windowIcon}
+                src={maximized ? windowIcons.restore : windowIcons.maximize}
+                alt=""
+                draggable={false}
+              />
+            }
+          />
+          <ActionButton
+            action={() => void windowControl("close")}
             className={settings.windowClose}
-            aria-label="关闭"
-            onClick={() => void windowControl("close")}
-          >
-            <img className={settings.windowIcon} src={windowIcons.close} alt="" draggable={false} />
-          </button>
+            ariaLabel="关闭"
+            label={
+              <img
+                className={settings.windowIcon}
+                src={windowIcons.close}
+                alt=""
+                draggable={false}
+              />
+            }
+          />
         </span>
       )}
     </header>
