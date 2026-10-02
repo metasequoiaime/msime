@@ -2,6 +2,7 @@ import * as settings from "./settings-style";
 import { GroupList, Row, Select } from "../core/platform-controls";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { SwitchRow } from "./switch-row";
+import { ActionButton } from "./action-button";
 
 export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
@@ -82,11 +83,7 @@ export function MobileKeyboardFeedbackSection({
         )}
         {value.hapticsAvailable !== false && value.hapticsEnabled && (
           <Row title="振动强度">
-            {canPreview && (
-              <button type="button" className="secondary" disabled={busy} onClick={onPreview}>
-                试一下振动
-              </button>
-            )}
+            {canPreview && <ActionButton action={onPreview} disabled={busy} label="试一下振动" />}
             <Select
               disabled={busy}
               value={value.hapticStrength}

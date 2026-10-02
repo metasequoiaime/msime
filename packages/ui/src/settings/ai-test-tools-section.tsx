@@ -1,6 +1,7 @@
 import { GroupList } from "../core/platform-controls";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { ActionButton } from "./action-button";
 
 export function AiTestToolsSection({
   input,
@@ -25,11 +26,7 @@ export function AiTestToolsSection({
       {output && (
         <div className="ai-test-result">
           <div>{output}</div>
-          {onCopyOutput && (
-            <button type="button" className="secondary" onClick={onCopyOutput}>
-              复制结果
-            </button>
-          )}
+          {onCopyOutput && <ActionButton action={onCopyOutput} label="复制结果" />}
         </div>
       )}
     </>
@@ -46,14 +43,11 @@ export function AiTestToolsSection({
           onChange={onInputChange}
         />
         <div className={settings.managerActions}>
-          <button
-            type="button"
-            className="secondary"
+          <ActionButton
+            action={onTest}
             disabled={busy || !input.trim()}
-            onClick={onTest}
-          >
-            {busy ? "发送中…" : "发送并润色"}
-          </button>
+            label={busy ? "发送中…" : "发送并润色"}
+          />
         </div>
         {result}
       </div>

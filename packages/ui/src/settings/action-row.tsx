@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
+import { ActionButton } from "./action-button";
 
 export interface ActionRowProps {
   title: ReactNode;
@@ -25,16 +26,14 @@ export function ActionRow({
 }: ActionRowProps) {
   return (
     <Row title={title} description={description}>
-      <button
-        type="button"
+      <ActionButton
+        action={action}
+        label={label}
         className={className}
-        disabled={disabled || !action}
-        aria-label={ariaLabel}
-        aria-busy={ariaBusy}
-        onClick={() => void action?.()}
-      >
-        {label}
-      </button>
+        disabled={disabled}
+        ariaLabel={ariaLabel}
+        ariaBusy={ariaBusy}
+      />
     </Row>
   );
 }

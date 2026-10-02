@@ -1,4 +1,5 @@
 import { Row } from "../core/platform-controls";
+import { ActionButton } from "./action-button";
 
 export interface VoiceModelPathSectionProps {
   path: string;
@@ -18,20 +19,15 @@ export function VoiceModelPathSection({ path, pickPath, onChange }: VoiceModelPa
         onChange={(event) => onChange(event.target.value)}
       />
       {pickPath && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => {
-            void (async () => {
-              // Cancelling resolves to null and must leave the field as it was, rather than
-              // clearing a path that already worked.
-              const chosen = await pickPath();
-              if (chosen) onChange(chosen);
-            })();
+        <ActionButton
+          action={async () => {
+            // Cancelling resolves to null and must leave the field as it was, rather than
+            // clearing a path that already worked.
+            const chosen = await pickPath();
+            if (chosen) onChange(chosen);
           }}
-        >
-          选择…
-        </button>
+          label="选择…"
+        />
       )}
     </span>
   );

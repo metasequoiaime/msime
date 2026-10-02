@@ -1,4 +1,5 @@
 import { unreadablePreferencesMessage } from "./preferences-recovery-message";
+import { ActionButton } from "./action-button";
 
 export interface SettingsStatusMessagesProps {
   error: string;
@@ -32,9 +33,7 @@ export function SettingsStatusMessages({
           {error === unreadablePreferencesMessage && canRecover && (
             <>
               {" "}
-              <button type="button" className="secondary" disabled={busy} onClick={onRecover}>
-                修复配置文件…
-              </button>
+              <ActionButton action={onRecover} disabled={busy} label="修复配置文件…" />
             </>
           )}
         </p>
@@ -45,17 +44,12 @@ export function SettingsStatusMessages({
           {recoveredBackup && openPreferencesDirectory && (
             <>
               {" "}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  void openPreferencesDirectory().catch(() =>
-                    onError("无法打开配置文件所在的文件夹。"),
-                  )
+              <ActionButton
+                action={() =>
+                  openPreferencesDirectory().catch(() => onError("无法打开配置文件所在的文件夹。"))
                 }
-              >
-                {macos ? "在 Finder 中显示" : "打开所在文件夹"}
-              </button>
+                label={macos ? "在 Finder 中显示" : "打开所在文件夹"}
+              />
             </>
           )}
         </p>

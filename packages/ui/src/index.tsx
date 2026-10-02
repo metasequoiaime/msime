@@ -687,6 +687,7 @@ export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-inpu
 export { EndpointSettingRow, type EndpointSettingRowProps } from "./settings/endpoint-setting-row";
 export { OpenPanelRow, type OpenPanelRowProps } from "./settings/open-panel-row";
 export { ActionRow, type ActionRowProps } from "./settings/action-row";
+export { ActionButton, type ActionButtonProps } from "./settings/action-button";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
 export {
