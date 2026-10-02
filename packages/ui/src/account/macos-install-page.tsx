@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { InputSourceStartupStatus } from "../settings/input-source-startup-notice";
+import { ActionButton } from "../core/action-button";
 
 export interface MacosInstallClient {
   /** Copies the input method into `~/Library/Input Methods` and registers it; resolves with the result once both have finished. */
@@ -151,17 +152,11 @@ export function MacosInstallPage({
             </span>
           </div>
         ) : phase === "ready" ? (
-          <button type="button" className={primary} onClick={install}>
-            立即安装
-          </button>
+          <ActionButton action={install} className={primary} label="立即安装" />
         ) : result?.action === "failed" ? (
-          <button type="button" className={primary} onClick={install}>
-            重试
-          </button>
+          <ActionButton action={install} className={primary} label="重试" />
         ) : (
-          <button type="button" className={primary} onClick={onComplete}>
-            进入设置
-          </button>
+          <ActionButton action={onComplete} className={primary} label="进入设置" />
         )}
       </div>
     </main>
