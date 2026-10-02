@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import * as cloud from "./cloud-panel-style";
 import { CloudDictionaryKindSelect } from "./cloud-dictionary-kind-select";
 import type { CloudDictionaryKind } from "./cloud-dictionary-kind-tabs";
+import { ActionButton } from "../core/action-button";
 
 export interface CloudDictionaryQueryToolbarProps {
   kind: CloudDictionaryKind;
@@ -56,14 +57,12 @@ export function CloudDictionaryQueryToolbar({
           placeholder={placeholder}
         />
       </label>
-      <button
+      <ActionButton
+        action={onQuery}
         {...(queryButtonClassName ? { className: queryButtonClassName } : {})}
-        type="button"
-        onClick={onQuery}
         disabled={busy || queryDisabled}
-      >
-        {queryButtonLabel}
-      </button>
+        label={queryButtonLabel}
+      />
       {children}
     </div>
   );
