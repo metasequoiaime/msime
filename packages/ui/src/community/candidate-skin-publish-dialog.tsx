@@ -20,6 +20,7 @@ import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
+import { ActionButton } from "../core/action-button";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -387,23 +388,19 @@ export function CandidateSkinPublishDialog({
             )}
             <div className={style.confirmationActions}>
               {openSkinDirectory && (
-                <button
-                  type="button"
+                <ActionButton
+                  action={() => void openFolder()}
                   className="secondary"
                   disabled={drawing}
-                  onClick={() => void openFolder()}
-                >
-                  打开目录
-                </button>
+                  label="打开目录"
+                />
               )}
-              <button
-                type="button"
+              <ActionButton
+                action={() => void drawPreview()}
                 className="primary"
                 disabled={drawing}
-                onClick={() => void drawPreview()}
-              >
-                {drawing ? "正在生成…" : "生成预览图"}
-              </button>
+                label={drawing ? "正在生成…" : "生成预览图"}
+              />
             </div>
             {openFailed && <p>无法打开皮肤目录，请重试。</p>}
           </div>
@@ -460,9 +457,11 @@ export function CandidateSkinPublishDialog({
             <p>{packError}</p>
             {openSkinDirectory && (
               <div className={style.confirmationActions}>
-                <button type="button" className="secondary" onClick={() => void openFolder()}>
-                  打开目录
-                </button>
+                <ActionButton
+                  action={() => void openFolder()}
+                  className="secondary"
+                  label="打开目录"
+                />
               </div>
             )}
             {openFailed && <p>无法打开皮肤目录，请重试。</p>}
@@ -511,24 +510,20 @@ export function CandidateSkinPublishDialog({
         )}
         <CommunityDialogActions busy={busy} onClose={onClose}>
           {packError && licenseless && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => void writeLicense()}
               className="primary"
               disabled={writingLicense || !licenseValid}
-              onClick={() => void writeLicense()}
-            >
-              {writingLicense ? "正在写入…" : "使用此授权并继续"}
-            </button>
+              label={writingLicense ? "正在写入…" : "使用此授权并继续"}
+            />
           )}
           {!packError && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => void submit()}
               className="primary"
               disabled={busy || !ready}
-              onClick={() => void submit()}
-            >
-              {busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
-            </button>
+              label={busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
+            />
           )}
         </CommunityDialogActions>
       </div>
