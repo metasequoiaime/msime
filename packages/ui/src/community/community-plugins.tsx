@@ -4,7 +4,6 @@ import {
   communityPublishFields,
   handleCommunityPublishKeyDown,
 } from "./community-publish-validation";
-import { randomUuid } from "../core/random-id";
 import {
   kindLabels,
   type PluginCatalogResult,
@@ -41,6 +40,7 @@ import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { ActionButton } from "../core/action-button";
+import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -519,13 +519,22 @@ export function CommunityPluginPublishDialog({
   const [pack, setPack] = useState<CommunityPluginPackPreview | null>(null);
   const [packError, setPackError] = useState("");
   const [packLoading, setPackLoading] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const {
+    name,
+    description,
+    agreed,
+    publicationId,
+    setName,
+    setDescription,
+    setAgreed,
+    onNameChange,
+    onDescriptionChange,
+    onAgreedChange,
+    resetPublication,
+  } = useCommunityPublicationDraft();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
   const packGeneration = useRef(0);
   const actionRunning = useRef(false);
@@ -577,7 +586,7 @@ export function CommunityPluginPublishDialog({
     setPack(null);
     setPackError("");
     setAgreed(false);
-    setPublicationId(randomUuid());
+    resetPublication();
     if (!chosen) {
       setPackLoading(false);
       return;
@@ -701,15 +710,9 @@ export function CommunityPluginPublishDialog({
               descriptionAriaLabel="发布插件说明"
               agreementText="我拥有插件中音频与文字的发布权利，并同意其他用户按包内授权免费下载使用"
               agreementClassName={style.agreementBox}
-              onNameChange={(value) => {
-                setPublicationId(randomUuid());
-                setName(boundedGraphemes(value, 32));
-              }}
-              onDescriptionChange={(value) => {
-                setPublicationId(randomUuid());
-                setDescription(value);
-              }}
-              onAgreedChange={setAgreed}
+              onNameChange={onNameChange}
+              onDescriptionChange={onDescriptionChange}
+              onAgreedChange={onAgreedChange}
             />
             <p className={style.warning}>{publishWarning}</p>
           </>

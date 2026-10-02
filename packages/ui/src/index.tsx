@@ -1237,6 +1237,10 @@ export {
   type CommunityPublicationMetadataFieldsProps,
 } from "./community/community-publication-metadata-fields";
 export {
+  useCommunityPublicationDraft,
+  type CommunityPublicationDraft,
+} from "./community/use-community-publication-draft";
+export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";

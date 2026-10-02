@@ -4,7 +4,6 @@ import {
   communityPublishFields,
   handleCommunityPublishKeyDown,
 } from "./community-publish-validation";
-import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
@@ -21,6 +20,7 @@ import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialo
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
+import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -97,16 +97,24 @@ export function CandidateSkinPublishDialog({
   const [writingLicense, setWritingLicense] = useState(false);
   const [licenseFailed, setLicenseFailed] = useState(false);
   const [packLoading, setPackLoading] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const {
+    name,
+    description,
+    agreed,
+    publicationId,
+    setName,
+    setAgreed,
+    onNameChange,
+    onDescriptionChange,
+    onAgreedChange,
+    resetPublication,
+  } = useCommunityPublicationDraft();
   const [visibility, setVisibility] = useState<CandidateSkinVisibility>("public");
   const [category, setCategory] = useState<CandidateSkinCategory>("other");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
   const packGeneration = useRef(0);
   const actionRunning = useRef(false);
@@ -164,7 +172,7 @@ export function CandidateSkinPublishDialog({
     setDrawFailed(false);
     setLicenseFailed(false);
     setAgreed(false);
-    setPublicationId(randomUuid());
+    resetPublication();
     if (!skinId) {
       setPackLoading(false);
       return;
@@ -485,15 +493,9 @@ export function CandidateSkinPublishDialog({
                   ? "我拥有发布所用素材的权利，并同意其他用户按上述授权免费下载使用"
                   : "我拥有上传所用素材的权利"
               }
-              onNameChange={(value) => {
-                setPublicationId(randomUuid());
-                setName(boundedGraphemes(value, 32));
-              }}
-              onDescriptionChange={(value) => {
-                setPublicationId(randomUuid());
-                setDescription(value);
-              }}
-              onAgreedChange={setAgreed}
+              onNameChange={onNameChange}
+              onDescriptionChange={onDescriptionChange}
+              onAgreedChange={onAgreedChange}
             />
             <CommunitySkinCategorySelect
               ariaLabel="发布分类"
@@ -501,7 +503,7 @@ export function CandidateSkinPublishDialog({
               disabled={busy}
               onChange={(next) => {
                 // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-                setPublicationId(randomUuid());
+                resetPublication();
                 setCategory(next);
               }}
             />

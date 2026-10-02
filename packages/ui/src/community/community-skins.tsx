@@ -2,7 +2,6 @@
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { boundedGraphemes } from "../core/text";
-import { randomUuid } from "../core/random-id";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
@@ -32,6 +31,7 @@ import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { ActionButton } from "../core/action-button";
+import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -116,16 +116,23 @@ function CommunitySkinPublishDialog({
 }) {
   const [saved, setSaved] = useState<SavedTouchKeyboardSkin[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const {
+    name,
+    description,
+    agreed,
+    publicationId,
+    setName,
+    onNameChange,
+    onDescriptionChange,
+    onAgreedChange,
+    resetPublication,
+  } = useCommunityPublicationDraft();
   const [category, setCategory] = useState<CommunitySkinCategory>("other");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
   const actionRunning = useRef(false);
 
@@ -226,7 +233,7 @@ function CommunitySkinPublishDialog({
               onChange={(nextId) => {
                 const item = saved.find((value) => value.id === nextId);
                 setSelectedId(nextId);
-                setPublicationId(randomUuid());
+                resetPublication();
                 if (item) setName(item.name);
               }}
             >
@@ -247,15 +254,9 @@ function CommunitySkinPublishDialog({
               agreed={agreed}
               busy={busy}
               agreementText="我拥有发布所用素材的权利，并同意其他用户免费下载使用"
-              onNameChange={(value) => {
-                setPublicationId(randomUuid());
-                setName(boundedGraphemes(value, 32));
-              }}
-              onDescriptionChange={(value) => {
-                setPublicationId(randomUuid());
-                setDescription(value);
-              }}
-              onAgreedChange={setAgreed}
+              onNameChange={onNameChange}
+              onDescriptionChange={onDescriptionChange}
+              onAgreedChange={onAgreedChange}
             />
             <CommunitySkinCategorySelect
               ariaLabel="发布分类"
@@ -263,7 +264,7 @@ function CommunitySkinPublishDialog({
               disabled={busy}
               onChange={(next) => {
                 // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-                setPublicationId(randomUuid());
+                resetPublication();
                 setCategory(next);
               }}
             />
