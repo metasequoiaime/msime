@@ -91,10 +91,20 @@ public final class CommunityReplyLibrary {
         if (current == null) throw new IOException("Community library path unavailable");
         for (Path component : absolute) {
             current = current.resolve(component);
-            // macOS temporary paths expose /var through a trusted alias.
-            if (!current.toString().equals("/var") && !current.toString().equals("/tmp")
-                    && Files.isSymbolicLink(current))
+            if (Files.isSymbolicLink(current) && !isTrustedMacSystemAlias(current))
                 throw new IOException("Community library path contains a symbolic link");
+        }
+    }
+
+    /** The host-side smoke tests run on macOS, where these two root aliases are stable. */
+    private static boolean isTrustedMacSystemAlias(Path path) {
+        if (!path.equals(Path.of("/tmp")) && !path.equals(Path.of("/var"))) return false;
+        try {
+            Path target = path.getParent().resolve(Files.readSymbolicLink(path)).normalize();
+            return (path.equals(Path.of("/tmp")) && target.equals(Path.of("/private/tmp")))
+                || (path.equals(Path.of("/var")) && target.equals(Path.of("/private/var")));
+        } catch (IOException | SecurityException error) {
+            return false;
         }
     }
 
