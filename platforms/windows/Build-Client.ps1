@@ -88,7 +88,8 @@ try {
             # use it as the settings product anymore.
             $settingsProject = Join-Path $RepoRoot 'platforms/windows/settings/MSIME.Settings.vcxproj'
             $settingsIntermediate = Join-Path $output 'settings-obj'
-            Invoke-ClientBuild msbuild @($settingsProject, '/t:Restore,Build',
+            # -restore rather than /t:Restore,Build: restore writes obj\*.nuget.g.targets, where the CppWinRT and Windows App SDK build logic lives, and only a separate evaluation after it imports them. In one evaluation the build skips header generation, which only a previously restored obj directory hides.
+            Invoke-ClientBuild msbuild @($settingsProject, '-restore', '/t:Build',
                 '/p:Configuration=RelWithDebInfo', '/p:Platform=x64',
                 "/p:HostApiLibrary=$(Join-Path $release 'msime_host_api.dll.lib')",
                 "/p:OutDir=$bin\", "/p:IntDir=$settingsIntermediate\")
