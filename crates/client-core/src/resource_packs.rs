@@ -112,8 +112,31 @@ pub fn root(state_root: &Path) -> PathBuf {
     state_root.join(DIRECTORY)
 }
 
+/// 资源包的每一层父目录都必须是真实目录。只检查最后一层会让 `resource-packs` 自身的符号链接把读取导向 state_root 外部；`/var` 和 `/tmp` 在 macOS 上可能只是受信任的别名。
+fn resource_root_is_safe(state_root: &Path) -> bool {
+    let mut current = Some(root(state_root));
+    while let Some(path) = current {
+        if path == Path::new("/var") || path == Path::new("/tmp") {
+            break;
+        }
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return false;
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return false,
+        }
+        current = path.parent().map(Path::to_path_buf);
+    }
+    true
+}
+
 /// 已发布的资源包目录：真实目录（不是符号链接），且带有普通文件形式的 `msime-model.json`。
 fn published_directory(state_root: &Path, pack: ResourcePack) -> Option<PathBuf> {
+    if !resource_root_is_safe(state_root) {
+        return None;
+    }
     let directory = root(state_root).join(pack.id());
     if !fs::symlink_metadata(&directory).ok()?.file_type().is_dir() {
         return None;
@@ -170,11 +193,13 @@ pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
     ResourcePack::ALL
         .into_iter()
         .map(|pack| {
-            let state = match local_models::installed_manifest(&packs_root, pack.id()) {
-                Some(manifest) if manifest == pack.manifest() => PackState::Installed,
-                Some(_) => PackState::Outdated,
-                // 标记文件在但读不出来（损坏或过大）也按过期处理，重新下载即可修复。
-                None if published_directory(state_root, pack).is_some() => PackState::Outdated,
+            let state = match published_directory(state_root, pack) {
+                Some(_) => match local_models::installed_manifest(&packs_root, pack.id()) {
+                    Some(manifest) if manifest == pack.manifest() => PackState::Installed,
+                    Some(_) => PackState::Outdated,
+                    // 标记文件在但读不出来（损坏或过大）也按过期处理，重新下载即可修复。
+                    None => PackState::Outdated,
+                },
                 None => PackState::Missing,
             };
             ResourcePackStatus {
@@ -340,6 +365,18 @@ mod tests {
             installed_file(state.path(), pack, "zhuyin.db"),
             Some(directory.join("zhuyin.db"))
         );
+
+        // 资源包父目录是符号链接时，也不能把外部文件当作已安装资源。
+        let linked_state = tempfile::tempdir().unwrap();
+        let linked_root = root(linked_state.path());
+        symlink(root(outside.path()), &linked_root).unwrap();
+        assert_eq!(
+            installed_file(linked_state.path(), pack, "cantonese.db"),
+            None
+        );
+        assert!(list(linked_state.path())
+            .iter()
+            .all(|status| status.state == PackState::Missing));
     }
 
     #[test]
