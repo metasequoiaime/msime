@@ -8,7 +8,7 @@ import {
   type KeyboardHeatmapKey,
 } from "./keyboard-heatmap";
 import { scopedBreakdown } from "./typing-breakdown";
-import { chartGradient } from "./typing-chart";
+import { DONUT_OUTER, DONUT_THICKNESS, donutSegments } from "./typing-chart";
 import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
@@ -988,16 +988,33 @@ function ShapeChart({
   }
   return (
     <div
-      className="relative mx-auto mt-4 mb-[18px] grid size-[190px] place-items-center"
+      className="relative mx-auto size-[190px] shrink-0"
       role="img"
       aria-label={`${title}环形图`}
     >
-      <div
-        className="size-full rounded-full [mask:radial-gradient(circle,transparent_0_61%,#000_62%)]"
-        style={{ background: chartGradient(slices, Math.max(1, total)) }}
-      />
-      <div className="absolute flex size-[106px] flex-col items-center justify-center rounded-full bg-card">
-        <strong className="text-[25px] text-body">{total.toLocaleString("zh-CN")}</strong>
+      {/* 用 SVG 画环：环宽约为外半径的四分之一，扇区之间留底色缝隙，原先用 conic-gradient 加遮罩只能画出一道细线。 */}
+      <svg className="block size-full" viewBox="0 0 100 100" aria-hidden="true">
+        {donutSegments(slices).map((segment, index) =>
+          "ring" in segment ? (
+            <circle
+              key={index}
+              cx="50"
+              cy="50"
+              r={DONUT_OUTER - DONUT_THICKNESS / 2}
+              fill="none"
+              stroke={segment.color}
+              strokeWidth={DONUT_THICKNESS}
+              data-donut-segment=""
+            />
+          ) : (
+            <path key={index} d={segment.d} fill={segment.color} data-donut-segment="" />
+          ),
+        )}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <strong className="text-[25px] leading-tight font-semibold tabular-nums text-body">
+          {total.toLocaleString("zh-CN")}
+        </strong>
         <span className="text-[11px] text-muted">字符</span>
       </div>
     </div>
@@ -1021,17 +1038,18 @@ function Distribution({
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter((slice) => slice.count > 0 || slice.id !== "unknown");
   return (
-    <section className="section m-0" aria-labelledby={`statistics-${title}`}>
+    <section className="section m-0 @container" aria-labelledby={`statistics-${title}`}>
       <h2 className={heading} id={`statistics-${title}`}>
         {title}
       </h2>
       {total === 0 ? (
         <p className={`${empty} mt-3.5`}>暂无输入记录</p>
       ) : (
+        // 标题独占一行，图表区整体放在标题下方；宽版按容器宽度而不是视口宽度决定是否并排，窄窗口里环形图回到图例上方，不再把图例挤成一字一行。
         <div
           className={
-            wide && variant === "donut"
-              ? "grid grid-cols-[190px_minmax(0,1fr)] items-center gap-8"
+            variant === "donut"
+              ? `mt-4 grid gap-5 ${wide ? "@min-[520px]:grid-cols-[190px_minmax(0,1fr)] @min-[520px]:items-center @min-[520px]:gap-8" : ""}`
               : undefined
           }
         >

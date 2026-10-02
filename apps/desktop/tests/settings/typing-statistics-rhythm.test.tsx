@@ -207,8 +207,15 @@ test("desktop shares are donuts beside their legend and schemes are a ranking", 
     />,
   );
   fireEvent.click(await screen.findByRole("tab", { name: "类型" }));
-  expect(screen.getByRole("img", { name: "字符类型环形图" })).toBeTruthy();
+  const donut = screen.getByRole("img", { name: "字符类型环形图" });
   expect(screen.getByLabelText("汉字 70 字符，70.0%")).toBeTruthy();
+  // 环是两段实心扇区，不再是 conic-gradient 加遮罩画出的细线；总数写在圆心。
+  const segments = donut.querySelectorAll("[data-donut-segment]");
+  expect(Array.from(segments).map((segment) => segment.tagName.toLowerCase())).toEqual([
+    "path",
+    "path",
+  ]);
+  expect(within(donut).getByText("100")).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "方案" }));
   const ranking = screen.getByRole("img", { name: "输入方案排行" });
   // Largest first, and only schemes that were used: the ranking is the legend.
