@@ -623,6 +623,20 @@ fn install_clears_what_an_interrupted_install_left_behind() {
 }
 
 #[test]
+fn install_clears_a_stray_file_left_by_an_interrupted_install() {
+    let state = tempfile::tempdir().unwrap();
+    let root = state.path().join("skins");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join(".replaced-sakura"), b"stray leftover").unwrap();
+
+    assert_eq!(
+        install(&root, &standard_download(), false).unwrap(),
+        "sakura"
+    );
+    assert_no_helpers(&root);
+}
+
+#[test]
 fn overlapping_installs_do_not_clear_each_other() {
     let state = tempfile::tempdir().unwrap();
     let root = state.path().join("skins");

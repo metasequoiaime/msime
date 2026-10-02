@@ -1376,8 +1376,15 @@ fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn remove_leftover(path: &Path) -> Result<(), &'static str> {
-    if fs::symlink_metadata(path).is_ok() {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(STORAGE),
+    };
+    if metadata.is_dir() {
         fs::remove_dir_all(path).map_err(|_| STORAGE)?;
+    } else {
+        fs::remove_file(path).map_err(|_| STORAGE)?;
     }
     Ok(())
 }
