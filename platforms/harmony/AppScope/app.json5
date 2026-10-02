@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "app.msime.harmony",
     "vendor": "metasequoiaime",
-    "versionCode": 1000,
-    "versionName": "0.1.0",
+    "versionCode": 1001,
+    "versionName": "0.1.1",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
