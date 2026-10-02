@@ -1,4 +1,5 @@
-import { Row, Segmented, Switch } from "../core/platform-controls";
+import { Row, Segmented } from "../core/platform-controls";
+import { SwitchRow } from "./switch-row";
 
 export type WordCharacterPreferences = {
   enabled: boolean;
@@ -41,24 +42,21 @@ export function WordCharacterSection({
 }: WordCharacterSectionProps) {
   return (
     <>
-      <Row
+      <SwitchRow
         title="以词定字"
         description={
           ios
             ? "开启后，长按两个字以上的候选，可以只上屏它的首字或末字"
             : "开启后，按所选键组的左键上屏高亮候选的首个汉字，右键上屏末个汉字"
         }
-      >
-        <Switch
-          checked={preferences.enabled}
-          onChange={(enabled) =>
-            onChange({
-              wordCharacter: { ...preferences, enabled },
-              navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
-            })
-          }
-        />
-      </Row>
+        checked={preferences.enabled}
+        onChange={(enabled) =>
+          onChange({
+            wordCharacter: { ...preferences, enabled },
+            navigation: enabled ? { ...navigation, [preferences.keys]: false } : navigation,
+          })
+        }
+      />
       {/* An iOS keyboard extension never receives hardware keys; its candidates offer the first and last character on a long press instead. */}
       {!ios && (
         <Row title="以词定字快捷键">
