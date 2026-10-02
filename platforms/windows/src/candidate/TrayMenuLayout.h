@@ -129,6 +129,7 @@ inline std::vector<TrayMenuItem>
 tray_menu_items(const TrayMenuCapabilities &capabilities,
                 const TrayMenuState &state) {
   std::vector<TrayMenuItem> items;
+  items.reserve(29);
   auto header = [&](std::string label) {
     TrayMenuItem item;
     item.kind = TrayMenuRowKind::Header;
