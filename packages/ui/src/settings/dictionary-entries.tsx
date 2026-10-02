@@ -67,9 +67,7 @@ export function DictionaryEntries({
               onChange={(event) => onFormChange({ ...form, weight: Number(event.target.value) })}
             />
           </label>
-          <button type="button" disabled={busy} onClick={onSave}>
-            保存
-          </button>
+          <ActionButton action={onSave} ariaBusy={busy} className="" disabled={busy} label="保存" />
           <ActionButton action={onCancel} disabled={busy} label="取消" />
         </div>
       )}
