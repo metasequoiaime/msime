@@ -290,11 +290,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func reloadSharedPreferences(completion: @escaping (Bool) -> Void) {
     guard handle != 0, let stateRoot else { completion(false); return }
     let path = Data(stateRoot.utf8)
-    // Keep the bridge alive until the main-thread callback has applied the snapshot. A weak
-    // capture here can drop the bridge while the worker is reading, leaving callers waiting
-    // forever for a completion that is never delivered. Capturing it strongly in both closures
-    // also keeps the final release on the main queue, where the session handle is owned.
-    DispatchQueue.global(qos: .utility).async { [self, path] in
+    // Keep the bridge alive until the main-thread callback has applied the snapshot. A weak capture here can drop the bridge while the worker is reading, leaving callers waiting forever for a completion that is never delivered. Capturing it strongly in both closures also keeps the final release on the main queue, where the session handle is owned.
+    // The visible keyboard waits on this read, so it runs at userInitiated: Darwin throttles utility-QoS disk I/O whenever other I/O is busy, and that stalled the lock and the small document read for over 15 seconds on a loaded simulator.
+    DispatchQueue.global(qos: .userInitiated).async { [self, path] in
       let snapshot: [String: Any]?
       do {
         snapshot = try path.withUnsafeBytes { bytes in
