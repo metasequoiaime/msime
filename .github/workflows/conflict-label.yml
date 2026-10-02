@@ -15,8 +15,8 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  # 每次都检查全部开着的 PR，只需要最新的一次。
-  group: conflict-label
+  # 每次都检查全部开着的 PR，所以同一来源连续触发时只需要最新的一次：push 按分支、PR 按编号各自分组。不能所有触发共用一组：develop 一推送，push 和 develop→main 发布 PR 的 synchronize 会在同一个提交上几乎同时触发，后到的取消先到的，被取消的那次就作为失败挂在发布 PR 上；两个 PR 同时推送也会这样互相取消。分组后同一个提交上不会再有被取消的运行，被取消的只剩已不是任何 PR 头部的旧提交。两组偶尔并行各扫一遍，加、摘标签前都先读当前状态，重复执行无害。
+  group: conflict-label-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
