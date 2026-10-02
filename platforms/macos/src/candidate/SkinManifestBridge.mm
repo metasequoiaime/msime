@@ -404,6 +404,7 @@ SkinCatalog ScanSkinCatalog(const std::filesystem::path &skinsRoot)
         NSArray *packages = catalog[@"packages"];
         if ([packages isKindOfClass:NSArray.class])
         {
+            result.packages.reserve(packages.count);
             for (id entry in packages)
             {
                 if (auto package = PackageFromJSON(entry))
