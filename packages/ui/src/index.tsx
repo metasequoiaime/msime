@@ -1095,6 +1095,11 @@ export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-
 export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
 export { SelectRow, type SelectRowProps } from "./settings/select-row";
 export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
+export {
+  SegmentedRow,
+  type SegmentedRowOption,
+  type SegmentedRowProps,
+} from "./settings/segmented-row";
 export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,
