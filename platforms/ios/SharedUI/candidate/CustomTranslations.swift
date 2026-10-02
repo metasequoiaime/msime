@@ -86,7 +86,8 @@ enum CustomTranslations {
     let data: Data
     do {
       data = try BoundedFileReader.read(from: url, maximumBytes: maximumBytes)
-    } catch CocoaError.fileReadNoSuchFile {
+    } catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
+      // `BoundedFileReader` 用 `FileHandle` 打开文件，文件不存在时抛的是 `fileNoSuchFile`（4），不是 `Data(contentsOf:)` 的 `fileReadNoSuchFile`（260），两种都表示还没有文件。
       return ""
     } catch BoundedFileReader.Failure.tooLarge {
       throw Failure.unreadable
