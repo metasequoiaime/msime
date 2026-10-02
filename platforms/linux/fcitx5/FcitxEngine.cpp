@@ -3544,7 +3544,10 @@ public:
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
 #endif
-    for (const auto &candidate : state.view_.at("candidates")) {
+    const auto &candidates = state.view_.at("candidates");
+    words_.reserve(candidates.size());
+    labels_.reserve(candidates.size());
+    for (const auto &candidate : candidates) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
