@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.stream.Stream;
 import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayInputStream;
 
 public final class BootstrapMarkerSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -86,6 +87,22 @@ public final class BootstrapMarkerSmoke {
             Files.deleteIfExists(boundaryRoot);
             Files.deleteIfExists(boundaryOutside.resolve("resources"));
             Files.deleteIfExists(boundaryOutside);
+        }
+        Path copyRoot = Files.createTempDirectory("bootstrap-copy-root");
+        Path copyOutside = Files.createTempDirectory("bootstrap-copy-outside");
+        try {
+            Path destination = copyRoot.resolve("table.txt");
+            Path sentinel = copyOutside.resolve("sentinel.txt");
+            Files.writeString(sentinel, "keep");
+            Files.createSymbolicLink(destination, sentinel);
+            Bootstrap.copyAsset(new ByteArrayInputStream("replacement".getBytes(StandardCharsets.UTF_8)), destination);
+            check(Files.readString(sentinel).equals("keep"));
+            check(Files.readString(destination).equals("replacement"));
+        } finally {
+            Files.deleteIfExists(copyRoot.resolve("table.txt"));
+            Files.deleteIfExists(copyRoot);
+            Files.deleteIfExists(copyOutside.resolve("sentinel.txt"));
+            Files.deleteIfExists(copyOutside);
         }
         System.out.println("Android bootstrap marker bounds passed");
     }
