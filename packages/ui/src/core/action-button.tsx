@@ -9,6 +9,7 @@ export interface ActionButtonProps {
   ariaBusy?: boolean;
   ariaPressed?: boolean;
   ariaExpanded?: boolean;
+  role?: "button" | "menuitem";
 }
 
 /** Shared button for an action that may be asynchronous or unavailable. */
@@ -21,10 +22,12 @@ export function ActionButton({
   ariaBusy,
   ariaPressed,
   ariaExpanded,
+  role,
 }: ActionButtonProps) {
   return (
     <button
       type="button"
+      role={role}
       className={className}
       disabled={disabled || !action}
       aria-label={ariaLabel}

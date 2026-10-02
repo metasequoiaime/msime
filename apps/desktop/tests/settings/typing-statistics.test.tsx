@@ -380,6 +380,28 @@ test("marks the desktop statistics refresh action busy", async () => {
   finish(status());
 });
 
+test("marks the mobile statistics menu refresh action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  render(<TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn() }} mobile />);
+
+  await screen.findByLabelText("当前范围输入字符数");
+  const summary = document.querySelector('summary[aria-label="统计选项"]');
+  if (!summary) throw new Error("missing statistics menu summary");
+  fireEvent.click(summary);
+  fireEvent.click(screen.getByRole("menuitem", { name: "刷新统计" }));
+
+  const menuItem = screen.getByRole("menuitem", { name: "处理中…" });
+  expect(menuItem.getAttribute("aria-busy")).toBe("true");
+  expect((menuItem as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("opens the statistics data directory", async () => {
   const openDirectory = vi.fn().mockResolvedValue(undefined);
   render(

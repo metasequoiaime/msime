@@ -1577,23 +1577,21 @@ export function TypingStatisticsPage({
                   onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
                 />
               </label>
-              <button
-                type="button"
-                role="menuitem"
+              <ActionButton
+                action={() => void update(() => client.load(), true)}
+                ariaBusy={busy}
+                className=""
                 disabled={busy}
-                onClick={() => void update(() => client.load(), true)}
-              >
-                {busy ? "处理中…" : "刷新统计"}
-              </button>
-              <button
-                type="button"
+                label={busy ? "处理中…" : "刷新统计"}
                 role="menuitem"
+              />
+              <ActionButton
+                action={() => void resetStatistics()}
                 className={`${menuItem} text-danger`}
                 disabled={busy}
-                onClick={() => void resetStatistics()}
-              >
-                清空统计
-              </button>
+                label="清空统计"
+                role="menuitem"
+              />
             </div>
           </details>
         </div>
