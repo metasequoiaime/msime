@@ -276,10 +276,11 @@ int main() {
                 "An unavailable scheme did not fall back the way host-api does.");
         [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
 
-        // An opt-in mode is enabled when the scheme moves to it, not when a process starts on it, not for an unchanged scheme, and not for a scheme that cannot run.
+        // 方案切到粤、注、越时启用对应模式，第一次同步就落在这类方案上也启用；方案没变、方案跑不起来、或方案没有按需模式时都不启用。
         require([MSIMEOptInInputModeToEnable(@"quanpin", @"cantonese", YES) isEqualToString:MSIMECantoneseInputModeID] &&
                     [MSIMEOptInInputModeToEnable(@"korean", @"vietnamese", YES) isEqualToString:MSIMEVietnameseInputModeID] &&
-                    !MSIMEOptInInputModeToEnable(nil, @"zhuyin", YES) && !MSIMEOptInInputModeToEnable(@"zhuyin", @"zhuyin", YES) &&
+                    [MSIMEOptInInputModeToEnable(nil, @"zhuyin", YES) isEqualToString:MSIMEZhuyinInputModeID] &&
+                    !MSIMEOptInInputModeToEnable(nil, @"quanpin", YES) && !MSIMEOptInInputModeToEnable(@"zhuyin", @"zhuyin", YES) &&
                     !MSIMEOptInInputModeToEnable(@"quanpin", @"zhuyin", NO) && !MSIMEOptInInputModeToEnable(@"quanpin", @"wubi", YES),
                 "An opt-in mode was enabled at the wrong time.");
 

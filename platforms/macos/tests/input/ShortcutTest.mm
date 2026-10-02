@@ -1864,7 +1864,7 @@ static void TestOptInSchemeModes() {
     for (NSMenuItem *item in schemeItem.submenu.itemArray) [listed addObject:item.representedObject];
     assert(([listed isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"vietnamese"]]));
 
-    // The first sync ever only records the scheme.
+    // 第一次同步落在全拼上只记录方案。
     assert(!appearance.lastSyncedInputScheme);
     [controller syncSystemInputModeForClient:client];
     assert([appearance.lastSyncedInputScheme isEqual:@"quanpin"] && enabled.count == 0);
@@ -1900,12 +1900,35 @@ static void TestOptInSchemeModes() {
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(([enabled.lastObject isEqual:MSIMECantoneseInputModeID]) && enabled.count == 3);
 
+    // 第一次同步就落在粤拼上时同样启用「粤」：持久记录出现之前就在用粤拼的人，否则永远等不到这一次切换。
+    NSString *firstSuite = [@"msime.opt-in-first-sync." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *firstDefaults = [[NSUserDefaults alloc] initWithSuiteName:firstSuite];
+    [firstDefaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
+    MSIMEAppearancePreferences *first = [[MSIMEAppearancePreferences alloc] initWithDefaults:firstDefaults];
+    assert(!first.lastSyncedInputScheme);
+    next = makeController(first, YES);
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 4 && [enabled.lastObject isEqual:MSIMECantoneseInputModeID] && [first.lastSyncedInputScheme isEqual:@"cantonese"]);
+    MSIMERemoveTestPreferenceSuite(firstDefaults, firstSuite);
+
+    // 系统没能启用模式时不记录这次切换，下一次同步再试，成功后才记录。
+    [defaults setObject:@"quanpin" forKey:@"MSIMEClientLastSyncedInputScheme"];
+    relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    next = makeController(relaunched, NO);
+    __block OSStatus enableStatus = paramErr;
+    [next setValue:^OSStatus(NSString *identifier) { [enabled addObject:identifier]; return enableStatus; } forKey:@"optInInputModeEnabler"];
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 5 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
+    enableStatus = noErr;
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 6 && [enabled.lastObject isEqual:MSIMECantoneseInputModeID] && [relaunched.lastSyncedInputScheme isEqual:@"cantonese"]);
+
     // A stand-in session with no enabler never reaches TIS, and the change stays unrecorded so a real session would still enable it.
     [defaults setObject:@"quanpin" forKey:@"MSIMEClientLastSyncedInputScheme"];
     relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     next = makeController(relaunched, NO);
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
-    assert(enabled.count == 3 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
+    assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
 
     // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 is disabled and says why, and the rest are enabled.
     assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"zhuyin.db"] error:nil]);

@@ -221,7 +221,7 @@ int main()
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        // Registration enables every mode, Shuangpin and Wubi included: System Settings' add dialog does not list a third-party input method's modes, so one left off could not be turned on.
+        // 登记会启用除按需模式以外的全部模式，双拼和五笔也在内，装好即可使用，不必让用户去系统设置的「添加」对话框里逐个找。
         const void *chineseSchemeSources[] = {shuangpinModeSource, wubiModeSource, hansModeSource};
         sourceList = CFArrayCreate(nullptr, chineseSchemeSources, 3, nullptr);
         enabledSources.clear();
