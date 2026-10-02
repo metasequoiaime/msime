@@ -1,4 +1,5 @@
 import { GroupList } from "../core/platform-controls";
+import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
 
 export function AiTestToolsSection({
@@ -40,19 +41,14 @@ export function AiTestToolsSection({
     return (
       <GroupList title="测试工具">
         <div className={settings.managerBlock}>
-          <label className={settings.field}>
-            <span>
-              <span data-row-title="">AI 润色测试</span>{" "}
-              仅在点击发送时请求当前配置；测试文字不会写入日志。
-            </span>
-            <textarea
-              aria-label="AI 测试输入"
-              className={settings.promptInput}
-              placeholder="输入一段待润色文字"
-              value={input}
-              onChange={(event) => onInputChange(event.target.value)}
-            />
-          </label>
+          <SettingsTextareaField
+            label="AI 润色测试"
+            description="仅在点击发送时请求当前配置；测试文字不会写入日志。"
+            ariaLabel="AI 测试输入"
+            placeholder="输入一段待润色文字"
+            value={input}
+            onChange={onInputChange}
+          />
           <div className={settings.managerActions}>
             <button
               type="button"
