@@ -913,13 +913,13 @@ void CandidateWindow::paint() {
       if (value->candidates[i].highlighted && palette_.show_selected_bar) {
         const auto extent = candidate_selection_bar(
             rect.left, rect.top, rect.bottom, metrics.candidate_row);
-        const float radius =
+        const float bar_radius =
             static_cast<float>(candidate_selection_bar_width * 0.5);
         const D2D1_ROUNDED_RECT bar{{static_cast<float>(extent.left),
                                      static_cast<float>(extent.top),
                                      static_cast<float>(extent.right),
                                      static_cast<float>(extent.bottom)},
-                                    radius, radius};
+                                    bar_radius, bar_radius};
         target->FillRoundedRectangle(bar, brush(palette_.accent));
       }
     }
@@ -931,8 +931,8 @@ void CandidateWindow::paint() {
     const auto row_text_color =
         candidate_row_text_color(palette_, text_color, selected,
                                  value->candidates[i].fixed_position != 0);
-    const auto label = std::to_wstring(i + 1);
-    target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
+    const auto number_label = std::to_wstring(i + 1);
+    target->DrawText(number_label.c_str(), static_cast<UINT32>(number_label.size()),
                       format(font_size_, DWRITE_TEXT_ALIGNMENT_TRAILING),
                       D2D1_RECT_F{rect.left, rect.top, rect.left + number,
                                   rect.top + first_line},
