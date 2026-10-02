@@ -403,10 +403,8 @@ export function VocabularyReviewPage({
 
       {managing && (
         <div className="section">
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={async () => {
+          <ActionButton
+            action={async () => {
               if (
                 !(await confirm({
                   title: "清空进度",
@@ -418,9 +416,11 @@ export function VocabularyReviewPage({
                 return;
               await update(() => client.reset());
             }}
-          >
-            清空复习进度
-          </button>
+            ariaBusy={busy}
+            className="secondary"
+            disabled={busy}
+            label="清空复习进度"
+          />
         </div>
       )}
 

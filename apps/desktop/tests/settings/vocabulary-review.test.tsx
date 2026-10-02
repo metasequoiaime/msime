@@ -191,6 +191,21 @@ test("clearing the progress asks first and does nothing when cancelled", async (
   expect(await screen.findByText("今天的复习已经完成。")).toBeTruthy();
 });
 
+test("marks progress reset busy while it is clearing", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const reset = vi.fn(() => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)));
+  render(<VocabularyReviewPage client={client({ reset })} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "清空复习进度" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  const button = screen.getByRole("button", { name: "清空复习进度" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("a host that cannot import a file renders no import button", async () => {
   render(<VocabularyReviewPage client={client()} />);
   await screen.findByText("背单词");
