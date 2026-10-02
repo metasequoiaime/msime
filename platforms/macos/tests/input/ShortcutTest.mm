@@ -6613,7 +6613,8 @@ static void TestOnDeviceGlosses() {
         [controller synchronizeOnDeviceGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
         [(NSOperationQueue *)[controller valueForKey:@"targetGlossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        // 英文词典和目标语言词典在后台队列结束时把结果投递到主队列，端侧请求要等这些结果落地才会发出，这条路径上没有计时器。这里排空主队列，而不是转一段固定 0.2 秒的 run loop：完整的 shortcut 运行里前面用例留在主线程的回调在慢机器和 AddressSanitizer 上能占满这段时间，结果还没处理时 onDeviceFetches 就会少一条。
+        DrainMainQueue();
     };
     void (^reply)(NSString *, NSDictionary *) = ^(NSString *target, NSDictionary *translations) {
         [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
@@ -6718,7 +6719,8 @@ static void TestOnDeviceGlossPersistence() {
         [controller synchronizeCandidateGloss];
         [controller synchronizeOnDeviceGloss];
         [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
-        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+        // 英文词典在后台队列结束时把结果投递到主队列，端侧请求要等它落地才会发出，这条路径上没有计时器。这里排空主队列，而不是转一段固定 0.2 秒的 run loop：完整的 shortcut 运行里前面用例留在主线程的回调在慢机器和 AddressSanitizer 上能占满这段时间。
+        DrainMainQueue();
     };
     void (^reply)(CustomTranslationController *, NSString *, NSDictionary *) =
         ^(CustomTranslationController *controller, NSString *target, NSDictionary *translations) {
