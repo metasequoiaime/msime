@@ -90,6 +90,24 @@ test("failed catalog retries while allowing manual font entry", async () => {
   await screen.findByText("系统字体列表为空，可手动输入。");
 });
 
+test("disables the font catalog refresh while loading", async () => {
+  let finish!: (fonts: string[]) => void;
+  const listFontFamilies = vi.fn(() => new Promise<string[]>((resolve) => (finish = resolve)));
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{ load: async () => initial, save: vi.fn(), listFontFamilies }}
+    />,
+  );
+  const input = await screen.findByLabelText("主字体");
+  fireEvent.focus(input);
+  await screen.findByText("正在读取字体列表。");
+  expect((screen.getByRole("button", { name: "刷新字体列表" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  await act(async () => finish(["示例字体"]));
+});
+
 test("large catalogs bound visible options without losing searchable entries", async () => {
   render(
     <SettingsPage

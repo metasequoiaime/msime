@@ -6,6 +6,7 @@ import {
 import { candidateMainFontPatch } from "./candidate-font-presets";
 import { useFontCatalog, type FontCatalogReader } from "./font-catalog";
 import { FontFamilyInput } from "./font-family-input";
+import { ActionButton } from "../core/action-button";
 import { Row } from "../core/platform-controls";
 
 /**
@@ -73,14 +74,12 @@ export function CandidateFontControls({
       {/* The live region stays mounted while empty, so the status it later takes is announced. */}
       <Row title="系统字体列表" description={<span role="status">{catalogStatus}</span>}>
         {readFonts && (
-          <button
-            type="button"
+          <ActionButton
+            action={catalog.refresh}
             className="secondary m-0"
             disabled={catalog.status === "loading"}
-            onClick={catalog.refresh}
-          >
-            刷新字体列表
-          </button>
+            label="刷新字体列表"
+          />
         )}
       </Row>
     </>
