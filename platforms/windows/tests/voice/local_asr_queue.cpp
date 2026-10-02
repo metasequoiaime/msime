@@ -47,6 +47,10 @@ int main() {
             msime::windows::LocalAsrAudioQueue::PushResult::accepted);
     const auto short_batch = reserved.wait_and_take(ended);
     REQUIRE(short_batch.capacity() >= 4);
+    REQUIRE(reserved.push(samples, 1) ==
+            msime::windows::LocalAsrAudioQueue::PushResult::accepted);
+    const auto second_batch = reserved.wait_and_take(ended);
+    REQUIRE(second_batch.capacity() >= 4);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

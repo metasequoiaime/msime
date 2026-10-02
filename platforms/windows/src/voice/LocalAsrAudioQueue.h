@@ -58,6 +58,9 @@ public:
     wake_.wait(lock, [this] { return closed_ || !pending_.empty(); });
     std::vector<float> batch;
     batch.swap(pending_);
+    // Swapping transfers the reserved buffer to the returned batch. Keep the
+    // capture-side queue preallocated for the next callback batch.
+    pending_.reserve(maximum_samples_);
     ended = closed_;
     return batch;
   }
