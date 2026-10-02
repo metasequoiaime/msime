@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
+import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { GroupList, Row } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
@@ -581,25 +582,27 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
       </p>
       {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
       <div className={account.actionRow}>
-        <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>
-          刷新云端设置
-        </button>
-        <button
-          type="button"
+        <ActionButton
+          action={() => void load()}
+          ariaBusy={busy}
+          className="secondary"
+          disabled={busy}
+          label="刷新云端设置"
+        />
+        <ActionButton
+          action={() => setConfirmation("upload")}
+          ariaBusy={busy}
           className={account.primary}
           disabled={busy || !cloud || !schema}
-          onClick={() => setConfirmation("upload")}
-        >
-          上传本机设置
-        </button>
-        <button
-          type="button"
+          label="上传本机设置"
+        />
+        <ActionButton
+          action={() => setConfirmation("apply")}
+          ariaBusy={busy}
           className="secondary"
           disabled={busy || !cloud || !schema || !hasCloudSettings}
-          onClick={() => setConfirmation("apply")}
-        >
-          下载并应用云端设置
-        </button>
+          label="下载并应用云端设置"
+        />
       </div>
       {busy && <p role="status">正在处理…</p>}
       {message && <p role="status">{message}</p>}
@@ -615,22 +618,20 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
               : "将替换本机对应设置，不会下载词库或开启数据上传。"}
           </p>
           <div className={account.actionRow}>
-            <button
-              type="button"
+            <ActionButton
+              action={() => void runConfirmed()}
+              ariaBusy={busy}
               className={account.primary}
               disabled={busy}
-              onClick={() => void runConfirmed()}
-            >
-              {confirmation === "upload" ? "确认上传" : "确认应用"}
-            </button>
-            <button
-              type="button"
+              label={confirmation === "upload" ? "确认上传" : "确认应用"}
+            />
+            <ActionButton
+              action={() => setConfirmation(null)}
+              ariaBusy={busy}
               className="secondary"
               disabled={busy}
-              onClick={() => setConfirmation(null)}
-            >
-              取消
-            </button>
+              label="取消"
+            />
           </div>
         </div>
       )}
