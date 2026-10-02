@@ -18,9 +18,9 @@ int main() {
   const auto path = root / "state.txt";
   const auto outside = root / "outside.txt";
   std::ofstream(outside) << "keep";
+  std::string contents;
 #ifndef _WIN32
   fs::create_symlink(outside, path);
-  std::string contents;
   assert(!msime::windows::read_audio_mute_state(path, contents));
 #else
   std::ofstream(path) << "old";
