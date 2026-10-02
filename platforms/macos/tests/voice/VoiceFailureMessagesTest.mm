@@ -29,7 +29,7 @@ int main() {
         assert(cloud_asr_status_message(503, "", "openai", "fixture", "synthetic-trace") == "语音识别失败：HTTP 503");
         assert(cloud_asr_status_message(500, "", "siliconflow", "FunAudioLLM/SenseVoiceSmall", "synthetic-trace") ==
                "语音识别失败：HTTP 500。这是硅基流动服务端内部错误，模型名 FunAudioLLM/SenseVoiceSmall 本身是官方支持的。 追踪 ID：synthetic-trace。");
-        assert(cloud_asr_status_message(502, "", "cloud", "fixture", "") ==
+        assert(cloud_asr_status_message(502, "", "SiliconFlow", "fixture", "") ==
                "语音识别失败：HTTP 502。这是硅基流动服务端内部错误，模型名 fixture 本身是官方支持的。");
         assert(cloud_asr_status_message(429, "", "siliconflow", "fixture", "synthetic-trace") == "语音识别失败：HTTP 429");
         assert(msime::voice::cloud_asr_transport_message("Could not resolve host: synthetic.invalid") ==

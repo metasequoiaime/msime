@@ -14,11 +14,13 @@ int main() {
         assert(msime::windows::transcription_language(provider, "").empty());
     }
     assert(msime::windows::transcription_language("siliconflow", "zh-CN").empty());
-    assert(msime::windows::transcription_language("CLOUD", "en-US").empty());
+    assert(msime::windows::transcription_language("SILICONFLOW", "en-US").empty());
     using namespace msime::voice;
     // What the language field of a request carries is checked on the wire by tests/transport.py.
     static_assert(std::is_same_v<decltype(&recognize_cloud_asr), decltype(&msime::windows::recognize_cloud_asr)>);
-    assert(normalize_voice_provider("CLOUD") == "siliconflow");
+    assert(normalize_voice_provider("SILICONFLOW") == "siliconflow");
+    // 旧的 `cloud` 别名已删除（#2830），它只是一个未知的服务商名，不再当作硅基流动。
+    assert(normalize_voice_provider("CLOUD") == "cloud");
     assert(is_doubao_asr_provider("DOUBAO"));
     assert(!is_doubao_asr_provider("openai"));
     assert(resolved_asr_endpoint("openai", default_asr_endpoint("doubao")) == default_asr_endpoint("openai"));
