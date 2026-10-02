@@ -1,7 +1,5 @@
 import { EmojiItem, EmojiSymbolGroup, MAX_GROUP_CODE_UNITS } from "./EmojiCatalogModel";
 
-/** 所有符号集插件合计最多接收的组数；超出的部分不显示，避免一份异常回复撑爆标签栏。 */
-export const MAX_PLUGIN_SYMBOL_GROUPS: number = 256;
 /** 单组最多接收的条目数，与插件清单的上限一致。 */
 export const MAX_PLUGIN_SYMBOL_ITEMS: number = 512;
 /** 单个条目的 UTF-16 长度上限，与插件清单的上限一致。 */
@@ -47,7 +45,10 @@ export interface EmojiPanelGroupTab {
   /** 内置符号的上级分类；颜文字页和插件标签为空。 */
   readonly catalogParent: string;
   readonly plugin: boolean;
+  /** 标签里显示的条目；插件条目的 `annotation` 为空：插件没有逐项的注释，组的关键词不冒充条目自己的名字。 */
   readonly items: EmojiItem[];
+  /** 只供搜索的插件条目，`annotation` 是所在组的关键词；内置标签为空。 */
+  readonly searchItems: EmojiItem[];
 }
 
 function isUsableName(value: unknown): value is string {
@@ -76,13 +77,15 @@ function builtInTab(key: string, title: string, group: string, parent: string): 
     catalogParent: parent,
     plugin: false,
     items: [],
+    searchItems: [],
   };
 }
 
-function pluginItems(group: PluginSymbolGroup): EmojiItem[] {
+/** 一组插件条目；`annotation` 给 `keywords` 时用于搜索，给空串时用于显示。 */
+function pluginItems(group: PluginSymbolGroup, annotation: string): EmojiItem[] {
   return group.items.map((text: string): EmojiItem => ({
     text: text,
-    annotation: group.keywords,
+    annotation: annotation,
     group: group.title,
   }));
 }
@@ -93,16 +96,13 @@ function pluginItems(group: PluginSymbolGroup): EmojiItem[] {
  * 规则与 Tauri 面板（`append_plugin_symbol_groups`）一致：插件组一律排在内置组之后；`symbols` 组以插件名为上级分类，每个插件一个分类；`kaomoji` 组逐组排在内置颜文字组之后；不跨插件、也不与内置目录去重。
  */
 export class PluginSymbolGroupPolicy {
-  /** 校验 native 回传的组；坏组跳过而不是整份作废，插件读不出来时面板仍只显示内置内容。 */
+  /** 校验 native 回传的组；坏组跳过而不是整份作废，插件读不出来时面板仍只显示内置内容。组数不设上限：每个包最多 32 组，装多少包由用户决定，截断只会让后面的包悄悄消失。 */
   static parse(values: unknown): PluginSymbolGroup[] {
     if (!Array.isArray(values)) {
       return [];
     }
     const groups: PluginSymbolGroup[] = [];
     for (const value of values) {
-      if (groups.length === MAX_PLUGIN_SYMBOL_GROUPS) {
-        break;
-      }
       if (value === null || typeof value !== "object") {
         continue;
       }
@@ -166,6 +166,7 @@ export class PluginSymbolGroupPolicy {
     const packs: string[] = [];
     const packTitles: string[] = [];
     const packItems: EmojiItem[][] = [];
+    const packSearchItems: EmojiItem[][] = [];
     for (const group of plugins) {
       if (group.tab !== SYMBOLS_TAB) {
         continue;
@@ -176,9 +177,13 @@ export class PluginSymbolGroupPolicy {
         packs.push(group.pack);
         packTitles.push(group.packName);
         packItems.push([]);
+        packSearchItems.push([]);
       }
-      for (const item of pluginItems(group)) {
+      for (const item of pluginItems(group, "")) {
         packItems[index].push(item);
+      }
+      for (const item of pluginItems(group, group.keywords)) {
+        packSearchItems[index].push(item);
       }
     }
     for (let index: number = 0; index < packs.length; index++) {
@@ -189,6 +194,7 @@ export class PluginSymbolGroupPolicy {
         catalogParent: "",
         plugin: true,
         items: packItems[index],
+        searchItems: packSearchItems[index],
       });
     }
     return tabs;
@@ -209,17 +215,18 @@ export class PluginSymbolGroupPolicy {
         catalogGroup: "",
         catalogParent: "",
         plugin: true,
-        items: pluginItems(group),
+        items: pluginItems(group, ""),
+        searchItems: pluginItems(group, group.keywords),
       });
     });
     return tabs;
   }
 
-  /** 插件标签里的全部条目，按标签顺序排列，供搜索接在内置条目之后；条目的关键词就是所在组的关键词。 */
+  /** 插件标签里的全部条目，按标签顺序排列，供搜索接在内置条目之后；条目的 `annotation` 是所在组的关键词，只用于匹配。 */
   static pluginItems(tabs: EmojiPanelGroupTab[]): EmojiItem[] {
     const items: EmojiItem[] = [];
     for (const tab of tabs) {
-      for (const item of tab.items) {
+      for (const item of tab.searchItems) {
         items.push(item);
       }
     }
