@@ -1,4 +1,5 @@
 import * as account from "./account-style";
+import { ActionButton } from "../core/action-button";
 
 export type AccountConfirmationAction = "logout" | "logout-all" | "relogin" | "delete";
 
@@ -41,17 +42,13 @@ export function AccountConfirmation({
     <div className={account.confirmation} role="alertdialog" aria-label={detail.label}>
       <p className={account.note}>{detail.message}</p>
       <div className={account.actionRow}>
-        <button
-          type="button"
+        <ActionButton
+          action={onConfirm}
           className={action === "delete" ? account.dangerButton : account.primary}
           disabled={busy}
-          onClick={onConfirm}
-        >
-          {confirmLabel ?? detail.label}
-        </button>
-        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-          取消
-        </button>
+          label={confirmLabel ?? detail.label}
+        />
+        <ActionButton action={onCancel} disabled={busy} label="取消" />
       </div>
     </div>
   );
