@@ -28,6 +28,7 @@ import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
+import { ActionButton } from "../core/action-button";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -313,9 +314,12 @@ function ResourceEditor({
                 disabled={busy}
                 onChange={setWeight}
               />
-              <button type="button" className="secondary" disabled={busy} onClick={addEntry}>
-                添加词条
-              </button>
+              <ActionButton
+                action={addEntry}
+                className="secondary"
+                disabled={busy}
+                label="添加词条"
+              />
             </div>
             <div className={style.entryList} aria-label={`待发布词条 ${entries.length}/128`}>
               {entries.map((item, index) => (
@@ -323,14 +327,12 @@ function ResourceEditor({
                   <span>
                     {item.word} · <code>{item.code}</code> · {item.weight}
                   </span>
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => setEntries(entries.filter((_, current) => current !== index))}
                     className="secondary"
                     disabled={busy}
-                    onClick={() => setEntries(entries.filter((_, current) => current !== index))}
-                  >
-                    移除
-                  </button>
+                    label="移除"
+                  />
                 </div>
               ))}
             </div>
@@ -502,9 +504,7 @@ function ResourceDetail({
   };
   return (
     <div className={style.page}>
-      <button type="button" className={style.back} disabled={busy} onClick={close}>
-        ← 社区
-      </button>
+      <ActionButton action={close} className={style.back} disabled={busy} label="← 社区" />
       {error && (
         <p role="alert" className="error">
           {error}
@@ -539,23 +539,19 @@ function ResourceDetail({
               ))}
             </div>
             {localDictionary?.import && (
-              <button
-                type="button"
+              <ActionButton
+                action={applyLocal}
                 className={`primary ${style.action}`}
                 disabled={busy}
-                onClick={applyLocal}
-              >
-                导入这版词库到本机
-              </button>
+                label="导入这版词库到本机"
+              />
             )}
-            <button
-              type="button"
+            <ActionButton
+              action={apply}
               className={`secondary ${style.action}`}
               disabled={busy}
-              onClick={apply}
-            >
-              导入这版词库到云端
-            </button>
+              label="导入这版词库到云端"
+            />
             <p className={`${style.metrics} ${style.divided}`}>
               本机导入只更新当前设备；云端导入会合并到账号云词库。版本发生变化时云端导入会停止并要求重新查看。
             </p>
@@ -564,22 +560,18 @@ function ResourceDetail({
           <>
             <h3>提示词预览</h3>
             <pre className={style.promptPreview}>{item.content.prompt}</pre>
-            <button
-              type="button"
+            <ActionButton
+              action={storeReply}
               className={`primary ${style.action}`}
               disabled={busy}
-              onClick={storeReply}
-            >
-              添加到高情商回复键盘
-            </button>
-            <button
-              type="button"
+              label="添加到高情商回复键盘"
+            />
+            <ActionButton
+              action={removeReply}
               className={`secondary ${style.action}`}
               disabled={busy}
-              onClick={removeReply}
-            >
-              从本机高情商回复键盘移除
-            </button>
+              label="从本机高情商回复键盘移除"
+            />
           </>
         )}
         {notice && (
@@ -587,14 +579,12 @@ function ResourceDetail({
             {notice}
           </p>
         )}
-        <button
-          type="button"
+        <ActionButton
+          action={save}
           className={`secondary ${style.action}`}
           disabled={busy}
-          onClick={save}
-        >
-          {item.saved ? "取消收藏" : "收藏，关注后续更新"}
-        </button>
+          label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
+        />
         {!item.owned && (
           <div
             className={`${style.divided} [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
@@ -619,22 +609,18 @@ function ResourceDetail({
         )}
         {item.owned && (
           <>
-            <button
-              type="button"
+            <ActionButton
+              action={() => setEditing(true)}
               className={`secondary ${style.action}`}
               disabled={busy}
-              onClick={() => setEditing(true)}
-            >
-              编辑并发布新版本
-            </button>
-            <button
-              type="button"
+              label="编辑并发布新版本"
+            />
+            <ActionButton
+              action={() => setConfirmDelete(true)}
               className="danger-text community-unpublish"
               disabled={busy}
-              onClick={() => setConfirmDelete(true)}
-            >
-              下架作品
-            </button>
+              label="下架作品"
+            />
           </>
         )}
         {!item.owned && client.report && (
@@ -647,17 +633,18 @@ function ResourceDetail({
               {item.name}”吗？
             </p>
             <div>
-              <button type="button" className="danger" disabled={busy} onClick={unpublish}>
-                确认下架
-              </button>
-              <button
-                type="button"
+              <ActionButton
+                action={unpublish}
+                className="danger"
+                disabled={busy}
+                label="确认下架"
+              />
+              <ActionButton
+                action={() => setConfirmDelete(false)}
                 className="secondary"
                 disabled={busy}
-                onClick={() => setConfirmDelete(false)}
-              >
-                取消
-              </button>
+                label="取消"
+              />
             </div>
           </div>
         )}
@@ -797,9 +784,7 @@ export function CommunityResourcesPage({
             scope={scope}
             onScopeChange={setScope}
           />
-          <button type="button" className="primary" onClick={() => setEditing(true)}>
-            发布作品
-          </button>
+          <ActionButton action={() => setEditing(true)} className="primary" label="发布作品" />
         </div>
       </div>
       {error && (
@@ -821,14 +806,12 @@ export function CommunityResourcesPage({
         </p>
       )}
       {more && (
-        <button
-          type="button"
+        <ActionButton
+          action={() => void load(true)}
           className="secondary community-more"
           disabled={busy}
-          onClick={() => void load(true)}
-        >
-          加载更多
-        </button>
+          label="加载更多"
+        />
       )}
       {editing && (
         <ResourceEditor
