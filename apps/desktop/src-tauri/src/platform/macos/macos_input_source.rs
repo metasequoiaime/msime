@@ -154,13 +154,19 @@ fn copy_tree_within(root: &Path, source: &Path, destination: &Path) -> Result<()
 }
 
 fn remove_staging(path: &Path) -> Result<(), InstallError> {
-    if !path.exists() {
-        return Ok(());
-    }
-    if is_symlink(path).map_err(|_| InstallError::Io)? {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(InstallError::Io),
+    };
+    if metadata.file_type().is_symlink() {
         return Err(InstallError::InvalidBundle);
     }
-    fs::remove_dir_all(path).map_err(|_| InstallError::Io)
+    if metadata.is_dir() {
+        fs::remove_dir_all(path).map_err(|_| InstallError::Io)
+    } else {
+        fs::remove_file(path).map_err(|_| InstallError::Io)
+    }
 }
 
 /// Install a validated bundle below `input_methods`, replacing an existing directory only after the complete copy has succeeded and registration has accepted the staged replacement. A failed registration restores the old bundle before returning the error; with no old bundle it keeps the new one and returns `RegistrationPending`, as `scripts/install.sh` does.
@@ -175,19 +181,24 @@ where
     validate_bundle(source)?;
     fs::create_dir_all(input_methods).map_err(|_| InstallError::Io)?;
     let target = input_methods.join(INPUT_SOURCE_BUNDLE_NAME);
-    if target.exists() && is_symlink(&target).map_err(|_| InstallError::Io)? {
-        return Err(InstallError::InvalidBundle);
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(InstallError::InvalidBundle);
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Err(InstallError::Io),
     }
     let pid = std::process::id();
     let staging = input_methods.join(format!(".{INPUT_SOURCE_BUNDLE_NAME}.installing-{pid}"));
     let backup = input_methods.join(format!(".{INPUT_SOURCE_BUNDLE_NAME}.previous-{pid}"));
     remove_staging(&staging)?;
-    if backup.exists() {
+    if fs::symlink_metadata(&backup).is_ok() {
         return Err(InstallError::Io);
     }
     copy_tree(source, &staging)?;
 
-    let had_previous = target.exists();
+    let had_previous = fs::symlink_metadata(&target).is_ok();
     if had_previous {
         fs::rename(&target, &backup).map_err(|_| {
             let _ = remove_staging(&staging);
@@ -1333,5 +1344,46 @@ mod tests {
                 std::process::id()
             ))
             .exists());
+    }
+
+    #[test]
+    fn refuses_a_regular_file_at_the_bundle_slot_without_replacing_it() {
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+        fs::create_dir_all(&destination).unwrap();
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        fs::write(&target, b"synthetic stray file").unwrap();
+
+        let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));
+
+        assert!(matches!(result, Err(InstallError::InvalidBundle)));
+        assert_eq!(fs::read(&target).unwrap(), b"synthetic stray file");
+        assert!(!destination
+            .join(format!(
+                ".{INPUT_SOURCE_BUNDLE_NAME}.installing-{}",
+                std::process::id()
+            ))
+            .exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_dangling_bundle_slot_link() {
+        use std::os::unix::fs::symlink;
+
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+        fs::create_dir_all(&destination).unwrap();
+        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        symlink(destination.join("missing.app"), &target).unwrap();
+
+        let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));
+
+        assert!(matches!(result, Err(InstallError::InvalidBundle)));
+        assert!(target.read_link().is_ok());
     }
 }
