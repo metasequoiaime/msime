@@ -12,6 +12,7 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
@@ -250,11 +251,7 @@ function ResourceEditor({
           busy={busy}
           onClose={close}
         />
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+        {error && <CommunityErrorAlert message={error} />}
         <CommunityInputField
           label="作品名称"
           ariaLabel="社区作品名称"
@@ -510,11 +507,7 @@ function ResourceDetail({
   return (
     <div className={style.page}>
       <CommunityBackButton ariaLabel="← 社区" disabled={busy} onClick={close} />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <CommunityErrorAlert message={error} />}
       <section className={`section ${style.detail}`}>
         <CommunityDetailHeader
           title={item.name}
@@ -765,11 +758,7 @@ export function CommunityResourcesPage({
           <ActionButton action={() => setEditing(true)} className="primary" label="发布作品" />
         </div>
       </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <CommunityErrorAlert message={error} />}
       {!busy && items.length === 0 && (
         <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>
       )}
