@@ -55,7 +55,7 @@ def request(method: str, path: str, auth: str, body: dict | None = None) -> dict
         raise Failure(f"{method} {url} -> {error.code}\n{detail}") from None
 
 
-def find_build(auth: str, app_id: str, version: str, timeout: int) -> dict:
+def find_build(credentials: tuple, app_id: str, version: str, deadline: float) -> dict:
     """The build with this exact CFBundleVersion, waiting for it to appear first.
 
     A successful upload does not put the build in the API straight away -- altool returns as soon as
@@ -64,10 +64,9 @@ def find_build(auth: str, app_id: str, version: str, timeout: int) -> dict:
     failed release and is not one: the package was already with Apple and only the distribution was
     missing, leaving the testers waiting while the run looked broken.
     """
-    deadline = time.time() + timeout
     announced = False
     while True:
-        page = request("GET", f"/builds?filter[app]={app_id}&filter[version]={version}&limit=10", auth)
+        page = request("GET", f"/builds?filter[app]={app_id}&filter[version]={version}&limit=10", token(*credentials))
         for build in page.get("data", []):
             if build["attributes"]["version"] == version:
                 return build
@@ -77,17 +76,16 @@ def find_build(auth: str, app_id: str, version: str, timeout: int) -> dict:
             print(f"waiting for build {version} to appear", flush=True)
             announced = True
         time.sleep(30)
-    recent = request("GET", f"/builds?filter[app]={app_id}&sort=-uploadedDate&limit=5", auth)
+    recent = request("GET", f"/builds?filter[app]={app_id}&sort=-uploadedDate&limit=5", token(*credentials))
     names = ", ".join(b["attributes"]["version"] for b in recent.get("data", []))
-    raise Failure(f"No build {version} for app {app_id} after {timeout}s. Most recent: {names or 'none'}")
+    raise Failure(f"No build {version} for app {app_id} by the processing deadline. Most recent: {names or 'none'}")
 
 
-def await_processing(auth: str, build_id: str, timeout: int) -> None:
+def await_processing(credentials: tuple, build_id: str, deadline: float) -> None:
     """Apple refuses to distribute a build it is still processing, and processing is minutes long."""
-    deadline = time.time() + timeout
     seen = ""
     while time.time() < deadline:
-        state = request("GET", f"/builds/{build_id}", auth)["data"]["attributes"]["processingState"]
+        state = request("GET", f"/builds/{build_id}", token(*credentials))["data"]["attributes"]["processingState"]
         if state != seen:
             print(f"processing: {state}", flush=True)
             seen = state
@@ -96,7 +94,7 @@ def await_processing(auth: str, build_id: str, timeout: int) -> None:
         if state in {"INVALID", "FAILED"}:
             raise Failure(f"Build {build_id} finished processing as {state}")
         time.sleep(30)
-    raise Failure(f"Build {build_id} was still {seen or 'processing'} after {timeout}s")
+    raise Failure(f"Build {build_id} was still {seen or 'processing'} at the processing deadline")
 
 
 def find_group(auth: str, app_id: str, name: str) -> tuple[str, bool]:
@@ -123,12 +121,13 @@ def main() -> int:
     arguments = parser.parse_args()
 
     credentials = (arguments.key_id, arguments.issuer_id, arguments.key_path)
-    auth = token(*credentials)
     # 出现和处理完是同一段等待的两半,共用一个预算:上传之后先等它出现在 API 里,再等它处理成 VALID。
-    build = find_build(auth, arguments.app, arguments.build_version, arguments.processing_timeout)
+    # 等待可以远超 token 的 15 分钟有效期,所以两个等待函数拿凭据而不是 token,每次请求现签一个;只签一次的话,第 15 分钟以后的请求全部 401。
+    deadline = time.time() + arguments.processing_timeout
+    build = find_build(credentials, arguments.app, arguments.build_version, deadline)
     print(f"build {arguments.build_version} is {build['id']}", flush=True)
 
-    await_processing(token(*credentials), build["id"], arguments.processing_timeout)
+    await_processing(credentials, build["id"], deadline)
 
     auth = token(*credentials)
     group, internal = find_group(auth, arguments.app, arguments.group)
