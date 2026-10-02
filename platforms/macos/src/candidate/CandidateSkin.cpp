@@ -514,6 +514,7 @@ std::vector<SkinListEntry> ListSkins(const std::filesystem::path &skinsRoot)
 {
     std::vector<SkinListEntry> entries;
     const SkinCatalog catalog = ScanSkinCatalog(skinsRoot);
+    entries.reserve(catalog.packages.size());
     for (const SkinPackage &package : catalog.packages)
     {
         entries.push_back({package.id, package.name, false});
