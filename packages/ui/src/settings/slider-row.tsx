@@ -12,6 +12,8 @@ export interface SliderRowProps {
   step?: number;
   disabled?: boolean;
   valueText?: string;
+  /** Optional value rendered after the track, while the slider remains the accessible control. */
+  displayValue?: ReactNode;
   ticks?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
@@ -30,25 +32,36 @@ export function SliderRow({
   step,
   disabled,
   valueText,
+  displayValue,
   ticks,
   onChange,
   ...labels
 }: SliderRowProps) {
+  const slider = (
+    <Slider
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      valueText={valueText}
+      ticks={ticks}
+      onChange={onChange}
+      {...labels}
+    />
+  );
   return (
     <Row title={title} description={description} hidden={hidden}>
-      <span className={settings.sliderControl}>
-        <Slider
-          value={value}
-          min={min}
-          max={max}
-          step={step}
-          disabled={disabled}
-          valueText={valueText}
-          ticks={ticks}
-          onChange={onChange}
-          {...labels}
-        />
-      </span>
+      {displayValue === undefined ? (
+        <span className={settings.sliderControl}>{slider}</span>
+      ) : (
+        <span className={settings.sliderWithValue}>
+          <span className={settings.sliderControl}>{slider}</span>
+          <span className={settings.sliderValue} aria-hidden="true">
+            {displayValue}
+          </span>
+        </span>
+      )}
     </Row>
   );
 }
