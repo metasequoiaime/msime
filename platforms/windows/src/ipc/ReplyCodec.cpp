@@ -228,6 +228,7 @@ std::vector<uint8_t> caps_lock_frame(bool enabled) {
 
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
   std::vector<std::vector<uint8_t>> frames;
+  frames.reserve(9);
   // The paging frame carries the preedit style after a '|', which is how the
   // TIP receives it - there is no separate message type for it.
   std::wstring paging = config.paging_comma_period ? L"1" : L"0";
