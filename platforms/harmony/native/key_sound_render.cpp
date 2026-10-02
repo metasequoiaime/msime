@@ -3,6 +3,7 @@
 #include "key_sound_miniaudio.h"
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <fcntl.h>
 #include <system_error>
