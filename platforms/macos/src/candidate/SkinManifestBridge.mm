@@ -450,6 +450,7 @@ const std::vector<ThemeCatalogEntry> &ThemeCatalog()
             {
                 return result;
             }
+            result.reserve(themes.count);
             for (NSDictionary *theme in themes)
             {
                 if (![theme isKindOfClass:NSDictionary.class])
