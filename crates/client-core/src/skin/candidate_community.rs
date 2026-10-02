@@ -41,7 +41,7 @@ pub const MAX_PUBLISH_BODY_BYTES: usize = 3_200_000;
 pub const MAX_DOWNLOAD_RESPONSE_BYTES: usize = 4 << 20;
 /// Largest preview response: a 256 KiB image in base64 plus its path and type.
 pub const MAX_PREVIEW_RESPONSE_BYTES: usize = 512 * 1024;
-/// Candidate-skin ids the server's curated catalog keeps for itself (`internal/skins/catalog.go`). They are valid folder names on the client, so the catalog rule alone does not refuse them.
+/// 服务端精选目录给自己保留的候选皮肤 ID（`internal/skins/catalog.go`）。它们现在也都在 `catalog::is_reserved` 里，这里的检查与之重复，留着是为了让这份清单与服务端的对应关系一目了然。
 pub const SERVER_BUILTIN_IDS: [&str; 4] = ["fluent", "wechat", "graphite", "willow_green"];
 
 const MAX_PUBLISH_RESPONSE_BYTES: usize = 64 * 1024;
