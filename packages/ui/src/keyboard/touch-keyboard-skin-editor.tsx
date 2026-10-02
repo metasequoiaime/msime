@@ -1006,9 +1006,7 @@ export function TouchKeyboardSkinEditor({
             {!hasReadableSkinText(design) && (
               <p className={skin.warning}>部分文字与背景对比度偏低，建议调整配色。</p>
             )}
-            <button type="button" className="secondary" onClick={optimizeContrast}>
-              优化文字对比度
-            </button>
+            <ActionButton action={optimizeContrast} className="secondary" label="优化文字对比度" />
           </div>
         )}
 
@@ -1036,13 +1034,11 @@ export function TouchKeyboardSkinEditor({
                 </button>
               ))}
             </div>
-            <button
-              type="button"
+            <ActionButton
+              action={() => apply(defaultTouchKeyboardSkinDesign)}
               className="danger-text"
-              onClick={() => apply(defaultTouchKeyboardSkinDesign)}
-            >
-              重置我的皮肤
-            </button>
+              label="重置我的皮肤"
+            />
           </>
         )}
         {category === "我的" && library && (
