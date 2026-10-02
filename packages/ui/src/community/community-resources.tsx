@@ -29,6 +29,7 @@ import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
+import { CommunityBackButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityRatingButtons } from "./community-rating-buttons";
 import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
@@ -508,7 +509,7 @@ function ResourceDetail({
   };
   return (
     <div className={style.page}>
-      <ActionButton action={close} className={style.back} disabled={busy} label="← 社区" />
+      <CommunityBackButton ariaLabel="← 社区" disabled={busy} onClick={close} />
       {error && (
         <p role="alert" className="error">
           {error}

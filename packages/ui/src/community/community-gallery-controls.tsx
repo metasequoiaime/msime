@@ -4,16 +4,18 @@ import { ActionButton } from "../core/action-button";
 export function CommunityBackButton({
   disabled,
   onClick,
+  ariaLabel = "返回社区",
 }: {
   disabled: boolean;
   onClick: () => void;
+  ariaLabel?: string;
 }) {
   return (
     <ActionButton
       action={onClick}
       className={style.back}
       disabled={disabled}
-      ariaLabel="返回社区"
+      ariaLabel={ariaLabel}
       label="← 社区"
     />
   );
