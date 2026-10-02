@@ -17,7 +17,7 @@ if ([regex]::Match($script, '#define MyMcpName +"([^"]+)"').Groups[1].Value -ne 
     throw 'The installer does not name the MCP server it stops'
 }
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw
-$shellNames = [regex]::Match($shell, 'shell_executable_names\(\)\s*\{\s*return\s*\{L"([^"]+)"')
+$shellNames = [regex]::Match($shell, 'shell_executable_names\(const ShellSurfaceRequest &request\)\s*\{\s*if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"')
 if (-not $settings -or -not $shellNames.Success -or $shellNames.Groups[1].Value -ne $settings) {
     throw 'The installer does not name the Tauri executable the Server launches'
 }
