@@ -35,9 +35,10 @@ def fetch(artifact: dict, destination: Path) -> None:
         raise SystemExit(f"{artifact['name']}: refusing a non-HTTPS source")
     print(f"  fetching {artifact['name']} ({artifact['size'] / 1e6:.1f} MB)", file=sys.stderr)
     # Staged beside the destination, so a failed or mismatched download never leaves a partial file where a package script would pick it up as finished.
-    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as staged:
-        staged_path = Path(staged.name)
-        try:
+    staged = tempfile.NamedTemporaryFile(dir=destination.parent, delete=False)
+    staged_path = Path(staged.name)
+    try:
+        with staged:
             with urllib.request.urlopen(url, timeout=300) as response:
                 advertised = response.headers.get("Content-Length")
                 if advertised is not None:
@@ -52,9 +53,10 @@ def fetch(artifact: dict, destination: Path) -> None:
                     if size > artifact["size"]:
                         raise SystemExit(f"{artifact['name']}: response is larger than the lock")
                     staged.write(block)
-        except BaseException:
-            staged_path.unlink(missing_ok=True)
-            raise
+    except BaseException:
+        # Deleted only once the with block has closed it: Windows refuses to delete an open file, and the PermissionError would replace the download's own error.
+        staged_path.unlink(missing_ok=True)
+        raise
     actual = digest(staged_path)
     size = staged_path.stat().st_size
     if actual != artifact["sha256"] or size != artifact["size"]:
