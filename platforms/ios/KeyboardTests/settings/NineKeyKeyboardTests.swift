@@ -1045,6 +1045,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testKeyShadowsFollowTheKeysWhenTheKeyboardShrinksIntoPlace() throws {
+    // 按钮层的阴影只属于内置主题；触屏键盘默认的薄荷晨光（#2178）是自定义设计，阴影由 `SkinKeySurfaceView` 自己画，按钮的 `shadowOpacity` 为 0。
+    preserveSharedTheme()
+    XCTAssertTrue(GlobalThemePreference.save("paper"))
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     // The system shows a keyboard at a taller window first and walks it down to the real height (874 -> 444 -> 292 measured on iOS 26.3).
