@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as style from "./community-style";
 import { CommunityTextareaField } from "./community-textarea-field";
+import { ActionButton } from "../core/action-button";
 
 /** What a report names, as `POST /v1/community/reports` and client-core's `CommunityReportKind` spell it. */
 export type CommunityReportKind =
@@ -65,14 +66,12 @@ export function CommunityReportSection({ actionBusy, onReport }: CommunityReport
   };
   if (!open) {
     return (
-      <button
-        type="button"
+      <ActionButton
+        action={() => setOpen(true)}
         className="danger-text self-start pt-0"
         disabled={actionBusy}
-        onClick={() => setOpen(true)}
-      >
-        举报
-      </button>
+        label="举报"
+      />
     );
   }
   return (
@@ -102,22 +101,19 @@ export function CommunityReportSection({ actionBusy, onReport }: CommunityReport
         onChange={setDetail}
       />
       <div className={style.confirmationActions}>
-        <button
-          type="button"
-          className="danger"
-          disabled={actionBusy || !reason}
-          onClick={() => {
+        <ActionButton
+          action={() => {
             if (!reason) return;
             void onReport(reason, detail.trim()).then((reported) => {
               if (reported) close();
             });
           }}
-        >
-          提交举报
-        </button>
-        <button type="button" className="secondary" disabled={actionBusy} onClick={close}>
-          取消
-        </button>
+          className="danger"
+          disabled={actionBusy || !reason}
+          ariaBusy={actionBusy}
+          label="提交举报"
+        />
+        <ActionButton action={close} disabled={actionBusy} label="取消" />
       </div>
     </div>
   );
