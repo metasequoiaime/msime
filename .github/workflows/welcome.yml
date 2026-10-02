@@ -16,7 +16,11 @@ jobs:
   greet:
     name: First interaction
     # first-interaction has no notion of a bot account, so Dependabot's first bump in this repository qualifies as a first pull request and gets a greeting written for a person. Skip anything ending in [bot].
-    if: ${{ !endsWith(github.actor, '[bot]') }}
+    #
+    # 仓库所有者、成员和协作者不可能是第一次来，跳过他们。first-interaction 判断是否首次的办法是把作者在本仓库的全部 issue 和 PR 逐页翻一遍：维护者有几千条，2026-10-02 #2898 翻到第 58 页时 GitHub 回了 502，job 失败，PR 上平白多一个红叉（日志最后照样是 Not First Contribution）。author_association 随事件给出，不用再调 API。
+    if: >-
+      ${{ !endsWith(github.actor, '[bot]')
+      && !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association || github.event.pull_request.author_association) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

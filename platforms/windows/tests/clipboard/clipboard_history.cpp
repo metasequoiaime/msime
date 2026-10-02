@@ -74,6 +74,14 @@ int main() {
     REQUIRE(history.add("item-" + std::to_string(index)));
   REQUIRE(history.load().size() == msime::windows::ClipboardHistory::max_items);
 
+  {
+    std::ofstream output(path, std::ios::trunc);
+    output << "[\"synthetic-capacity\"]";
+  }
+  const auto reserved = history.load();
+  REQUIRE(reserved.size() == 1);
+  REQUIRE(reserved.capacity() >= msime::windows::ClipboardHistory::max_items);
+
   // Records that normalise to nothing must not consume capacity or hide the
   // entries after them. A lone carriage return is the whole of such a record.
   {

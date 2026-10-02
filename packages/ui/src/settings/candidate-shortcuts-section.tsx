@@ -1,6 +1,7 @@
 import * as settings from "./settings-style";
 import { GroupList, Row } from "../core/platform-controls";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import { ShortcutRow } from "./shortcut-row";
 import { SwitchRow } from "./switch-row";
 
 export interface CandidateShortcutsSectionProps {
@@ -12,8 +13,6 @@ export interface CandidateShortcutsSectionProps {
   mobile: boolean;
   onNumberRowSelectionChange: (value: boolean) => void;
 }
-
-const key = (chord: string) => <kbd className={settings.shortcutKey}>{chord}</kbd>;
 
 /** 「向前 / 向后翻页」的各组按键，顺序与输入页的翻页方式一致。 */
 const pagingKeys: [keyof NavigationPreferences, string][] = [
@@ -50,9 +49,9 @@ export function CandidateShortcutsSection({
           onChange={onNumberRowSelectionChange}
         />
       )}
-      <Row title="选择候选">{key(`Space${numberRowSelection ? " 或 1–9" : ""}`)}</Row>
+      <ShortcutRow title="选择候选" chord={`Space${numberRowSelection ? " 或 1–9" : ""}`} />
       {/* 几组翻页键合成一行，免得同名的行重复出现。只有一组时和其他行一样放在行尾；多组时排到标题下方另起一行，标题不会被挤成两行。 */}
-      {paging.length === 1 && <Row title="向前 / 向后翻页">{key(paging[0][1])}</Row>}
+      {paging.length === 1 && <ShortcutRow title="向前 / 向后翻页" chord={paging[0][1]} />}
       {paging.length > 1 && (
         <Row
           title="向前 / 向后翻页"
@@ -68,15 +67,18 @@ export function CandidateShortcutsSection({
         />
       )}
       {navigation.mouse_wheel && (
-        <Row title={mobile ? "候选栏翻页" : "候选窗口翻页"}>{key("鼠标滚轮")}</Row>
+        <ShortcutRow title={mobile ? "候选栏翻页" : "候选窗口翻页"} chord="鼠标滚轮" />
       )}
-      {navigation.arrows && <Row title="移动候选项">{key("↑ / ↓")}</Row>}
+      {navigation.arrows && <ShortcutRow title="移动候选项" chord="↑ / ↓" />}
       {wordCharacter?.enabled && (
-        <Row title="以词定字（上屏首字 / 末字）">{key(wordCharacterKeys[wordCharacter.keys])}</Row>
+        <ShortcutRow
+          title="以词定字（上屏首字 / 末字）"
+          chord={wordCharacterKeys[wordCharacter.keys]}
+        />
       )}
-      <Row title="移动到候选列表首项 / 末项（页码随之切换）">{key("Home / End")}</Row>
-      <Row title="编辑输入串">{key("← / → / Backspace")}</Row>
-      <Row title="提交原始输入 / 取消输入">{key("Enter / Esc")}</Row>
+      <ShortcutRow title="移动到候选列表首项 / 末项（页码随之切换）" chord="Home / End" />
+      <ShortcutRow title="编辑输入串" chord="← / → / Backspace" />
+      <ShortcutRow title="提交原始输入 / 取消输入" chord="Enter / Esc" />
     </GroupList>
   );
 }

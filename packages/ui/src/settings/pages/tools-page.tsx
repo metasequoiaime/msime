@@ -2,8 +2,8 @@ import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { ClipboardHistorySection } from "../clipboard-history-section";
 import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
-import { GroupList, Row } from "../../core/platform-controls";
-import { OpenPanelButton } from "../open-panel-button";
+import { GroupList } from "../../core/platform-controls";
+import { OpenPanelRow } from "../open-panel-row";
 
 /** 设置表单的「剪贴板」页（路由 id 为 `tools`）：本设备上保存的剪贴板历史和云剪贴板。云词库在「词库」页。 */
 export function ToolsSettingsPage() {
@@ -38,12 +38,11 @@ export function ToolsSettingsPage() {
             {macosPlatform ? (
               <p className={settings.groupNote}>{CLOUD_PANEL_SESSION_NOTE}</p>
             ) : (
-              <Row title="云剪贴板">
-                <OpenPanelButton
-                  action={() => openPanel(client.openCloudClipboard)}
-                  label="打开云剪贴板"
-                />
-              </Row>
+              <OpenPanelRow
+                title="云剪贴板"
+                action={() => openPanel(client.openCloudClipboard)}
+                label="打开云剪贴板"
+              />
             )}
           </GroupList>
         )}

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
-import { EndpointInput } from "./endpoint-input";
+import { EndpointSettingRow } from "./endpoint-setting-row";
 
 export interface CustomTranslationSectionProps {
   available: boolean;
@@ -27,15 +27,14 @@ export function CustomTranslationSection({
   return (
     <div role="group" aria-label="自定义翻译服务" className={settings.rowStack}>
       <p className={settings.groupNote}>使用自建的兼容 DeepLX 的 HTTPS 服务。</p>
-      <Row title="翻译 Endpoint">
-        <EndpointInput
-          label="自定义翻译 Endpoint"
-          value={endpoint}
-          disabled={!available}
-          onChange={onEndpointChange}
-          placeholder="https://example.com/translate"
-        />
-      </Row>
+      <EndpointSettingRow
+        title="翻译 Endpoint"
+        inputLabel="自定义翻译 Endpoint"
+        value={endpoint}
+        disabled={!available}
+        onChange={onEndpointChange}
+        placeholder="https://example.com/translate"
+      />
       {available && endpointIssue && (
         <div className={settings.groupBlock}>
           <p className={settings.settingsWarning} role="status">

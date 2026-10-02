@@ -2,7 +2,7 @@ import * as surface from "../keyboard/panel-surface-style";
 import { GroupList, Row } from "../core/platform-controls";
 import { handwritingPrivacyText } from "./handwriting-platform-notice";
 import * as settings from "./settings-style";
-import { OpenPanelButton } from "./open-panel-button";
+import { OpenPanelRow } from "./open-panel-row";
 
 /** 「手写输入」页每个平台一组：在键盘类宿主上是开启手写的方法、系统设置按钮、隐私说明和 SDK 的隐私行；在会打开自己面板的桌面宿主上是启动按钮和预览。 */
 export function HandwritingSettingsSection({
@@ -84,12 +84,12 @@ export function HandwritingSettingsSection({
     </GroupList>
   ) : (
     <GroupList title="手写识别板">
-      <Row title="打开手写识别板" description="使用鼠标或触控方式手写输入，自动识别候选汉字">
-        <OpenPanelButton
-          action={onOpenHandwriting}
-          className={`secondary ${settings.openButton}`}
-        />
-      </Row>
+      <OpenPanelRow
+        title="打开手写识别板"
+        description="使用鼠标或触控方式手写输入，自动识别候选汉字"
+        action={onOpenHandwriting}
+        className={`secondary ${settings.openButton}`}
+      />
       <div className={settings.groupPreview} aria-label="手写识别板预览">
         <div className={settings.panelPreviewLabel}>预览</div>
         <div className={surface.mock}>
