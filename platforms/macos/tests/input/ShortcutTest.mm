@@ -7458,75 +7458,76 @@ int main(int argc, char **argv) {
     assert(MSIMEShouldRegisterInputSource(2, registerArguments));
     @autoreleasepool {
         [NSApplication sharedApplication];
+        // Each case drains its own pool. No run loop turns between cases, so under one outer pool every autoreleased preferences window lived to the end of main: about a hundred piled up, every later window paid for all of their notification observers and weak references, and the run grew quadratically until the sanitizer leg crossed its 240 s ceiling.
         if (argc == 2 && std::string(argv[1]) == "--translations") {
-            TestPreferenceLoadReusesCandidateServiceSnapshots();
-            TestCandidateServiceSnapshotsAreReused();
-            TestApplyCandidateTranslationSnapshotsAreReused();
-            TestGlossScheduling();
-            TestGlossSurvivesHighlightMove();
-            TestAccountGlossSkipsNonChineseCandidates();
-            TestAccountGlossRequiresExplicitChoice();
-            TestAccountGlossCacheIsSharedAcrossControllers();
-            TestAccountGlossLateReplyAndNegatives();
-            TestAccountGlossIdleDelay();
-            TestAccountGlossPersistsOnArrival();
-            TestAccountGlossWaitsForDictionary();
-            TestOfflineTargetGlosses();
-            TestOnDeviceGlosses();
-            TestOnDeviceGlossPersistence();
-            TestCustomTranslationController();
-            TestSecondaryTranslationScheduling();
-            TestCustomTranslationCacheDelivery();
-            TestCustomTranslationIdleDelay(NO);
-            TestCustomTranslationIdleDelay(YES);
-            TestTencentCandidateScheduling();
-            TestNiuTransCandidateScheduling();
-            TestLearnedGlossRuntime();
-            TestCandidateTranslationPreference();
-            TestGlossModePolicy();
+            @autoreleasepool { TestPreferenceLoadReusesCandidateServiceSnapshots(); }
+            @autoreleasepool { TestCandidateServiceSnapshotsAreReused(); }
+            @autoreleasepool { TestApplyCandidateTranslationSnapshotsAreReused(); }
+            @autoreleasepool { TestGlossScheduling(); }
+            @autoreleasepool { TestGlossSurvivesHighlightMove(); }
+            @autoreleasepool { TestAccountGlossSkipsNonChineseCandidates(); }
+            @autoreleasepool { TestAccountGlossRequiresExplicitChoice(); }
+            @autoreleasepool { TestAccountGlossCacheIsSharedAcrossControllers(); }
+            @autoreleasepool { TestAccountGlossLateReplyAndNegatives(); }
+            @autoreleasepool { TestAccountGlossIdleDelay(); }
+            @autoreleasepool { TestAccountGlossPersistsOnArrival(); }
+            @autoreleasepool { TestAccountGlossWaitsForDictionary(); }
+            @autoreleasepool { TestOfflineTargetGlosses(); }
+            @autoreleasepool { TestOnDeviceGlosses(); }
+            @autoreleasepool { TestOnDeviceGlossPersistence(); }
+            @autoreleasepool { TestCustomTranslationController(); }
+            @autoreleasepool { TestSecondaryTranslationScheduling(); }
+            @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+            @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
+            @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
+            @autoreleasepool { TestTencentCandidateScheduling(); }
+            @autoreleasepool { TestNiuTransCandidateScheduling(); }
+            @autoreleasepool { TestLearnedGlossRuntime(); }
+            @autoreleasepool { TestCandidateTranslationPreference(); }
+            @autoreleasepool { TestGlossModePolicy(); }
             return 0;
         }
         NSUserDefaults *standardDefaults = NSUserDefaults.standardUserDefaults;
         id previousVoiceHoldSpace = [standardDefaults objectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         [standardDefaults setBool:NO forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
-        TestSessionUnavailableIsReported();
-        TestCloudCandidateScheduling();
-        TestCloudCandidateRetryAfterRejectedResponse();
-        TestCloudCandidateEngineDelivery();
-        TestAiCandidateScheduling();
-        TestAiCandidatesIgnoreGlossSwitch();
-        TestAiCandidateRetryAfterRejectedResponse();
-        TestAiCandidateCacheAcrossGenerations();
-        TestAiCandidateDescriptorFailureIsRetryable();
-        TestAiCandidateEngineDelivery();
-        TestCloudCandidatePreference();
-        TestCloudCandidateConsent();
-        TestGlossScheduling();
-        TestGlossSurvivesHighlightMove();
-        TestAccountGlossSkipsNonChineseCandidates();
-        TestAccountGlossRequiresExplicitChoice();
-        TestAccountGlossCacheIsSharedAcrossControllers();
-        TestAccountGlossLateReplyAndNegatives();
-        TestAccountGlossIdleDelay();
-        TestAccountGlossWaitsForDictionary();
-        TestOfflineTargetGlosses();
-        TestOnDeviceGlosses();
-        TestOnDeviceGlossPersistence();
-        TestCustomTranslationController();
-        TestSecondaryTranslationScheduling();
-        TestCustomTranslationCacheDelivery();
-        TestCustomTranslationIdleDelay(NO);
-        TestCustomTranslationIdleDelay(YES);
-        TestTencentCandidateScheduling();
-        TestNiuTransCandidateScheduling();
-        TestLearnedGlossRuntime();
-        TestCandidateTranslationPreference();
-        TestGlossModePolicy();
-        TestSharedInputPreferences();
-        TestIndependentAssistancePreferences();
-        TestSharedPunctuation();
-        TestSharedTraditionalOutput();
-        TestPageSizeCache();
+        @autoreleasepool { TestSessionUnavailableIsReported(); }
+        @autoreleasepool { TestCloudCandidateScheduling(); }
+        @autoreleasepool { TestCloudCandidateRetryAfterRejectedResponse(); }
+        @autoreleasepool { TestCloudCandidateEngineDelivery(); }
+        @autoreleasepool { TestAiCandidateScheduling(); }
+        @autoreleasepool { TestAiCandidatesIgnoreGlossSwitch(); }
+        @autoreleasepool { TestAiCandidateRetryAfterRejectedResponse(); }
+        @autoreleasepool { TestAiCandidateCacheAcrossGenerations(); }
+        @autoreleasepool { TestAiCandidateDescriptorFailureIsRetryable(); }
+        @autoreleasepool { TestAiCandidateEngineDelivery(); }
+        @autoreleasepool { TestCloudCandidatePreference(); }
+        @autoreleasepool { TestCloudCandidateConsent(); }
+        @autoreleasepool { TestGlossScheduling(); }
+        @autoreleasepool { TestGlossSurvivesHighlightMove(); }
+        @autoreleasepool { TestAccountGlossSkipsNonChineseCandidates(); }
+        @autoreleasepool { TestAccountGlossRequiresExplicitChoice(); }
+        @autoreleasepool { TestAccountGlossCacheIsSharedAcrossControllers(); }
+        @autoreleasepool { TestAccountGlossLateReplyAndNegatives(); }
+        @autoreleasepool { TestAccountGlossIdleDelay(); }
+        @autoreleasepool { TestAccountGlossWaitsForDictionary(); }
+        @autoreleasepool { TestOfflineTargetGlosses(); }
+        @autoreleasepool { TestOnDeviceGlosses(); }
+        @autoreleasepool { TestOnDeviceGlossPersistence(); }
+        @autoreleasepool { TestCustomTranslationController(); }
+        @autoreleasepool { TestSecondaryTranslationScheduling(); }
+        @autoreleasepool { TestCustomTranslationCacheDelivery(); }
+        @autoreleasepool { TestCustomTranslationIdleDelay(NO); }
+        @autoreleasepool { TestCustomTranslationIdleDelay(YES); }
+        @autoreleasepool { TestTencentCandidateScheduling(); }
+        @autoreleasepool { TestNiuTransCandidateScheduling(); }
+        @autoreleasepool { TestLearnedGlossRuntime(); }
+        @autoreleasepool { TestCandidateTranslationPreference(); }
+        @autoreleasepool { TestGlossModePolicy(); }
+        @autoreleasepool { TestSharedInputPreferences(); }
+        @autoreleasepool { TestIndependentAssistancePreferences(); }
+        @autoreleasepool { TestSharedPunctuation(); }
+        @autoreleasepool { TestSharedTraditionalOutput(); }
+        @autoreleasepool { TestPageSizeCache(); }
         NSString *suite = [@"app.msime.test.appearance." stringByAppendingString:NSUUID.UUID.UUIDString];
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
         MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -8319,8 +8320,8 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        TestExternalSkin(controller, layoutPanel, defaults);
-        TestStyledExternalSkin(controller, layoutPanel, defaults);
+        @autoreleasepool { TestExternalSkin(controller, layoutPanel, defaults); }
+        @autoreleasepool { TestStyledExternalSkin(controller, layoutPanel, defaults); }
         [controller setValue:appearance forKey:@"appearance"];
         appearance.vertical = NO;
         appearance.globalTheme = @"system";
@@ -8890,61 +8891,61 @@ int main(int argc, char **argv) {
         assert([controller.menu itemAtIndex:4].state == NSControlStateValueOff);
         [controller apply:@{@"commit": @"汉语", @"commit_context": @{@"scheme": @0, @"local_mode": @"none", @"script_conversion": @YES}, @"view": @{@"editing_text": @"", @"candidates": @[]}}];
         assert([client.committed isEqual:@"汉语"]);
-        TestInputMode(defaults, appearance);
-        TestControlOptionSpace();
-        TestInputModePolicy();
-        TestPerApplicationPunctuationAndWidth();
-        TestEnglishModePunctuationAndWidthOutput();
-        TestInputSourceModeReset();
-        TestRealSessionComposition();
-        TestModifierTaps();
-        TestModifierTapSurvivesALostRelease();
-        TestStaleClientDeactivation();
-        TestSoundsFollowKeysCommitsAndActivation();
-        TestPreferenceClientGeneration();
-        TestSavedPreferencesReachTheFocusedController();
-        TestModeSwitchReachesTheSessionBeforeTheNextKey();
-        TestPreferenceRevisionSkipsUnchangedDocuments();
-        TestUnreadablePreferencesAreRecoveredOnce();
-        TestProviderSettingsPersistTheSharedSnapshot();
-        TestInputModeSwitchDoesNotSaveSharedPreferences();
-        TestFullWidth(defaults, appearance);
-        TestSessionOptions();
-        TestKeypadDecimal(appearance);
-        TestFloatingToolbarMenuToggle(appearance);
-        TestCandidatePanelSingleOwner();
-        TestGlossArrivalRedrawsOnlyTheCard(appearance);
-        TestNestedApplyKeepsTheNewerView(appearance);
-        TestJapaneseConversionKeys(appearance);
-        TestGlossSensePage(appearance);
-        TestGlossSenseTraditionalOutput(appearance);
-        TestSegmentEditingChords(appearance);
-        TestSchemeTraitsFromView(appearance);
-        TestSchemeKeyRouting();
-        TestBackspaceHoldDoesNotEscapeComposition();
-        TestPassthroughKeysAreCounted();
-        TestKeyLatencyIsLoggedWithoutTheKey();
-        TestKeypadOperators(appearance);
-        TestSmartPunctuationPreferences();
-        TestSharedCharacterWidth();
-        TestScreenKeyboardShortcut(appearance);
-        TestMaintenanceShortcuts(appearance);
-        TestPunctuation(defaults, appearance);
-        TestPairedPunctuationPreferences();
-        TestPairedPunctuationHostExclusion();
-        TestPairedPunctuationClosesThePair();
-        TestPairedPunctuationClosesBrace();
-        TestEmojiBridgeFallback();
-        TestMixedInputPreferences();
-        TestCharacterSetShortcut();
-        TestDedicatedEnglish(appearance);
-        TestSystemInputModeReport(appearance);
-        TestOptInSchemeModes();
-        TestKeymap(defaults, appearance);
+        @autoreleasepool { TestInputMode(defaults, appearance); }
+        @autoreleasepool { TestControlOptionSpace(); }
+        @autoreleasepool { TestInputModePolicy(); }
+        @autoreleasepool { TestPerApplicationPunctuationAndWidth(); }
+        @autoreleasepool { TestEnglishModePunctuationAndWidthOutput(); }
+        @autoreleasepool { TestInputSourceModeReset(); }
+        @autoreleasepool { TestRealSessionComposition(); }
+        @autoreleasepool { TestModifierTaps(); }
+        @autoreleasepool { TestModifierTapSurvivesALostRelease(); }
+        @autoreleasepool { TestStaleClientDeactivation(); }
+        @autoreleasepool { TestSoundsFollowKeysCommitsAndActivation(); }
+        @autoreleasepool { TestPreferenceClientGeneration(); }
+        @autoreleasepool { TestSavedPreferencesReachTheFocusedController(); }
+        @autoreleasepool { TestModeSwitchReachesTheSessionBeforeTheNextKey(); }
+        @autoreleasepool { TestPreferenceRevisionSkipsUnchangedDocuments(); }
+        @autoreleasepool { TestUnreadablePreferencesAreRecoveredOnce(); }
+        @autoreleasepool { TestProviderSettingsPersistTheSharedSnapshot(); }
+        @autoreleasepool { TestInputModeSwitchDoesNotSaveSharedPreferences(); }
+        @autoreleasepool { TestFullWidth(defaults, appearance); }
+        @autoreleasepool { TestSessionOptions(); }
+        @autoreleasepool { TestKeypadDecimal(appearance); }
+        @autoreleasepool { TestFloatingToolbarMenuToggle(appearance); }
+        @autoreleasepool { TestCandidatePanelSingleOwner(); }
+        @autoreleasepool { TestGlossArrivalRedrawsOnlyTheCard(appearance); }
+        @autoreleasepool { TestNestedApplyKeepsTheNewerView(appearance); }
+        @autoreleasepool { TestJapaneseConversionKeys(appearance); }
+        @autoreleasepool { TestGlossSensePage(appearance); }
+        @autoreleasepool { TestGlossSenseTraditionalOutput(appearance); }
+        @autoreleasepool { TestSegmentEditingChords(appearance); }
+        @autoreleasepool { TestSchemeTraitsFromView(appearance); }
+        @autoreleasepool { TestSchemeKeyRouting(); }
+        @autoreleasepool { TestBackspaceHoldDoesNotEscapeComposition(); }
+        @autoreleasepool { TestPassthroughKeysAreCounted(); }
+        @autoreleasepool { TestKeyLatencyIsLoggedWithoutTheKey(); }
+        @autoreleasepool { TestKeypadOperators(appearance); }
+        @autoreleasepool { TestSmartPunctuationPreferences(); }
+        @autoreleasepool { TestSharedCharacterWidth(); }
+        @autoreleasepool { TestScreenKeyboardShortcut(appearance); }
+        @autoreleasepool { TestMaintenanceShortcuts(appearance); }
+        @autoreleasepool { TestPunctuation(defaults, appearance); }
+        @autoreleasepool { TestPairedPunctuationPreferences(); }
+        @autoreleasepool { TestPairedPunctuationHostExclusion(); }
+        @autoreleasepool { TestPairedPunctuationClosesThePair(); }
+        @autoreleasepool { TestPairedPunctuationClosesBrace(); }
+        @autoreleasepool { TestEmojiBridgeFallback(); }
+        @autoreleasepool { TestMixedInputPreferences(); }
+        @autoreleasepool { TestCharacterSetShortcut(); }
+        @autoreleasepool { TestDedicatedEnglish(appearance); }
+        @autoreleasepool { TestSystemInputModeReport(appearance); }
+        @autoreleasepool { TestOptInSchemeModes(); }
+        @autoreleasepool { TestKeymap(defaults, appearance); }
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
         assert(fontMethod);
         originalMonospacedFont = method_setImplementation(fontMethod, (IMP)MissingKeyFont);
-        TestKeymap(defaults, appearance);
+        @autoreleasepool { TestKeymap(defaults, appearance); }
         method_setImplementation(fontMethod, originalMonospacedFont);
         assert(missingKeyFontCalls > 0);
         [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
