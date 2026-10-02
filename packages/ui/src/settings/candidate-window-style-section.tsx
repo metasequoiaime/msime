@@ -22,6 +22,7 @@ import {
 import * as settings from "./settings-style";
 import { SegmentedRow } from "./segmented-row";
 import { SliderRow } from "./slider-row";
+import { ActionButton } from "../core/action-button";
 
 export type CandidateWindowStyleSectionPreferences = Pick<
   Preferences,
@@ -140,16 +141,14 @@ export function CandidateWindowStyleSection({
                 onChange={(value) => onChange(candidateCornerRadiusPatch(value))}
               />
             </span>
-            <button
-              type="button"
-              className={`candidate-color-reset${radius === null ? " is-active" : ""}`}
-              aria-pressed={radius === null}
-              onClick={() => {
+            <ActionButton
+              action={() => {
                 if (radius !== null) onChange(candidateCornerRadiusPatch(null));
               }}
-            >
-              跟随皮肤
-            </button>
+              ariaPressed={radius === null}
+              className={`candidate-color-reset${radius === null ? " is-active" : ""}`}
+              label="跟随皮肤"
+            />
           </span>
         </Row>
       )}

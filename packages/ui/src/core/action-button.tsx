@@ -7,6 +7,7 @@ export interface ActionButtonProps {
   disabled?: boolean;
   ariaLabel?: string;
   ariaBusy?: boolean;
+  ariaPressed?: boolean;
 }
 
 /** Shared button for an action that may be asynchronous or unavailable. */
@@ -17,6 +18,7 @@ export function ActionButton({
   disabled = false,
   ariaLabel,
   ariaBusy,
+  ariaPressed,
 }: ActionButtonProps) {
   return (
     <button
@@ -25,6 +27,7 @@ export function ActionButton({
       disabled={disabled || !action}
       aria-label={ariaLabel}
       aria-busy={ariaBusy}
+      aria-pressed={ariaPressed}
       onClick={() => void action?.()}
     >
       {label}

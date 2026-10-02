@@ -3,6 +3,7 @@ import { candidateTextColor } from "../candidate/candidate-text-color";
 import { Row } from "../core/platform-controls";
 import type { CustomCandidateColors } from "../theme/global-theme";
 import * as settings from "./settings-style";
+import { ActionButton } from "../core/action-button";
 
 /** A colour slot of the custom theme's candidate palette (`custom_theme.candidate_colors`). */
 export type CandidateColorKey = keyof CustomCandidateColors;
@@ -57,17 +58,15 @@ export function CandidateColorRow({
           value={set ?? fallback}
           onChange={(event) => onChange(slot, event.target.value)}
         />
-        <button
-          type="button"
-          aria-label={resetLabel}
-          className={`candidate-color-reset${set ? "" : " is-active"}`}
-          aria-pressed={pressed ? !set : undefined}
-          onClick={() => {
+        <ActionButton
+          action={() => {
             if (set || !pressed) onChange(slot, null);
           }}
-        >
-          跟随主题
-        </button>
+          ariaLabel={resetLabel}
+          ariaPressed={pressed ? !set : undefined}
+          className={`candidate-color-reset${set ? "" : " is-active"}`}
+          label="跟随主题"
+        />
       </span>
     </Row>
   );
