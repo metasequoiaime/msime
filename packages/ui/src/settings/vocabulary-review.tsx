@@ -332,10 +332,8 @@ export function VocabularyReviewPage({
             <p className={note}>这本书来自插件，在「插件」页卸载；卸载后复习进度仍会保留。</p>
           )}
           {client.removeWordbook && selectedBook && !selectedBook.builtin && !selectedBook.pack && (
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={async () => {
+            <ActionButton
+              action={async () => {
                 if (
                   !(await confirm({
                     title: "删除词表",
@@ -347,9 +345,11 @@ export function VocabularyReviewPage({
                   return;
                 await update(() => client.removeWordbook!(selectedBook.id));
               }}
-            >
-              删除这个词表
-            </button>
+              ariaBusy={busy}
+              className="secondary"
+              disabled={busy}
+              label="删除这个词表"
+            />
           )}
         </div>
       )}

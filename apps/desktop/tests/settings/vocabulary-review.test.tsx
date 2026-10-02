@@ -232,6 +232,29 @@ test("a bundled wordbook offers no delete, an imported one does", async () => {
   await waitFor(() => expect(removeWordbook).toHaveBeenCalledWith("user-list"));
 });
 
+test("marks wordbook deletion busy while it is being removed", async () => {
+  let finish!: (value: VocabularyReviewStatus) => void;
+  const removeWordbook = vi.fn(
+    () => new Promise<VocabularyReviewStatus>((resolve) => (finish = resolve)),
+  );
+  const imported = client({
+    removeWordbook,
+    load: vi.fn(async () =>
+      status({ settings: { wordbook: "user-list", newPerDay: 20, sessionLimit: 200 } }),
+    ),
+  });
+  render(<VocabularyReviewPage client={imported} />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "删除这个词表" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(removeWordbook).toHaveBeenCalledWith("user-list"));
+
+  const button = screen.getByRole("button", { name: "删除这个词表" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("no wordbook selected asks for one instead of showing an empty card", async () => {
   const empty = client({
     load: vi.fn(async () =>
