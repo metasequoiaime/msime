@@ -8,7 +8,7 @@
 //! items = ["→", "←", "⇒"]
 //! ```
 //!
-//! 一个包 1 到 32 组，合计最多 2048 项。`title` 必填，1 到 48 字节，非空白、不含控制字符；`keywords` 可选，写了就必须非空白，最多 256 字节，不含控制字符；`items` 只能是字符串，每组 1 到 512 个，每个 1 到 64 个 UTF-16 单元，非空白、不含控制字符，同组内不重复。组里只有这四个键。
+//! 一个包 1 到 32 组，合计最多 2048 项。`title` 必填，1 到 48 字节，非空白、不含控制字符，同一标签页内不重复（不同标签页可以同名）；`keywords` 可选，写了就必须非空白，最多 256 字节，不含控制字符；`items` 只能是字符串，每组 1 到 512 个，每个 1 到 64 个 UTF-16 单元，非空白、不含控制字符，同组内不重复。组里只有这四个键。
 //!
 //! 没有选择：装上就显示，卸载就消失。宿主把插件组追加在内置组之后：`symbols` 组放在以包名为上级分类的分组下，`kaomoji` 组放在颜文字的 All 之后；不跨包、也不与内置目录去重。
 
@@ -35,7 +35,7 @@ pub const MAX_KEYWORDS_BYTES: usize = 256;
 pub const MAX_ITEM_UTF16: usize = 64;
 
 /// 符号组出现在符号面板的哪个标签页。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolTab {
     Symbols,
@@ -75,6 +75,8 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<SymbolSet, 
     }
     let mut groups = Vec::with_capacity(entries.len());
     let mut total = 0usize;
+    // 同一个包里同一标签页的组标题不能重复：宿主用（包、标签页、标题）区分插件组。不同标签页可以同名。
+    let mut titles = HashSet::with_capacity(entries.len());
     for (index, entry) in entries.iter().enumerate() {
         let number = index + 1;
         let group = entry.as_table().ok_or("每组符号都必须是一个表")?;
@@ -95,6 +97,11 @@ pub(crate) fn parse(table: &toml::map::Map<String, Value>) -> Result<SymbolSet, 
         if title.trim().is_empty() || !crate::text::is_bounded_text(title, MAX_TITLE_BYTES) {
             return Err(format!(
                 "第 {number} 组的 title 为空、超过 {MAX_TITLE_BYTES} 字节或含有控制字符"
+            ));
+        }
+        if !titles.insert((tab, title)) {
+            return Err(format!(
+                "第 {number} 组的 title「{title}」与同一标签页的另一组重复了"
             ));
         }
         let keywords = match group.get("keywords") {

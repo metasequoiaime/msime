@@ -1701,6 +1701,10 @@ const FIXTURE_REFUSALS: &[(&str, &str)] = &[
     ),
     ("symbol_set-duplicate-item", "第 1 组里「→」重复了"),
     (
+        "symbol_set-duplicate-title",
+        "第 2 组的 title「箭头」与同一标签页的另一组重复了",
+    ),
+    (
         "symbol_set-empty-item",
         "第 1 组有一项为空、超过 64 个 UTF-16 单元或含有控制字符",
     ),
