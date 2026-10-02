@@ -11782,6 +11782,14 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
   );
+  check(
+    LocalAsrPolicy.modelDirectory("/data/files/../outside") === "",
+    "model paths cannot escape through parent components",
+  );
+  check(
+    LocalAsrPolicy.modelDirectory("/data/files/./model") === "",
+    "model paths cannot hide dot components",
+  );
   check(LocalAsrPolicy.modelDirectory("/data/\u0000m") === "", "control characters are refused");
   const transducer = LocalAsrPolicy.plan(
     "/m",

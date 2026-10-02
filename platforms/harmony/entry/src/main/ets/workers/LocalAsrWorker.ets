@@ -72,9 +72,33 @@ function readText(path: string): string {
   return fs.readTextSync(path);
 }
 
-function exists(path: string): boolean {
+function realDirectory(path: string): boolean {
   try {
-    return fs.accessSync(path);
+    const stat: fs.Stat = fs.lstatSync(path);
+    return !stat.isSymbolicLink() && stat.isDirectory();
+  } catch (error) {
+    return false;
+  }
+}
+
+/** Check every directory component without allowing lstat's final lookup to follow a parent link. */
+function trustedDirectory(path: string): boolean {
+  if (!path.startsWith("/")) return false;
+  const parts: string[] = path.split("/").filter((part: string): boolean => part.length > 0);
+  let current: string = "";
+  for (const part of parts) {
+    current += `/${part}`;
+    if (!realDirectory(current)) return false;
+  }
+  return true;
+}
+
+function realFile(path: string): boolean {
+  const slash: number = path.lastIndexOf("/");
+  if (slash < 0 || !trustedDirectory(slash === 0 ? "/" : path.slice(0, slash))) return false;
+  try {
+    const stat: fs.Stat = fs.lstatSync(path);
+    return !stat.isSymbolicLink() && stat.isFile();
   } catch (error) {
     return false;
   }
@@ -82,11 +106,15 @@ function exists(path: string): boolean {
 
 function readPlan(directory: string): LocalModelPlan {
   const manifest: string = `${directory}/${LOCAL_MODEL_MANIFEST}`;
-  if (!exists(manifest)) throw new Error('所选路径不是已安装的本地语音模型');
+  if (!trustedDirectory(directory) || !realFile(manifest)) {
+    throw new Error('所选路径不是已安装的本地语音模型');
+  }
   const plan: LocalModelPlan | null = LocalAsrPolicy.plan(directory, readText(manifest));
   if (plan === null) throw new Error('本地语音模型清单无效或不受支持');
-  for (const path of LocalAsrPolicy.requiredFiles(plan)) {
-    if (!exists(path)) throw new Error('本地语音模型文件不完整，请重新下载');
+  const files: string[] = LocalAsrPolicy.requiredFiles(plan);
+  if (LocalAsrPolicy.transducerNativeHotwords(plan)) files.push(plan.bpeVocab);
+  for (const path of files) {
+    if (!realFile(path)) throw new Error('本地语音模型文件不完整，请重新下载');
   }
   return plan;
 }
