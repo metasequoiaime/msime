@@ -113,16 +113,14 @@ export function CandidateWindowStyleSection({
   return (
     <GroupList title="窗口样式">
       {showOpacity && (
-        <Row title="不透明度" description={`${opacity}%，文字和焦点高亮保持不透明`}>
-          <span className={settings.sliderControl}>
-            <Slider
-              {...candidateOpacitySlider}
-              value={opacity}
-              valueText={`${opacity}%`}
-              onChange={(value) => onChange(candidateOpacityPatch(value))}
-            />
-          </span>
-        </Row>
+        <SliderRow
+          title="不透明度"
+          description={`${opacity}%，文字和焦点高亮保持不透明`}
+          {...candidateOpacitySlider}
+          value={opacity}
+          valueText={`${opacity}%`}
+          onChange={(value) => onChange(candidateOpacityPatch(value))}
+        />
       )}
       {showCornerRadius && (
         <Row
