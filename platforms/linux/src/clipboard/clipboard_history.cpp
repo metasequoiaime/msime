@@ -62,6 +62,7 @@ std::vector<std::string> load(const std::filesystem::path &path) {
   try { auto value = Json::parse(*payload); if (!value.is_array()) return {};
     std::vector<std::string> items;
     items.reserve(kMaxItems);
+    items.reserve(kMaxItems);
     for (const auto &item : value) if (item.is_string() && items.size() < kMaxItems) {
       auto text = normalize(item.get<std::string>()); if (!text.empty()) items.push_back(std::move(text));
     }
