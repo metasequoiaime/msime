@@ -15,12 +15,17 @@ int main() {
   assert((settings->items == std::array<bool, 6>{false, false, false, false, true, false}));
   // The shared `english_mode` item governs the 中/英 button; absent it stays, as in the reference.
   assert(defaults->language && settings->language);
-  assert((floating_toolbar_slots(defaults->items, defaults->language) == std::vector<int>{0, 1, 2, 3, 4, 6}));
+  const auto default_slots = floating_toolbar_slots(defaults->items, defaults->language);
+  assert((default_slots == std::vector<int>{0, 1, 2, 3, 4, 6}));
+  assert(default_slots.capacity() >= 7);
   auto english_off = preferences;
   english_off["floating_toolbar"]["english_mode"] = false;
   const auto without_language = floating_toolbar_settings(english_off);
   assert(without_language && !without_language->language);
-  assert((floating_toolbar_slots(without_language->items, without_language->language) == std::vector<int>{5}));
+  const auto no_language_slots =
+      floating_toolbar_slots(without_language->items, without_language->language);
+  assert((no_language_slots == std::vector<int>{5}));
+  assert(no_language_slots.capacity() >= 6);
   english_off["floating_toolbar"]["english_mode"] = "false";
   assert(!floating_toolbar_settings(english_off));
   for (const auto &invalid : {nlohmann::json(-1), nlohmann::json(74),
