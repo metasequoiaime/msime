@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
@@ -52,7 +53,7 @@ public final class Bootstrap {
                 String name = artifacts.getJSONObject(index).getString("name");
                 if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
                 try (InputStream input = context.getAssets().open("dictionary/" + name)) {
-                    Files.copy(input, new File(resources, name).toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copyAsset(input, new File(resources, name).toPath());
                 }
             }
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
@@ -122,10 +123,10 @@ public final class Bootstrap {
             for (String name : names == null ? new String[0] : names) {
                 if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
                 try (InputStream input = context.getAssets().open("offline-glosses/" + name)) {
-                    Files.copy(input, new File(staging, name).toPath());
+                    copyAsset(input, new File(staging, name).toPath());
                 }
             }
-            Files.write(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
             deleteTree(destination);
             Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (Exception error) {
@@ -149,14 +150,11 @@ public final class Bootstrap {
             String[] names = context.getAssets().list("helpcodes");
             for (String name : names == null ? new String[0] : names) {
                 if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
-                File staged = new File(destination, "." + name + ".staging");
                 try (InputStream input = context.getAssets().open("helpcodes/" + name)) {
-                    Files.copy(input, staged.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copyAsset(input, new File(destination, name).toPath());
                 }
-                Files.move(staged.toPath(), new File(destination, name).toPath(),
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             }
-            Files.write(marker.toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            writeAtomically(marker.toPath(), stamp.getBytes(StandardCharsets.UTF_8));
         } catch (Exception error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Helpcode table extraction failed", error);
@@ -182,10 +180,10 @@ public final class Bootstrap {
             for (String name : names == null ? new String[0] : names) {
                 if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
                 try (InputStream input = context.getAssets().open("language-dictionaries/" + name)) {
-                    Files.copy(input, new File(staging, name).toPath());
+                    copyAsset(input, new File(staging, name).toPath());
                 }
             }
-            Files.write(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
+            writeAtomically(new File(staging, ".package").toPath(), stamp.getBytes(StandardCharsets.UTF_8));
             deleteTree(destination);
             Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE);
         } catch (Exception error) {
@@ -224,6 +222,27 @@ public final class Bootstrap {
             return bytes.toString(StandardCharsets.UTF_8.name());
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    /** Copy through a newly-created sibling so an existing destination link is replaced, never followed. */
+    static void copyAsset(InputStream input, java.nio.file.Path destination) throws IOException {
+        java.nio.file.Path parent = destination.getParent();
+        if (parent == null) throw new IOException("asset destination unavailable");
+        java.nio.file.Path temporary = Files.createTempFile(parent,
+            "." + destination.getFileName() + ".", ".staging");
+        try {
+            Files.copy(input, temporary, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    static void writeAtomically(java.nio.file.Path destination, byte[] bytes) throws IOException {
+        try (InputStream input = new java.io.ByteArrayInputStream(bytes)) {
+            copyAsset(input, destination);
         }
     }
 

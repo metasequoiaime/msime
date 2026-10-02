@@ -1,7 +1,8 @@
-import { Checks, GroupList, Row } from "../core/platform-controls";
+import { Checks, GroupList } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
+import { ActionRow } from "./action-row";
 
 export type TouchToolbarPreferences = {
   layout: boolean;
@@ -112,23 +113,18 @@ export function TouchKeyboardGeometrySection({
           onChange={onRowSpacingChange}
         />
         {/* 重置一如既往也覆盖下面的「工具栏」组；它放在这里，也就是它所重置的第一组的末尾。 */}
-        <Row
+        <ActionRow
           title="恢复默认"
           description={
             showVoiceShortcut
               ? "高度、间距、顶部语音入口和工具栏按钮回到默认"
               : "高度、间距和工具栏按钮回到默认"
           }
-        >
-          <button
-            type="button"
-            className="danger-text"
-            aria-label="恢复屏幕键盘默认设置"
-            onClick={onReset}
-          >
-            恢复默认
-          </button>
-        </Row>
+          action={onReset}
+          className="danger-text"
+          ariaLabel="恢复屏幕键盘默认设置"
+          label="恢复默认"
+        />
       </GroupList>
       {(showVoiceShortcut || toolbarComponents) && (
         <GroupList title="工具栏">

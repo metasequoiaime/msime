@@ -1,4 +1,5 @@
 import { ModelSettingField } from "./model-setting-field";
+import { ActionButton } from "./action-button";
 
 export interface ProviderPreset {
   models?: readonly string[];
@@ -41,13 +42,10 @@ export function ProviderPresetSection({
         />
       )}
       {linkable && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => void openExternalUrl?.(documentation!)}
-        >
-          {label}接入说明与 API Key
-        </button>
+        <ActionButton
+          action={() => openExternalUrl?.(documentation!)}
+          label={`${label}接入说明与 API Key`}
+        />
       )}
     </div>
   );

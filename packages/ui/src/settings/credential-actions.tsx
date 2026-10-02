@@ -3,6 +3,7 @@ import {
   type CredentialStatusMessageValue,
 } from "./credential-status-message";
 import * as settings from "./settings-style";
+import { ActionButton } from "./action-button";
 
 export interface CredentialActionsProps {
   saveDisabled: boolean;
@@ -29,25 +30,19 @@ export function CredentialActions({
   return (
     <div className={settings.serviceRow}>
       <div>
-        <button
-          type="button"
-          className="secondary"
-          aria-label={saveAriaLabel}
+        <ActionButton
+          action={onSave}
+          ariaLabel={saveAriaLabel}
           disabled={saveDisabled}
-          onClick={onSave}
-        >
-          保存凭据
-        </button>
+          label="保存凭据"
+        />
         {hasStoredCredential && (
-          <button
-            type="button"
-            className="secondary"
-            aria-label={clearAriaLabel}
+          <ActionButton
+            action={onClear}
+            ariaLabel={clearAriaLabel}
             disabled={clearDisabled}
-            onClick={onClear}
-          >
-            清除凭据
-          </button>
+            label="清除凭据"
+          />
         )}
         <CredentialStatusMessage message={message} />
       </div>

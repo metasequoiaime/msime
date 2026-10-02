@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
+import { ActionRow } from "./action-row";
 
 export interface DataDirectoryInfo {
   path: string;
@@ -34,7 +35,7 @@ export function DataDirectorySection({
           {linux &&
             "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
         </p>
-        <Row
+        <ActionRow
           title="当前目录"
           description={
             <>
@@ -42,17 +43,11 @@ export function DataDirectorySection({
               {dataDirectory?.isDefault ? "（默认）" : ""}
             </>
           }
-        >
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy || !dataDirectory}
-            aria-busy={busy}
-            onClick={onChoose}
-          >
-            {busy ? "正在移动…" : "选择位置…"}
-          </button>
-        </Row>
+          action={onChoose}
+          disabled={busy || !dataDirectory}
+          ariaBusy={busy}
+          label={busy ? "正在移动…" : "选择位置…"}
+        />
         {result && (
           <p className={settings.groupNote} role="status">
             {result}

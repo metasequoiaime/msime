@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { ActionButton } from "./action-button";
 
 // Brand marks from yldm-tech/ai-logo (packages/static-svg, MIT), except QQ: ai-logo's QQ mark is a flat blue silhouette, so the penguin with its face and scarf comes from bytedance/IconPark (tencent-qq, Apache-2.0).
 const githubIcon = new URL("../assets/github.svg", import.meta.url).href;
@@ -93,9 +94,7 @@ export function FeedbackChannels({
         <p>{channel.description}</p>
         <code>{channel.code}</code>
       </div>
-      <button type="button" className="secondary" onClick={channel.onClick}>
-        {channel.action}
-      </button>
+      <ActionButton action={channel.onClick} label={channel.action} />
     </div>
   ));
   return listClassName ? <div className={listClassName}>{cards}</div> : <>{cards}</>;

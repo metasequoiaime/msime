@@ -1,8 +1,9 @@
 import * as surface from "../keyboard/panel-surface-style";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { handwritingPrivacyText } from "./handwriting-platform-notice";
 import * as settings from "./settings-style";
 import { OpenPanelRow } from "./open-panel-row";
+import { ActionRow } from "./action-row";
 
 /** 「手写输入」页每个平台一组：在键盘类宿主上是开启手写的方法、系统设置按钮、隐私说明和 SDK 的隐私行；在会打开自己面板的桌面宿主上是启动按钮和预览。 */
 export function HandwritingSettingsSection({
@@ -29,22 +30,15 @@ export function HandwritingSettingsSection({
 }) {
   const systemSettingsRow = (title: string, label: string) =>
     openSystemKeyboardSettings && (
-      <Row title={title}>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => void openSystemKeyboardSettings()}
-        >
-          {label}
-        </button>
-      </Row>
+      <ActionRow title={title} action={openSystemKeyboardSettings} label={label} />
     );
   const sdkPrivacyRow = onOpenSdkPrivacy && (
-    <Row title="隐私" description="Google ML Kit 的服务条款与数据说明">
-      <button type="button" className="secondary" onClick={onOpenSdkPrivacy}>
-        手写 SDK 隐私说明
-      </button>
-    </Row>
+    <ActionRow
+      title="隐私"
+      description="Google ML Kit 的服务条款与数据说明"
+      action={onOpenSdkPrivacy}
+      label="手写 SDK 隐私说明"
+    />
   );
   return ios ? (
     <GroupList title="iOS 键盘手写">

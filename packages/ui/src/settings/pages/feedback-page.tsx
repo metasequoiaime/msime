@@ -6,6 +6,7 @@ import { SubPageEntries } from "./sub-page-entries";
 import { createSettingsExternalActions } from "../settings-external-actions";
 import { FeedbackChannels } from "../feedback-channels";
 import { FeedbackReportFields } from "../feedback-report-fields";
+import { ActionButton } from "../action-button";
 
 /** 设置表单的「帮助与反馈」页：先是「帮助」，然后是可复现问题的报告和各个反馈渠道。 */
 export function FeedbackSettingsPage() {
@@ -65,14 +66,13 @@ export function FeedbackSettingsPage() {
               </div>
               <div className={settings.managerActions}>
                 {client.copyText && (
-                  <button type="button" className="secondary" onClick={copyFeedbackReport}>
-                    {feedbackReportCopied ? "已复制报告" : "复制报告"}
-                  </button>
+                  <ActionButton
+                    action={copyFeedbackReport}
+                    label={feedbackReportCopied ? "已复制报告" : "复制报告"}
+                  />
                 )}
                 {client.openExternalUrl && (
-                  <button type="button" className="secondary" onClick={submitFeedback}>
-                    在 GitHub 提交
-                  </button>
+                  <ActionButton action={submitFeedback} label="在 GitHub 提交" />
                 )}
               </div>
               <p className={settings.managerNote}>

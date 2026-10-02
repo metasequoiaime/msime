@@ -1,3 +1,5 @@
+import { ActionButton } from "./action-button";
+
 export interface OpenPanelButtonProps {
   action?: () => void | Promise<void>;
   label?: string;
@@ -10,14 +12,5 @@ export function OpenPanelButton({
   label = "打开",
   className = "secondary",
 }: OpenPanelButtonProps) {
-  return (
-    <button
-      type="button"
-      className={className}
-      disabled={!action}
-      onClick={() => void action?.()}
-    >
-      {label}
-    </button>
-  );
+  return <ActionButton action={action} label={label} className={className} />;
 }

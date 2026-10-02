@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { ActionButton } from "./action-button";
 
 export interface CredentialTestState {
   signature: string;
@@ -31,15 +32,12 @@ export function CredentialTestSection({
   return (
     <div className={settings.serviceRow}>
       <div>
-        <button
-          type="button"
-          className="secondary"
-          aria-label={label}
+        <ActionButton
+          action={onTest}
+          ariaLabel={label}
           disabled={disabled || (visible && state.busy)}
-          onClick={onTest}
-        >
-          {visible && state.busy ? "测试中…" : "测试配置"}
-        </button>
+          label={visible && state.busy ? "测试中…" : "测试配置"}
+        />
         {visible && state.message && (
           <span role={state.ok ? "status" : "alert"}>{state.message}</span>
         )}
