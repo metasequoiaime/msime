@@ -1,5 +1,6 @@
 import * as settings from "./settings-style";
 import { GroupList } from "../core/platform-controls";
+import { ActionButton } from "../core/action-button";
 
 export interface UninstallSectionProps {
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
@@ -45,16 +46,13 @@ export function UninstallSection({
             </label>
           </span>
           <div>
-            <button
-              type="button"
-              className="secondary"
+            <ActionButton
+              action={onRequestUninstall}
               disabled={uninstallBusy}
-              aria-label="卸载…"
+              ariaLabel="卸载…"
               aria-busy={uninstallBusy}
-              onClick={onRequestUninstall}
-            >
-              {uninstallBusy ? "处理中…" : "卸载…"}
-            </button>
+              label={uninstallBusy ? "处理中…" : "卸载…"}
+            />
             {uninstallResult === "success" && <span role="status">输入法已移到废纸篓。</span>}
             {uninstallResult === "error" && <span role="alert">卸载未能完成，请稍后重试。</span>}
           </div>
@@ -73,22 +71,13 @@ export function UninstallSection({
                 卸载后请重新登录系统，让它从输入源列表中消失。
               </p>
               <div>
-                <button
-                  type="button"
+                <ActionButton
+                  action={onConfirmUninstall}
                   className="danger"
                   disabled={uninstallBusy}
-                  onClick={onConfirmUninstall}
-                >
-                  确认卸载
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={uninstallBusy}
-                  onClick={onCancelUninstall}
-                >
-                  取消
-                </button>
+                  label="确认卸载"
+                />
+                <ActionButton action={onCancelUninstall} disabled={uninstallBusy} label="取消" />
               </div>
             </div>
           )}
