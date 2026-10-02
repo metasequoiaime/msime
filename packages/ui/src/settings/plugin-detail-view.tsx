@@ -136,15 +136,13 @@ export function PluginDetailView({
       {!pack.builtin && (
         <GroupList>
           <ActionBlock note="删除后包里的文件会从本机移除；正在使用的话，设置会回到默认选择。">
-            <button
-              type="button"
-              className="secondary"
-              aria-label={`删除${pack.name}`}
+            <ActionButton
+              action={() => onRemove(pack)}
+              ariaBusy={working}
+              ariaLabel={`删除${pack.name}`}
               disabled={working}
-              onClick={() => onRemove(pack)}
-            >
-              删除
-            </button>
+              label="删除"
+            />
           </ActionBlock>
         </GroupList>
       )}

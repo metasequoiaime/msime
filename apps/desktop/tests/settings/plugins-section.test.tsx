@@ -109,6 +109,26 @@ test("a plugin removal response from a replaced client cannot update preferences
   expect(screen.getByRole("heading", { name: "打字机" })).toBeTruthy();
 });
 
+test("marks plugin removal busy while the host removes the pack", async () => {
+  let resolveRemove!: () => void;
+  const remove = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveRemove = resolve;
+      }),
+  );
+  renderSection({ client: fakeClient({ remove }) });
+  await openPack("打字机");
+
+  fireEvent.click(screen.getByRole("button", { name: "删除打字机" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith("sound", "typewriter"));
+
+  const button = screen.getByRole("button", { name: "删除打字机" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  resolveRemove();
+});
+
 const pack = (overrides: Partial<PluginPackage> & Pick<PluginPackage, "id" | "kind">) =>
   ({
     name: overrides.id,
