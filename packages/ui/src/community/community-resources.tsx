@@ -29,7 +29,7 @@ import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
-import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityRatingButtons } from "./community-rating-buttons";
 import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
@@ -784,11 +784,10 @@ export function CommunityResourcesPage({
         </p>
       )}
       {more && (
-        <ActionButton
-          action={() => void load(true)}
+        <CommunityLoadMoreButton
           className="secondary community-more"
           disabled={busy}
-          label="加载更多"
+          onClick={() => void load(true)}
         />
       )}
       {editing && (

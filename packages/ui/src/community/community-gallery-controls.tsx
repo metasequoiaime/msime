@@ -24,16 +24,13 @@ export function CommunityBackButton({
 export function CommunityLoadMoreButton({
   disabled,
   onClick,
+  className = `secondary ${style.more}`,
 }: {
   disabled: boolean;
   onClick: () => void;
+  className?: string;
 }) {
   return (
-    <ActionButton
-      action={onClick}
-      className={`secondary ${style.more}`}
-      disabled={disabled}
-      label="加载更多"
-    />
+    <ActionButton action={onClick} className={className} disabled={disabled} label="加载更多" />
   );
 }
