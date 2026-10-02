@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import * as style from "./community-style";
 import { CommunitySelectField } from "./community-select-field";
+import { ActionButton } from "../core/action-button";
 
 /** 社区皮肤的发布分类，键盘皮肤和候选窗口皮肤共用，与服务端的固定 id 一致；只是发布元数据，不写进皮肤内容。 */
 export type CommunitySkinCategory =
@@ -53,24 +54,20 @@ export function CommunitySkinCategoryFilter({
 }) {
   return (
     <div className={style.kindFilter} role="group" aria-label={ariaLabel}>
-      <button
-        type="button"
+      <ActionButton
+        action={() => onChange(null)}
         className={value === null ? "primary" : "secondary"}
-        aria-pressed={value === null}
-        onClick={() => onChange(null)}
-      >
-        全部
-      </button>
+        ariaPressed={value === null}
+        label="全部"
+      />
       {communitySkinCategories.map((item) => (
-        <button
+        <ActionButton
           key={item}
-          type="button"
+          action={() => onChange(item)}
           className={value === item ? "primary" : "secondary"}
-          aria-pressed={value === item}
-          onClick={() => onChange(item)}
-        >
-          {communitySkinCategoryLabels[item]}
-        </button>
+          ariaPressed={value === item}
+          label={communitySkinCategoryLabels[item]}
+        />
       ))}
     </div>
   );
