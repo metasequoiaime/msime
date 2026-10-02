@@ -690,6 +690,7 @@ export {
   VoiceLanguageOptions,
   type VoiceLanguageOptionsProps,
 } from "./voice/voice-language-options";
+export { VoiceProviderRow, type VoiceProviderRowProps } from "./settings/voice-provider-row";
 export {
   CloudPinyinSchemeOptions,
   CloudShuangpinProfileOptions,

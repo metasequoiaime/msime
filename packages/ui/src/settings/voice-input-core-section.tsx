@@ -1,7 +1,7 @@
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import { ASR_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
-import { VoiceProviderSelect } from "./voice-provider-select";
+import { VoiceProviderRow } from "./voice-provider-row";
 import { SwitchRow } from "./switch-row";
 import { TextInputRow } from "./text-input-row";
 
@@ -49,34 +49,33 @@ export function VoiceInputCoreSection({
         onChange={onEnabledChange}
       />
       {showProviderSettings && (
-        <Row title="识别服务">
-          <VoiceProviderSelect
-            options={ASR_PROVIDER_OPTIONS}
-            ariaLabel="识别服务"
-            value={provider}
-            onChange={onProviderChange}
-          >
-            {macos && <option value="system">macOS 系统识别</option>}
-            {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
-            {!localVoiceAvailable && provider === "local" && (
-              <option value="local" disabled>
-                本地模型（当前平台不可用）
-              </option>
-            )}
-            {harmony && <option value="system">HarmonyOS 系统识别</option>}
-            {android && <option value="system">Android 系统识别</option>}
-            {!nativeVoicePlatform && provider === "system" && (
-              <option value="system" disabled>
-                系统识别（当前平台不可用）
-              </option>
-            )}
-            {harmonyUnsupportedAsr && (
-              <option value={provider} disabled>
-                {provider}（当前 HarmonyOS 版本不可用）
-              </option>
-            )}
-          </VoiceProviderSelect>
-        </Row>
+        <VoiceProviderRow
+          title="识别服务"
+          options={ASR_PROVIDER_OPTIONS}
+          ariaLabel="识别服务"
+          value={provider}
+          onChange={onProviderChange}
+        >
+          {macos && <option value="system">macOS 系统识别</option>}
+          {localVoiceAvailable && <option value="local">本地模型（离线）</option>}
+          {!localVoiceAvailable && provider === "local" && (
+            <option value="local" disabled>
+              本地模型（当前平台不可用）
+            </option>
+          )}
+          {harmony && <option value="system">HarmonyOS 系统识别</option>}
+          {android && <option value="system">Android 系统识别</option>}
+          {!nativeVoicePlatform && provider === "system" && (
+            <option value="system" disabled>
+              系统识别（当前平台不可用）
+            </option>
+          )}
+          {harmonyUnsupportedAsr && (
+            <option value={provider} disabled>
+              {provider}（当前 HarmonyOS 版本不可用）
+            </option>
+          )}
+        </VoiceProviderRow>
       )}
       <TextInputRow
         title="识别语言"
