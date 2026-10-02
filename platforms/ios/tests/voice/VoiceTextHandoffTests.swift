@@ -15,13 +15,15 @@ final class VoiceTextHandoffTests: XCTestCase {
     try Data("synthetic-lock-target".utf8).write(to: outsideLock)
     let now = Date(timeIntervalSince1970: 1_000_000)
     let entry = VoiceTextHandoff(id: UUID(), text: "fixture", createdAt: now, expiresAt: now.addingTimeInterval(600))
-    try JSONEncoder().encode(entry).write(to: handoffDirectory.appendingPathComponent("result.json"))
+    // 和写入的字节比，不和再编码一次的结果比：`JSONEncoder` 不保证两次编码的键顺序相同。
+    let stored = try JSONEncoder().encode(entry)
+    try stored.write(to: handoffDirectory.appendingPathComponent("result.json"))
     try FileManager.default.createSymbolicLink(
       at: handoffDirectory.appendingPathComponent("transfer.lock"), withDestinationURL: outsideLock)
 
     XCTAssertThrowsError(try VoiceTextHandoffStore(directory: root).read(now: now))
     XCTAssertEqual(try Data(contentsOf: outsideLock), Data("synthetic-lock-target".utf8))
-    XCTAssertEqual(try Data(contentsOf: handoffDirectory.appendingPathComponent("result.json")), try JSONEncoder().encode(entry))
+    XCTAssertEqual(try Data(contentsOf: handoffDirectory.appendingPathComponent("result.json")), stored)
   }
 
   func testOneTimeClaimReplacementAndExpiry() throws {
