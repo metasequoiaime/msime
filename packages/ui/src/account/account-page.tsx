@@ -422,30 +422,32 @@ function AppIconSettingsCard({
             const selected = info.selected === option.id;
             const changing = pending === option.id;
             return (
-              <button
-                type="button"
+              <ActionButton
+                action={() => void choose(option.id)}
+                ariaLabel={`${option.title}，${option.detail}`}
+                ariaPressed={selected}
                 className={account.iconCard(selected)}
                 key={option.id}
                 disabled={!info.supported || pending !== null}
-                aria-label={`${option.title}，${option.detail}`}
-                aria-pressed={selected}
-                onClick={() => void choose(option.id)}
-              >
-                <span
-                  className={account.iconPreview}
-                  style={{ backgroundColor: option.color }}
-                  aria-hidden="true"
-                >
-                  杉
-                </span>
-                <span className={account.iconCopy}>
-                  <strong>{option.title}</strong>
-                  <small>{option.detail}</small>
-                </span>
-                <span className={account.iconState(selected)}>
-                  {changing ? "更换中" : selected ? "使用中" : "使用此图标"}
-                </span>
-              </button>
+                label={
+                  <>
+                    <span
+                      className={account.iconPreview}
+                      style={{ backgroundColor: option.color }}
+                      aria-hidden="true"
+                    >
+                      杉
+                    </span>
+                    <span className={account.iconCopy}>
+                      <strong>{option.title}</strong>
+                      <small>{option.detail}</small>
+                    </span>
+                    <span className={account.iconState(selected)}>
+                      {changing ? "更换中" : selected ? "使用中" : "使用此图标"}
+                    </span>
+                  </>
+                }
+              />
             );
           })}
         </div>
