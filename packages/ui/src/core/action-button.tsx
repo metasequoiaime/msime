@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { AriaAttributes, ReactNode } from "react";
 
 export interface ActionButtonProps {
   action?: () => void | Promise<void>;
@@ -10,6 +10,7 @@ export interface ActionButtonProps {
   ariaPressed?: boolean;
   ariaChecked?: boolean;
   ariaExpanded?: boolean;
+  ariaCurrent?: AriaAttributes["aria-current"];
   role?: "button" | "menuitem" | "switch";
 }
 
@@ -24,6 +25,7 @@ export function ActionButton({
   ariaPressed,
   ariaChecked,
   ariaExpanded,
+  ariaCurrent,
   role,
 }: ActionButtonProps) {
   return (
@@ -37,6 +39,7 @@ export function ActionButton({
       aria-pressed={ariaPressed}
       aria-checked={ariaChecked}
       aria-expanded={ariaExpanded}
+      aria-current={ariaCurrent}
       onClick={() => void action?.()}
     >
       {label}

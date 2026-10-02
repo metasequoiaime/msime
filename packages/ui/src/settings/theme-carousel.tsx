@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import * as settings from "./settings-style";
+import { ActionButton } from "../core/action-button";
 
 /** 导航最多显示的圆点数。每个已安装的皮肤都是一张卡片，主题多于这个数时，圆点改为跟随当前卡片的一段窗口，导航行的宽度不随皮肤数量增长。 */
 export const MAX_CAROUSEL_DOTS = 9;
@@ -111,15 +112,13 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
         ))}
       </div>
       <div className={settings.themeCarouselNav}>
-        <button
-          type="button"
+        <ActionButton
+          action={() => show(index - 1, true)}
           className={settings.themeCarouselArrow}
-          aria-label="上一个主题"
+          ariaLabel="上一个主题"
           disabled={index <= 0}
-          onClick={() => show(index - 1, true)}
-        >
-          ‹
-        </button>
+          label="‹"
+        />
         <div className={settings.themeCarouselDots}>
           {labels.slice(windowStart, windowStart + MAX_CAROUSEL_DOTS).map((label, offset) => {
             const slide = windowStart + offset;
@@ -128,13 +127,13 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
               (offset === 0 && windowStart > 0) ||
               (offset === MAX_CAROUSEL_DOTS - 1 && windowStart + MAX_CAROUSEL_DOTS < labels.length);
             return (
-              <button
-                type="button"
+              <ActionButton
+                action={() => show(slide, true)}
                 key={slide}
                 className={settings.themeCarouselDot(slide === index, edge)}
-                aria-label={`查看${label}`}
-                aria-current={slide === index ? "true" : undefined}
-                onClick={() => show(slide, true)}
+                ariaLabel={`查看${label}`}
+                ariaCurrent={slide === index ? "true" : undefined}
+                label={null}
               />
             );
           })}
@@ -142,15 +141,13 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
         <span className={settings.themeCarouselCount}>
           {index + 1} / {count}
         </span>
-        <button
-          type="button"
+        <ActionButton
+          action={() => show(index + 1, true)}
           className={settings.themeCarouselArrow}
-          aria-label="下一个主题"
+          ariaLabel="下一个主题"
           disabled={index >= count - 1}
-          onClick={() => show(index + 1, true)}
-        >
-          ›
-        </button>
+          label="›"
+        />
       </div>
     </section>
   );
