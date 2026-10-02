@@ -37,6 +37,7 @@ inline bool safe_skin_id(std::string_view id) {
 // 运行配置里 candidate_skin_catalog.packages 的那些外部皮肤。条目原样交给 msime_client_resolve_theme 的 package，而共享层按清单严格读取它（ThemePackage::from_host_catalog_entry），所以这里只收它会接受的条目：安全的 id、非空的 title、字符串 base、只含 horizontal / vertical 的 layouts。base 是否为 system 或某个内置主题由 theme_choices 对照共享层的主题目录再筛一次，宿主不另存主题 id 表。调色板不在这里读——只声明了模式而没有任何颜色的 `{}` 同样是合法条目，由共享层决定画什么。
 inline std::vector<CandidateSkin> parse_configured_skins(const nlohmann::json &options) {
   std::vector<CandidateSkin> skins;
+  skins.reserve(kMaxCandidateSkins);
   const auto catalog = options.find("candidate_skin_catalog");
   if (catalog == options.end() || !catalog->is_object()) return skins;
   const auto packages = catalog->find("packages");
