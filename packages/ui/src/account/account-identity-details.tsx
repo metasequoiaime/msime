@@ -1,5 +1,6 @@
 import * as account from "./account-style";
 import { accountProviderName } from "./account-labels";
+import { ActionButton } from "../core/action-button";
 
 export interface AccountIdentityDetailsProps {
   user: {
@@ -24,9 +25,11 @@ export function AccountIdentityDetails({
       <div>
         <dt>账号 ID</dt>
         <dd>
-          <button type="button" className={account.copyId} onClick={onCopy}>
-            {copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
-          </button>
+          <ActionButton
+            action={onCopy}
+            className={account.copyId}
+            label={copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
+          />
         </dd>
       </div>
       {user.email && (
