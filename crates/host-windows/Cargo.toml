@@ -42,7 +42,7 @@ windows = { version = "0.62", features = [
 ] }
 # The 0.62 projection takes these from their own crates, and they have to be the versions windows 0.62 itself uses: a Matrix3x2 or an IIterable from a different windows-numerics / windows-collections is a different type to the compiler, however identical it looks.
 windows-numerics = "0.3"
-windows-collections = "0.3"
+windows-collections = "0.100"
 
 [lints]
 workspace = true
