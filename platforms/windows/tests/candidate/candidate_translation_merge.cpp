@@ -72,6 +72,7 @@ int main() {
                                           {"世界", "monde"},
                                           {"再见", "au revoir"},
                                           {"空", ""}});
+    REQUIRE(online.capacity() >= 6);
     REQUIRE(online == (Answered{{"你好", "salut"},
                                 {"再见", "au revoir"},
                                 {"世界", "monde"}}));
