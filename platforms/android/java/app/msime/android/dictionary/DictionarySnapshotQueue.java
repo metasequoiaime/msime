@@ -206,8 +206,11 @@ public final class DictionarySnapshotQueue {
     public WorkerLease acquireWorkerLease() throws Failure {
         try {
             Path queueRoot = root();
-            FileChannel channel = FileChannel.open(queueRoot.resolve(WORKER_LOCK_NAME),
-                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+            Path lockPath = queueRoot.resolve(WORKER_LOCK_NAME);
+            rejectLockPath(lockPath);
+            FileChannel channel = FileChannel.open(lockPath,
+                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                LinkOption.NOFOLLOW_LINKS);
             try {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
@@ -369,8 +372,11 @@ public final class DictionarySnapshotQueue {
     private <T> T locked(LockedAction<T> action) throws Failure {
         try {
             Path queueRoot = root();
-            try (FileChannel channel = FileChannel.open(queueRoot.resolve(LOCK_NAME),
-                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            Path lockPath = queueRoot.resolve(LOCK_NAME);
+            rejectLockPath(lockPath);
+            try (FileChannel channel = FileChannel.open(lockPath,
+                    StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE,
+                    LinkOption.NOFOLLOW_LINKS)) {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
                 catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
@@ -381,6 +387,13 @@ public final class DictionarySnapshotQueue {
         } catch (Failure error) { throw error; }
         catch (IOException | SecurityException error) { throw new Failure(Reason.UNAVAILABLE, error); }
         catch (Exception error) { throw new Failure(Reason.UNAVAILABLE, error); }
+    }
+
+    private static void rejectLockPath(Path path) throws IOException {
+        if (Files.isSymbolicLink(path)
+                || (Files.exists(path, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)))
+            throw new IOException("snapshot queue lock is not a private regular file");
     }
 
     private State readUnlocked() throws Failure {

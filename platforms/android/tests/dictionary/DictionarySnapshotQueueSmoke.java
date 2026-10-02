@@ -75,6 +75,18 @@ public final class DictionarySnapshotQueueSmoke {
             check(!Files.exists(stagingOutside.resolve("nested")));
             Files.delete(stagingLink);
             DictionarySnapshotQueue queue = new DictionarySnapshotQueue(root, root.resolve("queue"));
+            Files.createDirectories(root.resolve("queue"));
+            Path outsideLock = Files.createFile(root.resolve("outside-state.lock"));
+            Files.createSymbolicLink(root.resolve("queue/state.lock"), outsideLock);
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, queue::read);
+            Files.delete(root.resolve("queue/state.lock"));
+            Path workerQueuePath = root.resolve("worker-queue");
+            DictionarySnapshotQueue workerQueue = new DictionarySnapshotQueue(root, workerQueuePath);
+            Files.createDirectories(workerQueuePath);
+            Path outsideWorkerLock = Files.createFile(root.resolve("outside-worker.lock"));
+            Files.createSymbolicLink(workerQueuePath.resolve("worker.lock"), outsideWorkerLock);
+            fails(DictionarySnapshotQueue.Reason.UNAVAILABLE, workerQueue::acquireWorkerLease);
+            Files.delete(workerQueuePath.resolve("worker.lock"));
             String version = "local-v1:legacy:" + "a".repeat(64);
             check(DictionarySnapshotQueue.validVersion(version));
             UUID receipt = UUID.randomUUID();
