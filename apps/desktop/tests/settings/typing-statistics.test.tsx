@@ -435,6 +435,26 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
   expect((toggle as HTMLInputElement).checked).toBe(false);
 });
 
+test("marks the statistics reset action busy", async () => {
+  const pending = deferred<TypingStatisticsStatus>();
+  const reset = vi.fn().mockReturnValue(pending.promise);
+  render(
+    <TypingStatisticsPage
+      client={{ load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset }}
+    />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(reset).toHaveBeenCalledOnce());
+
+  const button = screen.getByRole("button", { name: "清空统计" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  pending.resolve(status());
+});
+
 test("never-written status explains the empty local-only data channel", async () => {
   const empty: TypingStatistics = { enabled: true, total: 0, days: {} };
   const typingStatistics = {

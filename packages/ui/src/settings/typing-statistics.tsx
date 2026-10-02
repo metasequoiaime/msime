@@ -1939,14 +1939,13 @@ export function TypingStatisticsPage({
                 打开数据目录
               </button>
             )}
-            <button
-              type="button"
+            <ActionButton
+              action={() => void resetStatistics()}
+              ariaBusy={busy}
               className="secondary m-0 text-danger"
               disabled={busy}
-              onClick={() => void resetStatistics()}
-            >
-              清空统计
-            </button>
+              label="清空统计"
+            />
           </div>
           <p className={privacy}>
             字数统计水杉键盘提交的字符，以及英文模式和放行给应用的字母、数字与符号（按按键时估计），含标点及表情，不含空格和换行。组合表情计为一个字符，删除文字不扣减。按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。仅在本机保存日期、分类和数量，不保存输入内容。每日明细默认永久保留，可在「自动清理」中改为只保留最近一段时间；清理删除的日期同时从累计总数与分类中扣除。
