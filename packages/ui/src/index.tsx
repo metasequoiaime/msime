@@ -682,6 +682,7 @@ export {
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
 export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-theme-row";
+export { ShortcutRow, type ShortcutRowProps } from "./settings/shortcut-row";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
 export { EndpointSettingRow, type EndpointSettingRowProps } from "./settings/endpoint-setting-row";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
