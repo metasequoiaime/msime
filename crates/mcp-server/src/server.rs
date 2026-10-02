@@ -24,7 +24,7 @@ use rmcp::schemars::JsonSchema;
 use rmcp::{prompt_handler, tool, tool_handler, tool_router, Json, ServerHandler};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -37,6 +37,8 @@ const MAX_EDITS: usize = 50;
 const WRITE_INTERVAL: Duration = Duration::from_secs(1);
 /// In the state directory: when the last write began, shared by every server and command line on this computer.
 const WRITE_LOCK: &str = "mcp-write.lock";
+/// 写锁只保存一个毫秒时间戳，拒绝异常膨胀的内容以免无界分配内存。
+const WRITE_LOCK_READ_LIMIT: u64 = 128;
 
 const WRITE_TOOLS: [&str; 3] = [
     "create_candidate_skin",
@@ -626,9 +628,9 @@ fn claim_shared_write(config: &Config) -> Result<File, String> {
     let mut file = file_lock::open_private_lock_file(state_dir.join(WRITE_LOCK))
         .map_err(|_| "cannot open the write lock in the state directory")?;
     file_lock::exclusive(&file).map_err(|_| "cannot take the write lock")?;
-    let mut text = String::new();
-    file.read_to_string(&mut text)
+    let bytes = crate::bounded::read(&file, WRITE_LOCK_READ_LIMIT)
         .map_err(|_| "cannot read the write lock")?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| "cannot read the write lock")?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| "the system clock is before 1970")?
@@ -794,6 +796,25 @@ mod tests {
         // The refusal did not take the slot.
         drop(guard);
         server.claim_write().unwrap();
+    }
+
+    #[test]
+    fn oversized_shared_write_lock_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, b"{}").unwrap();
+        std::fs::write(directory.path().join(WRITE_LOCK), vec![b'x'; 129]).unwrap();
+        let config = Config {
+            options,
+            state_dir: Some(directory.path().to_owned()),
+            allow_write: true,
+            allow_dictionary_read: false,
+        };
+
+        assert_eq!(
+            claim_shared_write(&config).unwrap_err(),
+            "cannot read the write lock"
+        );
     }
 
     #[tokio::test]
