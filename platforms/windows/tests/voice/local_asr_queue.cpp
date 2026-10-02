@@ -39,6 +39,14 @@ int main() {
     REQUIRE(cancelled.cancelled());
     REQUIRE(cancelled.closed());
     REQUIRE(cancelled.wait_and_take(ended).empty());
+
+    // The bounded queue reserves its full budget before the first capture
+    // callback, so a short first batch does not leave later inserts growing it.
+    msime::windows::LocalAsrAudioQueue reserved(4);
+    REQUIRE(reserved.push(samples, 1) ==
+            msime::windows::LocalAsrAudioQueue::PushResult::accepted);
+    const auto short_batch = reserved.wait_and_take(ended);
+    REQUIRE(short_batch.capacity() >= 4);
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

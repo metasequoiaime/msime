@@ -19,7 +19,9 @@ public:
 
   explicit LocalAsrAudioQueue(
       std::size_t maximum_samples = kDefaultMaximumSamples)
-      : maximum_samples_(maximum_samples) {}
+      : maximum_samples_(maximum_samples) {
+    pending_.reserve(maximum_samples_);
+  }
 
   LocalAsrAudioQueue(const LocalAsrAudioQueue &) = delete;
   LocalAsrAudioQueue &operator=(const LocalAsrAudioQueue &) = delete;
