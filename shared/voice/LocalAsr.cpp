@@ -680,6 +680,8 @@ struct LocalAsrSession::Impl {
 LocalAsrSession::LocalAsrSession(const LocalAsrOptions &options, PartialCallback on_partial,
                                  std::shared_ptr<std::atomic_bool> cancelled)
     : impl_(std::make_unique<Impl>()) {
+  if (!is_local_model_dir(options.model_dir))
+    throw VoiceError("Not an installed local speech model");
   const auto &api = require_runtime();
   const auto model = read_model(options.model_dir);
   impl_->on_partial = std::move(on_partial);

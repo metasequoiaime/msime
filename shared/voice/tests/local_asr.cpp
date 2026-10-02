@@ -31,12 +31,33 @@ int main() {
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
 
+    // 会话 API 自身必须执行已安装模型边界；独立 helper 直接构造会话，不经过 provider 封装层。
+    set_sherpa_library_path((root / "no-such-runtime").u8string());
+    bool rejected_uninstalled = false;
+    try {
+        LocalAsrOptions options;
+        options.model_dir = (root / "missing").u8string();
+        LocalAsrSession session(options, nullptr);
+    } catch (const VoiceError &error) {
+        rejected_uninstalled = std::string(error.what()).find("Not an installed local speech model") != std::string::npos;
+    }
+    assert(rejected_uninstalled);
+
 #if !defined(_WIN32)
     const auto external = root / "external";
     fs::create_directories(external);
     std::ofstream(external / std::string(local_model_manifest)) << "{}";
     fs::create_symlink(external, root / "linked-model");
     assert(!is_local_model_dir((root / "linked-model").u8string()));
+    bool rejected_linked = false;
+    try {
+        LocalAsrOptions options;
+        options.model_dir = (root / "linked-model").u8string();
+        LocalAsrSession session(options, nullptr);
+    } catch (const VoiceError &error) {
+        rejected_linked = std::string(error.what()).find("Not an installed local speech model") != std::string::npos;
+    }
+    assert(rejected_linked);
     fs::remove(root / "linked-model");
 
     const auto external_manifest = external / "external-manifest.json";
