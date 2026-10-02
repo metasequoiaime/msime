@@ -248,14 +248,14 @@ export function VocabularyReviewPage({
             : "在这里管理词书；复习在背单词面板里进行。进度保存在本机，不会上传。"}
         </p>
         {managing && openPanel && (
-          <button
+          <ActionButton
+            action={() => void openPanel()}
+            ariaBusy={busy}
+            ariaLabel="打开背单词面板"
             className="secondary"
             disabled={busy || !selected}
-            onClick={() => void openPanel()}
-            aria-label="打开背单词面板"
-          >
-            开始复习
-          </button>
+            label="开始复习"
+          />
         )}
       </div>
 
