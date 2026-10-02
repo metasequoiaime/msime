@@ -6,7 +6,7 @@ import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow, Row } from "../../core/platform-controls";
 import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section";
 import { createSettingsDraftActions } from "../settings-draft-actions";
-import { OpenPanelButton } from "../open-panel-button";
+import { OpenPanelRow } from "../open-panel-row";
 
 /** The 屏幕键盘 page of the settings form. */
 export function ScreenKeyboardSettingsPage() {
@@ -44,12 +44,12 @@ export function ScreenKeyboardSettingsPage() {
         {/* 预览放在它所展示的尺寸控件上方；在预览上拖动调的是同一个间距。启动按钮只在宿主能唤出自己的屏幕键盘面板时才存在。 */}
         <GroupList title="屏幕键盘">
           {client.openScreenKeyboard && (
-            <Row title="打开屏幕键盘" description="使用鼠标或触控方式输入文字与快捷按键">
-              <OpenPanelButton
-                action={() => openPanel(client.openScreenKeyboard)}
-                className={`secondary ${settings.openButton}`}
-              />
-            </Row>
+            <OpenPanelRow
+              title="打开屏幕键盘"
+              description="使用鼠标或触控方式输入文字与快捷按键"
+              action={() => openPanel(client.openScreenKeyboard)}
+              className={`secondary ${settings.openButton}`}
+            />
           )}
           <div className={settings.groupPreview} aria-label="屏幕键盘预览">
             <div className={settings.panelPreviewLabel}>预览</div>

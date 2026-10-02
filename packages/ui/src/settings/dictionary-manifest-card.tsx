@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { GroupList, Row } from "../core/platform-controls";
+import { GroupList } from "../core/platform-controls";
 import * as settings from "./settings-style";
+import { SummaryRow } from "./summary-row";
 
 export interface DictionaryManifest {
   profile: string;
@@ -43,13 +44,13 @@ export function DictionaryManifestCard({ read }: DictionaryManifestCardProps) {
       <p className={settings.groupNote}>
         词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。
       </p>
-      <Row title="规格">
+      <SummaryRow title="规格">
         <code>{manifest.profile}</code>
-      </Row>
+      </SummaryRow>
       {/* Twelve characters is what the source shows: enough to identify the build, short enough to read back over the phone. */}
-      <Row title="词库版本">
+      <SummaryRow title="词库版本">
         <code>{manifest.sourceCommit.slice(0, 12)}</code>
-      </Row>
+      </SummaryRow>
     </GroupList>
   );
 }

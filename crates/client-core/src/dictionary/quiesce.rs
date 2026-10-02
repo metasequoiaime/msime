@@ -7,7 +7,8 @@
 //! On Windows every input session lives in the one Server process, which releases them when asked over its auxiliary pipe instead (see [`server`]). The Server does not track who asked, so one writer's resume can hand the sessions back while another is still working; that writer's next request then finds the dictionaries busy, asks again and is retried like the first.
 
 use std::ffi::OsStr;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -122,9 +123,22 @@ impl Lease {
         reject_symlinked_path_ancestors(&staged)?;
         // The owner line tells this lease from one another writer put up; the expiry alone could coincide.
         let contents = format!("{expiry}\n{}\n", self.owner);
-        if let Err(error) =
-            std::fs::write(&staged, &contents).and_then(|()| std::fs::rename(&staged, &self.path))
+        let mut file = OpenOptions::new();
+        file.write(true).create_new(true);
+        #[cfg(unix)]
         {
+            use std::os::unix::fs::OpenOptionsExt;
+            file.mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        let mut output = file.open(&staged)?;
+        if let Err(error) = output
+            .write_all(contents.as_bytes())
+            .and_then(|()| output.sync_all())
+        {
+            let _ = std::fs::remove_file(&staged);
+            return Err(error);
+        }
+        if let Err(error) = std::fs::rename(&staged, &self.path) {
             let _ = std::fs::remove_file(&staged);
             return Err(error);
         }
@@ -320,6 +334,23 @@ mod tests {
         let path = directory.path().join(LEASE_NAME);
         std::fs::write(&path, vec![b'x'; MAX_LEASE_BYTES as usize + 1]).unwrap();
         assert_eq!(read_lease(&path), None);
+    }
+
+    #[test]
+    fn publish_does_not_overwrite_an_existing_staged_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let serial = 9_999_999;
+        let staged = directory.path().join(format!("{LEASE_NAME}.{}-{serial}", std::process::id()));
+        std::fs::write(&staged, b"keep").unwrap();
+        let mut lease = Lease {
+            path: directory.path().join(LEASE_NAME),
+            owner: format!("{} {serial}", std::process::id()),
+            serial,
+            written: String::new(),
+        };
+        assert!(lease.publish().is_err());
+        assert_eq!(std::fs::read_to_string(staged).unwrap(), "keep");
+        assert!(!directory.path().join(LEASE_NAME).exists());
     }
 
     #[cfg(unix)]

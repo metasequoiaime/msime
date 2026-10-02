@@ -3,6 +3,7 @@
 use super::command_table::CommandRow;
 use super::sound_pack::{SequenceAdvance, SoundMode};
 use super::*;
+use crate::vocabulary::wordbook;
 use std::io::Write;
 use tempfile::tempdir;
 
@@ -2047,6 +2048,13 @@ fn wordbooks_are_bounded_and_load_as_books() {
     assert!(wordbook_pack::load_book(root.path(), "pack-larger").is_none());
     installed_wordbook(root.path(), "twice", b"a\tn. x\na\tn. y\n");
     assert!(wordbook_pack::load_book(root.path(), "pack-twice").is_none());
+}
+
+#[test]
+fn wordbook_parser_reserves_its_bounded_entry_capacity() {
+    let entries = wordbook_pack::parse_words(b"synthetic\tmeaning\n", "words.tsv").unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.capacity(), wordbook::MAX_ENTRIES);
 }
 
 #[test]

@@ -681,13 +681,18 @@ export {
   type ThemePreferences,
 } from "./settings/theme-settings-section";
 export { SurfaceThemeSelect, type SurfaceThemeSelectProps } from "./settings/surface-theme-select";
+export { SurfaceThemeRow, type SurfaceThemeRowProps } from "./settings/surface-theme-row";
+export { ShortcutRow, type ShortcutRowProps } from "./settings/shortcut-row";
 export { EndpointInput, type EndpointInputProps } from "./settings/endpoint-input";
+export { EndpointSettingRow, type EndpointSettingRowProps } from "./settings/endpoint-setting-row";
+export { OpenPanelRow, type OpenPanelRowProps } from "./settings/open-panel-row";
 export { FeedbackKindOptions } from "./settings/feedback-kind-options";
 export { OpenPanelButton, type OpenPanelButtonProps } from "./settings/open-panel-button";
 export {
   VoiceLanguageOptions,
   type VoiceLanguageOptionsProps,
 } from "./voice/voice-language-options";
+export { VoiceProviderRow, type VoiceProviderRowProps } from "./settings/voice-provider-row";
 export {
   CloudPinyinSchemeOptions,
   CloudShuangpinProfileOptions,
@@ -698,6 +703,7 @@ export {
   type PreeditStyleSelectMode,
   type PreeditStyleSelectProps,
 } from "./settings/preedit-style-select";
+export { PreeditStyleRow, type PreeditStyleRowProps } from "./settings/preedit-style-row";
 export {
   CandidateColorsSection,
   type CandidateColorKey,
@@ -1054,6 +1060,7 @@ export {
   type SegmentedRowProps,
 } from "./settings/segmented-row";
 export { SliderRow, type SliderRowProps } from "./settings/slider-row";
+export { SummaryRow, type SummaryRowProps } from "./settings/summary-row";
 export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,

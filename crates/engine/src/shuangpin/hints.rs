@@ -35,23 +35,22 @@ pub fn shuangpin_key_hints(profile_name: &str) -> Vec<ShuangpinKeyHint> {
         return Vec::new();
     };
     let source = profile(kind);
-    KEY_ORDER
-        .iter()
-        .filter_map(|key| {
-            let initials = units_on_key(source.initials, key);
-            let finals = units_on_key(source.finals, key);
-            let hint = match (initials.is_empty(), finals.is_empty()) {
-                (true, true) => return None,
-                (true, false) => finals,
-                (false, true) => initials,
-                (false, false) => format!("{initials} / {finals}"),
-            };
-            Some(ShuangpinKeyHint {
-                key: key.to_string(),
-                hint,
-            })
-        })
-        .collect()
+    let mut hints = Vec::with_capacity(KEY_ORDER.len());
+    for &key in &KEY_ORDER {
+        let initials = units_on_key(source.initials, key);
+        let finals = units_on_key(source.finals, key);
+        let hint = match (initials.is_empty(), finals.is_empty()) {
+            (true, true) => continue,
+            (true, false) => finals,
+            (false, true) => initials,
+            (false, false) => format!("{initials} / {finals}"),
+        };
+        hints.push(ShuangpinKeyHint {
+            key: key.to_string(),
+            hint,
+        });
+    }
+    hints
 }
 
 /// Each whole zero-initial syllable of the profile with its two-key code, in table order. An unknown name yields nothing, the same as `shuangpin_key_hints`.
@@ -72,6 +71,7 @@ mod tests {
         let mut faces: Vec<Vec<ShuangpinKeyHint>> = Vec::new();
         for name in ["xiaohe", "ziranma", "shoudao", "microsoft"] {
             let hints = shuangpin_key_hints(name);
+            assert_eq!(hints.capacity(), KEY_ORDER.len());
             assert!(
                 hints.len() >= 26,
                 "{name} labelled only {} keys",

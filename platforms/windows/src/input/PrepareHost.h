@@ -1,12 +1,75 @@
 #pragma once
+#include <algorithm>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include <nlohmann/json.hpp>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace msime::windows {
+inline bool write_new_file(const std::filesystem::path &path,
+                           std::string_view contents) {
+#ifdef _WIN32
+  HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+                              nullptr);
+  if (handle == INVALID_HANDLE_VALUE) return false;
+  BY_HANDLE_FILE_INFORMATION info{};
+  bool ok = GetFileInformationByHandle(handle, &info) &&
+            !(info.dwFileAttributes &
+              (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
+  std::size_t offset = 0;
+  while (ok && offset < contents.size()) {
+    const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
+        contents.size() - offset,
+        static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+    DWORD written = 0;
+    ok = WriteFile(handle, contents.data() + offset, chunk, &written, nullptr) &&
+         written == chunk;
+    offset += written;
+  }
+  if (!CloseHandle(handle)) ok = false;
+  if (!ok) DeleteFileW(path.c_str());
+  return ok;
+#else
+  const int descriptor = ::open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL |
+                                                O_CLOEXEC | O_NOFOLLOW,
+                                0600);
+  if (descriptor < 0) return false;
+  bool ok = true;
+  const char *data = contents.data();
+  std::size_t remaining = contents.size();
+  while (remaining != 0) {
+    const auto written = ::write(descriptor, data, remaining);
+    if (written > 0) {
+      data += written;
+      remaining -= static_cast<std::size_t>(written);
+    } else if (written < 0 && errno == EINTR) {
+      continue;
+    } else {
+      ok = false;
+      break;
+    }
+  }
+  if (::close(descriptor) != 0) ok = false;
+  if (!ok) {
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+  }
+  return ok;
+#endif
+}
+
 // Only orchestration belongs here. Resource verification and Engine dictionary
 // preparation stay in the shared Host API, supplied by the native executable.
 inline std::filesystem::path prepare_host_state_in_directory(
@@ -30,13 +93,8 @@ inline std::filesystem::path prepare_host_state_in_directory(
     throw std::runtime_error("Prepared configuration oversized");
   const auto temporary = state / ".runtime-options-prepared";
   const auto destination = state / "runtime-options.json";
-  {
-    std::ofstream output(temporary, std::ios::binary | std::ios::out);
-    output.write(document.data(), static_cast<std::streamsize>(document.size()));
-    output.close();
-    if (!output)
-      throw std::runtime_error("Cannot write prepared configuration");
-  }
+  if (!write_new_file(temporary, document))
+    throw std::runtime_error("Cannot write prepared configuration");
   // A same-directory hard link publishes complete contents without replacing
   // any destination created concurrently. Unsupported filesystems fail closed.
   // Do not remove prepared data on failure: the user may need it to diagnose.
