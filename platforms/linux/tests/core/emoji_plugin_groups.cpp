@@ -74,6 +74,12 @@ int main() {
   assert(page.items == Json::array({"a"}) && page.complete);
   page = merge_builtin_emoji_page(Json::array(), 0, true, all, 5);
   assert(page.items == all && page.complete);
+  // 内置目录在第 2 页以后才读失败：游标仍是内置的，说明之前的页都是内置条目、还没有显示过插件条目，所以插件条目从 0 开始，下一页接着插件下标走，不会重复也不会跳过。
+  page = merge_builtin_emoji_page(Json::array(), 15, true, all, 3);
+  assert(page.items.size() == 3 && page.items[0]["text"] == "→" && (page.next == EmojiPageCursor{true, 3}) &&
+         !page.complete);
+  page = plugin_emoji_page(all, page.next.offset, 3);
+  assert(page.items.size() == 2 && page.items[0]["text"] == "Ab" && page.complete);
   page = plugin_emoji_page(all, 9, 5);
   assert(page.items.empty() && page.complete);
 
