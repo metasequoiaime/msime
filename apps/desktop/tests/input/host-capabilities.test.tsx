@@ -18,9 +18,12 @@ const initial: Snapshot = {
   },
 };
 
+// The platform-dependent fields follow what `client-core::host_surface` reports for that platform; a test overrides the one it is about.
 function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabilities {
+  const platform = overrides.platform ?? "windows";
+  const mobile = platform === "android" || platform === "ios" || platform === "harmony";
   return {
-    platform: "windows",
+    platform,
     restart_input_method: true,
     panel_windows: true,
     ime_mode_scope: false,
@@ -43,6 +46,33 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     english_suggestions: false,
     shuangpin_preedit: false,
     voice_commit_mode: false,
+    mobile_settings: mobile,
+    vocabulary_review: false,
+    floating_toolbar_handwriting: false,
+    floating_toolbar_voice: false,
+    number_row_selection: false,
+    candidate_preedit_font: true,
+    candidate_page_number: false,
+    candidate_border_color: overrides.candidate_selection_appearance ?? true,
+    candidate_window_scale: false,
+    candidate_window_opacity: false,
+    candidate_corner_radius: false,
+    helpcode_shift_entry: mobile,
+    skin_directory_import: false,
+    touch_toolbar_components: false,
+    maintenance_shortcuts: false,
+    fullwidth_chord: platform === "macos",
+    voice_provider_settings: platform !== "android",
+    voice_stream_preedit: platform !== "android",
+    character_width: !mobile,
+    ai_provider_credentials: platform === "linux",
+    key_sound: false,
+    plugin_triggers: false,
+    music: false,
+    typing_effects: false,
+    wordbook_packs: false,
+    symbol_set_packs: false,
+    input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean"],
     ...overrides,
   };
 }
@@ -83,9 +113,7 @@ test("a host without mode scope support does not receive the control", async () 
   expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
-test("a host without capabilities keeps the previous user-agent behaviour", async () => {
-  // No host field: the shared UI must fall back to isLinuxDesktop(), which is
-  // false under jsdom, so this matches the behaviour shipped before the contract.
+test("without a host the mode scope control is hidden", async () => {
   mount({});
   await settingsFormReady();
   expect(screen.queryByLabelText("中英文状态")).toBeNull();

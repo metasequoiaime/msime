@@ -499,12 +499,6 @@ pub struct VietnamesePreferences {
     pub tone_style: VietnameseToneStyle,
 }
 
-impl VietnamesePreferences {
-    fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum PunctuationLock {
@@ -539,8 +533,6 @@ pub enum CharacterWidthPreference {
 }
 
 /// Candidate sentence-association sources. The dictionary lattice keeps its historical default; neural rerankers are opt-in because they add model work while typing or settling.
-/// The private unit field absorbs a retired key; it is not a non-exhaustive marker.
-#[allow(clippy::manual_non_exhaustive)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SentenceAssociationPreferences {
@@ -553,14 +545,6 @@ pub struct SentenceAssociationPreferences {
     pub neural_keyboard: bool,
     #[serde(default)]
     pub show_next_on_duplicate: bool,
-    /// The retired Google decoder switch. Documents saved before the decoder was dropped still carry `google`; it is accepted and discarded so they keep loading, and the next save no longer writes it.
-    #[serde(
-        rename = "google",
-        default,
-        skip_serializing,
-        deserialize_with = "discard_retired_value"
-    )]
-    retired_google: (),
 }
 
 impl Default for SentenceAssociationPreferences {
@@ -570,15 +554,8 @@ impl Default for SentenceAssociationPreferences {
             neural_desktop: false,
             neural_keyboard: false,
             show_next_on_duplicate: false,
-            retired_google: (),
         }
     }
-}
-
-fn discard_retired_value<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<(), D::Error> {
-    serde::de::IgnoredAny::deserialize(deserializer).map(|_| ())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -642,19 +619,6 @@ pub struct Preferences {
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
     pub diagnostic_log: DiagnosticLogPreferences,
-    /// Accepted for compatibility, and deliberately not honoured.
-    ///
-    /// The reference offers Direct2D or WebView2 for the candidate window,
-    /// toolbar and tray menu because it carries both renderers. This client
-    /// draws those three natively with Direct2D and has no second renderer to
-    /// switch to, so no host reads this and no settings page offers it -
-    /// a control here would be a choice with one outcome.
-    ///
-    /// It cannot simply be deleted: `Preferences` denies unknown fields, so
-    /// dropping it would make every saved document that contains it fail to
-    /// parse.
-    #[serde(default)]
-    pub ui_backend: UiBackend,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
     /// macOS displays a short, non-activating badge after switching between
@@ -664,9 +628,8 @@ pub struct Preferences {
     pub input_mode_hud: bool,
     pub scheme: InputScheme,
     /// Show the Wubi code suffix that remains after the typed prefix.
-    /// `None` preserves the default-on behavior without rewriting legacy documents.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wubi_code_hint: Option<bool>,
+    #[serde(default = "enabled_by_default")]
+    pub wubi_code_hint: bool,
     /// Answer an unmatched Wubi code with candidates from the same Pinyin spelling.
     #[serde(default)]
     pub wubi_mixed_pinyin: bool,
@@ -693,15 +656,15 @@ pub struct Preferences {
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
-    /// Retained when the active scheme is Japanese, Korean or Vietnamese. Absent in legacy documents.
+    /// Retained when the active scheme is Japanese, Korean or Vietnamese.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]
     pub shuangpin_profile: ShuangpinProfile,
     #[serde(default = "enabled_by_default")]
     pub shuangpin_preedit_uses_raw: bool,
-    /// The Vietnamese input method and tone placement. Left out of the document at its default, so an untouched document still loads in a build that predates the key.
-    #[serde(default, skip_serializing_if = "VietnamesePreferences::is_default")]
+    /// The Vietnamese input method and tone placement.
+    #[serde(default)]
     pub vietnamese: VietnamesePreferences,
     pub candidate_page_size: u8,
     /// Linux IBus can release the number row to the application while a
@@ -713,17 +676,11 @@ pub struct Preferences {
     pub candidate_font_size: u8,
     #[serde(default = "default_candidate_preedit_font_size")]
     pub candidate_preedit_font_size: u8,
-    /// Overall size of the floating candidate window, 50-200 percent. The host multiplies `candidate_font_size` and every piece of window geometry (paddings, row heights, header, arrows, insets, shadow) by it. Left out of the document at 100 so an unchanged document still loads in a build that predates the key.
-    #[serde(
-        default = "default_candidate_scale_percent",
-        skip_serializing_if = "is_default_candidate_scale_percent"
-    )]
+    /// Overall size of the floating candidate window, 50-200 percent. The host multiplies `candidate_font_size` and every piece of window geometry (paddings, row heights, header, arrows, insets, shadow) by it.
+    #[serde(default = "default_candidate_scale_percent")]
     pub candidate_scale_percent: u16,
-    /// Opacity of the candidate card, 50-100 percent. It multiplies only the alpha of the card fill, its border and the skin background image; text, numbers and the selection highlight stay opaque. Left out of the document at 100 for the same reason as `candidate_scale_percent`.
-    #[serde(
-        default = "default_candidate_opacity_percent",
-        skip_serializing_if = "is_default_candidate_opacity_percent"
-    )]
+    /// Opacity of the candidate card, 50-100 percent. It multiplies only the alpha of the card fill, its border and the skin background image; text, numbers and the selection highlight stay opaque.
+    #[serde(default = "default_candidate_opacity_percent")]
     pub candidate_opacity_percent: u8,
     /// Corner radius of the candidate card in points (DIP on Windows), 0-32. It wins over the skin package's `corner_radius_dip`, which wins over the host's own constant; absent means the host or skin decides. Row and selection radii become the smaller of the host's row radius and this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -737,12 +694,7 @@ pub struct Preferences {
     #[serde(default = "default_candidate_fallback_fonts")]
     pub candidate_fallback_fonts: Vec<String>,
     pub learning: bool,
-    #[serde(default = "enabled_by_default")]
-    /// Legacy all-types switch retained so older snapshots still parse. It no
-    /// longer enables either correction type; callers use the two `quanpin`
-    /// fields, matching the fixed Windows baseline.
-    pub autocorrect: bool,
-    #[serde(default, skip_serializing_if = "QuanpinPreferences::is_empty")]
+    #[serde(default)]
     pub quanpin: QuanpinPreferences,
     #[serde(default)]
     pub fuzzy_pinyin: FuzzyPinyinPreferences,
@@ -811,15 +763,14 @@ pub struct Preferences {
     pub english_suggestions: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
-    /// Optional second language for mobile candidate glosses. `None` preserves the
-    /// legacy single-language behavior and is omitted from serialized snapshots.
+    /// Optional second language for mobile candidate glosses. `None` shows a single language and is omitted from serialized snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation_secondary_language: Option<TranslationTargetLanguage>,
-    /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`), while a stored document without the field reads false, so a user who never chose it keeps the behaviour they had. Omitted while false so documents that never chose it stay readable by older strict parsers.
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// True when the MSIME account (水杉账号) is the candidate translation service; candidates are then sent to `https://api.msime.app/v1/translate`. Fresh macOS and Linux installs start with it chosen (see `Default`); a document without the field reads false.
+    #[serde(default)]
     pub translation_account: bool,
-    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. Replaces the opt-in `telemetry_enabled`, which is no longer read: a stored document that still carries that key loads with it dropped. Omitted while on, so a document that never turned it off stays readable by older strict parsers; a reader treats an absent key as on.
-    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    /// Send anonymous usage reports (daily activity, session ends, crash summaries; see [`crate::telemetry`] and PRIVACY.md) to `https://api.msime.app/v1/telemetry/events`. On by default; turning it off stops all reporting and clears the local queue. A reader treats an absent key as on.
+    #[serde(default = "enabled_by_default")]
     pub usage_reporting: bool,
 }
 
@@ -848,10 +799,8 @@ pub struct VoiceInputPreferences {
     pub asr_provider: String,
     #[serde(default)]
     pub asr_app_key: String,
-    /// Doubao authentication mode (`api_key` or `legacy`). Empty preserves
-    /// compatibility with older files and lets each host infer the mode from
-    /// the stored App ID.
-    #[serde(default)]
+    /// Doubao authentication mode (`api_key` or `legacy`, the two console types Doubao offers). Empty means `api_key`.
+    #[serde(default = "default_doubao_auth_mode")]
     pub doubao_auth_mode: String,
     #[serde(default)]
     pub asr_token: String,
@@ -866,7 +815,7 @@ pub struct VoiceInputPreferences {
     pub asr_endpoint: String,
     #[serde(default)]
     pub asr_model: String,
-    /// Absolute path to the installed model directory the `local` provider runs (one containing `msime-model.json`, see `voice::local_models`). Nothing is uploaded and no endpoint or token applies. Only the path's shape is checked here, since the same document is read on every OS: any absolute form the host OS uses is accepted, and the recognizer finds its files only through `msime-model.json`, so a path without one is a missing model rather than an invalid document. A document from a build that also took a single model file therefore still loads.
+    /// Absolute path to the installed model directory the `local` provider runs (one containing `msime-model.json`, see `voice::local_models`). Nothing is uploaded and no endpoint or token applies. Only the path's shape is checked here, since the same document is read on every OS: any absolute form the host OS uses is accepted, and the recognizer finds its files only through `msime-model.json`, so a path without one is a missing model rather than an invalid document.
     #[serde(default)]
     pub asr_model_path: String,
     /// Optional `https://` prefix placed in front of every local model download URL (ghproxy-style), for networks where GitHub release downloads are slow or blocked. Empty downloads from the catalog URLs as they are.
@@ -891,8 +840,6 @@ pub struct VoiceInputPreferences {
     pub polish_model: String,
     #[serde(default)]
     pub polish_prompt_id: String,
-    #[serde(default)]
-    pub polish_prompt: String,
     /// Show streaming ASR updates in the host preedit while recording.
     #[serde(default = "enabled_by_default")]
     pub stream_inline_preedit: bool,
@@ -937,7 +884,7 @@ impl Default for VoiceInputPreferences {
             commit_mode: "tsf".into(),
             asr_provider: "doubao".into(),
             asr_app_key: String::new(),
-            doubao_auth_mode: "api_key".into(),
+            doubao_auth_mode: default_doubao_auth_mode(),
             asr_token: String::new(),
             asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
@@ -953,7 +900,6 @@ impl Default for VoiceInputPreferences {
             polish_endpoint: polish.endpoint.into(),
             polish_model: polish.model.into(),
             polish_prompt_id: "cleanup".into(),
-            polish_prompt: String::new(),
             stream_inline_preedit: true,
             polish_prompt_custom_1: String::new(),
             polish_prompt_custom_2: String::new(),
@@ -976,7 +922,7 @@ pub struct AiAssistantPreferences {
     #[serde(default = "source_ai_default")]
     pub enabled: bool,
     /// A missing key falls back to the same provider as a missing section, so
-    /// a hand-edited or older `{"enabled": true}` still loads.
+    /// a hand-edited `{"enabled": true}` still loads.
     #[serde(default = "default_ai_provider")]
     pub provider: String,
     #[serde(default)]
@@ -991,8 +937,6 @@ pub struct AiAssistantPreferences {
     pub candidate_limit: u8,
     #[serde(default)]
     pub prompt_id: String,
-    #[serde(default)]
-    pub prompt: String,
     #[serde(default)]
     pub prompt_custom_1: String,
     #[serde(default)]
@@ -1064,7 +1008,6 @@ impl Default for AiAssistantPreferences {
             endpoint: endpoint.into(),
             candidate_limit: 3,
             prompt_id: "custom_1".into(),
-            prompt: String::new(),
             prompt_custom_1: String::new(),
             prompt_custom_2: String::new(),
             prompt_custom_3: String::new(),
@@ -1221,21 +1164,6 @@ pub enum PreeditStyle {
     Empty,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum UiBackend {
-    /// `d2d` is what the Windows factory configuration writes and what the reference's own
-    /// `IsSupported` accepts, so the two halves of this product disagreed on the spelling of their
-    /// default: a document carrying it was rejected outright rather than read.
-    #[default]
-    #[serde(alias = "d2d")]
-    Direct2d,
-    /// The reference treats `webview` and `web` as the same choice, having written both at
-    /// different times. Reading them costs nothing and keeps a profile from resetting.
-    #[serde(alias = "webview", alias = "web")]
-    Webview2,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalModePreferences {
@@ -1247,17 +1175,17 @@ pub struct LocalModePreferences {
     pub super_jianpin: bool,
     pub temporary_english: bool,
     pub temporary_japanese: bool,
-    /// `V` on an empty composition: calculator, Chinese numerals and dates. Off by default and in documents written before it existed, because Shift+V used to type a capital V. This and the next two are left out of the document while off, like `translation_account`, so a build from before them still reads a document that never switched them on.
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// `V` on an empty composition: calculator, Chinese numerals and dates. Off by default, because Shift+V otherwise types a capital V.
+    #[serde(default)]
     pub expression: bool,
-    /// `/` on an empty composition: built-in and installed commands. Off by default, because `/` used to type a mark.
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// `/` on an empty composition: built-in and installed commands. Off by default, because `/` otherwise types a mark.
+    #[serde(default)]
     pub command: bool,
-    /// `@` on an empty composition: the local mention list. Off by default, because `@` used to type itself.
-    #[serde(default, skip_serializing_if = "is_false")]
+    /// `@` on an empty composition: the local mention list. Off by default, because `@` otherwise types itself.
+    #[serde(default)]
     pub mention: bool,
     /// The `@` mode also offers China's provinces, cities and counties from the Engine's built-in table, after the user's own names. Off by default, and only meaningful while `mention` is on.
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default)]
     pub mention_places: bool,
 }
 
@@ -1647,7 +1575,7 @@ fn default_polish_service() -> PolishService {
     }
 }
 
-/// The source's `config.default.toml` ships `emoji_mixed_input = true`; Windows already receives it through the installer's config.toml and the one-time legacy import, macOS follows the desktop product it ports, the other hosts keep `false`, and a stored value is untouched either way.
+/// The source's `config.default.toml` ships `emoji_mixed_input = true`; Windows follows it, macOS follows the desktop product it ports, the other hosts keep `false`, and a stored value is untouched either way.
 fn source_mixed_emoji_default() -> bool {
     cfg!(any(windows, target_os = "macos"))
 }
@@ -1664,16 +1592,8 @@ fn default_candidate_scale_percent() -> u16 {
     100
 }
 
-fn is_default_candidate_scale_percent(value: &u16) -> bool {
-    *value == default_candidate_scale_percent()
-}
-
 fn default_candidate_opacity_percent() -> u8 {
     100
-}
-
-fn is_default_candidate_opacity_percent(value: &u8) -> bool {
-    *value == default_candidate_opacity_percent()
 }
 
 fn default_touch_key_spacing_tenths() -> u8 {
@@ -1693,6 +1613,10 @@ fn default_candidate_fallback_fonts() -> Vec<String> {
 
 fn default_commit_mode() -> String {
     "tsf".to_owned()
+}
+
+fn default_doubao_auth_mode() -> String {
+    "api_key".to_owned()
 }
 
 /// Builds for a touch keyboard: iOS, Android and HarmonyOS. The desktop hosts keep their own defaults.
@@ -1748,11 +1672,10 @@ impl Default for Preferences {
             show_candidate_page_number: true,
             tsf_preedit_style: PreeditStyle::default(),
             diagnostic_log: DiagnosticLogPreferences::default(),
-            ui_backend: UiBackend::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
             scheme: InputScheme::default(),
-            wubi_code_hint: None,
+            wubi_code_hint: true,
             wubi_mixed_pinyin: false,
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
@@ -1776,7 +1699,6 @@ impl Default for Preferences {
             candidate_english_font: None,
             candidate_fallback_fonts: default_candidate_fallback_fonts(),
             learning: true,
-            autocorrect: true,
             quanpin: QuanpinPreferences::default(),
             fuzzy_pinyin: FuzzyPinyinPreferences::default(),
             quanpin_helpcode: default_quanpin_helpcode(),
@@ -1856,10 +1778,6 @@ impl FuzzyPinyinRule {
     }
 }
 
-fn is_true(value: &bool) -> bool {
-    *value
-}
-
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -1887,19 +1805,21 @@ impl FuzzyPinyinPreferences {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QuanpinPreferences {
-    /// Optional keeps legacy snapshots distinguishable from an explicit value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub autocorrect_transposition: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub autocorrect_neighbor: Option<bool>,
+    #[serde(default = "enabled_by_default")]
+    pub autocorrect_transposition: bool,
+    #[serde(default = "enabled_by_default")]
+    pub autocorrect_neighbor: bool,
 }
 
-impl QuanpinPreferences {
-    fn is_empty(&self) -> bool {
-        self.autocorrect_transposition.is_none() && self.autocorrect_neighbor.is_none()
+impl Default for QuanpinPreferences {
+    fn default() -> Self {
+        Self {
+            autocorrect_transposition: true,
+            autocorrect_neighbor: true,
+        }
     }
 }
 
@@ -2064,18 +1984,6 @@ pub const AI_PROVIDERS: [&str; 12] = [
 pub const POLISH_PROVIDERS: [&str; 5] = ["siliconflow", "openai", "deepseek", "groq", "doubao"];
 
 impl Preferences {
-    pub fn wubi_code_hint_enabled(&self) -> bool {
-        self.wubi_code_hint.unwrap_or(true)
-    }
-
-    pub fn quanpin_autocorrect_transposition(&self) -> bool {
-        self.quanpin.autocorrect_transposition.unwrap_or(true)
-    }
-
-    pub fn quanpin_autocorrect_neighbor(&self) -> bool {
-        self.quanpin.autocorrect_neighbor.unwrap_or(true)
-    }
-
     pub fn active_helpcode(&self) -> HelpcodePreferences {
         match self.scheme {
             InputScheme::Shuangpin => self.shuangpin_helpcode.clone(),
@@ -2084,19 +1992,6 @@ impl Preferences {
                 enabled: false,
                 ..HelpcodePreferences::default()
             },
-        }
-    }
-
-    /// Replace recognition and polishing provider ids no backend implements with
-    /// the shared defaults. Used on the read path only: a file written by an
-    /// older build must still load, and it is never rewritten as a side effect.
-    pub fn normalize_voice_providers(&mut self) {
-        let default = Self::default();
-        if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str()) {
-            self.voice_input.asr_provider = default.voice_input.asr_provider;
-        }
-        if !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str()) {
-            self.voice_input.polish_provider = default.voice_input.polish_provider;
         }
     }
 
@@ -2439,20 +2334,10 @@ impl PreferencesStore {
             crate::bounded_io::read_bounded_file(File::open(&path)?, MAX_DOCUMENT_BYTES, || {
                 PreferencesError::DocumentTooLarge
             })?;
-        let mut document: serde_json::Value = serde_json::from_slice(&bytes)?;
-        if let Some(preferences) = document
-            .get_mut("preferences")
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            migrate_retired_fields(preferences);
-        }
-        let mut snapshot: PreferencesSnapshot = serde_json::from_value(document)?;
+        let snapshot: PreferencesSnapshot = serde_json::from_slice(&bytes)?;
         if snapshot.format_version != 1 {
             return Err(PreferencesError::UnsupportedFormat);
         }
-        // Older builds offered recognition providers no backend implements. Fall
-        // back in memory so those files still load; the file is not rewritten.
-        snapshot.preferences.normalize_voice_providers();
         snapshot.preferences.validate()?;
         Ok(snapshot)
     }
@@ -2535,8 +2420,7 @@ impl PreferencesStore {
             .collect();
             preferences.fuzzy_pinyin.seeded = true;
         } else if current.preferences.fuzzy_pinyin.seeded {
-            // Keep the internal marker monotonic even if an older client sends
-            // a snapshot that predates the field.
+            // Keep the internal marker monotonic even if a client sends a snapshot without the field.
             preferences.fuzzy_pinyin.seeded = true;
         }
         preferences.validate()?;
@@ -2665,103 +2549,10 @@ impl PreferencesStore {
     }
 }
 
-/// Keys of [`Preferences`] that were replaced and are dropped on read, so a document an older build saved still loads. `telemetry_enabled` was the opt-in reporting switch; its replacement `usage_reporting` is on by default and deliberately does not inherit the old value.
-const RETIRED_KEYS: [&str; 1] = ["telemetry_enabled"];
-
-fn migrate_retired_fields(preferences: &mut serde_json::Map<String, serde_json::Value>) {
-    for key in RETIRED_KEYS {
-        preferences.remove(key);
-    }
-    migrate_retired_skin_fields(preferences);
-}
-
-/// The candidate colour pickers #1187 moved from the top level into `custom_theme.candidate_colors`, old key and new.
-const RETIRED_CANDIDATE_COLORS: [(&str, &str); 7] = [
-    ("candidate_text_color", "text"),
-    ("candidate_number_color", "number"),
-    ("candidate_accent_color", "accent"),
-    ("candidate_selected_color", "selected"),
-    ("candidate_hover_color", "hover"),
-    ("candidate_surface_color", "surface"),
-    ("candidate_border_color", "border"),
-];
-
-/// The built-in candidate skins before #1187. They are not external packages, though the current folder-name rule would accept their ids as such.
-const RETIRED_BUILTIN_SKINS: [&str; 4] = ["fluent", "wechat", "graphite", "willow_green"];
-
-/// Move the skin settings #1187 replaced with `global_theme` and `custom_theme` into their replacements, for documents written before it.
-///
-/// `Preferences` refuses the old keys so nothing writes them again, which left every document saved by an older build unreadable: the whole load failed and a host could not start. The read path therefore rewrites them in memory first (the file is not rewritten, as with the voice providers). An external candidate package, the candidate colour pickers and a custom touch keyboard design become the custom theme and select it. The retired built-in looks (`fluent`, `wechat`, `graphite`, `willow_green` and the touch keyboard presets) have no counterpart and fall back to the defaults, and a colour or design the current checks refuse is dropped rather than failing the document. Whatever the document already says in the new fields wins.
-fn migrate_retired_skin_fields(preferences: &mut serde_json::Map<String, serde_json::Value>) {
-    let skin = preferences.remove("candidate_skin");
-    let keyboard_skin = preferences.remove("touch_keyboard_skin");
-    let keyboard_design = preferences.remove("custom_touch_keyboard_skin");
-    let colors: Vec<(&str, serde_json::Value)> = RETIRED_CANDIDATE_COLORS
-        .iter()
-        .filter_map(|(old, new)| {
-            preferences
-                .remove(*old)
-                .filter(|value| {
-                    value
-                        .as_str()
-                        .is_some_and(|color| crate::is_hex_color(color, &[6]))
-                })
-                .map(|value| (*new, value))
-        })
-        .collect();
-    let package = skin
-        .as_ref()
-        .and_then(serde_json::Value::as_str)
-        .filter(|id| {
-            !RETIRED_BUILTIN_SKINS.contains(id) && crate::skin::catalog::is_external_id(id)
-        })
-        .map(str::to_owned);
-    let design = keyboard_design.filter(|design| {
-        keyboard_skin.as_ref().and_then(serde_json::Value::as_str) == Some("custom")
-            && serde_json::from_value::<TouchKeyboardSkinDesign>(design.clone())
-                .is_ok_and(|design| design.validate())
-    });
-    if package.is_none() && colors.is_empty() && design.is_none() {
-        return;
-    }
-    let custom = preferences
-        .entry("custom_theme")
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    let Some(custom) = custom.as_object_mut() else {
-        return;
-    };
-    if let Some(package) = package {
-        custom
-            .entry("candidate_skin")
-            .or_insert(serde_json::Value::String(package));
-    }
-    if !colors.is_empty() {
-        if let Some(pickers) = custom
-            .entry("candidate_colors")
-            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
-            .as_object_mut()
-        {
-            for (key, value) in colors {
-                pickers.entry(key).or_insert(value);
-            }
-        }
-    }
-    if let Some(design) = design {
-        custom.entry("keyboard").or_insert(design);
-    }
-    preferences
-        .entry("global_theme")
-        .or_insert_with(|| serde_json::Value::String("custom".to_owned()));
-}
-
 /// Whether `preferences` is a document `load` would accept.
 fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>) -> bool {
-    serde_json::from_value::<Preferences>(serde_json::Value::Object(candidate.clone())).is_ok_and(
-        |mut preferences| {
-            preferences.normalize_voice_providers();
-            preferences.validate().is_ok()
-        },
-    )
+    serde_json::from_value::<Preferences>(serde_json::Value::Object(candidate.clone()))
+        .is_ok_and(|preferences| preferences.validate().is_ok())
 }
 
 /// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.
@@ -2773,14 +2564,13 @@ fn salvage_preferences(
         return Ok((default, false));
     };
     // A snapshot keeps its settings under `preferences`; a bare settings object at the root is accepted too.
-    let mut source = match document.get("preferences") {
+    let source = match document.get("preferences") {
         Some(serde_json::Value::Object(source)) => source.clone(),
         _ => match document {
             serde_json::Value::Object(source) => source.clone(),
             _ => return Ok((default, false)),
         },
     };
-    migrate_retired_fields(&mut source);
     let mut kept = false;
     for (key, value) in &source {
         let mut candidate = salvaged.clone();
@@ -2814,8 +2604,7 @@ fn salvage_preferences(
         }
     }
     // Every step above was accepted by the same check, so this cannot fail on the salvaged map.
-    let mut preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
-    preferences.normalize_voice_providers();
+    let preferences: Preferences = serde_json::from_value(serde_json::Value::Object(salvaged))?;
     Ok((preferences, kept))
 }
 

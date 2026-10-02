@@ -26,14 +26,12 @@ struct ClipboardHistoryStore {
   static let limit = 50
   let root: URL
   let file: URL
-  let legacyFile: URL
 
   init(directory: URL? = nil) {
     root = directory ?? FileManager.default.containerURL(
       forSecurityApplicationGroupIdentifier: InputSchemePreference.appGroupIdentifier)
       ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     file = root.appendingPathComponent("MSIME/clipboard_history.json")
-    legacyFile = root.appendingPathComponent("Clipboard/history.json")
   }
 
   func load() throws -> [ClipboardHistoryItem] {

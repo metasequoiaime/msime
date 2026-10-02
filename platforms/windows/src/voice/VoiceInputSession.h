@@ -60,7 +60,6 @@ struct VoiceInputConfig {
   std::string polish_endpoint;
   std::string polish_model;
   std::string polish_prompt_id = "cleanup";
-  std::string polish_prompt;
   std::string polish_prompt_custom_1;
   std::string polish_prompt_custom_2;
   std::string polish_prompt_custom_3;

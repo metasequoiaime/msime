@@ -115,9 +115,6 @@ export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   },
 };
 
-/** An older SiliconFlow default that should still be treated as untouched. */
-const LEGACY_ASR_MODELS = ["TeleAI/TeleSpeechASR"];
-
 /** The voice fields to update when the recognition provider changes. */
 export function asrProviderUpdate(
   provider: string,
@@ -159,10 +156,11 @@ export function asrProviderUpdate(
     known(ASR_PROVIDER_DEFAULTS, "endpoint"),
   );
   if (endpoint !== undefined) update.asr_endpoint = endpoint;
-  const model = fillIfDefault(current.asr_model, defaults.model, [
-    ...known(ASR_PROVIDER_DEFAULTS, "model"),
-    ...LEGACY_ASR_MODELS,
-  ]);
+  const model = fillIfDefault(
+    current.asr_model,
+    defaults.model,
+    known(ASR_PROVIDER_DEFAULTS, "model"),
+  );
   if (model !== undefined) update.asr_model = model;
   return update;
 }

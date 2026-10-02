@@ -65,7 +65,7 @@ class CustomTranslationConfig(unittest.TestCase):
         self.assertTrue(self.address.exists())
 
     def request(self, endpoint, token):
-        query = {"candidates": ["测试", "synthetic"], "target_language": "fr",
+        query = {"candidates": ["测试", "synthetic"], "target_language": "fr", "provider": "custom",
                  "custom_translation": {"enabled": True, "endpoint": endpoint, "api_key": token}}
         with socket.socket(socket.AF_UNIX) as client:
             client.settimeout(8)

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -40,7 +41,7 @@ function renderSettings(platform: string, skins: unknown = communitySkins()) {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform } as never,
+        host: testHost({ platform }),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
         ...(skins ? { communitySkins: skins as never } : {}),
       }}
@@ -107,7 +108,7 @@ test("the desktop theme page switches to the community candidate-window skins", 
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
         loadDefaultPreferences: vi.fn().mockResolvedValue(initial),
-        host: { platform: "windows" } as never,
+        host: testHost({ platform: "windows" }),
         communityCandidateSkins: candidateSkins() as never,
       }}
     />,

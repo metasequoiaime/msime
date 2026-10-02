@@ -147,8 +147,7 @@ pub fn chat_completion_http_request(
     let prompt = match config.prompt_id.as_str() {
         "custom_2" => &config.prompt_custom_2,
         "custom_3" => &config.prompt_custom_3,
-        _ if !config.prompt_custom_1.is_empty() => &config.prompt_custom_1,
-        _ => &config.prompt,
+        _ => &config.prompt_custom_1,
     };
     let prompt = if prompt.trim().is_empty() {
         DEFAULT_CANDIDATE_PROMPT
@@ -394,7 +393,6 @@ mod tests {
             endpoint: "https://synthetic.invalid/chat".into(),
             model: "synthetic-model".into(),
             token: "synthetic-legacy".into(),
-            prompt: "legacy prompt".into(),
             prompt_custom_2: "second prompt".into(),
             ..Default::default()
         };

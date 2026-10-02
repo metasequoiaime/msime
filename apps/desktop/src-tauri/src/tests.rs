@@ -629,7 +629,6 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     preferences.ai_assistant.provider = "deepseek".into();
     preferences.ai_assistant.endpoint = "https://API.Example.invalid/v1/chat/completions".into();
     preferences.ai_assistant.model = "fixture-model".into();
-    preferences.ai_assistant.prompt = "只返回结果".into();
     preferences.ai_assistant.tokens.insert(
         "https://api.example.invalid:443".into(),
         "fixture-origin-token".into(),
@@ -638,6 +637,23 @@ fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_draf
     assert!(native.enabled);
     assert_eq!(native.provider, "deepSeek");
     assert_eq!(native.token, "fixture-origin-token");
+    assert_eq!(
+        native.prompt,
+        "请润色以下文字，保持原意，只返回修改后的文字。"
+    );
+
+    preferences.ai_assistant.prompt_id = "custom_2".into();
+    preferences.ai_assistant.prompt_custom_1 = "first slot".into();
+    preferences.ai_assistant.prompt_custom_2 = "second slot".into();
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
+        "second slot"
+    );
+    preferences.ai_assistant.prompt_custom_2 = "  ".into();
+    assert_eq!(
+        super::ios_keyboard_ai_preferences(&preferences.ai_assistant).prompt,
+        "请润色以下文字，保持原意，只返回修改后的文字。"
+    );
 
     preferences.ai_assistant.tokens.clear();
     assert!(!super::ios_keyboard_ai_preferences(&preferences.ai_assistant).enabled);
@@ -1007,14 +1023,10 @@ fn on_device_translation_downloadable_keeps_only_choosable_targets() {
 #[test]
 fn settings_routes_select_a_page_the_shared_ui_accepts() {
     use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
-    // The route wins over the compatibility variable, and every category the
-    // contract accepts survives the settings-page identifier filter.
     for category in SettingsCategory::ALL {
-        let page = super::settings_page_from_route(Some(SurfaceRoute::Settings(Some(category))));
         assert_eq!(
-            super::requested_settings_page(page.as_deref()),
-            Some(category.as_str().to_owned()),
-            "category {category:?} is not a usable settings page id"
+            super::settings_page_from_route(Some(SurfaceRoute::Settings(Some(category)))),
+            Some(category.as_str().to_owned())
         );
     }
     assert_eq!(
@@ -1025,26 +1037,6 @@ fn settings_routes_select_a_page_the_shared_ui_accepts() {
         super::settings_page_from_route(Some(SurfaceRoute::Emoji)),
         None
     );
-}
-
-#[test]
-fn requested_settings_page_only_accepts_a_plain_section_identifier() {
-    assert_eq!(
-        super::requested_settings_page(Some(" about ")),
-        Some("about".into())
-    );
-    assert_eq!(
-        super::requested_settings_page(Some("screen-keyboard")),
-        Some("screen-keyboard".into())
-    );
-    assert_eq!(super::requested_settings_page(None), None);
-    assert_eq!(super::requested_settings_page(Some("   ")), None);
-    // Anything that could carry a path, a query or a script stays out of
-    // the window the launcher is about to open.
-    assert_eq!(super::requested_settings_page(Some("../etc")), None);
-    assert_eq!(super::requested_settings_page(Some("About")), None);
-    assert_eq!(super::requested_settings_page(Some("a?b=c")), None);
-    assert_eq!(super::requested_settings_page(Some(&"a".repeat(33))), None);
 }
 
 #[test]
@@ -1964,7 +1956,7 @@ fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() 
     let original = std::fs::read(&path).unwrap();
     let mut preferences = Preferences::default();
     // Nothing strips a prompt from the host copy, so a long one is what still outgrows the hosts' read.
-    preferences.voice_input.polish_prompt = "润色".repeat(4000);
+    preferences.voice_input.polish_prompt_custom_1 = "润色".repeat(4000);
     // Both the path that publishes a skin catalog and the one without a skins directory are held to the same limit.
     for skins in [Some(skins.clone()), None] {
         let state = RuntimeOptionsState {
@@ -1982,7 +1974,7 @@ fn runtime_options_the_hosts_could_not_read_are_refused_and_the_old_file_kept() 
 
     // A rescan cannot republish a file that is already past the limit either: the catalog is dropped, and what remains is still refused rather than rewritten.
     let mut oversized: Value = serde_json::from_slice(&original).unwrap();
-    oversized["preferences"]["voice_input"]["polish_prompt"] = "润色".repeat(4000).into();
+    oversized["preferences"]["voice_input"]["polish_prompt_custom_1"] = "润色".repeat(4000).into();
     let oversized = serde_json::to_vec_pretty(&oversized).unwrap();
     std::fs::write(&path, &oversized).unwrap();
     let state = RuntimeOptionsState {
@@ -2038,7 +2030,7 @@ fn a_save_the_hosts_could_not_read_is_refused_and_the_store_keeps_its_preference
 
     // A save the hosts could not read is refused whole: the runtime options stay as they were, and so does the store.
     let mut oversized = saved.preferences.clone();
-    oversized.voice_input.polish_prompt = "润色".repeat(4000);
+    oversized.voice_input.polish_prompt_custom_1 = "润色".repeat(4000);
     let refused = save(saved.revision, oversized).unwrap_err();
     assert_eq!(refused.code, "runtime_options_too_large");
     assert_eq!(std::fs::read(&path).unwrap(), published);

@@ -39,19 +39,8 @@ export class SchemeCompositionPolicy {
     return SchemeCompositionPolicy.drawsPreedit(rulesScheme) ? reading.length : editingCaret;
   }
 
-  /**
-   * Whether the scheme's openable candidate list is showing. The view's flag decides; a Korean view from a runtime older than the flag still says so by carrying candidates, which that scheme has only while its Hanja list is open.
-   */
-  static listOpen(
-    rulesScheme: number,
-    candidateListOpen: boolean | undefined,
-    candidateCount: number,
-  ): boolean {
-    if (!SchemeTraits.hasOpenableCandidateList(rulesScheme)) {
-      return false;
-    }
-    return (
-      candidateListOpen === true || (rulesScheme === SchemeTraits.KOREAN && candidateCount > 0)
-    );
+  /** Whether the scheme's openable candidate list is showing, as the view's flag says; never inferred from a candidate count. */
+  static listOpen(rulesScheme: number, candidateListOpen: boolean): boolean {
+    return SchemeTraits.hasOpenableCandidateList(rulesScheme) && candidateListOpen;
   }
 }

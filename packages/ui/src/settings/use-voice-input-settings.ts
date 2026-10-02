@@ -32,9 +32,7 @@ export function useVoiceInputSettings({
     !["doubao", "system", "openai", "siliconflow", "groq", "everyapi", "mistral"].includes(
       String(voiceInput.asr_provider),
     );
-  const doubaoAuthMode =
-    voiceInput.doubao_auth_mode ||
-    (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
+  const doubaoAuthMode = voiceInput.doubao_auth_mode || "api_key";
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => onChange(patch);
 
   return {

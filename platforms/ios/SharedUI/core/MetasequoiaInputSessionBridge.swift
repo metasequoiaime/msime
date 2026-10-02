@@ -250,11 +250,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     self.appliedFuzzyPinyinRules = nil
     do {
       let bootstrap = Self.bootstrapOptions(resources: resources, stateRoot: stateRoot)
-      if EnglishMixedCandidatesMigration.shouldMigrate(customStateRoot: stateRoot),
-         let path = bootstrap["state_root"] as? String {
-        EnglishMixedCandidatesMigration.migrateIfNeeded(
-          stateRoot: URL(fileURLWithPath: path, isDirectory: true))
-      }
       options = try Self.callOptions(msimeClientPrepareHost,
                                      bootstrap)
       self.stateRoot = options["preferences_directory"] as? String
@@ -362,23 +357,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     _ = try? Self.callUpdate(msimeClientUpdatePreferences, handle, snapshot)
   }
 
-  /// The active fuzzy-pinyin bitset from the shared PreferencesStore.
-  /// `nil` is reserved for an unavailable/legacy session so the native
-  /// compatibility preference can still be used by older hosts.
-  var sharedFuzzyPinyinRules: UInt32? {
-    guard let preferences = options["preferences"] as? [String: Any],
-          let fuzzy = preferences["fuzzy_pinyin"] as? [String: Any],
-          let enabled = fuzzy["enabled"] as? Bool,
-          let names = fuzzy["rules"] as? [String] else { return nil }
-    guard enabled else { return 0 }
-    let ruleIDs = ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l",
-                   "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]
-    let selected = Set(names)
-    return ruleIDs.enumerated().reduce(UInt32(0)) { value, entry in
-      selected.contains(entry.element) ? value | (1 << entry.offset) : value
-    }
-  }
-
   var fuzzyPinyinRulesApplied: UInt32? { appliedFuzzyPinyinRules }
 
   /// The latest canonical PreferencesStore document, exposed as a read-only
@@ -388,9 +366,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
-  /// Show touch keyboard geometry on the live session while it is being dragged.
-  /// Native App Group keys remain a compatibility layer for older hosts, but the
-  /// shared snapshot is the source that is reloaded when the extension appears.
+  /// Show touch keyboard geometry on the live session while it is being dragged. The shared snapshot is the source that is reloaded when the extension appears.
   @discardableResult
   func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
                                 heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
@@ -439,9 +415,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// Persist the selected touch scheme and its presentation mapping in one
-  /// canonical snapshot. The App Group preference remains a compatibility
-  /// mirror for the legacy SwiftUI settings host.
+  /// Persist the selected touch scheme and its presentation mapping in one canonical snapshot.
   @discardableResult
   func setTouchKeyboardScheme(_ scheme: ChineseInputScheme,
                               enabledSchemes: [ChineseInputScheme]) -> Bool {

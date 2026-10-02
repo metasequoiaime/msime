@@ -223,7 +223,7 @@ bool make_input_method_default() {
   return set_default && set_default(input_method_id, 0) != FALSE;
 }
 
-// The page this window opens on: `--route=settings:<id>` from the Server and the other launchers, or the legacy MSIME_CLIENT_SETTINGS_PAGE variable. Either a settings category of the shared route vocabulary or a page id of this window; anything else opens the default page.
+// The page this window opens on: `--route=settings:<id>` from the Server and the other launchers. Either a settings category of the shared route vocabulary or a page id of this window; anything else opens the default page.
 std::string route_page() {
   int argc = 0;
   auto *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -243,10 +243,6 @@ std::string route_page() {
       }
     }
     LocalFree(argv);
-  }
-  if (!page) {
-    if (const auto raw = environment(L"MSIME_CLIENT_SETTINGS_PAGE"); !raw.empty())
-      page = utf8(hstring(raw));
   }
   return std::string(nav::page_for_route(page.value_or(std::string())));
 }
@@ -2893,7 +2889,7 @@ private:
 
     auto correction = add_group(page, L"纠错与模糊音");
     bool_row(correction, 0xE70F, L"自动纠错", L"修正常见的相邻按键顺序。",
-             L"autocorrect", false);
+             L"quanpin.autocorrect_transposition", true);
     fuzzy_row(correction);
 
     auto helpcode = add_group(page, L"辅助码");

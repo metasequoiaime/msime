@@ -41,7 +41,7 @@ export type VocabularyWordbook = {
   total: number;
   /** A bundled book cannot be deleted; an imported one can. */
   builtin: boolean;
-  /** 来自单词本插件：在插件页卸载，这里不能删除。旧宿主不发这个字段。 */
+  /** 来自单词本插件：在插件页卸载，这里不能删除。不是插件词书时不发这个字段。 */
   pack?: boolean;
 };
 

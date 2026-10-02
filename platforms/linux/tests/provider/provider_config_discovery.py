@@ -94,8 +94,8 @@ class ConfigDiscovery(unittest.TestCase):
         ai = {"cloud_candidates": False, "cloud_eligible": False, "ai_eligible": True,
               "pinyin_segments": ["ni", "hao"], "ai_assistant": {
                   "enabled": True, "provider": "synthetic", "endpoint": "https://provider.example.invalid/",
-                  "model": "synthetic", "prompt": "synthetic prompt"}}
-        translation = {"candidates": ["你好"], "target_language": "en"}
+                  "model": "synthetic", "prompt_custom_1": "synthetic prompt"}}
+        translation = {"candidates": ["你好"], "target_language": "en", "provider": "tencent"}
         def check(enabled):
             self.assertEqual(bool(self.request("online", ai)["candidates"]), enabled)
             self.assertEqual(bool(self.request("translation", translation)["translations"]), enabled)
@@ -149,7 +149,7 @@ class ConfigDiscovery(unittest.TestCase):
             pass_fds=(3,), preexec_fn=lambda: os.dup2(listener.fileno(), 3),
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.addCleanup(self.stop, process)
-        translation = {"candidates": ["你好"], "target_language": "en"}
+        translation = {"candidates": ["你好"], "target_language": "en", "provider": "tencent"}
         # No startup lock and no bind: the request is answered on the socket the test created.
         self.assertEqual(self.request("translation", translation), {"translations": []})
         self.assertFalse(Path(str(self.address) + ".lock").exists())

@@ -7,10 +7,9 @@ final class NineKeyKeyboardTests: XCTestCase {
   // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
   // whatever the app group was left holding. See InputSchemeTestSupport.
   private var savedKeyboardPreferences: [String: Any] = [:]
-  private let preferenceKeys = [KeyboardLayoutPreference.key, KeyboardLayoutPreference.keySpacingKey,
+  private let preferenceKeys = [KeyboardLayoutPreference.keySpacingKey,
     KeyboardLayoutPreference.rowSpacingKey, KeyboardLayoutPreference.heightAdjustmentKey,
-    KeyboardLayoutPreference.voiceShortcutKey,
-    KeyboardLayoutPreference.fullWidthInputKey]
+    KeyboardLayoutPreference.voiceShortcutKey]
   override func tearDown() {
     for key in preferenceKeys {
       if let value = savedKeyboardPreferences[key] { KeyboardLayoutPreference.defaults.set(value, forKey: key) }
@@ -24,50 +23,41 @@ final class NineKeyKeyboardTests: XCTestCase {
     savedKeyboardPreferences = [:]
     for key in preferenceKeys {
       savedKeyboardPreferences[key] = KeyboardLayoutPreference.defaults.object(forKey: key)
-      if key != KeyboardLayoutPreference.key { KeyboardLayoutPreference.defaults.removeObject(forKey: key) }
+      KeyboardLayoutPreference.defaults.removeObject(forKey: key)
     }
   }
 
-  func testLayoutPresetsKeepKeysInBoundsAcrossBothKeyboards() throws {
-    let previousLayout = KeyboardLayoutPreference.selected
+  func testLayoutKeepsKeysInBoundsAcrossBothKeyboards() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousEnabled = InputSchemePreference.enabledSchemes
     defer {
-      KeyboardLayoutPreference.selected = previousLayout
       InputSchemePreference.enabledSchemes = previousEnabled
       InputSchemePreference.scheme = previousScheme
     }
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
-    for preset in KeyboardLayoutPreset.allCases {
-      KeyboardLayoutPreference.selected = preset
-      for scheme in [ChineseInputScheme.quanpin, .nineKey] {
-        InputSchemePreference.scheme = scheme
-        for width in [320.0, 414.0] {
-          let controller = KeyboardViewController()
-          controller.loadViewIfNeeded()
-          controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
-          controller.view.layoutIfNeeded()
-          let space = try button("spaceKey", in: controller)
-          let enter = try button("returnKey", in: controller)
-          XCTAssertGreaterThanOrEqual(space.bounds.width, 43.5, "\(preset) / \(scheme) / \(width)")
-          XCTAssertEqual(
-            controller.view.bounds.height, 260 + KeyboardViewController.stripExtraHeight,
-            accuracy: 0.5)
-          XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width)
-          let language = try button("bottomLanguageKey", in: controller)
-          XCTAssertFalse(language.isHidden)
-          if preset != .msime {
-            XCTAssertGreaterThanOrEqual(language.convert(language.bounds, to: controller.view).minX,
-              space.convert(space.bounds, to: controller.view).maxX)
-          }
-          if width == 414 {
-            let renderer = UIGraphicsImageRenderer(bounds: controller.view.bounds)
-            let screenshot = renderer.image { context in controller.view.layer.render(in: context.cgContext) }
-            let attachment = XCTAttachment(image: screenshot)
-            attachment.name = "Layout-\(preset.rawValue)-\(scheme.rawValue)"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-          }
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
+      InputSchemePreference.scheme = scheme
+      for width in [320.0, 414.0] {
+        let controller = KeyboardViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: width, height: CGFloat(260) + KeyboardViewController.stripExtraHeight)
+        controller.view.layoutIfNeeded()
+        let space = try button("spaceKey", in: controller)
+        let enter = try button("returnKey", in: controller)
+        XCTAssertGreaterThanOrEqual(space.bounds.width, 43.5, "\(scheme) / \(width)")
+        XCTAssertEqual(
+          controller.view.bounds.height, 260 + KeyboardViewController.stripExtraHeight,
+          accuracy: 0.5)
+        XCTAssertLessThanOrEqual(enter.convert(enter.bounds, to: controller.view).maxX, width)
+        let language = try button("bottomLanguageKey", in: controller)
+        XCTAssertFalse(language.isHidden)
+        if width == 414 {
+          let renderer = UIGraphicsImageRenderer(bounds: controller.view.bounds)
+          let screenshot = renderer.image { context in controller.view.layer.render(in: context.cgContext) }
+          let attachment = XCTAttachment(image: screenshot)
+          attachment.name = "Layout-\(scheme.rawValue)"
+          attachment.lifetime = .keepAlways
+          add(attachment)
         }
       }
     }
@@ -117,17 +107,15 @@ final class NineKeyKeyboardTests: XCTestCase {
   }
 
   func testLayoutPreferencePreservesActiveComposition() throws {
-    let previousLayout = KeyboardLayoutPreference.selected
     let previousScheme = InputSchemePreference.scheme
-    defer { KeyboardLayoutPreference.selected = previousLayout; InputSchemePreference.scheme = previousScheme }
-    KeyboardLayoutPreference.selected = .msime
+    defer { InputSchemePreference.scheme = previousScheme }
     InputSchemePreference.scheme = .quanpin
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
     let key = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == "字母 N" } as? UIButton)
     key.sendActions(for: .primaryActionTriggered)
     let before = try button("preeditButton", in: controller).configuration?.title
-    KeyboardLayoutPreference.selected = .wechat
+    KeyboardLayoutPreference.keySpacing = 4
     controller.viewWillAppear(false)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, before)
     XCTAssertFalse(try button("bottomLanguageKey", in: controller).isHidden)
@@ -459,26 +447,17 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
-  func testLegacyLayoutsMigrateIndependentSettings() {
-    let defaults = KeyboardLayoutPreference.defaults
-    for preset in KeyboardLayoutPreset.allCases {
-      for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
-                  KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
-        defaults.removeObject(forKey: key)
-      }
-      KeyboardLayoutPreference.selected = preset
-      XCTAssertEqual(KeyboardLayoutPreference.keySpacing, preset.keySpacing)
-      XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, preset.rowSpacing)
-      XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled, preset == .doubao)
-      XCTAssertEqual(KeyboardLayoutPreference.geometry.sidebarRatio, 0.14)
-      XCTAssertFalse(KeyboardLayoutPreference.geometry.showsFullKeyboardSymbols)
-      KeyboardLayoutPreference.keySpacing = 5
-      KeyboardLayoutPreference.voiceShortcutEnabled = !(preset == .doubao)
-      XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
-      XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, preset.rowSpacing)
-      XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled, preset != .doubao)
-      XCTAssertEqual(KeyboardLayoutPreference.selected, preset)
-    }
+  func testLayoutSettingsDefaultIndependently() {
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
+    XCTAssertFalse(KeyboardLayoutPreference.voiceShortcutEnabled)
+    XCTAssertEqual(KeyboardLayoutPreference.geometry.sidebarRatio, 0.14)
+    XCTAssertFalse(KeyboardLayoutPreference.geometry.showsFullKeyboardSymbols)
+    KeyboardLayoutPreference.keySpacing = 5
+    KeyboardLayoutPreference.voiceShortcutEnabled = true
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
+    XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
     KeyboardLayoutPreference.keySpacing = 99
     KeyboardLayoutPreference.rowSpacing = -99
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
@@ -617,11 +596,10 @@ final class NineKeyKeyboardTests: XCTestCase {
     controller.view.frame = CGRect(x: 0, y: 0, width: 440, height: 292)
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     try button("resetKeyboardSettings", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, KeyboardLayoutPreference.selected.keySpacing)
-    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, KeyboardLayoutPreference.selected.rowSpacing)
+    XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 6)
+    XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 7)
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 0)
-    XCTAssertEqual(KeyboardLayoutPreference.voiceShortcutEnabled,
-                   KeyboardLayoutPreference.selected == .doubao)
+    XCTAssertFalse(KeyboardLayoutPreference.voiceShortcutEnabled)
     for key in [KeyboardLayoutPreference.keySpacingKey, KeyboardLayoutPreference.rowSpacingKey,
                 KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
       XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
@@ -765,8 +743,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
     try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
-    // The card switches the running keyboard; the setting that outlives it is the shared `character_width`.
-    XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: KeyboardLayoutPreference.fullWidthInputKey))
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已开启")
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
   }

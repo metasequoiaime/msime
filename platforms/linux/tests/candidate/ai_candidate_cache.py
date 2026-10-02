@@ -34,7 +34,7 @@ def query(generation=1, context="", prompt="first", segments=None):
             "provider": "synthetic",
             "endpoint": "https://ai.invalid/v1/chat/completions",
             "model": "synthetic-model",
-            "prompt": prompt,
+            "prompt_custom_1": prompt,
             "candidate_limit": 3,
         },
     }

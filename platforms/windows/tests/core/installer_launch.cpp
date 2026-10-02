@@ -147,26 +147,26 @@ int main(int argc, char **argv) {
              "Uninstall does not capture DataDir before its value is removed");
     const auto post_uninstall =
         between(script, "else if CurUninstallStep = usPostUninstall",
-                "TryDeleteTree(ExpandConstant('{commonappdata}\\metasequoiaime'))");
+                "TryDeleteTree(ResolvePreviousDataDir);");
     contains(post_uninstall, "if OwnsDataDir(ResolvePreviousDataDir) then",
              "Uninstall removes a data directory it did not record");
     if (post_uninstall.find("GetDataDir(") != std::string::npos)
       throw std::runtime_error(
           "Uninstall re-reads DataDir after the registry value is removed");
 
-    // DataDir is the Server state root, not only the source layout's msime_user.db / config.toml / skins. An upgrade must clear package items only, and a data-directory change must move every user item, as the source installer does, while deleting the old directory only after nothing can fail any more.
+    // DataDir is the Server state root, not only config.toml / skins. An upgrade must clear package items only, and a data-directory change must move every user item while deleting the old directory only after nothing can fail any more.
     const auto package = between(script, "function IsPackageAppDataItem",
                                  "function IsPreservedAppDataItem");
     for (const char *state :
          {"'preferences.json'", "'user'", "'cache'", "'logs'",
-          "'msime_user.db'", "'config.toml'", "'skins'",
+          "'config.toml'", "'skins'",
           "'runtime-options.json'"})
       if (package.find(state) != std::string::npos)
         throw std::runtime_error(std::string("Upgrade cleanup deletes user state ") + state);
     const auto preserved = between(script, "function IsPreservedAppDataItem",
                                    "function InitializeUninstall");
     contains(preserved, "(not IsPackageAppDataItem(FileName))",
-             "Upgrade cleanup deletes Server state outside the source layout");
+             "Upgrade cleanup deletes Server state");
     const auto migrated = between(script, "function IsMigratedDataItem",
                                   "function RobocopySucceeded");
     contains(migrated, "(not IsPackageAppDataItem(FileName))",
@@ -199,8 +199,7 @@ int main(int argc, char **argv) {
     const auto post_install = between(script, "if CurStep = ssPostInstall then",
                                       "procedure CurUninstallStepChanged");
     const auto finish_call = post_install.find("FinishDataDirMove;");
-    for (const char *step : {"ReplayUserDictionary;", "CreateWatchdogLogonTask;",
-                             "EnsureImeUserDataDir;"})
+    for (const char *step : {"CreateWatchdogLogonTask;", "EnsureImeUserDataDir;"})
       if (finish_call == std::string::npos ||
           post_install.find(step) == std::string::npos ||
           post_install.find(step) > finish_call)

@@ -62,17 +62,12 @@ export function polishPresetPrompt(id: string | undefined): string {
   return (POLISH_PRESETS as Record<string, string>)[id ?? ""] ?? "";
 }
 export function isPolishCustomSlot(id: string | undefined): boolean {
-  return id === "custom" || (POLISH_CUSTOM_IDS as readonly string[]).includes(id ?? "");
-}
-/** "custom" is the legacy spelling of the first custom slot. */
-export function normalizePolishSlot(id: string | undefined): string {
-  if (!id) return "cleanup";
-  return id === "custom" ? "custom_1" : id;
+  return (POLISH_CUSTOM_IDS as readonly string[]).includes(id ?? "");
 }
 
 /** Returns the preferences field used to store a custom prompt slot. */
 export function polishSlotField(slot: string): string | undefined {
-  return isPolishCustomSlot(slot) ? `polish_prompt_${normalizePolishSlot(slot)}` : undefined;
+  return isPolishCustomSlot(slot) ? `polish_prompt_${slot}` : undefined;
 }
 
 /** Resolves the prompt text shown for a preset or a stored custom slot. */

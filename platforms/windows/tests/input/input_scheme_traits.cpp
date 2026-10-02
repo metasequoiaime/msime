@@ -5,7 +5,7 @@ using namespace msime::windows::scheme;
 
 // The Engine-predicate mirrors are compared against crates/engine/src/types.rs by scripts/test-scheme-traits-parity.py; this covers what that script cannot read: the InputModeChanged codes, the configured-scheme spellings and the languages the modes write.
 int main() {
-  // The wire codes an older DLL reads: it knows '1' and '2' only, so every newer code stays Chinese there.
+  // The InputModeChanged wire codes the TIP reads.
   static_assert(input_mode_code(InputMode::Chinese) == L'0');
   static_assert(input_mode_code(InputMode::Japanese) == L'1');
   static_assert(input_mode_code(InputMode::Korean) == L'2');

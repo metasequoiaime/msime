@@ -58,20 +58,6 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertFalse(panel.isHidden)
   }
 
-  func testExistingJapaneseEnablesBothLayoutsOnlyOnce() throws {
-    let name = "japanese-scheme-test-" + UUID().uuidString
-    let store = try XCTUnwrap(UserDefaults(suiteName: name))
-    defer { store.removePersistentDomain(forName: name) }
-    store.set(["quanpin", "japanese"], forKey: InputSchemePreference.enabledSchemesKey)
-    store.set("japanese", forKey: "chineseInputScheme")
-    InputSchemePreference.splitJapaneseSchemes(in: store)
-    XCTAssertEqual(store.string(forKey: "chineseInputScheme"), "japaneseNineKey")
-    XCTAssertEqual(store.stringArray(forKey: InputSchemePreference.enabledSchemesKey), ["quanpin", "japanese", "japaneseNineKey"])
-    store.set(["quanpin", "japanese"], forKey: InputSchemePreference.enabledSchemesKey)
-    InputSchemePreference.splitJapaneseSchemes(in: store)
-    XCTAssertEqual(store.stringArray(forKey: InputSchemePreference.enabledSchemesKey), ["quanpin", "japanese"], "A user can disable nine keys after the split")
-  }
-
   func testEveryKanaKeyConvertsAndLayoutsKeepFullHeight() throws {
     let bridge = MetasequoiaInputSessionBridge()
     _ = bridge.switchToJapanese()
@@ -83,26 +69,21 @@ final class JapaneseNineKeyTests: XCTestCase {
         XCTAssertTrue(snapshot?.candidates.contains(kana) == true, "\(input) → \(kana): \(snapshot?.candidates ?? [])")
       }
     }
-    let previous = KeyboardLayoutPreference.selected
-    defer { KeyboardLayoutPreference.selected = previous }
-    for layout in KeyboardLayoutPreset.allCases {
-      KeyboardLayoutPreference.selected = layout
-      for width in [320.0, 414.0] {
-        let panel = JapaneseNineKeyView { title, _, action in
-          var config = UIButton.Configuration.plain(); config.title = title
-          return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
-        }
-        panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
-        panel.applyLayout(); panel.layoutIfNeeded()
-        let buttons = nodes(panel).compactMap { $0 as? UIButton }
-        // Eleven kana keys, the kana modifier and delete. The punctuation row added the eleventh
-        // kana key; without side or mode keys the panel builds nothing else.
-        XCTAssertEqual(buttons.count, 13)
-        for button in buttons {
-          XCTAssertGreaterThan(button.bounds.height, 45)
-          XCTAssertGreaterThan(button.bounds.width, 44)
-          XCTAssertLessThanOrEqual(button.convert(button.bounds, to: panel).maxX, width + 0.5)
-        }
+    for width in [320.0, 414.0] {
+      let panel = JapaneseNineKeyView { title, _, action in
+        var config = UIButton.Configuration.plain(); config.title = title
+        return UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+      }
+      panel.frame = CGRect(x: 0, y: 0, width: width, height: 176)
+      panel.applyLayout(); panel.layoutIfNeeded()
+      let buttons = nodes(panel).compactMap { $0 as? UIButton }
+      // Eleven kana keys, the kana modifier and delete. The punctuation row added the eleventh
+      // kana key; without side or mode keys the panel builds nothing else.
+      XCTAssertEqual(buttons.count, 13)
+      for button in buttons {
+        XCTAssertGreaterThan(button.bounds.height, 45)
+        XCTAssertGreaterThan(button.bounds.width, 44)
+        XCTAssertLessThanOrEqual(button.convert(button.bounds, to: panel).maxX, width + 0.5)
       }
     }
   }

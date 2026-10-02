@@ -16,7 +16,7 @@ ctest --test-dir build/shared-voice --output-on-failure
 
 The synthetic routing test exercises the platform-neutral entry points and pre-cancelled requests without contacting cloud services. `tests/transport.py` runs the real curl adapter against a loopback fixture server and checks the multipart upload (model, language and WAV parts) as well as rejection, redirect, malformed, oversized and retry answers.
 
-`DoubaoAuth.h` is a thin C++ adapter for `client-core::doubao_auth` through `msime_client_doubao_auth_headers`. It requires the host-api include path and library. Both the Rust credential probe and native Windows recording use this same authentication policy: explicit `api_key` ignores stale App IDs, explicit `legacy` requires an App ID, and missing historical modes infer from a usable App ID. Returned header text contains credentials and must never be logged. Pass an absolute `MSIME_HOST_LIBRARY` when configuring this project to enable the synthetic C++/Rust ABI test `shared-doubao-auth`.
+`DoubaoAuth.h` is a thin C++ adapter for `client-core::doubao_auth` through `msime_client_doubao_auth_headers`. It requires the host-api include path and library. Both the Rust credential probe and native Windows recording use this same authentication policy: an absent or empty mode means `api_key`, and only an explicit `legacy` uses the App ID + access token headers (it requires an App ID). Returned header text contains credentials and must never be logged. Pass an absolute `MSIME_HOST_LIBRARY` when configuring this project to enable the synthetic C++/Rust ABI test `shared-doubao-auth`.
 
 ## On-device recognition (LocalAsr)
 

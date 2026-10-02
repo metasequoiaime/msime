@@ -624,22 +624,7 @@ private struct IOSKeyboardPreferenceStore {
     UserDefaults(suiteName: "group.app.msime.ios") ?? .standard
   }
 
-  private func migrateJapaneseSchemes() {
-    guard !defaults.bool(forKey: "japaneseSchemesSplit") else { return }
-    if var enabled = defaults.stringArray(forKey: "enabledInputSchemes"),
-       enabled.contains("japanese"), !enabled.contains("japaneseNineKey") {
-      enabled.append("japaneseNineKey")
-      defaults.set(enabled, forKey: "enabledInputSchemes")
-    }
-    if defaults.string(forKey: "chineseInputScheme") == "japanese",
-       !defaults.bool(forKey: "japaneseRomanKeys") {
-      defaults.set("japaneseNineKey", forKey: "chineseInputScheme")
-    }
-    defaults.set(true, forKey: "japaneseSchemesSplit")
-  }
-
   private func enabledSchemes() -> [String] {
-    migrateJapaneseSchemes()
     guard let stored = defaults.stringArray(forKey: "enabledInputSchemes") else {
       return Self.schemeOrder.filter { !Self.optInSchemes.contains($0) }
     }
@@ -649,8 +634,7 @@ private struct IOSKeyboardPreferenceStore {
 
   private func selectedScheme() -> String {
     let enabled = enabledSchemes()
-    let legacy = defaults.bool(forKey: "inputSchemeUsesShuangpin") ? "shuangpin" : "quanpin"
-    let selected = defaults.string(forKey: "chineseInputScheme") ?? legacy
+    let selected = defaults.string(forKey: "chineseInputScheme") ?? "quanpin"
     return enabled.contains(selected) ? selected : enabled[0]
   }
 
@@ -701,8 +685,6 @@ private struct IOSKeyboardPreferenceStore {
     let enabled = enabledSchemes()
     let selected = enabled.contains(args.inputScheme) ? args.inputScheme : enabled[0]
     defaults.set(selected, forKey: "chineseInputScheme")
-    defaults.set(["shuangpin", "ziranma", "microsoft", "shoudao"].contains(selected),
-                 forKey: "inputSchemeUsesShuangpin")
     defaults.set(args.traditionalChineseOutput, forKey: "chineseOutputUsesTraditional")
     defaults.set(args.soundEnabled, forKey: "keyboardSoundEnabled")
     defaults.set(args.hapticsEnabled, forKey: "keyboardHapticsEnabled")
@@ -733,14 +715,6 @@ private struct AccountSessionKeychain {
     ]
   }
 
-  private var legacyQuery: [String: Any] {
-    [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: "app.msime.ios.community",
-      kSecAttrAccount as String: "api.msime.app",
-    ]
-  }
-
   private func loadData(_ baseQuery: [String: Any]) throws -> Data? {
     var lookup = baseQuery
     lookup[kSecReturnData as String] = true
@@ -765,10 +739,7 @@ private struct AccountSessionKeychain {
   }
 
   func load() throws -> String? {
-    if let data = try loadData(query) {
-      return try decode(data)
-    }
-    guard let data = try loadData(legacyQuery) else {
+    guard let data = try loadData(query) else {
       return nil
     }
     return try decode(data)
@@ -790,18 +761,9 @@ private struct AccountSessionKeychain {
     guard status == errSecSuccess else {
       throw NSError(domain: "secure_storage", code: Int(status))
     }
-    try clearLegacy()
-  }
-
-  private func clearLegacy() throws {
-    let status = SecItemDelete(legacyQuery as CFDictionary)
-    guard status == errSecSuccess || status == errSecItemNotFound else {
-      throw NSError(domain: "secure_storage", code: Int(status))
-    }
   }
 
   func clear() throws {
-    try clearLegacy()
     let status = SecItemDelete(query as CFDictionary)
     guard status == errSecSuccess || status == errSecItemNotFound else {
       throw NSError(domain: "secure_storage", code: Int(status))

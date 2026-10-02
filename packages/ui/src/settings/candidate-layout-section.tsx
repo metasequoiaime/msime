@@ -1,4 +1,4 @@
-import { Row, Segmented } from "../core/platform-controls";
+import { SegmentedRow } from "./segmented-row";
 
 export type CandidateLayout = "horizontal" | "vertical";
 
@@ -17,8 +17,11 @@ const candidateLayoutOptions = [
 export function CandidateLayoutSection({ value, fixed, onChange }: CandidateLayoutSectionProps) {
   if (fixed) return null;
   return (
-    <Row title="候选项排列方式">
-      <Segmented options={candidateLayoutOptions} value={value ?? "vertical"} onChange={onChange} />
-    </Row>
+    <SegmentedRow
+      title="候选项排列方式"
+      options={candidateLayoutOptions}
+      value={value ?? "vertical"}
+      onChange={onChange}
+    />
   );
 }

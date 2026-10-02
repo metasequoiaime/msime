@@ -81,10 +81,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long INPUT_VIEW_REFRESH_DELAY_MILLIS = 32;
     /** How long counted key presses wait in memory before they are written anyway. */
     private static final long KEY_PRESS_FLUSH_DELAY_MILLIS = 30_000;
-    private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String INPUT_MODE_PREFERENCES = "android-input-modes";
-    private static final String SELECTED_HOST_SCHEME = "selected-scheme";
-    private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
     private static final String EMOJI_RECENTS_KEY = "items";
     private static final String SPACE_CURSOR_DESCRIPTION =
@@ -236,8 +233,6 @@ public final class MSIMEInputService extends InputMethodService {
     private java.util.List<KeyboardScheme> visibleSchemes = enabledSchemes;
     // The runtime options' `language_dictionaries` directory, read with them in onStartInput; empty when the configuration names none.
     private String languageDictionaries = "";
-    private boolean sharedSchemePreferences;
-    private SharedPreferences schemeHostPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
     private KeyboardFeedbackPreferences.HapticStrength hapticStrength =
@@ -435,58 +430,25 @@ public final class MSIMEInputService extends InputMethodService {
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
 
-    private boolean legacyThoughtfulReplyEnabled() {
-        return schemeHostPreferences == null
-            || schemeHostPreferences.getBoolean(THOUGHTFUL_REPLY_ENABLED, true);
-    }
-
     private boolean thoughtfulReplyEnabled() {
-        return sharedSchemePreferences
-            ? enabledSchemes.contains(KeyboardScheme.THOUGHTFUL_REPLY)
-            : legacyThoughtfulReplyEnabled();
-    }
-
-    private KeyboardScheme hostScheme(KeyboardScheme engineScheme) {
-        String stored = schemeHostPreferences == null ? null
-            : schemeHostPreferences.getString(SELECTED_HOST_SCHEME, null);
-        KeyboardScheme resolved = KeyboardScheme.fromHostSelection(
-            stored, legacyThoughtfulReplyEnabled(), engineScheme);
-        if (resolved != KeyboardScheme.THOUGHTFUL_REPLY && stored != null
-                && !resolved.name().equals(stored)) saveHostScheme(resolved);
-        return resolved;
-    }
-
-    private void saveHostScheme(KeyboardScheme scheme) {
-        if (schemeHostPreferences != null)
-            schemeHostPreferences.edit().putString(SELECTED_HOST_SCHEME, scheme.name()).apply();
+        return enabledSchemes.contains(KeyboardScheme.THOUGHTFUL_REPLY);
     }
 
     private record SchemeConfiguration(
         java.util.List<KeyboardScheme> enabled, java.util.List<KeyboardScheme> visible,
-        KeyboardScheme selected, boolean shared) {}
+        KeyboardScheme selected) {}
 
     private record SkinChoice(String id, String title, KeyboardSkin skin, JSONObject design) {}
 
     private SchemeConfiguration schemeConfiguration(
             JSONObject preferences, KeyboardScheme engineScheme) {
+        // client-core leaves `touch_keyboard_schemes` out of the document while it holds its defaults, so a missing object or `enabled` list means the default schemes with no selection.
         JSONObject shared = preferences == null ? null
             : preferences.optJSONObject("touch_keyboard_schemes");
-        if (shared == null) {
-            java.util.List<String> legacyIds = new java.util.ArrayList<>();
-            for (KeyboardScheme candidate : KeyboardScheme.values()) {
-                // A configuration that never stored a list offers what it offered before these schemes existed.
-                if (candidate.optIn()) continue;
-                if (candidate != KeyboardScheme.THOUGHTFUL_REPLY
-                        || legacyThoughtfulReplyEnabled()) {
-                    legacyIds.add(candidate.preferenceId());
-                }
-            }
-            java.util.List<KeyboardScheme> legacy = KeyboardScheme.enabledFromPreferenceIds(legacyIds);
-            return new SchemeConfiguration(legacy, legacy, hostScheme(engineScheme), false);
-        }
-        JSONArray values = shared.optJSONArray("enabled");
-        java.util.List<String> ids = new java.util.ArrayList<>();
+        JSONArray values = shared == null ? null : shared.optJSONArray("enabled");
+        java.util.List<String> ids = null;
         if (values != null) {
+            ids = new java.util.ArrayList<>();
             for (int index = 0; index < values.length(); index++) {
                 String value = values.isNull(index) ? null : values.optString(index, null);
                 if (value != null) ids.add(value);
@@ -496,9 +458,10 @@ public final class MSIMEInputService extends InputMethodService {
         // A selection whose dictionary is missing falls back like one the user turned off; host-api would fall back from it anyway.
         java.util.List<KeyboardScheme> visible =
             KeyboardScheme.installedOf(enabled, languageDictionaries);
-        String selected = shared.isNull("selected") ? null : shared.optString("selected", null);
+        String selected = shared == null || shared.isNull("selected")
+            ? null : shared.optString("selected", null);
         return new SchemeConfiguration(enabled, visible,
-            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible), true);
+            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible));
     }
 
     /**
@@ -551,7 +514,6 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = schemeConfiguration.enabled();
         visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
-        sharedSchemePreferences = schemeConfiguration.shared();
         skin = keyboardSkin(preferences);
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
         handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
@@ -610,7 +572,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void alignEngineSchemeWithSelection(
             JSONObject preferences, KeyboardScheme engineScheme,
             SchemeConfiguration configuration) throws JSONException {
-        if (preferences == null || !configuration.shared()
+        if (preferences == null
                 || configuration.selected() == KeyboardScheme.THOUGHTFUL_REPLY
                 || configuration.selected() == engineScheme) return;
         KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
@@ -858,12 +820,10 @@ public final class MSIMEInputService extends InputMethodService {
         editorContextRevision++;
         clearSmartPunctuationSnapshots();
         bridge = new EditorBridge();
-        schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
         if (inputModeStore == null) {
             inputModeStore = InputModeStore.from(
                 getSharedPreferences(INPUT_MODE_PREFERENCES, MODE_PRIVATE));
         }
-        sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         visibleSchemes = enabledSchemes;
         languageDictionaries = "";
@@ -1238,8 +1198,7 @@ public final class MSIMEInputService extends InputMethodService {
             candidatePreeditFontSize = 16;
             return;
         }
-        String layout = preferences.optString("candidate_layout",
-            preferences.optString("candidate_orientation", "vertical"));
+        String layout = preferences.optString("candidate_layout", "vertical");
         candidateHorizontal = CandidateAppearance.isHorizontal(layout);
         candidateFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
         candidatePreeditFontSize = CandidateAppearance.fontSize(
@@ -1273,7 +1232,8 @@ public final class MSIMEInputService extends InputMethodService {
                 String origin = AiPolishConfiguration.credentialOrigin(endpoint);
                 JSONObject tokens = ai.optJSONObject("tokens");
                 String token = tokens == null ? "" : tokens.optString(origin, "");
-                String prompt = ai.optString("prompt", "");
+                String prompt = ai.optString(
+                    AiPolishConfiguration.promptSlotKey(ai.optString("prompt_id", "")), "");
                 if (prompt.trim().isEmpty()) prompt = AiPolishConfiguration.DEFAULT_PROMPT;
                 next = new AiPolishConfiguration(endpoint, ai.optString("model", ""), prompt, token);
             } catch (IllegalArgumentException ignored) {
@@ -1468,8 +1428,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardSkin nextSkin = keyboardSkin(preferences);
         JSONObject nextLocalModes = preferences.optJSONObject("local_modes");
         if (nextLocalModes == null) nextLocalModes = new JSONObject();
-        String nextLayout = preferences.optString("candidate_layout",
-            preferences.optString("candidate_orientation", "vertical"));
+        String nextLayout = preferences.optString("candidate_layout", "vertical");
         CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
             preferences, surfaceSkin(preferences, "candidate_theme"));
         boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
@@ -1588,7 +1547,6 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = nextSchemeConfiguration.enabled();
         visibleSchemes = nextSchemeConfiguration.visible();
         selectedScheme = nextSchemeConfiguration.selected();
-        sharedSchemePreferences = nextSchemeConfiguration.shared();
         preferencesSnapshot = accepted;
         if (!clipboardHistoryEnabled && clipboardHistory != null) {
             clipboardHistory.clearQuietly();
@@ -5460,21 +5418,6 @@ public final class MSIMEInputService extends InputMethodService {
             }
             schemeSurface.addView(row);
         }
-        if (!sharedSchemePreferences) {
-            Button toggleReply = button(schemeSurface, thoughtfulReplyEnabled()
-                ? "禁用高情商回复" : "启用高情商回复", this::toggleThoughtfulReplyScheme);
-            toggleReply.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            toggleReply.setContentDescription(thoughtfulReplyEnabled()
-                ? "禁用高情商回复输入方案" : "启用高情商回复输入方案");
-        }
-        // 共享设置在管方案时不再解释这件事：那句话说的是宿主之间怎么协作，不是用户在这一屏要
-        // 做的决定，而它占着选择器底部——列表短的时候，它比方案本身还显眼。
-        if (!sharedSchemePreferences) {
-            TextView hint = new TextView(this);
-            hint.setText("切换会先完成当前组词，并迁移到共享输入方案设置");
-            schemeSurface.addView(hint);
-        }
         applySkin();
         // Apple keeps the selectable scheme area on a filled key surface, so a short list does not
         // leave a bare keyboard backdrop below the cards. Apply this after the recursive skin pass:
@@ -5596,21 +5539,6 @@ public final class MSIMEInputService extends InputMethodService {
             Toast.makeText(this, "输入方案未能保存", Toast.LENGTH_SHORT).show();
         }
         synchronizeReplyKeyboard();
-        render();
-    }
-
-    private void toggleThoughtfulReplyScheme() {
-        if (sharedSchemePreferences || schemeHostPreferences == null
-                || schemeSaving || traditionalOutputSaving) return;
-        boolean enabled = thoughtfulReplyEnabled();
-        schemeHostPreferences.edit().putBoolean(THOUGHTFUL_REPLY_ENABLED, !enabled).apply();
-        if (enabled && selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY) {
-            selectedScheme = KeyboardScheme.QUANPIN;
-            saveHostScheme(selectedScheme);
-            replySuppressed = false;
-            closeReplyKeyboard();
-        }
-        renderSchemePicker();
         render();
     }
 
@@ -7682,7 +7610,7 @@ public final class MSIMEInputService extends InputMethodService {
         File files = getFilesDir();
         // The shared store keeps its file under this directory, which is the same one the settings
         // page hands the shared entry; both sides therefore read one history.
-        clipboardHistory = new ClipboardHistoryStore(this, files);
+        clipboardHistory = new ClipboardHistoryStore(files);
         voiceResultStore = files == null ? null
             : new VoiceResultStore(files.toPath().resolve("voice-handoff"));
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());

@@ -132,13 +132,6 @@ public enum KeyboardScheme {
         return selected.mapping(currentLastChineseScheme, currentProfile);
     }
 
-    public static KeyboardScheme fromHostSelection(String value, boolean thoughtfulEnabled,
-                                                    KeyboardScheme engineSelection) {
-        if (thoughtfulEnabled && THOUGHTFUL_REPLY.name().equals(value)
-                && engineSelection == QUANPIN) return THOUGHTFUL_REPLY;
-        return engineSelection;
-    }
-
     public static KeyboardScheme fromPreferences(String scheme, String profile, String touchLayout) {
         if ("quanpin".equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;

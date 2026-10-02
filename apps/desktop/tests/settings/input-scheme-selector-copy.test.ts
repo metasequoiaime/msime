@@ -23,6 +23,5 @@ test("input page reuses the shared input scheme selector composition", () => {
     'InputSchemeSelectorSection,\n  type InputSchemeSelectorValue,\n} from "./input-scheme-selector-section";',
   );
   expect(shared).toContain("<InputSchemeSelectorSection");
-  expect(shared).toContain("grouped={grouped}");
   expect(shared).not.toContain('<Row title="输入方案"');
 });

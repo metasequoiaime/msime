@@ -79,8 +79,7 @@ public final class DistributionView extends View {
      *
      * <p>The legend keeps the order the categories are declared in, so a category stays the same
      * opacity of the accent whatever it counts this week; only the ranked bars re-order, which is their point. An
-     * empty 历史未分类 is the one row dropped -- it is an artefact of older versions, and printing it
-     * at zero explains nothing.
+     * empty 历史未分类 is the one row dropped: printing it at zero explains nothing.
      */
     public void setSlices(List<TypingStatisticsModel.Slice> values, Style chart) {
         style = chart == null ? Style.RANK : chart;

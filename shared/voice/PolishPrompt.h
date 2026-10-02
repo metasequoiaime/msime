@@ -1,5 +1,5 @@
 #pragma once
-// Shared preset contract; historical namespace retained for Windows compatibility.
+// Shared preset contract; every host includes it under the Windows namespace.
 #include <string>
 #include <string_view>
 
@@ -7,9 +7,6 @@ namespace msime::windows {
 // The stored polish prompt fields, as the settings page writes them.
 struct PolishPromptSlots {
   std::string id;
-  // The legacy single prompt box, kept for configurations written before the
-  // three slots existed.
-  std::string legacy;
   std::string custom_1;
   std::string custom_2;
   std::string custom_3;
@@ -58,37 +55,16 @@ constexpr std::string_view kCasualPrompt =
 
 只输出整理后的文本。)PROMPT";
 inline std::string polish_prompt_for(const PolishPromptSlots &config) {
-  // The selected slot decides first.
-  //
-  // This used to return a non-empty legacy polish_prompt before looking at the
-  // slot at all, which inverts the order the reference and the Linux host both
-  // use. The settings page exposes the legacy box and the three custom slots
-  // side by side, so a user who had typed anything into 润色提示词 and then
-  // picked 自定义二 got the legacy text sent to the model on Windows while the
-  // other two hosts sent slot two.
-  if (config.id == "custom_1" || config.id == "custom") {
-    // Only the first slot falls back to the legacy box, which is where an
-    // older configuration's single prompt lived.
-    if (!config.custom_1.empty())
-      return config.custom_1;
-    return config.legacy.empty() ? std::string(kCleanupPrompt)
-                                        : config.legacy;
-  }
-  // An empty slot falls back to the cleanup preset, the same one an unset
-  // configuration gets. The reference sends that text for all three empty slots
-  // (`voice_providers.cpp`); slot two used to send the faithful preset here,
-  // which proof-reads instead of condensing - a different answer from the model
-  // for a slot the user never filled in.
+  // An empty custom slot falls back to the cleanup preset, the same one an unset configuration gets, matching the reference (`voice_providers.cpp`).
+  if (config.id == "custom_1")
+    return config.custom_1.empty() ? std::string(kCleanupPrompt)
+                                   : config.custom_1;
   if (config.id == "custom_2")
     return config.custom_2.empty() ? std::string(kCleanupPrompt)
                                    : config.custom_2;
   if (config.id == "custom_3")
     return config.custom_3.empty() ? std::string(kCleanupPrompt)
                                    : config.custom_3;
-  // A preset is selected. A legacy prompt still overrides the built-in text,
-  // so an older configuration that only ever set polish_prompt keeps working.
-  if (!config.legacy.empty())
-    return config.legacy;
   if (config.id == "faithful")
     return std::string(kFaithfulPrompt);
   if (config.id == "zh2en")

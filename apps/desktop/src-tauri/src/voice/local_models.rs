@@ -109,24 +109,7 @@ fn app_model_root<R: tauri::Runtime>(
     let directory = app.path().app_data_dir().map_err(|_| HostActionError {
         code: "local_model_invalid_root",
     })?;
-    Ok(model_root_for(&directory))
-}
-
-/// Models an earlier version downloaded under the shared `app.msime.client` directory stay where they are, because `voice_input.asr_model_path` names them by absolute path; the list keeps reading them until this identifier's directory has models of its own.
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-fn model_root_for(app_data: &Path) -> PathBuf {
-    let current = local_model_root(app_data);
-    let legacy = local_model_root(&crate::legacy_app_data_dir(app_data));
-    if !current.exists() && legacy.is_dir() {
-        legacy
-    } else {
-        current
-    }
-}
-
-#[cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
-fn model_root_for(app_data: &Path) -> PathBuf {
-    local_model_root(app_data)
+    Ok(local_model_root(&directory))
 }
 
 fn valid_model_id(id: &str) -> Result<(), HostActionError> {

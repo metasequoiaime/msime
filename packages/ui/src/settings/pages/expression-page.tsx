@@ -134,7 +134,7 @@ export function ExpressionSettingsPage() {
           candidate={translation.candidate}
           providers={translation.providers}
         />
-        {mobilePlatform && <MobileInputAiNotice grouped onOpenAi={() => selectPage("ai")} />}
+        {mobilePlatform && <MobileInputAiNotice onOpenAi={() => selectPage("ai")} />}
       </div>
     </fieldset>
   );

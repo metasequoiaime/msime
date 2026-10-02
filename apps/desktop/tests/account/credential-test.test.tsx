@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -57,7 +58,7 @@ function mount(testApiCredential: NonNullable<SettingsClient["testApiCredential"
         load: async () => snapshot,
         save: vi.fn(),
         testApiCredential,
-        host: { platform: "linux" } as never,
+        host: testHost({ platform: "linux" }),
       }}
     />,
   );

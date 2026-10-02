@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   SettingsPage,
   translationEndpointIssue,
-  type HostCapabilities,
   type Preferences,
   type SettingsClient,
   type Snapshot,
@@ -157,7 +157,7 @@ describe("the MSIME account translation is an explicit choice", () => {
         client={{
           load: async () => snapshot,
           save,
-          host: { platform } as HostCapabilities,
+          host: testHost({ platform }),
         }}
       />,
     );
@@ -325,7 +325,7 @@ describe("macOS points at undownloaded Apple translation languages", () => {
         client={{
           load: async () => snapshot,
           save: vi.fn(),
-          host: { platform: "macos" } as HostCapabilities,
+          host: testHost({ platform: "macos" }),
           onDeviceTranslation,
         }}
       />,

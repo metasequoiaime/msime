@@ -31,7 +31,6 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 endpoint: ai.endpoint.clone(),
                 candidate_limit: ai.candidate_limit,
                 prompt_id: ai.prompt_id.clone(),
-                prompt: ai.prompt.clone(),
                 prompt_custom_1: ai.prompt_custom_1.clone(),
                 prompt_custom_2: ai.prompt_custom_2.clone(),
                 prompt_custom_3: ai.prompt_custom_3.clone(),

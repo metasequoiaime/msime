@@ -9,9 +9,13 @@ std::string text(const char *value) { return value ? std::string(value) : std::s
 } // namespace
 
 // The prompt sent for a `voice_input` configuration. The caller frees the result with free().
-extern "C" char *msime_ios_voice_polish_prompt(const char *id, const char *legacy, const char *custom_1,
-                                                 const char *custom_2, const char *custom_3) {
-  const auto prompt = msime::windows::polish_prompt_for(
-      {text(id), text(legacy), text(custom_1), text(custom_2), text(custom_3)});
+extern "C" char *msime_ios_voice_polish_prompt(const char *id, const char *custom_1, const char *custom_2,
+                                                 const char *custom_3) {
+  msime::windows::PolishPromptSlots slots;
+  slots.id = text(id);
+  slots.custom_1 = text(custom_1);
+  slots.custom_2 = text(custom_2);
+  slots.custom_3 = text(custom_3);
+  const auto prompt = msime::windows::polish_prompt_for(slots);
   return strdup(prompt.c_str());
 }

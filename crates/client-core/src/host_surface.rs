@@ -139,11 +139,9 @@ pub struct HostCapabilities {
     /// The toolbar carries a button that opens the handwriting panel. The
     /// reference's toolbar has six components and this is not one of them, so
     /// only the host that draws the button offers the switch for it.
-    #[serde(default)]
     pub floating_toolbar_handwriting: bool,
     /// The toolbar carries a button that starts and stops voice input, for the
     /// same reason as `floating_toolbar_handwriting`.
-    #[serde(default)]
     pub floating_toolbar_voice: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
@@ -152,7 +150,6 @@ pub struct HostCapabilities {
     pub panel_shortcuts: bool,
     /// The host can let the user release number-row candidate selection back
     /// to the focused application.
-    #[serde(default)]
     pub number_row_selection: bool,
     /// The host can enumerate audio capture devices for voice input.
     pub voice_capture_devices: bool,
@@ -161,10 +158,8 @@ pub struct HostCapabilities {
     /// The composition drawn beside the candidates has its own size. Linux reads the family and
     /// candidate size into the desktop panel's single font, but the composition itself is drawn by
     /// the focused application, so a separate preedit size would have nothing to change there.
-    #[serde(default)]
     pub candidate_preedit_font: bool,
     /// The host can hide the candidate panel's page indicator without changing pagination.
-    #[serde(default)]
     pub candidate_page_number: bool,
     /// The host can apply candidate foreground/background RGB row colors.
     /// Linux exposes these through IBusText attributes even though it cannot
@@ -173,16 +168,12 @@ pub struct HostCapabilities {
     /// The host can apply candidate accent, selection, hover and border appearance.
     pub candidate_selection_appearance: bool,
     /// The host outlines the candidate panel in the border colour. Separate from `candidate_selection_appearance` because Linux draws the border (the Fcitx5 classic UI theme carries it) while neither Linux panel has a hover state.
-    #[serde(default)]
     pub candidate_border_color: bool,
     /// The host draws its own floating candidate window and multiplies its font and geometry by `candidate_scale_percent`. A host whose list lives in a desktop panel, or in a strip on the keyboard that already follows the font size, has nothing else to scale.
-    #[serde(default)]
     pub candidate_window_scale: bool,
     /// The host can lower the alpha of its candidate card fill, border and skin background by `candidate_opacity_percent` while keeping text opaque. A panel the desktop draws, or a strip that is part of an opaque keyboard, cannot.
-    #[serde(default)]
     pub candidate_window_opacity: bool,
     /// The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius and its own constant.
-    #[serde(default)]
     pub candidate_corner_radius: bool,
     /// The host places its own candidate window and can therefore pin it where
     /// it first appeared. A host whose desktop owns the placement - IBus draws
@@ -193,7 +184,6 @@ pub struct HostCapabilities {
     /// focused editor, so choosing between them is a real choice. A host with a
     /// single commit path does not offer it: a control with one outcome reads
     /// as a setting that is being ignored.
-    #[serde(default)]
     pub voice_commit_mode: bool,
     /// The host renders the Engine's composition text itself, so the choice
     /// between the raw shuangpin keys and the expanded pinyin is visible there.
@@ -201,14 +191,12 @@ pub struct HostCapabilities {
     /// the result where a user would see the difference. A host that hands the
     /// snapshot's `preedit` to a desktop panel still decides which string goes
     /// there, so the difference is its to show.
-    #[serde(default)]
     pub shuangpin_preedit: bool,
     /// The host tells the runtime which character width it is in, so the Engine
     /// widens what it commits. The preference is the width a session starts at;
     /// the host's own toolbar, menu or chord moves it from there. A host that
     /// never makes that call cannot honour the preference at all, and offering
     /// the switch there would be a control with nothing behind it.
-    #[serde(default)]
     pub character_width: bool,
     /// The host runs the configured transcription provider itself, so the provider, model and
     /// credential controls have something behind them.
@@ -223,26 +211,21 @@ pub struct HostCapabilities {
     /// Touch reaches both by gesture — a long press on the candidate, and nothing at all for the
     /// cache — so a keyboard needs the chords or cannot reach them. Declared rather than inferred
     /// from "draws desktop panels", which is what it used to be read off and is a different fact.
-    #[serde(default)]
     pub maintenance_shortcuts: bool,
     /// The host reserves the Option/Alt+Shift+H chord for the character width, so the switch that
     /// gives it back to the application belongs on its settings page.
-    #[serde(default)]
     pub fullwidth_chord: bool,
-    #[serde(default)]
     pub voice_provider_settings: bool,
     /// The host draws the recogniser's interim text while the user is still speaking.
     ///
     /// Every host can ask a streaming provider for partial results; this says which of them has
     /// somewhere to put one. A host without that surface would be offering a switch whose only
     /// effect is on a display it does not have.
-    #[serde(default)]
     pub voice_stream_preedit: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
     /// store, so it reads this as false and shows its own control.
-    #[serde(default)]
     pub english_suggestions: bool,
     /// A letter becomes a helper code because the user held Shift for it, rather
     /// than because of where it sits in the spelling. Windows appends helper
@@ -250,14 +233,12 @@ pub struct HostCapabilities {
     /// does, or the letter would be eaten as more pinyin. The hosts that mark
     /// them this way are the ones running the ported ChineseHelpcodePolicy, and
     /// the settings page explains the gesture only where it applies.
-    #[serde(default)]
     pub helpcode_shift_entry: bool,
     /// A skin arrives by being picked rather than by being dropped into a
     /// folder. The source opens its skin folder so the user can put one there;
     /// a host whose folder is inside an application sandbox has nothing to
     /// open, so it asks the user to point at the skin instead. The page needs
     /// to know which of the two it is, because the button says so.
-    #[serde(default)]
     pub skin_directory_import: bool,
     /// The one candidate page size the host draws, when it offers no choice. The iOS keyboard numbers its strip's chips 1-9 to match the digits on its symbol layer and lays the expanded panel out in nines, so it holds the Engine to nine whatever the shared setting says; the page shows the count instead of a selector that would do nothing. Absent on a host that pages by the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -266,52 +247,37 @@ pub struct HostCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
     /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. Only the iOS keyboard does so far; elsewhere the switches would hide nothing.
-    #[serde(default)]
     pub touch_toolbar_components: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
     /// the whole row cannot, and does not offer the choice.
-    #[serde(default)]
     pub candidate_english_font: bool,
     /// The AI service's credential lives with the host's provider rather than in
     /// the settings document, so the settings page must not ask for a token and
     /// must not gate the service controls on having one. The host still reaches
     /// the service - through that provider - so the model listing and the polish
     /// test are offered; what it cannot do is hold the secret.
-    #[serde(default)]
     pub ai_provider_credentials: bool,
     /// The host draws a short, non-activating badge near the caret after the
     /// Chinese/English mode changes. A host with no way to put a window beside
     /// the caret, or one whose keyboard already shows the mode on its own key
     /// faces, has nothing to switch on and does not offer the choice.
-    #[serde(default)]
     pub input_mode_hud: bool,
     /// The host can run a 背单词 review session — that is, it has wired the shared vocabulary
     /// entry point and can reach the review store.
-    ///
-    /// Defaulting to false is the point: a host built before this field existed sends a document
-    /// without it, and the page must then stay hidden rather than offer 认识 / 不认识 buttons whose
-    /// every press fails. The same rule the other optional capabilities follow.
-    #[serde(default)]
     pub vocabulary_review: bool,
-    /// 背单词书目里列出单词本插件（`pack-<插件 id>` 词书）：宿主把插件目录交给背单词的入口。缺省 false，旧宿主不会让插件详情里的「去背单词」指向一本它列不出来的书。
-    #[serde(default)]
+    /// 背单词书目里列出单词本插件（`pack-<插件 id>` 词书）：宿主把插件目录交给背单词的入口。
     pub wordbook_packs: bool,
-    /// 宿主的符号面板显示已安装的符号集插件。缺省 false；每个宿主在接入它的那次改动里打开，没打开时插件详情说明本机的符号面板不显示插件符号集。
-    #[serde(default)]
+    /// 宿主的符号面板显示已安装的符号集插件。没打开时插件详情说明本机的符号面板不显示插件符号集。
     pub symbol_set_packs: bool,
     /// The host plays the sound packs in `plugins`: a sample per key class, the melody, the commit sound and the achievement jingle. Only an input process that sees the keys can, and only where it has somewhere to play them; a host without the player keeps the settings but offers no switches for them.
-    #[serde(default)]
     pub key_sound: bool,
     /// The host routes the `/` command and `@` mention modes: it hands `/` and `@` to the runtime, stops treating digits as candidate numbers while a mode spells with them, and loads the enabled command tables and the name list into the Engine. The `V` mode needs only the digit routing and is covered by the same flag.
-    #[serde(default)]
     pub plugin_triggers: bool,
     /// The host streams the selected music pack while it is the active input method.
-    #[serde(default)]
     pub music: bool,
     /// The host draws the typing effects and the combo count that `msime_client_typing_effect` answers with. Each host flips this only in the change that wires the call, as with the flags above.
-    #[serde(default)]
     pub typing_effects: bool,
     /// The operating system release, as the machine reports it, for the feedback
     /// page to attach. Not a platform assumption like the flags above -- the host
@@ -323,19 +289,9 @@ pub struct HostCapabilities {
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
-    /// The input schemes this host offers; the settings page shows the others disabled. A host older than the field sends none and gets the five every host has always run. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese or Zhuyin dictionary is not installed.
-    #[serde(default = "base_input_schemes")]
+    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese or Zhuyin dictionary is not installed.
     pub input_schemes: Vec<InputScheme>,
 }
-
-/// The schemes every host runs: 全拼, 双拼, 五笔, 日文 and 韩文.
-const BASE_INPUT_SCHEMES: [InputScheme; 5] = [
-    InputScheme::Quanpin,
-    InputScheme::Shuangpin,
-    InputScheme::Wubi,
-    InputScheme::Japanese,
-    InputScheme::Korean,
-];
 
 /// The base schemes plus Cantonese, Zhuyin and Vietnamese, which every host offers.
 const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
@@ -348,10 +304,6 @@ const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
     InputScheme::Zhuyin,
     InputScheme::Vietnamese,
 ];
-
-fn base_input_schemes() -> Vec<InputScheme> {
-    BASE_INPUT_SCHEMES.to_vec()
-}
 
 /// The schemes this build hands to its Engine: all eight on every host, since each one routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese and Zhuyin still fall back when their dictionary is not installed.
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
@@ -428,11 +380,7 @@ impl HostCapabilities {
             // Only this client's macOS toolbar draws these two.
             floating_toolbar_handwriting: platform == HostPlatform::Macos,
             floating_toolbar_voice: platform == HostPlatform::Macos,
-            // The IBus host consumes these directly. The Windows Server now
-            // mirrors them into the shared config.toml the TIP reads at
-            // activation, so the toggles take effect there too. The HarmonyOS
-            // host reads all four in its hardware key router, which only a
-            // machine with a physical keyboard has anything to route.
+            // The IBus host consumes these directly, and the Windows TIP reads them from the shared preferences document at activation. The HarmonyOS host reads all four in its hardware key router, which only a machine with a physical keyboard has anything to route.
             mode_switch_shortcuts: matches!(
                 platform,
                 HostPlatform::Linux
@@ -596,9 +544,7 @@ impl HostCapabilities {
             ai_provider_credentials: platform == HostPlatform::Linux,
             // Windows draws Latin from its own family, macOS and Android name it ahead of the primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the same result the same way. Both Linux hosts write one Pango font description for the desktop panel, and Pango resolves its family list per glyph too, so they name it first there.
             candidate_english_font: true,
-            // Every host reaches the same shared store through the same entry point, so there is
-            // no platform here that can and one that cannot. The flag exists for the version
-            // skew: a host binary older than the entry point sends no field and gets `false`.
+            // Every host reaches the same shared store through the same entry point, so there is no platform here that can and one that cannot.
             vocabulary_review: true,
             // 桌面宿主的背单词由 Tauri 层传入插件目录；HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 不传插件目录。
             wordbook_packs: platform.is_desktop(),

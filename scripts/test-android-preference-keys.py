@@ -2,18 +2,15 @@
 """Every switch the Android sheets render must write a key something still reads.
 
 `InputFeatureToggle` is a table of "preference key, default, label". Nothing checked that the key on
-the left was still live. `autocorrect` stopped being one: the shared crate split pinyin correction
-into the two nested `quanpin` fields and kept the old key only so older snapshots parse, documented
-as "no longer enables either correction type". The Android switch went on rendering it - checked,
-because the retired key still defaults to true - so the user saw 自动纠错 on, for a feature that was
-off and that this host offered no way to turn on. Writing the switch did nothing at all.
+the left was still live: a switch whose key the shared crate renamed or stopped reading goes on
+rendering its default, so the user sees a feature on that this host offers no way to change, and
+writing the switch does nothing at all.
 
-Two questions per key, both of which `autocorrect` failed:
+Two questions per key:
 
 1. Does the shared schema still declare it? A typo or a renamed field fails here.
 2. Does anything outside the schema file and outside tests read it? A key that only the schema
-   mentions is a key that parses and is then dropped on the floor, which is exactly what a retired
-   compatibility field looks like.
+   mentions is a key that parses and is then dropped on the floor.
 
 The second is the one that matters and the one no other gate asks. It is deliberately crude - any
 reference counts - because the failure it is built for is a field with *zero* readers, and a

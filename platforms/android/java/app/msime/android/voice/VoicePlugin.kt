@@ -34,7 +34,6 @@ class VoicePolishArgs {
     var model: String = ""
     var token: String = ""
     var promptId: String = ""
-    var promptLegacy: String = ""
     var promptCustom1: String = ""
     var promptCustom2: String = ""
     var promptCustom3: String = ""
@@ -163,8 +162,7 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
                     VoiceRecognitionActivity.Polish(
                         it.endpoint, it.model, it.token,
                         NativeClient.polishPrompt(
-                            it.promptId, it.promptLegacy,
-                            it.promptCustom1, it.promptCustom2, it.promptCustom3,
+                            it.promptId, it.promptCustom1, it.promptCustom2, it.promptCustom3,
                         ),
                     )
                 },

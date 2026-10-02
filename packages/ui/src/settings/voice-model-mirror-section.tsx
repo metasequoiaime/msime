@@ -1,5 +1,4 @@
 import { validModelMirror } from "../voice/local-models";
-import { GroupList } from "../core/platform-controls";
 import { TextInputRow } from "./text-input-row";
 
 export interface VoiceModelMirrorSectionProps {
@@ -20,14 +19,5 @@ export function VoiceModelMirrorRow({ value, onChange }: VoiceModelMirrorSection
       aria-invalid={!validModelMirror(value.trim())}
       onChange={onChange}
     />
-  );
-}
-
-/** Optional mirror prefix used when downloading local voice models: the 模型下载 group. */
-export function VoiceModelMirrorSection({ value, onChange }: VoiceModelMirrorSectionProps) {
-  return (
-    <GroupList title="模型下载">
-      <VoiceModelMirrorRow value={value} onChange={onChange} />
-    </GroupList>
   );
 }

@@ -13,8 +13,6 @@ export interface VoicePolishSettingsSectionProps {
   linux: boolean;
   providerPresetControls: ProviderPresetControlFactory;
   updateVoice: (patch: Partial<VoiceInputPreferences>) => void;
-  /** 见 `VoicePolishSectionProps.collapsible`。 */
-  collapsible?: boolean;
   /** Linux 的润色凭据由语音服务保管，不在共享设置里；传入时放在接口地址与令牌的位置，也就是方案与提示词之前。 */
   linuxCredentials?: ReactNode;
   children?: ReactNode;
@@ -26,13 +24,11 @@ export function VoicePolishSettingsSection({
   linux,
   providerPresetControls,
   updateVoice,
-  collapsible,
   linuxCredentials,
   children,
 }: VoicePolishSettingsSectionProps) {
   return (
     <VoicePolishSection
-      collapsible={collapsible}
       enabled={isVoicePolishEnabled(voiceInput)}
       provider={voiceInput.polish_provider ?? "siliconflow"}
       model={voiceInput.polish_model ?? ""}
@@ -59,22 +55,13 @@ export function VoicePolishSettingsSection({
       )}
       <PolishPromptSection
         promptId={voiceInput.polish_prompt_id}
-        prompt={voiceInput.polish_prompt ?? ""}
         customPrompts={{
           custom_1: voiceInput.polish_prompt_custom_1,
           custom_2: voiceInput.polish_prompt_custom_2,
           custom_3: voiceInput.polish_prompt_custom_3,
         }}
-        onSelectPrompt={(polish_prompt_id, polish_prompt) =>
-          updateVoice({ polish_prompt_id, polish_prompt })
-        }
-        onPromptChange={(polish_prompt, customSlot) =>
-          updateVoice({
-            polish_prompt,
-            ...(customSlot ? { [`polish_prompt_${customSlot}`]: polish_prompt } : {}),
-          })
-        }
-        onRestore={(polish_prompt) => updateVoice({ polish_prompt })}
+        onSelectPrompt={(polish_prompt_id) => updateVoice({ polish_prompt_id })}
+        onCustomPromptChange={(slot, prompt) => updateVoice({ [`polish_prompt_${slot}`]: prompt })}
         actions={children}
       />
     </VoicePolishSection>

@@ -742,9 +742,8 @@ static void TestSharedCharacterWidth() {
 static void TestIndependentAssistancePreferences() {
     NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
-    [defaults setBool:NO forKey:@"MSIMEClientHelpcodeEnabled"];
     MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled);
+    assert(prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled);
     assert(prefs.autocorrectTransposition && prefs.autocorrectNeighbor);
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:
         (@{@"schema": @"ziranma", @"show_in_candidate_window": @NO})]);
@@ -757,27 +756,26 @@ static void TestIndependentAssistancePreferences() {
     NSButton *autocorrect = (id)PreferenceControl(prefs, @selector(transpositionChanged:));
     __block NSUInteger saves = 0;
     id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:prefs queue:nil usingBlock:^(NSNotification *note) { (void)note; ++saves; }];
-    NSDictionary *shared = @{@"autocorrect": @NO, @"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
+    NSDictionary *shared = @{@"quanpin_helpcode": @{@"enabled": @YES, @"auto_display": @NO}, @"shuangpin_helpcode": @{@"enabled": @NO, @"future_field": @7}};
     [controller applySharedToolbarPreferences:shared];
-    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 0);
     assert(quanpin.state == NSControlStateValueOn && shuangpin.state == NSControlStateValueOff && autocorrect.state == NSControlStateValueOn);
     for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
-    [controller applySharedToolbarPreferences:@{@"autocorrect": @1, @"quanpin_helpcode": @{@"enabled": @0}, @"shuangpin_helpcode": NSNull.null}];
-    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 0);
+    [controller applySharedToolbarPreferences:@{@"quanpin_helpcode": @{@"enabled": @0}, @"shuangpin_helpcode": NSNull.null}];
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 0);
     quanpin.state = NSControlStateValueOff;
     [NSApp sendAction:quanpin.action to:quanpin.target from:quanpin];
     assert(!prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 1);
     shuangpin.state = NSControlStateValueOn;
     [NSApp sendAction:shuangpin.action to:shuangpin.target from:shuangpin];
-    prefs.autocorrect = YES;
-    assert(!prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled && prefs.autocorrect && saves == 3);
+    assert(!prefs.quanpinHelpcodeEnabled && prefs.shuangpinHelpcodeEnabled && saves == 2);
     MSIMEAppearancePreferences *reopened = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
-    assert(!reopened.quanpinHelpcodeEnabled && reopened.shuangpinHelpcodeEnabled && reopened.autocorrect);
+    assert(!reopened.quanpinHelpcodeEnabled && reopened.shuangpinHelpcodeEnabled);
     NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
     assert([edited[@"quanpin_helpcode"][@"enabled"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"enabled"] isEqual:@YES]);
     assert([edited[@"quanpin_helpcode"][@"auto_display"] isEqual:@NO] && [edited[@"shuangpin_helpcode"][@"future_field"] isEqual:@7]);
     [controller applySharedToolbarPreferences:shared];
-    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && !prefs.autocorrect && saves == 3);
+    assert(prefs.quanpinHelpcodeEnabled && !prefs.shuangpinHelpcodeEnabled && saves == 2);
     NSMutableDictionary *schemaControls = [NSMutableDictionary dictionary];
     NSMutableDictionary *displayControls = [NSMutableDictionary dictionary];
     for (NSControl *control in MSIMEFindPreferenceControls(prefs.window.contentView, @selector(helpcodeSchemaChanged:)))
@@ -787,7 +785,7 @@ static void TestIndependentAssistancePreferences() {
     assert(schemaControls.count == 2 && displayControls.count == 2);
     NSDictionary *options = @{@"quanpin_helpcode": @{@"schema": @"shouyou2_0", @"show_in_candidate_window": @NO}, @"shuangpin_helpcode": @{@"schema": @"xiaohe", @"show_in_candidate_window": @YES}};
     [prefs applySharedAssistancePreferences:options];
-    assert(saves == 3 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
+    assert(saves == 2 && [defaults objectForKey:@"MSIMEClientHelpcodeOptions"] == nil);
     assert([(NSPopUpButton *)schemaControls[@"quanpin"] indexOfSelectedItem] == 2);
     assert([(NSButton *)displayControls[@"quanpin"] state] == NSControlStateValueOff);
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
@@ -814,7 +812,7 @@ static void TestIndependentAssistancePreferences() {
     assert([[prefs helpcodeOptionsForScheme:@"quanpin"] isEqual:options[@"quanpin_helpcode"]]);
     assert([[prefs helpcodeOptionsForScheme:@"shuangpin"] isEqual:options[@"shuangpin_helpcode"]]);
     NSButton *neighbor = (id)PreferenceControl(prefs, @selector(neighborChanged:));
-    [prefs applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
+    [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_transposition": @YES, @"autocorrect_neighbor": @NO}}];
     assert(autocorrect.state == NSControlStateValueOn && neighbor.state == NSControlStateValueOff);
     assert(prefs.autocorrectTransposition && !prefs.autocorrectNeighbor);
     autocorrect.state = NSControlStateValueOff;
@@ -826,7 +824,7 @@ static void TestIndependentAssistancePreferences() {
     NSDictionary *correctionMerged = [prefs sharedPreferencesByMerging:@{@"quanpin": @{@"future": @7}}][@"quanpin"];
     assert([correctionMerged[@"autocorrect_transposition"] isEqual:@NO] && [correctionMerged[@"autocorrect_neighbor"] isEqual:@YES] && [correctionMerged[@"future"] isEqual:@7]);
     NSUInteger beforeCorrectionRefresh = saves;
-    [prefs applySharedAssistancePreferences:@{@"autocorrect": @NO, @"quanpin": @{}}];
+    [prefs applySharedAssistancePreferences:@{@"quanpin": @{}}];
     assert(prefs.autocorrectTransposition && prefs.autocorrectNeighbor && saves == beforeCorrectionRefresh);
     assert([prefs sharedPreferencesByMerging:@{}][@"quanpin"][@"autocorrect_neighbor"] == NSNull.null);
     [prefs applySharedAssistancePreferences:@{@"quanpin": @{@"autocorrect_neighbor": @1}}];

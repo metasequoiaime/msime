@@ -64,7 +64,7 @@ int main(int argc, char **argv) {
         assert(![request polishText:@"" completion:^(NSString *, NSError *) {} error:nil]);
         assert(![request polishText:[@"x" stringByPaddingToLength:65537 withString:@"x" startingAtIndex:0] completion:^(NSString *, NSError *) {} error:nil]);
         unichar invalid = 0xd800;
-        options[@"polish_prompt"] = [NSString stringWithCharacters:&invalid length:1];
+        options[@"polish_prompt_custom_1"] = [NSString stringWithCharacters:&invalid length:1];
         assert(![[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil]);
     }
 }

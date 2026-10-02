@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -27,7 +28,7 @@ function renderSettings(platform: string, host: Record<string, unknown> = {}) {
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform, ...host } as never,
+        host: testHost({ platform, ...host }),
         openSystemKeyboardSettings: vi.fn(),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}

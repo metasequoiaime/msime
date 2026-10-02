@@ -17,7 +17,7 @@ struct Host {
   std::filesystem::path preferences_directory;
 };
 
-// %LOCALAPPDATA%\MSIME on Windows; $XDG_STATE_HOME/msime (or ~/.local/state/msime) elsewhere. The C++ reporter that came before kept its queue here, so the Host API migrates it.
+// %LOCALAPPDATA%\MSIME on Windows; $XDG_STATE_HOME/msime (or ~/.local/state/msime) elsewhere.
 std::filesystem::path default_directory();
 
 // Starts this process's reporting session: closes the previous one, queues its crash records and today's active, and arms the crash handlers with this session's crash record path. With reporting off it clears everything queued instead. File I/O only, no network. Returns whether reporting is on.

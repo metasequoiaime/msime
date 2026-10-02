@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -33,7 +34,7 @@ async function openVoice(voice: Record<string, unknown>, platform = "windows") {
       client={{
         load: async () => snapshotWith(voice),
         save: vi.fn(),
-        host: { platform } as never,
+        host: testHost({ platform }),
       }}
     />,
   );

@@ -294,7 +294,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
                 target_language: "en".into(),
                 candidates: vec![format!("safe{control}")],
                 sentence: false,
-                provider: None,
+                provider: TranslationService::Tencent,
                 translation_account: false,
                 custom_translation: None,
                 niutrans: None,
@@ -336,7 +336,7 @@ fn translation_provider_rejects_controls_at_the_socket_boundary() {
         target_language: "en".into(),
         candidates: vec!["safe".into()],
         sentence: false,
-        provider: None,
+        provider: TranslationService::Tencent,
         translation_account: false,
         custom_translation: None,
         niutrans: None,
@@ -365,17 +365,13 @@ fn translation_query_carries_the_selected_service() {
     ] {
         let document = json!({"generation": 1, "candidates": ["中"], "provider": name});
         let query: TranslationQuery = serde_json::from_value(document).unwrap();
-        assert_eq!(query.provider, Some(service));
+        assert_eq!(query.provider, service);
         assert_eq!(serde_json::to_value(&query).unwrap()["provider"], name);
     }
-    // A document from a host that predates the field stays without one, so the provider keeps its legacy choice instead of being told Tencent.
-    let legacy: TranslationQuery =
-        serde_json::from_value(json!({"generation": 1, "candidates": ["中"]})).unwrap();
-    assert_eq!(legacy.provider, None);
-    assert!(serde_json::to_value(&legacy)
-        .unwrap()
-        .get("provider")
-        .is_none());
+    assert!(serde_json::from_value::<TranslationQuery>(
+        json!({"generation": 1, "candidates": ["中"]})
+    )
+    .is_err());
     assert!(serde_json::from_value::<TranslationQuery>(
         json!({"generation": 1, "candidates": ["中"], "provider": "deepl"})
     )
@@ -383,7 +379,8 @@ fn translation_query_carries_the_selected_service() {
     let sentence: TranslationQuery = serde_json::from_value(json!({
         "generation": 1,
         "candidates": ["这是一个手动触发的整句翻译请求"],
-        "sentence": true
+        "sentence": true,
+        "provider": "tencent"
     }))
     .unwrap();
     assert!(sentence.sentence);
@@ -411,7 +408,7 @@ fn sentence_translation_is_single_item_and_bounded() {
         target_language: "en".into(),
         candidates: vec!["中".repeat(513)],
         sentence: true,
-        provider: None,
+        provider: TranslationService::Tencent,
         translation_account: false,
         custom_translation: None,
         niutrans: None,
@@ -422,7 +419,7 @@ fn sentence_translation_is_single_item_and_bounded() {
         target_language: "en".into(),
         candidates: vec!["第一句".into(), "第二句".into()],
         sentence: true,
-        provider: None,
+        provider: TranslationService::Tencent,
         translation_account: false,
         custom_translation: None,
         niutrans: None,
@@ -442,7 +439,7 @@ fn translation_switched_off_never_reaches_the_provider() {
         target_language: "en".into(),
         candidates: vec!["中".into()],
         sentence: false,
-        provider: Some(TranslationService::Off),
+        provider: TranslationService::Off,
         translation_account: false,
         custom_translation: None,
         niutrans: None,

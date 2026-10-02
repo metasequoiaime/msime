@@ -626,7 +626,7 @@ struct ServiceSettingsView: View {
       Toggle("识别后自动润色", isOn: $voiceSettings.polishEnabled)
         .accessibilityIdentifier("voicePolishEnabled")
       if voiceSettings.polishEnabled {
-        Picker("润色方式", selection: Binding(get: { voiceSettings.promptID }, set: { voiceSettings.select($0) })) {
+        Picker("润色方式", selection: $voiceSettings.promptID) {
           ForEach(VoicePolishSettings.presets, id: \.id) { Text($0.title).tag($0.id) }
         }
         .accessibilityIdentifier("voicePolishPreset")
@@ -634,14 +634,10 @@ struct ServiceSettingsView: View {
           TextEditor(text: $voiceSettings.customPrompts[slot]).frame(minHeight: 100)
             .accessibilityLabel("自定义润色提示词").accessibilityIdentifier("voicePolishCustomPrompt")
         } else {
-          // The desktop's prompt box: a built-in preset can be edited too, and the edit is kept until 恢复默认 or another preset is picked.
-          DisclosureGroup(voiceSettings.legacyPrompt.isEmpty ? "查看或修改提示词" : "提示词（已修改）") {
-            TextEditor(text: $voiceSettings.presetPromptText).font(.footnote).frame(minHeight: 140)
-              .accessibilityLabel("润色提示词").accessibilityIdentifier("voicePolishPresetPrompt")
-            if !voiceSettings.legacyPrompt.isEmpty {
-              Button("恢复默认") { voiceSettings.legacyPrompt = "" }
-                .accessibilityIdentifier("voicePolishPromptReset")
-            }
+          // A built-in preset's text is shown as is; a different prompt goes into one of the custom slots.
+          DisclosureGroup("查看提示词") {
+            Text(voiceSettings.systemPrompt).font(.footnote).textSelection(.enabled)
+              .accessibilityIdentifier("voicePolishPresetPrompt")
           }
           .accessibilityIdentifier("voicePolishPromptDisclosure")
         }

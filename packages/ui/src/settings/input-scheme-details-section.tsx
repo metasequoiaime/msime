@@ -8,10 +8,7 @@ import {
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
 } from "./input-scheme-options";
-import { SelectSettingField } from "./select-setting-field";
-import { SettingToggle } from "./setting-toggle";
 import { SelectRow } from "./select-row";
-import { LegacyRadioGroup } from "./legacy-radio-group";
 import { SwitchRow } from "./switch-row";
 
 export type InputSchemeDetailsScheme = InputScheme;
@@ -37,8 +34,6 @@ export interface InputSchemeDetailsSectionProps {
   shuangpinProfile: ShuangpinProfile;
   macos: boolean;
   hasTouchKeyboardSchemes: boolean;
-  /** Uses the shared settings-page primitives instead of the legacy panel markup. */
-  grouped?: boolean;
   macosShuangpinKeymap?: boolean;
   onShuangpinProfileChange: (profile: ShuangpinProfile) => void;
   onMacosShuangpinKeymapChange?: (enabled: boolean) => void;
@@ -59,7 +54,6 @@ export function InputSchemeDetailsSection({
   shuangpinProfile,
   macos,
   hasTouchKeyboardSchemes,
-  grouped = false,
   macosShuangpinKeymap,
   onShuangpinProfileChange,
   onMacosShuangpinKeymapChange,
@@ -79,187 +73,85 @@ export function InputSchemeDetailsSection({
   const changeVietnamese = (patch: VietnamesePreferences) =>
     onVietnameseChange?.({ input_method: inputMethod, tone_style: toneStyle, ...patch });
 
-  if (grouped) {
-    return (
-      <>
-        <SelectRow
-          title="双拼方案"
-          hidden={hideChineseSchemeOptions}
-          disabled={macos && scheme !== "shuangpin"}
-          value={shuangpinProfile}
-          onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
-        >
-          <ShuangpinProfileOptions />
-        </SelectRow>
-        {macosShuangpinKeymap !== undefined && (
-          <SwitchRow
-            title="输入时显示双拼键位提示"
-            description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
-            hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
-            checked={macosShuangpinKeymap}
-            onChange={onMacosShuangpinKeymapChange ?? (() => {})}
-          />
-        )}
-        {/* 五笔、日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
-        <SelectRow
-          title="五笔方案"
-          hidden={hasTouchKeyboardSchemes || scheme !== "wubi"}
-          value="wubi86"
-          onChange={() => {}}
-        >
-          <WubiSchemeOption />
-        </SelectRow>
-        <Row
-          title="日语方案"
-          description="直接输入罗马音，提供平假名、片假名及日语词库候选"
-          hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-        >
-          <Segmented options={japaneseInputSchemeOptions} value="romaji" onChange={() => {}} />
-        </Row>
-        <Row
-          title="韩语方案"
-          description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
-          hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-        >
-          <Segmented options={koreanInputSchemeOptions} value="dubeolsik" onChange={() => {}} />
-        </Row>
-        <Row
-          title="粤拼方案"
-          description={cantoneseDescription}
-          hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-        >
-          <Segmented options={cantoneseInputSchemeOptions} value="jyutping" onChange={() => {}} />
-        </Row>
-        <Row
-          title="注音键盘"
-          description={zhuyinDescription}
-          hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-        >
-          <Segmented options={zhuyinLayoutOptions} value="dachen" onChange={() => {}} />
-        </Row>
-        <Row
-          title="越南语方案"
-          description={vietnameseDescription}
-          hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-        >
-          <Segmented
-            options={vietnameseInputMethodOptions}
-            value={inputMethod}
-            onChange={(input_method) => changeVietnamese({ input_method })}
-          />
-        </Row>
-        <Row
-          title="声调位置"
-          description={toneStyleDescription}
-          hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-        >
-          <Segmented
-            options={vietnameseToneStyleOptions}
-            value={toneStyle}
-            onChange={(tone_style) => changeVietnamese({ tone_style })}
-          />
-        </Row>
-      </>
-    );
-  }
-
   return (
     <>
-      <div className="section" hidden={hideChineseSchemeOptions}>
-        <SelectSettingField
-          label="双拼方案"
-          inputLabel="双拼方案"
-          disabled={macos && scheme !== "shuangpin"}
-          value={shuangpinProfile}
-          onChange={(value) => onShuangpinProfileChange(value as ShuangpinProfile)}
-        >
-          {/* The source disables this menu unless Shuangpin is the active scheme
-              (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
-              choice changes nothing, and a live control that does nothing reads as a
-              setting being ignored. Other hosts keep it always editable. */}
-          <ShuangpinProfileOptions />
-        </SelectSettingField>
-      </div>
+      <SelectRow
+        title="双拼方案"
+        hidden={hideChineseSchemeOptions}
+        disabled={macos && scheme !== "shuangpin"}
+        value={shuangpinProfile}
+        onChange={(event) => onShuangpinProfileChange(event.target.value as ShuangpinProfile)}
+      >
+        <ShuangpinProfileOptions />
+      </SelectRow>
       {macosShuangpinKeymap !== undefined && (
-        <div className="section" hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}>
-          <SettingToggle
-            label="输入时显示双拼键位提示"
-            description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
-            ariaLabel="输入时显示双拼键位提示"
-            checked={macosShuangpinKeymap}
-            compact
-            onChange={(enabled) => onMacosShuangpinKeymapChange?.(enabled)}
-          />
-        </div>
+        <SwitchRow
+          title="输入时显示双拼键位提示"
+          description="双拼输入时显示当前方案的键位图，完成上屏后自动隐藏。"
+          hidden={hasTouchKeyboardSchemes || scheme !== "shuangpin"}
+          checked={macosShuangpinKeymap}
+          onChange={onMacosShuangpinKeymapChange ?? (() => {})}
+        />
       )}
-      <div className="section" hidden={hideChineseSchemeOptions}>
-        <SelectSettingField
-          label="五笔方案"
-          inputLabel="五笔方案"
-          value="wubi86"
-          onChange={() => {}}
-        >
-          <WubiSchemeOption />
-        </SelectSettingField>
-      </div>
-      <LegacyRadioGroup
+      {/* 五笔、日语、韩语各只有一个方案，选择器改不了任何东西，只在对应方案下作为说明出现。 */}
+      <SelectRow
+        title="五笔方案"
+        hidden={hasTouchKeyboardSchemes || scheme !== "wubi"}
+        value="wubi86"
+        onChange={() => {}}
+      >
+        <WubiSchemeOption />
+      </SelectRow>
+      <Row
         title="日语方案"
-        titleId="japanese-scheme-title"
-        name="japanese-scheme"
-        options={japaneseInputSchemeOptions}
-        value="romaji"
         description="直接输入罗马音，提供平假名、片假名及日语词库候选"
-        descriptionClassName="japanese-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "japanese"}
-      />
-      <LegacyRadioGroup
+      >
+        <Segmented options={japaneseInputSchemeOptions} value="romaji" onChange={() => {}} />
+      </Row>
+      <Row
         title="韩语方案"
-        titleId="korean-scheme-title"
-        name="korean-scheme"
-        options={koreanInputSchemeOptions}
-        value="dubeolsik"
         description="按两套式（두벌식）键位输入韩文字母，自动拼成音节，标点为半角"
-        descriptionClassName="korean-scheme-description"
         hidden={hasTouchKeyboardSchemes || scheme !== "korean"}
-      />
-      <LegacyRadioGroup
+      >
+        <Segmented options={koreanInputSchemeOptions} value="dubeolsik" onChange={() => {}} />
+      </Row>
+      <Row
         title="粤拼方案"
-        titleId="cantonese-scheme-title"
-        name="cantonese-scheme"
-        options={cantoneseInputSchemeOptions}
-        value="jyutping"
         description={cantoneseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "cantonese"}
-      />
-      <LegacyRadioGroup
+      >
+        <Segmented options={cantoneseInputSchemeOptions} value="jyutping" onChange={() => {}} />
+      </Row>
+      <Row
         title="注音键盘"
-        titleId="zhuyin-layout-title"
-        name="zhuyin-layout"
-        options={zhuyinLayoutOptions}
-        value="dachen"
         description={zhuyinDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
-      />
-      <LegacyRadioGroup
+      >
+        <Segmented options={zhuyinLayoutOptions} value="dachen" onChange={() => {}} />
+      </Row>
+      <Row
         title="越南语方案"
-        titleId="vietnamese-scheme-title"
-        name="vietnamese-input-method"
-        options={vietnameseInputMethodOptions}
-        value={inputMethod}
-        onChange={(value) => changeVietnamese({ input_method: value })}
         description={vietnameseDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      />
-      <LegacyRadioGroup
+      >
+        <Segmented
+          options={vietnameseInputMethodOptions}
+          value={inputMethod}
+          onChange={(input_method) => changeVietnamese({ input_method })}
+        />
+      </Row>
+      <Row
         title="声调位置"
-        titleId="vietnamese-tone-style-title"
-        name="vietnamese-tone-style"
-        options={vietnameseToneStyleOptions}
-        value={toneStyle}
-        onChange={(value) => changeVietnamese({ tone_style: value })}
         description={toneStyleDescription}
         hidden={hasTouchKeyboardSchemes || scheme !== "vietnamese"}
-      />
+      >
+        <Segmented
+          options={vietnameseToneStyleOptions}
+          value={toneStyle}
+          onChange={(tone_style) => changeVietnamese({ tone_style })}
+        />
+      </Row>
     </>
   );
 }

@@ -77,7 +77,6 @@ export function LocalModelManager({
   onRemoved,
   confirm,
   openExternalUrl,
-  grouped = false,
 }: {
   client: LocalVoiceModelClient;
   mobile: boolean;
@@ -91,8 +90,6 @@ export function LocalModelManager({
     danger?: boolean;
   }) => Promise<boolean>;
   openExternalUrl?: (url: string) => Promise<void>;
-  /** 放在语音页「识别服务配置」组里时为真：画成组内的一块，标题和说明用组内的字号，不再自带卡片。 */
-  grouped?: boolean;
 }) {
   const [list, setList] = useState<LocalVoiceModelList>();
   const [notice, setNotice] = useState("");
@@ -199,24 +196,13 @@ export function LocalModelManager({
 
   const models = list ? visibleLocalModels(list.models, mobile, modelPath) : [];
   return (
-    <div
-      className={grouped ? settings.managerBlock : "section"}
-      role={grouped ? "group" : undefined}
-      aria-label="本地识别模型"
-    >
-      {grouped ? (
-        <div>
-          <span className={rowTitle} data-row-title="">
-            本地识别模型
-          </span>
-          <p className={settings.managerNote}>{localModelNote}</p>
-        </div>
-      ) : (
-        <div className="section-title">
+    <div className={settings.managerBlock} role="group" aria-label="本地识别模型">
+      <div>
+        <span className={rowTitle} data-row-title="">
           本地识别模型
-          <small>{localModelNote}</small>
-        </div>
-      )}
+        </span>
+        <p className={settings.managerNote}>{localModelNote}</p>
+      </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="grid gap-3" aria-label="可用的本地模型">
         {models.map((model) => {

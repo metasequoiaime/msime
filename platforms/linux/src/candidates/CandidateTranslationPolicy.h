@@ -22,6 +22,7 @@ split_translation_gloss(std::string_view gloss) {
 inline void prefer_online_glosses(
     std::vector<std::pair<std::string, std::string>> &glosses,
     const std::vector<std::pair<std::string, std::string>> &online) {
+  glosses.reserve(glosses.size() + online.size());
   for (const auto &entry : online) {
     if (entry.first.empty() || entry.second.empty())
       continue;

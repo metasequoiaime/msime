@@ -300,17 +300,6 @@ export class KeyboardScheme {
     return KeyboardScheme.mapping(selected, currentLastChineseScheme, currentProfile);
   }
 
-  static fromHostSelection(
-    value: string | null,
-    thoughtfulEnabled: boolean,
-    engineSelection: SchemeDefinition,
-  ): SchemeDefinition {
-    if (thoughtfulEnabled && value === THOUGHTFUL_REPLY.id && engineSelection === QUANPIN) {
-      return THOUGHTFUL_REPLY;
-    }
-    return engineSelection;
-  }
-
   static fromPreferences(
     scheme: string,
     profile: string | null,

@@ -291,7 +291,7 @@ export function activityMetrics(statistics: TypingStatistics, todayKey: string):
   let fastestDay: string | null = null;
   let bestDay: string | null = null;
   let bestDayCharacters = 0;
-  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which a document pruned by an older build can keep above them.
+  // The baseline's average is the sum of its day rows over the row count, so it divides what the recorded days hold rather than `total`, which the host's validation allows to run above them.
   let recordedCharacters = 0;
   for (const key of recorded) {
     const activeMs = activeByDay[key] ?? 0;
@@ -1849,7 +1849,7 @@ export function TypingStatisticsPage({
           title="输入方案"
           slices={sourceSlices}
           variant="rank"
-          footer="输入方案统计其上屏字符数；拼音等按键另由按键热力图计数，只记每个键每天的按下次数。旧版本总数保留为历史未分类，新输入开始记录细分。"
+          footer="输入方案统计其上屏字符数；拼音等按键另由按键热力图计数，只记每个键每天的按下次数。来源无法归类的字数计入历史未分类。"
         />
       )}
       {!mobile && contentTab === "trend" && (

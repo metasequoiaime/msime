@@ -249,27 +249,6 @@ def check_setup(harness: Harness) -> None:
     assert sorted(path.name for path in harness.staged(resources).iterdir()) == ["a.db", "b.db"]
     assert (resources / "retired.db").is_file() and (resources / "b.db").read_bytes() == harness.previous_b
 
-    # dict_pinyin.dat, the C++ Engine's system dictionary, is the one file a dropped lock entry may leave behind without the directory being refused: the host library deletes it in place when it verifies the directory. So a directory that differs from the lock in that file alone is current, --update stages nothing and downloads nothing, and the file is left for the host.
-    state = harness.installed("state-retired-pinyin")
-    resources = Path(options(state)["resources"])
-    (resources / "b.db").write_bytes(harness.current["b.db"])
-    (resources / "dict_pinyin.dat").write_bytes(b"the C++ Engine's system dictionary")
-    result = harness.run("--update", "--state", str(state))
-    assert result.returncode == 0, result
-    assert Artifacts.requested == [], Artifacts.requested
-    assert not harness.staged(resources).exists()
-    assert harness.refreshes() == [{"lease": True, "locked": True, "resources": str(resources)}], harness.refreshes()
-    assert (resources / "dict_pinyin.dat").is_file()
-
-    # Only as a regular file: a directory by that name is refused by the host, so it is reported like any other unpinned entry.
-    state = harness.installed("state-retired-pinyin-directory")
-    resources = Path(options(state)["resources"])
-    (resources / "b.db").write_bytes(harness.current["b.db"])
-    (resources / "dict_pinyin.dat").mkdir()
-    result = harness.run("--update", "--state", str(state))
-    assert result.returncode == 1 and "dict_pinyin.dat" in result.stderr, result
-    assert harness.prepare_calls() == [], harness.prepare_calls()
-
     # A refresh that fails leaves the options naming the previous directory, which was never written, and says where the new dictionaries wait.
     state = harness.installed("state-refresh-failed")
     resources = Path(options(state)["resources"])

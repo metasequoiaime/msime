@@ -158,9 +158,6 @@ void modeBadgeTheme() {
           "an explicit dark toolbar theme wins");
   require(!dark(Json{{"toolbar_theme", "follow"}, {"theme", "system"}, {"candidate_theme", "dark"}}, false),
           "the candidate mode does not colour the badge when toolbar_theme is present");
-  // A document without toolbar_theme keeps the candidate panel's mode.
-  require(!dark(Json::object(), false), "absent keys follow a light desktop");
-  require(!dark(Json{{"theme", "dark"}, {"candidate_theme", "light"}}, true), "without toolbar_theme the candidate mode decides");
   // A global theme with a fixed appearance draws the panel in it, so the badge follows it too.
   require(dark(Json{{"global_theme", "ink"}, {"toolbar_theme", "light"}}, false), "a dark global theme gives a dark badge");
   require(!dark(Json{{"global_theme", "paper"}, {"toolbar_theme", "dark"}}, true), "a light global theme gives a light badge");
@@ -299,7 +296,7 @@ int main(int argc, char **argv) {
     // The online, cloud clipboard and voice steps come many seconds after these providers start listening (the whole run takes 8 to 15 seconds in the build-gate container, more under load), and the Fcitx5 host only dispatches the online request once the test polls for it, so each accept window spans the run instead of its first few seconds.
     constexpr int kProviderAcceptMs = 30000;
     std::thread provider([providerServer, ai, suggestion] {
-      const auto reply = Json{{"text", suggestion}, {"source", ai ? 1 : 0}}.dump() + "\n";
+      const auto reply = Json{{"candidates", Json::array({Json{{"text", suggestion}, {"source", ai ? 1 : 0}}})}}.dump() + "\n";
       // AI input sends a cache-only probe on every change before the real request (#594). The probe is answered with no candidates, as the provider does on a cache miss, and does not use up the one real request this fixture serves; the connection cap only bounds a runaway host.
       for (int served = 0, connections = 0; served < 1 && connections < 64; ++connections) {
         pollfd descriptor{providerServer, POLLIN, 0};
@@ -931,12 +928,10 @@ int main(int argc, char **argv) {
     const auto routeScript = std::string(directory) + "/route-helper.sh";
     const auto routeOutput = std::string(directory) + "/route-output";
     // The helper renames a finished file into place so the poll below never reads a half-written one.
-    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n' \"$MSIME_CLIENT_ROUTE\" \"$MSIME_CLIENT_PANEL\" \"${MSIME_CLIENT_SETTINGS_PAGE:-}\" > \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" && mv \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
+    std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" && mv \"$MSIME_TEST_ROUTE_OUTPUT.tmp\" \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
     require(chmod(routeScript.c_str(), 0700) == 0, "desktop route helper permissions");
     setenv("MSIME_CLIENT_SETTINGS_COMMAND", routeScript.c_str(), 1);
     setenv("MSIME_TEST_ROUTE_OUTPUT", routeOutput.c_str(), 1);
-    // A page inherited from the addon's own environment must not leak into a surface launch.
-    setenv("MSIME_CLIENT_SETTINGS_PAGE", "stale", 1);
     const auto launchedRoute = [&](FcitxDesktopPanelAction &action, const std::string &label) {
       std::filesystem::remove(routeOutput);
       action.activate(&ic);
@@ -945,24 +940,21 @@ int main(int argc, char **argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
       require(std::filesystem::exists(routeOutput), (label + " desktop route helper launched").c_str());
       std::ifstream routeFile(routeOutput);
-      std::array<std::string, 3> fields;
-      for (auto &field : fields) std::getline(routeFile, field);
-      return fields;
+      std::string arguments;
+      std::getline(routeFile, arguments);
+      return arguments;
     };
-    require(launchedRoute(engine.handwriting_action_, "handwriting") ==
-                std::array<std::string, 3>{"handwriting", "handwriting", ""},
-            "desktop route environment propagated");
+    require(launchedRoute(engine.handwriting_action_, "handwriting") == "--route=handwriting",
+            "desktop route argument propagated");
     // About, help, feedback and the local dictionary are settings sections: each opens its own page, as the IBus host and Windows do, rather than the settings home page.
     for (auto *action : {&engine.about_action_, &engine.help_action_, &engine.feedback_action_, &engine.dictionary_action_}) {
       const auto page = action == &engine.about_action_      ? std::string("about")
                         : action == &engine.help_action_     ? std::string("help")
                         : action == &engine.feedback_action_ ? std::string("feedback")
                                                              : std::string("dictionary");
-      require(launchedRoute(*action, page) ==
-                  std::array<std::string, 3>{"settings:" + page, "settings", page},
+      require(launchedRoute(*action, page) == "--route=settings:" + page,
               (page + " menu opens its settings section").c_str());
     }
-    unsetenv("MSIME_CLIENT_SETTINGS_PAGE");
     engine.emoji_action_.activate(&ic);
     const auto emojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (state->emoji_items_.empty() && std::chrono::steady_clock::now() < emojiDeadline) {

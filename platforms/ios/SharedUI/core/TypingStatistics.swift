@@ -98,7 +98,7 @@ struct TypingStatistics: Decodable {
 
   init() {}
   private enum CodingKeys: String, CodingKey {
-    case enabled, total, days, detail, dailyDetails, retention, retentionDays, dailyActiveMs, dailyHours, dailyKeys
+    case enabled, total, days, detail, dailyDetails, retention, dailyActiveMs, dailyHours, dailyKeys
   }
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -107,12 +107,7 @@ struct TypingStatistics: Decodable {
     days = try values.decodeIfPresent([String: Int].self, forKey: .days) ?? [:]
     detail = try values.decodeIfPresent(TypingBreakdown.self, forKey: .detail) ?? TypingBreakdown()
     dailyDetails = try values.decodeIfPresent([String: TypingBreakdown].self, forKey: .dailyDetails) ?? [:]
-    if let retention = try values.decodeIfPresent(String.self, forKey: .retention) {
-      retentionDays = Self.retentionDays(retention)
-    } else {
-      // Written by the Swift store this one replaced, before the shared document was the only format.
-      retentionDays = try values.decodeIfPresent(Int.self, forKey: .retentionDays)
-    }
+    retentionDays = try values.decodeIfPresent(String.self, forKey: .retention).flatMap(Self.retentionDays)
     dailyActiveMs = try values.decodeIfPresent([String: Int].self, forKey: .dailyActiveMs) ?? [:]
     dailyHours = try values.decodeIfPresent([String: [Int]].self, forKey: .dailyHours) ?? [:]
     dailyKeys = try values.decodeIfPresent([String: [String: Int]].self, forKey: .dailyKeys) ?? [:]
@@ -562,26 +557,20 @@ enum TypingStatisticsError: LocalizedError {
 // The keyboard writes only aggregate counts, never document text or preedit. Every read and write goes through the shared Rust store behind `msime_client_typing_statistics`, the one macOS and the shared statistics page use, so active time, the hourly buckets and the retention window are recorded by the same rules everywhere and no host rewrites the document without the fields it does not know. The store's lock file serializes the extension and app processes.
 struct TypingStatisticsStore {
   let directory: URL?
-  private let legacyDirectory: URL?
 
   init() {
-    let container = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
-    directory = container?.appendingPathComponent("MSIME", isDirectory: true)
-    legacyDirectory = container
+    directory = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.app.msime.ios")?.appendingPathComponent("MSIME", isDirectory: true)
   }
 
-  init(directory: URL?, legacyDirectory: URL? = nil) {
+  init(directory: URL?) {
     self.directory = directory
-    self.legacyDirectory = legacyDirectory
   }
 
   /// The request buffer the ABI accepts.
   private static let maximumRequestBytes = 65_536
   /// A commit is split into pieces this size, well inside the store's 40,000-byte commit limit and, even with every byte escaped, inside the request limit.
   private static let maximumChunkBytes = 8_000
-  /// Keep migrations aligned with the shared Rust store's document ceiling before JSON decoding allocates.
-  static let maximumDocumentBytes = 64 * 1_048_576
 
   private static let preparedLock = NSLock()
   private static var prepared = Set<String>()
@@ -622,71 +611,14 @@ struct TypingStatisticsStore {
     return envelope["value"] ?? NSNull()
   }
 
-  /// Once per directory and process: move the pre-shared file out of the App Group root, and carry a retention window the Swift store wrote as `retentionDays` over to the shared `retention` field before the shared store rewrites the document without it.
+  /// Once per directory and process: create the directory, refusing one reached through a symbolic link.
   private func prepare(_ directory: URL) throws {
     Self.preparedLock.lock()
     defer { Self.preparedLock.unlock() }
     guard !Self.prepared.contains(directory.path) else { return }
     guard !Self.rejectsSymlinkAncestors(directory) else { throw CocoaError(.fileWriteNoPermission) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    // The shared store takes the same lock file, and flock locks per open file, so this must be released before any call into it.
-    let lockURL = directory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-    defer { flock(descriptor, LOCK_UN) }
-    let url = directory.appendingPathComponent("typing-statistics.json")
-    try migrateLegacyFileIfNeeded(to: url)
-    try migrateLegacyRetention(at: url)
     Self.prepared.insert(directory.path)
-  }
-
-  private func migrateLegacyRetention(at url: URL) throws {
-    guard FileManager.default.fileExists(atPath: url.path),
-          var document = try JSONSerialization.jsonObject(with: Self.readBoundedDocument(from: url)) as? [String: Any],
-          let legacy = document["retentionDays"] else { return }
-    document.removeValue(forKey: "retentionDays")
-    if document["retention"] == nil {
-      document["retention"] = TypingStatistics.retentionID((legacy as? NSNumber)?.intValue)
-    }
-    try JSONSerialization.data(withJSONObject: document).write(to: url, options: .atomic)
-  }
-
-  private func migrateLegacyFileIfNeeded(to destination: URL) throws {
-    guard !FileManager.default.fileExists(atPath: destination.path),
-          let legacyDirectory,
-          legacyDirectory.standardizedFileURL != directory?.standardizedFileURL else { return }
-    let source = legacyDirectory.appendingPathComponent("typing-statistics.json")
-    guard FileManager.default.fileExists(atPath: source.path) else { return }
-
-    let legacyLockURL = legacyDirectory.appendingPathComponent("typing-statistics.lock")
-    let descriptor = open(legacyLockURL.path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-    guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX) == 0 else { throw CocoaError(.fileLocking) }
-    defer { flock(descriptor, LOCK_UN) }
-
-    guard !FileManager.default.fileExists(atPath: destination.path),
-          FileManager.default.fileExists(atPath: source.path) else { return }
-    _ = try JSONDecoder().decode(TypingStatistics.self, from: Self.readBoundedDocument(from: source))
-    try FileManager.default.moveItem(at: source, to: destination)
-  }
-
-  /// Read only the shared store's accepted document size, even if a legacy file grows after inspection.
-  private static func readBoundedDocument(from url: URL) throws -> Data {
-    let handle = try FileHandle(forReadingFrom: url)
-    defer { try? handle.close() }
-    var data = Data()
-    while data.count <= maximumDocumentBytes {
-      let chunk = try handle.read(upToCount: min(65_536, maximumDocumentBytes + 1 - data.count)) ?? Data()
-      if chunk.isEmpty { break }
-      data.append(chunk)
-    }
-    guard data.count <= maximumDocumentBytes else {
-      throw TypingStatisticsError.store("统计文件过大")
-    }
-    return data
   }
 
   func load() throws -> TypingStatistics {
@@ -707,11 +639,6 @@ struct TypingStatisticsStore {
     guard let directory else { return .containerUnavailable }
     let url = directory.appendingPathComponent("typing-statistics.json")
     if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) {
-      return .ready(lastWritten: attributes[.modificationDate] as? Date)
-    }
-    if let legacyDirectory,
-       let attributes = try? FileManager.default.attributesOfItem(
-         atPath: legacyDirectory.appendingPathComponent("typing-statistics.json").path) {
       return .ready(lastWritten: attributes[.modificationDate] as? Date)
     }
     return .neverWritten

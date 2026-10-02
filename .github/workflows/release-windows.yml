@@ -94,7 +94,7 @@ jobs:
         shell: pwsh
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
-          # The Rust crates linked into the host DLL, the dictionary replay tool, the MCP server and the settings binary, and the npm packages bundled into its frontend, carry notices the vcpkg prefixes do not. Run on this runner, cargo resolves the Windows dependency graph.
+          # The Rust crates linked into the host DLL, the MCP server and the settings binary, and the npm packages bundled into its frontend, carry notices the vcpkg prefixes do not. Run on this runner, cargo resolves the Windows dependency graph.
           $supplemental = Join-Path $env:RUNNER_TEMP 'msime-supplemental-notices'
           $rust = Join-Path $supplemental 'rust-crates-NOTICES.txt'
           $frontend = Join-Path $supplemental 'frontend-npm-NOTICES.txt'

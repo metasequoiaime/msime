@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { saveSettingsNow, settingsFormReady } from "../support/settings-form";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -38,7 +39,7 @@ test("ignores a duplicate plugin import while the first import is pending", asyn
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux", plugin_triggers: true } as never,
+        host: testHost({ platform: "linux", plugin_triggers: true }),
         plugins: client,
       }}
     />,
@@ -1154,7 +1155,7 @@ test("the 插件 page saves plugin settings into the preferences document", asyn
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "macos", key_sound: true, music: true, plugin_triggers: true } as never,
+        host: testHost({ platform: "macos", key_sound: true, music: true, plugin_triggers: true }),
         plugins: fakeClient(),
       }}
     />,
@@ -1182,7 +1183,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "macos", typing_effects: true } as never,
+        host: testHost({ platform: "macos", typing_effects: true }),
       }}
     />,
   );
@@ -1203,7 +1204,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "linux", typing_effects: true } as never,
+        host: testHost({ platform: "linux", typing_effects: true }),
       }}
     />,
   );
@@ -1219,7 +1220,7 @@ test("the 插件 page offers the typing effects where the host draws them, and o
 test("effect packs are offered where the host draws a style, not on Linux", () => {
   const capabilities = (platform: "macos" | "windows" | "harmony" | "linux") =>
     settingsCapabilities({
-      host: { platform, typing_effects: true } as never,
+      host: testHost({ platform, typing_effects: true }),
       linux: platform === "linux",
       android: false,
       ios: false,
@@ -1244,7 +1245,7 @@ test("the @ switch is offered only where the host can edit the name list", async
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "macos", plugin_triggers: true } as never,
+        host: testHost({ platform: "macos", plugin_triggers: true }),
       }}
     />,
   );
@@ -1261,7 +1262,7 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
       }}
     />,
   );
@@ -1274,7 +1275,7 @@ test("the 插件 page is not offered on a phone or a host that backs none of it"
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "android", key_sound: true, plugin_triggers: true } as never,
+        host: testHost({ platform: "android", key_sound: true, plugin_triggers: true }),
         plugins: fakeClient(),
       }}
     />,

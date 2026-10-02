@@ -3,7 +3,7 @@
 #
 # The Windows installer stops the IME processes on upgrade and its post-install step starts the new ones. On Linux dpkg replaces the files under running user services, which keep executing the old programs until something restarts them. After an upgrade this reloads the systemd user manager of every user logind knows about, so it reads the new unit files, and restarts those of the MSIME services that are running. Services that are not running stay stopped, and socket units are not restarted: they run no program, and restarting a socket whose service is active is refused by systemd and would leave its path removed. Every reachable user also gets a per-user anonymous translation account here; a network failure is ignored and the provider retries later.
 #
-# The input method hosts are not user services: the IBus host belongs to ibus-daemon and the Fcitx5 addon lives inside fcitx5, so neither can be restarted from here. The IBus host restarts itself on the next focus change and the Fcitx5 addon asks for a restart, but a host from before that behaviour does neither, so each reachable user also gets a desktop notification saying how to switch to the new version. It is sent as a transient unit in that user's manager, which has the session bus, and is not waited for; without systemd-run or notify-send it is skipped, and a failure to send is ignored.
+# The input method hosts are not user services: the IBus host belongs to ibus-daemon and the Fcitx5 addon lives inside fcitx5, so neither can be restarted from here. The IBus host restarts itself on the next focus change and the Fcitx5 addon asks for a restart.
 #
 # Nothing here may fail the package transaction. Without systemctl or loginctl (containers, non-systemd systems) it does nothing; a user manager that cannot be reached gets the commands that user has to run.
 
@@ -15,12 +15,6 @@ esac
 command -v systemctl >/dev/null 2>&1 || exit 0
 command -v loginctl >/dev/null 2>&1 || exit 0
 users=$(loginctl list-users --no-legend 2>/dev/null) || exit 0
-notify=
-if command -v systemd-run >/dev/null 2>&1 && command -v notify-send >/dev/null 2>&1; then
-  notify=1
-fi
-upgrade=
-[ -n "$2" ] && upgrade=1
 
 while read -r uid name _; do
   case "$uid" in
@@ -33,16 +27,8 @@ while read -r uid name _; do
     for unit in @MSIME_USER_SERVICE_LIST@; do
       systemctl --user -M "$uid@" try-restart "$unit" </dev/null >/dev/null 2>&1 || true
     done
-    if [ -n "$notify" ] && [ -n "$upgrade" ]; then
-      # Omarchy runs fcitx5 as a user service with Restart=always; fcitx5 -r there starts a second copy outside the unit that fights the unit's own for the bus name, so its users are told to restart the unit.
-      fcitx5_restart="fcitx5 -r"
-      if systemctl --user -M "$uid@" is-active --quiet omarchy-fcitx5.service </dev/null >/dev/null 2>&1; then
-        fcitx5_restart="systemctl --user restart omarchy-fcitx5.service"
-      fi
-      systemd-run --user -M "$uid@" --collect --quiet notify-send -a 水杉输入法 -i msime-linux "水杉输入法已升级" "重启输入法后生效：IBus 执行 ibus restart，Fcitx5 执行 $fcitx5_restart，或注销后重新登录" </dev/null >/dev/null 2>&1 || true
-    fi
   else
-    echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should restart its services: systemctl --user daemon-reload && systemctl --user try-restart @MSIME_USER_SERVICE_LIST@; and the input method: ibus restart (IBus), fcitx5 -r (Fcitx5) or systemctl --user restart omarchy-fcitx5.service (Fcitx5 on Omarchy), or log out and back in" >&2
+    echo "msime-client: could not reach the systemd user manager of ${name:-uid $uid}; that user should restart its services: systemctl --user daemon-reload && systemctl --user try-restart @MSIME_USER_SERVICE_LIST@" >&2
   fi
 done <<EOF
 $users

@@ -22,7 +22,6 @@ const DWORD WM_CheckGlobalCompartment = WM_USER;
 const DWORD WM_ConnectNamedpipe = WM_USER + 1;
 const DWORD WM_DisconnectNamedpipe = WM_USER + 2;
 const DWORD WM_ConnectToTsfNamedpipe = WM_USER + 3;
-const DWORD WM_IMEActivation = WM_USER + 4;
 const DWORD WM_ThreadFocus = WM_USER + 5;
 const DWORD WM_UpdateIMEStatus = WM_USER + 6;
 const DWORD WM_UpdateDoubleSingleByte = WM_USER + 7;

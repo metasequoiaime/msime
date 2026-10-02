@@ -27,7 +27,6 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
         long revision = original == null ? 0 : new JSONObject(new String(original, StandardCharsets.UTF_8)).getLong("revision");
         JSONObject base = new JSONObject(options.getJSONObject("preferences").toString());
         base.put("scheme", "quanpin").put("touch_keyboard_layout", "twenty_six_key")
-            .put("autocorrect", false)
             .put("quanpin", new JSONObject().put("autocorrect_transposition", false)
                 .put("autocorrect_neighbor", false));
         try {

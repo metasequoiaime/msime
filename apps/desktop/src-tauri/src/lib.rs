@@ -138,7 +138,7 @@ use shared::voice::voice_output;
 ))]
 use shared::voice::voice_sessions;
 
-const MAX_RUNTIME_OPTIONS_CANDIDATE_CAPACITY: usize = 5;
+const MAX_RUNTIME_OPTIONS_CANDIDATE_CAPACITY: usize = 4;
 
 #[tauri::command]
 fn supports_font_catalog() -> bool {
@@ -171,17 +171,12 @@ pub(crate) fn clipboard_history_uses_preference(platform: HostPlatform) -> bool 
     !matches!(platform, HostPlatform::Ios)
 }
 
-/// The surface a native host asked this shell to present, from `--route=<route>`,
-/// `MSIME_CLIENT_ROUTE`, or the superseded `MSIME_CLIENT_PANEL`. An unparseable
-/// route opens the ordinary settings window rather than failing startup.
+/// The surface a native host asked this shell to present, from `--route=<route>` or `MSIME_CLIENT_ROUTE`. An unparseable route opens the ordinary settings window rather than failing startup.
 fn requested_surface_route() -> Option<SurfaceRoute> {
     let argument = std::env::args()
         .skip(1)
         .find_map(|argument| argument.strip_prefix("--route=").map(str::to_string));
-    let requested = argument
-        .or_else(|| std::env::var("MSIME_CLIENT_ROUTE").ok())
-        // Superseded by --route=; kept so existing menu launchers keep working.
-        .or_else(|| std::env::var("MSIME_CLIENT_PANEL").ok())?;
+    let requested = argument.or_else(|| std::env::var("MSIME_CLIENT_ROUTE").ok())?;
     SurfaceRoute::parse(requested.trim()).ok()
 }
 
@@ -307,16 +302,10 @@ pub(crate) fn product_version_from_plist(plist: &str) -> Option<String> {
     .then(|| value.to_owned())
 }
 
-/// The settings section a host menu asked for, if any. The launcher passes it
-/// in the environment, like the panel routes; the settings page falls back to
-/// its own default when this is absent or unusable.
+/// The settings section a host menu asked for with a `settings:<category>` route, if any; the settings page falls back to its own default when this is absent.
 #[tauri::command]
 fn initial_settings_page() -> Option<String> {
-    // A `settings:<category>` route is the contract every host now shares; the
-    // dedicated variable stays as the compatibility path for older launchers.
-    settings_page_from_route(requested_surface_route()).or_else(|| {
-        requested_settings_page(std::env::var("MSIME_CLIENT_SETTINGS_PAGE").ok().as_deref())
-    })
+    settings_page_from_route(requested_surface_route())
 }
 
 /// The settings category a surface route names, if it names one.
@@ -324,21 +313,6 @@ fn settings_page_from_route(route: Option<SurfaceRoute>) -> Option<String> {
     route
         .and_then(SurfaceRoute::settings_category)
         .map(|category| category.as_str().to_owned())
-}
-
-fn requested_settings_page(value: Option<&str>) -> Option<String> {
-    // Only a short identifier is accepted here; the page list itself lives in
-    // the shared settings UI, which refuses ids it does not have.
-    value
-        .map(str::trim)
-        .filter(|page| {
-            !page.is_empty()
-                && page.len() <= 32
-                && page
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
-        })
-        .map(str::to_owned)
 }
 
 #[tauri::command]
@@ -453,12 +427,6 @@ async fn capture_voice_pcm(milliseconds: u32) -> Result<Vec<f32>, CommandError> 
     .map_err(|_| CommandError {
         code: "audio_capture",
     })?
-}
-
-/// The app data directory of `app.msime.client`, the identifier Windows and Linux shared with the other desktop shells before each got its own (`tauri.windows.conf.json`, `tauri.linux.conf.json`). Nothing but this shell ever used it, so what earlier versions left there is read where the current directory has nothing, and never moved.
-#[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos")))]
-pub(crate) fn legacy_app_data_dir(app_data: &Path) -> PathBuf {
-    app_data.with_file_name("app.msime.client")
 }
 
 #[derive(Clone)]
@@ -1529,8 +1497,17 @@ fn ios_keyboard_ai_preferences(
     let enabled = preferences.enabled
         && !preferences.endpoint.trim().is_empty()
         && !preferences.model.trim().is_empty()
-        && !preferences.prompt.trim().is_empty()
         && !token.trim().is_empty();
+    let prompt = match preferences.prompt_id.as_str() {
+        "custom_2" => &preferences.prompt_custom_2,
+        "custom_3" => &preferences.prompt_custom_3,
+        _ => &preferences.prompt_custom_1,
+    };
+    let prompt = if prompt.trim().is_empty() {
+        "请润色以下文字，保持原意，只返回修改后的文字。".to_owned()
+    } else {
+        prompt.clone()
+    };
     IosKeyboardAiPreferences {
         // Rust preferences may intentionally be enabled before the user has
         // supplied a credential. Keep that draft in the canonical store, but
@@ -1539,11 +1516,7 @@ fn ios_keyboard_ai_preferences(
         provider,
         endpoint: preferences.endpoint.clone(),
         model: preferences.model.clone(),
-        prompt: if preferences.prompt.trim().is_empty() {
-            "请润色以下文字，保持原意，只返回修改后的文字。".to_owned()
-        } else {
-            preferences.prompt.clone()
-        },
+        prompt,
         token,
     }
 }
@@ -3404,13 +3377,7 @@ async fn uninstall_input_source(
         code: "unavailable",
     })?;
     let input_methods = PathBuf::from(home).join("Library/Input Methods");
-    // Prefer the current product name, but remove a copy left by the previous preview build if
-    // that is the one still installed. Both carry the same bundle identifier.
-    let bundle = ["水杉输入法.app", "水杉输入法（预览）.app"]
-        .into_iter()
-        .map(|name| input_methods.join(name))
-        .find(|candidate| candidate.exists())
-        .unwrap_or_else(|| input_methods.join("水杉输入法.app"));
+    let bundle = input_methods.join("水杉输入法.app");
     tauri::async_runtime::spawn_blocking(move || {
         // Wait for a start-time refresh or a manual install that is still writing the bundle.
         let _guard = macos_input_source::install_lock();
@@ -4713,20 +4680,6 @@ pub fn run() {
                 } else {
                     None
                 };
-                if options_override.is_none() && state_override.is_none() {
-                    if let (Ok(legacy_roots), Some(resources)) = (
-                        macos_launch::legacy_native_locator_roots(),
-                        resources_directory.as_deref(),
-                    ) {
-                        if macos_launch::migrate_legacy_application_data(
-                            &application_directory,
-                            resources,
-                            &legacy_roots,
-                        )? {
-                            // The migrated locator is already present in the canonical directory.
-                        }
-                    }
-                }
                 let launch = macos_launch::resolve_with_resources(
                     &application_directory,
                     resources_directory.as_deref(),
@@ -4764,12 +4717,6 @@ pub fn run() {
                     }
                 }
             };
-            #[cfg(target_os = "ios")]
-            if directory.file_name() == Some(std::ffi::OsStr::new("MSIME")) {
-                if let Some(root) = directory.parent() {
-                    let _ = msime_host_api::migrate_apple_clipboard_history(root);
-                }
-            }
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
@@ -4808,14 +4755,7 @@ pub fn run() {
                 community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);
-            let typing_statistics = TypingStatisticsStore::new(&directory);
-            #[cfg(target_os = "ios")]
-            if directory.file_name() == Some(std::ffi::OsStr::new("MSIME")) {
-                if let Some(legacy_directory) = directory.parent() {
-                    let _ = typing_statistics.migrate_from(legacy_directory);
-                }
-            }
-            app.manage(TypingStatisticsState(typing_statistics));
+            app.manage(TypingStatisticsState(TypingStatisticsStore::new(&directory)));
             app.manage(DiagnosticLogState(directory.clone()));
             app.manage(notices::NoticesState(directory.clone()));
             // The staging root, not the Engine resource directory inside it: `wordbooks/` is a
@@ -4951,7 +4891,6 @@ pub fn run() {
                     );
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
-                        candidates.push(legacy_app_data_dir(&dir).join("runtime-options.json"));
                     }
                     #[cfg(target_os = "windows")]
                     if let Some(local) = std::env::var_os("LOCALAPPDATA") {

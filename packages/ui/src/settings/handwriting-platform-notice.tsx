@@ -1,14 +1,9 @@
 export type HandwritingPlatform = "ios" | "harmony" | "android";
 
-export interface HandwritingPlatformNoticeProps {
-  platform: HandwritingPlatform;
-  onOpenExternalUrl?: (url: string) => void;
-}
-
 /** Google ML Kit 的条款和数据披露；iOS 和 Android 用它识别手写。 */
 export const handwritingSdkPrivacyUrl = "https://developers.google.com/ml-kit/terms";
 
-/** 各平台手写隐私文案的唯一一份：旧的输入面板通过 `HandwritingPlatformNotice` 显示它，设置窗口的「手写输入」页则在 `HandwritingSettingsSection` 里把它放进该平台的组。 */
+/** 各平台手写隐私文案的唯一一份：设置窗口的「手写输入」页在 `HandwritingSettingsSection` 里把它放进该平台的组。 */
 export function handwritingPrivacyText(platform: HandwritingPlatform): string {
   switch (platform) {
     case "android":
@@ -18,28 +13,4 @@ export function handwritingPrivacyText(platform: HandwritingPlatform): string {
     case "ios":
       return "首次在键盘中使用手写时下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google ML Kit 会发送性能及使用统计。";
   }
-}
-
-/** Platform-specific handwriting disclosure shown beside the input scheme settings. */
-export function HandwritingPlatformNotice({
-  platform,
-  onOpenExternalUrl,
-}: HandwritingPlatformNoticeProps) {
-  const android = platform === "android";
-  const harmony = platform === "harmony";
-  return (
-    <div className="section">
-      <div className="section-title">{android ? "Android 手写输入" : "手写输入"}</div>
-      <p>{handwritingPrivacyText(platform)}</p>
-      {onOpenExternalUrl && !harmony && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => onOpenExternalUrl(handwritingSdkPrivacyUrl)}
-        >
-          手写 SDK 隐私说明
-        </button>
-      )}
-    </div>
-  );
 }

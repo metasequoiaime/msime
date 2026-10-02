@@ -11,7 +11,7 @@ export interface SecretSettingFieldProps {
   onChange: (value: string) => void;
 }
 
-/** Shared labeled secret input for legacy settings fields. */
+/** Shared labeled secret input. */
 export function SecretSettingField({
   label,
   inputLabel,

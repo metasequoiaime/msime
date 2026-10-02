@@ -395,28 +395,10 @@ bool launchDesktopPanel(const char *panel) {
                      : std::strcmp(panel, "feedback") == 0   ? "feedback"
                      : std::strcmp(panel, "dictionary") == 0 ? "dictionary"
                                                              : nullptr;
-  const std::string route = page ? std::string("settings:") + page : panel;
-  const std::string panelValue = page ? "settings" : panel;
-  std::vector<std::string> environment;
-  for (char **entry = ::environ; entry && *entry; ++entry) {
-    const std::string value(*entry);
-    if (value.rfind("MSIME_CLIENT_PANEL=", 0) == 0 ||
-        value.rfind("MSIME_CLIENT_ROUTE=", 0) == 0 ||
-        value.rfind("MSIME_CLIENT_SETTINGS_PAGE=", 0) == 0)
-      continue;
-    environment.push_back(value);
-  }
-  environment.push_back("MSIME_CLIENT_PANEL=" + panelValue);
-  environment.push_back("MSIME_CLIENT_ROUTE=" + route);
-  if (page) environment.push_back(std::string("MSIME_CLIENT_SETTINGS_PAGE=") + page);
-  std::vector<char *> environmentPointers;
-  environmentPointers.reserve(environment.size() + 1);
-  for (auto &value : environment) environmentPointers.push_back(value.data());
-  environmentPointers.push_back(nullptr);
-  char *arguments[] = {const_cast<char *>(command), nullptr};
+  std::string routeArgument = std::string("--route=") + (page ? std::string("settings:") + page : panel);
+  char *arguments[] = {const_cast<char *>(command), routeArgument.data(), nullptr};
   pid_t child = 0;
-  return posix_spawnp(&child, command, nullptr, nullptr, arguments,
-                      environmentPointers.data()) == 0;
+  return posix_spawnp(&child, command, nullptr, nullptr, arguments, ::environ) == 0;
 }
 
 // Asks the user's Fcitx5 to reload its global configuration through its user-session helper, with a fixed argv that keeps the configurable settings launcher out of this service-control path. Fcitx5 does not pass that reload on to addons, so it never reset MSIME; the chord and the status-menu action now reset in process through FcitxEngine::resetSessions instead.
@@ -6180,11 +6162,9 @@ void FcitxState::maintenance(int operation) {
   }
 }
 
-// The badge's theme, by the macOS badge's rule: its mode is toolbar_theme when that names one, otherwise the global mode, whose "system" (跟随系统) default follows the desktop; a document without toolbar_theme (older than the key) keeps the candidate panel's mode. A global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it either way, and the colours are that theme's palette as the floating toolbar takes it.
+// The badge's theme, by the macOS badge's rule: its mode is toolbar_theme when that names one, otherwise the global mode, whose "system" (跟随系统) default follows the desktop. A global theme with a fixed appearance (水杉 is dark, 纸白 light) decides it either way, and the colours are that theme's palette as the floating toolbar takes it.
 msime::linux_host::CandidateTheme fcitx_mode_badge_theme(const Json &preferences, bool system_dark, const Json &catalog) {
-  const bool dark = preferences.is_object() && preferences.contains("toolbar_theme")
-                        ? msime::linux_host::surface_dark_theme(preferences, "toolbar_theme", system_dark)
-                        : msime::linux_host::candidate_dark_theme(preferences, system_dark);
+  const bool dark = msime::linux_host::surface_dark_theme(preferences, "toolbar_theme", system_dark);
   return resolveThemeInMode(preferences, dark, catalog);
 }
 

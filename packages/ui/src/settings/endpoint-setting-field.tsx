@@ -12,7 +12,7 @@ export interface EndpointSettingFieldProps {
   onChange: (value: string) => void;
 }
 
-/** Shared labeled endpoint field for legacy provider settings. */
+/** Shared labeled endpoint field for provider settings. */
 export function EndpointSettingField({
   label,
   inputLabel,

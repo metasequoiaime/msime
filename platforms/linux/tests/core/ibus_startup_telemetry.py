@@ -72,7 +72,7 @@ def stop(process):
             process.wait()
 
 
-def run_host(host, registration_bus, scratch, recovered, legacy_queue=False):
+def run_host(host, registration_bus, scratch, recovered):
     """Start the host against a fresh bus and endpoint; returns (registration time, main loop probe, endpoint, host process, cleanup)."""
     bus_socket = scratch / "bus"
     daemon = subprocess.Popen(
@@ -102,14 +102,6 @@ def run_host(host, registration_bus, scratch, recovered, legacy_queue=False):
         options = scratch / "options/runtime-options.json"
         options.parent.mkdir()
         options.write_text('{"preferences":{}}')
-        if legacy_queue:
-            queue = scratch / "state/msime"
-            queue.mkdir(parents=True)
-            (queue / "telemetry.json").write_text(json.dumps([
-                {"id": f"old-{index}", "kind": "download", "platform": "fixture", "version": "0"}
-                for index in range(64)
-            ] + [{"id": "oversized", "kind": "download", "platform": "fixture",
-                  "version": "0", "message": "x" * (1024 * 1024)}]))
         proxy = f"http://127.0.0.1:{endpoint.port}"
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -169,10 +161,10 @@ def main():
         print("dbus-daemon is not installed; skipping", file=sys.stderr)
         return SKIP
 
-    # 正常启动：会话开始时排进当天的 active，旧版 C++ 上报器留下的每次启动 download 被迁移丢弃；注册先完成，然后后台线程才连端点，端点一直不回应，宿主照常活着。
+    # 正常启动：会话开始时排进当天的 active；注册先完成，然后后台线程才连端点，端点一直不回应，宿主照常活着。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False, legacy_queue=True)
+        registered, probe, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
             accepted, request = endpoint.connections[0]

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -53,7 +54,7 @@ async function openPage(
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform } as never,
+        host: testHost({ platform }),
         ...(openExternalUrl ? { openExternalUrl } : {}),
       }}
     />,

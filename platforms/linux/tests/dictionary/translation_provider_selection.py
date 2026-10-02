@@ -65,6 +65,11 @@ class TranslationProviderSelection(unittest.TestCase):
                                        "custom_translation": {"enabled": False, "endpoint": "", "api_key": ""}}),
             ("unknown service", {"provider": "deepl"}),
             ("malformed service", {"provider": ["tencent"]}),
+            # The field is required: a query without it is malformed, whatever blocks it carries.
+            ("missing service", {}),
+            ("missing service with a usable block", {"niutrans": {"enabled": True, "app_id": "synthetic-app",
+                                                                  "apikey": "synthetic-key"}}),
+            ("missing service with the account flag", {"translation_account": True}),
         ):
             with self.subTest(case=name):
                 result, urls = self.contacted(query)
@@ -145,17 +150,6 @@ class TranslationProviderSelection(unittest.TestCase):
             self.assertEqual((root / "anonymous-account.json").stat().st_mode & 0o777, 0o600)
             self.assertEqual((root / "anonymous-session.json").stat().st_mode & 0o777, 0o600)
             self.assertNotIn("secret", (root / "anonymous-session.json").read_text())
-
-    def test_query_from_an_older_host_keeps_its_choice(self):
-        # Hosts that predate the provider field sent only the usable block, with Tencent as the remaining default.
-        result, urls = self.contacted({})
-        self.assertEqual(result, [{"text": "测试", "translation": "synthetic tencent"}])
-        self.assertEqual(urls, [TENCENT])
-        self.server.translation_cache.clear()
-        result, urls = self.contacted({"niutrans": {"enabled": True, "app_id": "synthetic-app",
-                                                    "apikey": "synthetic-key"}})
-        self.assertEqual(urls, [NIUTRANS])
-
 
 if __name__ == "__main__":
     unittest.main()

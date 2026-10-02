@@ -23,22 +23,16 @@ cask "msime" do
   binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp"
 
   # The settings app copies the input method here on its first launch.
-  uninstall quit:   ["app.msime.macos", "app.msime.client", "app.msime.inputmethod.MetasequoiaIME"],
+  uninstall quit:   ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
             delete: "~/Library/Input Methods/水杉输入法.app"
 
-  # app.msime.client is the settings app's earlier identifier; its state directory stays behind as the source the first launch after the change copied from.
   zap trash: [
     "~/Library/Application Support/app.msime.macos",
-    "~/Library/Application Support/app.msime.client",
     "~/Library/Caches/app.msime.macos",
-    "~/Library/Caches/app.msime.client",
     "~/Library/Preferences/app.msime.macos.plist",
-    "~/Library/Preferences/app.msime.client.plist",
     "~/Library/Preferences/app.msime.inputmethod.MetasequoiaIME.plist",
     "~/Library/Saved Application State/app.msime.macos.savedState",
-    "~/Library/Saved Application State/app.msime.client.savedState",
     "~/Library/WebKit/app.msime.macos",
-    "~/Library/WebKit/app.msime.client",
   ]
 
   caveats <<~EOS

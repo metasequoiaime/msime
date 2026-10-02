@@ -48,7 +48,7 @@ int main() {
     if (!msime::input::composition_shows_reading(korean.view.reading, korean.view.caret,
                                                  korean.view.editing_text.size()))
       return EXIT_FAILURE;
-    // A view without the field is read as quanpin, the scheme every older host assumed.
+    // A view without the field is read as quanpin.
     if (result.view.scheme != 0)
       return EXIT_FAILURE;
   }

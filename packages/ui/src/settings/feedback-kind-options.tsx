@@ -1,4 +1,4 @@
-/** Shared feedback categories used by the legacy and grouped settings forms. */
+/** Shared feedback categories of the feedback page. */
 export function FeedbackKindOptions() {
   return (
     <>

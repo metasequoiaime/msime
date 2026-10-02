@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { HomePage, SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
+import { HomePage, SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -105,7 +106,7 @@ test("iOS home keyboard card opens and focuses the shared keyboard tryout", asyn
   const client = {
     load: async () => initial,
     save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
+    host: testHost({ platform: "ios" }),
     home: { openSystemKeyboardSettings: vi.fn() },
     chat: {
       models: async () => ({ data: [{ id: "fixture-chat" }], defaultModel: "fixture-chat" }),
@@ -205,7 +206,7 @@ test("opens iOS system keyboard settings from the shared home", async () => {
         home: {
           openSystemKeyboardSettings,
         },
-        host: { platform: "ios" } as HostCapabilities,
+        host: testHost({ platform: "ios" }),
       }}
     />,
   );

@@ -217,15 +217,12 @@ def cloud(query):
 
 def ai_prompt(options):
     selected = options.get("prompt_id") or "custom_1"
-    if selected == "custom":
-        selected = "custom_1"
     if selected not in ("custom_1", "custom_2", "custom_3"):
         return None
-    # Only slot one inherits the legacy single `prompt`; an empty slot two or three stays empty, as in client-core's chat_completion_http_request.
-    prompt = options.get("prompt_" + selected) or (options.get("prompt", "") if selected == "custom_1" else "")
+    prompt = options.get("prompt_" + selected, "")
     if not isinstance(prompt, str) or len(prompt.encode()) > 8192:
         return None
-    # Blank means "not customised", including an old configuration whose prompt was cleared by hand, and gets the same built-in text client-core falls back to.
+    # Blank means "not customised" and gets the same built-in text client-core falls back to.
     return prompt if prompt.strip() else DEFAULT_AI_PROMPT
 
 
@@ -644,16 +641,14 @@ def translations(query, server):
     niutrans = niutrans if isinstance(niutrans, dict) and niutrans.get("enabled") else None
     custom = query.get("custom_translation")
     custom = custom if isinstance(custom, dict) and custom.get("enabled") else None
-    # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field comes from a host that predates it and keeps that host's own choice.
+    # Match Windows ActiveProvider/WorkerLoop: only the service the user selected may be asked, and an unusable selection sends nothing rather than falling back to Tencent. A query without the field is malformed and sends nothing.
     selected = query.get("provider")
-    account_selected = query.get("translation_account") is True and query.get("provider") in (None, "none", "account")
+    account_selected = query.get("translation_account") is True and selected in ("none", "account")
     if account_selected:
         # The shared query marks this only after the user explicitly chose the
         # MSIME account and no user-owned service is usable. Keep that choice
         # visible to this process instead of falling back to Tencent.
         selected = "account"
-    if selected is None:
-        selected = "niutrans" if niutrans else "custom" if custom else "tencent"
     if (selected not in ("tencent", "niutrans", "custom", "account") or
         (selected == "niutrans" and not niutrans) or (selected == "custom" and not custom)):
         return []

@@ -49,7 +49,6 @@ pub struct AndroidVoicePolishRequest {
     pub model: String,
     pub token: String,
     pub prompt_id: String,
-    pub prompt_legacy: String,
     pub prompt_custom_1: String,
     pub prompt_custom_2: String,
     pub prompt_custom_3: String,
@@ -68,7 +67,6 @@ impl AndroidVoicePolishRequest {
             && !self.token.trim().is_empty()
             && is_bounded_text(&self.prompt_id, 64)
             && [
-                &self.prompt_legacy,
                 &self.prompt_custom_1,
                 &self.prompt_custom_2,
                 &self.prompt_custom_3,
@@ -194,13 +192,10 @@ pub struct IosKeyboardPreferences {
     pub haptic_strength: String,
     pub english_suggestions: bool,
     /// The candidate strip draws the shared desktop candidate skin and colours instead of the keyboard skin's; the switch lives in the App Group because the keyboard reads it on every redraw.
-    #[serde(default)]
     pub candidate_palette_follows_desktop: bool,
     /// 行内预编辑: the keyboard also writes the composition into the text field as marked text. Off by default and kept in the App Group, because the shared `tsf_preedit_style` defaults to raw in every document and would switch every existing iOS user over.
-    #[serde(default)]
     pub inline_preedit: bool,
-    /// Whether this device can vibrate for key presses: false on iPad, which has no Taptic Engine. Read-only; the plugin reports it and never stores it, and a plugin that predates it reads as available so iPhones keep the controls.
-    #[serde(default = "haptics_available_by_default")]
+    /// Whether this device can vibrate for key presses: false on iPad, which has no Taptic Engine. Read-only; the plugin reports it and never stores it.
     pub haptics_available: bool,
     /// 数字行与 Tab 键 on the iPad full-width keyboard, kept in the App Group. The plugin reports it only on an iPad and writes it only when present, so a phone neither shows nor stores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -210,10 +205,6 @@ pub struct IosKeyboardPreferences {
     pub global_theme: String,
     /// The custom theme's keyboard design (`Preferences::custom_theme.keyboard`) as JSON; `None` when the custom theme has no design and draws its base theme's keyboard. The App Group keeps it under `customKeyboardSkin.v1`.
     pub custom_keyboard_skin: Option<String>,
-}
-
-fn haptics_available_by_default() -> bool {
-    true
 }
 
 /// The small, native-facing AI configuration shared by the Tauri settings app
@@ -517,16 +508,6 @@ struct LegacyAppleAccountSession {
 }
 
 #[cfg(any(target_os = "ios", test))]
-#[derive(Deserialize)]
-struct LegacyAppleCommunitySession {
-    access_token: String,
-    refresh_token: String,
-    user: Value,
-    saved_at: Option<f64>,
-    expires_in: Option<i64>,
-}
-
-#[cfg(any(target_os = "ios", test))]
 const MAX_ACCOUNT_SESSION_BYTES: usize = 16 * 1024;
 #[cfg(any(target_os = "ios", test))]
 const APPLE_REFERENCE_DATE_UNIX_OFFSET_SECONDS: f64 = 978_307_200.0;
@@ -561,29 +542,6 @@ fn migrated_account_session_payload(value: &str) -> Option<String> {
         let expires_at_unix_ms = apple_date_to_unix_millis(legacy.expires_at)?;
         return serde_json::to_string(&json!({
             "tokens": legacy.tokens,
-            "expires_at_unix_ms": expires_at_unix_ms,
-        }))
-        .ok();
-    }
-
-    if document.get("access_token").is_some() {
-        let legacy: LegacyAppleCommunitySession = serde_json::from_value(document).ok()?;
-        let expires_in = legacy.expires_in.unwrap_or(900);
-        let expires_in = u64::try_from(expires_in).ok()?;
-        let expires_at_unix_ms = match legacy.saved_at {
-            Some(saved_at) => {
-                apple_date_to_unix_millis(saved_at)?.checked_add(expires_in.checked_mul(1000)?)?
-            }
-            None => 0,
-        };
-        return serde_json::to_string(&json!({
-            "tokens": {
-                "access_token": legacy.access_token,
-                "refresh_token": legacy.refresh_token,
-                "token_type": "Bearer",
-                "expires_in": expires_in,
-                "user": legacy.user,
-            },
             "expires_at_unix_ms": expires_at_unix_ms,
         }))
         .ok();
@@ -1149,17 +1107,6 @@ mod tests {
         assert!(document.get("expiresAt").is_none());
     }
 
-    #[test]
-    fn legacy_community_session_is_migrated_without_logging_secrets() {
-        let payload = r#"{"access_token":"synthetic-access","refresh_token":"synthetic-refresh","user":{"id":"synthetic-user","display_name":"","created_at":""},"saved_at":0,"expires_in":900}"#;
-        let migrated = migrated_account_session_payload(payload).unwrap();
-        let document: Value = serde_json::from_str(&migrated).unwrap();
-        assert_eq!(document["tokens"]["token_type"], "Bearer");
-        assert_eq!(document["tokens"]["expires_in"], 900);
-        assert_eq!(document["tokens"]["user"]["id"], "synthetic-user");
-        assert_eq!(document["expires_at_unix_ms"], 978_308_100_000_u64);
-    }
-
     fn keyboard_preferences() -> IosKeyboardPreferences {
         IosKeyboardPreferences {
             input_scheme: "japaneseNineKey".into(),
@@ -1222,40 +1169,24 @@ mod tests {
     fn ios_keyboard_preferences_round_trip_the_candidate_palette_switch() {
         let encoded = serde_json::to_value(keyboard_preferences()).unwrap();
         assert_eq!(encoded["candidatePaletteFollowsDesktop"], true);
-
-        // A snapshot from a plugin that predates the switch leaves the strip on the keyboard skin.
-        let mut legacy = encoded;
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("candidatePaletteFollowsDesktop");
-        let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
-        assert!(!decoded.candidate_palette_follows_desktop);
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.candidate_palette_follows_desktop);
     }
 
     #[test]
     fn ios_keyboard_preferences_round_trip_the_inline_preedit_switch() {
         let encoded = serde_json::to_value(keyboard_preferences()).unwrap();
         assert_eq!(encoded["inlinePreedit"], true);
-
-        // A snapshot from a plugin that predates the switch keeps the composition on the strip only.
-        let mut legacy = encoded;
-        legacy.as_object_mut().unwrap().remove("inlinePreedit");
-        let decoded: IosKeyboardPreferences = serde_json::from_value(legacy).unwrap();
-        assert!(!decoded.inline_preedit);
+        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.inline_preedit);
     }
 
     #[test]
     fn ios_keyboard_preferences_report_whether_the_device_can_vibrate() {
         let mut encoded = serde_json::to_value(keyboard_preferences()).unwrap();
         encoded["hapticsAvailable"] = false.into();
-        let decoded: IosKeyboardPreferences = serde_json::from_value(encoded.clone()).unwrap();
-        assert!(!decoded.haptics_available);
-
-        // A plugin that predates the field is an iPhone-era plugin: keep the vibration controls.
-        encoded.as_object_mut().unwrap().remove("hapticsAvailable");
         let decoded: IosKeyboardPreferences = serde_json::from_value(encoded).unwrap();
-        assert!(decoded.haptics_available);
+        assert!(!decoded.haptics_available);
     }
 
     #[test]

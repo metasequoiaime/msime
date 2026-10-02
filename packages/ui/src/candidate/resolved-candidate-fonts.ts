@@ -43,7 +43,7 @@ export function useResolvedCandidateFonts<T extends CandidateFontPreferences>(
             setResult({ request, names: resolved });
           }
         } catch {
-          /* Older hosts and unavailable fonts keep literal names. */
+          /* Unavailable fonts keep literal names. */
         }
       })();
     }

@@ -126,9 +126,10 @@ final class CustomServiceTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: suite) }
     let ai = CustomServiceConfiguration.loadPreset(.deepSeek, defaults: defaults)
     try ai.save(.ai, token: "", defaults: defaults)
-    // Existing installations have these keys without a provider identifier.
-    defaults.set("https://custom.invalid/audio/transcriptions", forKey: "service.voice.endpoint")
-    defaults.set("legacy-model", forKey: "service.voice.model")
+    var customVoice = CustomServiceConfiguration.loadVoicePreset(.custom, defaults: defaults)
+    customVoice.endpoint = "https://custom.invalid/audio/transcriptions"
+    customVoice.model = "custom-model"
+    try customVoice.save(.voice, token: "", defaults: defaults)
     for provider in VoiceProviderPreset.allCases where provider != .custom && !provider.isOnDevice {
       var config = CustomServiceConfiguration.loadVoicePreset(provider, defaults: defaults)
       XCTAssertEqual(try config.validatedURL(allowWebSocket: provider == .doubao).absoluteString,
@@ -147,7 +148,7 @@ final class CustomServiceTests: XCTestCase {
                      "saved-\(provider.rawValue)")
     }
     let custom = CustomServiceConfiguration.loadVoicePreset(.custom, defaults: defaults)
-    XCTAssertEqual(custom.model, "legacy-model")
+    XCTAssertEqual(custom.model, "custom-model")
     XCTAssertEqual(custom.endpoint, "https://custom.invalid/audio/transcriptions")
     XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).endpoint, ai.endpoint)
     XCTAssertEqual(CustomServiceConfiguration.load(.ai, defaults: defaults).provider, .deepSeek)
@@ -157,10 +158,10 @@ final class CustomServiceTests: XCTestCase {
     let suite = "msime-voice-on-device-\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    // A legacy custom service: saved endpoint and model, no preset of its own.
-    defaults.set("custom", forKey: "service.voice.provider")
-    defaults.set("https://custom.invalid/audio/transcriptions", forKey: "service.voice.endpoint")
-    defaults.set("legacy-model", forKey: "service.voice.model")
+    var customVoice = CustomServiceConfiguration.loadVoicePreset(.custom, defaults: defaults)
+    customVoice.endpoint = "https://custom.invalid/audio/transcriptions"
+    customVoice.model = "custom-model"
+    try customVoice.save(.voice, token: "", defaults: defaults)
     for provider in [VoiceProviderPreset.local, .system] {
       XCTAssertTrue(provider.isOnDevice)
       XCTAssertEqual(provider.endpoint, "")
@@ -174,7 +175,7 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertNil(defaults.string(forKey: "service.voice.presets.local.endpoint"))
     let custom = CustomServiceConfiguration.loadVoicePreset(.custom, defaults: defaults)
     XCTAssertEqual(custom.endpoint, "https://custom.invalid/audio/transcriptions")
-    XCTAssertEqual(custom.model, "legacy-model")
+    XCTAssertEqual(custom.model, "custom-model")
     XCTAssertFalse(VoiceProviderPreset.allCases.filter { !$0.isOnDevice }.contains { $0.endpoint.isEmpty && $0 != .custom })
   }
 

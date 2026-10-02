@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -69,7 +70,7 @@ const snapshot: Snapshot = {
 test("iOS voice settings list the new services and their preset models", async () => {
   render(
     <SettingsPage
-      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "ios" } as never }}
+      client={{ load: async () => snapshot, save: vi.fn(), host: testHost({ platform: "ios" }) }}
     />,
   );
   await settingsFormReady();

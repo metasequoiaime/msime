@@ -18,11 +18,6 @@
 #include <fmt/xchar.h>
 #include "../Utils/PerfTimer.h"
 
-static thread_local HANDLE hMapFile = nullptr;
-static thread_local void *pBuf = nullptr;
-static thread_local FanyImeSharedMemoryData *sharedData = nullptr;
-static thread_local bool canUseSharedMemory = false;
-
 static thread_local HANDLE hPipe = nullptr;
 static thread_local uint32_t negotiatedServerCapabilities = 0;
 static thread_local HANDLE hFromServerPipe = nullptr;
@@ -788,70 +783,6 @@ bool MarkNamedpipeSessionDirtyForOwner(const void *owner)
     return true;
 }
 
-int InitIpc()
-{
-    // The live protocol is named-pipe-only. Keep the legacy mapping open for
-    // ABI compatibility, but never advertise or select it for new traffic.
-    canUseSharedMemory = false;
-    sharedData = nullptr;
-    pBuf = nullptr;
-
-    //
-    // Shared memory, open here
-    //
-    hMapFile = OpenFileMappingW( //
-        FILE_MAP_ALL_ACCESS,     //
-        FALSE,                   //
-        FANY_IME_SHARED_MEMORY   //
-    );
-
-    //
-    // Shared memory is not available, try to use namedpipe
-    //
-    InitNamedpipe();
-
-    if (!hMapFile)
-    {
-        // Error handling
-        canUseSharedMemory = false;
-
-        // TODO: Log error
-
-        return 0;
-    }
-
-    pBuf = MapViewOfFile(    //
-        hMapFile,            //
-        FILE_MAP_ALL_ACCESS, //
-        0,                   //
-        0,                   //
-        BUFFER_SIZE          //
-    );                       //
-
-    if (!pBuf)
-    {
-        CloseHandle(hMapFile);
-        hMapFile = nullptr;
-        sharedData = nullptr;
-        canUseSharedMemory = false;
-        return 0;
-    }
-
-    sharedData = static_cast<FanyImeSharedMemoryData *>(pBuf);
-
-    return 0;
-}
-
-bool TryReadCandidatePageFromSharedMemory(std::wstring *candidatePage)
-{
-    if (candidatePage == nullptr || sharedData == nullptr)
-    {
-        return false;
-    }
-    candidatePage->assign(sharedData->candidate_string);
-    return !candidatePage->empty();
-}
-
 int InitNamedpipe()
 {
     return ConnectToAllNamedpipe();
@@ -894,24 +825,6 @@ int CloseIpc()
     // Namedpipe
     //
     CloseNamedpipe();
-    const int result = canUseSharedMemory ? 0 : -1;
-
-    //
-    // Shared memory
-    //
-    if (pBuf)
-    {
-        UnmapViewOfFile(pBuf);
-        pBuf = nullptr;
-    }
-    sharedData = nullptr;
-
-    if (hMapFile)
-    {
-        CloseHandle(hMapFile);
-        hMapFile = nullptr;
-    }
-    canUseSharedMemory = false;
 
     //
     // Events
@@ -929,7 +842,7 @@ int CloseIpc()
         }
     }
 
-    return result;
+    return 0;
 }
 
 int CloseNamedpipe()
@@ -963,22 +876,6 @@ bool SupportsKeyboardCompositionCancel(const void *owner)
 HANDLE GetToTsfWorkerThreadNamedpipe()
 {
     return hToTsfWorkerThreadPipe;
-}
-
-int WriteDataToSharedMemory(           //
-    UINT keycode,                      //
-    WCHAR wch,                         //
-    UINT modifiers_down,               //
-    const int point[2],                //
-    int pinyin_length,                 //
-    const std::wstring &pinyin_string, //
-    UINT write_flag                    //
-)
-{
-    // The shared-memory protocol has no client_id/request_id and cannot be
-    // made safe in a multi-TSF-thread process. Keep the mapping code only for
-    // legacy compatibility; all live event payloads use the named-pipe ABI.
-    return WriteDataToNamedPipe(keycode, wch, modifiers_down, point, pinyin_length, pinyin_string, write_flag);
 }
 
 /**
@@ -1274,21 +1171,9 @@ bool SendToNamedpipe(bool *deliveryAmbiguous = nullptr)
  * server
  *
  */
-void ClearNamedpipeDataIfExists(bool force)
+void ClearNamedpipeDataIfExists()
 {
-    // Request IDs make destructive draining both unnecessary and incorrect:
-    // an async edit session may still own any frame currently in this pipe.
-    // Mismatched replies are retained by TryReadData... in pendingReplies.
-    if (force)
-    {
-        // Compatibility path for Server-initiated candidate clicks: legacy
-        // Server builds deliver the same candidate both on the worker pipe and
-        // as one unsolicited (request_id == 0) reply. The worker payload has
-        // already been consumed by the caller, so discard exactly that one
-        // duplicate. TryRead caches every nonzero request reply it encounters
-        // and ignores PipeReady, preserving all edit-session-owned frames.
-        (void)TryReadDataFromServerPipeWithTimeout(FANY_IME_UNSOLICITED_REQUEST_ID);
-    }
+    // Request IDs make destructive draining both unnecessary and incorrect: an async edit session may still own any frame currently in this pipe. Mismatched replies are retained by TryReadData... in pendingReplies.
 }
 
 /**

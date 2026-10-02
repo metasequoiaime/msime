@@ -286,7 +286,6 @@ impl HostSession {
             endpoint: ai.endpoint.clone(),
             candidate_limit: ai.candidate_limit,
             prompt_id: ai.prompt_id.clone(),
-            prompt: ai.prompt.clone(),
             prompt_custom_1: ai.prompt_custom_1.clone(),
             prompt_custom_2: ai.prompt_custom_2.clone(),
             prompt_custom_3: ai.prompt_custom_3.clone(),
@@ -360,9 +359,8 @@ impl HostSession {
         options.shuangpin_profile = profile_code(snapshot.preferences.shuangpin_profile);
         options.shuangpin_preedit_uses_raw = snapshot.preferences.shuangpin_preedit_uses_raw;
         options.learning = snapshot.preferences.learning;
-        options.autocorrect_transposition =
-            snapshot.preferences.quanpin_autocorrect_transposition();
-        options.autocorrect_neighbor = snapshot.preferences.quanpin_autocorrect_neighbor();
+        options.autocorrect_transposition = snapshot.preferences.quanpin.autocorrect_transposition;
+        options.autocorrect_neighbor = snapshot.preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = snapshot.preferences.fuzzy_pinyin.active_rules();
         options.wubi_mixed_pinyin = snapshot.preferences.wubi_mixed_pinyin;
         options.frequency_mode = snapshot.preferences.frequency.mode.as_str().into();
@@ -790,8 +788,8 @@ impl HostOptions {
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             learning: self.preferences.learning,
-            autocorrect_transposition: self.preferences.quanpin_autocorrect_transposition(),
-            autocorrect_neighbor: self.preferences.quanpin_autocorrect_neighbor(),
+            autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
+            autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
             wubi_mixed_pinyin: self.preferences.wubi_mixed_pinyin,
             frequency_mode: self.preferences.frequency.mode.as_str().into(),
@@ -1034,11 +1032,7 @@ pub fn prepare_host_configuration(
             .ok_or("non-UTF-8 cache path")?,
         &specification.generation()?,
     )?;
-    let preference_store = PreferencesStore::new(&state_root);
-    let snapshot = preference_store.load()?;
-    #[cfg(windows)]
-    let snapshot = migrate_windows_legacy_mixed_input(&preference_store, &state_root, snapshot)?;
-    let preferences = snapshot.preferences;
+    let preferences = PreferencesStore::new(&state_root).load()?.preferences;
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,
         resources: prepared.resources,
@@ -1322,92 +1316,6 @@ fn with_installed_language_dictionaries(
         }
     }
     Ok(Some(refreshed))
-}
-
-/// Import the mixed-input controls from the Windows installer's legacy TOML
-/// once, before the shared JSON preference file exists. The installer still
-/// carries this file for the TSF compatibility surface, and existing users
-/// must not lose those choices when the shared Tauri/Engine store is created.
-/// A present JSON store always wins; malformed or out-of-range legacy values
-/// are ignored individually so a damaged optional config cannot block startup.
-#[cfg(windows)]
-fn migrate_windows_legacy_mixed_input(
-    store: &PreferencesStore,
-    state_root: &Path,
-    snapshot: PreferencesSnapshot,
-) -> Result<PreferencesSnapshot, Box<dyn std::error::Error>> {
-    if state_root.join("preferences.json").try_exists()? {
-        return Ok(snapshot);
-    }
-    let path = state_root.join("config.toml");
-    let Some(document) = read_windows_legacy_config(&path) else {
-        return Ok(snapshot);
-    };
-    let mut preferences = snapshot.preferences.clone();
-    if !apply_windows_legacy_mixed_input(&document, &mut preferences) {
-        return Ok(snapshot);
-    }
-    Ok(store.save(snapshot.revision, preferences)?)
-}
-
-/// Read the optional installer-era TOML without letting a replaced file consume startup memory.
-/// The legacy document only carries four scalar switches, so a 64 KiB ceiling is generous; an
-/// absent, malformed or oversized file is ignored just like any other migration miss.
-const MAX_WINDOWS_LEGACY_CONFIG_BYTES: usize = 64 * 1024;
-
-#[cfg_attr(not(windows), allow(dead_code))]
-fn read_windows_legacy_config(path: &Path) -> Option<String> {
-    let bytes = crate::bounded_file::read(
-        std::fs::File::open(path).ok()?,
-        MAX_WINDOWS_LEGACY_CONFIG_BYTES as u64,
-    )
-    .ok()?;
-    String::from_utf8(bytes).ok()
-}
-
-#[cfg_attr(not(windows), allow(dead_code))]
-fn apply_windows_legacy_mixed_input(document: &str, preferences: &mut Preferences) -> bool {
-    let document = match document.parse::<toml::Table>() {
-        Ok(document) => document,
-        Err(_) => {
-            return false;
-        }
-    };
-    let Some(general) = document.get("general").and_then(toml::Value::as_table) else {
-        return false;
-    };
-    let mut changed = false;
-    if let Some(value) = general
-        .get("cn_en_mixed_input")
-        .and_then(toml::Value::as_bool)
-    {
-        preferences.mixed_input.english = value;
-        changed = true;
-    }
-    if let Some(value) = general
-        .get("cn_en_mixed_input_min_chars")
-        .and_then(toml::Value::as_integer)
-        .and_then(|value| u8::try_from(value).ok())
-        .filter(|value| (1..=8).contains(value))
-    {
-        preferences.mixed_input.minimum_prefix = value;
-        changed = true;
-    }
-    if let Some(value) = general
-        .get("emoji_mixed_input")
-        .and_then(toml::Value::as_bool)
-    {
-        preferences.mixed_input.emoji = value;
-        changed = true;
-    }
-    if let Some(value) = general
-        .get("kaomoji_mixed_input")
-        .and_then(toml::Value::as_bool)
-    {
-        preferences.mixed_input.kaomoji = value;
-        changed = true;
-    }
-    changed
 }
 
 /// The reason prefix for an entry this layer or the Engine refuses on its own terms. Callers map it to one error code, so it stays stable while the part after the colon says which rule failed.

@@ -1,6 +1,6 @@
-import { Row, Select } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SelectSettingField } from "./select-setting-field";
+import { SelectRow } from "./select-row";
 
 export type TranslationProvider = "none" | "custom" | "tencent" | "niutrans" | "account";
 
@@ -36,16 +36,15 @@ export function TranslationServiceSelectorSection({
 }: TranslationServiceSelectorSectionProps) {
   return grouped ? (
     <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
-      <Row title="翻译服务">
-        <Select
-          aria-label="候选词翻译服务"
-          disabled={!available}
-          value={provider}
-          onChange={(event) => onChange(event.target.value as TranslationProvider)}
-        >
-          <TranslationServiceOptions showAccountProvider={showAccountProvider} />
-        </Select>
-      </Row>
+      <SelectRow
+        title="翻译服务"
+        aria-label="候选词翻译服务"
+        disabled={!available}
+        value={provider}
+        onChange={(event) => onChange(event.target.value as TranslationProvider)}
+      >
+        <TranslationServiceOptions showAccountProvider={showAccountProvider} />
+      </SelectRow>
     </div>
   ) : (
     <div className="section" role="group" aria-label="候选词翻译服务">

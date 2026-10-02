@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -387,7 +388,7 @@ test("the voice page keeps the local models in the service group with the mirror
       client={{
         load: async () => snapshot,
         save: vi.fn(),
-        host: { platform: "windows" } as never,
+        host: testHost({ platform: "windows" }),
         localVoiceModels: fake.client,
       }}
     />,
@@ -418,7 +419,7 @@ test("the settings page picks a model and a mirror into the saved preferences", 
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "windows" } as never,
+        host: testHost({ platform: "windows" }),
         localVoiceModels: fake.client,
       }}
     />,

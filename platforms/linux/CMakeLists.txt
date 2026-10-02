@@ -590,8 +590,6 @@ if(MSIME_ENGINE_RESOURCES)
     install(FILES "${MSIME_ENGINE_RESOURCE_FILE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/resources")
   endforeach()
-  # Earlier releases installed dict_pinyin.dat, the C++ Engine's system dictionary, into this directory. The lock no longer pins it. The hosts delete it themselves when they verify a directory they can write, but an installed prefix is normally root-owned, where the deletion fails and they refuse the whole directory instead, so an install over such a prefix removes it, as the Windows installer does in DataDir on upgrade. Packages need no help: the package manager drops what the new package no longer carries.
-  install(CODE "file(REMOVE \"\$ENV{DESTDIR}${CMAKE_INSTALL_FULL_DATADIR}/msime-client/resources/dict_pinyin.dat\")")
   # The helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). The hosts' verification lets a real helpcodes/ directory through. Their notices are installed with the others below.
   install(FILES
             "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/helpcodes/helpcode.txt"

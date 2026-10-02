@@ -74,12 +74,6 @@ public final class KeyboardSchemeSmoke {
         mapping(KeyboardScheme.JAPANESE, "korean", "xiaohe", "japanese", "quanpin", "xiaohe");
         mapping(KeyboardScheme.HANDWRITING, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
         mapping(KeyboardScheme.THOUGHTFUL_REPLY, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
-        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", true, KeyboardScheme.QUANPIN)
-            == KeyboardScheme.THOUGHTFUL_REPLY);
-        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", false, KeyboardScheme.QUANPIN)
-            == KeyboardScheme.QUANPIN);
-        check(KeyboardScheme.fromHostSelection("THOUGHTFUL_REPLY", true, KeyboardScheme.WUBI)
-            == KeyboardScheme.WUBI);
         check(KeyboardScheme.enabledFromPreferenceIds(List.of("korean", "quanpin"))
             .equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.KOREAN)));
         mapping(KeyboardScheme.JAPANESE, "invalid", "invalid", "japanese", "quanpin", "xiaohe");

@@ -8,12 +8,6 @@ use std::path::{Path, PathBuf};
 const MAX_OPTIONS_BYTES: u64 = 1024 * 1024;
 // The macOS bundle identifier in tauri.macos.conf.json, and therefore the default state directory `app_data_dir` resolves to.
 const APPLICATION_ID: &str = "app.msime.macos";
-// Earlier identifiers whose default state is copied to APPLICATION_ID on first launch; app.msime.client is the identifier macOS shared with the other desktop platforms until it got its own.
-const LEGACY_APPLICATION_IDS: [&str; 3] = [
-    "app.msime.client",
-    "app.msime.client.preview",
-    "app.msime.inputmethod.MetasequoiaIME.settings",
-];
 
 pub(crate) struct LaunchState {
     pub options_path: PathBuf,
@@ -125,34 +119,6 @@ pub(crate) fn native_locator_root() -> Result<PathBuf, &'static str> {
         .join(APPLICATION_ID))
 }
 
-pub(crate) fn legacy_native_locator_roots() -> Result<Vec<PathBuf>, &'static str> {
-    let home = std::env::var_os("HOME").ok_or("Cannot resolve native HostOptions locator")?;
-    let home = PathBuf::from(home);
-    if !home.is_absolute() {
-        return Err("Cannot resolve native HostOptions locator");
-    }
-    let support = home.join("Library/Application Support");
-    Ok(LEGACY_APPLICATION_IDS
-        .into_iter()
-        .map(|identifier| support.join(identifier))
-        .collect())
-}
-
-fn read_options(path: &Path) -> Option<Value> {
-    let metadata = fs::symlink_metadata(path).ok()?;
-    if !metadata.is_file()
-        || metadata.file_type().is_symlink()
-        || metadata.len() > MAX_OPTIONS_BYTES
-    {
-        return None;
-    }
-    let file = fs::File::open(path).ok()?;
-    let bytes = read_options_bytes(file).ok()?;
-    serde_json::from_slice::<Value>(&bytes)
-        .ok()
-        .filter(Value::is_object)
-}
-
 fn read_options_bytes(file: impl Read) -> Result<Vec<u8>, &'static str> {
     match crate::shared::bounded_body::read_bounded(file, MAX_OPTIONS_BYTES as usize) {
         Ok(bytes) => Ok(bytes),
@@ -165,164 +131,10 @@ fn read_options_bytes(file: impl Read) -> Result<Vec<u8>, &'static str> {
     }
 }
 
-fn copy_legacy_entry(source: &Path, destination: &Path) -> Result<(), &'static str> {
-    let metadata =
-        fs::symlink_metadata(source).map_err(|_| "Cannot migrate legacy application data")?;
-    if metadata.file_type().is_symlink() {
-        return Err("Cannot migrate legacy application data");
-    }
-    if metadata.is_dir() {
-        fs::create_dir(destination).map_err(|_| "Cannot migrate legacy application data")?;
-        for entry in fs::read_dir(source).map_err(|_| "Cannot migrate legacy application data")? {
-            let entry = entry.map_err(|_| "Cannot migrate legacy application data")?;
-            copy_legacy_entry(&entry.path(), &destination.join(entry.file_name()))?;
-        }
-        fs::set_permissions(destination, metadata.permissions())
-            .map_err(|_| "Cannot migrate legacy application data")?;
-        return Ok(());
-    }
-    if !metadata.is_file() {
-        return Err("Cannot migrate legacy application data");
-    }
-    fs::copy(source, destination).map_err(|_| "Cannot migrate legacy application data")?;
-    fs::set_permissions(destination, metadata.permissions())
-        .map_err(|_| "Cannot migrate legacy application data")?;
-    Ok(())
-}
-
-fn copy_legacy_state(source: &Path, destination: &Path) -> Result<(), &'static str> {
-    let metadata =
-        fs::symlink_metadata(source).map_err(|_| "Cannot migrate legacy application data")?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err("Cannot migrate legacy application data");
-    }
-    let parent = destination
-        .parent()
-        .ok_or("Cannot migrate legacy application data")?;
-    crate::shared::atomic_file::create_directory_and_check(parent)
-        .map_err(|_| "Cannot migrate legacy application data")?;
-    let staging = tempfile::Builder::new()
-        .prefix(".msime-client-migration-")
-        .tempdir_in(parent)
-        .map_err(|_| "Cannot migrate legacy application data")?;
-    for entry in fs::read_dir(source).map_err(|_| "Cannot migrate legacy application data")? {
-        let entry = entry.map_err(|_| "Cannot migrate legacy application data")?;
-        if entry.file_name() == "runtime-options.json" {
-            continue;
-        }
-        copy_legacy_entry(&entry.path(), &staging.path().join(entry.file_name()))?;
-    }
-    if destination.exists() {
-        let mut entries =
-            fs::read_dir(destination).map_err(|_| "Cannot migrate legacy application data")?;
-        if entries.next().is_some() {
-            return Ok(());
-        }
-        fs::remove_dir(destination).map_err(|_| "Cannot migrate legacy application data")?;
-    }
-    let staging = staging.keep();
-    fs::rename(staging, destination).map_err(|_| "Cannot migrate legacy application data")
-}
-
-/// Move the active default state off historical application identifiers before first use of the
-/// canonical directory. An explicitly moved data directory remains where the user chose it: only
-/// its small locator is copied. Legacy default data is copied (not deleted) so a failed downgrade
-/// still has a complete source, then HostOptions is rebuilt with canonical absolute paths.
-pub(crate) fn migrate_legacy_application_data(
-    application_directory: &Path,
-    resources_directory: &Path,
-    legacy_roots: &[PathBuf],
-) -> Result<bool, &'static str> {
-    if application_directory.exists()
-        && fs::read_dir(application_directory)
-            .map_err(|_| "Cannot inspect application data directory")?
-            .next()
-            .is_some()
-    {
-        return Ok(false);
-    }
-    for legacy_root in legacy_roots {
-        let options = legacy_root.join("runtime-options.json");
-        let Some(document) = read_options(&options) else {
-            continue;
-        };
-        let Some(preferences) = document
-            .get("preferences_directory")
-            .and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let preferences = PathBuf::from(preferences);
-        if !preferences.is_absolute() {
-            continue;
-        }
-        if !legacy_roots.iter().any(|root| root == &preferences) {
-            return Ok(recover_default_options(application_directory, &options));
-        }
-        copy_legacy_state(&preferences, application_directory)?;
-        let document =
-            msime_host_api::prepare_host_configuration(resources_directory, application_directory)
-                .map_err(|_| "Cannot migrate legacy application data")?;
-        let document: Value = serde_json::from_str(&document)
-            .map_err(|_| "Cannot migrate legacy application data")?;
-        replace_options(
-            &application_directory.join("runtime-options.json"),
-            &document,
-        )?;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
 pub(crate) fn publish_native_options(document: &Value) -> Result<PathBuf, &'static str> {
     let path = native_locator_root()?.join("runtime-options.json");
     replace_options(&path, document)?;
     Ok(path)
-}
-
-/// Restore the settings bundle's locator from the IMK bundle's copy after a settings-app reinstall.
-/// A malformed, oversized or symlinked native locator is ignored and normal first-run preparation
-/// takes over; it is never allowed to choose a relative state path.
-pub(crate) fn recover_default_options(application_directory: &Path, native_options: &Path) -> bool {
-    let local = application_directory.join("runtime-options.json");
-    if local.exists() {
-        return false;
-    }
-    let Ok(metadata) = std::fs::symlink_metadata(native_options) else {
-        return false;
-    };
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return false;
-    }
-    let Ok(file) = std::fs::File::open(native_options) else {
-        return false;
-    };
-    let Ok(bytes) = read_options_bytes(file) else {
-        return false;
-    };
-    let Ok(document) = serde_json::from_slice::<Value>(&bytes) else {
-        return false;
-    };
-    let Some(preferences) = document
-        .get("preferences_directory")
-        .and_then(Value::as_str)
-    else {
-        return false;
-    };
-    if !document.is_object()
-        || !Path::new(preferences).is_absolute()
-        || ["resources", "user_data", "cache", "dictionaries"]
-            .into_iter()
-            .any(|key| {
-                !document
-                    .get(key)
-                    .and_then(Value::as_str)
-                    .is_some_and(|path| Path::new(path).is_absolute())
-            })
-    {
-        return false;
-    }
-    replace_options(&local, &document).is_ok()
 }
 
 /// 把应用升级前写下的配置带到本构建词库锁描述的代次，对应 Windows 安装程序每次升级时做的用户词库回放：Host API 准备新代次、把用户词库日志回放进去，并原子地只改写 `resources` 与 `dictionaries`。它在任何会话建立之前运行。符号链接和不符合准备布局的文件由 Host API 原样保留。失败时继续用旧代次，下次启动再试；错误不打印，因为其中可能有私人路径。
@@ -581,92 +393,6 @@ mod tests {
             Err("Cannot publish prepared HostOptions JSON")
         );
         assert!(!outside.path().join("runtime-options.json").exists());
-    }
-
-    #[test]
-    fn missing_settings_locator_recovers_only_a_valid_native_absolute_state() {
-        let root = tempfile::tempdir().unwrap();
-        let application = root.path().join("settings");
-        let native = root.path().join("native/runtime-options.json");
-        replace_options(
-            &native,
-            &json!({
-                "preferences_directory":"/synthetic/preserved-state",
-                "resources":"/synthetic/resources",
-                "user_data":"/synthetic/preserved-state/user",
-                "cache":"/synthetic/preserved-state/cache",
-                "dictionaries":"/synthetic/preserved-state/dictionaries"
-            }),
-        )
-        .unwrap();
-        assert!(recover_default_options(&application, &native));
-        assert_eq!(
-            serde_json::from_slice::<Value>(
-                &std::fs::read(application.join("runtime-options.json")).unwrap()
-            )
-            .unwrap()["preferences_directory"],
-            "/synthetic/preserved-state"
-        );
-        std::fs::remove_file(application.join("runtime-options.json")).unwrap();
-        replace_options(&native, &json!({"preferences_directory":"relative"})).unwrap();
-        assert!(!recover_default_options(&application, &native));
-        assert!(!application.join("runtime-options.json").exists());
-    }
-
-    #[test]
-    fn legacy_external_state_keeps_its_location_but_moves_the_locator() {
-        let root = tempfile::tempdir().unwrap();
-        let application = root.path().join("app.msime.macos");
-        let legacy = root.path().join("app.msime.client");
-        let external = root.path().join("external-state");
-        replace_options(
-            &legacy.join("runtime-options.json"),
-            &json!({
-                "preferences_directory":external,
-                "resources":root.path().join("resources"),
-                "user_data":external.join("user"),
-                "cache":external.join("cache"),
-                "dictionaries":external.join("dictionaries")
-            }),
-        )
-        .unwrap();
-        assert!(migrate_legacy_application_data(
-            &application,
-            &root.path().join("unused-resources"),
-            std::slice::from_ref(&legacy),
-        )
-        .unwrap());
-        assert_eq!(
-            serde_json::from_slice::<Value>(
-                &fs::read(application.join("runtime-options.json")).unwrap()
-            )
-            .unwrap()["preferences_directory"],
-            external.to_string_lossy().as_ref()
-        );
-    }
-
-    #[test]
-    fn legacy_default_copy_preserves_state_but_drops_stale_locator() {
-        let root = tempfile::tempdir().unwrap();
-        let legacy = root.path().join("app.msime.client");
-        let application = root.path().join("app.msime.macos");
-        fs::create_dir_all(legacy.join("skins/sample")).unwrap();
-        fs::write(legacy.join("preferences.json"), b"synthetic-preferences").unwrap();
-        fs::write(legacy.join("skins/sample/skin.toml"), b"schema = 1").unwrap();
-        fs::write(legacy.join("runtime-options.json"), b"stale absolute paths").unwrap();
-
-        copy_legacy_state(&legacy, &application).unwrap();
-
-        assert_eq!(
-            fs::read(application.join("preferences.json")).unwrap(),
-            b"synthetic-preferences"
-        );
-        assert_eq!(
-            fs::read(application.join("skins/sample/skin.toml")).unwrap(),
-            b"schema = 1"
-        );
-        assert!(!application.join("runtime-options.json").exists());
-        assert!(legacy.join("runtime-options.json").exists());
     }
 
     fn prepared_layout(root: &Path, resources: &Path, generation: &str) -> Value {

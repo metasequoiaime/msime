@@ -703,15 +703,6 @@ mod tests {
         assert!(text.contains(r#""requestedKind":"quickPhrase""#), "{text}");
         assert!(text.contains(r#""pageQuery":"dh""#), "{text}");
 
-        // A state written before the filter existed still reads, as an unfiltered page.
-        let legacy: PersonalDictionaryState = serde_json::from_str(
-            r#"{"version":1,"requests":[],"entries":[],"hasMore":false,"pageOffset":0,"requestedPageOffset":0,"refreshId":"x"}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            (legacy.requested_kind, legacy.requested_query.as_str()),
-            (None, "")
-        );
         assert!(matches!(
             store.request_page(0, None, &"a".repeat(MAX_QUERY_BYTES + 1)),
             Err(PersonalDictionaryError::InvalidRequest)

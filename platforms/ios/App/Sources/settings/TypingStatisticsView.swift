@@ -193,7 +193,7 @@ struct TypingStatisticsView: View {
         Section {
           distribution(sourceSlices, chart: .rank)
         } header: { Text("输入方案") }
-          footer: { Text("拼音方案统计其上屏字符数，拼写时的按键另计在“按键”页。旧版本总数保留为历史未分类，新输入开始记录细分。") }
+          footer: { Text("拼音方案统计其上屏字符数，拼写时的按键另计在“按键”页。来源无法归类的字数计入历史未分类。") }
       case .keys:
         keySections
       }

@@ -74,7 +74,7 @@ int main() {
     require(frame_text(frames[3]) == L"1"); // paired punctuation on
     require(frame_text(frames[4]) == L"1"); // Microsoft shuangpin on
 
-    // The input-mode frame names the scheme's family: "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese. The first three keep the codes an older DLL compares against.
+    // The input-mode frame names the scheme's family: "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese.
     require(frame_text(frames[5]) == L"0");
     const std::pair<msime::windows::scheme::InputMode, const wchar_t *> modes[] = {
         {msime::windows::scheme::InputMode::Japanese, L"1"},

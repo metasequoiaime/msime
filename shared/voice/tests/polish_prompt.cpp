@@ -17,57 +17,32 @@ namespace {
 } // namespace
 int main() {
   try {
-    // The defect: a non-empty legacy box used to win before the slot was even
-    // looked at, so picking 自定义二 still sent the legacy text - while the
-    // Linux host and the reference both sent slot two.
+    // Each filled custom slot sends its own text.
     PolishPromptSlots slots;
-    slots.legacy = "legacy text";
+    slots.custom_1 = "slot one";
     slots.custom_2 = "slot two";
+    slots.custom_3 = "slot three";
+    slots.id = "custom_1";
+    require(polish_prompt_for(slots) == "slot one");
     slots.id = "custom_2";
     require(polish_prompt_for(slots) == "slot two");
     slots.id = "custom_3";
-    slots.custom_3 = "slot three";
     require(polish_prompt_for(slots) == "slot three");
-
-    // Only the first slot falls back to the legacy box, which is where an
-    // older configuration's single prompt lived.
-    PolishPromptSlots first;
-    first.id = "custom_1";
-    first.legacy = "legacy text";
-    require(polish_prompt_for(first) == "legacy text");
-    first.custom_1 = "slot one";
-    require(polish_prompt_for(first) == "slot one");
-    // "custom" is the legacy spelling of the first slot.
-    first.id = "custom";
-    require(polish_prompt_for(first) == "slot one");
-
-    // An empty second or third slot does NOT fall back to the legacy box: that
-    // box belongs to slot one, and borrowing it would send the wrong prompt.
-    // It falls back to the cleanup preset, which is also what an unset
-    // configuration gets, and which preset that is has to be pinned: slot two
-    // returned the faithful one here, so a slot the user never filled in had
-    // the model proof-read where every other empty slot had it condense.
-    PolishPromptSlots empty_slot;
+    // "custom" is not a slot id; it resolves like any unknown id.
     PolishPromptSlots unset;
     const std::string cleanup = polish_prompt_for(unset);
-    empty_slot.id = "custom_2";
-    empty_slot.legacy = "legacy text";
-    require(polish_prompt_for(empty_slot) != "legacy text");
-    require(polish_prompt_for(empty_slot) == cleanup);
-    empty_slot.id = "custom_3";
-    require(polish_prompt_for(empty_slot) != "legacy text");
-    require(polish_prompt_for(empty_slot) == cleanup);
-    empty_slot.id = "custom_1";
-    empty_slot.legacy.clear();
-    require(polish_prompt_for(empty_slot) == cleanup);
+    slots.id = "custom";
+    require(polish_prompt_for(slots) == cleanup);
 
-    // With a preset selected, a legacy prompt still overrides the built-in
-    // text, so a configuration that only ever set polish_prompt keeps working.
+    // An empty custom slot falls back to the cleanup preset, which is also what an unset configuration gets, and which preset that is has to be pinned: slot two returned the faithful one once, so a slot the user never filled in had the model proof-read where every other empty slot had it condense.
+    PolishPromptSlots empty_slot;
+    for (const char *id : {"custom_1", "custom_2", "custom_3"}) {
+      empty_slot.id = id;
+      require(polish_prompt_for(empty_slot) == cleanup);
+    }
+
     PolishPromptSlots preset;
     preset.id = "faithful";
-    preset.legacy = "legacy text";
-    require(polish_prompt_for(preset) == "legacy text");
-    preset.legacy.clear();
     const auto faithful = polish_prompt_for(preset);
     require(faithful.find("<asr_text>") != std::string::npos);
 
@@ -88,7 +63,7 @@ int main() {
     plain.id.clear();
     require(!polish_prompt_for(plain).empty());
 
-    std::cout << "Polish prompt: the selected slot decides first\n";
+    std::cout << "Polish prompt: the selected slot decides\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';
     return 1;

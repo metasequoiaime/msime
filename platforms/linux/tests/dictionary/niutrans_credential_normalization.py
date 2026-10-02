@@ -20,7 +20,7 @@ loader.exec_module(provider)
 class NiuTransCredentials(unittest.TestCase):
     def test_trimmed_credentials_share_cache_identity(self):
         server = SimpleNamespace(translation_cache={}, translation_lock=threading.Lock())
-        query = {"candidates": ["测试"], "target_language": "en"}
+        query = {"candidates": ["测试"], "target_language": "en", "provider": "niutrans"}
         padded = {**query, "niutrans": {"enabled": True, "app_id": " synthetic-app ", "apikey": "\tsynthetic-key\n"}}
         clean = {**query, "niutrans": {"enabled": True, "app_id": "synthetic-app", "apikey": "synthetic-key"}}
         with mock.patch.object(provider, "fetch", return_value={"tgtText": "synthetic gloss"}) as fetch:

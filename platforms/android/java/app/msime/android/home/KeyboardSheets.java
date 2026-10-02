@@ -14,6 +14,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import app.msime.android.AiPolishConfiguration;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
@@ -363,8 +364,11 @@ public final class KeyboardSheets {
         TextInputLayout token = field(context, "凭据",
             tokens == null || savedOrigin.isEmpty() ? "" : tokens.optString(savedOrigin, ""),
             InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        // The sheet edits the slot `prompt_id` selects, the one the keyboard reads.
+        String promptKey = AiPolishConfiguration.promptSlotKey(
+            ai == null ? "" : ai.optString("prompt_id", ""));
         TextInputLayout prompt = field(context, "润色提示词",
-            ai == null ? "" : ai.optString("prompt", ""), InputType.TYPE_CLASS_TEXT);
+            ai == null ? "" : ai.optString(promptKey, ""), InputType.TYPE_CLASS_TEXT);
         List<TextInputLayout> fields = List.of(endpoint, model, token, prompt);
         for (TextInputLayout entry : fields) sheet.add(entry);
 
@@ -377,7 +381,7 @@ public final class KeyboardSheets {
                 text(prompt), text(token));
             if (inputs.equals(committed[0])) return;
             JSONObject next = buildAi(base[0], enabled.isChecked(), text(endpoint), text(model),
-                text(prompt), text(token));
+                promptKey, text(prompt), text(token));
             if (next == null) {
                 // An endpoint the keyboard would refuse is not written; the stored one stays in force until this is corrected.
                 endpoint.setError("端点必须是一个 https 地址");
@@ -412,7 +416,7 @@ public final class KeyboardSheets {
     }
 
     @Nullable private static JSONObject buildAi(@Nullable JSONObject previous, boolean enabled,
-            String endpoint, String model, String prompt, String token) {
+            String endpoint, String model, String promptKey, String prompt, String token) {
         if (enabled && !TextPolicy.validAuthority(endpoint, "https://", 2048)) return null;
         try {
             JSONObject next = previous == null ? new JSONObject()
@@ -420,7 +424,7 @@ public final class KeyboardSheets {
             next.put("enabled", enabled);
             next.put("endpoint", endpoint);
             next.put("model", model);
-            next.put("prompt", prompt);
+            next.put(promptKey, prompt);
             String origin = originOf(endpoint);
             if (!origin.isEmpty()) {
                 JSONObject tokens = next.optJSONObject("tokens");

@@ -1,13 +1,10 @@
 import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { FeedbackKindOptions } from "./feedback-kind-options";
-import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
-import { SettingTextareaControl } from "./setting-textarea";
 import { SettingsTextareaField } from "./settings-textarea-field";
 
 export interface FeedbackReportFieldsProps {
-  grouped?: boolean;
   kind: string;
   detail: string;
   onKindChange: (value: string) => void;
@@ -15,16 +12,15 @@ export interface FeedbackReportFieldsProps {
   children?: ReactNode;
 }
 
-/** Shared feedback type and description fields for grouped and legacy settings hosts. */
+/** Shared feedback type and description fields of the feedback page. */
 export function FeedbackReportFields({
-  grouped = false,
   kind,
   detail,
   onKindChange,
   onDetailChange,
   children,
 }: FeedbackReportFieldsProps) {
-  const controls = grouped ? (
+  return (
     <>
       <SelectRow
         title="类型"
@@ -47,23 +43,5 @@ export function FeedbackReportFields({
         {children}
       </div>
     </>
-  ) : (
-    <>
-      <SelectSettingField label="类型" inputLabel="反馈类型" value={kind} onChange={onKindChange}>
-        <FeedbackKindOptions />
-      </SelectSettingField>
-      <SettingTextareaControl
-        label="描述"
-        ariaLabel="反馈描述"
-        maxLength={4000}
-        value={detail}
-        onChange={onDetailChange}
-        placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。"
-        rows={6}
-      />
-      {children}
-    </>
   );
-
-  return controls;
 }

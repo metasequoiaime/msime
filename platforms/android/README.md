@@ -6,7 +6,7 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a 与 x86_64 双 ABI 的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
-本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`（namespace 此前是 `app.msime.client`，因此升级后系统会把输入法服务当作新组件，需要重新启用一次）。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。`app.msime.client.preview` 是更早的旧包名，本宿主不使用它，也不要为它新增入口或兼容分支。
+本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
 ### 手机、大屏与二合一布局边界
 
@@ -104,7 +104,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 “我的皮肤”继续使用同一固定 Apple 来源的 `CustomKeyboardSkin`、`SkinKeySurfaceView`、背景绘制和 `CustomSkinEditorView`。设计保存在共享 `custom_theme.keyboard`，保留 Apple 的 camelCase 字段和默认值，颜色限制为 24 位 RGB，圆角、边框、阴影、键帽透明度、纹理强度、照片压暗与位置均按 Apple 范围验证；照片只接受有界 base64 图像，解码后最多 512,000 字节。React 编辑器提供九种背景预设、14 套固定设计模板、渐变方向、照片缩放缩略图、三种纹理、文字对比度提示与优化、四种键帽造型、四种材质、撤销/重做和“使用皮肤”；当前设计随普通设置保存；在键盘里选用“我的皮肤”或已保存设计会同时选中 `custom`，此前显示的主题成为 `custom_theme.base` 并清除 `custom_theme.candidate_skin`。Android 原生键盘不是只显示预览，而是实际绘制照片铺满与压暗、渐变、纹理、卵石/票券/胶囊/圆角轮廓和哑光/立体/玻璃/纸张键帽，并在设计变化后原地重绘。Apple 的最多 12 套命名图库已使用上一段所述独立有界文件，避免把多张照片带入每次键盘读取的偏好；社区下载试用、评分、发布、我的作品范围和下架均已接入同一社区页，账号页可直达本机设计及这些社区集合。
 
-“更多”入口现在使用与 Apple 同层级的全键盘工具页：顶部返回，工具（表情、剪贴板历史、AI 润色、本地输入、语音结果、应用设置）和设置（繁体输出、全角输入、中文标点、按键音、按键振动、振动强度）按设计稿画成每行四个、高 52 dp、圆角 16 的图标磁贴，开启的设置用主题强调色的浅底和强调色文字，关闭的用键帽底色；本地输入为两列 48 dp 卡片并可纵向滚动。选中、启用、禁用和不可用状态通过按钮状态与无障碍描述同步暴露，不再依赖锚定底栏的系统弹出菜单。按键、候选、翻页和面板操作共用反馈路径；按键反馈保存到主应用与 `:ime` 进程共同读取的 `files/bootstrap/state/keyboard-feedback.json`，以临时文件原子替换，旧版 `keyboard-feedback` 偏好只用于首次迁移和兼容回写；输入法每次显示时重新读取，默认按键音开启、振动关闭。振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
+“更多”入口现在使用与 Apple 同层级的全键盘工具页：顶部返回，工具（表情、剪贴板历史、AI 润色、本地输入、语音结果、应用设置）和设置（繁体输出、全角输入、中文标点、按键音、按键振动、振动强度）按设计稿画成每行四个、高 52 dp、圆角 16 的图标磁贴，开启的设置用主题强调色的浅底和强调色文字，关闭的用键帽底色；本地输入为两列 48 dp 卡片并可纵向滚动。选中、启用、禁用和不可用状态通过按钮状态与无障碍描述同步暴露，不再依赖锚定底栏的系统弹出菜单。按键、候选、翻页和面板操作共用反馈路径；按键反馈保存到主应用与 `:ime` 进程共同读取的 `files/bootstrap/state/keyboard-feedback.json`，以临时文件原子替换；文件缺失或损坏时使用默认值；输入法每次显示时重新读取，默认按键音开启、振动关闭。振动使用 Android `VibrationEffect`，没有振动器时回退到系统键盘触觉反馈。
 
 独立表情浏览器以远端默认分支固定来源 `MSIME-Apple@41c5db42184f505bb889f6efb88cf17d7e58901e` 为行为基线，在空闲候选栏和“更多”工具页提供入口。打开前先由 Engine 完成已有组合，面板提供返回、删除、固定 Unicode 顺序的笑脸／人物／动物／食物／旅行／活动／物品／符号／旗帜分类，以及每行八个的可滚动网格。Android 不复制 SQLite 读取器或内置 1,935 条表情，而是在后台通过共享 host API 以 64 行游标页读取已验证 `others.db`；异常响应、超限字段、停滞或倒退游标会被拒绝。选择通过本地输入来源写入普通 InputConnection，成功后将去重、最近优先且最多 24 项的历史保存到输入法私有偏好；删除也走正常宿主编辑路径。API 35 arm64 专用 AVD 已验证组合完成顺序、分类切换、跨页加载、插入、删除、返回、最近使用和 IME 重绑后的持久化。
 
@@ -128,7 +128,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除操作要求 Android 确认对话框。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
-候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。偏好热更新成功后立即调整候选排列、字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
+候选 UI 现在消费共享的 `candidate_layout`、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_font_family`、`candidate_english_font`、`candidate_fallback_fonts` 和 `candidate_theme`；候选栏是键盘顶部的一条，按全局主题解析出的键盘调色板（以 `candidate_theme` 的明暗解析）渲染普通候选栏和展开面板，选中候选用强调色加粗，候选按钮、预编辑、页码和英文建议使用设置中的首选字体，缺字回落交给 Android 系统字体链。非法主题、颜色和字体安全回退。自定义主题的候选颜色选择器 `custom_theme.candidate_colors` 只作用于桌面候选窗，Android 候选栏跟随键盘调色板。偏好热更新成功后立即调整候选排列、字号、字体和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，字体名称遵循共享的 128 UTF-8 字节和控制字符边界。
 
 横向候选条在 Engine session、generation 或候选页变化时回到当前页首项；这样翻页或新组字不会沿用上一页的横向偏移，把用户带到旧列表的中段。仅释义/翻译等同一代次的显示重绘保留用户当前滚动位置。候选身份仍由共享 session/generation/index 决定，Android 不自行排序或改写候选内容。
 
@@ -205,7 +205,7 @@ Tauri 合包的 Android“我的”页“关于水杉”入口打开共享 `abou
 
 ## 共享设置热更新
 
-新 bootstrap 配置包含绝对路径 `preferences_directory`。输入会话启动后，Android 后台读取该目录的共享 PreferencesStore，之后每秒重试；不在输入主线程等待文件锁，不重叠读取，切换编辑器或结束输入后丢弃旧读取结果并停止旧轮询。已有配置没有目录字段时保留原行为，不猜测其他应用的数据目录。
+bootstrap 配置包含绝对路径 `preferences_directory`。输入会话启动后，Android 后台读取该目录的共享 PreferencesStore，之后每秒重试；不在输入主线程等待文件锁，不重叠读取，切换编辑器或结束输入后丢弃旧读取结果并停止旧轮询。配置没有目录字段时不读取共享设置，不猜测其他应用的数据目录。
 
 JNI `loadPreferences` 只读取共享层，快照回到会话主线程后调用同一个 `updatePreferences`；键盘侧写入通过 `savePreferences` 进入同一共享 CAS 边界。revision 校验、组词期间延迟应用和重建失败保护仍在 Rust 中。更新只刷新候选视图，不用空预编辑覆盖现有编辑器内容。相同视图和状态不反复重建键盘控件。密码等直接输入字段不启动配置轮询；禁止个性化学习的编辑器在创建和每次快照应用时均强制关闭学习，同时内存中保留未经隐私覆盖的已接受磁盘快照，避免键盘写入意外永久关闭全局学习设置。
 

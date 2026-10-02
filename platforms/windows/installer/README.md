@@ -7,7 +7,6 @@ The installer consumes a staging directory, not source-tree paths. `Prepare-Pack
 | `tsf_dll/32` and `tsf_dll/64` | `MetasequoiaImeTsf.dll` and matching symbols |
 | `server_exe` | Windows Server, native WinUI 3 `msime-client-settings.exe`, the shared `MSIME.exe` panel shell, the `msime-mcp.exe` MCP server for AI assistants, and native resources |
 | `app_data` | default configuration and runtime resources |
-| `app_data/html` | WebView2 UI assets |
 
 Native CMake targets come from the configured Windows build directory (`target/windows-full/<arch>`, as produced by `../Build-Client.ps1`). The TSF DLL remains an in-process component and the Server remains out of process; packaging them together does not change that boundary.
 

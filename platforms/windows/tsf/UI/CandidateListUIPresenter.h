@@ -142,7 +142,6 @@ class CCandidateListUIPresenter : public CTfTextLayoutSink,
     void UpdateCandidateUiSession();
     void MoveCandidateUiSession();
     void EndCandidateUiSession();
-    void _LoadUiLessCandidatesFromSharedMemory();
     void _RequestCancelComposition();
     void _ReplaceCandidateListFromPage(_In_ const std::wstring &page);
 

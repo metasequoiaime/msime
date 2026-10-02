@@ -3,12 +3,9 @@ Set-StrictMode -Version Latest
 $script = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../msime_setup.iss') -Raw
 $script = $script -replace '\\\r?\n\s*', ' '
 $records = [regex]::Matches($script, '(?m)^Source:[^\r\n]*')
-if (@($records | Where-Object { $_.Value.Contains('\app_data\html\') }).Count -ne 0) {
-    throw 'Installer still requires loose legacy HTML'
-}
 $data = @($records | Where-Object { $_.Value.Contains('\app_data\*') })
-if ($data.Count -ne 1 -or -not $data[0].Value.Contains('\html\*')) {
-    throw 'Full package does not exclude stale HTML'
+if ($data.Count -ne 1 -or -not $data[0].Value.Contains('\config.toml')) {
+    throw 'Full package does not exclude user configuration'
 }
 $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
@@ -42,9 +39,6 @@ if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or
 if (-not $script.Contains('if not OwnsDataDir(AppDataPath) then')) {
     throw 'Installer cleanup is not guarded by data-directory ownership'
 }
-if (-not $script.Contains('custom DataDir may already contain files')) {
-    throw 'Installer database cleanup lacks custom-directory ownership protection'
-}
 if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('robocopy.exe') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
@@ -60,4 +54,4 @@ if (-not $script.Contains('RobocopySucceeded') -or
     -not $script.Contains('原目录中的数据保持不变')) {
     throw 'Installer migration must fail closed when user data copy fails'
 }
-Write-Output 'Installer carries native WinUI/Tauri outputs without loose legacy HTML'
+Write-Output 'Installer carries native WinUI/Tauri outputs'

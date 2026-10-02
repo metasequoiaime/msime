@@ -112,22 +112,19 @@ MainHandshake negotiate_main(HANDLE main_pipe, HANDLE reply_pipe,
     result.io.system_error = error;
     return result;
   }
-  if (!result.protocol.legacy) {
-    const auto reply =
-        protocol_reply_bytes(FanyImeProtocol::Reply(hello, result.protocol));
-    if (!reply) {
-      result.status = HandshakeStatus::ProtocolRejected;
-      return result;
-    }
-    result.io = write_frame(reply_pipe, {reply->begin(), reply->end()}, timeout,
-                            cancel);
-    if (!result.io.complete()) {
-      result.status = HandshakeStatus::TransportError;
-      return result;
-    }
+  // A hello without a usable request id gets no reply at all: there is nothing the client could match it against.
+  const auto reply =
+      protocol_reply_bytes(FanyImeProtocol::Reply(hello, result.protocol));
+  if (!reply) {
+    result.status = HandshakeStatus::ProtocolRejected;
+    return result;
   }
-  if (result.protocol.legacy)
-    result.io = {IoStatus::Complete, ERROR_SUCCESS, 0, false, {}};
+  result.io = write_frame(reply_pipe, {reply->begin(), reply->end()}, timeout,
+                          cancel);
+  if (!result.io.complete()) {
+    result.status = HandshakeStatus::TransportError;
+    return result;
+  }
   result.status = result.protocol.accepted ? HandshakeStatus::Ready
                                            : HandshakeStatus::ProtocolRejected;
   return result;

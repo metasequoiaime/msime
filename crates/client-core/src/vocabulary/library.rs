@@ -1,8 +1,6 @@
 //! The wordbooks available to review, on disk.
 //!
-//! One file per book under `<directory>/vocabulary-wordbooks/`, the way
-//! [`crate::translation::store`] keeps one file per learned gloss: a book runs to a few megabytes,
-//! and importing one must not rewrite the others.
+//! One file per book under `<directory>/vocabulary-wordbooks/`: a book runs to a few megabytes, and importing one must not rewrite the others.
 //!
 //! Beside them is a small `index.json` naming each book and its size. Listing the library is what
 //! the settings page does on open, and reading five multi-megabyte documents to count their rows

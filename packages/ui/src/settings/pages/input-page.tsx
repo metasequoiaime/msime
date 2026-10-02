@@ -64,7 +64,6 @@ export function InputSettingsPage() {
       {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
       <div className={settings.groups}>
         <InputSchemeSettingsContent
-          grouped
           preferences={draft}
           hasTouchKeyboardSchemes={Boolean(client.touchKeyboardSchemes)}
           touchKeyboardSchemes={touchKeyboardSchemes}
@@ -86,7 +85,6 @@ export function InputSettingsPage() {
           onMacosWubiAutoCommitUniqueChange={setWubiAutoCommitUnique}
         />
         <InputSharedSettingsSection
-          grouped
           preferences={draft}
           wordCharacter={wordCharacter}
           navigation={navigation}
@@ -150,7 +148,6 @@ export function InputSettingsPage() {
               {client.fuzzyPinyin && (
                 <GroupList title="模糊音">
                   <FuzzyPinyinSection
-                    collapsible
                     preferences={fuzzyPinyin}
                     onChange={(fuzzy_pinyin) => onPreferencesChange({ fuzzy_pinyin })}
                     confirm={confirm}

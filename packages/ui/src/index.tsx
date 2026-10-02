@@ -192,10 +192,6 @@ export {
   type PlatformResourceUrlsContext,
 } from "./settings/platform-resource-urls";
 export {
-  settingsSidebarGroups,
-  type SettingsSidebarGroupsOptions,
-} from "./settings/sidebar-groups";
-export {
   canReloadSettingsPage,
   canRestoreDefaultsOnPage,
   isSettingsFormPage,
@@ -212,12 +208,6 @@ export {
   type AppNotice,
   type NoticesClient,
 } from "./settings/notice-banner";
-export { SettingsInputPage, type SettingsInputPageProps } from "./settings/settings-input-page";
-export {
-  settingsPageCatalog,
-  type SettingsPageCatalog,
-  type SettingsPageCatalogOptions,
-} from "./settings/settings-page-catalog";
 export { settingsPageEnvironment } from "./settings/settings-page-environment";
 export {
   settingsPlatformPresentation,
@@ -231,19 +221,7 @@ export {
 } from "./settings/settings-page-view-model";
 export { SettingsPageStatus, type SettingsPageStatusProps } from "./settings/settings-page-status";
 export { SettingsFormFooter, type SettingsFormFooterProps } from "./settings/settings-form-footer";
-export {
-  SettingsFeedbackPage,
-  type SettingsFeedbackPageProps,
-} from "./settings/settings-feedback-page";
 export { FeedbackChannels, type FeedbackChannelsProps } from "./settings/feedback-channels";
-export {
-  SettingsUtilityPages,
-  type SettingsUtilityPagesProps,
-} from "./settings/settings-utility-pages";
-export {
-  SettingsVoiceAiPages,
-  type SettingsVoiceAiPagesProps,
-} from "./settings/settings-voice-ai-pages";
 export {
   createAboutSettingsActions,
   type CreateAboutSettingsActionsOptions,
@@ -624,9 +602,8 @@ export {
 } from "./settings/word-character-section";
 export { NavigationSection } from "./settings/navigation-section";
 export {
-  HandwritingPlatformNotice,
+  handwritingPrivacyText,
   type HandwritingPlatform,
-  type HandwritingPlatformNoticeProps,
 } from "./settings/handwriting-platform-notice";
 export {
   MobileInputAiNotice,
@@ -736,12 +713,8 @@ export {
   VoicePolishSettingsSection,
   type VoicePolishSettingsSectionProps,
 } from "./settings/voice-polish-settings-section";
-export { availableSettingsPages, type AvailablePageCapabilities } from "./settings/available-pages";
 export { describeImportResult } from "./dictionary/dictionary-messages";
-export {
-  AiLinuxProviderSection,
-  type AiLinuxProviderSectionProps,
-} from "./settings/ai-linux-provider-section";
+export { AiLinuxProviderSection } from "./settings/ai-linux-provider-section";
 export {
   CandidateSizingSection,
   type CandidateSizingPreferences,
@@ -841,11 +814,6 @@ export {
   type ShuangpinProfile,
 } from "./settings/input-scheme-details-section";
 export {
-  LegacyRadioGroup,
-  type LegacyRadioGroupOption,
-  type LegacyRadioGroupProps,
-} from "./settings/legacy-radio-group";
-export {
   TranslationProviderSettingsSection,
   type TranslationProviderSettingsSectionProps,
   type TranslationNiuTransSettings,
@@ -911,7 +879,6 @@ export {
   type TouchKeyboardGeometrySectionProps,
   type TouchToolbarPreferences,
 } from "./settings/touch-keyboard-geometry-section";
-export { VoiceSettingsPanel, type VoiceSettingsPanelProps } from "./settings/voice-settings-panel";
 export {
   VoiceAsrProviderSettingsSection,
   type VoiceAsrProviderSettingsSectionProps,
@@ -944,10 +911,6 @@ export {
   VoiceModelPathSection,
   type VoiceModelPathSectionProps,
 } from "./settings/voice-model-path-section";
-export {
-  VoiceModelPathDisclosure,
-  type VoiceModelPathDisclosureProps,
-} from "./settings/voice-model-path-disclosure";
 export { VoiceModelSection, type VoiceModelSectionProps } from "./settings/voice-model-section";
 export {
   VoiceEndpointSection,
@@ -964,6 +927,7 @@ export {
 export {
   PolishPromptSection,
   type PolishCustomPromptValues,
+  type PolishCustomSlot,
   type PolishPromptSectionProps,
 } from "./settings/polish-prompt-section";
 export {
@@ -1003,7 +967,7 @@ export {
   type DoubaoStreamEndpointSectionProps,
 } from "./settings/doubao-stream-endpoint-section";
 export {
-  DoubaoOptionsSection,
+  DoubaoOptionsRows,
   type DoubaoOptionsSectionProps,
 } from "./settings/doubao-options-section";
 export {
@@ -1015,7 +979,7 @@ export {
   type VoiceRecordingBehaviorSectionProps,
 } from "./settings/voice-recording-behavior-section";
 export {
-  VoiceModelMirrorSection,
+  VoiceModelMirrorRow,
   type VoiceModelMirrorSectionProps,
 } from "./settings/voice-model-mirror-section";
 export {
@@ -1057,12 +1021,6 @@ export {
   type SettingSectionHeaderProps,
 } from "./settings/setting-action-header";
 export {
-  SettingTextarea,
-  SettingTextareaControl,
-  type SettingTextareaControlProps,
-  type SettingTextareaProps,
-} from "./settings/setting-textarea";
-export {
   SettingsTextareaField,
   type SettingsTextareaFieldProps,
 } from "./settings/settings-textarea-field";
@@ -1090,6 +1048,11 @@ export { SecretSettingRow, type SecretSettingRowProps } from "./settings/secret-
 export { TextInputRow, type TextInputRowProps } from "./settings/text-input-row";
 export { SelectRow, type SelectRowProps } from "./settings/select-row";
 export { SwitchRow, type SwitchRowProps } from "./settings/switch-row";
+export {
+  SegmentedRow,
+  type SegmentedRowOption,
+  type SegmentedRowProps,
+} from "./settings/segmented-row";
 export { SecretSettingField, type SecretSettingFieldProps } from "./settings/secret-setting-field";
 export {
   PasswordSettingField,
@@ -1280,7 +1243,6 @@ export {
   POLISH_PRESET_IDS,
   POLISH_PRESET_NAMES,
   isPolishCustomSlot,
-  normalizePolishSlot,
   polishPromptFor,
   polishPresetPrompt,
   polishSlotField,
@@ -1433,13 +1395,13 @@ export type VietnamesePreferences = {
 export interface HostCapabilities {
   platform: HostPlatform;
   /** Whether settings use the phone navigation and touch-oriented surface. */
-  mobile_settings?: boolean;
+  mobile_settings: boolean;
   restart_input_method: boolean;
   panel_windows: boolean;
   ime_mode_scope: boolean;
   typing_statistics: boolean;
-  /** The host has wired the shared 背单词 entry point. Absent on a host older than the field. */
-  vocabulary_review?: boolean;
+  /** The host has wired the shared 背单词 entry point. */
+  vocabulary_review: boolean;
   fuzzy_pinyin: boolean;
   system_fonts: boolean;
   window_chrome: boolean;
@@ -1447,71 +1409,71 @@ export interface HostCapabilities {
   floating_toolbar_appearance: boolean;
   floating_toolbar_components: boolean;
   /** The toolbar carries a handwriting panel button, which only this client's macOS toolbar does. */
-  floating_toolbar_handwriting?: boolean;
+  floating_toolbar_handwriting: boolean;
   /** The toolbar carries a voice input button, for the same reason. */
-  floating_toolbar_voice?: boolean;
+  floating_toolbar_voice: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
-  number_row_selection?: boolean;
+  number_row_selection: boolean;
   /** The host answers the voice recording shortcuts from an attached hardware keyboard without having desktop panel windows (a HarmonyOS phone), so the page offers their switches there too. */
   voice_hotkeys?: boolean;
   voice_capture_devices: boolean;
   candidate_font_controls: boolean;
-  candidate_preedit_font?: boolean;
-  candidate_page_number?: boolean;
+  candidate_preedit_font: boolean;
+  candidate_page_number: boolean;
   candidate_row_colors: boolean;
   candidate_selection_appearance: boolean;
-  /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state; a host older than the field reads it from `candidate_selection_appearance`. */
-  candidate_border_color?: boolean;
-  /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. Absent on a host older than the field. */
-  candidate_window_scale?: boolean;
+  /** The host outlines the candidate panel in the border colour. Linux does (Fcitx5's classic UI theme) without any hover state. */
+  candidate_border_color: boolean;
+  /** The host draws its own floating candidate window and scales its font and geometry by `candidate_scale_percent`. */
+  candidate_window_scale: boolean;
   /** The host lowers the alpha of the candidate card fill, border and skin background by `candidate_opacity_percent`, keeping text opaque. */
-  candidate_window_opacity?: boolean;
+  candidate_window_opacity: boolean;
   /** The host rounds its candidate card by `candidate_corner_radius`, ahead of the skin package's radius. */
-  candidate_corner_radius?: boolean;
+  candidate_corner_radius: boolean;
   candidate_follow_cursor: boolean;
-  input_mode_hud?: boolean;
-  candidate_english_font?: boolean;
-  english_suggestions?: boolean;
-  helpcode_shift_entry?: boolean;
-  skin_directory_import?: boolean;
+  input_mode_hud: boolean;
+  candidate_english_font: boolean;
+  english_suggestions: boolean;
+  helpcode_shift_entry: boolean;
+  skin_directory_import: boolean;
   /** The one candidate page size the host draws; set when the host offers no choice. */
   fixed_candidate_page_size?: number;
   /** The one candidate layout the host draws; set when the host offers no choice. */
   fixed_candidate_layout?: "horizontal" | "vertical";
   /** The touch keyboard picks its toolbar buttons from `touch_toolbar`. */
-  touch_toolbar_components?: boolean;
-  shuangpin_preedit?: boolean;
+  touch_toolbar_components: boolean;
+  shuangpin_preedit: boolean;
   /** The host routes the Ctrl+Shift+Alt maintenance chords. */
-  maintenance_shortcuts?: boolean;
+  maintenance_shortcuts: boolean;
   /** The host reserves Option/Alt+Shift+H for the character width. */
-  fullwidth_chord?: boolean;
+  fullwidth_chord: boolean;
   /** The host runs the configured transcription provider, so its controls have an effect. */
-  voice_provider_settings?: boolean;
+  voice_provider_settings: boolean;
   /** The host draws interim recognition text, so the streaming-preedit switch has an effect. */
-  voice_stream_preedit?: boolean;
+  voice_stream_preedit: boolean;
   /** The host tells the runtime its character width, so 全角输入 has something to act on. */
-  character_width?: boolean;
-  ai_provider_credentials?: boolean;
-  voice_commit_mode?: boolean;
+  character_width: boolean;
+  ai_provider_credentials: boolean;
+  voice_commit_mode: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
   os_version?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
-  /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. Absent on a host older than the field. */
-  key_sound?: boolean;
+  /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
+  key_sound: boolean;
   /** The host routes the V, / and @ modes: it hands / and @ to the runtime, keeps digits as input while a mode spells with them, and loads the command tables and the @ name list. */
-  plugin_triggers?: boolean;
+  plugin_triggers: boolean;
   /** The host streams the selected music pack while it is the active input method. */
-  music?: boolean;
-  /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. Absent on a host older than the field. */
-  typing_effects?: boolean;
-  /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。旧宿主没有这个字段。 */
-  wordbook_packs?: boolean;
-  /** 符号面板显示已安装的符号集插件。旧宿主没有这个字段。 */
-  symbol_set_packs?: boolean;
-  /** The input schemes this host offers; the others are shown disabled. Absent on a host older than the field, which offers 全拼, 双拼, 五笔, 日文 and 韩文. */
-  input_schemes?: InputScheme[];
+  music: boolean;
+  /** The host draws the typing effects and the combo count `msime_client_typing_effect` answers with. */
+  typing_effects: boolean;
+  /** 背单词书目列出单词本插件（`pack-<插件 id>` 词书）。 */
+  wordbook_packs: boolean;
+  /** 符号面板显示已安装的符号集插件。 */
+  symbol_set_packs: boolean;
+  /** The input schemes this host offers; the others are shown disabled. */
+  input_schemes: InputScheme[];
 }
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
@@ -1605,7 +1567,6 @@ export type Preferences = {
   /** What the `custom` global theme is made of: an external candidate skin package, the seven candidate colour pickers and the keyboard editor design. */
   custom_theme?: CustomTheme;
   learning: boolean;
-  autocorrect?: boolean;
   diagnostic_log?: { server?: boolean; tsf?: boolean };
   quanpin?: {
     autocorrect_transposition?: boolean;
@@ -1634,7 +1595,6 @@ export type AiAssistantPreferences = {
   token?: string;
   tokens?: Record<string, string>;
   prompt_id?: string;
-  prompt?: string;
   prompt_custom_1: string;
   prompt_custom_2: string;
   prompt_custom_3: string;
@@ -1756,7 +1716,6 @@ export type VoiceInputPreferences = {
   polish_tokens?: Record<string, string>;
   polish_model?: string;
   polish_prompt_id?: string;
-  polish_prompt?: string;
   polish_prompt_custom_1?: string;
   polish_prompt_custom_2?: string;
   polish_prompt_custom_3?: string;
@@ -1787,8 +1746,8 @@ export type DictionaryFailure = { request_id: string; label: string; error: stri
 /** Mirrors the import response from `client-core::dictionary_import`. */
 export interface DictionaryImportResult {
   applied: number;
-  /** Rows examined and skipped. Absent from hosts that predate the report. */
-  failed?: number;
+  /** Rows examined and skipped. */
+  failed: number;
   /** Rows beyond the per-file cap were not examined. */
   truncated?: boolean;
   /** The file was read with its two columns the other way round from the format chosen. */
@@ -2140,7 +2099,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     ...capabilities
   } = settingsPageEnvironment(client);
   // Which of the redesign's eight settings looks the root takes; see `theme/platform-tokens.ts`.
-  const settingsPlatform = useSettingsPlatform(host, linuxPlatform);
+  const settingsPlatform = useSettingsPlatform(host);
   const {
     nativeVoicePlatform,
     showModeScope,
@@ -2454,7 +2413,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     status: updateStatus,
   } = useUpdateCheck({
     clientHostedPlatform,
-    releasePlatform: client.host?.platform ?? (linuxPlatform ? "linux" : null),
+    releasePlatform: client.host?.platform ?? null,
     releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
@@ -2590,14 +2549,10 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const touchKeyboardHeightAdjustment =
     draft?.touch_keyboard_height_adjustment ?? defaultTouchKeyboardGeometry.heightAdjustment;
   const installerTrust = availableUpdate
-    ? describeInstallerTrust(
-        availableUpdate,
-        client.host?.platform ?? (linuxPlatform ? "linux" : null),
-      )
+    ? describeInstallerTrust(availableUpdate, client.host?.platform ?? null)
     : null;
-  // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, so the group also follows the host's `helpcode_shift_entry`; the platform names stay for hosts that predate the capability. HarmonyOS ships the same input: its ChineseHelpcodePolicy is the Android one, ported, and the session calls it on every shifted key.
-  const showHelpcode =
-    !mobilePlatform || showHelpcodeShiftEntry || androidPlatform || harmonyPlatform;
+  // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, and HarmonyOS ships the same input (its ChineseHelpcodePolicy is the Android one, ported), so on a mobile host the group follows the host's `helpcode_shift_entry`.
+  const showHelpcode = !mobilePlatform || showHelpcodeShiftEntry;
   // 维护与诊断页收纳输入法服务（重启、重新注册）、诊断日志、数据目录、本地 MCP 服务和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -482,7 +483,7 @@ test("the 插件 page switches between the installed packs and the community gal
         }),
         save: vi.fn(),
         loadDefaultPreferences: vi.fn(),
-        host: { platform: "macos" } as never,
+        host: testHost({ platform: "macos" }),
         plugins: {
           catalog: installed,
           importPack: vi.fn(async () => null),

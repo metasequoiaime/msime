@@ -3,7 +3,7 @@ import XCTest
 /// 「候选栏 AI 候选」: the shared document says where to send, the Keychain key is handed over only for that endpoint.
 final class AICandidatePreferenceTests: XCTestCase {
   func testTurningOnWritesTheSavedConfigurationButNoKey() {
-    let existing: [String: Any] = ["prompt": "keep", "tokens": ["deepseek": "synced"]]
+    let existing: [String: Any] = ["prompt_custom_1": "keep", "tokens": ["deepseek": "synced"]]
     let assistant = AICandidatePreference.assistant(
       existing, enabled: true, limit: 5, provider: "deepSeek",
       endpoint: " https://api.deepseek.com/chat/completions ", model: " deepseek-chat ")
@@ -12,7 +12,7 @@ final class AICandidatePreferenceTests: XCTestCase {
     XCTAssertEqual(assistant["endpoint"] as? String, "https://api.deepseek.com/chat/completions")
     XCTAssertEqual(assistant["model"] as? String, "deepseek-chat")
     XCTAssertEqual(assistant["candidate_limit"] as? Int, 5)
-    XCTAssertEqual(assistant["prompt"] as? String, "keep")
+    XCTAssertEqual(assistant["prompt_custom_1"] as? String, "keep")
     XCTAssertEqual(assistant["tokens"] as? [String: String], ["deepseek": "synced"], "a key from elsewhere is neither copied nor erased")
     XCTAssertNil(assistant["token"])
   }
@@ -43,9 +43,10 @@ final class AICandidatePreferenceTests: XCTestCase {
   func testPromptSlotsReadAndWriteTheDesktopFields() {
     XCTAssertEqual(AICandidatePreference.promptID(nil), "custom_1")
     XCTAssertEqual(AICandidatePreference.promptID(["ai_assistant": ["prompt_id": "custom_9"]]), "custom_1", "an unknown slot reads as the first")
-    let legacy: [String: Any] = ["ai_assistant": ["prompt": "old single prompt", "prompt_custom_1": ""]]
-    XCTAssertEqual(AICandidatePreference.prompt(legacy, slot: "custom_1"), "old single prompt", "the first slot falls back to `prompt` as the desktop does")
-    XCTAssertEqual(AICandidatePreference.prompt(legacy, slot: "custom_2"), "")
+    let saved: [String: Any] = ["ai_assistant": ["prompt_custom_1": "", "prompt_custom_2": "two"]]
+    XCTAssertEqual(AICandidatePreference.prompt(saved, slot: "custom_1"), "", "an empty slot means the built-in prompt")
+    XCTAssertEqual(AICandidatePreference.prompt(saved, slot: "custom_2"), "two")
+    XCTAssertEqual(AICandidatePreference.prompt(saved, slot: "custom_3"), "")
 
     let second = AICandidatePreference.assistant(["enabled": true, "prompt_custom_1": "one"], promptSlot: "custom_2", text: "two")
     XCTAssertEqual(second["prompt_id"] as? String, "custom_2")

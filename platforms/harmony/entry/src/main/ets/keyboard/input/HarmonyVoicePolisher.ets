@@ -139,13 +139,14 @@ export class HarmonyVoicePolisher {
     }
   }
 
+  // A custom slot left empty polishes with the built-in cleanup prompt, as an unset configuration does.
   private prompt(config: VoiceInputConfiguration): string {
-    const custom: string = (config.polish_prompt ?? '').trim();
-    if (custom.length > 0) return custom;
-    const slot: string = config.polish_prompt_id === 'custom' ? 'custom_1' : (config.polish_prompt_id ?? 'cleanup');
-    if (slot === 'custom_1') return (config.polish_prompt_custom_1 ?? '').trim();
-    if (slot === 'custom_2') return (config.polish_prompt_custom_2 ?? '').trim();
-    if (slot === 'custom_3') return (config.polish_prompt_custom_3 ?? '').trim();
+    const slot: string = config.polish_prompt_id ?? 'cleanup';
+    let custom: string | null = null;
+    if (slot === 'custom_1') custom = config.polish_prompt_custom_1 ?? '';
+    else if (slot === 'custom_2') custom = config.polish_prompt_custom_2 ?? '';
+    else if (slot === 'custom_3') custom = config.polish_prompt_custom_3 ?? '';
+    if (custom !== null) return custom.trim().length > 0 ? custom.trim() : POLISH_PROMPTS.cleanup;
     return this.promptValue(slot);
   }
 

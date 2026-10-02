@@ -44,12 +44,12 @@ int main(int argc, const char *argv[]) {
             NSError *error = nil;
             assert(![[MSIMEDoubaoVoiceRequest alloc] initWithOptions:invalid error:&error] && error);
         }
-        for (NSString *path in @[@"/api", @"/legacy", @"/inferred", @"/masked-app", @"/inferred-masked", @"/trimmed", @"/trimmed-legacy"]) {
+        // An unset mode is the API key route even with an App ID stored.
+        for (NSString *path in @[@"/api", @"/legacy", @"/unset", @"/masked-app", @"/trimmed", @"/trimmed-legacy"]) {
             NSMutableDictionary *snapshot = [options(path) mutableCopy];
             if ([path isEqual:@"/legacy"]) snapshot[@"doubao_auth_mode"] = @"legacy";
-            if ([path isEqual:@"/inferred"]) [snapshot removeObjectForKey:@"doubao_auth_mode"];
-            if ([path isEqual:@"/masked-app"] || [path isEqual:@"/inferred-masked"]) snapshot[@"asr_app_key"] = @"<stored>";
-            if ([path isEqual:@"/inferred-masked"]) [snapshot removeObjectForKey:@"doubao_auth_mode"];
+            if ([path isEqual:@"/unset"]) [snapshot removeObjectForKey:@"doubao_auth_mode"];
+            if ([path isEqual:@"/masked-app"]) snapshot[@"asr_app_key"] = @"<stored>";
             if ([path hasPrefix:@"/trimmed"]) {
                 snapshot[@"doubao_auth_mode"] = [path isEqual:@"/trimmed-legacy"] ? @" legacy " : @" api_key ";
                 snapshot[@"asr_token"] = @" fixture-token ";

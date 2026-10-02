@@ -118,10 +118,7 @@ export const keySoundRenderNotes: (
 /** The statistics master switch under an absolute state directory: 1 on, 0 off or never written, -1 for an invalid directory or unreadable document. */
 export const typingStatisticsEnabled: (directory: string) => number;
 export const vocabularyReview: (request: string) => string;
-/**
- * Locked mobile history operations. Harmony opts into migration of its original
- * `state/clipboard-history.json`; every mutation answers with the latest complete entry list.
- */
+/** Locked mobile history operations; every mutation answers with the latest complete entry list. */
 export const mobileClipboardHistory: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;

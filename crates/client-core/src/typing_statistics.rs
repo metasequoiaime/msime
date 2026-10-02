@@ -730,31 +730,6 @@ impl TypingStatisticsStore {
             .map_err(|error| TypingStatisticsError::Io(error.error))
     }
 
-    /// Moves a valid legacy statistics document into this store without
-    /// replacing a document already created by the shared host.
-    pub fn migrate_from(
-        &self,
-        legacy_directory: impl AsRef<Path>,
-    ) -> Result<bool, TypingStatisticsError> {
-        let legacy_directory = legacy_directory.as_ref();
-        if legacy_directory == self.directory {
-            return Ok(false);
-        }
-        let _destination_lock = self.lock()?;
-        if self.path().try_exists()? {
-            return Ok(false);
-        }
-
-        let legacy = Self::new(legacy_directory);
-        let _legacy_lock = legacy.lock()?;
-        if self.path().try_exists()? || !legacy.path().try_exists()? {
-            return Ok(false);
-        }
-        let _ = legacy.read_locked()?;
-        fs::rename(legacy.path(), self.path())?;
-        Ok(true)
-    }
-
     pub fn load(&self) -> Result<TypingStatistics, TypingStatisticsError> {
         let _lock = self.lock()?;
         self.read_locked()

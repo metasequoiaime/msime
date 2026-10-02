@@ -11,10 +11,8 @@ use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::IO::*;
 
-/// Dedicated control endpoint used by the Windows Server. The legacy name is
-/// retained for older installed Servers during rolling upgrades.
+/// Dedicated control endpoint used by the Windows Server.
 pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControlNamedPipe";
-pub const LEGACY_PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControllerV2";
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -239,15 +237,6 @@ impl<'a> Pipe<'a> {
         Ok(count as usize)
     }
 }
-impl<'a> Pipe<'a> {
-    fn connect(cancelled: &'a AtomicBool) -> Result<Self, Error> {
-        match Self::connect_named(cancelled, PIPE_NAME) {
-            Ok(pipe) => Ok(pipe),
-            Err(Error::Unavailable) => Self::connect_named(cancelled, LEGACY_PIPE_NAME),
-            Err(error) => Err(error),
-        }
-    }
-}
 impl Transport for Pipe<'_> {
     fn exchange(&mut self, request: &[u8]) -> Result<Vec<u8>, Error> {
         let mut request = request.to_vec();
@@ -271,7 +260,7 @@ pub fn recognize(
     cancelled: &AtomicBool,
     update: impl FnMut(&Update),
 ) -> Result<String, Error> {
-    let mut pipe = Pipe::connect(cancelled)?;
+    let mut pipe = Pipe::connect_named(cancelled, PIPE_NAME)?;
     // SAFETY: identity query has no preconditions. Only controller identity is sent, never TSF identity.
     let controller =
         (u64::from(unsafe { GetCurrentProcessId() }) << 32) | (generation & 0xffff_ffff);

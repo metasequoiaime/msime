@@ -79,8 +79,7 @@ struct TsfLocalConfig {
   bool smart_punctuation = false;
   bool smart_punctuation_repeat_to_chinese = false;
   bool smart_punctuation_space_convert = false;
-  // Fine-grained direct ASCII punctuation policy. These ride on the
-  // punctuation-lock frame extension so older worker opcodes remain valid.
+  // Fine-grained direct ASCII punctuation policy, carried by the punctuation-lock frame.
   bool smart_punctuation_direct_digit = false;
   bool smart_punctuation_direct_letter = false;
   bool paired_punctuation = true;

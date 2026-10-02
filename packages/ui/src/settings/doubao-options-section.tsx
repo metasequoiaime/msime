@@ -1,4 +1,3 @@
-import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { TextInputRow } from "./text-input-row";
 import { SwitchRow } from "./switch-row";
@@ -57,14 +56,5 @@ export function DoubaoOptionsRows({
         onChange={onBoostingTableIdChange}
       />
     </>
-  );
-}
-
-/** Doubao recognition flags and hotword table settings. */
-export function DoubaoOptionsSection(props: DoubaoOptionsSectionProps) {
-  return (
-    <GroupList title="豆包识别选项">
-      <DoubaoOptionsRows {...props} />
-    </GroupList>
   );
 }

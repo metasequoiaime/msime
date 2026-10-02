@@ -48,20 +48,13 @@ struct PersonalWordRequest: Codable, Identifiable, Sendable {
 }
 
 struct PersonalDictionaryState: Codable, Sendable {
-  // The Rust queue uses serde's camelCase conversion (`refreshId`), while
-  // Swift's conventional acronym spelling would otherwise encode `refreshID`.
-  // Keep the on-disk contract explicit so the Tauri host and keyboard can
-  // acknowledge the same refresh cycle instead of silently resetting it.
+  // The Rust queue uses serde's camelCase conversion (`refreshId`), while Swift's conventional acronym spelling would otherwise encode `refreshID`. Keep the on-disk contract explicit so the Tauri host and keyboard can acknowledge the same refresh cycle instead of silently resetting it.
   enum CodingKeys: String, CodingKey {
     case version, requests, entries, hasMore, snapshotDate, snapshotError
     case pageOffset, requestedPageOffset, requestedKind, requestedQuery, pageKind, pageQuery
     case exportRequest, exportResult
     case refreshID = "refreshId"
     case completedRefreshID = "completedRefreshId"
-  }
-  private enum LegacyCodingKeys: String, CodingKey {
-    case refreshID = "refreshID"
-    case completedRefreshID = "completedRefreshID"
   }
   var version = 1
   var requests: [PersonalWordRequest] = []
@@ -87,7 +80,6 @@ struct PersonalDictionaryState: Codable, Sendable {
 
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
     version = try values.decodeIfPresent(Int.self, forKey: .version) ?? 1
     requests = try values.decodeIfPresent([PersonalWordRequest].self, forKey: .requests) ?? []
     entries = try values.decodeIfPresent([PersonalWord].self, forKey: .entries) ?? []
@@ -100,10 +92,8 @@ struct PersonalDictionaryState: Codable, Sendable {
     requestedQuery = try values.decodeIfPresent(String.self, forKey: .requestedQuery) ?? ""
     pageKind = try values.decodeIfPresent(PersonalWordKind.self, forKey: .pageKind)
     pageQuery = try values.decodeIfPresent(String.self, forKey: .pageQuery) ?? ""
-    refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID)
-      ?? legacy.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
+    refreshID = try values.decodeIfPresent(UUID.self, forKey: .refreshID) ?? UUID()
     completedRefreshID = try values.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
-      ?? legacy.decodeIfPresent(UUID.self, forKey: .completedRefreshID)
     exportRequest = try values.decodeIfPresent(PersonalExportRequest.self, forKey: .exportRequest)
     exportResult = try values.decodeIfPresent(PersonalExportResult.self, forKey: .exportResult)
   }

@@ -56,7 +56,7 @@ def main() -> int:
         assert len(problems) == 1 and "SHA-256" in problems[0], problems
         write(resources / "msime.db", payload)
 
-        # 宿主拒绝锁之外的任何条目，这里同样报出来；例外只有 Engine 的 helpcodes 子目录，和宿主校验时自己删掉的普通文件 dict_pinyin.dat（setup_update.py 覆盖）。
+        # 宿主拒绝锁之外的任何条目，这里同样报出来；例外只有 Engine 的 helpcodes 子目录。
         (resources / "helpcodes").mkdir()
         assert setup.verify_directory(resources, lock) == []
         (resources / "retired.db").write_bytes(b"dropped by a newer lock")

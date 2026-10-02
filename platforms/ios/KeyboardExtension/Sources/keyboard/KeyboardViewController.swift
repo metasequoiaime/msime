@@ -2349,9 +2349,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     _ = session.setFrequencyAdjustmentMode(
       mode, triggerCount: triggerCount, linearStep: linearStep)
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
-    // The document decides; the App Group only seeds a document nobody has touched yet, so a change made on the shared settings page is not shadowed by an older native selection.
-    let fuzzyRules = FuzzyPinyinPreference.resolve(document: session.sharedPreferences)?.bits
-      ?? FuzzyPinyinPreference.activeRules
+    let fuzzyRules = FuzzyPinyinPreference.settings(in: session.sharedPreferences)?.bits ?? 0
     if session.fuzzyPinyinRulesApplied != fuzzyRules {
       _ = session.setFuzzyPinyinRules(fuzzyRules)
     }

@@ -146,9 +146,6 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
     dispatch_once(&once, ^{
         gPreferencesDirectory = [preferencesDirectory copy];
         gQueue = dispatch_queue_create("app.msime.usage-reporting", DISPATCH_QUEUE_SERIAL);
-        // The queue of the earlier Swift reporter: per-install download events and crashes without an install id, neither of which the server wants any more.
-        NSString *legacy = [MSIMEUsageReportingDirectory().stringByDeletingLastPathComponent stringByAppendingPathComponent:@"telemetry-events.json"];
-        [NSFileManager.defaultManager removeItemAtPath:legacy error:nil];
         [NSFileManager.defaultManager createDirectoryAtPath:MSIMEUsageReportingDirectory()
                                 withIntermediateDirectories:YES
                                                  attributes:@{NSFilePosixPermissions: @0700}

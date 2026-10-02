@@ -11,18 +11,16 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn online_candidate_response_preserves_legacy_first_candidate_and_batch() {
+    fn online_candidate_response_carries_only_the_batch() {
         let value =
             online_candidate_response(vec![("first".to_owned(), 0), ("second".to_owned(), 1)]);
 
-        assert_eq!(value["text"], json!("first"));
-        assert_eq!(value["source"], json!(0));
         assert_eq!(
-            value["candidates"],
-            json!([
+            value,
+            json!({"candidates": [
                 {"text": "first", "source": 0},
                 {"text": "second", "source": 1},
-            ])
+            ]})
         );
     }
 }
@@ -32,10 +30,7 @@ fn online_candidate_response(candidates: Vec<(String, u8)>) -> Value {
     for (text, source) in candidates {
         rows.push(json!({"text": text, "source": source}));
     }
-    // Preserve the single-result fields for older CLI consumers.
-    let mut value = rows.first().cloned().unwrap_or(json!({}));
-    value["candidates"] = json!(rows);
-    value
+    json!({"candidates": rows})
 }
 
 #[no_mangle]

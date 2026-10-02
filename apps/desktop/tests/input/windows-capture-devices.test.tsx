@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -38,7 +39,7 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
       client={{
         load: async () => snapshot,
         save,
-        host: { platform: "windows", voice_capture_devices: true } as never,
+        host: testHost({ platform: "windows", voice_capture_devices: true }),
         listVoiceCaptureDevices: read,
       }}
     />,
@@ -48,7 +49,7 @@ test("Windows saves endpoint identity across duplicate labels and enumeration re
   const backend = await screen.findByLabelText("录音后端");
   expect(within(backend).queryByRole("option", { name: "PulseAudio" })).toBeNull();
   expect(within(backend).queryByRole("option", { name: "CoreAudio" })).toBeNull();
-  expect(screen.getByText(/旧的数字序号需重新选择/)).toBeTruthy();
+  expect(screen.getByText(/保存其端点标识而非设备序号/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "刷新设备" }));
   await waitFor(() =>
     expect((screen.getByLabelText("可用录音设备") as HTMLSelectElement).value).toBe("0"),
@@ -80,7 +81,7 @@ test("missing or legacy Windows devices are retained until the user chooses a de
       client={{
         load: async () => previous,
         save: vi.fn(),
-        host: { platform: "windows", voice_capture_devices: true } as never,
+        host: testHost({ platform: "windows", voice_capture_devices: true }),
         listVoiceCaptureDevices: async () => [],
       }}
     />,

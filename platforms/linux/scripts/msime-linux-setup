@@ -13,7 +13,7 @@ Windows 安装程序注册 TSF profile，装完输入法就出现在输入法列
 
 Windows 卸载程序注销 TSF profile 和类别，输入法随之从列表里消失，并删除水杉留下的全部状态；对应的是 --unregister：卸载时（.deb 的 prerm、CMake 卸载）在删除文件之前把输入法从这些列表里移除，再把宿主改过的桌面候选面板设置（Fcitx5 classicui 的主题、字体和滚轮翻页，IBus 面板的字体）恢复成接管之前的值——用户之后自己改过的不动——并删除水杉生成的 Fcitx5 主题。只做这些，不准备状态也不下载。
 
---update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。锁已去掉的 dict_pinyin.dat 不算不符：宿主校验词库时自己把它从原目录删掉。随后请两个宿主关掉输入会话，用 msime-linux-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
+--update 对应 Windows 安装程序升级时的用户词库回放。随包提供词库的安装由包管理器换掉词库，宿主启动时自己切换代次；自行下载的词库没有人替换，升级抬高词库版本后宿主只能继续用旧的。--update 读出已有状态记录的词库目录，按已安装的词库锁核对；不符时加 --download 在旁边另建一份新词库目录，与旧目录一致的几项直接链接过去，只取回缺失或不符的几项，旧目录一个文件都不动。随后请两个宿主关掉输入会话，用 msime-linux-prepare --refresh 切到新代次并回放用户词库，再让它们重新打开。已有状态时给 --download 即视为 --update。
 """
 from __future__ import annotations
 
@@ -112,12 +112,9 @@ def digest(path: Path) -> str:
 # The Engine's helpcode tables live in this subdirectory of the resource directory; the host's verification lets it through (crates/client-core/src/resources.rs).
 HELPCODE_DIRECTORY = "helpcodes"
 
-# Files an earlier lock pinned and the current one no longer does. The host's verification deletes such a regular file in place instead of refusing the directory (RETIRED_ARTIFACTS in crates/client-core/src/resources.rs), so a directory still holding one is usable as it is. Exact names only, and only as a regular file: a directory or symlink by that name is refused by the host and reported here too.
-RETIRED_ARTIFACTS = frozenset({"dict_pinyin.dat"})
-
 
 def unexpected_entries(directory: Path, lock: dict) -> list[str]:
-    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。例外是锁已去掉的旧词库文件（RETIRED_ARTIFACTS，换成 Rust Engine 之后的 dict_pinyin.dat）：宿主校验时自己把它删掉，这里不算。"""
+    """目录里锁之外的条目。宿主要求词库目录恰好是锁里那几项，多一个文件就拒绝整份词库；下载补不掉它们，得由用户移走。"""
     if not directory.is_dir():
         return []
     names = {artifact["name"] for artifact in lock["artifacts"]}
@@ -125,7 +122,6 @@ def unexpected_entries(directory: Path, lock: dict) -> list[str]:
         f"{entry.name} 不在词库锁中或不是普通文件，宿主会拒绝这份词库；请把它移出 {directory}"
         for entry in sorted(os.scandir(directory), key=lambda item: item.name)
         if not (entry.name == HELPCODE_DIRECTORY and entry.is_dir(follow_symlinks=False))
-        and not (entry.name in RETIRED_ARTIFACTS and entry.is_file(follow_symlinks=False))
         and (entry.name not in names or not entry.is_file(follow_symlinks=False))
     ]
 
@@ -133,7 +129,7 @@ def unexpected_entries(directory: Path, lock: dict) -> list[str]:
 def verify_directory(directory: Path, lock: dict) -> list[str]:
     """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。
 
-    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。宿主自己删掉的 RETIRED_ARTIFACTS 不算。"""
+    与宿主的校验一致，锁之外的条目也算：升级去掉某项词库时旧文件会留在下载目录里，在这里报出来，而不是等宿主拒绝后只剩一句笼统的失败。"""
     problems = unexpected_entries(directory, lock)
     for artifact in lock["artifacts"]:
         name = artifact["name"]
@@ -493,18 +489,6 @@ def enable_services(units: list[str]) -> None:
     if shutil.which("systemctl") is None:
         print("没有 systemctl：在线和语音服务可用 msime-linux-provider-session online|voice 手动启动。")
         return
-    # Remove the pre-rename units first. Their sockets listen on the same paths,
-    # so leaving an old msime-client-online.socket enabled would prevent the
-    # renamed msime-linux-online.socket from activating.
-    subprocess.run(
-        [
-            "systemctl", "--user", "disable", "--now",
-            "msime-client-online.socket", "msime-client-online.service",
-            "msime-client-voice.socket", "msime-client-voice.service",
-            "msime-client-clipboard.service",
-        ],
-        capture_output=True, text=True, check=False,
-    )
     result = subprocess.run(
         ["systemctl", "--user", "enable", "--now", *units], capture_output=True, text=True, check=False
     )

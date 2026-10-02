@@ -1,7 +1,8 @@
 import * as settings from "./settings-style";
 import { InputModeHudSection } from "./input-mode-hud-section";
-import { GroupList, Row, Select } from "../core/platform-controls";
+import { GroupList, Row } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
+import { SelectRow } from "./select-row";
 
 export interface InputModeShortcutPreferences {
   switch_language_shift: boolean;
@@ -88,20 +89,19 @@ export function InputModeShortcutsSection({
           在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。
         </p>
         {/* 同时开着多个的旧设置不在打开页面时改写：这个组件在页面隐藏时也挂着，偏好读完之前拿到的是默认值，而默认值本身就同时开着 Shift 和 Control+Option+Space，挂载时写回会让每个打开设置窗口的人都被静默改掉一项，还会和其他窗口、原生设置的写入互相覆盖。这里只按优先级显示一项，用户第一次在下拉框里选择时一次写全三个布尔值，多余的那几个随之关掉。 */}
-        <Row title="切换中英文">
-          <Select
-            value={languageSwitchChoice(keybindings)}
-            onChange={(event) =>
-              onChange(languageSwitchPatch(event.target.value as LanguageSwitchChoice))
-            }
-          >
-            {languageSwitchOptions.map(([choice, label]) => (
-              <option key={choice} value={choice}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </Row>
+        <SelectRow
+          title="切换中英文"
+          value={languageSwitchChoice(keybindings)}
+          onChange={(event) =>
+            onChange(languageSwitchPatch(event.target.value as LanguageSwitchChoice))
+          }
+        >
+          {languageSwitchOptions.map(([choice, label]) => (
+            <option key={choice} value={choice}>
+              {label}
+            </option>
+          ))}
+        </SelectRow>
         <SwitchRow
           title={characterSetLabel}
           checked={keybindings.toggle_character_set_ctrl_shift_f ?? false}
