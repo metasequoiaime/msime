@@ -42,7 +42,7 @@ crates/engine                  输入算法与组合状态（纯 Rust）
 
 ## 验证
 
-GitHub Actions 在 Pull Request 上分四条线跑，各自只被相关改动叫起来。`ci.yml` 跑仓库级检查：actionlint 校验全部 workflow 和它们内嵌的 shell，dependency-review 按 high 阈值拦截依赖。`ci-macos.yml` 在 macos-15 的 arm64 与 x86_64 上构建原生宿主并跑 ctest，另有一个 ASan/UBSan 任务，构建完还会 ad-hoc 签名并断言 bundle 的架构与 Info.plist 输入法键。`ci-ios.yml` 跑共享 Swift 后端的 `swift test`、键盘工程配置校验和 XcodeGen 工程生成，其中偏重的设置与皮肤分片、以及需要 ML Kit 的手写用例只在进 `main` 的 Pull Request 上跑。`ci-platforms.yml` 在对应平台或共享层有改动时检查 Android（宿主契约与 JVM 冒烟）、Linux（固定容器内构建并跑 ctest）、HarmonyOS（类型检查与键盘逻辑测试）和 Windows（MinGW x64 交叉构建）。纯文档改动走 `ci-docs.yml`，它跑同一组仓库级检查并补上平台 workflow 按路径跳过的那几个必需检查名，免得一个只改 README 的 Pull Request 永远等一个不会来的报告。定时的那条是 `codeql.yml`，每天扫一遍 Actions、C/C++、Python 和 Swift。
+GitHub Actions 在 Pull Request 上分四条线跑，各自只被相关改动叫起来。`ci.yml` 跑仓库级检查：actionlint 校验全部 workflow 和它们内嵌的 shell，dependency-review 按 high 阈值拦截依赖。`ci-macos.yml` 在 macos-15 的 arm64 与 x86_64 上构建原生宿主并跑 ctest，另有一个 ASan/UBSan 任务，构建完还会 ad-hoc 签名并断言 bundle 的架构与 Info.plist 输入法键；macOS runner 只有 5 台，所以发往 `develop` 的 PR 只跑 arm64，x86_64 与 ASan/UBSan 留给发往 `main` 的 PR、定时运行和手动触发，推到 `develop` 时 macOS 与 iOS 都不再构建（PR 上已经跑过）。`ci-ios.yml` 跑共享 Swift 后端的 `swift test`、键盘工程配置校验和 XcodeGen 工程生成，其中偏重的设置与皮肤分片、以及需要 ML Kit 的手写用例只在进 `main` 的 Pull Request 上跑。`ci-platforms.yml` 在对应平台或共享层有改动时检查 Android（宿主契约与 JVM 冒烟）、Linux（固定容器内构建并跑 ctest）、HarmonyOS（类型检查与键盘逻辑测试）和 Windows（MinGW x64 交叉构建）。纯文档改动走 `ci-docs.yml`，它跑同一组仓库级检查并补上平台 workflow 按路径跳过的那几个必需检查名，免得一个只改 README 的 Pull Request 永远等一个不会来的报告。定时的那条是 `codeql.yml`，每天扫一遍 Actions、C/C++、Python 和 Swift。
 
 CI 之外的那一半由本地验证覆盖：Rust workspace 的 `cargo test`、clippy、前端的类型检查与 vitest、Wine 下的 Windows 套件、句子转换评测和重排延迟预算都只在本地跑。它同时也是提交前的快速反馈：
 

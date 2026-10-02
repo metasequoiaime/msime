@@ -45,6 +45,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       build: ${{ steps.decide.outputs.build }}
+      # x86_64 与 Sanitizers 要不要跑。见下面 `Decide the extra legs`。
+      full: ${{ steps.scope.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,6 +62,10 @@ jobs:
           # 手动触发和合并队列一律构建:前者是有人明确要这一次,后者是合并前最后一道,两种情况都不该由路径来猜。
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]]; then
             echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # 推到 develop 不构建：同一份改动在 PR 上已经构建并测过，合并后再跑一遍只是和排队的 PR 抢那 5 台 macOS runner（2026-10-03 实测一个动到 macOS 的 PR 就占满 5 台约 30 分钟，合并后的推送再占一轮）。develop 上的回归由每天的定时运行兜底，发往 main 的发布 PR 也会完整再跑一遍。推到 main 照常构建。
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/develop ]]; then
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "推到 develop，跳过构建。"; exit 0
           fi
           # 拿不到可比的两端时也构建。范围算不出来不等于没有改动,而少构建一次的代价是把问题放过去。
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null; then
@@ -96,6 +102,19 @@ jobs:
           done <<< "$changed"
           echo "build=false" >> "$GITHUB_OUTPUT"
           echo "本次改动不涉及macOS,跳过构建。"
+      # 发往 develop 的 PR 只跑 arm64：x86_64（中位 30 分钟，落在更紧俏的 macos-15-intel 上）和 Sanitizers（13 分钟）查的是架构相关和内存/未定义行为问题，留给发往 main 的发布 PR、定时运行、手动触发和合并队列，PR 阶段每次省下两台 runner。
+      - name: Decide the extra legs
+        id: scope
+        env:
+          BUILD: ${{ steps.decide.outputs.build }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$BUILD" == true && ( "$GITHUB_EVENT_NAME" != pull_request || "$BASE_REF" == main ) ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"; echo "不跑 x86_64 与 Sanitizers。"
+          fi
 
   macos:
     needs: changes
@@ -104,11 +123,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `build` 决定这一条腿是否真的构建：arm64 跟随改动范围，x86_64 另外要求 `full`。
         include:
           - runner: macos-15
             architecture: arm64
+            build: ${{ needs.changes.outputs.build }}
           - runner: macos-15-intel
             architecture: x86_64
+            build: ${{ needs.changes.outputs.full }}
     # 只有真要构建时才落到 macOS runner 上。要出现的 check 名字由 `name:` 决定,和跑在哪台机器无关,
     # 所以分支保护照样等到 `macOS 15 arm64` 和 `macOS 15 x86_64`,上面那段注释说的问题不会回来。
     #
@@ -116,7 +138,7 @@ jobs:
     # 而 build=false 时它们只做一次签出:格式检查那一步在本仓库走的是 scripts/format.sh 不存在的分支,
     # 只 echo 一行。公开仓库的 macOS 并发额度本来就只有个位数,iOS CI 还和它抢同一批机器,于是十来个
     # 活跃分支就能把队列堵死,而堵住队列的绝大多数 job 什么也没做。
-    runs-on: ${{ needs.changes.outputs.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.build == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - name: Check out source
@@ -128,17 +150,17 @@ jobs:
         run: if [[ -x scripts/format.sh ]]; then scripts/format.sh --check; else echo 'format script is not present in this branch; skipped'; fi
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Cache the pinned Sparkle archive
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/sparkle-archive
           # 版本和摘要写在 platforms/macos/CMakeLists.txt 里,键要指向那个文件。仓库根目录没有 CMakeLists.txt,而 hashFiles 对不存在的路径返回空串 —— 原来的键因此是常量 `sparkle-macOS-`,版本一动它也不动,恰好是这条注释说要避免的情况。
           key: sparkle-2.9.6-${{ runner.os }}-${{ hashFiles('platforms/macos/CMakeLists.txt') }}
       - name: Prepare pinned Sparkle
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sparkle-archive"
@@ -158,29 +180,29 @@ jobs:
           test -d "$RUNNER_TEMP/sparkle/Sparkle.framework"
           echo "MSIME_SPARKLE_ROOT=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Remove unused runner taps
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: brew install nlohmann-json
       # Against /usr/bin/python3 specifically, which is the Command Line Tools interpreter a
       # contributor gets by default and is several minor versions behind the runner's python3. A
       # PEP 701 f-string shipped in fetch_dictionary.py and broke build.sh on a clean machine while
       # CI stayed green, because CI never ran it under that interpreter.
       - name: Check the tooling parses under the stock macOS interpreter
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
       - name: Build the Rust host library
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: cargo build --locked -p msime-host-api
       # The unit tests run against a fixture rather than the released database: they assert behaviour
       # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
       # nothing. The release build is what verifies the real data, against the digests in the lock.
       - name: Create test dictionary
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
       - name: Type-check registration helper
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           if [[ -f platforms/macos/scripts/register_input_source.swift ]]; then
             xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
@@ -188,21 +210,21 @@ jobs:
             echo 'register_input_source.swift is not present in this branch; skipped.'
           fi
       - name: Configure
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
       # An explicit job count: with the Makefile generator a bare `--parallel` becomes `make -j` with no limit, which starts every ready compile at once. Once whisper and ggml were linked into the input method (4737c9651) that was enough to run the 7 GB arm64 runner out of memory, and the step sat swapping until the 60-minute job limit cancelled it on every run that built.
       - name: Build
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: cmake --build build --parallel "$(sysctl -n hw.logicalcpu)"
       # On the Intel runner every view SwiftUI draws through RenderBox aborted inside Metal: loading RenderBox's precompiled binary archive asks the paravirtual GPU for an architecture it does not report ("Target device architecture is nil"), and nothing of ours is on that stack. RenderBox's own switches skip the archive and the GPU, so these tests still lay out and draw there, on the CPU.
       - name: Test
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           if [[ "$(uname -m)" == x86_64 ]]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
           ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
       # A test that aborts inside a system framework prints only the assertion; the stack is in the crash report, which the runner discards with the machine.
       - name: Upload crash reports
-        if: ${{ failure() && needs.changes.outputs.build == 'true' }}
+        if: ${{ failure() && matrix.build == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: crash-reports-${{ matrix.architecture }}
@@ -211,7 +233,7 @@ jobs:
           retention-days: 7
       # The build leaves the bundle as the linker signed it, which codesign rejects as a bundle; scripts/install.sh re-signs a staged copy before anything registers it. Do the same here with an ad-hoc identity, so what is checked is that the bundle can be sealed - a flattened framework or stray file breaks exactly that. The product is built for the runner's architecture only; nothing here produces a universal binary.
       - name: Verify input method bundle
-        if: ${{ needs.changes.outputs.build == 'true' }}
+        if: ${{ matrix.build == 'true' }}
         run: |
           set -euo pipefail
           staged="$RUNNER_TEMP/verify/水杉输入法.app"
@@ -244,7 +266,7 @@ jobs:
   # specific, and a second sanitized leg would double a 60-plus-minute job for very little.
   sanitizers:
     needs: changes
-    if: ${{ needs.changes.outputs.build == 'true' }}
+    if: ${{ needs.changes.outputs.full == 'true' }}
     name: Sanitizers
     runs-on: macos-15
     timeout-minutes: 90
