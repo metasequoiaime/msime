@@ -266,6 +266,7 @@ aux_typing_keys_messages(const std::wstring &day,
   const std::wstring prefix = aux_typing_keys_probe(day);
   const size_t room = max_aux_message_bytes / sizeof(wchar_t);
   std::vector<std::wstring> messages;
+  messages.reserve(counts.size());
   std::wstring message = prefix;
   for (const auto &[key, count] : counts) {
     if (count == 0)

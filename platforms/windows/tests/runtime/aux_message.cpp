@@ -208,6 +208,7 @@ int main() {
       wide.emplace(id, 18446744073709551615ULL);
     const auto split = aux_typing_keys_messages(L"2026-10-01", wide);
     require(split.size() > 1);
+    require(split.capacity() >= wide.size());
     std::map<std::wstring, uint64_t> carried;
     for (const auto &message : split) {
       require(message.size() * sizeof(wchar_t) <= max_aux_message_bytes);
