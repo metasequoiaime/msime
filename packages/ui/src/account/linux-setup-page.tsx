@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as onboarding from "./onboarding-style";
 import { linuxSetupFailureMessage } from "./linux-setup-errors";
+import { ActionButton } from "../core/action-button";
 
 export interface LinuxSetupStatus {
   prepared: boolean;
@@ -154,18 +155,18 @@ export function LinuxSetupPage({
       )}
       <footer className={onboarding.footer}>
         {done ? (
-          <button type="button" className={`primary ${onboarding.next}`} onClick={onComplete}>
-            进入设置
-          </button>
+          <ActionButton
+            action={onComplete}
+            className={`primary ${onboarding.next}`}
+            label="进入设置"
+          />
         ) : (
-          <button
-            type="button"
+          <ActionButton
+            action={() => void start()}
             className={`primary ${onboarding.next}`}
             disabled={busy || Boolean(blocked)}
-            onClick={() => void start()}
-          >
-            {busy ? "正在配置…" : error ? "重新配置" : "开始配置"}
-          </button>
+            label={busy ? "正在配置…" : error ? "重新配置" : "开始配置"}
+          />
         )}
       </footer>
     </main>
