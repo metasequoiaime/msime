@@ -234,15 +234,11 @@ export function LocalModelManager({
               <p className="text-xs opacity-70">
                 许可：{model.license_spdx}。{model.license_notice} 来源：
                 {openExternalUrl ? (
-                  <button
-                    type="button"
+                  <ActionButton
+                    action={() => void openExternalUrl(model.license_source).catch(() => undefined)}
                     className="link"
-                    onClick={() =>
-                      void openExternalUrl(model.license_source).catch(() => undefined)
-                    }
-                  >
-                    {model.license_source}
-                  </button>
+                    label={model.license_source}
+                  />
                 ) : (
                   <span>{model.license_source}</span>
                 )}
