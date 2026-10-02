@@ -5,7 +5,7 @@
 #
 # Usage: platforms/macos/package-release.sh [VERSION] [OUT_DIR]
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
-#   OUT_DIR defaults to target/macos-package/dist and receives msime-macos-VERSION-ARCH.dmg and SHA256SUMS.
+#   OUT_DIR defaults to target/macos-package/dist and receives msime-macos-VERSION-universal.dmg and SHA256SUMS.
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
@@ -17,7 +17,7 @@
 #   MSIME_REQUIRE_LANGUAGE_DICTIONARIES
 #                                 1 fails the package unless the Cantonese and Zhuyin dictionaries are staged and embedded; otherwise a package without them still builds, with both schemes shown as unavailable
 #
-# The product is built for the host architecture only; the DMG name carries it.
+# 产物是 universal 的：Apple 芯片和 Intel Mac 用同一个包。Rust 产物按两个 target 各编一次再用 lipo 合并，CMake 的目标和 Swift 后端经 CMAKE_OSX_ARCHITECTURES 编出双架构，打包后 check_app 逐个核对包里的 Mach-O 都含两种架构。需要 rustup target add aarch64-apple-darwin x86_64-apple-darwin。
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -33,7 +33,9 @@ out_dir="${2:-$repo_root/target/macos-package/dist}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$repo_root/target}"
 build_dir="${MSIME_MACOS_BUILD_DIR:-$repo_root/target/macos-release}"
 identity="${MACOS_SIGNING_IDENTITY:-}"
-arch="$(uname -m)"
+arch=universal
+architectures=(arm64 x86_64)
+rust_targets=(aarch64-apple-darwin x86_64-apple-darwin)
 bundle_name="水杉输入法.app"
 bundle_id="app.msime.inputmethod.MetasequoiaIME"
 entitlements="$repo_root/platforms/macos/resources/VoiceInput.entitlements"
@@ -45,6 +47,19 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+
+# 按 rust_targets 各编一次（其余参数原样传给 cargo build），再把每个 target 的同名产物用 lipo 合并到第一个参数指定的路径。
+cargo_universal() {
+  local output="$1" name="$2" target slices=()
+  shift 2
+  for target in "${rust_targets[@]}"; do
+    cargo build --release --locked --target "$target" "$@"
+    slices+=("$CARGO_TARGET_DIR/$target/release/$name")
+  done
+  mkdir -p "$(dirname "$output")"
+  lipo -create "${slices[@]}" -output "$output"
+}
+universal_dir="$CARGO_TARGET_DIR/universal/release"
 
 if [ -z "$identity" ]; then
   echo "warning: MACOS_SIGNING_IDENTITY is not set; signing ad-hoc. The settings app will run, but macOS will not register the embedded input method as an input source until it is re-signed with a Developer ID (platforms/macos/scripts/install.sh)." >&2
@@ -81,10 +96,11 @@ bash platforms/macos/stage-resources.sh "$resources"
 # ---- Input method bundle ----
 # The minimum system version goes to the C/C++ compilers and to CMake separately, never as MACOSX_DEPLOYMENT_TARGET: rustc applies that to host proc-macro dylibs too, which then fail to load (README.md, 构建与本地测试).
 CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo build --release --locked -p msime-host-api
+  cargo_universal "$universal_dir/libmsime_host_api.a" libmsime_host_api.a -p msime-host-api
 # MSIME_HOST_LIBRARY is explicit: the CMake default is target/debug, which would link the debug Rust library into a Release bundle.
 cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
-  -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$CARGO_TARGET_DIR/release/libmsime_host_api.a"
+  -DCMAKE_OSX_ARCHITECTURES="$(IFS=';'; echo "${architectures[*]}")" \
+  -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
 cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
 ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^bundle-contents$'
@@ -111,7 +127,7 @@ codesign --verify --deep --strict "$staged_bundle"
 # ---- MCP server ----
 # The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
 CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo build --release --locked -p msime-mcp-server --bin msime-mcp
+  cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
 
 # ---- Settings app ----
 pnpm install --frozen-lockfile
@@ -119,7 +135,8 @@ pnpm --filter @msime/desktop build
 # Compiled with cargo and only then bundled by `tauri bundle`, not with `tauri build`: tauri build exports MACOSX_DEPLOYMENT_TARGET from bundle.macOS.minimumSystemVersion, rustc applies it to the host proc-macro dylibs as well, and on current macOS those come out with a mis-aligned LINKEDIT string pool that dlopen rejects, so the build fails with "can't find crate". cargo leaves the variable out of its fingerprint, so a broken proc-macro would also be reused by later builds. tauri/custom-protocol is what tauri build would enable (the binary serves the embedded frontend instead of devUrl), and TAURI_CONFIG sets the version the app reports, as package-container.sh does for Linux.
 env -u MACOSX_DEPLOYMENT_TARGET TAURI_CONFIG="{\"version\":\"$version\"}" \
   CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
-  cargo build --release --locked -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+  cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+# 合并后的 universal 可执行文件放在 target/release/msime-desktop，tauri bundle 从那里取。
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 rm -rf "$tauri_bundle_dir"
 # No APPLE_SIGNING_IDENTITY: Tauri would sign the nested input method again without its entitlements. The outer app is signed below instead. tauri.macos.conf.json is merged automatically on macOS and is what embeds EngineResources and the input method.
@@ -131,7 +148,7 @@ app_name="$(basename "$app")"
 find "$app/Contents/Resources" -maxdepth 1 -name '*.app' -exec rm -rf {} +
 ditto "$staged_bundle" "$app/Contents/Resources/$bundle_name"
 # A helper executable beside the app's own is signed on its own first, and the outer signature below seals it.
-ditto "$CARGO_TARGET_DIR/release/msime-mcp" "$app/Contents/MacOS/msime-mcp"
+ditto "$universal_dir/msime-mcp" "$app/Contents/MacOS/msime-mcp"
 sign "$app/Contents/MacOS/msime-mcp"
 # Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
 glosses="$repo_root/target/macos/offline-glosses"
@@ -191,6 +208,16 @@ check_app() {
   }
   codesign --verify --deep --strict "$nested"
   codesign --verify --deep --strict "$root"
+  # universal 包里任何一个只含单一架构的 Mach-O，都会让另一种 Mac 上的输入法、设置应用或某个功能起不来，而单一架构的开发机上看不出来。
+  local file
+  while IFS= read -r -d '' file; do
+    if file -b "$file" | grep -q '^Mach-O'; then
+      lipo "$file" -verify_arch "${architectures[@]}" || {
+        echo "not universal ($(lipo -archs "$file")): $file" >&2
+        exit 1
+      }
+    fi
+  done < <(find "$root" -type f -print0)
 }
 check_app "$app"
 

@@ -104,9 +104,15 @@ file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/storage/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/*.swift")
+# bundle 里每个 Mach-O 都要包含的架构：发布包传 CMAKE_OSX_ARCHITECTURES="arm64;x86_64" 出 universal，未设置时只编宿主架构。CMake 自己编的目标直接跟随 CMAKE_OSX_ARCHITECTURES；Swift 后端和预编译的 sherpa-onnx 不经过 CMake 的编译器，所以在下面显式按这份列表处理。
+set(MSIME_BUNDLE_ARCHITECTURES ${CMAKE_OSX_ARCHITECTURES})
+if(NOT MSIME_BUNDLE_ARCHITECTURES)
+  set(MSIME_BUNDLE_ARCHITECTURES ${CMAKE_HOST_SYSTEM_PROCESSOR})
+endif()
+string(REPLACE ";" " " MSIME_SWIFT_ARCHS "${MSIME_BUNDLE_ARCHITECTURES}")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
 add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
-  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
+  COMMAND "${CMAKE_COMMAND}" -E env "MSIME_SWIFT_ARCHS=${MSIME_SWIFT_ARCHS}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
   DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh")
 add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
@@ -217,10 +223,15 @@ add_custom_command(OUTPUT "${MSIME_VOICE_RUNTIME_STAMP}"
   VERBATIM)
 add_custom_target(macos-voice-runtime DEPENDS "${MSIME_VOICE_RUNTIME_STAMP}")
 add_dependencies(MSIMEClientInputMethod macos-voice-runtime msime-voice-local)
+# 上游的 sherpa-onnx 运行库是 x86_64 + arm64 的通用二进制（约 55 MB）。拷进 bundle 时只抽出 MSIME_BUNDLE_ARCHITECTURES 里的架构：universal 包两种都留，开发构建只编宿主架构时省下另一半。lipo 会破坏上游签名，install.sh 和 package-release.sh 之后都会用 --deep 重新签名整个 bundle。
+set(MSIME_VOICE_RUNTIME_EXTRACT)
+foreach(MSIME_BUNDLE_ARCHITECTURE IN LISTS MSIME_BUNDLE_ARCHITECTURES)
+  list(APPEND MSIME_VOICE_RUNTIME_EXTRACT -extract "${MSIME_BUNDLE_ARCHITECTURE}")
+endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib"
-  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_VOICE_RUNTIME_LIBRARY}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
+  COMMAND lipo "${MSIME_VOICE_RUNTIME_LIBRARY}" ${MSIME_VOICE_RUNTIME_EXTRACT} -output "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:msime-voice-local>" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/MacOS/msime-voice-local")
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
 if(MSIME_OPTIONS_FILE)

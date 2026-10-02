@@ -9,7 +9,7 @@ permissions: {contents: write}
 concurrency: {group: release-macos, cancel-in-progress: false}
 jobs:
   release:
-    # arm64: the package is built for Apple silicon and the asset name says so. The reason was the arm64-only Homebrew boost, fmt and spdlog the C++ Engine linked; the Rust engine links none of them, so a universal package is now a separate decision rather than a constraint.
+    # 发布包是 universal 的（arm64 + x86_64），在 Apple 芯片的 runner 上交叉编出 x86_64。Rust 引擎不再链接只有 arm64 的 Homebrew 库，C/C++ 部分只用系统 SDK，所以一台机器就能编出两种架构。
     runs-on: macos-15
     timeout-minutes: 120
     # Mapped here because secrets.* cannot appear in a step's if:. All are optional; see the signing comment below and platforms/macos/README.md (发布包). The names are the ones the repository's Developer ID secrets were stored under; reading any other name gives an empty string, which silently turns every release into an ad-hoc, un-notarized package.
@@ -92,6 +92,9 @@ jobs:
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
       # Fetches the pinned dictionaries, builds the Release host library, the input method bundle and the Tauri settings app that embeds both, signs them (Developer ID when the secrets are present, ad-hoc otherwise), checks the embedded resources and signatures inside the mounted DMG, notarizes when the Apple ID secrets are present, and writes SHA256SUMS.
+      # package-release.sh 按这两个 target 各编一次 Rust 产物再合并；rust-toolchain.toml 只固定编译器版本，不带这两个标准库。
+      - name: Add the Rust targets for the universal package
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Build macOS package
         env:
           VERSION: "${{ steps.version.outputs.value }}"
@@ -109,7 +112,7 @@ jobs:
           shopt -s nullglob
           dmgs=(dist/*.dmg)
           [[ ${#dmgs[@]} -eq 1 ]]
-          [[ "$(basename "${dmgs[0]}")" == "msime-macos-${VERSION}-arm64.dmg" ]]
+          [[ "$(basename "${dmgs[0]}")" == "msime-macos-${VERSION}-universal.dmg" ]]
           [[ -f dist/SHA256SUMS ]]
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
@@ -136,7 +139,7 @@ jobs:
         env: {GH_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}", VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
-          dmg="dist/msime-macos-${VERSION}-arm64.dmg"
+          dmg="dist/msime-macos-${VERSION}-universal.dmg"
           if ! xcrun stapler validate "$dmg"; then
             echo "::warning::$dmg is not notarized; the Homebrew cask was left at its previous version"
             exit 0
