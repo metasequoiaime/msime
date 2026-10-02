@@ -1922,21 +1922,22 @@ export function TypingStatisticsPage({
               label={busy ? "处理中…" : "刷新统计"}
             />
             {client.openDirectory && (
-              <button
-                type="button"
-                className="secondary m-0"
-                disabled={busy}
-                onClick={() => {
+              <ActionButton
+                action={async () => {
                   const openDirectory = client.openDirectory;
                   if (!openDirectory) return;
                   setError("");
-                  void openDirectory().catch(() =>
-                    setError("无法打开数据目录，可能是文件管理器不可用。"),
-                  );
+                  try {
+                    await openDirectory();
+                  } catch {
+                    setError("无法打开数据目录，可能是文件管理器不可用。");
+                  }
                 }}
-              >
-                打开数据目录
-              </button>
+                ariaBusy={busy}
+                className="secondary m-0"
+                disabled={busy}
+                label="打开数据目录"
+              />
             )}
             <ActionButton
               action={() => void resetStatistics()}

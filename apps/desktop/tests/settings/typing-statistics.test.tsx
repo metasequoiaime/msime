@@ -380,6 +380,46 @@ test("marks the desktop statistics refresh action busy", async () => {
   finish(status());
 });
 
+test("opens the statistics data directory", async () => {
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <TypingStatisticsPage
+      client={{
+        load: vi.fn().mockResolvedValue(status()),
+        setEnabled: vi.fn(),
+        reset: vi.fn(),
+        openDirectory,
+      }}
+    />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "打开数据目录" }));
+  await waitFor(() => expect(openDirectory).toHaveBeenCalledOnce());
+});
+
+test("marks the statistics data directory action busy", async () => {
+  let finish!: (value: TypingStatisticsStatus) => void;
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(status())
+    .mockImplementationOnce(
+      () => new Promise<TypingStatisticsStatus>((resolve) => (finish = resolve)),
+    );
+  const openDirectory = vi.fn().mockResolvedValue(undefined);
+  render(
+    <TypingStatisticsPage client={{ load, setEnabled: vi.fn(), reset: vi.fn(), openDirectory }} />,
+  );
+
+  await screen.findByLabelText("当前范围输入字符数");
+  fireEvent.click(screen.getByRole("button", { name: "刷新统计" }));
+
+  const button = screen.getByRole("button", { name: "打开数据目录" });
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  finish(status());
+});
+
 test("a statistics mutation from a replaced client cannot overwrite the current page", async () => {
   const pending = deferred<TypingStatisticsStatus>();
   const oldClient = {
