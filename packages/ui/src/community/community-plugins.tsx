@@ -20,7 +20,7 @@ import {
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
@@ -726,8 +726,7 @@ export function CommunityPluginPublishDialog({
             <p className={style.warning}>{publishWarning}</p>
           </>
         )}
-        <div className={style.dialogActions}>
-          <ActionButton action={onClose} className="secondary" disabled={busy} label="取消" />
+        <CommunityDialogActions busy={busy} onClose={onClose}>
           {!packError && (
             <ActionButton
               action={() => submit()}
@@ -736,7 +735,7 @@ export function CommunityPluginPublishDialog({
               label={busy ? "正在发布…" : "公开发布"}
             />
           )}
-        </div>
+        </CommunityDialogActions>
       </div>
     </div>
   );
