@@ -1172,6 +1172,10 @@ export {
   type CommunityDialogHeaderProps,
 } from "./community/community-dialog";
 export {
+  CommunityConfirmation,
+  type CommunityConfirmationProps,
+} from "./community/community-confirmation";
+export {
   CommunityDetailStatus,
   type CommunityDetailStatusProps,
 } from "./community/community-detail-status";
