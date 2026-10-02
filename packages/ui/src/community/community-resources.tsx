@@ -593,16 +593,14 @@ function ResourceDetail({
             <p>我的评分（可重新选择）</p>
             <div>
               {[1, 2, 3, 4, 5].map((stars) => (
-                <button
+                <ActionButton
                   key={stars}
-                  type="button"
+                  action={() => rateResource(stars)}
                   className="secondary"
                   disabled={busy}
-                  onClick={() => rateResource(stars)}
-                  aria-label={`评 ${stars} 星`}
-                >
-                  {stars} 星
-                </button>
+                  ariaLabel={`评 ${stars} 星`}
+                  label={`${stars} 星`}
+                />
               ))}
             </div>
           </div>
