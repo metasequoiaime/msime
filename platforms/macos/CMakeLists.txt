@@ -114,23 +114,12 @@ target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTP
 target_include_directories(MSIMEClientInputMethod PRIVATE src)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
-# Sparkle orders releases by CFBundleVersion, not by the marketing version, so a build that ships a
-# fixed number can never present itself as newer than the one already installed. Derive it from the
-# commit count: monotonic, reproducible from the source alone, and needing no release bookkeeping. A
-# source tree without git history (an archive export) falls back to 1, which only means such a build
-# cannot be offered as an update - it still installs and runs.
-find_package(Git QUIET)
-if(GIT_FOUND)
-  execute_process(
-    COMMAND "${GIT_EXECUTABLE}" rev-list --count HEAD
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    OUTPUT_VARIABLE MSIME_BUILD_NUMBER
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-    RESULT_VARIABLE MSIME_BUILD_NUMBER_RESULT)
-endif()
-if(NOT MSIME_BUILD_NUMBER MATCHES "^[0-9]+$")
-  set(MSIME_BUILD_NUMBER 1)
+# The build number within a release, kept beside version.txt and set by hand with it: each new version starts again at 1, and a rebuild of the same version that has to be told apart from the last one moves it up. Sparkle orders releases by CFBundleVersion alone, so once SUFeedURL is configured the release that restarts this at 1 has to be offered through a feed that compares the short version first; until then nothing reads it but the About window and the settings app, which compares the short version before the build.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt")
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" MSIME_BUILD_NUMBER LIMIT_COUNT 1)
+string(STRIP "${MSIME_BUILD_NUMBER}" MSIME_BUILD_NUMBER)
+if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "platforms/macos/build-number.txt must hold a positive integer, not '${MSIME_BUILD_NUMBER}'")
 endif()
 set(MACOSX_BUNDLE_BUNDLE_VERSION "${MSIME_BUILD_NUMBER}")
 message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
