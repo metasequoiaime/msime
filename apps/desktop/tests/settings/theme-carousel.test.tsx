@@ -115,3 +115,29 @@ test("the last themes keep a full window", () => {
   );
   expect(current()?.getAttribute("aria-label")).toBe("查看皮肤 46");
 });
+
+test("cards added or removed around the viewed one keep it in view; only a new selection moves the carousel", () => {
+  const slides = (names: string[], selectedIndex: number) => (
+    <ThemeCarousel labels={names} selectedIndex={selectedIndex}>
+      {names.map((label) => (
+        <article key={label} aria-label={label} />
+      ))}
+    </ThemeCarousel>
+  );
+  const { rerender } = render(slides(labels, 0));
+  fireEvent.click(screen.getByRole("button", { name: "查看薄荷晨光" }));
+  expect(current()?.getAttribute("aria-label")).toBe("查看薄荷晨光");
+
+  // 选中的仍是第一张，但前面插入了一张卡片：停在正在看的那张，不跳回选中的卡片。
+  rerender(slides(["新皮肤", ...labels], 1));
+  expect(current()?.getAttribute("aria-label")).toBe("查看薄荷晨光");
+  expect(screen.getByText("4 / 4")).toBeTruthy();
+
+  // 正在看的卡片被删掉时停在原位置，越界则退到最后一张。
+  rerender(slides(["新皮肤", "跟随系统", "水杉"], 1));
+  expect(current()?.getAttribute("aria-label")).toBe("查看水杉");
+  expect(screen.getByText("3 / 3")).toBeTruthy();
+
+  rerender(slides(["新皮肤", "跟随系统", "水杉"], 0));
+  expect(current()?.getAttribute("aria-label")).toBe("查看新皮肤");
+});

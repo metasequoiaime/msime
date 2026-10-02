@@ -8,6 +8,7 @@ export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
 import { Row } from "../core/platform-controls";
+import { subscribeSkinCatalogChanges } from "./skin-catalog-changes";
 import {
   customCandidateStyle,
   normalizedColor,
@@ -360,11 +361,14 @@ export type SkinCatalogState = {
  * The scanned external skin catalog and the directory actions around it, for the theme page's carousel and the 外部皮肤 row.
  *
  * `importsSkin`: the host copies a skin the user points at, instead of opening a folder for them to drop one into. Its skin folder is inside an application sandbox, so there is nothing to open, and the catalog is scanned again once the import answers.
+ *
+ * `active`：列出目录的页面当前是否显示。设置页切走后仍挂在隐藏的 fieldset 里，所以页面重新显示、窗口重新获得焦点（用户可能刚在 Finder 里拷进皮肤，或 MCP 服务刚生成了一款）时各重扫一次；社区图库装入或同步改动了目录（`notifySkinCatalogChanged`）时，无论页面是否显示都重扫，切回来时列表已经是新的。
  */
 export function useSkinCatalog(
   scan: (() => Promise<SkinCatalog>) | undefined,
   openDirectory: (() => Promise<void>) | undefined,
   importsSkin: boolean,
+  active = true,
 ): SkinCatalogState {
   const [catalog, setCatalog] = useState<SkinCatalog | null>(null);
   const [revision, setRevision] = useState(0);
@@ -372,6 +376,10 @@ export function useSkinCatalog(
   const [failed, setFailed] = useState(false);
   const generation = useRef(0);
   const pending = useRef(false);
+  // 扫描进行中又收到目录改动的通知：进行中的那次可能读不到新皮肤，结束后再补扫一次。
+  const queued = useRef(false);
+  // 最近一次落地的清单，自动重扫据此判断结果有没有变化。
+  const latest = useRef<SkinCatalog | null>(null);
   const [opening, setOpening] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
   const openGeneration = useRef(0);
@@ -408,25 +416,36 @@ export function useSkinCatalog(
   useEffect(() => {
     generation.current++;
     pending.current = false;
+    queued.current = false;
+    latest.current = null;
     setCatalog(null);
     setBusy(false);
     setFailed(false);
-    // Scan as the page opens, as the native fallback page (SkinSettingsView) does. Waiting for a manual refresh left the carousel without the package in use, so the skin in use looked missing. The refresh button stays for folders copied in while the page is open.
-    void refresh();
+    // Scan as the page opens, as the native fallback page (SkinSettingsView) does. Waiting for a manual refresh left the carousel without the package in use, so the skin in use looked missing.
+    void run(true);
     return () => {
       generation.current++;
       pending.current = false;
+      queued.current = false;
     };
   }, [scan]);
-  async function refresh() {
+  /**
+   * 扫描一次目录，任何时候最多只有一次在进行。`manual` 的结果总会落地并递增 `revision`，让清单没变时也重读皮肤图片；自动重扫的结果和上次相同时保留原清单，卡片不重绘，也不重读图片。
+   */
+  async function run(manual: boolean) {
     if (!scan || pending.current) return;
     pending.current = true;
+    queued.current = false;
     const current = ++generation.current;
     setBusy(true);
     setFailed(false);
     try {
       const result = await scan();
-      if (current === generation.current) {
+      if (
+        current === generation.current &&
+        (manual || JSON.stringify(result) !== JSON.stringify(latest.current))
+      ) {
+        latest.current = result;
         setCatalog(result);
         setRevision((value) => value + 1);
       }
@@ -435,10 +454,46 @@ export function useSkinCatalog(
     } finally {
       if (current === generation.current) {
         pending.current = false;
-        setBusy(false);
+        if (queued.current) void run(false);
+        else setBusy(false);
       }
     }
   }
+  function refresh() {
+    return run(true);
+  }
+  // 自动重扫走最新一次渲染的 `run`，订阅本身不必随每次渲染重建。
+  const rescan = useRef(run);
+  rescan.current = run;
+  useEffect(
+    () =>
+      subscribeSkinCatalogChanges(() => {
+        if (pending.current) queued.current = true;
+        else void rescan.current(false);
+      }),
+    [],
+  );
+  // 页面重新显示时重扫。挂载时的那次已由上面的扫描负责，这里只看从隐藏到显示的变化。
+  const shown = useRef(active);
+  useEffect(() => {
+    const wasShown = shown.current;
+    shown.current = active;
+    if (active && !wasShown) void rescan.current(false);
+  }, [active]);
+  // 页面显示期间，窗口重新获得焦点或从后台回到前台时重扫。两个事件常常一起到达，第二个碰上进行中的扫描就直接放弃。
+  useEffect(() => {
+    if (!active) return;
+    const onFocus = () => void rescan.current(false);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void rescan.current(false);
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [active]);
   return { catalog, revision, busy, failed, refresh, opening, openFailed, openFolder };
 }
 
@@ -467,7 +522,7 @@ export function ExternalSkinDirectoryRow({
           <>
             {importsSkin
               ? "点“导入皮肤”，选中包含 skin.toml 的皮肤文件夹。文件夹名只能用小写字母、数字和 . _ -，同名皮肤会被替换。"
-              : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，然后刷新。"}
+              : "把包含 skin.toml 的皮肤文件夹复制到下面的目录，回到这个窗口时会自动列出。"}
             <span role="status" className="block">
               {!scannable
                 ? "当前宿主不支持扫描外部皮肤。"

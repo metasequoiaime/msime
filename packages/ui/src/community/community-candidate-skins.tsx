@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { errorCode } from "../core/error-code";
 import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
+import { notifySkinCatalogChanged } from "../skin/skin-catalog-changes";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
 import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
@@ -259,7 +260,7 @@ export function CommunityCandidateSkinsPage({
   readSkinImage?: SkinImageReader;
   /** Returns to 我的皮肤 on 主题, where an installed package is enabled; the community page sits outside the settings form and never writes preferences itself. */
   onOpenSkinPage?: () => void;
-  /** Called once a package lands in the external skin directory, so a listing of that directory can scan again. */
+  /** 皮肤装进外部皮肤目录之后调用，社区页用它把目录和云端皮肤库同步一次。列出目录的界面不靠它重扫，装入时已经发出 `notifySkinCatalogChanged`。 */
   onInstalled?: () => void;
   onLogin?: () => void;
 }) {
@@ -358,6 +359,8 @@ export function CommunityCandidateSkinsPage({
           }
         }
         await client.install(target.id, replace);
+        // 皮肤已经写进目录，即使图库随后换了客户端，主题页也该重扫。
+        notifySkinCatalogChanged();
         if (!gallery.isCurrent(currentClient)) return;
         setConfirmReplace(false);
         setInstalled(true);

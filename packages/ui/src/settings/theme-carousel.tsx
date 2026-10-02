@@ -1,4 +1,13 @@
-import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import * as settings from "./settings-style";
 
 /** 导航最多显示的圆点数。每个已安装的皮肤都是一张卡片，主题多于这个数时，圆点改为跟随当前卡片的一段窗口，导航行的宽度不随皮肤数量增长。 */
@@ -19,33 +28,48 @@ export interface ThemeCarouselProps {
   labels: string[];
   /** The slide to bring into view when the page opens and whenever the selected theme changes. */
   selectedIndex: number;
+  /** 每张卡片的 `key` 标识它是哪个主题：重扫皮肤目录增删了卡片时，轮播停在原来那张卡片上，只有选中的主题换了才跳过去。 */
   children: ReactNode;
 }
 
 /** Shows the theme cards one at a time, switched with the arrows, the dots, the arrow keys, or a horizontal swipe on the track. */
 export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarouselProps) {
   const track = useRef<HTMLDivElement>(null);
+  const slides = Children.toArray(children);
+  const count = slides.length;
+  const keys = slides.map((slide, at) => (isValidElement(slide) ? String(slide.key) : `#${at}`));
   const [index, setIndex] = useState(selectedIndex);
   // The resize handler re-snaps to this without re-subscribing on every slide change.
   const current = useRef(index);
-  const count = Children.count(children);
+  // 当前显示的卡片和最新的卡片列表；`show` 读它们，因此不必随卡片数量变化而重建。
+  const shownKey = useRef<string | undefined>(keys[index]);
+  const latestKeys = useRef(keys);
+  latestKeys.current = keys;
   const windowStart = carouselDotWindowStart(index, labels.length);
 
-  const show = useCallback(
-    (next: number, smooth: boolean) => {
-      const clamped = Math.min(Math.max(next, 0), Math.max(count - 1, 0));
-      current.current = clamped;
-      setIndex(clamped);
-      const element = track.current;
-      element?.scrollTo?.({
-        left: clamped * element.clientWidth,
-        behavior: smooth ? "smooth" : "auto",
-      });
-    },
-    [count],
-  );
+  const show = useCallback((next: number, smooth: boolean) => {
+    const clamped = Math.min(Math.max(next, 0), Math.max(latestKeys.current.length - 1, 0));
+    current.current = clamped;
+    shownKey.current = latestKeys.current[clamped];
+    setIndex(clamped);
+    const element = track.current;
+    element?.scrollTo?.({
+      left: clamped * element.clientWidth,
+      behavior: smooth ? "smooth" : "auto",
+    });
+  }, []);
 
-  useEffect(() => show(selectedIndex, false), [selectedIndex, show]);
+  // 只在选中的卡片换了时跟过去。重扫目录在前面插入一款皮肤会让选中卡片的序号变化，但它还是同一张，不应把用户正在看的卡片换掉。
+  const selectedKey = keys[selectedIndex] ?? `#${selectedIndex}`;
+  useEffect(() => show(selectedIndex, false), [selectedKey, show]);
+
+  // 卡片增删之后留在原来那张卡片上；它被删掉了就停在原位置，越界时退到最后一张。
+  const keySignature = keys.join("\n");
+  // 在绘制前挪回去，免得有一帧显示成插进来的那张卡片。
+  useLayoutEffect(() => {
+    const at = shownKey.current === undefined ? -1 : latestKeys.current.indexOf(shownKey.current);
+    show(at >= 0 ? at : current.current, false);
+  }, [keySignature, show]);
 
   // The page mounts inside a hidden fieldset, where the track has no width; snapping again once it is laid out (and on every later resize) keeps the chosen card in view.
   useEffect(() => {
@@ -61,6 +85,7 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
     if (!element || element.clientWidth === 0) return;
     const next = Math.round(element.scrollLeft / element.clientWidth);
     current.current = next;
+    shownKey.current = latestKeys.current[next];
     setIndex(next);
   }
 
@@ -74,8 +99,9 @@ export function ThemeCarousel({ labels, selectedIndex, children }: ThemeCarousel
   return (
     <section aria-roledescription="carousel" aria-label="主题列表" onKeyDown={onKeyDown}>
       <div ref={track} className={settings.themeCarouselTrack} onScroll={onScroll}>
-        {Children.map(children, (child, slide) => (
+        {slides.map((child, slide) => (
           <div
+            key={keys[slide]}
             className={settings.themeCarouselSlide}
             aria-roledescription="slide"
             aria-label={`${slide + 1} / ${count}`}

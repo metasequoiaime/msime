@@ -82,14 +82,20 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
   const [published, setPublished] = useState<CandidateSkinVisibility | null>(null);
   const candidateSkins = client.communityCandidateSkins;
   const importsSkin = host?.skin_directory_import === true;
-  const skins = useSkinCatalog(client.scanSkinCatalog, client.openSkinDirectory, importsSkin);
+  const shown = page === "skin" && !hidden;
+  const skins = useSkinCatalog(
+    client.scanSkinCatalog,
+    client.openSkinDirectory,
+    importsSkin,
+    shown,
+  );
   const packages = skins.catalog?.packages ?? [];
   // A package is part of the custom theme, so its card is the one in use while the custom theme draws it; the 自定义 card is then the custom theme without a package.
   const skinInUse = globalTheme === "custom" ? (draft.custom_theme?.candidate_skin ?? null) : null;
   const packageInUse = packages.findIndex((skin) => skin.id === skinInUse);
   return (
     <>
-      <fieldset disabled={busy} hidden={hidden || page !== "skin"} aria-label="主题">
+      <fieldset disabled={busy} hidden={!shown} aria-label="主题">
         <div className={settings.groups}>
           <SkinPlatformNotice mobile={mobilePlatform} linux={linuxPlatform} />
           {/* 这条说明指出面板会忽略本页的皮肤和颜色，而它们在别处都无法编辑，所以除了「候选窗口」预览下方，这里也保留一份。 */}
@@ -352,7 +358,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
           />
         </div>
       </fieldset>
-      {candidateSkins && publishSkinId && page === "skin" && !hidden && (
+      {candidateSkins && publishSkinId && shown && (
         <CandidateSkinPublishDialog
           client={candidateSkins}
           localSkins={client.scanSkinCatalog}
