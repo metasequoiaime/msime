@@ -8,6 +8,7 @@ export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
 import { Row } from "../core/platform-controls";
+import { ActionButton } from "../core/action-button";
 import { subscribeSkinCatalogChanges } from "./skin-catalog-changes";
 import {
   customCandidateStyle,
@@ -246,34 +247,28 @@ export function ExternalSkinCard({
           </span>
         </div>
         <div className={settings.skinCardActions}>
-          <button
-            type="button"
-            role="switch"
-            aria-label={skin.name}
-            aria-checked={selected}
-            disabled={!compatible}
+          <ActionButton
+            action={() => onSelect(skin.id, skin.base)}
+            ariaChecked={selected}
+            ariaLabel={skin.name}
             className={settings.skinSwitch(selected)}
-            onClick={() => onSelect(skin.id, skin.base)}
-          >
-            <span className={settings.skinSwitchKnob(selected)} />
-          </button>
+            disabled={!compatible}
+            label={<span className={settings.skinSwitchKnob(selected)} />}
+            role="switch"
+          />
           {fixed === null && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => setOverride(theme === "dark" ? "light" : "dark")}
               className={settings.skinPreviewSwitch}
-              onClick={() => setOverride(theme === "dark" ? "light" : "dark")}
-            >
-              {theme === "dark" ? "预览浅色" : "预览深色"}
-            </button>
+              label={theme === "dark" ? "预览浅色" : "预览深色"}
+            />
           )}
           {onPublish && (
-            <button
-              type="button"
+            <ActionButton
+              action={() => onPublish(skin.id)}
               className={settings.skinPreviewSwitch}
-              onClick={() => onPublish(skin.id)}
-            >
-              发布到社区
-            </button>
+              label="发布到社区"
+            />
           )}
         </div>
       </div>
@@ -543,28 +538,26 @@ export function ExternalSkinDirectoryRow({
           </>
         }
       >
-        <button
-          type="button"
+        <ActionButton
+          action={() => void skins.openFolder()}
           className="secondary"
           disabled={!openable || skins.opening}
-          onClick={() => void skins.openFolder()}
-        >
-          {skins.opening
-            ? importsSkin
-              ? "正在导入…"
-              : "正在打开…"
-            : importsSkin
-              ? "导入皮肤"
-              : "打开目录"}
-        </button>
-        <button
-          type="button"
+          label={
+            skins.opening
+              ? importsSkin
+                ? "正在导入…"
+                : "正在打开…"
+              : importsSkin
+                ? "导入皮肤"
+                : "打开目录"
+          }
+        />
+        <ActionButton
+          action={() => void skins.refresh()}
           className="secondary"
           disabled={!scannable || skins.busy}
-          onClick={() => void skins.refresh()}
-        >
-          {skins.busy ? "正在扫描…" : "刷新皮肤"}
-        </button>
+          label={skins.busy ? "正在扫描…" : "刷新皮肤"}
+        />
       </Row>
       {(skins.openFailed || skins.failed || !!skins.catalog?.issues.length) && (
         <div className={settings.groupBlock}>
