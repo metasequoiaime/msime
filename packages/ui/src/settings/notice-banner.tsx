@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import { useEffect, useState, type MouseEvent } from "react";
+import { ActionButton } from "../core/action-button";
 
 /** One live console notice, client-core's `notices::Notice`. */
 export type AppNotice = {
@@ -85,14 +86,12 @@ export function NoticeBanner({
                 </span>
               )}
             </div>
-            <button
-              type="button"
+            <ActionButton
+              action={() => dismiss(notice.id)}
               className="secondary shrink-0"
-              aria-label={`关闭公告 ${notice.title}`}
-              onClick={() => dismiss(notice.id)}
-            >
-              关闭
-            </button>
+              ariaLabel={`关闭公告 ${notice.title}`}
+              label="关闭"
+            />
           </div>
           {notice.body && (
             <div
