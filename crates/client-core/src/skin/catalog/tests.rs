@@ -622,15 +622,22 @@ fn base_names_system_or_a_builtin_theme() {
         serde_json::to_value(&catalog.packages[0]).unwrap()["base"],
         "system"
     );
-    // `custom` is not a base, and the other retired or misspelt ids are refused rather than read as system.
+    // msime-windows 的其他内置外观同样画在 `system` 之上。
     for base in [
-        "custom",
         "wechat",
         "graphite",
         "willow_green",
-        "Fluent",
-        "Night",
+        "autumn_osmanthus",
+        "microsoft",
     ] {
+        let catalog = scan_manifest(
+            &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
+        );
+        assert!(catalog.issues.is_empty(), "{base}: {catalog:?}");
+        assert_eq!(catalog.packages[0].base, GlobalTheme::System, "{base}");
+    }
+    // `custom` is not a base, and the other retired or misspelt ids are refused rather than read as system.
+    for base in ["custom", "Fluent", "Night", "Wechat", "default"] {
         let catalog = scan_manifest(
             &manifest("sample").replace("base = 'night'", &format!("base = '{base}'")),
         );
@@ -859,10 +866,59 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         "system",
         "night",
         "custom",
+        "fluent",
+        "wechat",
+        "graphite",
+        "willow_green",
+        "autumn_osmanthus",
+        "microsoft",
+        "default",
         &"a".repeat(65),
     ] {
         assert!(!is_external_id(id), "{id}");
     }
+}
+
+/// msime-windows 的外观作为 `base` 时，包没写的颜色和圆角按该外观补齐，深浅各补各的；包自己写的、以及读得懂的颜色保持原样，读不懂的换成外观的颜色。
+#[test]
+fn a_windows_look_base_fills_what_the_package_leaves_out() {
+    let body = manifest("sample").replace("base = 'night'", "base = 'wechat'")
+        + "[candidate.dark]\naccent = '#123456'\ntext = 'not a colour'\n[toolbar.light]\nicon = '#abcdef'\n";
+    let catalog = scan_manifest(&body);
+    assert!(catalog.issues.is_empty(), "{catalog:?}");
+    let package = &catalog.packages[0];
+    assert_eq!(package.base, super::super::theme::GlobalTheme::System);
+    let dark = &package.candidate.dark;
+    assert_eq!(dark.accent.as_deref(), Some("#123456"));
+    assert_eq!(dark.text.as_deref(), Some("#B7B7B7"));
+    assert_eq!(dark.surface.as_deref(), Some("#151515"));
+    assert_eq!(dark.hover.as_deref(), Some("#07C16052"));
+    assert_eq!(dark.show_selected_bar, Some(false));
+    // 翻译色跟随序号色，外观不补。
+    assert_eq!(dark.translation, None);
+    let light = &package.candidate.light;
+    assert_eq!(light.surface.as_deref(), Some("#F7F7F7"));
+    assert_eq!(light.selected.as_deref(), Some("#07C160"));
+    assert_eq!(package.corner_radius_dip, Some(5.0));
+    assert_eq!(package.toolbar.corner_radius_dip, Some(8.0));
+    assert_eq!(package.toolbar.light.icon.as_deref(), Some("#ABCDEF"));
+    assert_eq!(package.toolbar.light.handle.as_deref(), Some("#07C160"));
+    assert_eq!(package.toolbar.dark.background.as_deref(), Some("#151515"));
+
+    // 包自己写的圆角优先；`fluent` 就是原生配色，什么也不补。
+    let own_radius = scan_manifest(
+        &manifest("sample")
+            .replace("base = 'night'", "base = 'graphite'")
+            .replace(
+                "min_width_dip = 10\n",
+                "min_width_dip = 10\ncorner_radius_dip = 12\n",
+            ),
+    );
+    assert_eq!(own_radius.packages[0].corner_radius_dip, Some(12.0));
+    let fluent = scan_manifest(&manifest("sample").replace("base = 'night'", "base = 'fluent'"));
+    assert_eq!(fluent.packages[0].candidate, CandidateColors::default());
+    assert_eq!(fluent.packages[0].corner_radius_dip, None);
+    assert_eq!(fluent.packages[0].toolbar, SkinToolbar::default());
 }
 
 /// The full-TOML manifest the native hosts must accept exactly as the settings page does (Windows parses skin.toml with toml++): literal strings, a multi-line array, an inline table, a digit separator, a unicode escape and a `#` inside a literal string.
@@ -1296,4 +1352,71 @@ fn host_catalog_publishes_what_linux_draws_of_a_styled_package() {
             "corner_radius_dip": 12.0,
         }]})
     );
+}
+
+/// `client_dialect.json` 是皮肤清单规则的共享用例表，各个实现都按它校验：这里的 `load`、msime-cloud 的 Go 移植（`internal/skins/client.go`）与种子脚本，以及 msime-windows 的 `CandidateSkinCatalog::Load`。它们各自保存一份副本，由各自仓库的同步脚本按本文件刷新，所以改规则先改这里。
+///
+/// 每个用例按 `_comment` 说明的顺序生成清单与旁边的文件（每个文件一个字节），接受的用例核对解析出的 `base`，拒绝的用例核对拒绝原因。
+#[test]
+fn shared_dialect_cases_match_the_loader() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("client_dialect.json")).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert!(cases.len() >= 150, "用例表丢了用例：{}", cases.len());
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let template = case["template"].as_str().unwrap();
+        let (mut id, mut body, mut files) = if template == "raw" {
+            let body = case["manifest"].as_str().unwrap().to_owned();
+            ("sample".to_owned(), body, Vec::new())
+        } else {
+            let source = &fixture["templates"][template];
+            (
+                source["id"].as_str().unwrap().to_owned(),
+                source["manifest"].as_str().unwrap().to_owned(),
+                source["files"].as_array().unwrap().clone(),
+            )
+        };
+        if let Some(own) = case["id"].as_str() {
+            id = own.to_owned();
+        }
+        body = body.replace("{id}", &id);
+        for edit in case["replace"].as_array().into_iter().flatten() {
+            let from = edit[0].as_str().unwrap();
+            assert!(body.contains(from), "{name}：清单里没有 {from:?}");
+            body = body.replacen(from, edit[1].as_str().unwrap(), 1);
+        }
+        body = format!(
+            "{}{body}{}",
+            case["prepend"].as_str().unwrap_or(""),
+            case["append"].as_str().unwrap_or("")
+        );
+        if let Some(pad_to) = case["pad_to"].as_u64() {
+            body.push('#');
+            body.push_str(&"x".repeat(pad_to as usize - body.len()));
+        }
+        if let Some(own) = case["files"].as_array() {
+            files = own.clone();
+        }
+
+        let root = tempdir().unwrap();
+        let skin = root.path().join(&id);
+        fs::create_dir_all(&skin).unwrap();
+        for file in &files {
+            let path = skin.join(file.as_str().unwrap());
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"x").unwrap();
+        }
+        fs::write(skin.join("skin.toml"), &body).unwrap();
+        match (load(root.path(), &id), case["reason"].as_str()) {
+            (Ok(package), None) => {
+                if let Some(base) = case["base"].as_str() {
+                    assert_eq!(package.base.id(), base, "{name}");
+                }
+            }
+            (Err(reason), Some(expected)) => assert_eq!(reason, expected, "{name}"),
+            (Ok(_), Some(expected)) => panic!("{name}：接受了，应以 {expected:?} 拒绝"),
+            (Err(reason), None) => panic!("{name}：以 {reason:?} 拒绝，应接受"),
+        }
+    }
 }

@@ -295,11 +295,11 @@ impl CustomTheme {
                 return Err(error);
             }
         }
-        // The same rule the skin catalog lists packages by, so a saved selection always names a folder the catalog could list.
+        // 与皮肤目录的文件夹名同一形状，但沿用较宽的 `is_selectable_id`：被 msime-windows 内置外观占用的旧皮肤名仍可保存，只是目录里找不到它。
         if self
             .candidate_skin
             .as_deref()
-            .is_some_and(|skin| !crate::skin::catalog::is_external_id(skin))
+            .is_some_and(|skin| !crate::skin::catalog::is_selectable_id(skin))
         {
             return Err(PreferencesError::InvalidCandidateSkin);
         }

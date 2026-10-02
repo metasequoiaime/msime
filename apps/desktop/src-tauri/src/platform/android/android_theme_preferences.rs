@@ -85,7 +85,7 @@ pub(crate) fn apply_theme_settings(
     }
     if let Some(value) = string_setting(values, CUSTOM_CANDIDATE_SKIN) {
         if supports(CUSTOM_CANDIDATE_SKIN, "string")? {
-            if !value.is_empty() && !msime_client_core::skin::catalog::is_external_id(value) {
+            if !value.is_empty() && !msime_client_core::skin::catalog::is_selectable_id(value) {
                 return Err(AccountError::Invalid);
             }
             preferences.custom_theme.candidate_skin = (!value.is_empty()).then(|| value.to_owned());
