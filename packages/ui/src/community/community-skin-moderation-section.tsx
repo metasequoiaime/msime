@@ -1,6 +1,6 @@
-import * as style from "./community-style";
 import { ActionButton } from "../core/action-button";
 import { CommunityRatingButtons } from "./community-rating-buttons";
+import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
 
 export interface CommunitySkinModerationSectionProps {
   owned: boolean;
@@ -57,24 +57,14 @@ export function CommunitySkinModerationSection({
         />
       )}
       {confirmUnpublish && (
-        <div className={style.confirmation} role="alertdialog" aria-label={unpublishConfirmLabel}>
-          <p>{unpublishMessage}</p>
-          <div className={confirmationActionsClassName}>
-            <ActionButton
-              action={onUnpublish}
-              ariaBusy={actionBusy}
-              className="danger"
-              disabled={actionBusy}
-              label="确认下架"
-            />
-            <ActionButton
-              action={onCancelUnpublish}
-              ariaBusy={actionBusy}
-              disabled={actionBusy}
-              label="取消"
-            />
-          </div>
-        </div>
+        <CommunityUnpublishConfirmation
+          ariaLabel={unpublishConfirmLabel}
+          message={unpublishMessage}
+          actionBusy={actionBusy}
+          onConfirm={onUnpublish}
+          onCancel={onCancelUnpublish}
+          actionsClassName={confirmationActionsClassName}
+        />
       )}
     </>
   );

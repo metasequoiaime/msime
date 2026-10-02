@@ -30,6 +30,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { ActionButton } from "../core/action-button";
 import { CommunityRatingButtons } from "./community-rating-buttons";
+import { CommunityUnpublishConfirmation } from "./community-unpublish-confirmation";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -613,26 +614,18 @@ function ResourceDetail({
           <CommunityReportSection actionBusy={busy} onReport={report} />
         )}
         {confirmDelete && (
-          <div className={style.confirmation} role="alertdialog" aria-label="确认下架作品">
-            <p>
-              下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
-              {item.name}”吗？
-            </p>
-            <div>
-              <ActionButton
-                action={unpublish}
-                className="danger"
-                disabled={busy}
-                label="确认下架"
-              />
-              <ActionButton
-                action={() => setConfirmDelete(false)}
-                className="secondary"
-                disabled={busy}
-                label="取消"
-              />
-            </div>
-          </div>
+          <CommunityUnpublishConfirmation
+            ariaLabel="确认下架作品"
+            message={
+              <>
+                下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
+                {item.name}”吗？
+              </>
+            }
+            actionBusy={busy}
+            onConfirm={unpublish}
+            onCancel={() => setConfirmDelete(false)}
+          />
         )}
       </section>
       {editing && (
