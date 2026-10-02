@@ -9,6 +9,11 @@ private final class CommunityMemoryCredentials: BackendSessionStorage, @unchecke
   func clear() throws { lock.lock(); defer { lock.unlock() }; value = nil }
 }
 
+/// 需要登录的用例用这个会话。内存存储只属于本进程，所以配进程内的刷新锁；默认的 App Group 文件锁在未签名的测试宿主里拿不到共享容器，`login` 会被它直接拒绝成 `Failure(status: 0)`。
+private func communitySession(_ client: BackendAccountClient, _ storage: CommunityMemoryCredentials) -> BackendAccountSession {
+  BackendAccountSession(api: client, storage: storage, refreshLock: BackendProcessRefreshLock())
+}
+
 private final class CommunityFixtureProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -65,7 +70,7 @@ final class SkinCommunityTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CommunityFixtureProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: memory))
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
     try await api.login(challenge: "fixture", identityToken: "synthetic")
     let signedIn = try await api.signedIn()
     XCTAssertTrue(signedIn)
@@ -87,7 +92,7 @@ final class SkinCommunityTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CommunityFixtureProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: memory))
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
     try await api.login(challenge: "fixture", identityToken: "synthetic")
     for invalid in ["  ", String(repeating: "字", count: 65), "名字\n换行"] {
       do { _ = try await api.updateProfile(name: invalid); XCTFail("invalid name accepted") }
@@ -336,8 +341,7 @@ extension SkinCommunityTests {
     configuration.protocolClasses = [InvalidCommunityMutationProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
     let memory = CommunityMemoryCredentials()
-    let api = SkinCommunityAPI(client: client,
-                               account: BackendAccountSession(api: client, storage: memory))
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
     do {
       _ = try await api.resources(.dictionary)
       XCTFail("expected unknown dictionary word kind rejection")
@@ -628,7 +632,7 @@ final class SkinCommunityCategoryTests: XCTestCase {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [CategoryRecordingProtocol.self]
     let client = BackendAccountClient(configuration: configuration)
-    let api = SkinCommunityAPI(client: client, account: BackendAccountSession(api: client, storage: CommunityMemoryCredentials()))
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, CommunityMemoryCredentials()))
     let id = CategoryRecordingProtocol.skinID
 
     let all = try await api.list(search: "纸感")
