@@ -1168,9 +1168,7 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   bool removed = false;
   try {
     if (!text) {
-      std::error_code error;
-      std::filesystem::remove(path, error);
-      removed = !error;
+      removed = msime::linux_host::remove_clipboard_file(std::filesystem::path(path));
     } else {
       auto value = read_clipboard_store(std::filesystem::path(path));
       if (value && value->is_array()) {
