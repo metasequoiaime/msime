@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { ActionButton } from "../core/action-button";
 
 export interface NativePanelHeaderProps {
   title?: ReactNode;
@@ -22,9 +23,7 @@ export function NativePanelHeader({
     <header className={className} {...drag}>
       {title !== undefined && <span>{title}</span>}
       {children}
-      <button type="button" aria-label="关闭" disabled={closeDisabled} onClick={onClose}>
-        ×
-      </button>
+      <ActionButton action={onClose} ariaLabel="关闭" disabled={closeDisabled} label="×" />
     </header>
   );
 }
