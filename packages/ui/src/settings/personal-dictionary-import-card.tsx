@@ -185,14 +185,12 @@ export function PersonalDictionaryImportCard({
         </p>
       )}
       {entries && (
-        <button
-          type="button"
+        <ActionButton
+          action={() => void importEntries()}
           className="primary"
           disabled={busy}
-          onClick={() => void importEntries()}
-        >
-          确认导入
-        </button>
+          label="确认导入"
+        />
       )}
     </>
   );
