@@ -1083,37 +1083,31 @@ export function TouchKeyboardSkinEditor({
                     <strong>{item.name}</strong>
                   </button>
                   <div className={skin.libraryActions}>
-                    <button
-                      type="button"
+                    <ActionButton
+                      action={() => setConfirmation({ operation: "update", item })}
                       className="secondary"
                       disabled={libraryBusy}
-                      aria-label={`用当前设计更新 ${item.name}`}
-                      onClick={() => setConfirmation({ operation: "update", item })}
-                    >
-                      更新
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={libraryBusy}
-                      aria-label={`重命名 ${item.name}`}
-                      onClick={() => {
+                      ariaLabel={`用当前设计更新 ${item.name}`}
+                      label="更新"
+                    />
+                    <ActionButton
+                      action={() => {
                         setSkinName(item.name);
                         setNameEditor({ operation: "rename", id: item.id });
                         setLibraryNotice("");
                       }}
-                    >
-                      重命名
-                    </button>
-                    <button
-                      type="button"
+                      className="secondary"
+                      disabled={libraryBusy}
+                      ariaLabel={`重命名 ${item.name}`}
+                      label="重命名"
+                    />
+                    <ActionButton
+                      action={() => setConfirmation({ operation: "delete", item })}
                       className="danger-text"
                       disabled={libraryBusy}
-                      aria-label={`删除 ${item.name}`}
-                      onClick={() => setConfirmation({ operation: "delete", item })}
-                    >
-                      删除
-                    </button>
+                      ariaLabel={`删除 ${item.name}`}
+                      label="删除"
+                    />
                   </div>
                 </article>
               ))}
