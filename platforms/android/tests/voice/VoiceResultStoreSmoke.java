@@ -62,6 +62,10 @@ public final class VoiceResultStoreSmoke {
             store.save("未来时间测试结果", now + 60_001L);
             check(store.read(now) == null);
 
+            long nearMaximum = Long.MAX_VALUE - VoiceResultStore.LIFETIME_MILLIS;
+            VoiceResultStore.Entry nearMaximumEntry = store.save("接近时间上限", nearMaximum);
+            check(store.read(Long.MAX_VALUE - 30_000L).equals(nearMaximumEntry));
+
             Files.createDirectories(directory);
             Files.write(directory.resolve("result.bin"), new byte[] { 1, 2, 3 });
             fails(VoiceResultStore.Reason.INVALID, () -> store.read(now));

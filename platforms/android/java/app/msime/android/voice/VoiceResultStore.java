@@ -196,8 +196,9 @@ public final class VoiceResultStore {
                 || !validText(entry.text())
                 || entry.expiresAtMillis() - entry.createdAtMillis() != LIFETIME_MILLIS)
             throw new Failure(Reason.INVALID);
-        if (entry.expiresAtMillis() <= nowMillis
-                || entry.createdAtMillis() > nowMillis + FUTURE_TOLERANCE_MILLIS) {
+        boolean tooFarInFuture = entry.createdAtMillis() > nowMillis
+            && entry.createdAtMillis() - nowMillis > FUTURE_TOLERANCE_MILLIS;
+        if (entry.expiresAtMillis() <= nowMillis || tooFarInFuture) {
             Files.delete(result);
             return null;
         }
