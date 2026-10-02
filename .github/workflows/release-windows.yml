@@ -90,6 +90,11 @@ jobs:
           if ($generator.Count -ne 1) { throw "no single CMake generator for Visual Studio $major" }
           $generator = $generator[0]
           Write-Output "CMake generator: $generator"
+          # Build-Client.ps1 builds the WinUI 3 settings project with msbuild, which a Developer PowerShell has on PATH and the runner's plain pwsh does not; take it from the same Visual Studio installation.
+          $msbuild = @(& $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\amd64\MSBuild.exe')
+          if ($msbuild.Count -lt 1) { throw 'no MSBuild in the Visual Studio installation' }
+          $env:PATH = "$(Split-Path -Parent $msbuild[0]);$env:PATH"
+          Write-Output "MSBuild: $($msbuild[0])"
           ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator
       - name: Collect third-party notices
         shell: pwsh
