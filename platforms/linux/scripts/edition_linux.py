@@ -70,7 +70,7 @@ def identity(entry: dict) -> Identity:
 
 # ---- 改写规则 ----
 
-# 每条规则是（说明，正则，替换）。替换拿到版本的名字，返回替换成的文本；正则按多行模式匹配。
+# 每条规则是（说明，正则，替换）。替换拿到版本的名字，返回替换成的文本；正则按多行模式匹配。规则列表为空的文件不需要改写，只做改写后的检查。
 Rule = tuple[str, str, Replacement]
 
 # 用户单元：<package>-online.socket 等。
@@ -103,6 +103,9 @@ RULES: dict[str, list[Rule]] = {
         CLIENT_DIRECTORY, PACKAGE, DISPLAY_NAME,
     ],
     "data/msime-linux-clipboard.service.in": [CLIENT_DIRECTORY],
+    # 这两个单元只按前缀找程序，没有要换的名字；列在这里是为了让改写后的检查（不留下 full 的名字）照样覆盖它们。
+    "data/msime-linux-online.service.in": [],
+    "data/msime-linux-voice.service.in": [],
     "data/msime-linux-online.socket": [CLIENT_DIRECTORY],
     "data/msime-linux-voice.socket": [CLIENT_DIRECTORY],
     "data/msime-linux-clipboard.desktop": [UNITS, DISPLAY_NAME, ENGLISH_NAME],
