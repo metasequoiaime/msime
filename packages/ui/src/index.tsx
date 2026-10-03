@@ -541,7 +541,12 @@ export {
   type AccountStatusMessagesProps,
 } from "./account/account-status-messages";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
-export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
+export {
+  runAccountOperation,
+  useAccountAction,
+  type AccountActionState,
+  type AccountOperationState,
+} from "./account/account-operation";
 export {
   runAsyncAction,
   type AsyncActionOptions,

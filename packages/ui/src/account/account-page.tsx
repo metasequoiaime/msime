@@ -16,7 +16,7 @@ import { AccountIdentityDetails } from "./account-identity-details";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
-import { runAccountOperation } from "./account-operation";
+import { useAccountAction } from "./account-operation";
 
 export type AccountUser = {
   id: string;
@@ -130,49 +130,20 @@ function MobileAccountProfilePage({
   onProfileUpdated: (profile: AccountProfile) => void;
 }) {
   const [name, setName] = useState(user.displayName);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmation, setConfirmation] = useState<
     "logout" | "logout-all" | "relogin" | "delete" | null
   >(null);
   const [copied, setCopied] = useState(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setError,
+    setNotice,
+  );
   const normalizedName = normalizeAccountName(name);
   const validName = isValidAccountName(name);
 
-  useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
-    setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
-  }, [client]);
-
-  const perform = async (operation: () => Promise<void>) => {
-    if (actionRunning.current) return;
-    const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAccountOperation(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
-  };
   const rename = () =>
     void perform(async () => {
       const generation = clientGeneration.current;
@@ -769,7 +740,6 @@ function AccountDetailsPage({
   const mobile =
     mobileOverride ?? (platform === "android" || platform === "ios" || platform === "harmony");
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [providers, setProviders] = useState<AccountProviders>({ email: false, phone: false });
@@ -789,21 +759,15 @@ function AccountDetailsPage({
   const [copiedAccountId, setCopiedAccountId] = useState(false);
   const [googleWaiting, setGoogleWaiting] = useState(false);
   const googleWaitingRef = useRef(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setError,
+    setNotice,
+  );
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
     googleWaitingRef.current = false;
     setGoogleWaiting(false);
-    setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
   }, [client]);
 
   const cancelGoogle = () => {
@@ -873,26 +837,6 @@ function AccountDetailsPage({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [challenge]);
-
-  const perform = async (operation: () => Promise<void>) => {
-    if (actionRunning.current) return;
-    const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAccountOperation(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
-  };
 
   const chooseChannel = (value: Channel) => {
     cancelGoogle();
