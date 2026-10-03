@@ -47,7 +47,7 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
     throw std::logic_error("Missing candidate highlight");
   return uiless_reply(request, display, candidates, highlighted);
 }
-// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. Korean Hangul and Vietnamese are not Chinese text either, and Cantonese and Zhuyin are Traditional already (scheme::ScriptConversionApplies). The toggle itself is untouched, so leaving any of them restores traditional output.
+// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. Korean Hangul and Vietnamese are not Chinese text either, Cantonese and Zhuyin are Traditional already, and Stroke writes its characters as stored (scheme::ScriptConversionApplies). The toggle itself is untouched, so leaving any of them restores traditional output.
 bool traditional_projection(const ServerSession &session) {
   if (!session.traditional_output())
     return false;

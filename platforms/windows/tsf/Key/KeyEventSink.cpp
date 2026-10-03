@@ -1008,6 +1008,12 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return isTouchKeyboardSpecialKeys;
         }
 
+        // With nothing composing, a Stroke letter other than the five strokes is the application's: the Engine answers handled=false for it, so the TIP must not eat it (scheme::LetterPassesWhileIdle).
+        if (!isInputInProgress && msime::windows::scheme::LetterPassesWhileIdle(scheme, wch))
+        {
+            return isTouchKeyboardSpecialKeys;
+        }
+
         // "/" and "@" open their modes on an empty composition instead of typing a mark: they start the composition, and the Server hands them to the Engine as its first character.
         if (!isInputInProgress && candidateMode == CANDIDATE_NONE &&
             Global::OpensLocalMode(wch, false,
@@ -1603,6 +1609,13 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         case msime::tsf::KoreanKeyAction::Default:
             break;
         }
+    }
+
+    // As in _IsKeyEaten: with nothing projected composing, a Stroke letter other than the five strokes is queued as application text.
+    if (shadow.imeOpen && shadow.inputLength == 0 && !shadow.candidateActive &&
+        msime::windows::scheme::LetterPassesWhileIdle(scheme, *classifiedWch))
+    {
+        return true;
     }
 
     _KEYSTROKE_STATE inputState = {};

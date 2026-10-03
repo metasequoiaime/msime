@@ -249,7 +249,7 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
       FanyImeWorkerReplyType::PairedPunctuationChanged, config.paired_punctuation));
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::MicrosoftShuangpinChanged, config.microsoft_shuangpin));
-  // "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese.
+  // "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Stroke.
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::InputModeChanged,
       std::wstring(1, scheme::input_mode_code(config.input_mode))));

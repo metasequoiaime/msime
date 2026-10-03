@@ -49,9 +49,10 @@ struct TrayMenuCapabilities {
   bool keyboard_panel = false;
   bool voice_input = false;
   bool settings = false;
-  // The Cantonese and Zhuyin dictionaries installed beside the resources (language-dictionaries/cantonese.db and zhuyin.db). Without one the Engine answers that scheme with quanpin, so its row is disabled rather than selecting a scheme that would type pinyin.
+  // The Cantonese, Zhuyin and Stroke dictionaries installed beside the resources (language-dictionaries/cantonese.db, zhuyin.db and stroke.db). Without one the Engine answers that scheme with quanpin, so its row is disabled rather than selecting a scheme that would type pinyin.
   bool cantonese = false;
   bool zhuyin = false;
+  bool stroke = false;
 };
 // What the menu shows, sampled by the Server each time the card opens or redraws after a switch.
 struct TrayMenuState {
@@ -118,6 +119,8 @@ inline const char *tray_menu_scheme(TrayMenuCommand command) {
     return "cantonese";
   if (command == TrayMenuCommand::SelectZhuyin)
     return "zhuyin";
+  if (command == TrayMenuCommand::SelectStroke)
+    return "stroke";
   if (command == TrayMenuCommand::SelectVietnamese)
     return "vietnamese";
   return nullptr;
@@ -129,7 +132,7 @@ inline std::vector<TrayMenuItem>
 tray_menu_items(const TrayMenuCapabilities &capabilities,
                 const TrayMenuState &state) {
   std::vector<TrayMenuItem> items;
-  items.reserve(29);
+  items.reserve(30);
   auto header = [&](std::string label) {
     TrayMenuItem item;
     item.kind = TrayMenuRowKind::Header;
@@ -183,7 +186,7 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       language_known && (!*state.chinese || state.dedicated_english);
   header("水杉输入法");
   separator();
-  // Japanese, Korean and Vietnamese are the non-English language of their schemes, as the toolbar's 日, 한 and 越 buttons show. Cantonese and Zhuyin write Chinese.
+  // Japanese, Korean and Vietnamese are the non-English language of their schemes, as the toolbar's 日, 한 and 越 buttons show. Cantonese, Zhuyin and Stroke write Chinese.
   row(TrayMenuCommand::SelectChinese,
       japanese     ? "日文"
       : korean     ? "韩文"
@@ -214,6 +217,8 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       state.scheme == "cantonese");
   row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin,
       state.scheme == "zhuyin");
+  row(TrayMenuCommand::SelectStroke, "笔画", capabilities.stroke,
+      state.scheme == "stroke");
   row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
   separator();
   // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.

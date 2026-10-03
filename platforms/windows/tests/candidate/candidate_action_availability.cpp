@@ -46,15 +46,18 @@ int main() {
     for (unsigned source = 0; source < 32; ++source)
       REQUIRE(!candidate_actions_available(candidate_scheme_korean, source));
 
-    // Cantonese and Zhuyin read their own language dictionaries, which the Engine never writes.
+    // Cantonese, Zhuyin and Stroke read their own language dictionaries, which the Engine never writes.
     for (unsigned source = 0; source < 32; ++source) {
       REQUIRE(!candidate_actions_available(candidate_scheme_cantonese, source));
       REQUIRE(!candidate_actions_available(candidate_scheme_zhuyin, source));
+      REQUIRE(!candidate_actions_available(candidate_scheme_stroke, source));
     }
+    static_assert(candidate_scheme_stroke == 8, "the Engine's SchemeType::Stroke");
 
     // Other schemes are not refused by accident of numbering.
     REQUIRE(candidate_actions_available(1, candidate_source_database));
     REQUIRE(candidate_actions_available(2, candidate_source_database));
+    REQUIRE(candidate_actions_available(9, candidate_source_database));
 
     std::cout << "Windows candidate action availability checks passed\n";
     return 0;

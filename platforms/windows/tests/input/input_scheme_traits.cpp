@@ -12,15 +12,17 @@ int main() {
   static_assert(input_mode_code(InputMode::Cantonese) == L'3');
   static_assert(input_mode_code(InputMode::Zhuyin) == L'4');
   static_assert(input_mode_code(InputMode::Vietnamese) == L'5');
+  static_assert(input_mode_code(InputMode::Stroke) == L'6');
   for (const auto mode : {InputMode::Chinese, InputMode::Japanese, InputMode::Korean, InputMode::Cantonese,
-                          InputMode::Zhuyin, InputMode::Vietnamese})
+                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Stroke})
     assert(input_mode_from_code(input_mode_code(mode)) == mode);
   assert(input_mode_from_code(L'9') == InputMode::Chinese);
   assert(input_mode_from_code(L'\0') == InputMode::Chinese);
 
   // Every configured scheme maps to the mode its view reports, and the mode back to a scheme with the same traits.
-  const char *names[] = {"quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"};
-  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme) {
+  const char *names[] = {"quanpin", "shuangpin", "wubi",       "japanese", "korean",
+                         "cantonese", "zhuyin", "vietnamese", "stroke"};
+  for (int scheme = Quanpin; scheme <= Stroke; ++scheme) {
     assert(scheme_from_name(names[scheme]) == scheme);
     assert(input_mode(names[scheme]) == input_mode(scheme));
     const int representative = mode_scheme(input_mode(scheme));
@@ -30,17 +32,31 @@ int main() {
     assert(HostSmartPunctuation(representative) == HostSmartPunctuation(scheme));
     assert(ScriptConversionApplies(representative) == ScriptConversionApplies(scheme));
     assert(CommitsOnBlur(representative) == CommitsOnBlur(scheme));
+    assert(LetterPassesWhileIdle(representative, L'x') == LetterPassesWhileIdle(scheme, L'x'));
   }
-  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+  for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
     assert(scheme_from_name(scheme_name(scheme)) == scheme);
-  assert(scheme_name(8).empty() && scheme_name(-1).empty());
+  assert(scheme_name(9).empty() && scheme_name(-1).empty());
+  // Stroke runs in a mode of its own: its traits are not quanpin's, so the TIP must not key it as the Chinese mode.
+  assert(input_mode(Stroke) == InputMode::Stroke && mode_scheme(InputMode::Stroke) == Stroke);
+  assert(input_mode("stroke") == InputMode::Stroke);
 
-  // The scheme that runs, as host-api's effective_scheme picks it: Cantonese and Zhuyin need their dictionary, and without it the last Chinese scheme that can run takes over, then quanpin.
+  // The scheme that runs, as host-api's effective_scheme picks it: Cantonese, Zhuyin and Stroke need their dictionary, and without it the last Chinese scheme that can run takes over, then quanpin.
   constexpr LanguageDictionaryPresence none{};
-  constexpr LanguageDictionaryPresence both{true, true};
-  constexpr LanguageDictionaryPresence cantonese_only{true, false};
-  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
-    assert(effective_scheme(names[scheme], "wubi", both) == scheme);
+  constexpr LanguageDictionaryPresence all{true, true, true};
+  constexpr LanguageDictionaryPresence cantonese_only{true, false, false};
+  constexpr LanguageDictionaryPresence stroke_only{false, false, true};
+  for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
+    assert(effective_scheme(names[scheme], "wubi", all) == scheme);
+  assert(effective_scheme("stroke", "shuangpin", none) == Shuangpin);
+  assert(effective_scheme("stroke", "shuangpin", cantonese_only) == Shuangpin);
+  assert(effective_scheme("stroke", "", stroke_only) == Stroke);
+  assert(effective_scheme("japanese", "stroke", stroke_only) == Japanese);
+  // Stroke is a Chinese scheme to return to, but only while its dictionary is there.
+  assert(effective_scheme("zhuyin", "stroke", stroke_only) == Stroke);
+  assert(effective_scheme("zhuyin", "stroke", cantonese_only) == Quanpin);
+  assert(!scheme_installed(Stroke, cantonese_only) && scheme_installed(Stroke, stroke_only));
+  assert(!scheme_installed(9, all));
   assert(effective_scheme("zhuyin", "shuangpin", none) == Shuangpin);
   assert(effective_scheme("zhuyin", "cantonese", cantonese_only) == Cantonese);
   assert(effective_scheme("zhuyin", "zhuyin", cantonese_only) == Quanpin);
@@ -51,10 +67,10 @@ int main() {
   // A last_chinese_scheme that names a language is not a Chinese scheme to return to.
   assert(effective_scheme("zhuyin", "japanese", none) == Quanpin);
   assert(scheme_from_name("pinyin") == -1 && input_mode("pinyin") == InputMode::Chinese);
-  assert(input_mode(-1) == InputMode::Chinese && input_mode(8) == InputMode::Chinese);
+  assert(input_mode(-1) == InputMode::Chinese && input_mode(9) == InputMode::Chinese);
 
-  // Cantonese and Zhuyin are Chinese schemes `last_chinese_scheme` remembers; Japanese, Korean and Vietnamese are languages of their own.
-  for (const char *chinese : {"quanpin", "shuangpin", "wubi", "cantonese", "zhuyin"}) {
+  // Cantonese, Zhuyin and Stroke are Chinese schemes `last_chinese_scheme` remembers; Japanese, Korean and Vietnamese are languages of their own.
+  for (const char *chinese : {"quanpin", "shuangpin", "wubi", "cantonese", "zhuyin", "stroke"}) {
     assert(is_chinese_scheme_name(chinese));
     assert(input_language(input_mode(chinese)) == InputLanguage::Chinese);
   }
@@ -70,16 +86,31 @@ int main() {
   assert(LetterComposition(Korean) && LetterComposition(Vietnamese) && !LetterComposition(Zhuyin));
   assert(OpensCandidateList(Korean) && OpensCandidateList(Zhuyin) && !OpensCandidateList(Vietnamese));
   assert(AlwaysInlinePreedit(Zhuyin) && AlwaysInlinePreedit(Vietnamese) && !AlwaysInlinePreedit(Cantonese));
+  // Stroke takes Cantonese's traits: a Chinese scheme in the candidate window, its characters written as stored, Chinese punctuation with the smart gestures, no glosses, and nothing committed on blur.
+  assert(IsChinese(Stroke) && !ScriptConversionApplies(Stroke) && OutputsTraditionalNatively(Stroke));
+  assert(UsesChinesePunctuation(Stroke) && HostSmartPunctuation(Stroke) && WidensFullWidth(Stroke) && !ShowsGlosses(Stroke));
+  assert(!CommitsOnBlur(Stroke) && !LocksCaret(Stroke));
+  assert(!LetterComposition(Stroke) && !OpensCandidateList(Stroke) && !AlwaysInlinePreedit(Stroke));
+  assert(!CancelRestoresRaw(Stroke) && !KeyboardOnlyCandidateList(Stroke) && !FoldsLetterCase(Stroke) &&
+         !CapsLockBypassExempt(Stroke));
+  // With nothing composing only the five strokes start a Stroke composition; the wildcard, the other letters and a capital belong to the application. No other scheme hands a letter back this way.
+  for (const wchar_t stroke : {L'h', L's', L'p', L'n', L'z'})
+    assert(!LetterPassesWhileIdle(Stroke, stroke));
+  for (const wchar_t other : {L'x', L'a', L'q', L'H', L'X'})
+    assert(LetterPassesWhileIdle(Stroke, other));
+  assert(!LetterPassesWhileIdle(Stroke, L'1') && !LetterPassesWhileIdle(Stroke, L',') && !LetterPassesWhileIdle(Stroke, L' '));
+  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+    assert(!LetterPassesWhileIdle(scheme, L'x') && !LetterPassesWhileIdle(scheme, L'a'));
   assert(FoldsLetterCase(Korean) && !FoldsLetterCase(Vietnamese));
   // Only a Vietnamese word keeps composing after an Escape; every other composition, schemes 0-4 included, is discarded by it.
-  for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
+  for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
     assert(CancelRestoresRaw(scheme) == (scheme == Vietnamese));
   // Only the Zhuyin list refuses the mouse; the Korean Hanja list and every Chinese list stay clickable, and an unknown number keeps the mouse too.
-  for (int scheme = Quanpin; scheme <= Vietnamese + 1; ++scheme)
+  for (int scheme = Quanpin; scheme <= Stroke + 1; ++scheme)
     assert(KeyboardOnlyCandidateList(scheme) == (scheme == Zhuyin));
   // Every mode code passes the TIP's frame check, the ones after Chinese and Japanese included, and so does a code from a newer Server, which reads as Chinese; an empty payload or one longer than a character does not.
   for (const auto mode : {InputMode::Chinese, InputMode::Japanese, InputMode::Korean, InputMode::Cantonese,
-                          InputMode::Zhuyin, InputMode::Vietnamese}) {
+                          InputMode::Zhuyin, InputMode::Vietnamese, InputMode::Stroke}) {
     const wchar_t payload[4] = {input_mode_code(mode), L'\0', L'\0', L'\0'};
     assert(is_input_mode_payload(payload, 4));
     assert(input_mode_from_code(payload[0]) == mode);

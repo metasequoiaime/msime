@@ -58,7 +58,11 @@ int main() {
     require(typing_source_id(TypingSource::Cantonese) == "cantonese" &&
             typing_source_id(TypingSource::Zhuyin) == "zhuyin" &&
             typing_source_id(TypingSource::Vietnamese) == "vietnamese");
+    // Stroke counts under its own id, the one client-core's TypingSource reads.
     require(resolve_typing_source(8, false, false, "none", "xiaohe") ==
+            TypingSource::Stroke);
+    require(typing_source_id(TypingSource::Stroke) == "stroke");
+    require(resolve_typing_source(9, false, false, "none", "xiaohe") ==
             TypingSource::Unknown);
     require(resolve_typing_source(-1, false, false, "none", "xiaohe") ==
             TypingSource::Unknown);

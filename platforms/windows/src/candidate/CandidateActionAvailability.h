@@ -29,13 +29,15 @@ inline constexpr unsigned candidate_source_english_dictionary = 4;
 inline constexpr unsigned candidate_scheme_japanese = 3;
 // Korean's only candidates are the Hanja of the composing syllable, which the Engine keeps in table order and refuses to pin, fix or remove: they come from a table compiled into the Engine, not from the user's dictionary.
 inline constexpr unsigned candidate_scheme_korean = 4;
-// Cantonese and Zhuyin candidates come from their own language dictionaries, which the Engine reads and never writes, so it refuses to pin, fix or remove them too (`is_editable_source` in crates/engine/src/session/input.rs).
+// Cantonese, Zhuyin and Stroke candidates come from their own language dictionaries, which the Engine reads and never writes, so it refuses to pin, fix or remove them too (`is_editable_source` in crates/engine/src/session/input.rs).
 inline constexpr unsigned candidate_scheme_cantonese = 5;
 inline constexpr unsigned candidate_scheme_zhuyin = 6;
+inline constexpr unsigned candidate_scheme_stroke = 8;
 
 inline bool candidate_actions_available(unsigned scheme, unsigned source) {
   if (scheme == candidate_scheme_japanese || scheme == candidate_scheme_korean ||
-      scheme == candidate_scheme_cantonese || scheme == candidate_scheme_zhuyin)
+      scheme == candidate_scheme_cantonese || scheme == candidate_scheme_zhuyin ||
+      scheme == candidate_scheme_stroke)
     return false;
   return source == candidate_source_database ||
          source == candidate_source_user_database ||
