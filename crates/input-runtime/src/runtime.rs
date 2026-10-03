@@ -9,8 +9,7 @@ use msime_engine::ordering::{
 // 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
 #[cfg(test)]
 pub(crate) use msime_engine::ordering::{
-    reorders_candidates as runtime_reorders_candidates, rerank_context, LATTICE_SOURCE,
-    RERANK_CONTEXT_STEP,
+    reorders_candidates as runtime_reorders_candidates, LATTICE_SOURCE,
 };
 use msime_engine::SchemeType;
 
