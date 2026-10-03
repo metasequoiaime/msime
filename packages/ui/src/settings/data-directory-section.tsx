@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import * as settings from "./settings-style";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
@@ -30,11 +31,11 @@ export function DataDirectorySection({
   return (
     <GroupList title="数据目录">
       <div className={settings.rowStack} role="group" aria-label="数据目录">
-        <p className={settings.groupNote}>
+        <SettingsGroupNote>
           词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
           {linux &&
             "输入法入口配置和在线服务、语音服务的凭据固定保存在 ~/.config/msime-client，不随数据移动。"}
-        </p>
+        </SettingsGroupNote>
         <ActionRow
           title="当前目录"
           description={
@@ -49,9 +50,9 @@ export function DataDirectorySection({
           label={busy ? "正在移动…" : "选择位置…"}
         />
         {result && (
-          <p className={settings.groupNote} role="status">
+          <SettingsGroupNote role="status">
             {result}
-          </p>
+          </SettingsGroupNote>
         )}
       </div>
     </GroupList>

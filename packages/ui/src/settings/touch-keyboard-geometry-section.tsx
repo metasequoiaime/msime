@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { Checks, GroupList } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SliderRow } from "./slider-row";
@@ -85,9 +86,9 @@ export function TouchKeyboardGeometrySection({
   return (
     <>
       <GroupList title="尺寸">
-        <p className={settings.groupNote}>
+        <SettingsGroupNote>
           只改变触屏键位的外观，不改变输入方案；也可以直接在上方预览上左右拖动调节键距、上下拖动调节行距。
-        </p>
+        </SettingsGroupNote>
         <SliderRow
           title="键盘高度"
           description={`${heightAdjustment > 0 ? "+" : ""}${heightAdjustment} dp`}

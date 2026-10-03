@@ -1,8 +1,8 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { candidateTextColor } from "../candidate/candidate-text-color";
 import { Row } from "../core/platform-controls";
 import type { CustomCandidateColors } from "../theme/global-theme";
-import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 
 /** A colour slot of the custom theme's candidate palette (`custom_theme.candidate_colors`). */
@@ -132,7 +132,7 @@ export function CandidateColorsSection({
           />
         </>
       ) : (
-        <p className={settings.groupNote}>当前宿主的候选窗口不支持强调或选中行颜色。</p>
+        <SettingsGroupNote>当前宿主的候选窗口不支持强调或选中行颜色。</SettingsGroupNote>
       )}
       {showSelectionAppearance ? (
         <CandidateColorRow
@@ -144,11 +144,11 @@ export function CandidateColorsSection({
           resetLabel="候选悬停色跟随主题"
         />
       ) : (
-        <p className={settings.groupNote}>
+        <SettingsGroupNote>
           {linux
             ? "悬停颜色不支持；边框仅在 Fcitx5 经典界面绘制，IBus 候选窗口无边框。"
             : "当前宿主的候选窗口不支持悬停或边框颜色。"}
-        </p>
+        </SettingsGroupNote>
       )}
       {showBorderColor && (
         <CandidateColorRow

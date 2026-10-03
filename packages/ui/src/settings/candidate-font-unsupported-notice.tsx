@@ -1,6 +1,6 @@
-import * as settings from "./settings-style";
+import { SettingsGroupNote } from "./settings-group-note";
 
 /** Explains why font controls are unavailable on hosts that draw the panel themselves. */
 export function CandidateFontUnsupportedNotice() {
-  return <p className={settings.groupNote}>当前宿主的候选窗口不支持自定义字体或字号。</p>;
+  return <SettingsGroupNote>当前宿主的候选窗口不支持自定义字体或字号。</SettingsGroupNote>;
 }

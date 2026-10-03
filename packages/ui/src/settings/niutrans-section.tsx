@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
@@ -23,7 +24,7 @@ export function NiuTransSection({
 }: NiuTransSectionProps) {
   return (
     <div role="group" aria-label="小牛翻译（NiuTrans）" className={settings.rowStack}>
-      <p className={settings.groupNote}>使用 App ID 和 API Key 为候选词提供逐条翻译。</p>
+      <SettingsGroupNote>使用 App ID 和 API Key 为候选词提供逐条翻译。</SettingsGroupNote>
       <TextInputRow
         title="App ID"
         label="NiuTrans App ID"

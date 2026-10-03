@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
@@ -152,22 +153,22 @@ export function PluginListView({
         {groups.map(({ kind, packs, gone }) => (
           <GroupList key={kind} title={kindLabels[kind]}>
             {kind === "command_table" && triggers && (
-              <p className={settings.groupNote}>
+              <SettingsGroupNote>
                 在「输入 → 快捷模式」打开 / 指令后，按 /
                 再输入指令字母即可使用。启用的指令表按启用顺序排列，同一指令以靠前的表为准；最多启用{" "}
                 {MAX_COMMAND_TABLES} 个。
-              </p>
+              </SettingsGroupNote>
             )}
             {kind === "command_table" &&
               triggers &&
               packs.length === 0 &&
               gone.length === 0 &&
               (!hasClient || catalogState === "loaded") && (
-                <p className={settings.groupNote}>
+                <SettingsGroupNote>
                   {hasClient
                     ? "还没有导入指令表。"
                     : "这台设备还不能导入指令表，内置的 rq、sj、xq 指令照常可用。"}
-                </p>
+                </SettingsGroupNote>
               )}
             {packs.map((pack) => (
               <PluginNavRow
@@ -223,9 +224,9 @@ export function PluginListView({
             </span>
           </div>
           {notice && (
-            <p className={settings.groupNote} role="status">
+            <SettingsGroupNote role="status">
               {notice}
-            </p>
+            </SettingsGroupNote>
           )}
         </GroupList>
       )}

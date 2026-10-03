@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
@@ -31,7 +32,7 @@ export function TencentTranslationSection({
 }: TencentTranslationSectionProps) {
   return (
     <div role="group" aria-label="腾讯云机器翻译" className={settings.rowStack}>
-      <p className={settings.groupNote}>需要填入你自己的腾讯云 API 凭据。</p>
+      <SettingsGroupNote>需要填入你自己的腾讯云 API 凭据。</SettingsGroupNote>
       <TextInputRow
         title="SecretId"
         label="腾讯云 SecretId"

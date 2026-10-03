@@ -1,4 +1,4 @@
-import * as settings from "../settings-style";
+import { SettingsGroupNote } from "../settings-group-note";
 import { useSettingsForm } from "../settings-form-context";
 import { ClipboardHistorySection } from "../clipboard-history-section";
 import { CLOUD_PANEL_SESSION_NOTE } from "../cloud-panel-session-notice";
@@ -36,7 +36,7 @@ export function ToolsSettingsPage() {
       {(macosPlatform || client.openCloudClipboard) && (
         <GroupList title="云剪贴板">
           {macosPlatform ? (
-            <p className={settings.groupNote}>{CLOUD_PANEL_SESSION_NOTE}</p>
+            <SettingsGroupNote>{CLOUD_PANEL_SESSION_NOTE}</SettingsGroupNote>
           ) : (
             <OpenPanelRow
               title="云剪贴板"

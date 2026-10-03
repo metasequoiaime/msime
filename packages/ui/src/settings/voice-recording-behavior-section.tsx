@@ -1,5 +1,5 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { GroupList } from "../core/platform-controls";
-import * as settings from "./settings-style";
 import { SwitchRow } from "./switch-row";
 
 export interface VoiceRecordingBehaviorSectionProps {
@@ -28,11 +28,11 @@ export function VoiceRecordingBehaviorSection({
 }: VoiceRecordingBehaviorSectionProps) {
   return (
     <GroupList title="录音行为">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         {linux
           ? "这些选项会随请求传给用户管理的语音服务，不包含凭据"
           : "录音期间的提示音与静音由输入法在本机处理"}
-      </p>
+      </SettingsGroupNote>
       <SwitchRow
         title="语音提示音"
         aria-label="语音提示音"

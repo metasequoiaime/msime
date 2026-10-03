@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { Checks } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
@@ -64,7 +65,7 @@ export function NavigationSection({
         />
       </div>
       {/* IBus pages on the panel's cursor_up/down and button 4/5 only with the switch on; Fcitx5 classic UI pages by itself, so the host writes the switch into classicui's WheelForPaging once it leaves the default (platforms/linux/README.md). */}
-      {linux && <p className={settings.groupNote}>{linuxWheelPagingNote}</p>}
+      {linux && <SettingsGroupNote>{linuxWheelPagingNote}</SettingsGroupNote>}
     </>
   );
 }

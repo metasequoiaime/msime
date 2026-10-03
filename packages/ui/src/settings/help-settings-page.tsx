@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import * as doc from "./document-style";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
@@ -128,7 +129,7 @@ export function HelpSettingsPage({
       )}
       {!macos && (
         <>
-          <p className={settings.groupNote}>{platformHelpIntro}</p>
+          <SettingsGroupNote>{platformHelpIntro}</SettingsGroupNote>
           <GroupList title="快速上手">
             <div className={`${settings.groupBlock} ${doc.page}`}>
               <p>{platformQuickStart}</p>
@@ -144,17 +145,17 @@ export function HelpSettingsPage({
           </GroupList>
           {ios && (
             <GroupList title="允许完全访问">
-              <p className={settings.groupNote}>
+              <SettingsGroupNote>
                 打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
-              </p>
+              </SettingsGroupNote>
             </GroupList>
           )}
           {android && (
             <GroupList title="输入权限">
-              <p className={settings.groupNote}>
+              <SettingsGroupNote>
                 Android
                 的输入法服务只在当前编辑器请求时接收文本。云功能、语音和社区按你主动启用的功能联网，日常拼音输入无需联网。
-              </p>
+              </SettingsGroupNote>
             </GroupList>
           )}
           <GroupList title="基本功能">

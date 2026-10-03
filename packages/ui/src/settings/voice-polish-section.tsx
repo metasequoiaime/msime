@@ -1,7 +1,7 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { GroupList } from "../core/platform-controls";
 import { POLISH_PROVIDER_OPTIONS } from "../voice/voice-provider-options";
-import * as settings from "./settings-style";
 import { VoiceProviderRow } from "./voice-provider-row";
 import { TextInputRow } from "./text-input-row";
 import { SwitchRow } from "./switch-row";
@@ -30,7 +30,7 @@ export function VoicePolishSection({
 }: VoicePolishSectionProps) {
   return (
     <GroupList title="文本润色">
-      <p className={settings.groupNote}>识别结果可交给用户管理的服务润色</p>
+      <SettingsGroupNote>识别结果可交给用户管理的服务润色</SettingsGroupNote>
       <SwitchRow
         title="启用润色"
         aria-label="启用文本润色"

@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import * as surface from "../keyboard/panel-surface-style";
 import { GroupList } from "../core/platform-controls";
 import { handwritingPrivacyText } from "./handwriting-platform-notice";
@@ -42,39 +43,39 @@ export function HandwritingSettingsSection({
   );
   return ios ? (
     <GroupList title="iOS 键盘手写">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         请在 iOS
         系统键盘设置中启用水杉键盘，并在键盘内切换到“手写”输入方案。首次使用会按需下载中文识别模型；需要开启“允许完全访问”才能下载模型，下载后可离线识别。
-      </p>
+      </SettingsGroupNote>
       {systemSettingsRow("系统键盘设置", "打开系统键盘设置")}
-      <p className={settings.groupNote}>{handwritingPrivacyText("ios")}</p>
+      <SettingsGroupNote>{handwritingPrivacyText("ios")}</SettingsGroupNote>
       {sdkPrivacyRow}
     </GroupList>
   ) : android ? (
     <GroupList title="Android 键盘手写">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         请在 Android 系统输入法设置中启用水杉键盘，再从键盘方案切换到“手写”。首次使用时按需下载
         Google ML Kit 中文手写模型；模型就绪后可离线识别。
-      </p>
+      </SettingsGroupNote>
       {systemSettingsRow("系统输入法设置", "打开系统输入法设置")}
-      <p className={settings.groupNote}>{handwritingPrivacyText("android")}</p>
+      <SettingsGroupNote>{handwritingPrivacyText("android")}</SettingsGroupNote>
       {sdkPrivacyRow}
     </GroupList>
   ) : harmony ? (
     <GroupList title="HarmonyOS 键盘手写">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         {mobile
           ? "请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。"
           : "请在系统输入法设置中启用水杉输入法；2-in-1 候选窗口不绘制键面，请先从悬浮工具栏打开屏幕键盘，再从方案选择器切换到“手写”。"}
-      </p>
+      </SettingsGroupNote>
       {systemSettingsRow("系统输入法设置", "打开系统输入法设置")}
-      <p className={settings.groupNote}>{handwritingPrivacyText("harmony")}</p>
+      <SettingsGroupNote>{handwritingPrivacyText("harmony")}</SettingsGroupNote>
     </GroupList>
   ) : macos ? (
     <GroupList title="macOS 手写识别板">
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         请在要输入的应用里，从输入法悬浮工具栏或输入法菜单打开手写面板；识别出的字直接输入到该应用。
-      </p>
+      </SettingsGroupNote>
     </GroupList>
   ) : (
     <GroupList title="手写识别板">

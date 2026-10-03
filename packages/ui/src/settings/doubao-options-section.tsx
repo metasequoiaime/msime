@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsGroupNote } from "./settings-group-note";
 import { TextInputRow } from "./text-input-row";
 import { SwitchRow } from "./switch-row";
 
@@ -28,9 +28,9 @@ export function DoubaoOptionsRows({
 }: DoubaoOptionsSectionProps) {
   return (
     <>
-      <p className={settings.groupNote}>
+      <SettingsGroupNote>
         {linux ? "以下豆包识别选项由语音服务应用" : "以下豆包识别选项随识别请求发送给豆包"}
-      </p>
+      </SettingsGroupNote>
       <SwitchRow
         title="数字格式化"
         aria-label="数字格式化"

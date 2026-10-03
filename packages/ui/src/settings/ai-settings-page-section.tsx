@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { clamp } from "../core/number";
 import { GroupList, MoreOptions, Row } from "../core/platform-controls";
@@ -141,9 +142,9 @@ export function AiSettingsPageSection({
               </Row>
             )}
             {modelCatalog.status && (
-              <p className={settings.groupNote} role="status">
+              <SettingsGroupNote role="status">
                 {modelCatalog.status}
-              </p>
+              </SettingsGroupNote>
             )}
           </>
         )}

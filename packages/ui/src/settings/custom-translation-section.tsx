@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
@@ -26,7 +27,7 @@ export function CustomTranslationSection({
 }: CustomTranslationSectionProps) {
   return (
     <div role="group" aria-label="自定义翻译服务" className={settings.rowStack}>
-      <p className={settings.groupNote}>使用自建的兼容 DeepLX 的 HTTPS 服务。</p>
+      <SettingsGroupNote>使用自建的兼容 DeepLX 的 HTTPS 服务。</SettingsGroupNote>
       <EndpointSettingRow
         title="翻译 Endpoint"
         inputLabel="自定义翻译 Endpoint"

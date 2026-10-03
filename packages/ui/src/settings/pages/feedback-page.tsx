@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "../settings-group-note";
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
@@ -53,7 +54,7 @@ export function FeedbackSettingsPage() {
       />
       <GroupList title="提交可复现的问题">
         <div className={settings.rowStack} role="group" aria-label="问题报告">
-          <p className={settings.groupNote}>报告只在你点击按钮时生成，不会读取或上传输入历史。</p>
+          <SettingsGroupNote>报告只在你点击按钮时生成，不会读取或上传输入历史。</SettingsGroupNote>
           <FeedbackReportFields
             kind={feedbackKind}
             detail={feedbackDetail}
@@ -79,9 +80,9 @@ export function FeedbackSettingsPage() {
               提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
             </p>
           </FeedbackReportFields>
-          <p className={settings.groupNote}>
+          <SettingsGroupNote>
             提交问题时建议附上系统版本、输入方案、复现步骤、相关截图，以及诊断日志中的关键片段。
-          </p>
+          </SettingsGroupNote>
           {diagnosticLogsOffered && (
             <LinkRow
               title="诊断日志"

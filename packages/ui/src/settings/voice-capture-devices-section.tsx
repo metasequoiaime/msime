@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device-picker";
 import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
@@ -39,7 +40,7 @@ export function VoiceCaptureDevicesSection({
 }: VoiceCaptureDevicesSectionProps) {
   return (
     <GroupList title="录音设备">
-      <p className={settings.groupNote}>保存后从下一次录音生效，不打断当前录音</p>
+      <SettingsGroupNote>保存后从下一次录音生效，不打断当前录音</SettingsGroupNote>
       <SelectRow
         title="录音后端"
         aria-label="录音后端"

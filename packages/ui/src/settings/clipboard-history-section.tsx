@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
 import { GroupList, Row } from "../core/platform-controls";
@@ -220,9 +221,9 @@ export function ClipboardHistorySection({
       {historyEnabled && client?.list && (
         <GroupList title="历史记录">
           {cloudNote && (
-            <p className={settings.groupNote} role="status">
+            <SettingsGroupNote role="status">
               {cloudNote}
-            </p>
+            </SettingsGroupNote>
           )}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
             {entries.length === 0 ? (

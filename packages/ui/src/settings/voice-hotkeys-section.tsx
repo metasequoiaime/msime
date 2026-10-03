@@ -1,10 +1,10 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import {
   description,
   hotkeyOptions,
   type VoiceHotkeyKey,
   type VoiceHotkeyPlatform,
 } from "./voice-hotkeys";
-import * as settings from "./settings-style";
 import { GroupList } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
 
@@ -20,7 +20,7 @@ export interface VoiceHotkeysSectionProps {
 export function VoiceHotkeysSection({ platform, values, onChange }: VoiceHotkeysSectionProps) {
   return (
     <GroupList title="语音快捷键">
-      <p className={settings.groupNote}>{description(platform)}</p>
+      <SettingsGroupNote>{description(platform)}</SettingsGroupNote>
       {/* Linux hosts share the desktop labels; only their native key event handling differs. */}
       {hotkeyOptions(platform).map(([key, label]) => (
         <SwitchRow

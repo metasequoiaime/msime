@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import * as settings from "./settings-style";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { GroupList, Row } from "../core/platform-controls";
@@ -102,9 +103,9 @@ export function InputModeShortcutsSection({
   return (
     <GroupList title="输入模式切换">
       <div className={settings.rowStack} role="group" aria-label="输入模式切换快捷键">
-        <p className={settings.groupNote}>
+        <SettingsGroupNote>
           在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。
-        </p>
+        </SettingsGroupNote>
         {/* 各页始终挂载，挂载时写回会覆盖尚未读完的偏好及其他窗口的写入。这里只显示优先项，保留默认同时开启的 Shift、Control+Option+Space 和 Linux Ctrl+Space；用户选择时才一次更新全部支持的切换键。 */}
         <SelectRow
           title="切换中英文"
@@ -120,10 +121,10 @@ export function InputModeShortcutsSection({
           ))}
         </SelectRow>
         {linux && (
-          <p className={settings.groupNote}>
+          <SettingsGroupNote>
             Ctrl+Space 未选用或关闭后水杉不处理此组合键；若 IBus 或 Fcitx5
             配置了同名全局快捷键，需在框架设置中另行关闭。
-          </p>
+          </SettingsGroupNote>
         )}
         <SwitchRow
           title={characterSetLabel}

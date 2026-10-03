@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import * as settings from "./settings-style";
 import { GroupList, Row } from "../core/platform-controls";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
@@ -40,7 +41,7 @@ export function CandidateShortcutsSection({
   const paging = pagingKeys.filter(([option]) => navigation[option]);
   return (
     <GroupList title="候选操作">
-      <p className={settings.groupNote}>输入和选取候选词时使用</p>
+      <SettingsGroupNote>输入和选取候选词时使用</SettingsGroupNote>
       {showNumberRowSelection && (
         <SwitchRow
           title="数字键选词"

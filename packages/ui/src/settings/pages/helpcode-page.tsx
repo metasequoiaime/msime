@@ -1,5 +1,5 @@
+import { SettingsGroupNote } from "../settings-group-note";
 import { Fragment } from "react";
-import * as settings from "../settings-style";
 import { GroupList, Row } from "../../core/platform-controls";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
@@ -125,10 +125,10 @@ export function HelpcodeSettingsGroup({
   return (
     <GroupList title="辅助码">
       {showShiftEntry && (
-        <p className={settings.groupNote}>
+        <SettingsGroupNote>
           全拼或双拼组字时，按 Shift
           再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语、韩语、粤拼、注音、越南语和快捷模式不使用辅助码。
-        </p>
+        </SettingsGroupNote>
       )}
       {/* 全拼在前，和输入方案选择器「全拼、双拼」的顺序一致。 */}
       {(

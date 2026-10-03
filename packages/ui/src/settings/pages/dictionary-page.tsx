@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
 import type { LocalDictionaryKind, LocalDictionaryFormat } from "../../index";
 import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
@@ -61,9 +62,9 @@ export function DictionarySettingsPage() {
       {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
       {client.dictionary && (
         <GroupList title="本地词库管理">
-          <p className={settings.groupNote}>
+          <SettingsGroupNote>
             查询、新增、编辑和删除用户词库。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
-          </p>
+          </SettingsGroupNote>
           <SelectRow
             title="词库"
             aria-label="本地词库类型"
@@ -172,9 +173,9 @@ export function DictionarySettingsPage() {
       )}
       {client.dictionary && (
         <GroupList title="导入与导出">
-          <p className={settings.groupNote}>
+          <SettingsGroupNote>
             导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
-          </p>
+          </SettingsGroupNote>
           <SelectRow
             title="文件格式"
             aria-label="本地词库文件格式"

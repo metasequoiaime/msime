@@ -1,3 +1,4 @@
+import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import {
@@ -209,7 +210,7 @@ export function PersonalDictionaryImportCard({
   }
   return (
     <GroupList title="个人词库文件">
-      <p className={settings.groupNote}>{note}</p>
+      <SettingsGroupNote>{note}</SettingsGroupNote>
       <div className={settings.managerBlock}>{content}</div>
     </GroupList>
   );
