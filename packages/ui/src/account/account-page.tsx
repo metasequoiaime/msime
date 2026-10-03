@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
 import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { GroupList, Row } from "../core/platform-controls";
@@ -418,107 +417,62 @@ function AppIconSettingsCard({
 function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
   const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
   const [cloud, setCloud] = useState<AccountPreferences | null>(null);
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
-  const mounted = useRef(true);
-  const generation = useRef(0);
-  const actionBusy = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setMessage,
+    setMessage,
+    userId,
+  );
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const load = async () => {
-    if (busy || !mounted.current || actionBusy.current) return;
-    const current = generation.current;
-    actionBusy.current = true;
-    setBusy(true);
-    setMessage("");
-    try {
+  const load = () => {
+    if (busy || !mounted.current) return;
+    void perform(async () => {
+      const current = clientGeneration.current;
       const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
-      if (!mounted.current || generation.current !== current) return;
+      if (!mounted.current || clientGeneration.current !== current) return;
       setSchema(nextSchema);
       setCloud(nextCloud);
-    } catch (error) {
-      if (mounted.current && generation.current === current && !isAccountCancellation(error))
-        setMessage(accountMessage(error));
-    } finally {
-      if (mounted.current && generation.current === current) {
-        actionBusy.current = false;
-        setBusy(false);
-      }
-    }
+    });
   };
 
   useEffect(() => {
-    let active = true;
-    const current = ++generation.current;
     setSchema(null);
     setCloud(null);
     setMessage("");
-    setBusy(true);
-    void Promise.all([client.schema(), client.load()])
-      .then(([nextSchema, nextCloud]) => {
-        if (!active || !mounted.current || generation.current !== current) return;
+    void perform(
+      async () => {
+        const current = clientGeneration.current;
+        const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
+        if (!mounted.current || clientGeneration.current !== current) return;
         setSchema(nextSchema);
         setCloud(nextCloud);
-      })
-      .catch((error) => {
-        if (
-          active &&
-          mounted.current &&
-          generation.current === current &&
-          !isAccountCancellation(error)
-        )
-          setMessage(accountMessage(error));
-      })
-      .finally(() => {
-        if (active && mounted.current && generation.current === current) setBusy(false);
-      });
-    return () => {
-      active = false;
-      actionBusy.current = false;
-    };
+      },
+      { allowBusy: true },
+    );
   }, [client, userId]);
 
-  const runConfirmed = async () => {
-    if (!cloud || !schema || !confirmation || busy || actionBusy.current) return;
-    const current = generation.current;
+  const runConfirmed = () => {
+    if (!cloud || !schema || !confirmation || busy) return;
     const operation = confirmation;
     setConfirmation(null);
-    actionBusy.current = true;
-    await runAsyncAction(
-      {
-        busy: false,
-        isCurrent: () => mounted.current && generation.current === current,
-        setBusy: (value) => {
-          actionBusy.current = value;
-          setBusy(value);
-        },
-        setError: setMessage,
-      },
-      async (isCurrent) => {
-        if (operation === "upload") {
-          const next = await client.upload();
-          if (!isCurrent()) return;
-          setCloud(next);
-        } else {
-          await client.apply(userId, cloud);
-          if (!isCurrent()) return;
-        }
-        setMessage(
-          operation === "upload"
-            ? "本机设置已上传。"
-            : "已应用云端设置。请重新打开键盘使部分设置生效。",
-        );
-      },
-      { formatError: accountMessage, ignoreError: isAccountCancellation },
-    );
-    if (generation.current === current) actionBusy.current = false;
+    void perform(async () => {
+      const current = clientGeneration.current;
+      if (operation === "upload") {
+        const next = await client.upload();
+        if (!mounted.current || clientGeneration.current !== current) return;
+        setCloud(next);
+      } else {
+        await client.apply(userId, cloud);
+        if (!mounted.current || clientGeneration.current !== current) return;
+      }
+      setMessage(
+        operation === "upload"
+          ? "本机设置已上传。"
+          : "已应用云端设置。请重新打开键盘使部分设置生效。",
+      );
+    });
   };
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);

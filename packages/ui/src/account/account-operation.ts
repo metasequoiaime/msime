@@ -21,7 +21,10 @@ export interface AccountActionState {
   busy: boolean;
   mounted: MutableRefObject<boolean>;
   clientGeneration: MutableRefObject<number>;
-  perform: (operation: () => Promise<void>) => Promise<void> | undefined;
+  perform: (
+    operation: () => Promise<void>,
+    options?: { allowBusy?: boolean },
+  ) => Promise<void> | undefined;
 }
 
 /** Shares busy, client-generation, and late-result protection across account surfaces. */
@@ -29,6 +32,7 @@ export function useAccountAction(
   client: unknown,
   setError: (message: string) => void,
   setNotice: (message: string) => void,
+  ...owners: readonly unknown[]
 ): AccountActionState {
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
@@ -44,15 +48,15 @@ export function useAccountAction(
       mounted.current = false;
       if (generation === clientGeneration.current) clientGeneration.current++;
     };
-  }, [client]);
+  }, [client, ...owners]);
 
-  const perform = (operation: () => Promise<void>) => {
-    if (actionRunning.current) return undefined;
+  const perform = (operation: () => Promise<void>, options: { allowBusy?: boolean } = {}) => {
+    if (actionRunning.current || (busy && !options.allowBusy)) return undefined;
     const generation = clientGeneration.current;
     actionRunning.current = true;
     return runAccountOperation(
       {
-        busy,
+        busy: options.allowBusy ? false : busy,
         isCurrent: () => mounted.current && generation === clientGeneration.current,
         setBusy,
         setError,

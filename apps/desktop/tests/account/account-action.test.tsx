@@ -28,3 +28,18 @@ test("serializes account actions and clears status before running", async () => 
   });
   expect(result.current.busy).toBe(false);
 });
+
+test("invalidates account actions when an owner changes", () => {
+  const setError = vi.fn();
+  const setNotice = vi.fn();
+  const client = {};
+  const { result, rerender } = renderHook(
+    ({ owner }) => useAccountAction(client, setError, setNotice, owner),
+    { initialProps: { owner: "first-user" } },
+  );
+  const firstGeneration = result.current.clientGeneration.current;
+
+  rerender({ owner: "second-user" });
+
+  expect(result.current.clientGeneration.current).toBeGreaterThan(firstGeneration);
+});
