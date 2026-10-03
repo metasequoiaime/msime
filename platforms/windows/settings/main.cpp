@@ -3131,6 +3131,7 @@ private:
         {L"mute_system_audio", L"录音时静音其他声音"},
     }};
     std::vector<Check> sound_checks;
+    sound_checks.reserve(sounds.size());
     for (const auto &[id, label] : sounds) {
       const std::wstring key = std::wstring(L"voice_input.") + id;
       sound_checks.push_back({label, document_.Boolean(key, false),
