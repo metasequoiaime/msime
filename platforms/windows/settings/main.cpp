@@ -2723,6 +2723,7 @@ private:
         {L"settings", L"设置"},
     }};
     std::vector<Check> checks;
+    checks.reserve(components.size() + 1);
     checks.push_back({L"中英文切换（始终显示）", true, [](bool) {}, false});
     for (const auto &[id, label] : components) {
       const std::wstring key = std::wstring(L"floating_toolbar.") + id;
