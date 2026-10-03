@@ -386,10 +386,7 @@ export function CommunityCandidateSkinsPage({
       async (currentClient) => {
         const updated = await client.setVisibility(target.id, visibility);
         if (!gallery.isCurrent(currentClient)) return;
-        gallery.setSelected(updated);
-        gallery.setItems((current) =>
-          current.map((item) => (item.id === updated.id ? updated : item)),
-        );
+        gallery.replaceSelected(updated);
         setActionNotice(
           visibility === "public"
             ? "已公开，其他用户现在可以下载这款皮肤。"
@@ -407,10 +404,7 @@ export function CommunityCandidateSkinsPage({
       async (currentClient) => {
         const updated = await client.setCategory(target.id, next);
         if (!gallery.isCurrent(currentClient)) return;
-        gallery.setSelected(updated);
-        gallery.setItems((current) =>
-          current.map((item) => (item.id === updated.id ? updated : item)),
-        );
+        gallery.replaceSelected(updated);
         setActionNotice(`已改为「${candidateSkinCategoryLabels[next]}」分类。`);
       },
       { clearNotice: true },

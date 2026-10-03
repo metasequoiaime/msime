@@ -370,6 +370,7 @@ export function CommunitySkinsPage({
     confirmUnpublish,
     activeSearch,
     setSelected,
+    replaceSelected,
     setActionNotice,
     setMineOnly,
     setConfirmUnpublish,
@@ -480,10 +481,7 @@ export function CommunitySkinsPage({
       async (currentClient) => {
         const updated = await client.setCategory(target.id, next);
         if (!gallery.isCurrent(currentClient)) return;
-        setSelected(updated);
-        gallery.setItems((current) =>
-          current.map((item) => (item.id === updated.id ? updated : item)),
-        );
+        replaceSelected(updated);
         setActionNotice(`已改为「${communitySkinCategoryLabels[next]}」分类。`);
       },
       { clearNotice: true },

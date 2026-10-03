@@ -168,6 +168,11 @@ export function useCommunityGallery<T extends { id: string }>({
     setConfirmUnpublish(false);
   }, [actionBusy]);
 
+  const replaceSelected = useCallback((updated: T) => {
+    setSelected(updated);
+    setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
   const beginAction = useCallback(() => {
     if (!selected || actionBusy) return null;
     if (actionBusyRef.current) return null;
@@ -288,6 +293,7 @@ export function useCommunityGallery<T extends { id: string }>({
     activeSearch: activeSearch.current,
     setItems,
     setSelected,
+    replaceSelected,
     setError,
     setActionNotice,
     setMineOnly,
