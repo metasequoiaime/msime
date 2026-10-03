@@ -43,6 +43,7 @@ import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
+import { communityPublishFields } from "./community-publish-validation";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -200,12 +201,11 @@ function ResourceEditor({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || actionRunning.current) return;
-    const normalizedName = name.trim();
-    const normalizedDescription = description.trim();
+    const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+      communityPublishFields(name, description);
     const valid =
-      normalizedName.length > 0 &&
-      [...normalizedName].length <= 32 &&
-      [...normalizedDescription].length <= 280 &&
+      nameValid &&
+      descriptionValid &&
       (kind === "reply"
         ? prompt.trim().length > 0 && [...prompt].length <= 2000
         : entries.length > 0) &&
