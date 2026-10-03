@@ -14,6 +14,7 @@ import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
+import { formatZhNumber } from "../core/format-number";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import {
   charactersPerMinute,
@@ -488,7 +489,7 @@ const detailColumns = [
 ] as const;
 
 function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
-  const count = (value: number) => value.toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(value);
   return (
     <section className="section m-0" aria-labelledby="statistics-details-title">
       <h2 className={heading} id="statistics-details-title">
@@ -592,7 +593,7 @@ function StatisticsHeatmap({
                     <StatisticsChartButton
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
-                      title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
+                      title={`${day.label}：${day.count > 0 ? `${formatZhNumber(day.count)} 字符` : "无记录"}`}
                       ariaLabel={`热力图：${day.label}，${day.count} 字符`}
                       selected={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
@@ -634,7 +635,7 @@ function KeyboardHeatmapRows({
             if (!key.code)
               return <span className="min-w-0" style={style} key={index} aria-hidden="true" />;
             const level = keyHeatLevel(key.count, maximum);
-            const name = `${key.name}，${key.count.toLocaleString("zh-CN")} 次`;
+            const name = `${key.name}，${formatZhNumber(key.count)} 次`;
             return (
               <span
                 role="img"
@@ -677,7 +678,7 @@ function KeyboardHeatmap({
   platform?: string;
 }) {
   const model = keyboardHeatmapModel(scopedKeyCounts(dailyKeys, scopeKeys), mobile, platform);
-  const count = (value: number) => value.toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(value);
   return (
     <section className="section m-0" aria-labelledby="statistics-keys-title">
       <h2 className={heading} id="statistics-keys-title">
@@ -820,7 +821,7 @@ function SpeedTrend({
   selectedDay: string | null;
 }) {
   const known = speeds.filter((speed): speed is number => speed !== null);
-  const count = (value: number) => Math.round(value).toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(Math.round(value));
   if (known.length === 0)
     return (
       <SettingsEmptyMessage centered className="mt-3.5">
@@ -1018,7 +1019,7 @@ function ShapeChart({
                 style={{ width: `${(slice.count / peak) * 100}%` }}
               />
             </div>
-            <strong>{slice.count.toLocaleString("zh-CN")}</strong>
+            <strong>{formatZhNumber(slice.count)}</strong>
             <small>{shareText(slice.count, total)}</small>
           </div>
         ))}
@@ -1052,7 +1053,7 @@ function ShapeChart({
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <strong className="text-[25px] leading-tight font-semibold tabular-nums text-body">
-          {total.toLocaleString("zh-CN")}
+          {formatZhNumber(total)}
         </strong>
         <span className="text-[11px] text-muted">字符</span>
       </div>
@@ -1115,7 +1116,7 @@ function Distribution({
                     {slice.symbol}
                   </span>
                   <span>{slice.title}</span>
-                  <strong>{slice.count.toLocaleString("zh-CN")}</strong>
+                  <strong>{formatZhNumber(slice.count)}</strong>
                   <small>{shareText(slice.count, total)}</small>
                 </div>
               ))}
@@ -1167,7 +1168,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
           首选命中率
         </span>
         <small className="ml-auto text-xs text-muted">
-          {total === 0 ? "暂无记录" : `共 ${total.toLocaleString("zh-CN")} 次上屏`}
+          {total === 0 ? "暂无记录" : `共 ${formatZhNumber(total)} 次上屏`}
         </small>
       </p>
       {total === 0 ? (
@@ -1189,7 +1190,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
                   style={{ width: `${(row.count / peak) * 100}%`, backgroundColor: palette[0] }}
                 />
               </div>
-              <strong>{row.count.toLocaleString("zh-CN")}</strong>
+              <strong>{formatZhNumber(row.count)}</strong>
               <small>{share(row.count)}</small>
             </div>
           ))}
@@ -1216,7 +1217,7 @@ function StatisticsHourlyBars({
 }) {
   const peak = Math.max(1, ...hours, ...(usual?.hours ?? []));
   const total = hours.reduce((sum, count) => sum + count, 0);
-  const count = (value: number) => Math.round(value).toLocaleString("zh-CN");
+  const count = (value: number) => formatZhNumber(Math.round(value));
   return (
     <>
       <p className="mt-[7px] mb-0 text-xs text-muted">
@@ -1230,7 +1231,7 @@ function StatisticsHourlyBars({
           </span>
           <span className="flex items-center gap-1.5">
             <i className="block h-0.5 w-3.5 rounded-full bg-[var(--text-secondary)]" />
-            平时（前 {usual.days.toLocaleString("zh-CN")} 天平均）
+            平时（前 {formatZhNumber(usual.days)} 天平均）
           </span>
         </div>
       )}
@@ -1665,7 +1666,7 @@ export function TypingStatisticsPage({
             <span>今日输入</span>
             <div className={metricLine}>
               <strong className={metricValue} aria-label="今日输入字符数">
-                {(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}
+                {formatZhNumber(statistics.days[today.key] ?? 0)}
               </strong>
               <small>字符</small>
             </div>
@@ -1674,7 +1675,7 @@ export function TypingStatisticsPage({
             <span>{scopeTitle}</span>
             <div className={metricLine}>
               <strong className={metricValue} aria-label="当前范围输入字符数">
-                {scopeTotal.toLocaleString("zh-CN")}
+                {formatZhNumber(scopeTotal)}
               </strong>
               <small>字符</small>
             </div>
@@ -1691,7 +1692,7 @@ export function TypingStatisticsPage({
             <span>今日速度</span>
             <div className={metricLine}>
               <strong className={metricValue} aria-label="今日输入速度">
-                {Math.round(activity.todaySpeed).toLocaleString("zh-CN")}
+                {formatZhNumber(Math.round(activity.todaySpeed))}
               </strong>
               <small>字 / 分钟</small>
             </div>
@@ -1700,7 +1701,7 @@ export function TypingStatisticsPage({
             <span>平均速度</span>
             <div className={metricLine}>
               <strong className={metricValue} aria-label="平均输入速度">
-                {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
+                {formatZhNumber(Math.round(activity.averageSpeed))}
               </strong>
               <small>字 / 分钟</small>
             </div>
@@ -1712,26 +1713,24 @@ export function TypingStatisticsPage({
             <span>连续天数</span>
             <div className={metricLine}>
               <strong className={metricValue} aria-label="连续输入天数">
-                {activity.currentStreak.toLocaleString("zh-CN")}
+                {formatZhNumber(activity.currentStreak)}
               </strong>
               <small>天</small>
             </div>
-            <small className={metricNote}>
-              最长 {activity.longestStreak.toLocaleString("zh-CN")} 天
-            </small>
+            <small className={metricNote}>最长 {formatZhNumber(activity.longestStreak)} 天</small>
           </div>
         </div>
         <div className={`${axis} flex-wrap gap-x-4`}>
           <span>
-            日均 {Math.round(activity.averagePerDay).toLocaleString("zh-CN")} 字符 ·{" "}
-            {activity.recordedDays.toLocaleString("zh-CN")} 天有记录
+            日均 {formatZhNumber(Math.round(activity.averagePerDay))} 字符 ·{" "}
+            {formatZhNumber(activity.recordedDays)} 天有记录
           </span>
           <span>
             {activity.bestDay
-              ? `最多 ${dayLabel(activity.bestDay)}，${activity.bestDayCharacters.toLocaleString("zh-CN")} 字符`
+              ? `最多 ${dayLabel(activity.bestDay)}，${formatZhNumber(activity.bestDayCharacters)} 字符`
               : "还没有记录"}
             {activity.fastestDay
-              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${Math.round(activity.fastestSpeed).toLocaleString("zh-CN")} 字 / 分钟`
+              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${formatZhNumber(Math.round(activity.fastestSpeed))} 字 / 分钟`
               : ""}
           </span>
         </div>
@@ -1776,10 +1775,9 @@ export function TypingStatisticsPage({
             最高{" "}
             {maximum === 1 && trendDays.every((day) => !statistics.days[day.key])
               ? 0
-              : maximum.toLocaleString("zh-CN")}{" "}
+              : formatZhNumber(maximum)}{" "}
             字符 / 天
-            {trendAverage > 0 &&
-              ` · 虚线为日均 ${Math.round(trendAverage).toLocaleString("zh-CN")} 字符`}
+            {trendAverage > 0 && ` · 虚线为日均 ${formatZhNumber(Math.round(trendAverage))} 字符`}
           </p>
           {mobile ? (
             <StatisticsTrendLine

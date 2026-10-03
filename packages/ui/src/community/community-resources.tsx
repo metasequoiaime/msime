@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { randomUuid } from "../core/random-id";
+import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import {
@@ -131,8 +132,8 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复模板")}
       </span>
       <span className={style.cardMetrics}>
-        ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
-        {item.saves.toLocaleString("zh-CN")} 人收藏
+        ☆ {communityRating(item.rating_count, item.rating_average)} · {formatZhNumber(item.saves)}{" "}
+        人收藏
       </span>
     </CommunityCard>
   );
@@ -500,9 +501,9 @@ function ResourceDetail({
         description={item.description}
       />
       <CommunityMetrics>
-        {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
+        {formatZhNumber(item.saves)} 人收藏 ·{" "}
         {communityRating(item.rating_count, item.rating_average)} ·{" "}
-        {item.rating_count.toLocaleString("zh-CN")} 人评分
+        {formatZhNumber(item.rating_count)} 人评分
       </CommunityMetrics>
       {item.kind === "dictionary" ? (
         <>
