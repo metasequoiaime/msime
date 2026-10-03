@@ -47,6 +47,7 @@ import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
@@ -521,14 +522,11 @@ export function CommunityPluginPublishDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
-  const clientGeneration = useRef(0);
+  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localPlugins);
   const packGeneration = useRef(0);
-  const actionRunning = useRef(false);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     let active = true;
-    actionRunning.current = false;
     setBusy(false);
     setOptionsLoading(true);
     void localPlugins()
@@ -558,7 +556,6 @@ export function CommunityPluginPublishDialog({
       });
     return () => {
       active = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, localPlugins]);
 

@@ -39,6 +39,7 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
@@ -141,13 +142,10 @@ function CommunitySkinPublishDialog({
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, library);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     let active = true;
-    actionRunning.current = false;
     setBusy(true);
     void library
       .load()
@@ -170,7 +168,6 @@ function CommunitySkinPublishDialog({
       });
     return () => {
       active = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, library]);
 

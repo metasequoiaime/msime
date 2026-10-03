@@ -45,6 +45,7 @@ import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { communityPublishFields } from "./community-publish-validation";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -166,18 +167,9 @@ function ResourceEditor({
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { clientGeneration, actionRunning, isCurrent } = useCommunityClientLifecycle(client);
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
     setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
   }, [client]);
   const addEntry = () => {
     const value = { kind: entryKind, code: code.trim(), word, weight: Number(weight) };
@@ -225,7 +217,7 @@ function ResourceEditor({
       actionRunning,
       setBusy,
       setError,
-      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      isCurrent: () => isCurrent(generation),
       formatError: resourceMessage,
       operation: async (isCurrent) => {
         await client.publish(
@@ -368,9 +360,12 @@ function ResourceDetail({
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionBusyRef = useRef(false);
+  const {
+    mounted,
+    clientGeneration,
+    actionRunning: actionBusyRef,
+    isCurrent,
+  } = useCommunityClientLifecycle(client, initial.id);
   const renderGeneration = clientGeneration.current;
   const run = async (action: (generation: number) => Promise<void>) => {
     if (actionBusyRef.current || busy) return;
@@ -383,16 +378,14 @@ function ResourceDetail({
       setBusy,
       setError,
       setNotice,
-      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      isCurrent: () => isCurrent(generation),
       formatError: resourceMessage,
       operation: () => action(generation),
     });
   };
   useEffect(() => {
     let active = true;
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionBusyRef.current = false;
+    const generation = clientGeneration.current;
     setBusy(false);
     void client
       .detail(initial.id)
@@ -405,8 +398,6 @@ function ResourceDetail({
       });
     return () => {
       active = false;
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, initial.id]);
   const save = () =>

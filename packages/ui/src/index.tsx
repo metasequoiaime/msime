@@ -1336,6 +1336,10 @@ export {
   type CommunityPublicationDraft,
 } from "./community/use-community-publication-draft";
 export {
+  useCommunityClientLifecycle,
+  type CommunityClientLifecycle,
+} from "./community/use-community-client-lifecycle";
+export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";
