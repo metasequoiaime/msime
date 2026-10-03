@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import { appendUniqueById } from "./community-helpers";
 import { communityReportedNotice, type CommunityReportReason } from "./community-report";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 
 export type CommunityGalleryPage<T> = {
   items: T[];
@@ -61,9 +62,12 @@ export function useCommunityGallery<T extends { id: string }>({
   const nextOffset = useRef(0);
   const activeSearch = useRef("");
   const activeMine = useRef(initialMine);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionBusyRef = useRef(false);
+  const {
+    mounted,
+    clientGeneration,
+    actionRunning: actionBusyRef,
+    isCurrent,
+  } = useCommunityClientLifecycle(client, errorMessage, needsSignIn);
 
   const fail = useCallback(
     (failure: unknown) => {
@@ -121,14 +125,9 @@ export function useCommunityGallery<T extends { id: string }>({
   );
 
   useEffect(() => {
-    const currentClient = ++clientGeneration.current;
-    mounted.current = true;
-    actionBusyRef.current = false;
     setActionBusy(false);
     void requestList("", false, activeMine.current);
     return () => {
-      mounted.current = false;
-      if (clientGeneration.current === currentClient) clientGeneration.current++;
       listGeneration.current += 1;
       detailGeneration.current += 1;
     };
@@ -180,11 +179,6 @@ export function useCommunityGallery<T extends { id: string }>({
     setActionBusy(true);
     return clientGeneration.current;
   }, [actionBusy, selected]);
-
-  const isCurrent = useCallback(
-    (generation: number) => mounted.current && generation === clientGeneration.current,
-    [],
-  );
 
   const endAction = useCallback(
     (generation: number) => {
