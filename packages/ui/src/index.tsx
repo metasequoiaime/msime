@@ -1170,6 +1170,10 @@ export {
   type CommunityErrorAlertProps,
 } from "./community/community-error-alert";
 export {
+  CommunityGalleryFeedback,
+  type CommunityGalleryFeedbackProps,
+} from "./community/community-gallery-feedback";
+export {
   CommunityDialogActions,
   type CommunityDialogActionsProps,
   CommunityDialogFrame,

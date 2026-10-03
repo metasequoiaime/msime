@@ -11,7 +11,6 @@ import {
   runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
-import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailFrame } from "./community-detail-frame";
@@ -30,6 +29,7 @@ import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
@@ -618,18 +618,22 @@ export function CommunitySkinsPage({
         value={categoryFilter.category}
         onChange={(next) => void changeCategory(next)}
       />
-      {error && (
-        <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-      )}
-      {!listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 && (
-        <p className={style.notice}>
-          {mineOnly
-            ? hasMore
-              ? "当前页没有你的作品，请继续加载查看更多。"
-              : "还没有已发布的皮肤。"
-            : "暂时没有匹配的皮肤。"}
-        </p>
-      )}
+      <CommunityGalleryFeedback
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+        empty={
+          !listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 ? (
+            <p className={style.notice}>
+              {mineOnly
+                ? hasMore
+                  ? "当前页没有你的作品，请继续加载查看更多。"
+                  : "还没有已发布的皮肤。"
+                : "暂时没有匹配的皮肤。"}
+            </p>
+          ) : undefined
+        }
+      />
       <div className={style.grid}>
         {skins
           .filter((skin) => !mineOnly || skin.owned)

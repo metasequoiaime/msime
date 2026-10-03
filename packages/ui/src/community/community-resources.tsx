@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { randomUuid } from "../core/random-id";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
-import { CommunityErrorAlert } from "./community-error-alert";
 import {
   appendUniqueById,
   communityRating,
@@ -32,6 +31,7 @@ import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -722,10 +722,14 @@ export function CommunityResourcesPage({
         />
         <ActionButton action={() => setEditing(true)} className="primary" label="发布作品" />
       </CommunityGalleryHeading>
-      {error && <CommunityErrorAlert message={error} />}
-      {!busy && items.length === 0 && (
-        <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>
-      )}
+      <CommunityGalleryFeedback
+        error={error}
+        empty={
+          !busy && items.length === 0 ? (
+            <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>
+          ) : undefined
+        }
+      />
       <div className={style.grid}>
         {items.map((item) => (
           <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />

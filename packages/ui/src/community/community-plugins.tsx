@@ -18,7 +18,6 @@ import {
   runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
-import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailHeader } from "./community-detail-header";
@@ -38,6 +37,7 @@ import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
@@ -287,10 +287,6 @@ export function CommunityPluginsPage({
     await requestList(activeSearch, false);
   };
 
-  const errorAlert = error && (
-    <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-  );
-
   if (selected) {
     return (
       <CommunityDetailFrame
@@ -425,26 +421,33 @@ export function CommunityPluginsPage({
           />
         ))}
       </div>
-      {errorAlert}
-      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
-      {!listBusy && !error && plugins.length === 0 && hasMore && (
-        <p className={style.notice}>
-          {activeSearch || kind
-            ? "前面的插件这台设备都不能安装，点「加载更多」继续查找。"
-            : "前面的插件这台设备都不能安装，点「加载更多」查看更早发布的插件。"}
-        </p>
-      )}
-      {!listBusy && !error && plugins.length === 0 && !hasMore && (
-        <p className={style.notice}>
-          {mineOnly
-            ? "你还没有发布过插件。"
-            : activeSearch || kind
-              ? "没有匹配的插件。"
-              : localPlugins
-                ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
-                : "社区里还没有插件。"}
-        </p>
-      )}
+      <CommunityGalleryFeedback
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+        notice={actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
+        empty={
+          !listBusy && !error && plugins.length === 0 ? (
+            hasMore ? (
+              <p className={style.notice}>
+                {activeSearch || kind
+                  ? "前面的插件这台设备都不能安装，点「加载更多」继续查找。"
+                  : "前面的插件这台设备都不能安装，点「加载更多」查看更早发布的插件。"}
+              </p>
+            ) : (
+              <p className={style.notice}>
+                {mineOnly
+                  ? "你还没有发布过插件。"
+                  : activeSearch || kind
+                    ? "没有匹配的插件。"
+                    : localPlugins
+                      ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
+                      : "社区里还没有插件。"}
+              </p>
+            )
+          ) : undefined
+        }
+      />
       <div className={style.grid}>
         {plugins.map((plugin) => (
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />

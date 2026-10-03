@@ -8,7 +8,6 @@ import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers"
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailFrame } from "./community-detail-frame";
-import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
@@ -24,6 +23,7 @@ import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
@@ -563,15 +563,19 @@ export function CommunityCandidateSkinsPage({
         value={categoryFilter.category}
         onChange={(next) => void changeCategory(next)}
       />
-      {error && (
-        <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-      )}
-      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
-      {!listBusy && skins.length === 0 && (
-        <p className={style.notice}>
-          {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}
-        </p>
-      )}
+      <CommunityGalleryFeedback
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+        notice={actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
+        empty={
+          !listBusy && skins.length === 0 ? (
+            <p className={style.notice}>
+              {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}
+            </p>
+          ) : undefined
+        }
+      />
       <div className={style.grid}>
         {skins.map((skin) => (
           <CommunityCandidateSkinCard
