@@ -442,7 +442,7 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 笔画（scheme 8）是中文方案，在托盘菜单「输入方案」里排在注音之后，设置页的分段控件里同样可选，工具栏语言按钮显示「笔」。它有自己的输入模式代码 `6`：它的 trait 与全拼不同（不做繁简转换、不显示译文），TIP 的按键分类也不同。Engine 谓词逐项照抄粤拼，所以它和粤拼一样走 Server 的候选窗，标点、翻页、数字选词与全拼相同，候选来自只读的 `stroke.db`，不提供置顶、固定和删除，繁体输出开关不再转换，打字统计记在 `stroke` 名下。
 
-键位：`h` 横、`s` 竖、`p` 撇、`n` 点、`z` 折，`x` 是匹配任意一笔的通配符。空组合时只有 `hspnz` 开始组合，`x`、其他字母和大写字母交给应用（`InputSchemeTraits.h` 的 `LetterPassesWhileIdle`，立即路径和排队路径共用）；组合中 TIP 收下所有字母，Engine 在两边都吞掉笔画以外的字母，组合不变。数字 1-9 选词，空格提交高亮候选，回车提交键入的字母，Backspace 删最后一笔，Esc 清空。预编辑显示笔画字形 一丨丿丶乛＊：候选窗的预编辑行和 TIP 的内嵌组合都取 View 的 `preedit`（TIP 读自己 host session 的 View），`editing_text` 仍是 ASCII 字母，只用来对齐光标和校验回车提交的文本。
+键位：`h` 横、`s` 竖、`p` 撇、`n` 点、`z` 折，`x` 是匹配任意一笔的通配符。空组合时只有 `hspnz` 开始组合，`x`、其他字母和大写字母交给应用（`InputSchemeTraits.h` 的 `LetterPassesWhileIdle`，立即路径和排队路径共用）。Engine 自己的英文模式（Ctrl+Shift+E、工具栏或托盘的英文）例外：那时 TSF 仍报告中文，Engine 先于方案判断英文模式、组合每一个字母，所以 Server 用 Worker 帧 DedicatedEnglishChanged（29，载荷 `0`/`1`）把这个状态推给 TIP，打开时所有字母都交给 Engine，否则 "apple" 的 a 会直接进应用。这个状态随 Server 每 250 毫秒读一次焦点会话的英文模式推送，切换后的极短时间内 TIP 仍按旧状态分类。组合中 TIP 收下所有字母，Engine 在两边都吞掉笔画以外的字母，组合不变。数字 1-9 选词，空格提交高亮候选，回车提交键入的字母，Backspace 删最后一笔，Esc 清空。预编辑显示笔画字形 一丨丿丶乛＊：候选窗的预编辑行和 TIP 的内嵌组合都取 View 的 `preedit`（TIP 读自己 host session 的 View），`editing_text` 仍是 ASCII 字母，只用来对齐光标和校验回车提交的文本。
 
 词库：`Prepare-PackageFiles.ps1` 把 `stroke.db` 连同 `rime_stroke_LICENSE.txt` 与粤拼、注音词库一起放进 `server_exe/language-dictionaries`；Server、TIP（`FanyUtils.cpp` 的 `ReadConfiguredRunningScheme`）和托盘都按这个文件是否存在决定笔画能否运行，缺少时托盘里的「笔画」不可选，已选的笔画按 `effective_scheme` 退回上次的中文方案。`MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 要求 `resources/language-dictionaries.lock.json` 固定的每一份词库都在；锁固定 `stroke.db` 之前笔画词库存在就装入，缺少也不让打包失败。`tests/input/stroke_keys.cpp` 用入库的合成词库 `tests/input/fixtures/stroke.db` 对真实 Engine 会话跑这些键。
 

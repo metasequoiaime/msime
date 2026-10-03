@@ -45,10 +45,10 @@ constexpr bool KeyboardOnlyCandidateList(int scheme) { return scheme == Zhuyin; 
 inline constexpr std::string_view kStrokeKeys = "hspnz";
 inline constexpr wchar_t kStrokeWildcard = L'x';
 
-// A letter the TIP would otherwise take into a composition that, with nothing composing, belongs to the application: under Stroke every letter but the five lowercase strokes (the wildcard x, the other letters, a capital) is one the Engine answers handled=false for, so the application inserts it. While composing the TIP takes every letter, and the Engine swallows the ones that are not strokes on both sides alike.
-constexpr bool LetterPassesWhileIdle(int scheme, wchar_t wch)
+// A letter the TIP would otherwise take into a composition that, with nothing composing, belongs to the application: under Stroke every letter but the five lowercase strokes (the wildcard x, the other letters, a capital) is one the Engine answers handled=false for, so the application inserts it. While composing the TIP takes every letter, and the Engine swallows the ones that are not strokes on both sides alike. In the Engine's own English mode (`dedicated_english`, which the Server sends as DedicatedEnglishChanged because the TIP still reports Chinese there) the Engine checks that mode before the scheme and composes every letter as English, so none passes.
+constexpr bool LetterPassesWhileIdle(int scheme, bool dedicatedEnglish, wchar_t wch)
 {
-    if (scheme != Stroke)
+    if (scheme != Stroke || dedicatedEnglish)
         return false;
     const bool letter = (wch >= L'a' && wch <= L'z') || (wch >= L'A' && wch <= L'Z');
     return letter && (wch > 0x7F || kStrokeKeys.find(static_cast<char>(wch)) == std::string_view::npos);

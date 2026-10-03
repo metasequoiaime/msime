@@ -42,7 +42,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 9);
+    require(frames.size() == 10);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -56,7 +56,8 @@ int main() {
         FanyImeWorkerReplyType::InputModeChanged,
         FanyImeWorkerReplyType::TsfDiagnosticLogChanged,
         FanyImeWorkerReplyType::PunctuationLockChanged,
-        FanyImeWorkerReplyType::LocalModeTriggersChanged};
+        FanyImeWorkerReplyType::LocalModeTriggersChanged,
+        FanyImeWorkerReplyType::DedicatedEnglishChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -150,6 +151,12 @@ int main() {
     // The TIP drops every type above MaxKnown, so the new type has to be inside it.
     require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
+    // The Engine's own English mode travels on its own frame too, after every older one: the TIP keeps reporting Chinese there, and under Stroke it would otherwise hand an idle non-stroke letter (the 'a' of "apple") to the application instead of the Engine.
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[9]) == L"0");
+    config.dedicated_english = true;
+    require(frame_text(tsf_config_frames(config)[9]) == L"1");
+    config.dedicated_english = false;
+    require(FanyImeWorkerReplyType::DedicatedEnglishChanged == FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

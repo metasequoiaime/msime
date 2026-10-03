@@ -32,7 +32,7 @@ int main() {
     assert(HostSmartPunctuation(representative) == HostSmartPunctuation(scheme));
     assert(ScriptConversionApplies(representative) == ScriptConversionApplies(scheme));
     assert(CommitsOnBlur(representative) == CommitsOnBlur(scheme));
-    assert(LetterPassesWhileIdle(representative, L'x') == LetterPassesWhileIdle(scheme, L'x'));
+    assert(LetterPassesWhileIdle(representative, false, L'x') == LetterPassesWhileIdle(scheme, false, L'x'));
   }
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
     assert(scheme_from_name(scheme_name(scheme)) == scheme);
@@ -95,12 +95,16 @@ int main() {
          !CapsLockBypassExempt(Stroke));
   // With nothing composing only the five strokes start a Stroke composition; the wildcard, the other letters and a capital belong to the application. No other scheme hands a letter back this way.
   for (const wchar_t stroke : {L'h', L's', L'p', L'n', L'z'})
-    assert(!LetterPassesWhileIdle(Stroke, stroke));
+    assert(!LetterPassesWhileIdle(Stroke, false, stroke));
   for (const wchar_t other : {L'x', L'a', L'q', L'H', L'X'})
-    assert(LetterPassesWhileIdle(Stroke, other));
-  assert(!LetterPassesWhileIdle(Stroke, L'1') && !LetterPassesWhileIdle(Stroke, L',') && !LetterPassesWhileIdle(Stroke, L' '));
+    assert(LetterPassesWhileIdle(Stroke, false, other));
+  assert(!LetterPassesWhileIdle(Stroke, false, L'1') && !LetterPassesWhileIdle(Stroke, false, L',') &&
+         !LetterPassesWhileIdle(Stroke, false, L' '));
   for (int scheme = Quanpin; scheme <= Vietnamese; ++scheme)
-    assert(!LetterPassesWhileIdle(scheme, L'x') && !LetterPassesWhileIdle(scheme, L'a'));
+    assert(!LetterPassesWhileIdle(scheme, false, L'x') && !LetterPassesWhileIdle(scheme, false, L'a'));
+  // In the Engine's own English mode under Stroke (Ctrl+Shift+E, the toolbar English) the Engine composes every letter as English before it looks at the scheme, so "apple" must reach it from its first letter: none passes to the application.
+  for (const wchar_t letter : {L'a', L'x', L'q', L'h', L'A'})
+    assert(!LetterPassesWhileIdle(Stroke, true, letter));
   assert(FoldsLetterCase(Korean) && !FoldsLetterCase(Vietnamese));
   // Only a Vietnamese word keeps composing after an Escape; every other composition, schemes 0-4 included, is discarded by it.
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)

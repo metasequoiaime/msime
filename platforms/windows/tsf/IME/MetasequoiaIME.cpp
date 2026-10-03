@@ -1819,7 +1819,8 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PairedPunctuationChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::MicrosoftShuangpinChanged ||
              buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CapsLockChanged ||
-             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::TsfDiagnosticLogChanged))
+             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::TsfDiagnosticLogChanged ||
+             buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged))
         {
             bool hasTerminator = false;
             for (const wchar_t ch : buf.data)
@@ -1907,6 +1908,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CapsLockChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::TsfDiagnosticLogChanged ||
+                buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PunctuationLockChanged ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::PipeReady ||
                 buf.msg_type == Global::DataToTsfWorkerThreadMsgType::FocusSessionReady ||
@@ -2010,6 +2012,10 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
             Global::ExpressionModeEnabled.store(triggers.expression, std::memory_order_relaxed);
             Global::CommandModeEnabled.store(triggers.command, std::memory_order_relaxed);
             Global::MentionModeEnabled.store(triggers.mention, std::memory_order_relaxed);
+        }
+        else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged)
+        {
+            Global::DedicatedEnglishActive.store(buf.data[0] == L'1', std::memory_order_relaxed);
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
         {

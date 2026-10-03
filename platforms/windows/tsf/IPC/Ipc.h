@@ -166,6 +166,8 @@ inline std::atomic_int InputModeScheme{0};
 inline std::atomic_bool ExpressionModeEnabled{false};
 inline std::atomic_bool CommandModeEnabled{false};
 inline std::atomic_bool MentionModeEnabled{false};
+// The focused client's Engine is in its own English mode, which the TIP cannot see from the compartment (it stays Chinese): off until the Server sends DedicatedEnglishChanged. While on, idle Stroke letters go to the Engine rather than the application (scheme::LetterPassesWhileIdle).
+inline std::atomic_bool DedicatedEnglishActive{false};
 inline std::atomic_bool CapsLockEnabled{false};
 inline std::atomic_bool TsfDiagnosticLogEnabled{false};
 inline thread_local bool g_connected = false;

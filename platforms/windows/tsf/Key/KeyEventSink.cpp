@@ -1008,8 +1008,10 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return isTouchKeyboardSpecialKeys;
         }
 
-        // With nothing composing, a Stroke letter other than the five strokes is the application's: the Engine answers handled=false for it, so the TIP must not eat it (scheme::LetterPassesWhileIdle).
-        if (!isInputInProgress && msime::windows::scheme::LetterPassesWhileIdle(scheme, wch))
+        // With nothing composing, a Stroke letter other than the five strokes is the application's: the Engine answers handled=false for it, so the TIP must not eat it (scheme::LetterPassesWhileIdle). Not in the Engine's own English mode, which composes every letter.
+        if (!isInputInProgress &&
+            msime::windows::scheme::LetterPassesWhileIdle(
+                scheme, Global::DedicatedEnglishActive.load(std::memory_order_relaxed), wch))
         {
             return isTouchKeyboardSpecialKeys;
         }
@@ -1613,7 +1615,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
 
     // As in _IsKeyEaten: with nothing projected composing, a Stroke letter other than the five strokes is queued as application text.
     if (shadow.imeOpen && shadow.inputLength == 0 && !shadow.candidateActive &&
-        msime::windows::scheme::LetterPassesWhileIdle(scheme, *classifiedWch))
+        msime::windows::scheme::LetterPassesWhileIdle(
+            scheme, Global::DedicatedEnglishActive.load(std::memory_order_relaxed), *classifiedWch))
     {
         return true;
     }
