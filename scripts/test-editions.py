@@ -15,7 +15,7 @@
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
 - Linux 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的安装前缀不能嵌在另一个版本的前缀里，由包名推出的 systemd 用户单元、图标和 /usr/bin 命令名也两两不同；不是 full 的版本按版本 id 推出（`msime-linux-<id>`、`/opt/msime-linux-<id>`、`msime-client-<id>`、`msime-<id>`、`app.msime.linux.<id>`）；full 的值等于今天的包名（packaging.cmake 从版本表取）、IBus 组件、Fcitx5 配置、msime-linux-setup 和 tauri.linux.conf.json 里的值；
-- Android 身份标识：applicationId 和 APK 名在所有版本间两两不同（不区分大小写），不是 full 的版本按版本 id 推出（`app.msime.android.<id>`、`msime-client-<id>`），清单里每个 ContentProvider 的 authority 都写成 `${applicationId}.<名字>`，所以各版本的 authority 也两两不同；full 的值等于今天 gradle-app 的 applicationId、tauri.android.conf.json 的 identifier 和 build-apk.sh 产出的 APK 名，主资源的应用名等于 full 的显示名；其他版本的 `platforms/android/editions/<id>/res` 里应用名等于版本的显示名，覆盖的另外几句与主资源只差产品名，method.xml 与主资源只差子类型标签；
+- Android 身份标识：applicationId 和 APK 名在所有版本间两两不同（不区分大小写），不是 full 的版本按版本 id 推出（`app.msime.android.<id>`、`msime-client-<id>`），清单里每个 ContentProvider 的 authority 都写成 `${applicationId}.<名字>`，所以各版本的 authority 也两两不同；full 的值等于今天 gradle-app 的 applicationId、tauri.android.conf.json 的 identifier 和 build-apk.sh 产出的 APK 名，主资源的应用名等于 full 的显示名；其他版本的 `platforms/android/editions/<id>/res` 里应用名等于版本的显示名，覆盖的另外几句与主资源只差产品名，method.xml 与主资源只差子类型标签；Tauri 包的 `src/editions/<id>/res-msime` 里启动器标题与 `src/main/res-msime` 只差产品名，tauri_method.xml 只差子类型标签；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
 不带参数运行时检查仓库里的文件；`--editions` 和 `--frozen` 可以换成别的文件，用来确认某种错误确实会被拦下。
@@ -48,6 +48,7 @@ ANDROID_ROOT = ROOT / "platforms/android"
 ANDROID_GRADLE = ANDROID_ROOT / "gradle-app/app/build.gradle.kts"
 ANDROID_MANIFEST = ANDROID_ROOT / "AndroidManifest.xml"
 TAURI_ANDROID_CONF = ROOT / "apps/desktop/src-tauri/tauri.android.conf.json"
+TAURI_ANDROID_RES = ROOT / "apps/desktop/src-tauri/gen/android/app/src"
 TAURI_LINUX_CONF = ROOT / "apps/desktop/src-tauri/tauri.linux.conf.json"
 LINUX_ROOT = ROOT / "platforms/linux"
 
@@ -603,6 +604,8 @@ def check_android(errors: list[str], editions: list[dict]) -> None:
             resolved[value] = edition_id
     main_strings = android_strings(ANDROID_ROOT / "res/values/strings.xml")
     main_method = without_subtype_label(ANDROID_ROOT / "res/xml/method.xml")
+    tauri_main_strings = android_strings(TAURI_ANDROID_RES / "main/res-msime/values/strings.xml")
+    tauri_main_method = without_subtype_label(TAURI_ANDROID_RES / "main/res-msime/xml/tauri_method.xml")
     for edition_id, entry, section in sections:
         name = entry["display_name"]["zh-Hans"]
         if edition_id == FULL:
@@ -645,6 +648,21 @@ def check_android(errors: list[str], editions: list[dict]) -> None:
         method = method_path.read_text(encoding="utf-8")
         if 'android:label="@string/app_name"' not in method:
             errors.append(f"edition {edition_id}: {method_path.relative_to(ROOT)} must label its subtype with @string/app_name")
+        # Tauri 包的启动器入口和输入法声明用的是自己的资源，不是上面那两个。
+        tauri_resources = TAURI_ANDROID_RES / "editions" / edition_id / "res-msime"
+        tauri_strings_path = tauri_resources / "values/strings.xml"
+        tauri_method_path = tauri_resources / "xml/tauri_method.xml"
+        if not tauri_strings_path.is_file() or not tauri_method_path.is_file():
+            errors.append(f"edition {edition_id}: {tauri_resources.relative_to(ROOT)} must hold values/strings.xml and xml/tauri_method.xml")
+            continue
+        tauri_strings = android_strings(tauri_strings_path)
+        expected_title = tauri_main_strings["main_activity_title"].replace(main_strings["app_name"], name)
+        if tauri_strings != {"main_activity_title": expected_title}:
+            errors.append(f"edition {edition_id}: {tauri_strings_path.relative_to(ROOT)} must override only main_activity_title, as {expected_title!r}")
+        if without_subtype_label(tauri_method_path) != tauri_main_method:
+            errors.append(f"edition {edition_id}: {tauri_method_path.relative_to(ROOT)} must equal src/main/res-msime/xml/tauri_method.xml apart from the subtype label")
+        if 'android:label="@string/app_name"' not in tauri_method_path.read_text(encoding="utf-8"):
+            errors.append(f"edition {edition_id}: {tauri_method_path.relative_to(ROOT)} must label its subtype with @string/app_name")
 
 
 def check_frozen(errors: list[str], editions: list[dict], frozen: dict) -> None:

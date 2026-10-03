@@ -86,6 +86,8 @@ public final class OnboardingActivity extends AppCompatActivity {
         AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_onboarding);
+        // The layout's max is the four-step flow; an edition with a single scheme skips the scheme step, and the bar must still fill on its last page.
+        ((LinearProgressIndicator) findViewById(R.id.onboarding_progress)).setMax(pages);
         if (state != null) page = Math.max(0, Math.min(pages - 1, state.getInt(STATE_PAGE, 0)));
         findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
         findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
