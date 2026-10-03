@@ -49,6 +49,23 @@ fn private_tempdir() -> tempfile::TempDir {
     directory
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_aliases_require_the_private_system_target() {
+    assert!(providers::trusted_system_alias_target(
+        Path::new("/tmp"),
+        Path::new("private/tmp")
+    ));
+    assert!(providers::trusted_system_alias_target(
+        Path::new("/var"),
+        Path::new("/private/var")
+    ));
+    assert!(!providers::trusted_system_alias_target(
+        Path::new("/tmp"),
+        Path::new("/Users/synthetic/outside")
+    ));
+}
+
 #[cfg(unix)]
 #[test]
 fn provider_connect_rejects_untrusted_filesystem_endpoints() {
