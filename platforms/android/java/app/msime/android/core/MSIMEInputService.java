@@ -3831,7 +3831,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !view.optString("editing_text", "").isEmpty()
                 || !"none".equals(view.optString("local_mode", "none"))) return;
         PopupMenu popup = new PopupMenu(this, preedit);
-        for (LocalInputMode mode : LocalInputMode.values()) {
+        for (LocalInputMode mode : localInputModes()) {
             MenuItem item = popup.getMenu().add(mode.title());
             item.setEnabled(localModeEnabled(mode));
             item.setOnMenuItemClickListener(ignored -> {
@@ -3840,6 +3840,15 @@ public final class MSIMEInputService extends InputMethodService {
             });
         }
         popup.show();
+    }
+
+    /** 本版本提供的本地模式：不带临时日语的版本（五笔版）不列出它，其余与 {@link LocalInputMode#values()} 相同。 */
+    private java.util.List<LocalInputMode> localInputModes() {
+        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>();
+        for (LocalInputMode mode : LocalInputMode.values()) {
+            if (mode != LocalInputMode.TEMPORARY_JAPANESE || edition.temporaryJapanese()) modes.add(mode);
+        }
+        return modes;
     }
 
     private boolean localModeEnabled(LocalInputMode mode) {
@@ -6331,10 +6340,10 @@ public final class MSIMEInputService extends InputMethodService {
                         localInputToolsOpen = false;
                         renderMoreTools();
                     }));
-            LocalInputMode[] modes = LocalInputMode.values();
-            Button[] localCards = new Button[modes.length];
-            for (int index = 0; index < modes.length; index++) {
-                LocalInputMode mode = modes[index];
+            java.util.List<LocalInputMode> modes = localInputModes();
+            Button[] localCards = new Button[modes.size()];
+            for (int index = 0; index < modes.size(); index++) {
+                LocalInputMode mode = modes.get(index);
                 localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
                     false, supportsLocalTools() && localModeEnabled(mode), false, () -> {
                         closeMoreTools();

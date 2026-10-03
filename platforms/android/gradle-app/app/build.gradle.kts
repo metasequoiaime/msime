@@ -20,6 +20,7 @@ data class AndroidEdition(
     val applicationId: String,
     val inputSchemes: List<String>,
     val defaultScheme: String,
+    val temporaryJapanese: Boolean,
 )
 
 val baseApplicationId = "app.msime.android"
@@ -33,6 +34,7 @@ val androidEditions = (JsonSlurper().parse(hostRoot.resolve("../../shared/contra
             applicationId = android["application_id"] as String,
             inputSchemes = entry["input_schemes"] as List<String>,
             defaultScheme = entry["default_scheme"] as String,
+            temporaryJapanese = (entry["features"] as Map<String, Any?>)["temporary_japanese"] as Boolean,
         )
     }
 check(androidEditions.firstOrNull()?.let { it.id == "full" && it.applicationId == baseApplicationId } == true) {
@@ -72,10 +74,11 @@ android {
                     }
                     applicationIdSuffix = edition.applicationId.removePrefix(baseApplicationId)
                 }
-                // 宿主运行时由 AppEdition 读这三项（javac 直接编译的那部分代码引用不到生成的 BuildConfig，所以经反射读）：版本 id、本版本的输入方案（逗号分隔，顺序同版本表）和默认方案。
+                // 宿主运行时由 AppEdition 读这几项（javac 直接编译的那部分代码引用不到生成的 BuildConfig，所以经反射读）：版本 id、本版本的输入方案（逗号分隔，顺序同版本表）、默认方案和是否带临时日语。
                 buildConfigField("String", "EDITION", "\"${edition.id}\"")
                 buildConfigField("String", "EDITION_INPUT_SCHEMES", "\"${edition.inputSchemes.joinToString(",")}\"")
                 buildConfigField("String", "EDITION_DEFAULT_SCHEME", "\"${edition.defaultScheme}\"")
+                buildConfigField("boolean", "EDITION_TEMPORARY_JAPANESE", edition.temporaryJapanese.toString())
             }
         }
     }

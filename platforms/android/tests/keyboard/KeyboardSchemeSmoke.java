@@ -7,8 +7,8 @@ import java.util.List;
 
 public final class KeyboardSchemeSmoke {
     static final AppEdition FULL = AppEdition.FULL;
-    static final AppEdition PINYIN = AppEdition.of("pinyin", "quanpin,shuangpin", "quanpin");
-    static final AppEdition WUBI = AppEdition.of("wubi", "wubi", "wubi");
+    static final AppEdition PINYIN = AppEdition.of("pinyin", "quanpin,shuangpin", "quanpin", true);
+    static final AppEdition WUBI = AppEdition.of("wubi", "wubi", "wubi", false);
 
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
@@ -168,8 +168,9 @@ public final class KeyboardSchemeSmoke {
         // JVM 冒烟测试里没有 Gradle 生成的 BuildConfig，读到的就是 full。
         check(AppEdition.current() == FULL && FULL.isFull() && FULL.defaultScheme().equals("quanpin"));
         check(!WUBI.isFull() && !WUBI.offersSchemeChoice() && PINYIN.offersSchemeChoice());
+        check(FULL.temporaryJapanese() && PINYIN.temporaryJapanese() && !WUBI.temporaryJapanese());
         try {
-            AppEdition.of("wubi", "wubi", "quanpin");
+            AppEdition.of("wubi", "wubi", "quanpin", false);
             throw new IllegalStateException("a default scheme outside the edition must be rejected");
         } catch (IllegalArgumentException expected) {
             // 默认方案不在本版本的方案里，声明不成立。
