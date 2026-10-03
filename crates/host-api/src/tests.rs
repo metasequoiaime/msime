@@ -6800,6 +6800,144 @@ fn wubi_resources_type_mixed_pinyin_and_wubi_codes() {
     );
 }
 
+/// Linux 的 Fcitx5 只有一个进程，两个版本的插件会把宿主库加载进同一个进程（`RTLD_LOCAL` 下各自一份，但也可能被系统合并成一份）。这里在同一个进程、同一个线程里同时开着 full 和五笔版两个状态目录的会话，交替输入、选词和更新偏好，确认它们互不影响：方案各按各的版本，学习只写进自己的用户词库，一边更新偏好不改另一边的会话。进程级的静态缓存要么按路径做键（词库连接、n-gram、整句模型、用户日志），要么与状态目录无关（单位换算的 rink 上下文、拼音音节表），所以两个状态目录可以并存。
+#[test]
+fn two_editions_with_their_own_state_roots_share_one_process() {
+    let root = tempfile::tempdir().unwrap();
+    let wubi = Edition::by_id("wubi").unwrap();
+    let prepare = |name: &str, edition: &'static Edition| -> (std::path::PathBuf, String) {
+        let resources = root.path().join(name).join("resources");
+        let specification = synthetic_edition_lock(edition, &resources);
+        let state = root.path().join(name).join("state");
+        let mut prepared: Value = serde_json::from_str(
+            &prepare_shipped_host_configuration(
+                &resources,
+                &state,
+                &specification,
+                ON_DEMAND_ARTIFACTS,
+                edition,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        prepared["preferences"]["default_ime_mode"] = json!("chinese");
+        (state, prepared.to_string())
+    };
+    let (full_state, full_document) = prepare("full", Edition::full());
+    let (wubi_state, wubi_document) = prepare("wubi", wubi);
+    let create = |document: &str| -> u64 {
+        let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        handle
+    };
+    let full = create(&full_document);
+    let wubi_handle = create(&wubi_document);
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        let (full_options, wubi_options) =
+            (&sessions[&full].options, &sessions[&wubi_handle].options);
+        assert_eq!(sessions[&full].edition.id, "full");
+        assert_eq!(sessions[&wubi_handle].edition.id, "wubi");
+        assert_eq!(full_options.scheme, 0);
+        assert_eq!(wubi_options.scheme, 2);
+        assert!(Path::new(&full_options.user_data).starts_with(&full_state));
+        assert!(Path::new(&wubi_options.user_data).starts_with(&wubi_state));
+        assert!(Path::new(&full_options.dictionaries).starts_with(&full_state));
+        assert!(Path::new(&wubi_options.dictionaries).starts_with(&wubi_state));
+    });
+    let typed = |handle: u64, input: &[u8]| -> Value {
+        let mut view = Value::Null;
+        for byte in input {
+            let response = read(msime_client_character(handle, *byte, false));
+            assert_eq!(response["ok"], true, "{response}");
+            view = response["value"]["view"].clone();
+        }
+        view
+    };
+    let texts = |view: &Value| -> Vec<String> {
+        view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let escape = |handle: u64| {
+        assert_eq!(read(msime_client_command(handle, 3))["ok"], true);
+    };
+
+    // 交替输入：五笔版的 `wq` 出五笔码表的「你」，full 的同一串按全拼走，不出五笔码。
+    let wubi_code = typed(wubi_handle, b"wq");
+    assert_eq!(
+        texts(&wubi_code).first().map(String::as_str),
+        Some("你"),
+        "{wubi_code}"
+    );
+    let full_code = typed(full, b"wq");
+    assert_ne!(
+        texts(&full_code).first().map(String::as_str),
+        Some("你"),
+        "{full_code}"
+    );
+    escape(wubi_handle);
+    escape(full);
+
+    // full 里反复选第二个候选「拟好」，学到 full 自己的用户词库里，直到它排到第一。
+    let mut learned = false;
+    for _ in 0..8 {
+        let view = typed(full, b"nihao");
+        let list = texts(&view);
+        if list.first().map(String::as_str) == Some("拟好") {
+            learned = true;
+            escape(full);
+            break;
+        }
+        let index = list
+            .iter()
+            .position(|text| text == "拟好")
+            .expect("拟好 is offered");
+        let generation = view["generation"].as_u64().unwrap();
+        let selected = read(msime_client_select(full, generation, index));
+        assert_eq!(selected["value"]["commit"], "拟好", "{selected}");
+    }
+    assert!(learned, "full never learned 拟好");
+    // 五笔版的混拼没有学到 full 的选择：「你好」仍在「拟好」前面。
+    let mixed = texts(&typed(wubi_handle, b"nihao"));
+    let position = |text: &str| mixed.iter().position(|candidate| candidate == text);
+    assert!(
+        position("你好").unwrap() < position("拟好").unwrap(),
+        "{mixed:?}"
+    );
+    escape(wubi_handle);
+
+    // 一边更新偏好，另一边的会话不变：full 切到双拼，五笔版仍是五笔、混拼仍开着。
+    let shuangpin = Preferences {
+        scheme: InputScheme::Shuangpin,
+        ..Preferences::default()
+    };
+    assert_eq!(update(full, 1, &shuangpin)["ok"], true);
+    // 让挂起的偏好在下一次按键时生效。
+    typed(full, b"n");
+    escape(full);
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        assert_eq!(sessions[&full].options.scheme, 1);
+        assert_eq!(sessions[&wubi_handle].options.scheme, 2);
+        assert!(sessions[&wubi_handle].options.wubi_mixed_pinyin);
+    });
+    assert_eq!(read(msime_client_destroy(full))["ok"], true);
+    // full 的会话关掉之后，五笔版照常输入。
+    let after = typed(wubi_handle, b"wq");
+    assert_eq!(
+        texts(&after).first().map(String::as_str),
+        Some("你"),
+        "{after}"
+    );
+    assert_eq!(read(msime_client_destroy(wubi_handle))["ok"], true);
+}
+
 /// 刷新按文档记录的版本的锁比较代次：五笔版的文档停在五笔锁的代次上就是最新的，不会被当成过期重新准备；记成 full 的代次则要重新准备（这里资源目录是空的，所以准备失败）。
 #[test]
 fn refresh_compares_the_generation_of_the_documents_edition() {
