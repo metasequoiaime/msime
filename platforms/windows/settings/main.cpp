@@ -2883,6 +2883,7 @@ private:
         {L"mention", L"@ 名字与地点(@ 模式)", false},
     }};
     std::vector<Check> checks;
+    checks.reserve(modes.size());
     for (const auto &[id, label, default_on] : modes) {
       const std::wstring key = std::wstring(L"local_modes.") + id;
       checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
