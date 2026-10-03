@@ -2015,7 +2015,7 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::DedicatedEnglishChanged)
         {
-            Global::DedicatedEnglishActive.store(buf.data[0] == L'1', std::memory_order_relaxed);
+            Global::DedicatedEnglish.server(buf.data[0] == L'1');
         }
         else if (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::InputModeChanged)
         {

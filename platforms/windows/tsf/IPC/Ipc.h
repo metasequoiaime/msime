@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../../../../shared/contracts/windows_ipc.h"
+#include "../../common/DedicatedEnglishMirror.h"
 #include "../../common/InputSchemeTraits.h"
 
 int InitNamedpipe();
@@ -166,8 +167,8 @@ inline std::atomic_int InputModeScheme{0};
 inline std::atomic_bool ExpressionModeEnabled{false};
 inline std::atomic_bool CommandModeEnabled{false};
 inline std::atomic_bool MentionModeEnabled{false};
-// The focused client's Engine is in its own English mode, which the TIP cannot see from the compartment (it stays Chinese): off until the Server sends DedicatedEnglishChanged. While on, idle Stroke letters go to the Engine rather than the application (scheme::LetterPassesWhileIdle).
-inline std::atomic_bool DedicatedEnglishActive{false};
+// 焦点会话的 Engine 处于它自己的英文模式，TIP 从 compartment 看不到（那里仍是中文）：Server 用 DedicatedEnglishChanged 推送权威值，TIP 吞下 Ctrl+Shift+E 时先行翻转，见 DedicatedEnglishMirror。打开时，笔画方案空闲时的字母交给 Engine 而不是应用（scheme::LetterPassesWhileIdle）。
+inline msime::windows::DedicatedEnglishMirror DedicatedEnglish;
 inline std::atomic_bool CapsLockEnabled{false};
 inline std::atomic_bool TsfDiagnosticLogEnabled{false};
 inline thread_local bool g_connected = false;
