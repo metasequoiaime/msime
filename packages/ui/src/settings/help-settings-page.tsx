@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsGroupBlock } from "./settings-group-block";
 import * as doc from "./document-style";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
@@ -98,11 +99,7 @@ export function HelpSettingsPage({
       {macos &&
         macosHelpCards.map((card) => (
           <GroupList key={card.title} title={card.title}>
-            <div
-              className={`${settings.groupBlock} ${doc.guide}`}
-              role="group"
-              aria-label={card.title}
-            >
+            <SettingsGroupBlock className={doc.guide} role="group" aria-label={card.title}>
               {card.rows.map((row, index) => (
                 <div
                   key={row.term}
@@ -112,7 +109,7 @@ export function HelpSettingsPage({
                   <p className={doc.guideText}>{row.text}</p>
                 </div>
               ))}
-            </div>
+            </SettingsGroupBlock>
           </GroupList>
         ))}
       {macos && onOpenDocumentation && (
@@ -131,7 +128,7 @@ export function HelpSettingsPage({
         <>
           <SettingsGroupNote>{platformHelpIntro}</SettingsGroupNote>
           <GroupList title="快速上手">
-            <div className={`${settings.groupBlock} ${doc.page}`}>
+            <SettingsGroupBlock className={doc.page}>
               <p>{platformQuickStart}</p>
               {mobile && onOpenSystemKeyboardSettings && (
                 <ActionButton
@@ -141,7 +138,7 @@ export function HelpSettingsPage({
                   label={ios ? "打开系统键盘设置" : "打开系统输入法设置"}
                 />
               )}
-            </div>
+            </SettingsGroupBlock>
           </GroupList>
           {ios && (
             <GroupList title="允许完全访问">
@@ -159,14 +156,14 @@ export function HelpSettingsPage({
             </GroupList>
           )}
           <GroupList title="基本功能">
-            <div className={`${settings.groupBlock} ${doc.page}`}>
+            <SettingsGroupBlock className={doc.page}>
               <p>
                 支持全拼、双拼和五笔，在「输入」页切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
                 2.0、首右 plus 和小鹤。
               </p>
               <p>{platformNetworkDescription}</p>
               <p>更多功能欢迎自由探索～</p>
-            </div>
+            </SettingsGroupBlock>
           </GroupList>
           {onOpenDocumentation && (
             <GroupList title="更多">

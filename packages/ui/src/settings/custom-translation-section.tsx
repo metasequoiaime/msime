@@ -1,10 +1,10 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
-import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { EndpointSettingRow } from "./endpoint-setting-row";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface CustomTranslationSectionProps {
   available: boolean;
@@ -38,9 +38,9 @@ export function CustomTranslationSection({
         placeholder="https://example.com/translate"
       />
       {available && endpointIssue && (
-        <div className={settings.groupBlock}>
+        <SettingsGroupBlock>
           <SettingsWarning>{endpointIssue}</SettingsWarning>
-        </div>
+        </SettingsGroupBlock>
       )}
       <SecretSettingRow
         title="API Key"
@@ -49,7 +49,7 @@ export function CustomTranslationSection({
         disabled={!available}
         onChange={onApiKeyChange}
       />
-      {children && <div className={settings.groupBlock}>{children}</div>}
+      {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
     </div>
   );
 }

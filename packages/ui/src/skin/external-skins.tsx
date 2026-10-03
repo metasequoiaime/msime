@@ -7,6 +7,7 @@ import { useSelectedBarPalette } from "./skin-palette";
 export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import * as settings from "../settings/settings-style";
+import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { subscribeSkinCatalogChanges } from "./skin-catalog-changes";
@@ -560,7 +561,7 @@ export function ExternalSkinDirectoryRow({
         />
       </Row>
       {(skins.openFailed || skins.failed || !!skins.catalog?.issues.length) && (
-        <div className={settings.groupBlock}>
+        <SettingsGroupBlock>
           {skins.openFailed && (
             <p role="alert" className={settings.externalMeta}>
               {importsSkin ? "导入皮肤失败，请重试。" : "无法打开皮肤目录，请重试。"}
@@ -583,7 +584,7 @@ export function ExternalSkinDirectoryRow({
               </ul>
             </details>
           )}
-        </div>
+        </SettingsGroupBlock>
       )}
     </>
   );

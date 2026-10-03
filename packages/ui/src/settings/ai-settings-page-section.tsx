@@ -11,6 +11,7 @@ import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -142,9 +143,7 @@ export function AiSettingsPageSection({
               </Row>
             )}
             {modelCatalog.status && (
-              <SettingsGroupNote role="status">
-                {modelCatalog.status}
-              </SettingsGroupNote>
+              <SettingsGroupNote role="status">{modelCatalog.status}</SettingsGroupNote>
             )}
           </>
         )}
@@ -157,9 +156,7 @@ export function AiSettingsPageSection({
             onChange={onEndpointChange}
           />
         </MoreOptions>
-        {desktopCredentialTest && (
-          <div className={settings.groupBlock}>{desktopCredentialTest}</div>
-        )}
+        {desktopCredentialTest && <SettingsGroupBlock>{desktopCredentialTest}</SettingsGroupBlock>}
       </GroupList>
       <GroupList title="联想">
         <TextInputRow

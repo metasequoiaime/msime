@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface NiuTransSectionProps {
   available: boolean;
@@ -39,7 +40,7 @@ export function NiuTransSection({
         disabled={!available}
         onChange={onApiKeyChange}
       />
-      {children && <div className={settings.groupBlock}>{children}</div>}
+      {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
     </div>
   );
 }

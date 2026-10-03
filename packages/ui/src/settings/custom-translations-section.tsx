@@ -2,6 +2,7 @@ import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
 import type { SettingsSaveState } from "./use-settings-persistence";
 import { ActionButton } from "./action-button";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface CustomTranslationsSectionProps {
   mobile: boolean;
@@ -36,7 +37,7 @@ export function CustomTranslationsSection({
         title="自定义候选释义"
         description={`${mobile ? "候选栏" : "候选窗口"}的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用 Tab 分隔源词和译文；以 # 开头的行是注释。源词含汉字即为中译英，全是英文则为英译中。同一个源词写多次时以最后一次为准。修改会自动保存，重新启动输入法后生效。`}
       />
-      <div className={settings.groupBlock}>
+      <SettingsGroupBlock>
         <textarea
           aria-label="自定义候选释义"
           rows={8}
@@ -58,7 +59,7 @@ export function CustomTranslationsSection({
             </span>
           )}
         </p>
-      </div>
+      </SettingsGroupBlock>
     </div>
   );
 }

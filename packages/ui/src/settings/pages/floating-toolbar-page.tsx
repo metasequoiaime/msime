@@ -3,12 +3,13 @@ import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../the
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
-import { Checks, GroupList, LinkRow, Row } from "../../core/platform-controls";
+import { Checks, GroupList, LinkRow } from "../../core/platform-controls";
 import { FloatingToolbarPlatformNotice } from "../floating-toolbar-platform-notice";
 import { createFloatingToolbarSettingsActions } from "../floating-toolbar-settings-actions";
 import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SettingsGroupBlock } from "../settings-group-block";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -116,7 +117,7 @@ export function FloatingToolbarSettingsPage() {
       </GroupList>
       {showToolbarComponents && (
         <GroupList title="按钮">
-          <div className={settings.groupBlock}>
+          <SettingsGroupBlock>
             <Checks
               legend="按钮"
               description="勾选要显示在悬浮工具栏上的按钮"
@@ -145,7 +146,7 @@ export function FloatingToolbarSettingsPage() {
                 if (key !== "mode_switch") onToolbarChange({ [key]: checked });
               }}
             />
-          </div>
+          </SettingsGroupBlock>
         </GroupList>
       )}
       <GroupList title="尺寸">

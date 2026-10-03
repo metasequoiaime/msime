@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import * as settings from "./settings-style";
+import { SettingsGroupBlock } from "./settings-group-block";
 import type {
   Preferences,
   ProviderCredentialClient,
@@ -301,7 +302,7 @@ export function VoiceSettingsContent({
           {asrCredentialVisible && credentialControl("asr")}
           {doubaoOptionsVisible && <DoubaoOptionsRows {...doubaoOptionsProps} />}
           {localModelSettings}
-          {asrCredentialTest && <div className={settings.groupBlock}>{asrCredentialTest}</div>}
+          {asrCredentialTest && <SettingsGroupBlock>{asrCredentialTest}</SettingsGroupBlock>}
           <VoiceAsrServiceTestSection
             available={windowsPlatform || macosPlatform || harmonyPlatform}
             voiceInput={voiceInput}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ThemeMode } from "../../index";
 import * as settings from "../settings-style";
+import { SettingsGroupBlock } from "../settings-group-block";
 import { globalThemeDescription } from "../settings-options";
 import {
   themeCatalog,
@@ -323,7 +324,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
             />
           )}
           {client.customTouchKeyboardSkins && showTouchSkinEditor && (
-            <div className={settings.groupBlock}>
+            <SettingsGroupBlock>
               <TouchKeyboardSkinEditor
                 design={customTouchKeyboardSkin}
                 selected={customKeyboardSelected}
@@ -336,7 +337,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                 onUse={onUseCustomKeyboard}
                 onClose={() => setShowTouchSkinEditor(false)}
               />
-            </div>
+            </SettingsGroupBlock>
           )}
         </GroupList>
         {/* Each surface can still hold its own light or dark over the colour mode; the design folds these under 高级 on the theme page. */}

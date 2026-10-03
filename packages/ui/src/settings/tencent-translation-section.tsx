@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export interface TencentTranslationSectionProps {
   available: boolean;
@@ -63,19 +64,19 @@ export function TencentTranslationSection({
         onChange={onRegionChange}
         placeholder="ap-guangzhou"
       />
-      {children && <div className={settings.groupBlock}>{children}</div>}
+      {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
       {available && credentialIssue && (
-        <div className={settings.groupBlock}>
+        <SettingsGroupBlock>
           <SettingsWarning>{credentialIssue}</SettingsWarning>
-        </div>
+        </SettingsGroupBlock>
       )}
       {available && !credentialIssue && showMissingCredentialsWarning && (
-        <div className={settings.groupBlock}>
+        <SettingsGroupBlock>
           <SettingsWarning>
             未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
             SecretKey，或在上面的翻译服务中改选其他服务。
           </SettingsWarning>
-        </div>
+        </SettingsGroupBlock>
       )}
     </div>
   );

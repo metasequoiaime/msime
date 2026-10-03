@@ -1,9 +1,9 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { Checks, GroupList } from "../core/platform-controls";
-import * as settings from "./settings-style";
 import { SliderRow } from "./slider-row";
 import { SwitchRow } from "./switch-row";
 import { ActionRow } from "./action-row";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export type TouchToolbarPreferences = {
   layout: boolean;
@@ -142,7 +142,7 @@ export function TouchKeyboardGeometrySection({
             />
           )}
           {toolbarComponents && (
-            <div className={settings.groupBlock}>
+            <SettingsGroupBlock>
               <Checks
                 legend="工具栏按钮"
                 description="勾选要显示在键盘顶部工具栏的功能；未勾选的仍在「更多」里"
@@ -159,7 +159,7 @@ export function TouchKeyboardGeometrySection({
                 }))}
                 onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
               />
-            </div>
+            </SettingsGroupBlock>
           )}
         </GroupList>
       )}

@@ -1,9 +1,9 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "../voice/voice-device-picker";
-import { GroupList, Row } from "../core/platform-controls";
-import * as settings from "./settings-style";
+import { GroupList } from "../core/platform-controls";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
+import { SettingsGroupBlock } from "./settings-group-block";
 
 export type VoiceCaptureBackendOption = readonly [string, string];
 export type VoiceCaptureBackend =
@@ -59,14 +59,14 @@ export function VoiceCaptureDevicesSection({
           </option>
         )}
       </SelectRow>
-      <div className={settings.groupBlock}>
+      <SettingsGroupBlock>
         <VoiceDevicePicker
           read={readDevices}
           backend={backend}
           device={device}
           choose={onBackendChange}
         />
-      </div>
+      </SettingsGroupBlock>
       <TextInputRow
         title="麦克风设备"
         description={
