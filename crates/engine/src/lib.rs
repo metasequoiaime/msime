@@ -21,6 +21,7 @@ pub mod language_dictionary;
 mod lattice;
 mod local;
 mod nine_key;
+pub mod ordering;
 mod paths;
 mod pinyin;
 mod punctuation;
@@ -30,9 +31,12 @@ mod shuangpin;
 pub mod stroke;
 mod text;
 mod tibetan;
+pub mod time;
 mod types;
 mod user_dictionary;
 pub mod vietnamese;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub mod web;
 mod wubi;
 pub mod zhuyin;
 

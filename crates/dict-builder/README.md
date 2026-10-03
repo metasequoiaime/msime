@@ -35,6 +35,19 @@ Inputs without a redistribution grant (`src/licensing.rs`) are left out unless `
 
 Korean mode converts the composing syllable to Hanja from a table that also ships inside the engine: `msime-dict-build hanja --cache <sources-cache>` reads `hanja/hanja.txt` from [libhangul](https://github.com/libhangul/libhangul) (`data/hanja/hanja.txt`, BSD-3-Clause, see `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`) at the commit the lock pins, and rewrites `crates/engine/src/korean/hanja.tsv`, which is committed. Only single-syllable readings are kept: one precomposed Hangul syllable mapped to one Hanja in CJK Unified Ideographs, Extension A, or one of the twelve unified ideographs of the CJK Compatibility Ideographs block (U+FA0E, U+FA11 and so on, which NFC leaves alone). True compatibility ideographs, characters outside the BMP and multi-character values are dropped, each syllable keeps the source's order, and the source's 훈음 comment becomes the third column. `scripts/test-korean-hanja-table.py` checks the committed table against these rules, and against the generator's output when the pinned source is in `target/dictionary-sources`. To take newer data, move the `hanja/` entry in the lock to the new commit, rerun the command, and review the diff of `hanja.tsv`.
 
+## 网页词库
+
+网页内置输入法（`crates/engine-wasm`）不带完整的 `msime.db`，而是带从它裁出来的两个库，由 `web` 子命令生成：
+
+```sh
+cargo run --locked --release -p msime-dict-builder --bin msime-dict-build -- web --input <msime.db> --out-dir target/web-dict [--keep-multi 200000]
+```
+
+- `msime-pinyin.db`：全拼和双拼共用。保留全部单字表 `tbl_1_*`；多字表 `tbl_{2..7,others}_*` 合在一起按 `weight DESC, key, value, 表名, rowid` 排序，只保留前 `--keep-multi` 行（默认 200000，即评测里的 d200000）；`wubi86`、`wubi98` 和 `quick_parases` 清空。
+- `msime-wubi86.db`：只保留 `wubi86`，全拼表、`wubi98` 和 `quick_parases` 清空。
+
+两个库都保留输入库的全部表结构和索引，被清空的表查询时返回空结果而不是报错；随后 `ANALYZE`（只留 `sqlite_stat1`），再用 `VACUUM INTO` 写出不带空闲页的回滚日志模式数据库。输入只读打开，不会被修改。输出逐字节可复现：同一个输入跑两次得到相同的 sha256，`tests/web.rs` 会检查这一点。输入库里出现不认识的表时命令直接失败。
+
 Releases are cut by the manually dispatched `.github/workflows/release-dictionary.yml`: it builds every artifact from the pinned sources without `--include-unlicensed`, checks `SHA256SUMS.txt`, and uploads the result as a workflow artifact; only with `publish` set does it create the `dict-vX.Y.Z` release on metasequoiaime/msime with the artifacts, `dictionary-manifest.json` and `SHA256SUMS.txt` as the builder wrote them. After a release is published, bump `resources/desktop-dictionary.lock.json` to the new files.
 
 ## Checking contributed words

@@ -3,7 +3,6 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use super::chain::CommitChain;
 use super::clock::Clock;
@@ -26,6 +25,7 @@ use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
 use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
+use crate::time::Instant;
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,

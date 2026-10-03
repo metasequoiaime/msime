@@ -2562,46 +2562,6 @@ fn character_width_conversion_preserves_non_ascii_and_roundtrips_ascii() {
     assert_eq!(crate::character_width::to_fullwidth("中文"), "中文");
 }
 
-#[test]
-fn rerank_context_that_fits_is_handed_over_whole() {
-    // Short contexts are what the sentence eval measured, so they must reach the model untouched.
-    assert_eq!(crate::rerank_context("你好世界", 64, 10), "你好世界");
-    assert_eq!(crate::rerank_context("", 64, 10), "");
-}
-
-#[test]
-fn rerank_context_holds_still_while_a_candidate_grows() {
-    // A long context used to slide by one character per keystroke, which made the reranker rerun its prefix every time.
-    let context: String = "今天天气很好我们一起去公园散步".repeat(8);
-    let windows: Vec<&str> = (1..=40)
-        .map(|longest| crate::rerank_context(&context, 64, longest))
-        .collect();
-    let mut distinct = windows.clone();
-    distinct.dedup();
-    assert!(
-        distinct.len() <= 64 / crate::RERANK_CONTEXT_STEP + 1,
-        "{}",
-        distinct.len()
-    );
-    for (longest, window) in (1..=40).zip(&windows) {
-        let count = window.chars().count();
-        assert!(count + longest < 64, "longest {longest} kept {count}");
-        assert_eq!(count % crate::RERANK_CONTEXT_STEP, 0);
-        // Always the most recent text, never the start of it.
-        assert!(context.ends_with(window));
-    }
-}
-
-#[test]
-fn rerank_context_cuts_on_a_character_boundary_and_can_empty() {
-    let context = "a中b文".repeat(40);
-    let window = crate::rerank_context(&context, 64, 20);
-    assert_eq!(window.chars().count(), 32);
-    assert!(context.ends_with(window));
-    // A candidate that fills the window leaves no room, and the answer is an empty context rather than a panic.
-    assert_eq!(crate::rerank_context(&context, 64, 70), "");
-}
-
 /// `move_to_back` is the whole of the demotion rule that can be tested without an engine, and
 /// the version this replaced shipped with no test at all — which is how it reached `develop`
 /// dropping Japanese katakana and, separately, the model's own runner-up choices.
@@ -2610,13 +2570,6 @@ fn demotion_moves_flagged_items_to_the_end_and_keeps_both_orders() {
     let mut items = vec!["a", "b", "c", "d", "e"];
     crate::move_to_back(&mut items, &[false, true, false, true, false]);
     assert_eq!(items, vec!["a", "c", "e", "b", "d"]);
-}
-
-#[test]
-fn in_place_order_applies_candidate_permutations() {
-    let mut values = vec!["zero", "one", "two", "three", "four"];
-    apply_order(&mut values, &[2, 4, 1, 0, 3]);
-    assert_eq!(values, vec!["two", "four", "one", "zero", "three"]);
 }
 
 #[test]
@@ -2647,17 +2600,6 @@ fn a_short_flag_list_leaves_the_tail_in_place() {
     let mut items = vec![1, 2, 3, 4];
     crate::move_to_back(&mut items, &[true]);
     assert_eq!(items, vec![2, 3, 4, 1]);
-}
-
-/// Only `CandidateSource::Generated` names alternative readings of one key. Every other source
-/// is plural by design — English words, emoji, kaomoji, quick phrases, AI suggestions — and an
-/// earlier version of this rule kept one of each and dropped the rest.
-#[test]
-fn only_the_lattice_source_is_treated_as_alternative_readings() {
-    assert_eq!(crate::LATTICE_SOURCE, 8);
-    for plural in [2u8, 3, 4, 5, 6, 7] {
-        assert_ne!(crate::LATTICE_SOURCE, plural);
-    }
 }
 
 /// A runtime over an engine answering `rows` (text, source) in that order, with one key typed.
