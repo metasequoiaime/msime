@@ -1374,6 +1374,25 @@ fn local_mode_raw_commit_is_learned_as_an_english_word() {
     assert_eq!(english_word_count(&value, "rustacean"), 1);
 }
 
+/// 网址不是英文单词：网址模式下 Enter 上屏整段网址，不写进英文词库。
+#[test]
+fn url_enter_is_not_learned_as_english() {
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"www");
+    assert!(session.punctuation(b'.').unwrap().handled);
+    type_text(&mut session, b"example");
+    assert_eq!(session.snapshot().unwrap().local_mode, "url");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.commit, "www.example");
+    assert_eq!(result.diagnostic, "");
+    assert_eq!(english_word_count(&value, "www.example"), 0);
+    assert_eq!(english_word_count(&value, "www"), 0);
+    assert_eq!(english_word_count(&value, "example"), 0);
+}
+
 /// bridge.cpp:1345-1348: in temporary Japanese the word is learned with its `R` trigger put back in front, so the letters typed in that mode stay apart from the same letters typed as English.
 #[test]
 fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {

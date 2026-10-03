@@ -1,6 +1,7 @@
 //! Caret editing, the editing text, segment boundaries and caret-prefix decoding (core-session.md §5.9, overlays.md §7.6).
 
 use super::input::InputSession;
+use crate::local::url;
 use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::shuangpin::query::{
     detect_active_double_helpcode_length, segment_raw_boundaries,
@@ -48,8 +49,11 @@ impl InputSession {
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let mut text = self.editing_text();
         let mut caret = self.caret_position();
-        // A local mode's prefix letter is a mode marker, not editable payload.
-        let begin = usize::from(self.local_mode != LocalInputMode::None);
+        // A local mode's prefix letter is a mode marker, not editable payload. 网址模式没有前缀字母，整段都能编辑。
+        let begin = usize::from(!matches!(
+            self.local_mode,
+            LocalInputMode::None | LocalInputMode::Url
+        ));
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
             Command::MoveRight => caret = (caret + 1).min(text.len()),
@@ -141,13 +145,19 @@ impl InputSession {
                 LocalInputMode::Command | LocalInputMode::Mention => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;
                 }
+                // 与 `handle_local_character` 同一组规则。
+                LocalInputMode::Url => {
+                    accepted = url::accepts(value) && text.len() < url::INPUT_LIMIT;
+                }
             }
         }
         if !accepted {
             return KeyResult::unhandled();
         }
         let bytes = text.as_bytes();
+        // 网址里的撇号是字面字符，可以连着出现。
         if value == b'\''
+            && self.local_mode != LocalInputMode::Url
             && ((caret > 0 && bytes[caret - 1] == b'\'') || bytes.get(caret) == Some(&b'\''))
         {
             return KeyResult::handled();
@@ -162,6 +172,10 @@ impl InputSession {
         if self.dedicated_english {
             self.dedicated_english_preedit = text.to_owned();
             self.update_dedicated_english_candidates();
+        } else if self.local_mode == LocalInputMode::Url && text.is_empty() {
+            // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
+            self.reset_composition();
+            return KeyResult::handled();
         } else if self.local_mode != LocalInputMode::None
             && self.local_mode != LocalInputMode::TemporaryJapanese
         {

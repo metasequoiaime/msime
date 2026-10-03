@@ -18,6 +18,7 @@ use crate::helpcode::{is_supported_helpcode_schema, load_helpcode_keymap, Shared
 use crate::ime::queries::CandidateQueries;
 use crate::ime::ImeSession;
 use crate::local::date_time::LocalDateTime;
+use crate::local::url;
 use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::paths::RuntimePaths;
 use crate::punctuation::PunctuationPolicy;
@@ -258,6 +259,11 @@ impl InputSession {
                 return KeyResult::handled().with_diagnostic(self.enter_local_mode(mode, value));
             }
         }
+        // 组字原文是 `www`、`http` 等时，`.` `:`（五笔还有 `http` 后的 `s`）把组字转成网址，必须在下面的接受过滤之前判断。
+        if let Some(text) = self.url_entry(value) {
+            self.enter_url_mode(text);
+            return KeyResult::handled();
+        }
 
         let scheme = self.scheme();
         let lowercase_letter = value.is_ascii_lowercase();
@@ -367,6 +373,13 @@ impl InputSession {
                 self.local_preedit.len() < GENERATED_MODE_INPUT_LIMIT
                     && (value.is_ascii_lowercase()
                         || (value == b'\'' && self.command_takes_word_separator()))
+            }
+            LocalInputMode::Url => {
+                // 网址不收的符号（`"` `<` `|` 等）和空格结束网址：交还 runtime，由它先上屏网址再处理这个键。
+                if !url::accepts(value) {
+                    return KeyResult::unhandled();
+                }
+                self.local_preedit.len() < url::INPUT_LIMIT
             }
             LocalInputMode::None => return KeyResult::unhandled(),
         };
@@ -861,6 +874,10 @@ impl InputSession {
         {
             return self.handle_character(value, false);
         }
+        // 网址触发键（`www` 后的 `.` 等）直接走到这里的调用方（golden、单测）也进入网址模式；真实宿主经 runtime 按 `spelling_symbols` 先送到 `handle_character`。
+        if self.url_entry(value).is_some() {
+            return self.handle_character(value, false);
+        }
         // A Zhuyin phonetic key (`,` `.` `/` `;` `-`) spells, and a Shift punctuation key (`<` `?` `[` ...) commits the conversion with its full-width mark through the editor, whatever the Chinese punctuation switches say.
         if self.zhuyin_rules_apply()
             && (self
@@ -1000,6 +1017,10 @@ impl InputSession {
             } else {
                 String::new()
             };
+        }
+        // 组字原文是网址触发词时发布触发键，runtime 才会把它当作字符送进来，而不是先结束组字。发布的键必须正是 `url_entry` 接受的键。
+        if let Some(keys) = self.url_entry_keys() {
+            return keys.to_owned();
         }
         if self.has_composition() || !self.scheme().opens_local_modes() {
             return String::new();
@@ -1451,6 +1472,43 @@ impl InputSession {
         enabled.then_some(mode)
     }
 
+    /// 当前组字能否进入网址模式：方案识别网址、不在本地模式或专用英文、有组字、光标在末尾。
+    fn url_entry_ready(&self) -> bool {
+        !self.dedicated_english
+            && self.local_mode == LocalInputMode::None
+            && self.scheme().detects_urls()
+            && self.has_composition()
+            && self.caret_position() >= self.editing_text().len()
+    }
+
+    /// 当前组字的网址触发键；组字原文不是触发词或条件不满足时为 `None`。
+    fn url_entry_keys(&self) -> Option<&'static str> {
+        if !self.url_entry_ready() {
+            return None;
+        }
+        Some(url::entry_keys(self.raw_with_cases())).filter(|keys| !keys.is_empty())
+    }
+
+    /// 按下 `value` 会进入网址模式时，进入后的预编辑：组字原文加上这个键。
+    fn url_entry(&self, value: u8) -> Option<String> {
+        if !self.url_entry_ready() {
+            return None;
+        }
+        let raw = self.raw_with_cases();
+        let opens = url::opens(raw, value)
+            || (self.scheme() == SchemeType::Wubi && url::wubi_continues(raw, value));
+        opens.then(|| format!("{raw}{}", char::from(value)))
+    }
+
+    /// 丢弃组字（连同引擎里的原文和候选），以 `text` 为预编辑进入网址模式。
+    fn enter_url_mode(&mut self, text: String) {
+        self.reset_composition();
+        self.local_mode = LocalInputMode::Url;
+        self.local_preedit = text;
+        self.chain.reset();
+        self.add_local_fallback_candidate();
+    }
+
     fn enter_local_mode(&mut self, mode: LocalInputMode, letter: u8) -> Option<String> {
         if mode == LocalInputMode::TemporaryJapanese {
             self.temporary_original_scheme = Some(self.scheme());
@@ -1487,6 +1545,9 @@ impl InputSession {
             self.update_dedicated_english_candidates();
             return KeyResult::handled();
         }
+        if self.local_mode == LocalInputMode::Url {
+            return self.url_backspace();
+        }
         if self.local_mode != LocalInputMode::None {
             // Backspacing the bare prefix letter leaves the mode.
             if self.local_preedit.len() <= 1 {
@@ -1506,6 +1567,29 @@ impl InputSession {
         self.discard_abandoned_phrase_progress();
         self.online_requests.invalidate();
         KeyResult::handled()
+    }
+
+    /// 网址模式里删掉一个字符。删空就退出；删掉的是非字母、剩下的全是小写字母（`www.` 删掉 `.`）时退回组字，把这些字母交还方案，由方案按自己的码长规则截断，误触发后还能选回原来的字（五笔 `www` 的“众”）。
+    fn url_backspace(&mut self) -> KeyResult {
+        let removed = self.local_preedit.pop();
+        if self.local_preedit.is_empty() {
+            self.reset_composition();
+            return KeyResult::handled();
+        }
+        let back_to_composition = removed.is_some_and(|character| !character.is_ascii_alphabetic())
+            && self
+                .local_preedit
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase());
+        if back_to_composition {
+            let letters = std::mem::take(&mut self.local_preedit);
+            self.reset_composition();
+            self.pending_sequence = Some(letters.clone());
+            self.pending_sequence_with_cases = Some(letters);
+            self.apply_pending_sequence();
+            return KeyResult::handled();
+        }
+        KeyResult::handled().with_diagnostic(self.update_local_candidates())
     }
 
     fn commit_raw(&mut self) -> KeyResult {
@@ -1585,5 +1669,7 @@ fn local_mode_enabled(options: LocalModeOptions, mode: LocalInputMode) -> bool {
         LocalInputMode::Expression => options.expression,
         LocalInputMode::Command => options.command,
         LocalInputMode::Mention => options.mention,
+        // 网址模式默认开启，没有开关。
+        LocalInputMode::Url => true,
     }
 }
