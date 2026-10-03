@@ -118,7 +118,13 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "tibetan",
 );
 
-export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyboardScheme {
+/**
+ * `handwritingScheme` 是手写写进偏好 `scheme` 的方案，即运行中版本的默认方案（`HostCapabilities.edition.default_scheme`），缺省是全拼。手写识别由平台识别器完成，不经过 Engine 的方案；五笔版里手写写 `wubi`，免得 host-api 把全拼当作本版本不含的方案回退。与 Android 的 `KeyboardScheme.engineScheme` 一致。
+ */
+export function inferredTouchKeyboardScheme(
+  preferences: Preferences,
+  handwritingScheme: InputScheme = "quanpin",
+): TouchKeyboardScheme {
   const enabled = preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes;
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
@@ -133,7 +139,7 @@ export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyb
   )
     return scheme;
   let inferred = touchSchemeOf(preferences, scheme);
-  if (preferences.touch_keyboard_layout === "handwriting" && scheme === "quanpin")
+  if (preferences.touch_keyboard_layout === "handwriting" && scheme === handwritingScheme)
     inferred = "handwriting";
   else if (preferences.touch_keyboard_layout === "nine_key" && scheme !== "korean")
     inferred = scheme === "japanese" ? "japanese_nine_key" : "nine_key";
@@ -170,14 +176,26 @@ function rememberedChineseScheme(preferences: Preferences): Preferences["last_ch
   return isChineseScheme(preferences.scheme) ? preferences.scheme : preferences.last_chinese_scheme;
 }
 
+/** 选中一个触屏方案后的偏好；`handwritingScheme` 见 {@link inferredTouchKeyboardScheme}。 */
 export function selectTouchKeyboardScheme(
   preferences: Preferences,
   selected: TouchKeyboardScheme,
+  handwritingScheme: InputScheme = "quanpin",
 ): Preferences {
   const touch_keyboard_schemes = {
     enabled: preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
     selected,
   };
+  if (selected === "handwriting" && handwritingScheme !== "quanpin")
+    return {
+      ...preferences,
+      scheme: handwritingScheme,
+      last_chinese_scheme: isChineseScheme(handwritingScheme)
+        ? handwritingScheme
+        : rememberedChineseScheme(preferences),
+      touch_keyboard_layout: "handwriting",
+      touch_keyboard_schemes,
+    };
   if (["xiaohe", "ziranma", "microsoft", "shoudao"].includes(selected))
     return {
       ...preferences,
@@ -247,6 +265,7 @@ export function updateTouchKeyboardSchemeEnabled(
   scheme: TouchKeyboardScheme,
   enabled: boolean,
   selectedTouchKeyboardScheme = inferredTouchKeyboardScheme(preferences),
+  handwritingScheme: InputScheme = "quanpin",
 ): Preferences | null {
   const visible = new Set(
     preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
@@ -258,7 +277,7 @@ export function updateTouchKeyboardSchemeEnabled(
   const selected = visible.has(selectedTouchKeyboardScheme)
     ? selectedTouchKeyboardScheme
     : ordered[0];
-  const next = selectTouchKeyboardScheme(preferences, selected);
+  const next = selectTouchKeyboardScheme(preferences, selected, handwritingScheme);
   return { ...next, touch_keyboard_schemes: { enabled: ordered, selected } };
 }
 
@@ -266,12 +285,13 @@ export function updateTouchKeyboardSchemeEnabled(
 export function selectHomeTouchKeyboardScheme(
   preferences: Preferences,
   scheme: TouchKeyboardScheme,
+  handwritingScheme: InputScheme = "quanpin",
 ): Preferences {
   const visible = new Set(
     preferences.touch_keyboard_schemes?.enabled ?? defaultTouchKeyboardSchemes,
   );
   visible.add(scheme);
   const enabled = allTouchKeyboardSchemes.filter((value) => visible.has(value));
-  const next = selectTouchKeyboardScheme(preferences, scheme);
+  const next = selectTouchKeyboardScheme(preferences, scheme, handwritingScheme);
   return { ...next, touch_keyboard_schemes: { enabled, selected: scheme } };
 }
