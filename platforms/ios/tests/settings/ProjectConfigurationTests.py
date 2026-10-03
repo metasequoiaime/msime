@@ -153,6 +153,37 @@ class ProjectConfigurationTests(unittest.TestCase):
         ]
         self.assertEqual(offenders, [])
 
+    def test_url_scheme_is_derived_from_the_edition(self):
+        # 键盘拉起 App 的 URL scheme 只写在 MSIMEAppEdition 一处，按版本推出；多个版本装在同一台设备上时，写死的 msime 会让系统任选一个 App 打开，语音交接和设置入口就落到另一个版本。full 的 project.yml 注册的仍是 msime。
+        repo = IOS_ROOT.parents[1]
+        owner = repo / "shared/backend/account/BackendAccountClient.swift"
+        self.assertIn('static let fullURLScheme = "msime"', owner.read_text())
+        project = (IOS_ROOT / "project.yml").read_text()
+        self.assertIn("CFBundleURLSchemes: [msime]", project)
+        roots = [IOS_ROOT / "App", IOS_ROOT / "KeyboardExtension", IOS_ROOT / "SharedUI", repo / "shared/backend"]
+        offenders = [
+            str(path.relative_to(repo))
+            for root in roots
+            for path in sorted(root.rglob("*.swift"))
+            if path != owner and "Tests" not in path.relative_to(repo).parts
+            and re.search(r'"msime://|scheme == "msime"', path.read_text())
+        ]
+        self.assertEqual(offenders, [])
+        launcher = (IOS_ROOT / "KeyboardExtension/Sources/keyboard/KeyboardAppLauncher.swift").read_text()
+        self.assertIn('URL(string: "\\(MSIMEAppEdition.urlScheme)://settings")', launcher)
+        self.assertIn('URL(string: "\\(MSIMEAppEdition.urlScheme)://voice")', launcher)
+        app = (IOS_ROOT / "App/Sources/MetasequoiaImeApp.swift").read_text()
+        self.assertIn("url.scheme == MSIMEAppEdition.urlScheme", app)
+
+    def test_scheme_choices_are_narrowed_by_edition(self):
+        # 首次引导和方案页都只列本版本的入口；写共享文档的 schemeMapping 也丢掉本版本没有的入口，任何调用方都写不进 host-api 会回退掉的方案。
+        welcome = (IOS_ROOT / "App/Sources/app/WelcomeFlowView.swift").read_text()
+        self.assertIn("].filter { $0.scheme.isOfferedByEdition }", welcome)
+        onboarding = (IOS_ROOT / "App/Sources/app/OnboardingView.swift").read_text()
+        self.assertIn("ChineseInputScheme.allCases.filter(\\.isOfferedByEdition)", onboarding)
+        bridge = (IOS_ROOT / "SharedUI/core/MetasequoiaInputSessionBridge.swift").read_text()
+        self.assertIn("enabledSchemes.contains($0) && $0.isOfferedByEdition", bridge)
+
     def test_app_icon_assets_and_alternate_names_are_configured(self):
         project = (IOS_ROOT / "project.yml").read_text()
         self.assertIn("- path: App/Resources/Assets.xcassets", project)

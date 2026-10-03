@@ -38,4 +38,12 @@ final class KeyboardAppLauncherTests: XCTestCase {
     XCTAssertEqual(KeyboardAppLauncher.settingsURL.absoluteString, "msime://settings")
     XCTAssertEqual(KeyboardAppLauncher.voiceURL.absoluteString, "msime://voice")
   }
+
+  /// 每个版本各用一个 scheme，装了多个版本时键盘才不会拉起另一个版本的 App；full 仍是 msime。
+  func testURLSchemeIsPerEdition() {
+    XCTAssertEqual(MSIMEAppEdition.urlScheme(in: [:]), "msime")
+    XCTAssertEqual(MSIMEAppEdition.urlScheme(in: ["MSIMEEdition": "full"]), "msime")
+    XCTAssertEqual(MSIMEAppEdition.urlScheme(in: ["MSIMEEdition": "wubi"]), "msime-wubi")
+    XCTAssertEqual(MSIMEAppEdition.urlScheme(in: ["MSIMEEdition": "pinyin"]), "msime-pinyin")
+  }
 }
