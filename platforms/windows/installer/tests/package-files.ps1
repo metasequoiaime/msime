@@ -14,6 +14,9 @@ try {
     Copy-Item (Join-Path $PSScriptRoot '../msime_setup.iss') $installer
     Copy-Item (Join-Path $PSScriptRoot '../config.default.toml') $installer
     Copy-Item (Join-Path $PSScriptRoot '../assets') $installer -Recurse
+    # Prepare-PackageFiles.ps1 从版本表取本次打包的版本，fixture 用仓库里的那一份。
+    New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'shared/contracts') | Out-Null
+    Copy-Item (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') (Join-Path $fixture 'shared/contracts/editions.json')
     foreach ($file in @(
         'server/build-release/bin/Release/MetasequoiaImeServer.exe',
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
@@ -357,7 +360,39 @@ try {
             throw 'Partial voice runtime damaged previous staging'
         }
     }
-    Write-Host 'Full/light package contracts, provenance, exclusions and failure staging passed'
+    # 版本：五笔版按自己的资源锁只带它的词库、不带语言词库，host DLL 用版本表里的名字，Server 目录里放版本声明；再打一次 full，声明就不在了。
+    foreach ($partial in @($serverOutput, 'target/voice-runtime/windows-x64')) {
+        foreach ($library in $voiceRuntimeLibraries) {
+            Remove-Item -LiteralPath (Join-Path $fixture "$partial/$library") -ErrorAction SilentlyContinue
+        }
+    }
+    Write-Fixture 'windows/build32-release/Release/msime_host_api_wubi.dll' 'synthetic x86 wubi host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api_wubi.dll' 'synthetic x64 wubi host'
+    $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime.db', 'english.db', 'others.db', 'dictionary-manifest.json') })
+    Write-Fixture 'resources/editions/wubi.lock.json' (@{
+        source_commit = ('a' * 40); artifacts = $wubiArtifacts
+    } | ConvertTo-Json -Depth 5)
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition wubi
+    $declared = Get-Content -LiteralPath (Join-Path $installer 'server_exe/edition.json') -Raw | ConvertFrom-Json
+    if ($declared.edition -ne 'wubi') { throw 'Edition package declaration missing or wrong' }
+    $staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'server_exe/resources') -File | ForEach-Object Name | Sort-Object)
+    if (($staged -join ',') -ne ((@($wubiArtifacts | ForEach-Object { $_.name }) | Sort-Object) -join ',')) {
+        throw "Edition resources do not follow its lock: $($staged -join ', ')"
+    }
+    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries')) { throw 'Edition without Zhuyin packaged the Zhuyin dictionary' }
+    foreach ($arch in @('32', '64')) {
+        if (-not (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api_wubi.dll")) -or
+            (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"))) {
+            throw "Edition host DLL not packaged under its own name ($arch)"
+        }
+    }
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition klingon }
+    catch { $rejected = $_.Exception.Message -match 'klingon' }
+    if (-not $rejected) { throw 'Unknown edition accepted' }
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
+    if (Test-Path (Join-Path $installer 'server_exe/edition.json')) { throw 'Full package carries an edition declaration' }
+    Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition package passed'
 } finally {
     if (Test-Path $fixture) { Remove-Item $fixture -Recurse -Force }
 }
