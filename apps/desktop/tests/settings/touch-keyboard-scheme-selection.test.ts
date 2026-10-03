@@ -93,6 +93,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "stroke",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -147,7 +148,7 @@ test("switching from Japanese to Korean keeps the remembered Chinese scheme", ()
   expect(next.last_chinese_scheme).toBe("shuangpin");
 });
 
-test.each(["cantonese", "zhuyin", "vietnamese"] as const)(
+test.each(["cantonese", "zhuyin", "vietnamese", "stroke"] as const)(
   "%s, which has no touch keyboard, maps to the remembered Chinese touch scheme",
   (scheme) => {
     const untouched = { ...preferences, scheme, touch_keyboard_schemes: undefined };
@@ -177,13 +178,14 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
   expect(next.last_chinese_scheme).toBe("cantonese");
 });
 
-test("Cantonese, Zhuyin and Vietnamese are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(14);
+test("Cantonese, Zhuyin, Vietnamese and Stroke are appended after Korean and are opt-in", () => {
+  expect(allTouchKeyboardSchemes).toHaveLength(15);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "stroke",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
 });
@@ -203,7 +205,7 @@ test("a document without a stored list does not show the opt-in schemes", () => 
   ).toEqual([...defaultTouchKeyboardSchemes, "zhuyin"]);
 });
 
-test.each(["cantonese", "zhuyin"] as const)(
+test.each(["cantonese", "zhuyin", "stroke"] as const)(
   "selecting %s selects and remembers it as the Chinese scheme on the 26-key layout",
   (scheme) => {
     const next = selectHomeTouchKeyboardScheme(
@@ -233,7 +235,7 @@ test("selecting Vietnamese remembers the Chinese scheme and uses the 26-key layo
   expect(next.touch_keyboard_schemes?.selected).toBe("vietnamese");
 });
 
-test.each(["cantonese", "zhuyin", "vietnamese"] as const)(
+test.each(["cantonese", "zhuyin", "vietnamese", "stroke"] as const)(
   "%s infers its own touch scheme once that is enabled",
   (scheme) => {
     expect(
@@ -259,4 +261,23 @@ test("the single Wubi touch scheme is titled by the Wubi profile and keeps it wh
   expect(
     touchKeyboardSchemeTitle({ ...wubi98, scheme: "wubi", touch_keyboard_schemes: undefined }),
   ).toBe("98 五笔");
+});
+
+test("the Stroke keypad keeps its own title under either layout", () => {
+  for (const layout of ["twenty_six_key", "nine_key"] as const) {
+    const stroke: Preferences = {
+      ...preferences,
+      scheme: "stroke",
+      touch_keyboard_layout: layout,
+      touch_keyboard_schemes: { enabled: ["quanpin", "stroke"] },
+    };
+    expect(inferredTouchKeyboardScheme(stroke)).toBe("stroke");
+    expect(touchKeyboardSchemeTitle({ ...stroke, touch_keyboard_schemes: undefined })).toBe("笔画");
+    expect(
+      touchKeyboardSchemeTitle({
+        ...stroke,
+        touch_keyboard_schemes: { enabled: [], selected: "stroke" },
+      }),
+    ).toBe("笔画");
+  }
 });

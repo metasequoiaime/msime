@@ -47,7 +47,7 @@ export function InputSchemeSelectorSection({
     disabled: !supportedSchemes.includes(option.value),
   }));
   const hint = supportHint(value, supportedSchemes, lastChineseScheme);
-  // Five two-character segments come to about 262px. Beside the macOS look's 260px sidebar and 48px page margins the row fits in any window from about 675px wide, and the window opens at 1000px, so this stays a Segmented rather than falling back to a Select.
+  // Five two-character segments measured about 262px, so the six with 笔画 come to about 315px. Beside the macOS look's 260px sidebar and 48px page margins the row fits in any window from about 730px wide, and the window opens at 1000px, so this stays a Segmented rather than falling back to a Select.
   return (
     <SegmentedRow
       title="输入方案"

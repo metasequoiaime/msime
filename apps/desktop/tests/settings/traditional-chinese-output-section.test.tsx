@@ -31,8 +31,16 @@ test.each(["cantonese", "zhuyin"] as const)(
   },
 );
 
+test("Stroke says the switch does not convert the character picked", () => {
+  render(<TraditionalChineseOutputSection value={false} scheme="stroke" onChange={vi.fn()} />);
+
+  expect(screen.getByText(/笔画按所选的字原样输出，此开关不影响它/)).toBeTruthy();
+  expect(screen.queryByText(/粤拼与注音/)).toBeNull();
+});
+
 test("pinyin schemes keep the plain description", () => {
   render(<TraditionalChineseOutputSection value={false} scheme="quanpin" onChange={vi.fn()} />);
 
   expect(screen.queryByText(/粤拼与注音/)).toBeNull();
+  expect(screen.queryByText(/笔画/)).toBeNull();
 });

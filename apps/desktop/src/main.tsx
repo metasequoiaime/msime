@@ -212,7 +212,7 @@ const macosInputModes: NonNullable<SettingsClient["macosInputModes"]> = {
   enabled: () => invoke("enabled_input_modes"),
   openSettings: () => invoke("open_input_source_settings"),
 };
-// macOS 按需下载的资源包（日文词库、粤语与注音词库、手写模型）；这些命令只在 macOS 宿主上注册，所以只在宿主报告 macOS 时提供给页面。
+// macOS 按需下载的资源包（日文词库、「粤语、注音与笔画词库」、手写模型）；这些命令只在 macOS 宿主上注册，所以只在宿主报告 macOS 时提供给页面。
 const resourcePacks: ResourcePackClient = {
   list: () => invoke<ResourcePackStatus[]>("resource_packs"),
   install: (id) => invoke<string>("resource_pack_install", { id }),

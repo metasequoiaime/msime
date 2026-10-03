@@ -15,7 +15,8 @@ export type TouchKeyboardScheme =
   | "korean"
   | "cantonese"
   | "zhuyin"
-  | "vietnamese";
+  | "vietnamese"
+  | "stroke";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -45,13 +46,15 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       cantonese: "粤拼 26 键",
       zhuyin: "大千注音",
       vietnamese: "越南语 26 键",
+      stroke: "笔画",
     }[selected];
   }
-  // Korean, Cantonese, Zhuyin and Vietnamese each have one keyboard, whatever layout the document carries.
+  // Korean, Cantonese, Zhuyin, Vietnamese and Stroke each have one keyboard, whatever layout the document carries.
   if (preferences.scheme === "korean") return "韩语 26 键";
   if (preferences.scheme === "cantonese") return "粤拼 26 键";
   if (preferences.scheme === "zhuyin") return "大千注音";
   if (preferences.scheme === "vietnamese") return "越南语 26 键";
+  if (preferences.scheme === "stroke") return "笔画";
   if (preferences.touch_keyboard_layout === "handwriting") return "手写";
   if (preferences.touch_keyboard_layout === "nine_key")
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
@@ -76,12 +79,14 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["cantonese", "粤拼 26 键"],
   ["zhuyin", "大千注音"],
   ["vietnamese", "越南语 26 键"],
+  ["stroke", "笔画"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
-/** The schemes a document without a stored list shows. Cantonese, Zhuyin and Vietnamese are opt-in so that adding them changes no existing keyboard. Mirrors `TouchKeyboardScheme::DEFAULT_ENABLED` in client-core. */
+/** The schemes a document without a stored list shows. Cantonese, Zhuyin, Vietnamese and Stroke are opt-in so that adding them changes no existing keyboard. Mirrors `TouchKeyboardScheme::DEFAULT_ENABLED` in client-core. */
 export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
-  (scheme) => scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese",
+  (scheme) =>
+    scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese" && scheme !== "stroke",
 );
 
 export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyboardScheme {
@@ -89,9 +94,12 @@ export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyb
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
   const scheme = preferences.scheme;
-  // Cantonese, Zhuyin and Vietnamese have their own touch keyboard; while it is not enabled they show the remembered Chinese scheme's.
+  // Cantonese, Zhuyin, Vietnamese and Stroke have their own touch keyboard (Stroke's keypad shows under the 26-key and the nine-key layout alike); while it is not enabled they show the remembered Chinese scheme's.
   if (
-    (scheme === "cantonese" || scheme === "zhuyin" || scheme === "vietnamese") &&
+    (scheme === "cantonese" ||
+      scheme === "zhuyin" ||
+      scheme === "vietnamese" ||
+      scheme === "stroke") &&
     enabled.includes(scheme)
   )
     return scheme;
@@ -103,7 +111,7 @@ export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyb
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
-/** The touch scheme for a document scheme. Cantonese, Zhuyin and Vietnamese map to the remembered Chinese scheme's touch scheme, or 全拼 when that has none either, for documents that have not enabled their own touch keyboard. */
+/** The touch scheme for a document scheme. Cantonese, Zhuyin, Vietnamese and Stroke map to the remembered Chinese scheme's touch scheme, or 全拼 when that has none either, for documents that have not enabled their own touch keyboard. */
 function touchSchemeOf(
   preferences: Preferences,
   scheme: Preferences["scheme"],
@@ -118,7 +126,8 @@ function touchSchemeOf(
       return scheme;
     case "cantonese":
     case "zhuyin":
-    case "vietnamese": {
+    case "vietnamese":
+    case "stroke": {
       const remembered = preferences.last_chinese_scheme;
       return remembered === "quanpin" || remembered === "shuangpin" || remembered === "wubi"
         ? touchSchemeOf(preferences, remembered)
@@ -173,7 +182,7 @@ export function selectTouchKeyboardScheme(
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,
     };
-  if (selected === "cantonese" || selected === "zhuyin")
+  if (selected === "cantonese" || selected === "zhuyin" || selected === "stroke")
     return {
       ...preferences,
       scheme: selected,
