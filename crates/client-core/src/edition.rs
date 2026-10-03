@@ -2,7 +2,7 @@
 //!
 //! 版本表 `shared/contracts/editions.json` 是各版本的单一事实源：每个版本提供哪些输入方案、默认方案是什么、在 `Preferences::default()` 之上叠加哪些默认值、随包带哪些资源和功能。full 是现有产品本身，所有值都等于今天写死在代码里的那个；其他版本是它的收窄。多个版本可以同时安装，彼此完全隔离，因此这里只描述一个版本自己的样子，不涉及版本之间的共享。
 //!
-//! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（macOS 和 Windows）在这里解析，其余平台的段本模块不解析。
+//! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（macOS、Windows 和 Linux）在这里解析，其余平台的段本模块不解析。
 
 use crate::account::AccountPreferenceValue;
 use crate::preferences::{InputScheme, TouchKeyboardScheme};
@@ -49,6 +49,43 @@ struct EditionPlatforms {
     macos: Option<MacosIdentity>,
     #[serde(default)]
     windows: Option<WindowsIdentity>,
+    #[serde(default)]
+    linux: Option<LinuxIdentity>,
+}
+
+/// 一个版本在 Linux 上的身份标识（版本表 `platforms.linux`）。各版本是各自独立的安装包，可以同时安装：full 装在 `/usr` 下，其他版本装在自己的 `/opt/<package>` 下。C++ 宿主读同一份值生成的 `platforms/linux/src/core/LinuxEdition.h`，脚本由 `platforms/linux/scripts/edition_linux.py` 按版本改写；三边拼出来的目录、socket 和单元名必须一样。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LinuxIdentity {
+    /// deb 和 rpm 的包名，也是 systemd 用户单元、图标和 `/usr/bin` 命令名的前缀。
+    pub package: String,
+    /// 安装前缀：full 是 `/usr`，其他版本是 `/opt/<package>`。
+    pub install_prefix: String,
+    /// 每个用户的状态目录、运行时目录、下载词库目录和缓存目录的名字（`$XDG_CONFIG_HOME/<client_directory>` 等），也是前缀下 `share`、`lib` 里的子目录名。
+    pub client_directory: String,
+    /// IBus 组件名和引擎名。
+    pub ibus_engine: String,
+    /// Fcitx5 插件名和输入法条目名。
+    pub fcitx5_addon: String,
+    /// 设置应用（Tauri）的 identifier。
+    pub tauri_identifier: String,
+}
+
+impl LinuxIdentity {
+    /// 本版本的一个 systemd 用户单元名，`unit` 是去掉包名前缀的部分，例如 `voice.socket` 得到 `msime-linux-wubi-voice.socket`；full 仍是 `msime-linux-voice.socket`。
+    pub fn user_unit(&self, unit: &str) -> String {
+        format!("{}-{unit}", self.package)
+    }
+
+    /// 本版本的首次配置命令名：full 是 `msime-linux-setup`，其他版本是 `msime-linux-<id>-setup`。
+    pub fn setup_program(&self) -> String {
+        format!("{}-setup", self.package)
+    }
+
+    /// 本版本的设置应用启动命令名：full 是 `msime-linux-settings`，其他版本是 `msime-linux-<id>-settings`。
+    pub fn settings_program(&self) -> String {
+        format!("{}-settings", self.package)
+    }
 }
 
 /// 一个版本在 Windows 上的身份标识（版本表 `platforms.windows`）。所有版本两两不同，多个版本可以同时安装，两个版本的 TIP 也可以被同一个应用同时加载。C++ 侧（TSF、Server、看门狗、设置窗口）读同一份值生成的 `shared/contracts/msime_edition.h`，Rust 侧在这里读；两边拼出来的管道、事件和目录名必须一样。
@@ -290,7 +327,12 @@ impl Edition {
         self.platforms.windows.as_ref()
     }
 
-    /// 安装包里声明版本的文件名。macOS 的设置应用把它放在 `Contents/Resources/` 下，Windows 的安装包把它放在 Server 目录（`MSIME.exe`、`msime-mcp.exe` 所在的目录）下，内容是 `{"edition": "<id>"}`。full 的包不带这个文件，所以 full 的包与引入版本之前相同。
+    /// 本版本在 Linux 上的身份标识；版本表里这个版本还没有 Linux 段时为 `None`。
+    pub fn linux(&self) -> Option<&LinuxIdentity> {
+        self.platforms.linux.as_ref()
+    }
+
+    /// 安装包里声明版本的文件名。macOS 的设置应用把它放在 `Contents/Resources/` 下，Windows 的安装包把它放在 Server 目录（`MSIME.exe`、`msime-mcp.exe` 所在的目录）下，Linux 的安装包把它放在前缀的 `bin` 目录（`msime-linux-desktop`、`msime-mcp` 所在的目录）下，内容是 `{"edition": "<id>"}`。full 的包不带这个文件，所以 full 的包与引入版本之前相同。
     pub const PACKAGE_MARKER_FILE: &'static str = "edition.json";
 
     /// 读取安装包里的版本声明（见 [`Edition::PACKAGE_MARKER_FILE`]）。文件不存在时是 full；文件存在但读不了、不是合法的声明、或声明了版本表里没有的 id 时是错误：一个声明了版本的包不能被当成 full 运行，否则它会去读写 full 的状态目录和输入法。
@@ -334,15 +376,33 @@ impl Edition {
     /// 声明坏了时是错误而不是 full，理由同 [`Edition::of_macos_bundle`]：一个声明了版本的包不能去连 full 的 Server、改 full 的状态目录。
     pub fn of_windows_package() -> Result<&'static Edition, &'static str> {
         static EDITION: OnceLock<Result<&'static Edition, &'static str>> = OnceLock::new();
-        *EDITION.get_or_init(|| {
-            let executable =
-                std::env::current_exe().map_err(|_| "cannot locate the running executable")?;
-            let Some(directory) = executable.parent() else {
-                return Ok(Self::full());
-            };
-            Self::declared_by_package(&directory.join(Self::PACKAGE_MARKER_FILE))
-                .map_err(|_| "the package declares an edition this build does not know")
-        })
+        *EDITION.get_or_init(Self::declared_beside_executable)
+    }
+
+    /// 本进程所在 Linux 安装包声明的版本。`msime-linux-desktop` 和 `msime-mcp` 安装在前缀的 `bin` 目录里，声明是同目录下的 [`Edition::PACKAGE_MARKER_FILE`]；full 装在 `/usr` 下，不带这个文件，其他版本装在 root 才能写的 `/opt/<package>` 下。`/usr/bin` 里指向其他版本的命令是符号链接，`current_exe` 解析到的是链接的目标，所以读到的是目标所在前缀的声明。没有这个文件就是 full：full 的包、开发运行和测试进程都是这样。只在第一次调用时读，之后返回同一个结果。
+    ///
+    /// 声明坏了时是错误而不是 full，理由同 [`Edition::of_macos_bundle`]：一个声明了版本的包不能去连 full 的 socket、改 full 的状态目录。
+    pub fn of_linux_package() -> Result<&'static Edition, &'static str> {
+        static EDITION: OnceLock<Result<&'static Edition, &'static str>> = OnceLock::new();
+        *EDITION.get_or_init(Self::declared_beside_executable)
+    }
+
+    /// 本进程所在 Linux 安装包的版本在 Linux 上的身份标识（见 [`Edition::of_linux_package`]）。
+    pub fn linux_package_identity() -> Result<&'static LinuxIdentity, &'static str> {
+        Self::of_linux_package()?
+            .linux()
+            .ok_or("this edition has no Linux identifiers")
+    }
+
+    /// 与可执行文件同目录的版本声明（Windows 的 Server 目录、Linux 前缀的 `bin` 目录）。
+    fn declared_beside_executable() -> Result<&'static Edition, &'static str> {
+        let executable =
+            std::env::current_exe().map_err(|_| "cannot locate the running executable")?;
+        let Some(directory) = executable.parent() else {
+            return Ok(Self::full());
+        };
+        Self::declared_by_package(&directory.join(Self::PACKAGE_MARKER_FILE))
+            .map_err(|_| "the package declares an edition this build does not know")
     }
 
     /// 本进程所在 Windows 安装包的版本在 Windows 上的身份标识（见 [`Edition::of_windows_package`]）。
@@ -879,6 +939,45 @@ mod tests {
             .map(|edition| edition.windows().unwrap().clsid.to_uppercase())
             .collect();
         assert_eq!(clsids.len(), Edition::all().len());
+    }
+
+    #[test]
+    fn full_keeps_its_linux_identifiers_and_the_others_derive_theirs_from_the_id() {
+        let full = Edition::full().linux().unwrap();
+        assert_eq!(full.package, "msime-linux");
+        assert_eq!(full.install_prefix, "/usr");
+        assert_eq!(full.client_directory, "msime-client");
+        assert_eq!(full.ibus_engine, "msime-linux");
+        assert_eq!(full.fcitx5_addon, "msime");
+        assert_eq!(full.tauri_identifier, "app.msime.linux");
+        assert_eq!(full.user_unit("voice.socket"), "msime-linux-voice.socket");
+        assert_eq!(full.setup_program(), "msime-linux-setup");
+        assert_eq!(full.settings_program(), "msime-linux-settings");
+        let wubi = Edition::by_id("wubi").unwrap().linux().unwrap();
+        assert_eq!(wubi.package, "msime-linux-wubi");
+        assert_eq!(wubi.install_prefix, "/opt/msime-linux-wubi");
+        assert_eq!(wubi.client_directory, "msime-client-wubi");
+        assert_eq!(wubi.ibus_engine, "msime-linux-wubi");
+        assert_eq!(wubi.fcitx5_addon, "msime-wubi");
+        assert_eq!(
+            wubi.user_unit("voice.socket"),
+            "msime-linux-wubi-voice.socket"
+        );
+        assert_eq!(wubi.setup_program(), "msime-linux-wubi-setup");
+        let directories: std::collections::HashSet<_> = Edition::all()
+            .iter()
+            .map(|edition| edition.linux().unwrap().client_directory.clone())
+            .collect();
+        assert_eq!(directories.len(), Edition::all().len());
+    }
+
+    #[test]
+    fn a_test_process_without_a_marker_beside_it_runs_as_linux_full() {
+        assert!(Edition::of_linux_package().unwrap().is_full());
+        assert_eq!(
+            Edition::linux_package_identity().unwrap().client_directory,
+            "msime-client"
+        );
     }
 
     #[test]

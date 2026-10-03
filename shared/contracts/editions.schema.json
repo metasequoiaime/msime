@@ -354,7 +354,54 @@
                 }
               }
             },
-            "linux": { "type": ["object", "null"] },
+            "linux": {
+              "description": "Linux 的身份标识。各版本是各自独立的安装包，可以同时安装：full 仍是今天装在 /usr 下的 msime-linux，包结构不变；其他版本整个装在自己的前缀（/opt/<package>）下，只有系统按名字查找的那几样（IBus 组件、Fcitx5 插件与输入法条目、systemd 用户单元、桌面入口、XDG 自启动项、图标和 /usr/bin 下的两个命令）装到系统目录，名字都带版本。所有版本的每个字段两两不同，一个版本的前缀不能嵌在另一个版本的前缀里，由 scripts/test-editions.py 检查；不是 full 的版本按版本 id 推出（package 是 msime-linux-<id>，其余字段同理）。full 的值等于今天写死在 CMake、IBus 组件、Fcitx5 配置和 tauri.linux.conf.json 里的值。systemd 用户单元、图标和 /usr/bin 命令名由 package 推出（<package>-online.socket、<package>-setup 等），Fcitx5 主题名与 fcitx5_addon 相同，都不单独列在这里。C++ 侧读 platforms/linux/scripts/edition_linux.py 生成的 platforms/linux/src/core/LinuxEdition.h，Rust 侧由 crates/client-core/src/edition.rs 解析。",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "package",
+                "install_prefix",
+                "client_directory",
+                "ibus_engine",
+                "fcitx5_addon",
+                "tauri_identifier"
+              ],
+              "properties": {
+                "package": {
+                  "description": "deb 和 rpm 的包名，也是发布资产名的前缀、IBus 组件文件名、图标名，以及 systemd 用户单元和 /usr/bin 命令名的前缀。full 是 `msime-linux`；其他版本是 `msime-linux-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-linux(-[a-z][a-z0-9]*)?$"
+                },
+                "install_prefix": {
+                  "description": "CMAKE_INSTALL_PREFIX。full 是 `/usr`；其他版本是 `/opt/<package>`，程序、词库、宿主库和文档都在这个前缀下，互不覆盖。",
+                  "type": "string",
+                  "pattern": "^/(usr|opt/msime-linux-[a-z][a-z0-9]*)$"
+                },
+                "client_directory": {
+                  "description": "每个用户的状态目录（$XDG_CONFIG_HOME/<client_directory>）、运行时目录（$XDG_RUNTIME_DIR/<client_directory>，放 panel-input.sock 等 socket 和状态文件）、自行下载的词库目录（$XDG_DATA_HOME/<client_directory>）和缓存目录的名字，也是前缀下 share、lib、doc 和 /etc 里的子目录名。full 是 `msime-client`；其他版本是 `msime-client-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-client(-[a-z][a-z0-9]*)?$"
+                },
+                "ibus_engine": {
+                  "description": "IBus 组件名和引擎名，也是 GNOME 输入源和 IBus preload-engines 里记的名字。full 是 `msime-linux`；其他版本是 `msime-linux-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-linux(-[a-z][a-z0-9]*)?$"
+                },
+                "fcitx5_addon": {
+                  "description": "Fcitx5 插件名和输入法条目名（addon 与 inputmethod 下的 <名字>.conf，插件库是 lib<名字>-fcitx5.so），也是宿主生成的 Fcitx5 主题名和 Omarchy 钩子名。full 是 `msime`；其他版本是 `msime-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime(-[a-z][a-z0-9]*)?$"
+                },
+                "tauri_identifier": {
+                  "description": "设置应用（Tauri）的 identifier，决定它的应用数据目录和单实例的 D-Bus 名。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.linux(\\.[a-z][a-z0-9]*)?$"
+                }
+              }
+            },
             "android": {
               "description": "Android 的身份标识。所有版本的每个字段两两不同，由 scripts/test-editions.py 检查；full 的值等于现有的 applicationId 和发布 APK 名。版本在 platforms/android/gradle-app 里是同名的 productFlavor，应用名和输入法列表里的子类型名取自 platforms/android/editions/<id>/res（full 用主资源），图标所有版本相同。ContentProvider 的 authority 一律写成 `${applicationId}.<名字>`，随 application_id 各不相同，不单独列在这里。",
               "type": ["object", "null"],

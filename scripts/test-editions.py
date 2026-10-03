@@ -14,6 +14,7 @@
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
+- Linux 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的安装前缀不能嵌在另一个版本的前缀里，由包名推出的 systemd 用户单元、图标和 /usr/bin 命令名也两两不同；不是 full 的版本按版本 id 推出（`msime-linux-<id>`、`/opt/msime-linux-<id>`、`msime-client-<id>`、`msime-<id>`、`app.msime.linux.<id>`）；full 的值等于今天 packaging.cmake 的包名、IBus 组件、Fcitx5 配置、msime-linux-setup 和 tauri.linux.conf.json 里的值；
 - Android 身份标识：applicationId 和 APK 名在所有版本间两两不同（不区分大小写），不是 full 的版本按版本 id 推出（`app.msime.android.<id>`、`msime-client-<id>`），清单里每个 ContentProvider 的 authority 都写成 `${applicationId}.<名字>`，所以各版本的 authority 也两两不同；full 的值等于今天 gradle-app 的 applicationId、tauri.android.conf.json 的 identifier 和 build-apk.sh 产出的 APK 名，主资源的应用名等于 full 的显示名；其他版本的 `platforms/android/editions/<id>/res` 里应用名等于版本的显示名，覆盖的另外几句与主资源只差产品名，method.xml 与主资源只差子类型标签；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
@@ -47,6 +48,8 @@ ANDROID_ROOT = ROOT / "platforms/android"
 ANDROID_GRADLE = ANDROID_ROOT / "gradle-app/app/build.gradle.kts"
 ANDROID_MANIFEST = ANDROID_ROOT / "AndroidManifest.xml"
 TAURI_ANDROID_CONF = ROOT / "apps/desktop/src-tauri/tauri.android.conf.json"
+TAURI_LINUX_CONF = ROOT / "apps/desktop/src-tauri/tauri.linux.conf.json"
+LINUX_ROOT = ROOT / "platforms/linux"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
@@ -106,6 +109,18 @@ FULL_WINDOWS = {
 WINDOWS_UNIQUE_NAMES = ["app_name", "text_service_description", "install_dir", "registry_key", "state_directory", "user_data_directory", "data_dir_environment_variable", "name_suffix", "watchdog_task", "host_dll", "tauri_identifier", "installer_base_name"]
 # 落在 %LOCALAPPDATA% 下的目录名：安装器的默认数据目录（install_dir）、没有 DataDir 时的状态目录和按用户的账号与统计目录。任意两个版本的任意两个撞名，一个版本就会读写、卸载时删掉另一个版本的数据。
 WINDOWS_LOCAL_APP_DATA_NAMES = ["install_dir", "state_directory", "user_data_directory"]
+# full 今天的 Linux 标识：包名写在 platforms/linux/cmake/packaging.cmake，IBus 组件和引擎名在 data/msime-linux.xml.in，Fcitx5 插件和输入法条目是 fcitx5/msime.conf 与 fcitx5/msime-inputmethod.conf（装成 inputmethod/msime.conf），状态目录 ~/.config/msime-client 写在 msime-linux-setup 和各宿主里，identifier 在 tauri.linux.conf.json。改了其中任何一个，已经装着的 msime-linux 就会被当成另一个产品：包升级不上来，输入法列表里的条目、用户服务和状态目录都对不上。
+FULL_LINUX = {
+    "package": "msime-linux",
+    "install_prefix": "/usr",
+    "client_directory": "msime-client",
+    "ibus_engine": "msime-linux",
+    "fcitx5_addon": "msime",
+    "tauri_identifier": "app.msime.linux",
+}
+# 由包名推出、不单独写进版本表的 Linux 名字：systemd 用户单元、图标和 /usr/bin 下的命令。与 platforms/linux/scripts/edition_linux.py 的推出规则相同。
+LINUX_UNITS = ["online.socket", "online.service", "voice.socket", "voice.service", "clipboard.service"]
+LINUX_COMMANDS = ["setup", "settings"]
 # full 今天的 Android 标识：applicationId 写在 gradle-app/app/build.gradle.kts 的 defaultConfig 和 tauri.android.conf.json 里，APK 名是 build-apk.sh 产出、release-android.yml 发布的文件名。改了 applicationId，已装的用户就收不到覆盖升级，私有数据也换了一个目录。
 FULL_ANDROID = {"application_id": "app.msime.android", "apk_name": "msime-client"}
 # macOS 上不写进版本表、由 EditionIdentity.h 从版本身份推出的标识：full 沿用今天的值，其他版本按下面的规则推出。
@@ -194,7 +209,7 @@ def check_schema_shape(errors: list[str], table: dict, schema: dict) -> None:
             for platform, section in entry["platforms"].items():
                 if section is not None and not isinstance(section, dict):
                     errors.append(f"{where}.platforms.{platform}: expected an object or null")
-            for platform in ["macos", "windows", "android"]:
+            for platform in ["macos", "windows", "linux", "android"]:
                 section = entry["platforms"].get(platform)
                 node = edition["properties"]["platforms"]["properties"][platform]
                 if isinstance(section, dict):
@@ -317,6 +332,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
 
     check_macos(errors, editions)
     check_windows(errors, editions)
+    check_linux(errors, editions)
     check_android(errors, editions)
 
     check_frozen(errors, editions, frozen)
@@ -471,6 +487,75 @@ def check_windows(errors: list[str], editions: list[dict]) -> None:
     for fragment in ['if (isFullEdition(edition)) return "MetasequoiaIME_Setup_v";', "return `MetasequoiaIME-${edition.charAt(0).toUpperCase()}${edition.slice(1)}_Setup_v`;"]:
         if fragment not in manifest:
             errors.append(f"{UPDATE_MANIFEST.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
+
+
+def linux_derived_names(section: dict) -> list[str]:
+    """由包名推出的系统级名字：systemd 用户单元、图标和 /usr/bin 下的命令。"""
+    package = section["package"]
+    return [f"{package}-{unit}" for unit in LINUX_UNITS] + [f"{package}-{command}" for command in LINUX_COMMANDS]
+
+
+def check_linux(errors: list[str], editions: list[dict]) -> None:
+    """多个版本同时装在一台 Linux 上：包名一样，后装的就会把先装的当成旧版本替换掉；IBus 引擎、Fcitx5 条目、systemd 单元或状态目录一样，一个版本就会顶掉、停掉或读写另一个版本的东西。"""
+    sections = [(entry["id"], entry["platforms"].get("linux")) for entry in editions]
+    sections = [(edition_id, section) for edition_id, section in sections if section is not None]
+    for key in FULL_LINUX:
+        seen: dict[str, str] = {}
+        for edition_id, section in sections:
+            folded = section[key].casefold()
+            if folded in seen:
+                errors.append(f"editions {seen[folded]} and {edition_id}: platforms.linux.{key} {section[key]!r} is not unique (case-insensitive)")
+            seen[folded] = edition_id
+    # 卸载和升级按前缀删文件：一个版本的前缀在另一个版本的前缀下面，删外层就带走了里层。
+    prefixes = [(edition_id, section["install_prefix"].rstrip("/") + "/") for edition_id, section in sections]
+    for edition_id, prefix in prefixes:
+        for other_id, other in prefixes:
+            if edition_id != other_id and prefix.startswith(other):
+                errors.append(f"edition {edition_id}: platforms.linux.install_prefix is inside edition {other_id}'s prefix")
+    derived: dict[str, str] = {}
+    for edition_id, section in sections:
+        for name in linux_derived_names(section):
+            folded = name.casefold()
+            if folded in derived:
+                errors.append(f"edition {edition_id}: derived Linux name {name!r} is also edition {derived[folded]}'s")
+            derived[folded] = edition_id
+    for edition_id, section in sections:
+        if edition_id == FULL:
+            if section != FULL_LINUX:
+                errors.append(f"edition full: platforms.linux must be the identifiers the product ships with today: {FULL_LINUX}")
+            continue
+        expected = {
+            "package": f"msime-linux-{edition_id}",
+            "install_prefix": f"/opt/msime-linux-{edition_id}",
+            "client_directory": f"msime-client-{edition_id}",
+            "ibus_engine": f"msime-linux-{edition_id}",
+            "fcitx5_addon": f"msime-{edition_id}",
+            "tauri_identifier": f"app.msime.linux.{edition_id}",
+        }
+        for key, value in expected.items():
+            if section[key] != value:
+                errors.append(f"edition {edition_id}: platforms.linux.{key} must be {value!r}, found {section[key]!r}")
+    full = next((section for edition_id, section in sections if edition_id == FULL), None)
+    if full is None or full != FULL_LINUX:
+        return
+    # full 的值与今天写死在 Linux 宿主各处的值逐个对照：这些文件就是 full 的包装出来的样子。
+    packaging = (LINUX_ROOT / "cmake/packaging.cmake").read_text(encoding="utf-8")
+    if f'set(CPACK_PACKAGE_NAME "{full["package"]}")' not in packaging:
+        errors.append(f"edition full: platforms.linux.package must be CPACK_PACKAGE_NAME in platforms/linux/cmake/packaging.cmake")
+    component = (LINUX_ROOT / "data/msime-linux.xml.in").read_text(encoding="utf-8")
+    if component.count(f"<name>{full['ibus_engine']}</name>") != 2:
+        errors.append("edition full: platforms.linux.ibus_engine must be the component and engine <name> in platforms/linux/data/msime-linux.xml.in")
+    if f"/{full['client_directory']}/runtime-options.json" not in component:
+        errors.append("edition full: platforms.linux.client_directory must be the /etc directory platforms/linux/data/msime-linux.xml.in passes to the launcher")
+    setup = (LINUX_ROOT / "scripts/msime-linux-setup").read_text(encoding="utf-8")
+    for fragment in [f'IBUS_ENGINE = "{full["ibus_engine"]}"', f'FCITX5_INPUT_METHOD = "{full["fcitx5_addon"]}"', f'config_home() / "{full["client_directory"]}"']:
+        if fragment not in setup:
+            errors.append(f"edition full: platforms/linux/scripts/msime-linux-setup no longer contains {fragment!r}")
+    if not (LINUX_ROOT / f"fcitx5/{full['fcitx5_addon']}.conf").is_file():
+        errors.append(f"edition full: platforms.linux.fcitx5_addon must name platforms/linux/fcitx5/{full['fcitx5_addon']}.conf")
+    identifier = json.loads(TAURI_LINUX_CONF.read_text(encoding="utf-8")).get("identifier")
+    if full["tauri_identifier"] != identifier:
+        errors.append(f"edition full: platforms.linux.tauri_identifier must equal identifier {identifier!r} in {TAURI_LINUX_CONF.relative_to(ROOT)}")
 
 
 def android_strings(path: pathlib.Path) -> dict[str, str]:
