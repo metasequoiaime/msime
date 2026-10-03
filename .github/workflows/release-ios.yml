@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           rustup target add aarch64-apple-ios-sim
-      # build-app.sh fetches the Cantonese and Zhuyin dictionaries pinned by resources/language-dictionaries.lock.json itself; a release must carry both, so stage-resources.sh fails rather than staging fewer.
+      # build-app.sh fetches the Cantonese, Zhuyin and Stroke dictionaries pinned by resources/language-dictionaries.lock.json itself; a release must carry all three, so stage-resources.sh fails rather than staging fewer.
       - name: Build native iOS host
         env: {MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
         run: |
