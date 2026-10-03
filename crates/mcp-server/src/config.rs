@@ -173,6 +173,10 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
     }
     if cfg!(target_os = "linux") {
         // The fixed locator every Linux frontend reads (`user_runtime_options` in the desktop app). A relative XDG value is ignored, as the specification requires.
+        // 目录名随本进程所在安装包的版本（前缀 bin 目录里的 edition.json，full 是 msime-client）；声明坏了时不猜成 full，免得读写 full 的状态。
+        let directory = &msime_client_core::edition::Edition::linux_package_identity()
+            .ok()?
+            .client_directory;
         return env("XDG_CONFIG_HOME")
             .and_then(absolute)
             .or_else(|| {
@@ -180,7 +184,7 @@ fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathB
                     .and_then(absolute)
                     .map(|home| home.join(".config"))
             })
-            .map(|config| config.join("msime-client/runtime-options.json"));
+            .map(|config| config.join(directory).join("runtime-options.json"));
     }
     #[cfg(windows)]
     {

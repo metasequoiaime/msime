@@ -87,11 +87,15 @@ pub enum CandidatePanelLimit {
 
 impl CandidatePanelLimit {
     /// The file the running Linux host writes its finding to: `candidate-panel.json` under `$XDG_RUNTIME_DIR/msime-client`, the per-session directory that goes away with the session the finding describes. A relative or missing runtime directory yields nothing.
+    ///
+    /// 目录名随本进程所在安装包的版本（`Edition::linux_package_identity_or_full`，full 是 `msime-client`），读的是同一版本宿主写的那一份。
     pub fn status_file(runtime_directory: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
         let directory = std::path::PathBuf::from(runtime_directory?);
-        directory
-            .is_absolute()
-            .then(|| directory.join("msime-client").join("candidate-panel.json"))
+        directory.is_absolute().then(|| {
+            directory
+                .join(&crate::edition::Edition::linux_package_identity_or_full().client_directory)
+                .join("candidate-panel.json")
+        })
     }
 
     /// Reads the host's report, `{"host": "ibus" | "fcitx5", "limit": <name> | null}`. Anything else - no file, a panel that honours the settings, a name this build does not know - reads as no limit, so the page never warns on a guess.

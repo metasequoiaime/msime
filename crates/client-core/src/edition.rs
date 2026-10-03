@@ -394,6 +394,15 @@ impl Edition {
             .ok_or("this edition has no Linux identifiers")
     }
 
+    /// 同 [`Edition::linux_package_identity`]，但声明坏了时退回 full 的身份。只给启动时已经检查过声明的进程用（设置应用声明坏了就退出），这样它们取每用户目录名、socket 目录和单元名时不必再处理一个不会发生的错误。
+    pub fn linux_package_identity_or_full() -> &'static LinuxIdentity {
+        Self::linux_package_identity().unwrap_or_else(|_| {
+            Self::full()
+                .linux()
+                .expect("shared/contracts/editions.json gives full Linux identifiers")
+        })
+    }
+
     /// 与可执行文件同目录的版本声明（Windows 的 Server 目录、Linux 前缀的 `bin` 目录）。
     fn declared_beside_executable() -> Result<&'static Edition, &'static str> {
         let executable =

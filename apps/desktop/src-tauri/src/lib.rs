@@ -2672,28 +2672,30 @@ fn macos_input_source_restart_args() -> [&'static str; 5] {
     ]
 }
 
+/// `addon` 是本版本的 Fcitx5 插件名（版本表的 `fcitx5_addon`，full 是 `msime`）：只重置本版本的插件，同一个 fcitx5 里别的版本不受影响。
 #[cfg(any(target_os = "linux", test))]
 fn linux_input_method_restart_command(
     fcitx5_running: bool,
-) -> (&'static str, &'static [&'static str]) {
+    addon: &str,
+) -> (&'static str, Vec<String>) {
     if fcitx5_running {
         // Fcitx5 owns the process that loads the MSIME addon, so restarting it would take every other input method in the user's group down too. The controller's ReloadAddonConfig for the `msime` addon reaches the addon's reloadConfig, which resets MSIME in process: it ends every composition, closes the Engine sessions and re-reads runtime-options.json. `fcitx5-remote -r` sends ReloadConfig instead, which reloads only Fcitx5's global configuration and never reaches an addon. The call goes through `gdbus`, the same client msime-linux-setup uses for this controller; `gdbus call` waits for the reply, so a controller that refused the call fails the action.
-        (
-            "gdbus",
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.fcitx.Fcitx5",
-                "--object-path",
-                "/controller",
-                "--method",
-                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
-                "'msime'",
-            ],
-        )
+        let mut arguments: Vec<String> = [
+            "call",
+            "--session",
+            "--dest",
+            "org.fcitx.Fcitx5",
+            "--object-path",
+            "/controller",
+            "--method",
+            "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        arguments.push(format!("'{addon}'"));
+        ("gdbus", arguments)
     } else {
-        ("ibus", &["restart"])
+        ("ibus", vec!["restart".to_owned()])
     }
 }
 
@@ -2764,8 +2766,12 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
             &["--check"],
             std::time::Duration::from_secs(1),
         );
-        let (program, arguments) = linux_input_method_restart_command(fcitx5_running);
-        linux_process::run_status(program, arguments, std::time::Duration::from_secs(3))
+        let (program, arguments) = linux_input_method_restart_command(
+            fcitx5_running,
+            &msime_client_core::edition::Edition::linux_package_identity_or_full().fcitx5_addon,
+        );
+        let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        linux_process::run_status(program, &arguments, std::time::Duration::from_secs(3))
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",
@@ -3826,7 +3832,10 @@ fn discover_session_provider_in(
 ) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
 
-    let directory = runtime_directory.join("msime-client");
+    // 本安装包所属版本的运行时目录（full 是 msime-client）：只连本版本的 provider。
+    let directory = runtime_directory.join(
+        &msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory,
+    );
     let path = directory.join(filename);
     let directory_metadata = std::fs::symlink_metadata(&directory).ok()?;
     let socket_metadata = std::fs::symlink_metadata(&path).ok()?;
@@ -3884,7 +3893,11 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
         })
         .or_else(|| {
             discover_packaged_file(
-                "msime-client/handwriting/handwriting-zh_CN.model",
+                &format!(
+                    "{}/handwriting/handwriting-zh_CN.model",
+                    msime_client_core::edition::Edition::linux_package_identity_or_full()
+                        .client_directory
+                ),
                 "handwriting/handwriting-zh_CN.model",
             )
         })
@@ -3919,8 +3932,14 @@ fn packaged_emoji_resources(document: &Value) -> Option<PathBuf> {
         return (directory.is_absolute() && directory.join("others.db").is_file())
             .then_some(directory);
     }
-    discover_packaged_file("msime-client/emoji/others.db", "emoji/others.db")
-        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+    discover_packaged_file(
+        &format!(
+            "{}/emoji/others.db",
+            msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory
+        ),
+        "emoji/others.db",
+    )
+    .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
 }
 
 fn discover_packaged_file(relative: &str, beside_executable: &str) -> Option<PathBuf> {
@@ -4607,16 +4626,22 @@ fn sync_omarchy_theme() -> i32 {
     let Some(path) =
         absolute("MSIME_IBUS_OPTIONS").or_else(|| absolute("MSIME_CLIENT_HOST_OPTIONS"))
     else {
-        return fail("no runtime options path; run this through msime-linux-settings");
+        return fail(&format!(
+            "no runtime options path; run this through {}",
+            msime_client_core::edition::Edition::linux_package_identity_or_full()
+                .settings_program()
+        ));
     };
     let directory = match absolute("MSIME_CLIENT_STATE_DIR") {
         Some(directory) => directory,
         None => match linux_runtime_state_directory() {
             Ok(Some(directory)) => directory,
             Ok(None) => {
-                return fail(
-                    "the runtime options name no state directory; run msime-linux-setup first",
-                )
+                return fail(&format!(
+                    "the runtime options name no state directory; run {} first",
+                    msime_client_core::edition::Edition::linux_package_identity_or_full()
+                        .setup_program()
+                ))
             }
             Err(error) => return fail(&error),
         },
@@ -4662,6 +4687,11 @@ pub fn run() {
         std::process::exit(1);
     }
     #[cfg(target_os = "linux")]
+    if let Err(message) = platform::linux::check_linux_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
+    #[cfg(target_os = "linux")]
     if std::env::args_os()
         .skip(1)
         .any(|argument| argument == "--sync-omarchy-theme")
@@ -4676,6 +4706,12 @@ pub fn run() {
     let context = {
         let mut context = context;
         platform::windows::apply_edition_to_config(context.config_mut());
+        context
+    };
+    #[cfg(target_os = "linux")]
+    let context = {
+        let mut context = context;
+        platform::linux::apply_edition_to_config(context.config_mut());
         context
     };
     #[cfg(target_os = "macos")]
