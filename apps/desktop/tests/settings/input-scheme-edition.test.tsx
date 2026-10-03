@@ -22,6 +22,7 @@ const wubiEdition: EditionInfo = {
   input_schemes: ["wubi"],
   default_scheme: "wubi",
   temporary_japanese: false,
+  neural_keyboard: false,
   wubi_mixed_pinyin_default: true,
 };
 
@@ -30,6 +31,7 @@ const pinyinEdition: EditionInfo = {
   input_schemes: ["quanpin", "shuangpin"],
   default_scheme: "quanpin",
   temporary_japanese: true,
+  neural_keyboard: true,
   wubi_mixed_pinyin_default: false,
 };
 
@@ -149,4 +151,21 @@ test("edition helpers fall back to the full answers without an edition", () => {
   expect(editionUsesHelpcode(wubiEdition)).toBe(false);
   expect(fallbackChineseScheme("cantonese", ["quanpin"])).toBe("quanpin");
   expect(fallbackChineseScheme("quanpin", ["wubi"], "wubi")).toBe("wubi");
+});
+
+test("a touch host lists 键盘神经联想 only when its edition ships the keyboard model", async () => {
+  await openInputPage(testHost({ platform: "android" }));
+  expect(screen.getByRole("switch", { name: "键盘神经联想" })).toBeTruthy();
+  cleanup();
+
+  await openInputPage(
+    testHost({ platform: "android", input_schemes: ["wubi"], edition: wubiEdition }),
+  );
+  expect(screen.queryByRole("switch", { name: "键盘神经联想" })).toBeNull();
+  expect(screen.getByRole("switch", { name: "本地整句联想" })).toBeTruthy();
+});
+
+test("the desktop 桌面神经联想 switch is not tied to the keyboard model", async () => {
+  await openInputPage(wubiHost);
+  expect(screen.getByRole("switch", { name: "桌面神经联想" })).toBeTruthy();
 });

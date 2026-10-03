@@ -2421,11 +2421,12 @@ enum RecoveryScope {
 
 pub struct PreferencesStore {
     directory: PathBuf,
-    /// 这个状态目录属于哪个版本；`None` 是 full。只影响没有偏好文件时读到的默认值和修复时垫底的默认值。
+    /// 构造时指定的版本；`None` 时以状态目录里的版本记录为准（[`crate::edition::Edition::recorded_in`]），没有记录就是 full。只影响没有偏好文件时读到的默认值和修复时垫底的默认值。
     edition: Option<&'static crate::edition::Edition>,
 }
 
 impl PreferencesStore {
+    /// `directory` 的偏好存储，版本取自目录里的版本记录（准备宿主时写下，见 [`crate::edition::Edition::record_in`]）：各平台读写偏好的 C ABI 和设置应用只拿到这个目录，不必各自知道版本，偏好文件不见了或被修复时也回到本版本的默认偏好。full 的状态目录没有记录，行为与引入版本之前相同。
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
@@ -2433,35 +2434,37 @@ impl PreferencesStore {
         }
     }
 
-    /// `edition` 的偏好存储。版本之间完全隔离，每个版本有自己的状态目录；这里只决定还没有偏好文件时读到的是哪个版本的默认值（[`PreferencesSnapshot::for_edition`]），以及修复损坏文件时以哪份默认值垫底。
+    /// `edition` 的偏好存储，不看目录里的版本记录。版本之间完全隔离，每个版本有自己的状态目录；这里只决定还没有偏好文件时读到的是哪个版本的默认值（[`PreferencesSnapshot::for_edition`]），以及修复损坏文件时以哪份默认值垫底。
     pub fn for_edition(
         directory: impl Into<PathBuf>,
         edition: &'static crate::edition::Edition,
     ) -> Self {
         Self {
             directory: directory.into(),
-            edition: (!edition.is_full()).then_some(edition),
+            edition: Some(edition),
         }
     }
 
-    /// 这个存储所属的版本。
+    /// 这个存储所属的版本：构造时指定的，否则是目录里记录的，都没有时是 full。
     pub fn edition(&self) -> &'static crate::edition::Edition {
-        self.edition.unwrap_or_else(crate::edition::Edition::full)
+        self.edition
+            .or_else(|| crate::edition::Edition::recorded_in(&self.directory))
+            .unwrap_or_else(crate::edition::Edition::full)
     }
 
     /// 还没有偏好文件时读到的快照。
     fn missing_document(&self) -> PreferencesSnapshot {
-        match self.edition {
-            None => PreferencesSnapshot::default(),
-            Some(edition) => PreferencesSnapshot::for_edition(edition),
+        match self.edition() {
+            edition if edition.is_full() => PreferencesSnapshot::default(),
+            edition => PreferencesSnapshot::for_edition(edition),
         }
     }
 
     /// 修复损坏文件时垫底的默认偏好。
     fn default_preferences(&self) -> Preferences {
-        match self.edition {
-            None => Preferences::default(),
-            Some(edition) => Preferences::for_edition(edition),
+        match self.edition() {
+            edition if edition.is_full() => Preferences::default(),
+            edition => Preferences::for_edition(edition),
         }
     }
 

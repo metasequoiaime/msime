@@ -1596,6 +1596,8 @@ export interface EditionInfo {
   default_scheme: InputScheme;
   /** 本版本是否带临时日文。 */
   temporary_japanese: boolean;
+  /** 本版本是否带键盘神经联想用的模型。不带时触屏宿主不列出神经联想开关；桌面的神经联想用另一份模型，不归这一项管。 */
+  neural_keyboard: boolean;
   /** 本版本里五笔混拼的默认值。 */
   wubi_mixed_pinyin_default: boolean;
 }

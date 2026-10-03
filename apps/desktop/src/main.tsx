@@ -481,6 +481,8 @@ function DesktopSettings() {
   const [linuxSetup, setLinuxSetup] = useState<LinuxSetupStatus | null>(null);
   const [macosInstall, setMacosInstall] = useState(false);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
+  // 首启引导准备资源之后重新读到的版本：第一次启动时 HostOptions 由这一步写下，发现宿主能力时还读不到版本。
+  const [preparedEdition, setPreparedEdition] = useState<HostCapabilities["edition"]>();
   const [mobilePanel, setMobilePanel] = useState<
     | "voice"
     | "emoji"
@@ -887,7 +889,10 @@ function DesktopSettings() {
     platform: onboardingPlatform === "ios" ? "ios" : "android",
     prepareResources:
       onboardingPlatform === "android" || !onboardingPlatform
-        ? () => invoke("android_prepare_bootstrap").then(() => undefined)
+        ? async () => {
+            await invoke("android_prepare_bootstrap");
+            setPreparedEdition((await discoverHostCapabilities())?.edition);
+          }
         : async () => undefined,
     openSystemKeyboardSettings:
       onboardingPlatform === "ios"
@@ -941,7 +946,7 @@ function DesktopSettings() {
         onSkip={skipOnboarding}
         // The splash belongs to a first launch; replaying the flow from settings skips it.
         splash={Boolean(bootstrapRequired) && !replayOnboarding}
-        edition={settingsClient?.host?.edition}
+        edition={preparedEdition ?? settingsClient?.host?.edition}
       />
     );
   if (!settingsClient)

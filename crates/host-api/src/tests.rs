@@ -6484,6 +6484,7 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     assert!(full.get("edition").is_none(), "{full}");
     assert_eq!(full["preferences"], json!(Preferences::default()));
     assert!(!full_state.join("preferences.json").exists());
+    assert!(!full_state.join(Edition::STATE_RECORD_FILE).exists());
     assert!(HostOptions::from_document(full.clone()).is_some());
 
     let wubi = Edition::by_id("wubi").unwrap();
@@ -6512,6 +6513,42 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     assert_eq!(
         PreferencesStore::new(&wubi_state).load().unwrap().revision,
         2
+    );
+}
+
+/// 平台宿主经 C 接口只按目录读写偏好，不知道版本：五笔版的偏好文件损坏或被删掉之后，修复和读取回到的仍是五笔版的默认值（准备宿主时记在状态目录里的版本），不是 full 的。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn the_c_abi_repairs_and_reloads_a_non_full_state_root_to_its_own_defaults() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let wubi = Edition::by_id("wubi").unwrap();
+    let state = root.path().join("wubi");
+    prepare_shipped_host_configuration(&resources, &state, &specification, &[], wubi).unwrap();
+    assert_eq!(
+        Edition::recorded_in(&state).map(|e| e.id.as_str()),
+        Some("wubi")
+    );
+    let path = state.to_str().unwrap();
+    let document = state.join("preferences.json");
+
+    // 写到一半断电：修复后的文件是五笔版的默认偏好，混拼是开的。
+    std::fs::write(&document, "{\"format_version\":1,").unwrap();
+    let repaired = read(unsafe { msime_client_recover_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(repaired["value"]["recovered"], true, "{repaired}");
+    let restored: Preferences =
+        serde_json::from_value(repaired["value"]["snapshot"]["preferences"].clone()).unwrap();
+    assert_eq!(restored, Preferences::for_edition(wubi));
+    assert!(restored.wubi_mixed_pinyin);
+
+    // 用户删掉了偏好文件：读到的同样是五笔版的默认值。
+    std::fs::remove_file(&document).unwrap();
+    let loaded = read(unsafe { msime_client_load_preferences(path.as_ptr(), path.len()) });
+    assert_eq!(loaded["value"]["revision"], 0);
+    assert_eq!(
+        serde_json::from_value::<Preferences>(loaded["value"]["preferences"].clone()).unwrap(),
+        Preferences::for_edition(wubi)
     );
 }
 
@@ -6633,6 +6670,14 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
     assert!(!options.local_temporary_japanese);
     apply_local_mode_resource_gates(&mut full_options, Edition::full());
     assert!(full_options.local_temporary_japanese);
+
+    // 五笔版不带键盘神经联想的模型，偏好打开了也不交给 Engine；full 照旧。
+    options.sentence_association.neural_keyboard = true;
+    full_options.sentence_association.neural_keyboard = true;
+    apply_local_mode_resource_gates(&mut options, wubi);
+    assert!(!options.sentence_association.neural_keyboard);
+    apply_local_mode_resource_gates(&mut full_options, Edition::full());
+    assert!(full_options.sentence_association.neural_keyboard);
 }
 
 /// 用五笔版的资源集准备出的宿主默认就是五笔混拼：`nihao` 由全拼给出「你好」，`wq` 由五笔码表给出「你」。

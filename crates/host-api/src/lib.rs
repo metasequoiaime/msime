@@ -233,7 +233,7 @@ struct HostSession {
 
 /// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
 ///
-/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典，临时日文无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
+/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
 fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("others.db").is_file();
@@ -248,6 +248,8 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Editio
     options.local_kaomoji &= has_emoji_catalog;
     options.local_temporary_english &= has_english_dictionary;
     options.local_temporary_japanese &= has_japanese_model && edition.features.temporary_japanese;
+    // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
+    options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -1165,7 +1167,7 @@ pub fn prepare_host_configuration(
 
 /// 为 `edition` 准备宿主：[`prepare_host_configuration`] 就是 full 的这一个。
 ///
-/// 不是 full 的版本在文档里记下 `edition`，之后的会话、[`refresh_host_options`] 和 `msime-mcp` 都从文档里读它；full 的文档不写这个键，与以前完全相同。状态目录里还没有偏好文件时，不是 full 的版本会把本版本的默认偏好写成第一份偏好文件：各平台宿主经 C 接口按目录读取偏好，并不知道版本，没有文件时读到的是 full 的默认值（例如五笔混拼是关的）；有了这份文件，任何读取方第一次读到的都是本版本的默认值。
+/// 不是 full 的版本在文档里记下 `edition`，之后的会话、[`refresh_host_options`] 和 `msime-mcp` 都从文档里读它；full 的文档不写这个键，与以前完全相同。状态目录也记下它属于哪个版本（[`Edition::record_in`]，full 不写）：各平台宿主经 C 接口、设置应用经自己的存储都只按目录读写偏好，并不知道版本，偏好文件不见了或被修复时靠这份记录回到本版本的默认偏好。状态目录里还没有偏好文件时，不是 full 的版本还会把本版本的默认偏好写成第一份偏好文件，不经偏好存储直接读文件的一方第一次读到的也是本版本的默认值。
 pub fn prepare_host_configuration_for_edition(
     resources: &std::path::Path,
     state_root: &std::path::Path,
@@ -1226,6 +1228,8 @@ fn prepare_shipped_host_configuration(
         // 代次按完整锁文件计算，不随发布包是否内置日文词典而变：user/dictionaries/<generation> 和 refreshed_host_options 都保持原样，升级后不会重新准备，仍在运行的旧版输入法也不会。
         &specification.generation()?,
     )?;
+    // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
+    edition.record_in(&state_root)?;
     let preferences = edition_preferences(&state_root, edition)?;
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,

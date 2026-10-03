@@ -35,9 +35,9 @@
       "required": ["id", "display_name", "input_schemes", "default_scheme", "preference_defaults", "resources", "features", "language_dictionaries", "platforms"],
       "properties": {
         "id": {
-          "description": "版本 id，小写字母、数字和连字符。写入后不能改名：它会成为状态目录、包名等标识的一部分，由 editions.frozen.json 守住。",
+          "description": "版本 id，小写字母开头，只含小写字母和数字（不含连字符：它会拼进 `msime-linux-<id>-<版本>` 这类资产名，更新检查也只认这种 id）。写入后不能改名：它会成为状态目录、包名等标识的一部分，由 editions.frozen.json 守住。",
           "type": "string",
-          "pattern": "^[a-z][a-z0-9-]*$"
+          "pattern": "^[a-z][a-z0-9]*$"
         },
         "display_name": {
           "description": "版本的产品名。full 等于现有的 CFBundleDisplayName 和 Tauri productName。所有版本共用同一个图标，只有名字不同。",

@@ -168,8 +168,15 @@ fn prepare_default_options(
 ) -> Result<(), &'static str> {
     crate::shared::atomic_file::create_directory_and_check(state_root)
         .map_err(|_| "Cannot prepare default HostOptions JSON")?;
-    let document = msime_host_api::prepare_host_configuration(resources_directory, state_root)
-        .map_err(|_| "Cannot prepare default HostOptions JSON")?;
+    // 还没有 HostOptions 文档时，版本只能取自状态目录里留下的记录（例如定位文件被删掉而状态还在）；第一次启动没有记录，准备的是 full。
+    let edition = msime_client_core::edition::Edition::recorded_in(state_root)
+        .unwrap_or_else(msime_client_core::edition::Edition::full);
+    let document = msime_host_api::prepare_host_configuration_for_edition(
+        resources_directory,
+        state_root,
+        edition,
+    )
+    .map_err(|_| "Cannot prepare default HostOptions JSON")?;
     let document: Value =
         serde_json::from_str(&document).map_err(|_| "Cannot prepare default HostOptions JSON")?;
     if !document.is_object() {

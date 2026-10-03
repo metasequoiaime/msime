@@ -128,7 +128,11 @@ export function WelcomeFlowPage({
   const editionScheme = onboardingEditionScheme(edition);
   // 实际经过的步骤：`page` 仍是步骤的编号（对应 `stepTitles`），进度按经过的步骤计。
   const steps: readonly number[] = editionScheme ? [0, 2, 3] : [0, 1, 2, 3];
-  const [page, setPage] = useState(0);
+  const [requestedPage, setPage] = useState(0);
+  // 第一次启动时版本要等第一步准备好资源（写下 HostOptions）之后才知道，`edition` 可能在流程中途才到：落在本版本没有的步骤上时显示它之后的那一步。
+  const page = steps.includes(requestedPage)
+    ? requestedPage
+    : (steps.find((candidate) => candidate > requestedPage) ?? 3);
   const step = steps.indexOf(page);
   const [scheme, setScheme] = useState<OnboardingInputScheme>(editionScheme ?? "quanpin");
   const [gloss, setGloss] = useState<boolean>();
@@ -176,7 +180,9 @@ export function WelcomeFlowPage({
     await action();
   };
   const finish = (openAccount: boolean) =>
-    void run(() => onComplete(scheme, { candidateEnglishGloss: gloss, openAccount }));
+    void run(() =>
+      onComplete(editionScheme ?? scheme, { candidateEnglishGloss: gloss, openAccount }),
+    );
   // Skipping leaves the walkthrough, not the preparation: the keyboard still needs its dictionaries, and on Android the flow keeps coming back until they are in place.
   const skipFlow = onSkip
     ? () =>
@@ -187,7 +193,8 @@ export function WelcomeFlowPage({
     : undefined;
 
   const advance = () => {
-    if (page === 0) void run(ensureResources, steps[1]);
+    // 准备之后才可能知道版本，下一步按准备之后的步骤定（见 `page`）。
+    if (page === 0) void run(ensureResources, 1);
     else if (page === 3) finish(true);
     else setPage(steps[step + 1] ?? 3);
   };

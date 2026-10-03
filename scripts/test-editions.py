@@ -158,8 +158,9 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
     for entry in editions:
         edition_id = entry["id"]
         where = f"edition {edition_id}"
-        if not re.fullmatch(r"[a-z][a-z0-9-]*", edition_id):
-            errors.append(f"{where}: id must be lowercase letters, digits and hyphens")
+        # No hyphen: the id is spliced into asset names after a hyphen (`msime-linux-<id>-<version>`), and packages/ui/src/settings/update-manifest.ts only accepts `[a-z][a-z0-9]*`.
+        if not re.fullmatch(r"[a-z][a-z0-9]*", edition_id):
+            errors.append(f"{where}: id must be lowercase letters and digits, starting with a letter")
 
         schemes = entry["input_schemes"]
         if not schemes:

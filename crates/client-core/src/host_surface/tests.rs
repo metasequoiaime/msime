@@ -682,6 +682,7 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
             input_schemes: vec![InputScheme::Wubi],
             default_scheme: InputScheme::Wubi,
             temporary_japanese: false,
+            neural_keyboard: false,
             wubi_mixed_pinyin_default: true,
         })
     );
@@ -693,6 +694,7 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
             "input_schemes": ["wubi"],
             "default_scheme": "wubi",
             "temporary_japanese": false,
+            "neural_keyboard": false,
             "wubi_mixed_pinyin_default": true,
         })
     );

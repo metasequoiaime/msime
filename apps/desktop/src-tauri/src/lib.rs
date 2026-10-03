@@ -1306,7 +1306,7 @@ async fn restored_default_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Preferences, CommandError> {
     let store = store.inner().clone();
-    // 设置应用的偏好存储在读到 HostOptions 文档之前就建好了，不知道自己属于哪个版本，所以版本以文档为准；认不出的版本退回存储自己的版本（full）。
+    // 版本以 HostOptions 文档为准；文档认不出版本时退回存储的版本，即状态目录里准备宿主时记下的那个（没有记录是 full）。
     let edition = host_edition(&app).unwrap_or_else(|| store.edition());
     tauri::async_runtime::spawn_blocking(move || {
         store
@@ -3329,6 +3329,11 @@ async fn move_data_directory(
         .ok_or(HostActionError {
             code: "data_directory_unavailable",
         })?;
+    // 在新目录里按同一个版本重新准备：资源目录按本版本的锁校验，新文档也带着版本。认不出的版本不搬，免得被当成 full 准备。
+    let edition =
+        msime_client_core::edition::Edition::of_host_options(&document).ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
     let target = selection
         .0
         .lock()
@@ -3373,8 +3378,12 @@ async fn move_data_directory(
             &native_root,
             &locators,
             |destination| {
-                let document = msime_host_api::prepare_host_configuration(&resources, destination)
-                    .map_err(|_| macos_data_directory::MoveError::Prepare)?;
+                let document = msime_host_api::prepare_host_configuration_for_edition(
+                    &resources,
+                    destination,
+                    edition,
+                )
+                .map_err(|_| macos_data_directory::MoveError::Prepare)?;
                 serde_json::from_str(&document)
                     .map_err(|_| macos_data_directory::MoveError::Prepare)
             },

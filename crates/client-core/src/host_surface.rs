@@ -313,6 +313,8 @@ pub struct EditionInfo {
     pub default_scheme: InputScheme,
     /// 本版本是否带临时日文。不带时设置页不列出临时日语开关，host-api 也始终把它关掉。
     pub temporary_japanese: bool,
+    /// 本版本是否带键盘神经联想用的模型（`sentence-model.safetensors`）。不带时设置页不列出触屏宿主的神经联想开关，host-api 也始终把它关掉。桌面的神经联想用资源目录旁的 settled 模型，不归这一项管。
+    pub neural_keyboard: bool,
     /// 本版本里五笔混拼的默认值，偏好文档缺这一项时设置页按它显示。
     pub wubi_mixed_pinyin_default: bool,
 }
@@ -608,6 +610,7 @@ impl HostCapabilities {
             input_schemes: offered_input_schemes(edition),
             default_scheme: edition.default_scheme,
             temporary_japanese: edition.features.temporary_japanese,
+            neural_keyboard: edition.features.neural_keyboard,
             wubi_mixed_pinyin_default: edition
                 .preference_defaults
                 .wubi_mixed_pinyin

@@ -3704,3 +3704,65 @@ fn wubi_edition_restores_and_recovers_to_its_own_defaults() {
     assert_eq!(snapshot.preferences.scheme, InputScheme::Wubi);
     assert!(snapshot.preferences.wubi_mixed_pinyin);
 }
+
+/// 只拿到目录的存储（各平台的 C ABI、设置应用）按目录里的版本记录取默认值；没有记录、记录认不出时是 full，行为与引入版本之前相同。
+#[test]
+fn a_store_built_from_a_directory_follows_the_recorded_edition() {
+    let wubi = wubi_edition();
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    assert!(store.edition().is_full());
+    assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+
+    wubi.record_in(directory.path()).unwrap();
+    assert_eq!(
+        fs::read_to_string(
+            directory
+                .path()
+                .join(crate::edition::Edition::STATE_RECORD_FILE)
+        )
+        .unwrap(),
+        "wubi\n"
+    );
+    assert_eq!(store.edition().id, "wubi");
+    assert_eq!(
+        store.load().unwrap(),
+        PreferencesSnapshot::for_edition(wubi)
+    );
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":4,"preferences":{"scheme":"#,
+    )
+    .unwrap();
+    let (snapshot, _, _) = expect_recovered(store.recover().unwrap());
+    assert_eq!(snapshot.preferences, Preferences::for_edition(wubi));
+    // 构造时指定的版本优先于记录。
+    assert!(
+        PreferencesStore::for_edition(directory.path(), crate::edition::Edition::full())
+            .edition()
+            .is_full()
+    );
+
+    // full 准备同一个目录时删掉记录。
+    crate::edition::Edition::full()
+        .record_in(directory.path())
+        .unwrap();
+    assert!(!directory
+        .path()
+        .join(crate::edition::Edition::STATE_RECORD_FILE)
+        .exists());
+    assert!(store.edition().is_full());
+    crate::edition::Edition::full()
+        .record_in(directory.path())
+        .unwrap();
+
+    // 认不出的记录按 full 处理。
+    fs::write(
+        directory
+            .path()
+            .join(crate::edition::Edition::STATE_RECORD_FILE),
+        "future\n",
+    )
+    .unwrap();
+    assert!(store.edition().is_full());
+}

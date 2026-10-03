@@ -232,6 +232,7 @@ test("the wubi edition skips choosing a keyboard and completes with Wubi", async
         input_schemes: ["wubi"],
         default_scheme: "wubi",
         temporary_japanese: false,
+        neural_keyboard: false,
         wubi_mixed_pinyin_default: true,
       }}
     />,
@@ -261,6 +262,40 @@ test("the wubi edition skips choosing a keyboard and completes with Wubi", async
   );
 });
 
+test("a wubi edition learned only after preparing resources still skips choosing a keyboard", async () => {
+  // 第一次启动：发现宿主能力时还没有 HostOptions，版本要等第一步准备好资源之后才知道。
+  const onComplete = vi.fn().mockResolvedValue(undefined);
+  const wubi = {
+    id: "wubi",
+    input_schemes: ["wubi" as const],
+    default_scheme: "wubi" as const,
+    temporary_japanese: false,
+    neural_keyboard: false,
+    wubi_mixed_pinyin_default: true,
+  };
+  let learnEdition = () => {};
+  const actions = makeActions({
+    prepareResources: vi.fn(async () => learnEdition()),
+  });
+  const { rerender } = render(<WelcomeFlowPage actions={actions} onComplete={onComplete} />);
+  learnEdition = () =>
+    rerender(<WelcomeFlowPage actions={actions} onComplete={onComplete} edition={wubi} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "候选下方显示译文" });
+  expect(screen.queryByRole("radio", { name: /全拼/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "登录后多端同步" });
+  fireEvent.click(screen.getByRole("button", { name: "稍后再说" }));
+
+  await waitFor(() =>
+    expect(onComplete).toHaveBeenCalledWith("wubi", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+    }),
+  );
+});
+
 test("the pinyin edition keeps the keyboard choice", async () => {
   render(
     <WelcomeFlowPage
@@ -271,6 +306,7 @@ test("the pinyin edition keeps the keyboard choice", async () => {
         input_schemes: ["quanpin", "shuangpin"],
         default_scheme: "quanpin",
         temporary_japanese: true,
+        neural_keyboard: true,
         wubi_mixed_pinyin_default: false,
       }}
     />,

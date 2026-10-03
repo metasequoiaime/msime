@@ -9,6 +9,8 @@ use crate::preferences::{InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::OnceLock;
 
 const EDITIONS_JSON: &str = include_str!("../../../shared/contracts/editions.json");
@@ -187,7 +189,48 @@ impl Edition {
             Some(_) => None,
         }
     }
+
+    /// 状态目录里记录它属于哪个版本的文件名，内容就是版本 id。
+    ///
+    /// 版本之间完全隔离，一个状态目录只属于一个版本，而各平台读写偏好的 C ABI 和设置应用的偏好存储只拿到这个目录：偏好文件不见了或要修复时，靠这份记录才知道该用哪个版本的默认偏好（`PreferencesStore::new`）。full 不写这个文件，所以 full 的状态目录与引入版本之前相同。
+    pub const STATE_RECORD_FILE: &'static str = "edition";
+
+    /// `state_root` 里记录的版本（见 [`Edition::STATE_RECORD_FILE`]）。没有记录、读不到、或记录的 id 不在版本表里时返回 `None`，调用方按 full 处理：这份记录只决定缺省值，认不出时用 full 的缺省值不会让任何方案超出 HostOptions 文档记录的版本。
+    pub fn recorded_in(state_root: &Path) -> Option<&'static Edition> {
+        let path = state_root.join(Self::STATE_RECORD_FILE);
+        crate::storage::reject_symlink(&path).ok()?;
+        let mut text = String::new();
+        std::fs::File::open(path)
+            .ok()?
+            .take(STATE_RECORD_LIMIT)
+            .read_to_string(&mut text)
+            .ok()?;
+        Self::by_id(text.trim())
+    }
+
+    /// 把 `state_root` 记成属于本版本：不是 full 时写下 [`Edition::STATE_RECORD_FILE`]，是 full 时删掉可能留着的记录。准备宿主（`prepare_host_configuration_for_edition`）时调用，`state_root` 必须已经存在。记录已经是本版本时不重写。
+    pub fn record_in(&self, state_root: &Path) -> std::io::Result<()> {
+        let path = state_root.join(Self::STATE_RECORD_FILE);
+        crate::storage::reject_symlink(&path)?;
+        if self.is_full() {
+            return match std::fs::remove_file(&path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                result => result,
+            };
+        }
+        if Self::recorded_in(state_root).is_some_and(|recorded| recorded.id == self.id) {
+            return Ok(());
+        }
+        let mut temporary = tempfile::NamedTempFile::new_in(state_root)?;
+        temporary.write_all(format!("{}\n", self.id).as_bytes())?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(&path).map_err(|error| error.error)?;
+        Ok(())
+    }
 }
+
+/// 状态目录里的版本记录最多读这么多字节；版本 id 远比它短。
+const STATE_RECORD_LIMIT: u64 = 256;
 
 /// 账号偏好里记录输入方案的键。
 const ACCOUNT_SCHEME_KEY: &str = "input.schema";
