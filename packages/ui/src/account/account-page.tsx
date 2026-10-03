@@ -302,59 +302,53 @@ function AppIconSettingsCard({
   const [info, setInfo] = useState<AppIconInfo | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const mounted = useRef(true);
-  const generation = useRef(0);
-  const changeRunning = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(client, setError, () => {});
 
   useEffect(() => {
-    let active = true;
-    const current = ++generation.current;
-    mounted.current = true;
-    changeRunning.current = false;
     setInfo(null);
     setError("");
-    void client
-      .info()
-      .then((value) => {
-        if (active && mounted.current && generation.current === current) setInfo(value);
-      })
-      .catch(() => {
-        if (active && mounted.current && generation.current === current)
-          setError("暂时无法读取 App 图标状态，请稍后重试。");
-      });
-    return () => {
-      active = false;
-      mounted.current = false;
-    };
+    void perform(
+      async () => {
+        const current = clientGeneration.current;
+        try {
+          const value = await client.info();
+          if (mounted.current && clientGeneration.current === current) setInfo(value);
+        } catch {
+          if (mounted.current && clientGeneration.current === current)
+            setError("暂时无法读取 App 图标状态，请稍后重试。");
+        }
+      },
+      { allowBusy: true },
+    );
   }, [client]);
 
-  const choose = async (style: string) => {
-    if (!info?.supported || pending || changeRunning.current || info.selected === style) return;
-    const current = generation.current;
-    changeRunning.current = true;
+  const choose = (style: string) => {
+    if (!info?.supported || pending || busy || info.selected === style) return;
+    const current = clientGeneration.current;
     setPending(style);
     setError("");
-    try {
-      const updated = await client.set(style);
-      if (!mounted.current || generation.current !== current) return;
-      setInfo(updated);
-      if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
-    } catch {
-      // Android launchers and the iOS Simulator can report an error after
-      // applying the icon. Read the OS state again before showing a failure.
+    void perform(async () => {
       try {
-        const updated = await client.info();
-        if (!mounted.current || generation.current !== current) return;
+        const updated = await client.set(style);
+        if (!mounted.current || clientGeneration.current !== current) return;
         setInfo(updated);
         if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
       } catch {
-        if (mounted.current && generation.current === current)
-          setError("图标未能更换，请稍后重试。");
+        // Android launchers and the iOS Simulator can report an error after
+        // applying the icon. Read the OS state again before showing a failure.
+        try {
+          const updated = await client.info();
+          if (!mounted.current || clientGeneration.current !== current) return;
+          setInfo(updated);
+          if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
+        } catch {
+          if (mounted.current && clientGeneration.current === current)
+            setError("图标未能更换，请稍后重试。");
+        }
+      } finally {
+        if (mounted.current && clientGeneration.current === current) setPending(null);
       }
-    } finally {
-      if (generation.current === current) changeRunning.current = false;
-      if (mounted.current && generation.current === current) setPending(null);
-    }
+    });
   };
 
   return (
