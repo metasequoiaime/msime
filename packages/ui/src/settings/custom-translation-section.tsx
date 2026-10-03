@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
@@ -38,9 +39,7 @@ export function CustomTranslationSection({
       />
       {available && endpointIssue && (
         <div className={settings.groupBlock}>
-          <p className={settings.settingsWarning} role="status">
-            {endpointIssue}
-          </p>
+          <SettingsWarning>{endpointIssue}</SettingsWarning>
         </div>
       )}
       <SecretSettingRow

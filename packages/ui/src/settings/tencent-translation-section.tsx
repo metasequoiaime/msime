@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
 import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
@@ -65,17 +66,15 @@ export function TencentTranslationSection({
       {children && <div className={settings.groupBlock}>{children}</div>}
       {available && credentialIssue && (
         <div className={settings.groupBlock}>
-          <p className={settings.settingsWarning} role="status">
-            {credentialIssue}
-          </p>
+          <SettingsWarning>{credentialIssue}</SettingsWarning>
         </div>
       )}
       {available && !credentialIssue && showMissingCredentialsWarning && (
         <div className={settings.groupBlock}>
-          <p className={settings.settingsWarning} role="status">
+          <SettingsWarning>
             未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
             SecretKey，或在上面的翻译服务中改选其他服务。
-          </p>
+          </SettingsWarning>
         </div>
       )}
     </div>
