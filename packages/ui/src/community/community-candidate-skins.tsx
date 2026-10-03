@@ -33,6 +33,7 @@ import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
 import { ActionButton } from "../core/action-button";
 import {
@@ -522,7 +523,7 @@ export function CommunityCandidateSkinsPage({
   }
 
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label="搜索候选窗口皮肤"
         value={search}
@@ -596,6 +597,6 @@ export function CommunityCandidateSkinsPage({
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }

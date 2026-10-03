@@ -1248,6 +1248,7 @@ export {
   CommunityGalleryGrid,
   type CommunityGalleryGridProps,
 } from "./community/community-gallery-grid";
+export { CommunityPageShell, type CommunityPageShellProps } from "./community/community-page-shell";
 export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,

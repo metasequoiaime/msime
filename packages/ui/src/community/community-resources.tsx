@@ -40,6 +40,7 @@ import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -691,7 +692,7 @@ export function CommunityResourcesPage({
       />
     );
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label={`搜索${resourceKindTitle(kind)}`}
         value={search}
@@ -751,7 +752,7 @@ export function CommunityResourcesPage({
           }}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }
 
@@ -787,7 +788,7 @@ export function CommunityHomePage({
 }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <div className={style.categoryTabs} role="tablist" aria-label="社区分类">
         <button
           type="button"
@@ -832,6 +833,6 @@ export function CommunityHomePage({
           mobile={mobile}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }

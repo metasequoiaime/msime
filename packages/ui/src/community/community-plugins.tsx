@@ -48,6 +48,7 @@ import { useCommunityPublicationDraft } from "./use-community-publication-draft"
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -375,7 +376,7 @@ export function CommunityPluginsPage({
   }
 
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label="搜索插件"
         value={search}
@@ -468,7 +469,7 @@ export function CommunityPluginsPage({
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }
 
