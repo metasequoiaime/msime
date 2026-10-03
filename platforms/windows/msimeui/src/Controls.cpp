@@ -2799,6 +2799,7 @@ SizeF CandidateList::Measure(const SizeF &availableSize)
     const float gap = appearance_.itemGap;
     const bool horizontal = orientation_ == Orientation::Horizontal;
     std::vector<float> widths;
+    widths.reserve(items_.size());
     float maxWidth = 80.0f;
     for (const auto &item : items_)
     {
