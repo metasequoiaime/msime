@@ -394,4 +394,12 @@ assert "command(openedList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcit
 ibus_return = ibus_key[ibus_key.index("case IBUS_Return:"):]
 assert ibus_return.index("if (opened_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
 
+# Stroke (scheme 8) is offered in both menus only with stroke.db: Fcitx5 registers its action and rebuilds the menu when stroke.db alone appears, and IBus lists Scheme/Stroke, lets PropertyActivate through for it and maps it to the "stroke" id. Missing either IBus half makes choosing 笔画 silently do nothing.
+assert '{&scheme_stroke_action_, "msime-scheme-stroke"}' in source
+assert 'FcitxSchemeItemAction scheme_stroke_action_{&factory_, 8, "笔画"};' in source
+assert 'schemeAvailable("stroke")' in source
+assert 'std::tuple{"stroke", "Scheme/Stroke", "笔画"}' in ibus_source
+assert 'property_name != "Scheme/Stroke"' in ibus_source
+assert 'property_name == "Scheme/Stroke" ? std::string("stroke")' in ibus_source
+
 print("Fcitx5 addon metadata passed")

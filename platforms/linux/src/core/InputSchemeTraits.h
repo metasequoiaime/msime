@@ -11,6 +11,7 @@ constexpr int Korean = 4;
 constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
+constexpr int Stroke = 8;
 
 // ---- Host-only traits ----
 
@@ -32,9 +33,9 @@ constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `is_chinese`: a Chinese scheme, the one a switch to a non-Chinese scheme remembers as `last_chinese_scheme`.
-constexpr bool IsChinese(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin; }
+constexpr bool IsChinese(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin || scheme == Stroke; }
 
-// `script_conversion_applies`: the traditional-output conversion rewrites this scheme's text. Cantonese and Zhuyin are written in traditional characters already, and kana, Hangul and Vietnamese are not Chinese text.
+// `script_conversion_applies`: the traditional-output conversion rewrites this scheme's text. Cantonese and Zhuyin are written in traditional characters already, Stroke candidates are taken as stored in stroke.db, and kana, Hangul and Vietnamese are not Chinese text.
 constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // `learns_into_main_dictionary`: a candidate may be removed from, or pinned in, the user dictionary of the main Chinese lexicon.
@@ -50,11 +51,11 @@ constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == 
 constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
 
 // `uses_chinese_punctuation`: punctuation goes through the Chinese table. Korean and Vietnamese write half-width ASCII marks whatever the Chinese punctuation switches say.
-constexpr bool UsesChinesePunctuation(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese || scheme == Zhuyin; }
+constexpr bool UsesChinesePunctuation(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese || scheme == Zhuyin || scheme == Stroke; }
 
 // `host_smart_punctuation`: the reversible smart punctuation gestures (space-to-ASCII, repeat-to-Chinese) and the paired-mark helpers may run.
-constexpr bool HostSmartPunctuation(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese; }
+constexpr bool HostSmartPunctuation(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Stroke; }
 
 // `widens_full_width`: commits and direct characters are widened when the full-width switch is on.
-constexpr bool WidensFullWidth(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese || scheme == Zhuyin; }
+constexpr bool WidensFullWidth(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese || scheme == Zhuyin || scheme == Stroke; }
 } // namespace msime::linux_host::scheme

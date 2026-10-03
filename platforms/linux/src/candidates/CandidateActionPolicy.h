@@ -62,7 +62,7 @@ inline bool candidate_removal_available(std::string_view text) {
   return candidate_utf8_codepoint_count(text).value_or(0) > 1;
 }
 
-// Only the base Chinese schemes keep their candidates in the user dictionary (`learns_into_main_dictionary`): Japanese, Korean, Cantonese, Zhuyin and Vietnamese candidates have no user-dictionary identity to pin, fix or remove.
+// Only the base Chinese schemes keep their candidates in the user dictionary (`learns_into_main_dictionary`): Japanese, Korean, Cantonese, Zhuyin, Vietnamese and Stroke candidates have no user-dictionary identity to pin, fix or remove.
 inline bool candidate_dictionary_actions_available(std::uint64_t scheme, std::uint64_t source) {
   return scheme <= 255 && scheme::LearnsIntoMainDictionary(static_cast<int>(scheme)) &&
          (source == 0 || source == 1 || source == 4);

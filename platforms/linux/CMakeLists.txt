@@ -210,9 +210,10 @@ target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
 target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
-# The Zhuyin cases install this dictionary into a directory of their own; the locked resources carry none.
+# The Zhuyin and Stroke cases install these dictionaries into a directory of their own; the locked resources carry none.
 target_compile_definitions(ibus-engine-smoke PRIVATE
-  MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py")
+  MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
+  MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
 if(BUILD_TESTING AND MSIME_ENGINE_RESOURCES)
   add_test(NAME ibus-page-number-visibility
     COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --page-number)
@@ -679,9 +680,9 @@ if(MSIME_OFFLINE_GLOSSES)
   install(FILES ${MSIME_OFFLINE_GLOSS_FILES} "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/offline-glosses")
 endif()
-# The Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), installed as the `language-dictionaries` sibling of the resource bundle for the same reason as the settled model: the resource directory must match the dictionary lock exactly. msime_client_refresh_host names the directory in the runtime options when the host starts, and a scheme whose dictionary is missing is shown as unavailable and falls back. Optional, picked up from target/language-dictionaries when present; each dictionary is installed only with its licence text, which must travel with the data. MSIME_REQUIRE_LANGUAGE_DICTIONARIES makes a package fail instead of shipping without either of them.
-set(MSIME_LANGUAGE_DICTIONARIES "" CACHE PATH "Cantonese and Zhuyin dictionaries with their licences, e.g. target/language-dictionaries")
-option(MSIME_REQUIRE_LANGUAGE_DICTIONARIES "Fail unless cantonese.db and zhuyin.db are both installed" OFF)
+# The Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), installed as the `language-dictionaries` sibling of the resource bundle for the same reason as the settled model: the resource directory must match the dictionary lock exactly. msime_client_refresh_host names the directory in the runtime options when the host starts, and a scheme whose dictionary is missing is shown as unavailable and falls back. Optional, picked up from target/language-dictionaries when present; each dictionary is installed only with its licence text, which must travel with the data. MSIME_REQUIRE_LANGUAGE_DICTIONARIES makes a package fail instead of shipping without either of them.
+set(MSIME_LANGUAGE_DICTIONARIES "" CACHE PATH "Cantonese, Zhuyin and Stroke dictionaries with their licences, e.g. target/language-dictionaries")
+option(MSIME_REQUIRE_LANGUAGE_DICTIONARIES "Fail unless cantonese.db, zhuyin.db and stroke.db are all installed" OFF)
 if(NOT MSIME_LANGUAGE_DICTIONARIES AND
    IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../target/language-dictionaries")
   get_filename_component(MSIME_LANGUAGE_DICTIONARIES
@@ -693,7 +694,8 @@ if(MSIME_LANGUAGE_DICTIONARIES)
   if(NOT IS_DIRECTORY "${MSIME_LANGUAGE_DICTIONARIES}")
     message(FATAL_ERROR "MSIME_LANGUAGE_DICTIONARIES is not a directory: ${MSIME_LANGUAGE_DICTIONARIES}")
   endif()
-  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt")
+  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt"
+          "stroke.db:rime_stroke_LICENSE.txt")
     string(REPLACE ":" ";" MSIME_LANGUAGE_PAIR "${MSIME_LANGUAGE_PAIR}")
     list(GET MSIME_LANGUAGE_PAIR 0 MSIME_LANGUAGE_DATABASE)
     list(GET MSIME_LANGUAGE_PAIR 1 MSIME_LANGUAGE_LICENSE)
@@ -710,10 +712,10 @@ if(MSIME_LANGUAGE_DICTIONARIES)
   endforeach()
 endif()
 if(MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 0)
-  message(STATUS "No language dictionaries; Cantonese and Zhuyin stay unavailable")
+  message(STATUS "No language dictionaries; Cantonese, Zhuyin and Stroke stay unavailable")
 endif()
-if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES AND NOT MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 2)
-  message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but cantonese.db and zhuyin.db were not both found in '${MSIME_LANGUAGE_DICTIONARIES}'")
+if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES AND NOT MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 3)
+  message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but cantonese.db, zhuyin.db and stroke.db were not all found in '${MSIME_LANGUAGE_DICTIONARIES}'")
 endif()
 if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")

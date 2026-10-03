@@ -18,14 +18,33 @@ int main() {
   assert(scheme_number("cantonese") == scheme::Cantonese);
   assert(scheme_number("zhuyin") == scheme::Zhuyin);
   assert(scheme_number("vietnamese") == scheme::Vietnamese);
+  assert(scheme_number("stroke") == scheme::Stroke);
+  assert(scheme::Stroke == 8);
   assert(scheme_number("pinyin") == -1);
   assert(scheme_number("") == -1);
 
-  // Vietnamese is a non-Chinese input language like Japanese and Korean; Cantonese and Zhuyin are Chinese schemes.
-  for (int number : {0, 1, 2, 5, 6})
+  // Vietnamese is a non-Chinese input language like Japanese and Korean; Cantonese, Zhuyin and Stroke are Chinese schemes.
+  for (int number : {0, 1, 2, 5, 6, 8})
     assert(scheme::IsChinese(number));
-  for (int number : {3, 4, 7, 8, -1})
+  for (int number : {3, 4, 7, 9, -1})
     assert(!scheme::IsChinese(number));
+  // Stroke copies Cantonese's traits: its candidates come from stroke.db as stored, nothing is learned, and its composition is neither kept on blur nor drawn inline whatever the preedit style.
+  assert(!scheme::ScriptConversionApplies(scheme::Stroke));
+  assert(!scheme::LearnsIntoMainDictionary(scheme::Stroke));
+  assert(!scheme::OpensLocalModes(scheme::Stroke));
+  assert(!scheme::CommitsOnBlur(scheme::Stroke));
+  assert(!scheme::LocksCaret(scheme::Stroke));
+  assert(scheme::UsesChinesePunctuation(scheme::Stroke));
+  assert(scheme::HostSmartPunctuation(scheme::Stroke));
+  assert(scheme::WidensFullWidth(scheme::Stroke));
+  assert(!scheme::OpensCandidateList(scheme::Stroke));
+  assert(!scheme::AlwaysInlinePreedit(scheme::Stroke));
+  // A Stroke composition (ASCII letters in editing_text, the stroke glyphs in reading) is not a list composition.
+  const Json stroke = {{"scheme", 8}, {"editing_text", "hs"}, {"reading", "一丨"}, {"candidates", Json::array({Json{{"text", "十"}}})}};
+  assert(!candidate_list_composition(stroke));
+  assert(!opened_candidate_list(stroke));
+  assert(!zhuyin_list_down_key(stroke));
+  assert(scheme_rules(stroke) == scheme::Stroke);
 
   // Only Korean and Zhuyin keep their candidates in a list the user opens.
   const Json zhuyin = {{"scheme", 6}, {"editing_text", "ㄋㄧˇ"}, {"candidates", Json::array()}};
@@ -54,7 +73,7 @@ int main() {
   assert(!candidate_list_composition(zhuyin_mode));
   assert(!candidate_list_composition(nullptr));
 
-  // Cantonese and Zhuyin are available only when their dictionary is a file in the language_dictionaries directory; every other known scheme always is.
+  // Cantonese, Zhuyin and Stroke are available only when their dictionary is a file in the language_dictionaries directory; every other known scheme always is.
   char pattern[] = "/tmp/msime-input-schemes-XXXXXX";
   assert(mkdtemp(pattern) != nullptr);
   const fs::path directory = pattern;
@@ -68,6 +87,8 @@ int main() {
   assert(!input_scheme_available("pinyin", empty));
   assert(!input_scheme_available("cantonese", empty));
   assert(!input_scheme_available("zhuyin", empty));
+  assert(!input_scheme_available("stroke", empty));
+  assert(!input_scheme_available("stroke", no_directory));
   assert(!input_scheme_available("cantonese", no_directory));
   assert(!language_dictionary_availability(Json{{"language_dictionaries", ""}}).zhuyin);
   assert(!language_dictionary_availability(nullptr).cantonese);
@@ -79,6 +100,8 @@ int main() {
   assert(effective_input_scheme("unknown", "shuangpin", empty) == "shuangpin");
   assert(effective_input_scheme("vietnamese", "wubi", empty) == "vietnamese");
   assert(effective_input_scheme("korean", "wubi", no_directory) == "korean");
+  assert(effective_input_scheme("stroke", "wubi", empty) == "wubi");
+  assert(effective_input_scheme("stroke", "stroke", empty) == "quanpin");
 
   // A directory with the dictionary name is not a dictionary.
   fs::create_directory(directory / "zhuyin.db");
@@ -90,6 +113,19 @@ int main() {
   assert(input_scheme_available("cantonese", installed));
   assert(effective_input_scheme("cantonese", "wubi", installed) == "cantonese");
   assert(effective_input_scheme("zhuyin", "cantonese", installed) == "cantonese");
+  assert(!installed.stroke);
+
+  // stroke.db alone makes Stroke available, and a Stroke preference whose dictionary is missing falls back to it as the last Chinese scheme.
+  fs::create_directory(directory / "stroke-only");
+  std::ofstream(directory / "stroke-only" / "stroke.db") << "db";
+  const auto stroke_only = language_dictionary_availability(Json{{"language_dictionaries", (directory / "stroke-only").string()}});
+  assert(stroke_only.stroke && !stroke_only.cantonese && !stroke_only.zhuyin);
+  assert(input_scheme_available("stroke", stroke_only));
+  assert(effective_input_scheme("stroke", "wubi", stroke_only) == "stroke");
+  assert(effective_input_scheme("cantonese", "stroke", stroke_only) == "stroke");
+  // A directory named stroke.db is not a dictionary.
+  fs::create_directory(directory / "stroke.db");
+  assert(!language_dictionary_availability(options).stroke);
 
   fs::remove_all(directory);
   return 0;

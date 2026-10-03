@@ -66,6 +66,12 @@ int main() {
   const Json vietnamese = {{"scheme", 7}, {"local_mode", "none"}, {"spelling_symbols", "0123456789"}};
   assert(engine_spelling(vietnamese, U'6'));
   assert(spelling_digits(vietnamese));
+  // Stroke spells with the letters h s p n z and the wildcard x alone, which go through the letter path: it lists no symbols, so while it composes the number row still picks candidates and punctuation stays punctuation.
+  const Json stroke = {{"scheme", 8}, {"local_mode", "none"}, {"editing_text", "hx"}, {"spelling_symbols", ""}};
+  for (char32_t character : {U'1', U'0', U'\'', U',', U'x', U'*'})
+    assert(!engine_spelling(stroke, character));
+  assert(!spelling_digits(stroke));
+  assert(!spelling_space(stroke));
   // Quanpin's idle mode-entry keys stay on the punctuation route, and the dedicated English mode keeps no scheme rules.
   assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"spelling_symbols", "/@"}}, U'/'));
   assert(!engine_spelling(Json{{"scheme", 6}, {"dedicated_english", true}, {"spelling_symbols", "1"}}, U'1'));

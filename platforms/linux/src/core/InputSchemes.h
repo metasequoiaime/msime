@@ -14,8 +14,8 @@
 namespace msime::linux_host {
 
 // Every preferences scheme id in Engine order: the index is the number a view reports as `scheme`.
-inline constexpr std::array<std::string_view, 8> kInputSchemeIds = {
-    "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"};
+inline constexpr std::array<std::string_view, 9> kInputSchemeIds = {
+    "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "stroke"};
 
 // The Engine number of a preferences scheme id, or -1 for an id this host does not know.
 inline int scheme_number(std::string_view id) {
@@ -62,10 +62,11 @@ inline bool zhuyin_list_down_key(const nlohmann::json &view) {
   return scheme_rules(view) == scheme::Zhuyin && candidate_list_composition(view) && !opened_candidate_list(view);
 }
 
-// Which language dictionaries the `language_dictionaries` directory named by a HostOptions document holds: Cantonese and Zhuyin need theirs, and host-api falls back from either when it is missing, so offering it would select a scheme that never takes effect. Mirrors host-api's `LanguageDictionaries::serve`. This looks at the disk, so a host works it out once whenever it loads the options and keeps the result, keeping file checks off the key path and the scheme steady for the life of a session, as host-api decides it once when the session opens.
+// Which language dictionaries the `language_dictionaries` directory named by a HostOptions document holds: Cantonese, Zhuyin and Stroke need theirs, and host-api falls back from each of them when it is missing, so offering it would select a scheme that never takes effect. Mirrors host-api's `LanguageDictionaries::serve`. This looks at the disk, so a host works it out once whenever it loads the options and keeps the result, keeping file checks off the key path and the scheme steady for the life of a session, as host-api decides it once when the session opens.
 struct LanguageDictionaryAvailability {
   bool cantonese = false;
   bool zhuyin = false;
+  bool stroke = false;
 };
 
 inline LanguageDictionaryAvailability language_dictionary_availability(const nlohmann::json &options) {
@@ -76,13 +77,15 @@ inline LanguageDictionaryAvailability language_dictionary_availability(const nlo
   std::error_code error;
   const bool cantonese = std::filesystem::is_regular_file(root / "cantonese.db", error);
   const bool zhuyin = std::filesystem::is_regular_file(root / "zhuyin.db", error);
-  return {cantonese, zhuyin};
+  const bool stroke = std::filesystem::is_regular_file(root / "stroke.db", error);
+  return {cantonese, zhuyin, stroke};
 }
 
-// Whether a scheme can run with these dictionaries: every known scheme but Cantonese and Zhuyin needs no data beyond the resource set.
+// Whether a scheme can run with these dictionaries: every known scheme but Cantonese, Zhuyin and Stroke needs no data beyond the resource set.
 inline bool input_scheme_available(std::string_view id, LanguageDictionaryAvailability dictionaries) {
   if (id == "cantonese") return dictionaries.cantonese;
   if (id == "zhuyin") return dictionaries.zhuyin;
+  if (id == "stroke") return dictionaries.stroke;
   return scheme_number(id) >= 0;
 }
 
