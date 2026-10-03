@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsManagerNote } from "./settings-manager-note";
 import type { ReactNode } from "react";
 import { GroupList, Row } from "../core/platform-controls";
 import * as settings from "./settings-style";
@@ -32,7 +33,7 @@ import { ActionButton } from "./action-button";
 function ActionBlock({ note, children }: { note?: ReactNode; children?: ReactNode }) {
   return (
     <div className={settings.managerBlock}>
-      {note && <p className={settings.managerNote}>{note}</p>}
+      {note && <SettingsManagerNote>{note}</SettingsManagerNote>}
       {children && <div className={settings.managerActions}>{children}</div>}
     </div>
   );

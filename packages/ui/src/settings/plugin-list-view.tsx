@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsManagerNote } from "./settings-manager-note";
 import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
@@ -223,24 +224,16 @@ export function PluginListView({
               />
             </span>
           </div>
-          {notice && (
-            <SettingsGroupNote role="status">
-              {notice}
-            </SettingsGroupNote>
-          )}
+          {notice && <SettingsGroupNote role="status">{notice}</SettingsGroupNote>}
         </GroupList>
       )}
       {catalog.issues.length > 0 && (
         <GroupList title="无法载入的插件">
           <div className={settings.managerBlock} role="list" aria-label="无法载入的插件">
             {catalog.issues.map((issue) => (
-              <p
-                className={settings.managerNote}
-                role="listitem"
-                key={`${issue.kind}/${issue.folder}`}
-              >
+              <SettingsManagerNote role="listitem" key={`${issue.kind}/${issue.folder}`}>
                 {kindLabels[issue.kind]} {issue.folder || "目录"} 无法载入：{issue.reason}
-              </p>
+              </SettingsManagerNote>
             ))}
           </div>
         </GroupList>

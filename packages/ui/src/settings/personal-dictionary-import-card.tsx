@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
+import { SettingsManagerNote } from "./settings-manager-note";
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import {
@@ -202,7 +203,7 @@ export function PersonalDictionaryImportCard({
           <span className={rowTitle} data-row-title="">
             个人词库文件
           </span>
-          <p className={settings.managerNote}>{note}</p>
+          <SettingsManagerNote>{note}</SettingsManagerNote>
         </div>
         {content}
       </div>

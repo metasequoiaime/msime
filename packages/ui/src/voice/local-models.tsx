@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as settings from "../settings/settings-style";
+import { SettingsManagerNote } from "../settings/settings-manager-note";
 import { rowTitle } from "../core/platform-controls-style";
 import { ActionButton } from "../core/action-button";
 import {
@@ -202,7 +203,7 @@ export function LocalModelManager({
         <span className={rowTitle} data-row-title="">
           本地识别模型
         </span>
-        <p className={settings.managerNote}>{localModelNote}</p>
+        <SettingsManagerNote>{localModelNote}</SettingsManagerNote>
       </div>
       {!list && !notice && <p>正在读取模型列表…</p>}
       <ul className="grid gap-3" aria-label="可用的本地模型">

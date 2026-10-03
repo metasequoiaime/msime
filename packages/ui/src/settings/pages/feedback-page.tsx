@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "../settings-group-note";
+import { SettingsManagerNote } from "../settings-manager-note";
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
@@ -76,9 +77,9 @@ export function FeedbackSettingsPage() {
                 <ActionButton action={submitFeedback} label="在 GitHub 提交" />
               )}
             </div>
-            <p className={settings.managerNote}>
+            <SettingsManagerNote>
               提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
-            </p>
+            </SettingsManagerNote>
           </FeedbackReportFields>
           <SettingsGroupNote>
             提交问题时建议附上系统版本、输入方案、复现步骤、相关截图，以及诊断日志中的关键片段。

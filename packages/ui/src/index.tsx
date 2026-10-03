@@ -1264,6 +1264,10 @@ export { CommunityNotice, type CommunityNoticeProps } from "./community/communit
 export { SettingsGroupNote, type SettingsGroupNoteProps } from "./settings/settings-group-note";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export {
+  SettingsManagerNote,
+  type SettingsManagerNoteProps,
+} from "./settings/settings-manager-note";
+export {
   useCommunityPublicationDraft,
   type CommunityPublicationDraft,
 } from "./community/use-community-publication-draft";

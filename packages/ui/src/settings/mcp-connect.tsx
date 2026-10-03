@@ -6,6 +6,7 @@ import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
+import { SettingsManagerNote } from "./settings-manager-note";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -373,12 +374,12 @@ export function McpConnectSection({
   return (
     <GroupList title="连接 AI 助手">
       <div className={settings.managerBlock} role="group" aria-label="连接 AI 助手">
-        <p className={settings.managerNote}>
+        <SettingsManagerNote>
           连接后，把输入法的问题（卡顿、候选窗口不见了）直接告诉 AI
           助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选窗口皮肤。通过
           MCP
           在本机运行，不联网。助手还能做什么由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
-        </p>
+        </SettingsManagerNote>
         {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
         {server &&
           (server.config ? (
@@ -394,10 +395,10 @@ export function McpConnectSection({
               />
               {(shownTab === "claude_code" || shownTab === "codex") && (
                 <>
-                  <p className={settings.managerNote}>
+                  <SettingsManagerNote>
                     在终端运行下面的命令，然后重新启动{" "}
                     {shownTab === "claude_code" ? "Claude Code" : "Codex"}：
-                  </p>
+                  </SettingsManagerNote>
                   <SyntaxBlock
                     className={command}
                     aria-label={
@@ -406,7 +407,7 @@ export function McpConnectSection({
                     tokens={installCommand(shownTab, server, flags)}
                   />
                   {copyButton(shownTab, "复制命令", installCommand(shownTab, server, flags))}
-                  <p className={settings.managerNote}>之前添加过的，先运行这条：</p>
+                  <SettingsManagerNote>之前添加过的，先运行这条：</SettingsManagerNote>
                   <SyntaxBlock
                     className={command}
                     aria-label={
@@ -419,11 +420,11 @@ export function McpConnectSection({
               )}
               {shownTab === "terminal" && (
                 <>
-                  <p className={settings.managerNote}>
+                  <SettingsManagerNote>
                     不注册 MCP 也可以：能在终端里运行命令的助手（Claude Code、Codex
                     等）直接调用同一组工具，权限开关相同，不用重启助手。把下面这段话告诉助手，或放进项目的
                     AGENTS.md / CLAUDE.md：
-                  </p>
+                  </SettingsManagerNote>
                   <SyntaxBlock
                     className={command}
                     aria-label="命令行用法"
@@ -434,11 +435,11 @@ export function McpConnectSection({
               )}
               {client && (
                 <>
-                  <p className={settings.managerNote}>
+                  <SettingsManagerNote>
                     写入 <code>{client.path}</code>
                     {client.configured ? "（已连接）" : ""}，重新启动 {clientNames[client.id]}{" "}
                     后生效。
-                  </p>
+                  </SettingsManagerNote>
                   {outdated && (
                     <p className="notice">
                       下面的权限和 {clientNames[client.id]} 现在的配置不同，点「更新{" "}
@@ -461,7 +462,7 @@ export function McpConnectSection({
               )}
               {shownTab === "json" && (
                 <>
-                  <p className={settings.managerNote}>粘贴到任意支持 MCP 的助手的配置中：</p>
+                  <SettingsManagerNote>粘贴到任意支持 MCP 的助手的配置中：</SettingsManagerNote>
                   <SyntaxBlock
                     className={code}
                     aria-label="MCP 配置"
@@ -486,13 +487,13 @@ export function McpConnectSection({
                   />
                 </div>
               ))}
-              <p className={settings.managerNote}>
+              <SettingsManagerNote>
                 只在你信任该助手时保留这两项权限，用不上就关掉。
-              </p>
-              <p className={settings.managerNote}>
+              </SettingsManagerNote>
+              <SettingsManagerNote>
                 服务器程序 <code>{server.command}</code>
                 {server.installed ? "" : "（未找到，请重新安装输入法）"}
-              </p>
+              </SettingsManagerNote>
             </>
           ) : (
             <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
