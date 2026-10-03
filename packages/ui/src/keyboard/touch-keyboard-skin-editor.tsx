@@ -39,6 +39,7 @@ import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
 import { ActionButton } from "../core/action-button";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
@@ -72,14 +73,7 @@ function AiSkinGeneration({
   const generateRunning = useRef(false);
   const saveRunning = useRef(false);
   const requestRef = useRef("");
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMountedRef();
 
   useEffect(() => {
     requestRef.current = requestId;
@@ -409,13 +403,11 @@ export function TouchKeyboardSkinEditor({
   const [skinName, setSkinName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const libraryGeneration = useRef(0);
   const libraryActionBusy = useRef(false);
   useEffect(() => {
-    mounted.current = true;
     return () => {
-      mounted.current = false;
       libraryGeneration.current += 1;
       libraryActionBusy.current = false;
     };
