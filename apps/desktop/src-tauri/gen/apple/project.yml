@@ -56,7 +56,7 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
-      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese, Zhuyin and Stroke dictionaries; empty when none were built or fetched, and those schemes are then not offered.
       - path: ../../../../../target/ios/language-dictionaries
         buildPhase: resources
         type: folder
@@ -178,7 +178,7 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
-      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese and Zhuyin dictionaries; empty when none were built or fetched, and those schemes are then not offered.
+      # Staged by platforms/ios/stage-resources.sh beside EngineResources, where host-api looks for the Cantonese, Zhuyin and Stroke dictionaries; empty when none were built or fetched, and those schemes are then not offered.
       - path: ../../../../../target/ios/language-dictionaries
         buildPhase: resources
         type: folder
