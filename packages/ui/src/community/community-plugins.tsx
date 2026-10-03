@@ -27,6 +27,7 @@ import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
+import { CommunityPublicationWarning } from "./community-publication-warning";
 import {
   CommunityReportSection,
   type CommunityModeration,
@@ -704,7 +705,7 @@ export function CommunityPluginPublishDialog({
             onDescriptionChange={onDescriptionChange}
             onAgreedChange={onAgreedChange}
           />
-          <p className={style.warning}>{publishWarning}</p>
+          <CommunityPublicationWarning>{publishWarning}</CommunityPublicationWarning>
         </>
       )}
       <CommunityDialogActions busy={busy} onClose={onClose}>

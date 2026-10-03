@@ -16,6 +16,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
+import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
@@ -493,7 +494,7 @@ export function CandidateSkinPublishDialog({
               setCategory(next);
             }}
           />
-          <p className={style.warning}>{publishWarning}</p>
+          <CommunityPublicationWarning>{publishWarning}</CommunityPublicationWarning>
         </>
       )}
       <CommunityDialogActions busy={busy} onClose={onClose}>

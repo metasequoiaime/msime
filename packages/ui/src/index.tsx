@@ -1257,6 +1257,10 @@ export {
   type CommunityPublicationMetadataFieldsProps,
 } from "./community/community-publication-metadata-fields";
 export {
+  CommunityPublicationWarning,
+  type CommunityPublicationWarningProps,
+} from "./community/community-publication-warning";
+export {
   useCommunityPublicationDraft,
   type CommunityPublicationDraft,
 } from "./community/use-community-publication-draft";

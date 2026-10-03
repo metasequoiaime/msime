@@ -29,6 +29,7 @@ import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
+import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
@@ -335,10 +336,10 @@ function ResourceEditor({
           </div>
         </>
       )}
-      <p className={style.warning}>
+      <CommunityPublicationWarning>
         发布内容会公开展示。请勿包含 API
         Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
-      </p>
+      </CommunityPublicationWarning>
       <CommunityDialogActions busy={busy} onClose={close}>
         <button type="submit" className="primary" disabled={busy}>
           {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}

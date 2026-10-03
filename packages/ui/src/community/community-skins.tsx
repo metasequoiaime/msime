@@ -24,6 +24,7 @@ import {
   type CommunityReportReason,
 } from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
+import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
@@ -267,9 +268,9 @@ function CommunitySkinPublishDialog({
               setCategory(next);
             }}
           />
-          <p className={style.warning}>
+          <CommunityPublicationWarning>
             发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
-          </p>
+          </CommunityPublicationWarning>
         </>
       )}
       <CommunityDialogActions busy={busy} onClose={onClose}>
