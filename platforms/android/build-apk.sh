@@ -80,12 +80,21 @@ ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --conso
 
 unsigned="$gradle_dir/app/build/outputs/apk/release/app-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
-keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
+# 正式包用发布密钥签名：release-android.yml 从仓库 secrets 解出 PKCS12 文件，把路径和口令放进这两个环境变量。发布密钥一旦用于发版就不能更换，否则已安装的用户无法覆盖升级；没有设置时退回所有 worktree 共用的开发密钥。
+if [[ -n "${MSIME_ANDROID_RELEASE_KEYSTORE:-}" ]]; then
+  [[ -f "$MSIME_ANDROID_RELEASE_KEYSTORE" && -n "${MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD:-}" ]] || { echo "MSIME_ANDROID_RELEASE_KEYSTORE needs an existing file and MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" >&2; exit 1; }
+  signing=(--ks "$MSIME_ANDROID_RELEASE_KEYSTORE" --ks-key-alias msime-release
+    --ks-pass env:MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD --key-pass env:MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD)
+  signed_with="release key"
+else
+  keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
+  signing=(--ks "$keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android)
+  signed_with="development key"
+fi
 "$tools_dir/zipalign" -P 16 4 "$unsigned" "$repo_root/target/android/aligned.apk"
-"$tools_dir/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
-  --ks-pass pass:android --key-pass pass:android \
+"$tools_dir/apksigner" sign "${signing[@]}" \
   --out target/android/msime-client.apk "$repo_root/target/android/aligned.apk"
-"$tools_dir/apksigner" verify --verbose target/android/msime-client.apk
+"$tools_dir/apksigner" verify --verbose --print-certs target/android/msime-client.apk
 "$tools_dir/zipalign" -c -P 16 4 target/android/msime-client.apk
 # The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than both).
 apk_entries=$(unzip -Z1 target/android/msime-client.apk)
@@ -96,4 +105,4 @@ for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LI
   done
 done
 rm -f "$repo_root/target/android/aligned.apk"
-echo "Development APK built: $repo_root/target/android/msime-client.apk; not installed or device-verified"
+echo "APK built and signed with the $signed_with: $repo_root/target/android/msime-client.apk; not installed or device-verified"

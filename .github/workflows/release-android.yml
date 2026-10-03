@@ -33,9 +33,18 @@ jobs:
           bash platforms/windows/bootstrap-vcpkg.sh
           rustup target add aarch64-linux-android x86_64-linux-android
       - name: Build native Android host
-        env: {MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}", MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"}
+        # 发布包必须用仓库 secrets 里的发布密钥签名：此前用的是 runner 上临时生成的开发密钥，每次发版签名都不同，用户无法覆盖升级。缺少 secrets 时直接失败，不退回开发密钥。
+        env:
+          MSIME_ANDROID_VERSION: "${{ steps.version.outputs.value }}"
+          MSIME_REQUIRE_LANGUAGE_DICTIONARIES: "1"
+          RELEASE_KEYSTORE_BASE64: "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}"
+          MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
         run: |
           set -euo pipefail
+          [[ -n "$RELEASE_KEYSTORE_BASE64" && -n "$MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD" ]] || { echo "ANDROID_RELEASE_KEYSTORE_BASE64 and ANDROID_RELEASE_KEYSTORE_PASSWORD secrets are required" >&2; exit 1; }
+          export MSIME_ANDROID_RELEASE_KEYSTORE="$RUNNER_TEMP/msime-release.p12"
+          trap 'rm -f "$MSIME_ANDROID_RELEASE_KEYSTORE"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$MSIME_ANDROID_RELEASE_KEYSTORE"
           mkdir -p target/resources
           resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
           bash platforms/android/build-apk.sh "$resource_dir"

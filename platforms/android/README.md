@@ -231,7 +231,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，由 `platforms/android/gradle-app` 的 `assembleRelease` 产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/msime-client.apk`。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
 
-开发密钥是 Android SDK 的调试密钥 `~/.android/debug.keystore`，不在仓库或 `target/` 里，不得用于正式发行；所有 worktree 与 Tauri、Android Studio 的调试构建共用它，所以换一个 worktree 构建也能直接覆盖安装。删除该文件会改变后续开发签名，之后不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
+开发密钥是 Android SDK 的调试密钥 `~/.android/debug.keystore`，不在仓库或 `target/` 里，不得用于正式发行。正式包由 `release-android.yml` 用仓库 secrets `ANDROID_RELEASE_KEYSTORE_BASE64`（PKCS12，别名 `msime-release`）与 `ANDROID_RELEASE_KEYSTORE_PASSWORD` 签名，`build-apk.sh` 在设置了 `MSIME_ANDROID_RELEASE_KEYSTORE` 与 `MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD` 时改用它；发布密钥不能更换，更换后已安装的用户无法覆盖升级。所有 worktree 与 Tauri、Android Studio 的调试构建共用它，所以换一个 worktree 构建也能直接覆盖安装。删除该文件会改变后续开发签名，之后不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 
 用户打开启动页并点击“准备词库”后，后台任务在私有目录解包资源，调用共享 Rust/C++ 校验与工作数据准备，成功后通过 AtomicFile 发布配置。已有配置一律不覆盖，失败可重试；不支持在线升级已运行的词库。解包和工作词库复制需要额外存储空间。启动页只提供手动进入系统设置/选择器的按钮，不自动启用或切换输入法。
 
