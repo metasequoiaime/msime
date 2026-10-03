@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { StatusMessage } from "../core/status-message";
 import { runAsyncAction } from "../core/async-action";
 import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
@@ -245,16 +246,16 @@ function AiSkinGeneration({
           AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。
         </p>
         {busy && (
-          <p role="status">
+          <StatusMessage role="status">
             主题插画已完成 {completed}/3，可能需要几分钟…{" "}
             <ActionButton
               action={() => client.cancel(requestRef.current)}
               className="secondary"
               label="取消"
             />
-          </p>
+          </StatusMessage>
         )}
-        {message && <p role="status">{message}</p>}
+        {message && <StatusMessage role="status">{message}</StatusMessage>}
         <div className={doc.cardList}>
           {proposals.map((proposal) => {
             const item = saved[proposal.name];

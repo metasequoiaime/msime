@@ -26,6 +26,7 @@ import * as cloud from "./cloud-panel-style";
 import * as surface from "./panel-surface-style";
 import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
+import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import {
   isImeCommitKey,
@@ -1362,7 +1363,7 @@ export function HandwritingPanel({
             ))}
           </div>
           {handwritingPack && <HandwritingModelNotice packs={packs} />}
-          <p role="status">{notice}</p>
+          <StatusMessage role="status">{notice}</StatusMessage>
         </section>
       </div>
     </main>
