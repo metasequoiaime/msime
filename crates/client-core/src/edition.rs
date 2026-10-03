@@ -5,6 +5,7 @@
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）由平台构建脚本读取，本模块不解析。
 
 use crate::preferences::{InputScheme, TouchKeyboardScheme};
+use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -116,6 +117,29 @@ impl Edition {
     /// 是否就是 full 版本。
     pub fn is_full(&self) -> bool {
         self.id == Self::FULL_ID
+    }
+
+    /// 本版本资源锁的原文。full 的锁就是 `resources/desktop-dictionary.lock.json` 本身，所以 full 的资源目录、校验和用户词库代次（`ResourceSet::generation`）与引入版本之前完全相同；其他版本的锁由 `scripts/editions.py gen-locks` 按版本表的 `resources.components` 从那份文件机械生成并提交，`scripts/test-editions.py` 检查它们没有漂移。版本表里没有对应锁文件的 id 返回 `None`。
+    ///
+    /// 逐个列出而不是在构建期生成：`include_str!` 只接受字面路径，加一个版本就在这里加一行。
+    pub fn resource_lock(&self) -> Option<&'static str> {
+        match self.id.as_str() {
+            Self::FULL_ID => Some(include_str!(
+                "../../../resources/desktop-dictionary.lock.json"
+            )),
+            "pinyin" => Some(include_str!("../../../resources/editions/pinyin.lock.json")),
+            "wubi" => Some(include_str!("../../../resources/editions/wubi.lock.json")),
+            _ => None,
+        }
+    }
+
+    /// 本版本的资源锁：资源目录必须恰好是这些文件，用户词库代次也按它计算。没有锁文件或锁文件不合法时是 [`ResourceError::InvalidManifest`]。
+    pub fn resource_set(&self) -> Result<ResourceSet, ResourceError> {
+        let lock = self.resource_lock().ok_or(ResourceError::InvalidManifest)?;
+        let set: ResourceSet =
+            serde_json::from_str(lock).map_err(|_| ResourceError::InvalidManifest)?;
+        set.validate()?;
+        Ok(set)
     }
 
     /// 本版本是否提供这个方案。
@@ -288,6 +312,86 @@ mod tests {
         assert_eq!(
             offered,
             [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
+        );
+    }
+
+    fn artifact_names(set: &ResourceSet) -> BTreeSet<&str> {
+        set.artifacts
+            .iter()
+            .map(|artifact| artifact.name.as_str())
+            .collect()
+    }
+
+    /// full 的资源锁逐字节就是原文件，代次与引入版本之前相同：用户词库目录 `user/dictionaries/<代次>` 不变，升级不会重新准备。期望值是引入版本之前按 `dict-v2.0.2` 这份锁算出的代次；换词库版本时它理应变化，届时连同锁文件一起更新。
+    #[test]
+    fn full_keeps_the_desktop_lock_and_its_generation() {
+        let full = Edition::full();
+        assert_eq!(
+            full.resource_lock(),
+            Some(include_str!(
+                "../../../resources/desktop-dictionary.lock.json"
+            ))
+        );
+        let set = full.resource_set().unwrap();
+        assert_eq!(set.artifacts.len(), 9);
+        assert_eq!(
+            set.generation().unwrap(),
+            "5d6ea16e9e4fb0d069f28d1e3eb8688a782481506941b0e50a1d758de85cad5f"
+        );
+    }
+
+    /// 每个版本都有资源锁，锁里的文件恰好是它的组件的并集，每个条目与原文件的同名条目逐字段相同。
+    #[test]
+    fn every_edition_lock_is_the_union_of_its_components() {
+        let table: serde_json::Value = serde_json::from_str(EDITIONS_JSON).unwrap();
+        let components = table["resource_components"].as_object().unwrap();
+        let full = Edition::full().resource_set().unwrap();
+        for edition in Edition::all() {
+            let set = edition.resource_set().unwrap();
+            let expected: BTreeSet<&str> = edition
+                .resources
+                .components
+                .iter()
+                .flat_map(|component| components[component].as_array().unwrap())
+                .map(|name| name.as_str().unwrap())
+                .collect();
+            assert_eq!(artifact_names(&set), expected, "{}", edition.id);
+            assert_eq!(set.source_commit, full.source_commit, "{}", edition.id);
+            for artifact in &set.artifacts {
+                let original = full
+                    .artifacts
+                    .iter()
+                    .find(|candidate| candidate.name == artifact.name)
+                    .unwrap();
+                assert_eq!(artifact.sha256, original.sha256, "{}", artifact.name);
+                assert_eq!(artifact.size, original.size, "{}", artifact.name);
+                assert_eq!(artifact.url, original.url, "{}", artifact.name);
+            }
+        }
+    }
+
+    /// 五笔版不带临时日文和整句重排模型，带五笔混拼要用的 msime.db 和整句词格要用的 n-gram 表。
+    #[test]
+    fn the_wubi_lock_leaves_out_japanese_and_the_sentence_model() {
+        let set = Edition::by_id("wubi").unwrap().resource_set().unwrap();
+        assert_eq!(
+            artifact_names(&set),
+            BTreeSet::from([
+                "bigram.bin",
+                "dictionary-manifest.json",
+                "english.db",
+                "msime.db",
+                "others.db",
+                "trigram.bin",
+            ])
+        );
+        assert_ne!(
+            set.generation().unwrap(),
+            Edition::full()
+                .resource_set()
+                .unwrap()
+                .generation()
+                .unwrap()
         );
     }
 

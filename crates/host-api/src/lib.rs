@@ -231,11 +231,10 @@ struct HostSession {
     _dictionary_access: DictionaryAccess,
 }
 
-/// Local input modes are preference-controlled, but their backing dictionaries are
-/// immutable runtime resources. Keep a missing optional resource from turning a
-/// trigger key into a swallowed event: the Engine must see that mode disabled until
-/// the complete resource set is present.
-fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
+/// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
+///
+/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典，临时日文无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
+fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("others.db").is_file();
     let has_english_dictionary = resources.join("english.db").is_file();
@@ -248,7 +247,7 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
     options.local_emoji &= has_emoji_catalog;
     options.local_kaomoji &= has_emoji_catalog;
     options.local_temporary_english &= has_english_dictionary;
-    options.local_temporary_japanese &= has_japanese_model;
+    options.local_temporary_japanese &= has_japanese_model && edition.features.temporary_japanese;
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -418,7 +417,7 @@ impl HostSession {
         // gives it more to choose from, and even with no model the engine's own pick among them is
         // better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
-        apply_local_mode_resource_gates(&mut options);
+        apply_local_mode_resource_gates(&mut options, self.edition);
         options.paired_punctuation = preferences.paired_punctuation;
         options.punctuation_lock = punctuation_lock_code(preferences.punctuation_lock);
         options.chinese_punctuation =
@@ -977,7 +976,7 @@ impl HostOptions {
             paired_punctuation: self.preferences.paired_punctuation,
             punctuation_lock: punctuation_lock_code(self.preferences.punctuation_lock),
         };
-        apply_local_mode_resource_gates(&mut options);
+        apply_local_mode_resource_gates(&mut options, edition);
         options
     }
 }
@@ -1158,9 +1157,8 @@ pub fn prepare_host_configuration_for_edition(
     state_root: &std::path::Path,
     edition: &'static Edition,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let specification: ResourceSet = serde_json::from_str(include_str!(
-        "../../../resources/desktop-dictionary.lock.json"
-    ))?;
+    // 资源目录按本版本的锁校验，用户词库代次也按它计算；full 的锁就是原来那份文件。
+    let specification = edition.resource_set()?;
     prepare_shipped_host_configuration(
         resources,
         state_root,
@@ -1358,9 +1356,8 @@ fn refresh_options_file(
     // 文档记录的版本，缺省是 full。新代次按同一个版本准备；`refreshed_layout` 只替换 `resources` 和 `dictionaries`，`edition` 键原样保留。
     let edition =
         Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
-    let specification: ResourceSet = serde_json::from_str(include_str!(
-        "../../../resources/desktop-dictionary.lock.json"
-    ))?;
+    // 已安装的代次要和 `prepare_host_configuration_for_edition` 用同一份锁比较，否则不是 full 的版本每次刷新都会被当成过期。
+    let specification = edition.resource_set()?;
     let prepared = refreshed_host_options(
         &document,
         &specification.generation()?,

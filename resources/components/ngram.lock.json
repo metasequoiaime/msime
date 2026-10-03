@@ -1,0 +1,17 @@
+{
+  "source_commit": "f661d8d44d12d24c46f9fb83af693b6d6fd68706",
+  "artifacts": [
+    {
+      "name": "bigram.bin",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/bigram.bin",
+      "sha256": "a256b88b1c4be4d70e53a7ee04914252a7b3119bb3ab7f3fef179e37a25d426d",
+      "size": 12000016
+    },
+    {
+      "name": "trigram.bin",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/trigram.bin",
+      "sha256": "8407813186c000f8c3ef731e051aca5054f08b62da2c8c422ac04be94ec47dd1",
+      "size": 12000016
+    }
+  ]
+}

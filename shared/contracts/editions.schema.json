@@ -72,7 +72,7 @@
           }
         },
         "resources": {
-          "description": "本版本随包带的资源。",
+          "description": "本版本随包带的资源。资源锁不在这里写路径：full 的是 resources/desktop-dictionary.lock.json 本身，其他版本的是 scripts/editions.py gen-locks 按 components 生成并提交的 resources/editions/<id>.lock.json。",
           "type": "object",
           "additionalProperties": false,
           "required": ["components"],

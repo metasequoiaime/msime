@@ -191,7 +191,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         zhuyin_dictionary: String::new(),
         japanese_dictionary: String::new(),
     };
-    apply_local_mode_resource_gates(&mut options);
+    apply_local_mode_resource_gates(&mut options, Edition::full());
     assert!(options.local_unicode);
     assert!(options.local_date_time);
     assert!(options.local_quick_phrase);
@@ -203,7 +203,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
 
     std::fs::remove_file(root.path().join("others.db")).unwrap();
     std::fs::remove_file(root.path().join("dict_japanese.dat")).unwrap();
-    apply_local_mode_resource_gates(&mut options);
+    apply_local_mode_resource_gates(&mut options, Edition::full());
     assert!(!options.local_emoji);
     assert!(!options.local_kaomoji);
     assert!(!options.local_temporary_japanese);
@@ -6485,6 +6485,225 @@ fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preference
     assert_eq!(
         PreferencesStore::new(&wubi_state).load().unwrap().revision,
         2
+    );
+}
+
+/// 按 `edition` 的资源锁合成一个资源目录：文件名取自真实的版本锁，内容是小 fixture，清单按实际内容计算长度与 SHA-256。`msime.db` 带 `nihao` 的拼音行和 `wq` 的五笔行，`english.db` 带一个英文词，`bigram.bin`、`trigram.bin` 不是合法的表（Engine 会当作没有表），其余文件只要存在。
+fn synthetic_edition_lock(edition: &Edition, resources: &Path) -> ResourceSet {
+    std::fs::create_dir_all(resources).unwrap();
+    let pinned = edition.resource_set().unwrap();
+    let artifacts = pinned
+        .artifacts
+        .iter()
+        .map(|artifact| {
+            let path = resources.join(&artifact.name);
+            match artifact.name.as_str() {
+                "msime.db" => rusqlite::Connection::open(&path)
+                    .unwrap()
+                    .execute_batch(
+                        "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                         INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100),('ni''hao','nh','拟好',80);
+                         CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                         INSERT INTO wubi86 VALUES('wq','你',100),('wqvb','你好',90);
+                         CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                         CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+                    )
+                    .unwrap(),
+                "english.db" => rusqlite::Connection::open(&path)
+                    .unwrap()
+                    .execute_batch(
+                        "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+                         INSERT INTO english_words VALUES('hello','hello',900);",
+                    )
+                    .unwrap(),
+                "others.db" => rusqlite::Connection::open(&path)
+                    .unwrap()
+                    .execute_batch("CREATE TABLE fixture(value TEXT);")
+                    .unwrap(),
+                "dictionary-manifest.json" => std::fs::write(&path, b"{}").unwrap(),
+                other => std::fs::write(&path, other.as_bytes()).unwrap(),
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            msime_client_core::resources::Artifact {
+                name: artifact.name.clone(),
+                url: format!("https://example.invalid/{}", artifact.name),
+                sha256: hex::encode(Sha256::digest(&bytes)),
+                size: bytes.len() as u64,
+            }
+        })
+        .collect();
+    ResourceSet {
+        source_commit: "a".repeat(40),
+        artifacts,
+    }
+}
+
+/// 五笔版的锁接受一个没有日文词典和整句模型的资源目录，同一个目录按 full 的文件清单校验会失败；准备出的配置里临时日文是关的，其余本地模式照常。下载来的日文词典也打不开五笔版的临时日文。
+#[test]
+fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese_off() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let wubi = Edition::by_id("wubi").unwrap();
+    let specification = synthetic_edition_lock(wubi, &resources);
+    for absent in [
+        "dict_japanese.dat",
+        "mozc_dictionary_oss_README.txt",
+        "sentence-model.safetensors",
+    ] {
+        assert!(!resources.join(absent).exists(), "{absent}");
+    }
+    ResourceStore::new(&resources)
+        .verify(&resources, &specification)
+        .unwrap();
+    // 同一个目录按 full 的文件清单（多出日文词典和整句模型）校验不过：能通过只是因为用了五笔版的锁。
+    let mut full_names = specification.clone();
+    for artifact in &Edition::full().resource_set().unwrap().artifacts {
+        if !full_names
+            .artifacts
+            .iter()
+            .any(|kept| kept.name == artifact.name)
+        {
+            full_names.artifacts.push(artifact.clone());
+        }
+    }
+    assert_eq!(full_names.artifacts.len(), 9);
+    assert!(ResourceStore::new(&resources)
+        .verify(&resources, &full_names)
+        .is_err());
+
+    let state = root.path().join("state");
+    let prepared: Value = serde_json::from_str(
+        &prepare_shipped_host_configuration(
+            &resources,
+            &state,
+            &specification,
+            ON_DEMAND_ARTIFACTS,
+            wubi,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(prepared["edition"], "wubi");
+    // 偏好里临时日文是开的，关掉它的是资源门控，不是偏好。
+    assert_eq!(
+        prepared["preferences"]["local_modes"]["temporary_japanese"],
+        true
+    );
+    let mut options = HostOptions::from_document(prepared)
+        .unwrap()
+        .into_engine_options();
+    assert!(!options.local_temporary_japanese);
+    assert!(options.local_emoji);
+    assert!(options.local_temporary_english);
+
+    // 状态目录里有一份下载来的日文词典时，full 会打开临时日文，五笔版仍然不会。
+    let downloaded = root.path().join("dict_japanese.dat");
+    std::fs::write(&downloaded, b"japanese").unwrap();
+    options.japanese_dictionary = downloaded.to_str().unwrap().to_owned();
+    options.local_temporary_japanese = true;
+    let mut full_options = options.clone();
+    apply_local_mode_resource_gates(&mut options, wubi);
+    assert!(!options.local_temporary_japanese);
+    apply_local_mode_resource_gates(&mut full_options, Edition::full());
+    assert!(full_options.local_temporary_japanese);
+}
+
+/// 用五笔版的资源集准备出的宿主默认就是五笔混拼：`nihao` 由全拼给出「你好」，`wq` 由五笔码表给出「你」。
+#[test]
+fn wubi_resources_type_mixed_pinyin_and_wubi_codes() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let wubi = Edition::by_id("wubi").unwrap();
+    let specification = synthetic_edition_lock(wubi, &resources);
+    let mut prepared: Value = serde_json::from_str(
+        &prepare_shipped_host_configuration(
+            &resources,
+            &root.path().join("state"),
+            &specification,
+            ON_DEMAND_ARTIFACTS,
+            wubi,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(prepared["preferences"]["scheme"], "wubi");
+    assert_eq!(prepared["preferences"]["wubi_mixed_pinyin"], true);
+    prepared["preferences"]["default_ime_mode"] = json!("chinese");
+    let document = prepared.to_string();
+    let typed = |input: &[u8]| -> Value {
+        let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+        assert_eq!(created["ok"], true, "{created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.scheme, 2));
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let mut view = Value::Null;
+        for byte in input {
+            view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+        }
+        read(msime_client_destroy(handle));
+        view
+    };
+    let texts = |view: &Value| -> Vec<String> {
+        view["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|candidate| candidate["text"].as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    let pinyin = typed(b"nihao");
+    assert!(texts(&pinyin).contains(&"你好".to_owned()), "{pinyin}");
+    let code = typed(b"wq");
+    assert_eq!(
+        texts(&code).first().map(String::as_str),
+        Some("你"),
+        "{code}"
+    );
+}
+
+/// 刷新按文档记录的版本的锁比较代次：五笔版的文档停在五笔锁的代次上就是最新的，不会被当成过期重新准备；记成 full 的代次则要重新准备（这里资源目录是空的，所以准备失败）。
+#[test]
+fn refresh_compares_the_generation_of_the_documents_edition() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path().join("resources");
+    std::fs::create_dir(&resources).unwrap();
+    let state = directory.path().join("state");
+    std::fs::create_dir(&state).unwrap();
+    let wubi = Edition::by_id("wubi").unwrap();
+    let document = |generation: String| {
+        json!({
+            "api_version": 1,
+            "resources": resources,
+            "user_data": state.join("user"),
+            "cache": state.join("cache"),
+            "dictionaries": state.join("user").join("dictionaries").join(generation),
+            "preferences_directory": state,
+            "preferences": Preferences::for_edition(wubi),
+            "edition": "wubi",
+        })
+    };
+    let options = state.join("runtime-options.json");
+
+    let current = document(wubi.resource_set().unwrap().generation().unwrap());
+    std::fs::write(&options, serde_json::to_vec(&current).unwrap()).unwrap();
+    assert!(!refresh_host_options(&options).unwrap());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&std::fs::read(&options).unwrap()).unwrap(),
+        current
+    );
+
+    let full_generation = Edition::full()
+        .resource_set()
+        .unwrap()
+        .generation()
+        .unwrap();
+    let stale = document(full_generation);
+    std::fs::write(&options, serde_json::to_vec(&stale).unwrap()).unwrap();
+    assert!(refresh_host_options(&options).is_err());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&std::fs::read(&options).unwrap()).unwrap(),
+        stale
     );
 }
 

@@ -10,6 +10,7 @@
 - 方案是引擎全部方案（`host_surface.rs` 的 `ALL_INPUT_SCHEMES`）的子集，保持同样的顺序，默认方案在列表里；
 - full 等于现状：全部 8 个方案、默认全拼、没有额外默认值、带全部组件和功能，显示名等于 Info.plist 的 `CFBundleDisplayName` 和 Tauri 的 `productName`；
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
+- 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
@@ -19,6 +20,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import pathlib
 import re
@@ -44,6 +46,25 @@ FEATURE_COMPONENTS = {"temporary_japanese": "japanese", "neural_keyboard": "sent
 SCHEME_LANGUAGE_DICTIONARIES = {"cantonese": "cantonese.db", "zhuyin": "zhuyin.db"}
 # 版本默认值只对含某个方案的版本有意义。
 PREFERENCE_DEFAULT_SCHEMES = {"wubi_mixed_pinyin": "wubi"}
+
+
+def load_generator():
+    spec = importlib.util.spec_from_file_location("editions", ROOT / "scripts/editions.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_generated_locks(errors: list[str], table: dict) -> None:
+    """生成的资源锁与 `scripts/editions.py gen-locks` 的输出一致。Rust 用 `include_str!` 嵌入这些文件，手改其中一个、或改了版本表却没重新生成，都会让某个版本按错误的清单校验资源目录。"""
+    generator = load_generator()
+    desktop_text = DESKTOP_LOCK.read_text(encoding="utf-8")
+    desktop = json.loads(desktop_text)
+    for problem in generator.drift(generator.generated_locks(table, desktop)):
+        errors.append(f"{problem}; run python3 scripts/editions.py gen-locks")
+    # full 的锁就是原文件；拆成组件再合起来必须逐字节还原它，否则拆分丢了条目或改了字段。
+    if generator.union_of_components(table, desktop) != desktop_text:
+        errors.append(f"the union of resource_components does not reproduce {DESKTOP_LOCK.relative_to(ROOT)} byte for byte")
 
 
 def camel_to_snake(name: str) -> str:
@@ -260,12 +281,14 @@ def main() -> int:
     # 结构不对时后面的跨字段检查会在缺失的字段上抛异常，先把结构错误报出来。
     if not errors:
         check_editions(errors, table, frozen)
+    if not errors:
+        check_generated_locks(errors, table)
 
     if errors:
         for error in errors:
             print(f"FAIL: {error}")
         return 1
-    print(f"editions: {len(table['editions'])} editions agree with the schema, the engine schemes, the resource locks and the frozen baseline")
+    print(f"editions: {len(table['editions'])} editions agree with the schema, the engine schemes, the resource locks and the frozen baseline, and the generated locks are current")
     return 0
 
 
