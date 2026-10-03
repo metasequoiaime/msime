@@ -1,6 +1,7 @@
 import { GroupList } from "../core/platform-controls";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { ActionButton } from "./action-button";
 
 export function AiTestToolsSection({
@@ -42,13 +43,13 @@ export function AiTestToolsSection({
           value={input}
           onChange={onInputChange}
         />
-        <div className={settings.managerActions}>
+        <SettingsManagerActions>
           <ActionButton
             action={onTest}
             disabled={busy || !input.trim()}
             label={busy ? "发送中…" : "发送并润色"}
           />
-        </div>
+        </SettingsManagerActions>
         {result}
       </div>
     </GroupList>

@@ -1,5 +1,6 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { useEffect, useRef, useState } from "react";
 import { runAsyncAction } from "../core/async-action";
 import {
@@ -140,7 +141,7 @@ export function PersonalDictionaryImportCard({
   );
   const content = (
     <>
-      <div className={settings.managerActions}>
+      <SettingsManagerActions>
         <ActionButton
           action={() => input.current?.click()}
           disabled={busy}
@@ -158,7 +159,7 @@ export function PersonalDictionaryImportCard({
             event.currentTarget.value = "";
           }}
         />
-      </div>
+      </SettingsManagerActions>
       {busy && <p role="status">正在读取或加入同步队列…</p>}
       {fileName && entries && (
         <div className={settings.importPreview}>

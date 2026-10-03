@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { SelectRow } from "./select-row";
 import { SettingsTextareaField } from "./settings-textarea-field";
 import * as settings from "./settings-style";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
   POLISH_CUSTOM_IDS,
@@ -70,7 +71,7 @@ export function PolishPromptSection({
             readOnly
           />
         )}
-        {actions && <div className={settings.managerActions}>{actions}</div>}
+        {actions && <SettingsManagerActions>{actions}</SettingsManagerActions>}
       </div>
     </>
   );

@@ -6,6 +6,7 @@ import type { MentionEntry } from "./plugin-types";
 import { ActionButton } from "./action-button";
 import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
@@ -105,7 +106,7 @@ export function PluginMentionsView({
               {issue}
             </p>
           )}
-          <div className={settings.managerActions}>
+          <SettingsManagerActions>
             <ActionButton
               action={() => setMentions((current) => [...current, { text: "", key: "" }])}
               disabled={mentions.length >= MAX_MENTIONS}
@@ -117,7 +118,7 @@ export function PluginMentionsView({
               disabled={working || !dirty || issue !== null}
               label="保存名单"
             />
-          </div>
+          </SettingsManagerActions>
         </div>
       </GroupList>
     </>

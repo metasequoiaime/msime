@@ -1265,6 +1265,10 @@ export { SettingsGroupNote, type SettingsGroupNoteProps } from "./settings/setti
 export { SettingsGroupBlock, type SettingsGroupBlockProps } from "./settings/settings-group-block";
 export { SettingsRowStack, type SettingsRowStackProps } from "./settings/settings-row-stack";
 export {
+  SettingsManagerActions,
+  type SettingsManagerActionsProps,
+} from "./settings/settings-manager-actions";
+export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";

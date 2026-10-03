@@ -5,7 +5,7 @@ import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
 import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
@@ -19,6 +19,7 @@ import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsInputDescription } from "../settings-input-description";
+import { SettingsManagerActions } from "../settings-manager-actions";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -155,7 +156,7 @@ export function DictionarySettingsPage() {
               pageSize={DICTIONARY_PAGE_SIZE}
               onPageChange={turnPhrasePage}
             />
-            <div className={settings.managerActions}>
+            <SettingsManagerActions>
               <ActionButton
                 action={() =>
                   setPhraseForm({
@@ -168,7 +169,7 @@ export function DictionarySettingsPage() {
                 disabled={phraseBusy}
                 label="新增词条"
               />
-            </div>
+            </SettingsManagerActions>
           </div>
         </GroupList>
       )}
@@ -187,7 +188,7 @@ export function DictionarySettingsPage() {
             <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
           </SelectRow>
           <div className={settings.managerBlock}>
-            <div className={settings.managerActions}>
+            <SettingsManagerActions>
               <label className="secondary">
                 导入
                 <input
@@ -217,7 +218,7 @@ export function DictionarySettingsPage() {
                 disabled={phraseBusy}
                 label="导出全部"
               />
-            </div>
+            </SettingsManagerActions>
           </div>
           {client.dictionary.importPersonal && (
             <PersonalDictionaryImportCard

@@ -1,5 +1,6 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
@@ -211,7 +212,7 @@ export function PluginListView({
                 只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证
               </span>
             </span>
-            <span className={`${settings.managerActions} shrink-0`}>
+            <SettingsManagerActions as="span" className="shrink-0">
               <ActionButton
                 action={() => onImport("folder")}
                 disabled={working}
@@ -222,7 +223,7 @@ export function PluginListView({
                 disabled={working}
                 label="导入 .zip"
               />
-            </span>
+            </SettingsManagerActions>
           </div>
           {notice && <SettingsGroupNote role="status">{notice}</SettingsGroupNote>}
         </GroupList>

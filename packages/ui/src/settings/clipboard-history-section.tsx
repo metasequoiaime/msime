@@ -1,6 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { GroupList, Row } from "../core/platform-controls";
 import {
   CLOUD_CLIPBOARD_MAX_UTF16,
@@ -181,7 +182,7 @@ export function ClipboardHistorySection({
         )}
         {((!ios && client?.sync) || (client && entries.length > 0)) && (
           <div className={settings.managerBlock}>
-            <div className={settings.managerActions}>
+            <SettingsManagerActions>
               {!ios && client?.sync && (
                 <ActionButton
                   action={() => {
@@ -214,17 +215,13 @@ export function ClipboardHistorySection({
                   label={clearArmed ? "确认清空" : "清空历史"}
                 />
               )}
-            </div>
+            </SettingsManagerActions>
           </div>
         )}
       </GroupList>
       {historyEnabled && client?.list && (
         <GroupList title="历史记录">
-          {cloudNote && (
-            <SettingsGroupNote role="status">
-              {cloudNote}
-            </SettingsGroupNote>
-          )}
+          {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
             {entries.length === 0 ? (
               <p className={settings.clipboardEmpty}>暂无历史记录</p>

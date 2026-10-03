@@ -7,6 +7,7 @@ import { mcpFailureMessage } from "./mcp-errors";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -365,9 +366,9 @@ export function McpConnectSection({
     if (!copyText) return null;
     const text = tokensText(tokens);
     return (
-      <div className={settings.managerActions}>
+      <SettingsManagerActions>
         <ActionButton action={() => copy(key, text)} label={copied === key ? "已复制" : label} />
-      </div>
+      </SettingsManagerActions>
     );
   }
 
@@ -446,7 +447,7 @@ export function McpConnectSection({
                       {clientNames[client.id]}」写入。
                     </p>
                   )}
-                  <div className={settings.managerActions}>
+                  <SettingsManagerActions>
                     <ActionButton
                       action={() => void write(client.id, flags)}
                       disabled={busy !== undefined || (client.configured && !outdated)}
@@ -457,7 +458,7 @@ export function McpConnectSection({
                           : `${outdated ? "更新" : "写入"} ${clientNames[client.id]}`
                       }
                     />
-                  </div>
+                  </SettingsManagerActions>
                 </>
               )}
               {shownTab === "json" && (
