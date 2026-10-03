@@ -1279,6 +1279,10 @@ export {
 export { SettingsServiceRow, type SettingsServiceRowProps } from "./settings/settings-service-row";
 export { SettingsPhraseForm, type SettingsPhraseFormProps } from "./settings/settings-phrase-form";
 export {
+  SettingsShortcutKey,
+  type SettingsShortcutKeyProps,
+} from "./settings/settings-shortcut-key";
+export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";

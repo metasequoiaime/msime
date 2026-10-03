@@ -3,6 +3,7 @@ import * as settings from "./settings-style";
 import { GroupList, Row } from "../core/platform-controls";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
 import { ShortcutRow } from "./shortcut-row";
+import { SettingsShortcutKey } from "./settings-shortcut-key";
 import { SwitchRow } from "./switch-row";
 
 export interface CandidateShortcutsSectionProps {
@@ -59,9 +60,7 @@ export function CandidateShortcutsSection({
           description={
             <span className={settings.shortcutKeys}>
               {paging.map(([option, chord]) => (
-                <kbd key={option} className={settings.shortcutKey}>
-                  {chord}
-                </kbd>
+                <SettingsShortcutKey key={option}>{chord}</SettingsShortcutKey>
               ))}
             </span>
           }
