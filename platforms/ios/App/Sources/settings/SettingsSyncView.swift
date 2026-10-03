@@ -3,12 +3,9 @@ import SwiftUI
 private enum IOSCloudSettings {
   static func snapshot() throws -> [String: BackendPreferenceValue] {
     let scheme = InputSchemePreference.scheme
-    let name = scheme.isJapanese ? "japanese" : scheme.shuangpinProfile != nil ? "shuangpin" : ((scheme == .nineKey || scheme == .handwriting) ? "quanpin" : scheme.rawValue)
     let document = MetasequoiaInputSessionBridge.loadSharedPreferences()
     var settings: [String: BackendPreferenceValue] = [
-      "input.schema": .string(name),
       "input.character_set": .string(ChineseOutputPreference.usesTraditional ? "traditional" : "simplified"),
-      "platform.ios.nine_key": .boolean(scheme == .nineKey || scheme == .japaneseNineKey),
       "platform.ios.sound_enabled": .boolean(KeyboardFeedbackPreference.soundEnabled),
       "platform.ios.haptics_enabled": .boolean(KeyboardFeedbackPreference.hapticsEnabled),
       "platform.ios.haptic_strength": .string(KeyboardFeedbackPreference.hapticStrength.rawValue),
@@ -20,6 +17,11 @@ private enum IOSCloudSettings {
     // A custom theme without a keyboard design draws its base's keyboard; there is no design to upload then, and the cloud keeps whatever design it has (as the Tauri plugin does).
     if let design = document == nil ? CustomKeyboardSkinStore.stored : GlobalThemePreference.design(in: document) {
       settings["platform.ios.custom_keyboard_skin"] = .string(String(decoding: try JSONEncoder().encode(design), as: UTF8.self))
+    }
+    // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
+    if let name = scheme.cloudSchema {
+      settings["input.schema"] = .string(name)
+      settings["platform.ios.nine_key"] = .boolean(scheme == .nineKey || scheme == .japaneseNineKey)
     }
     if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }
     // `input.wubi_schema` 是 `wubi_profile` 在云端的名字，与双拼版本一样只在当前方案是五笔时上传。

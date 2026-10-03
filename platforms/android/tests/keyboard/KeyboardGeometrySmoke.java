@@ -1,3 +1,4 @@
+import app.msime.android.KeyboardGapPolicy;
 import app.msime.android.KeyboardGeometry;
 
 public final class KeyboardGeometrySmoke {
@@ -29,6 +30,21 @@ public final class KeyboardGeometrySmoke {
         check(KeyboardGeometry.halfGapPixels(60, 1) == 3);
         check(KeyboardGeometry.halfGapPixels(35, 2) == 4);
         check(KeyboardGeometry.halfGapPixels(60, Float.NaN) == 0);
+        // 键距空隙归属：键帽 100x50，左右外边距 9px、上下 10px。
+        check(KeyboardGapPolicy.gapDistance(50, 25, 100, 50, 9, 10, 9, 10) == 0f);
+        check(KeyboardGapPolicy.gapDistance(-4, 25, 100, 50, 9, 10, 9, 10) == 4f);
+        check(KeyboardGapPolicy.gapDistance(50, 54, 100, 50, 9, 10, 9, 10) == 5f);
+        check(KeyboardGapPolicy.gapDistance(-3, -4, 100, 50, 9, 10, 9, 10) == 5f);
+        check(KeyboardGapPolicy.gapDistance(-9, 25, 100, 50, 9, 10, 9, 10) == 9f);
+        check(KeyboardGapPolicy.gapDistance(-9.5f, 25, 100, 50, 9, 10, 9, 10) < 0);
+        check(KeyboardGapPolicy.gapDistance(109, 25, 100, 50, 9, 10, 9, 10) < 0);
+        check(KeyboardGapPolicy.gapDistance(50, 60, 100, 50, 9, 10, 9, 10) < 0);
+        // 没有外边距的控件（工具栏图标、方案胶囊）不认领任何空隙。
+        check(KeyboardGapPolicy.gapDistance(-1, 25, 100, 50, 0, 0, 0, 0) < 0);
+        // 挪进键帽时离边缘留 1px，键帽里的点不动。
+        check(KeyboardGapPolicy.inside(-4, 100) == 1f);
+        check(KeyboardGapPolicy.inside(104, 100) == 99f);
+        check(KeyboardGapPolicy.inside(37.5f, 100) == 37.5f);
         System.out.println("Android keyboard geometry: Apple defaults, bounds and precision passed");
     }
 }

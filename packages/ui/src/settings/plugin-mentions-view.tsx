@@ -1,6 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
 import { GroupList } from "../core/platform-controls";
-import * as settings from "./settings-style";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { MentionEntry } from "./plugin-types";
 import { ActionButton } from "./action-button";
@@ -9,6 +8,7 @@ import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsManagerBlock } from "./settings-manager-block";
+import { SettingsWarning } from "./settings-warning";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
@@ -103,11 +103,7 @@ export function PluginMentionsView({
               />
             </SettingsPhraseForm>
           ))}
-          {issue && dirty && (
-            <p className={settings.settingsWarning} role="alert">
-              {issue}
-            </p>
-          )}
+          {issue && dirty && <SettingsWarning role="alert">{issue}</SettingsWarning>}
           <SettingsManagerActions>
             <ActionButton
               action={() => setMentions((current) => [...current, { text: "", key: "" }])}

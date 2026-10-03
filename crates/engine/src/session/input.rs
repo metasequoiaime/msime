@@ -24,6 +24,7 @@ use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
 use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
+use crate::stroke;
 use crate::tibetan::{SHAD, TSHEG};
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
@@ -109,6 +110,7 @@ impl InputSession {
             &paths,
             options.cantonese_dictionary.clone(),
             options.zhuyin_dictionary.clone(),
+            options.stroke_dictionary.clone(),
             options.japanese_dictionary.clone(),
         )?;
         engine.set_autocorrect_types(0);
@@ -242,6 +244,9 @@ impl InputSession {
         }
         if self.is_zhuyin() {
             return self.handle_zhuyin_character(value);
+        }
+        if self.is_stroke() {
+            return self.handle_stroke_character(value);
         }
         if !self.has_composition() && self.scheme().opens_local_modes() {
             let entry = if shift_only {
@@ -443,6 +448,30 @@ impl InputSession {
         self.engine.handle_key(key);
         self.update_mixed_candidates();
         self.online_requests.invalidate();
+        KeyResult::handled()
+    }
+
+    /// 笔画键：`hspnz` 追加一笔，组合中 `x` 追加通配。空组合时其他键（含 `x`）交还宿主；组合中其他字母被吞掉，组合不变，非字母键（数字、空格、标点）照常不处理，由选词和标点路径接手。
+    fn handle_stroke_character(&mut self, value: u8) -> KeyResult {
+        if !self.has_composition() {
+            if !stroke::is_stroke(value) {
+                // The host inserts the key itself, so the next word no longer follows the last one.
+                self.reset_commit_context();
+                return KeyResult::unhandled();
+            }
+            // A long pause before a new composition usually means the user moved to another field or application.
+            if self.chain.previous.is_some() && self.chain.paused(self.steady_now()) {
+                self.chain.reset();
+            }
+        } else if !value.is_ascii_alphabetic() {
+            return KeyResult::unhandled();
+        }
+        let previous = self.engine.request().raw_input.len();
+        self.engine.handle_key(SchemeKey::Letter(value));
+        self.update_mixed_candidates();
+        if self.engine.request().raw_input.len() != previous {
+            self.online_requests.invalidate();
+        }
         KeyResult::handled()
     }
 
@@ -1265,6 +1294,15 @@ impl InputSession {
         self.is_cantonese() && self.local_mode == LocalInputMode::None && !self.dedicated_english
     }
 
+    pub(super) fn is_stroke(&self) -> bool {
+        self.engine.current_scheme_type() == SchemeType::Stroke
+    }
+
+    /// 笔画方案自己的规则生效：专用英文模式和本地模式内按它们自己的规则。
+    pub(super) fn stroke_rules_apply(&self) -> bool {
+        self.is_stroke() && self.local_mode == LocalInputMode::None && !self.dedicated_english
+    }
+
     pub(super) fn is_zhuyin(&self) -> bool {
         self.engine.current_scheme_type() == SchemeType::Zhuyin
     }
@@ -1294,7 +1332,8 @@ impl InputSession {
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
             | SchemeType::Vietnamese
-            | SchemeType::Tibetan => false,
+            | SchemeType::Tibetan
+            | SchemeType::Stroke => false,
         }
     }
 
@@ -1476,7 +1515,12 @@ impl InputSession {
     }
 
     fn commit_raw(&mut self) -> KeyResult {
-        let mut raw = self.preedit();
+        // 笔画的预编辑是字形，Enter 上屏的是键入的字母串（与粤拼一致）。
+        let mut raw = if self.stroke_rules_apply() {
+            self.engine.request().raw_input.clone()
+        } else {
+            self.preedit()
+        };
         // The temporary modes' prefix letter is a mode marker, not text; every other local mode commits it (core-session.md §15.5).
         if matches!(
             self.local_mode,
@@ -1510,7 +1554,7 @@ impl InputSession {
         item.scheme == SchemeType::Wubi
     }
 
-    /// Whether a row came from a dictionary a pin, fixed position or removal can write to. Japanese rows come from a read-only model, Korean Hanja rows from the embedded table, Cantonese rows from the read-only `cantonese.db` and Zhuyin rows from the read-only `zhuyin.db`; keyed by their letters, any of them would land in the pinyin user dictionary.
+    /// Whether a row came from a dictionary a pin, fixed position or removal can write to. Japanese rows come from a read-only model, Korean Hanja rows from the embedded table, Cantonese rows from the read-only `cantonese.db`, Zhuyin rows from the read-only `zhuyin.db` and Stroke rows from the read-only `stroke.db`; keyed by their letters, any of them would land in the pinyin user dictionary.
     pub(super) fn is_editable_source(&self, item: &WordItem) -> bool {
         item.source == CandidateSource::EnglishDictionary
             || (item.source.is_dictionary()
@@ -1520,6 +1564,7 @@ impl InputSession {
                         | SchemeType::Korean
                         | SchemeType::Cantonese
                         | SchemeType::Zhuyin
+                        | SchemeType::Stroke
                 ))
     }
 }

@@ -16,6 +16,9 @@ import * as settings from "./settings-style";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
+import { ErrorAlert } from "../core/error-alert";
+import { SettingsNotice } from "./settings-notice";
+import { StatusMessage } from "../core/status-message";
 
 export interface PersonalDictionaryImportClient {
   importPersonal?: (
@@ -161,7 +164,7 @@ export function PersonalDictionaryImportCard({
           }}
         />
       </SettingsManagerActions>
-      {busy && <p role="status">正在读取或加入同步队列…</p>}
+      {busy && <StatusMessage role="status">正在读取或加入同步队列…</StatusMessage>}
       {fileName && entries && (
         <div className={settings.importPreview}>
           <strong>{fileName}</strong>
@@ -178,16 +181,8 @@ export function PersonalDictionaryImportCard({
           ))}
         </div>
       )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="notice">
-          {notice}
-        </p>
-      )}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
+      {notice && <SettingsNotice role="status">{notice}</SettingsNotice>}
       {entries && (
         <ActionButton
           action={() => void importEntries()}

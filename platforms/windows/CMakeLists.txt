@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.25)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/common" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
 include("${CMAKE_CURRENT_SOURCE_DIR}/Edition.cmake")
+# vcpkg-style dependency prefixes ship a Release variant under bin/ and a Debug
+# variant under debug/bin/ for each imported target. This Client builds with
+# --config RelWithDebInfo, which carries no imported configuration of its own, so
+# without a mapping an imported DLL target such as CURL::libcurl resolves to its
+# Debug variant: the Server then imports libcurl-d.dll while
+# Copy-RuntimeDependencies.ps1 only stages the Release libcurl.dll from bin/, and
+# the Server fails to start on the missing DLL. Map the debug-info and
+# size-optimized configurations onto Release so the link matches the staged
+# Release runtime.
+set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release "")
+set(CMAKE_MAP_IMPORTED_CONFIG_MINSIZEREL Release "")
 # State the Windows this targets instead of taking whatever the toolchain
 # happens to default to. The code already requires 1703: per-monitor v2 DPI
 # awareness and ID2D1DeviceContext5 both arrive there, and the latter sits
@@ -694,6 +705,15 @@ else()
 endif()
 add_test(NAME windows-input-scheme-traits COMMAND windows-input-scheme-traits)
 set_tests_properties(windows-input-scheme-traits PROPERTIES TIMEOUT 10)
+# TIP 对 Engine 英文模式的镜像：吞下 Ctrl+Shift+E 时先翻转，等 Server 推送确认（common/DedicatedEnglishMirror.h）。
+add_executable(windows-dedicated-english-mirror tests/input/dedicated_english_mirror.cpp)
+if(MSVC)
+  target_compile_options(windows-dedicated-english-mirror PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-dedicated-english-mirror PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-dedicated-english-mirror COMMAND windows-dedicated-english-mirror)
+set_tests_properties(windows-dedicated-english-mirror PROPERTIES TIMEOUT 10)
 add_executable(windows-korean-keys tests/input/korean_keys.cpp)
 target_link_libraries(windows-korean-keys PRIVATE msime-windows-composer)
 if(MSVC)
@@ -712,6 +732,15 @@ else()
 endif()
 add_test(NAME windows-zhuyin-keys COMMAND windows-zhuyin-keys ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/zhuyin.db)
 set_tests_properties(windows-zhuyin-keys PROPERTIES TIMEOUT 30)
+add_executable(windows-stroke-keys tests/input/stroke_keys.cpp)
+target_link_libraries(windows-stroke-keys PRIVATE msime-windows-composer)
+if(MSVC)
+  target_compile_options(windows-stroke-keys PRIVATE /W4 /WX /UNDEBUG /utf-8)
+else()
+  target_compile_options(windows-stroke-keys PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+endif()
+add_test(NAME windows-stroke-keys COMMAND windows-stroke-keys ${CMAKE_CURRENT_SOURCE_DIR}/tests/input/fixtures/stroke.db)
+set_tests_properties(windows-stroke-keys PROPERTIES TIMEOUT 30)
 add_executable(windows-vietnamese-keys tests/input/vietnamese_keys.cpp)
 target_link_libraries(windows-vietnamese-keys PRIVATE msime-windows-composer)
 if(MSVC)

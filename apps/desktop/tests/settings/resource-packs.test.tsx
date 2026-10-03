@@ -97,7 +97,15 @@ function renderSettings(platform: string, resourcePacks?: ResourcePackClient, sn
         save,
         host: testHost({
           platform,
-          input_schemes: ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese"],
+          input_schemes: [
+            "quanpin",
+            "shuangpin",
+            "wubi",
+            "japanese",
+            "korean",
+            "cantonese",
+            "stroke",
+          ],
         }),
         resourcePacks,
       }}
@@ -149,14 +157,32 @@ test("picking 粤拼 downloads the language dictionaries and shows the progress"
     total: 18_900_000,
   });
   expect(await screen.findByText("下载中 50%")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "取消下载粤语与注音词库" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "取消下载粤语、注音与笔画词库" })).toBeTruthy();
 
   await packs.finish("language-dictionaries");
   await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "取消下载粤语与注音词库" })).toBeNull(),
+    expect(screen.queryByRole("button", { name: "取消下载粤语、注音与笔画词库" })).toBeNull(),
   );
   // 装好后重新读列表，行随之消失。
-  expect(screen.queryByRole("button", { name: "下载粤语与注音词库" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "下载粤语、注音与笔画词库" })).toBeNull();
+});
+
+test("picking 笔画 downloads the same language dictionaries pack", async () => {
+  const packs = fakePacks();
+  const save = renderSettings("macos", packs.client);
+  await settingsFormReady();
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+
+  fireEvent.click(within(schemeGroup()).getByRole("radio", { name: "笔画" }));
+  expect(packs.client.install).toHaveBeenCalledWith("language-dictionaries");
+  expect(await screen.findByRole("button", { name: "取消下载粤语、注音与笔画词库" })).toBeTruthy();
+  await saveSettingsNow();
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ scheme: "stroke", last_chinese_scheme: "stroke" }),
+    ),
+  );
 });
 
 test("a network failure shows the reason and a retry, and nothing retries by itself", async () => {

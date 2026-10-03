@@ -25,9 +25,10 @@ pub enum Scheme {
     Zhuyin,
     Vietnamese,
     Tibetan,
+    Stroke,
 }
 
-/// 代理可以切换到的方案。日文、韩文、粤拼、注音、越南文和藏文留给用户自己切换：日文、粤拼和注音需要各自的词库，宿主不一定装了；而且这几个方案都需要一条代理看不到的退路。
+/// 代理可以切换到的方案。日文、韩文、粤拼、注音、越南文、藏文和笔画留给用户自己切换：日文、粤拼、注音和笔画需要各自的词库，宿主不一定装了；而且这几个方案都需要一条代理看不到的退路。
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(rename_all = "snake_case")]
@@ -93,6 +94,7 @@ impl From<InputScheme> for Scheme {
             InputScheme::Zhuyin => Self::Zhuyin,
             InputScheme::Vietnamese => Self::Vietnamese,
             InputScheme::Tibetan => Self::Tibetan,
+            InputScheme::Stroke => Self::Stroke,
         }
     }
 }
@@ -545,6 +547,7 @@ mod tests {
             InputScheme::Zhuyin,
             InputScheme::Vietnamese,
             InputScheme::Tibetan,
+            InputScheme::Stroke,
         ] {
             same(json!(Scheme::from(scheme)), json!(scheme));
         }

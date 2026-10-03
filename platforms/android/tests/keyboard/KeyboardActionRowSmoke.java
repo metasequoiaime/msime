@@ -15,6 +15,8 @@ public final class KeyboardActionRowSmoke {
             "no globe when the host cannot switch input methods");
         check(!slots(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true).contains(Slot.PUNCTUATION),
             "the nine-key sidebar already carries punctuation");
+        check(!slots(KeyboardLayout.STROKE_LAYOUT, true).contains(Slot.PUNCTUATION),
+            "the stroke keypad's sidebar carries punctuation as nine-key's does");
         check(slots(KeyboardLayout.HANDWRITING_LAYOUT, true).contains(Slot.PUNCTUATION),
             "handwriting keeps the quick punctuation key");
         check(slots(KeyboardLayout.KOREAN_LAYOUT, true).equals(
@@ -22,7 +24,7 @@ public final class KeyboardActionRowSmoke {
             "the Korean keycaps sit over the standard rows and keep the standard action row");
         for (int layout : new int[] {KeyboardLayout.STANDARD_TOUCH_LAYOUT,
                 KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, KeyboardLayout.HANDWRITING_LAYOUT,
-                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT}) {
+                KeyboardLayout.KOREAN_LAYOUT, KeyboardLayout.ZHUYIN_LAYOUT, KeyboardLayout.STROKE_LAYOUT}) {
             List<Slot> slots = slots(layout, true);
             check(slots.contains(Slot.SPACE) && slots.contains(Slot.RETURN)
                 && slots.contains(Slot.LANGUAGE), "every action row commits, spaces and switches");
@@ -64,6 +66,14 @@ public final class KeyboardActionRowSmoke {
                 && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_LAYOUT, false)
                 && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.ZHUYIN_LAYOUT, true),
             "the Dachen rows carry delete but no case key: bopomofo has no case");
+        check(!KeyboardActionRow.rowsCarryDelete(KeyboardLayout.STROKE_LAYOUT, false)
+                && KeyboardActionRow.rowsCarryDelete(KeyboardLayout.STROKE_LAYOUT, true)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.STROKE_LAYOUT, false)
+                && !KeyboardActionRow.rowsCarryCase(KeyboardLayout.STROKE_LAYOUT, true),
+            "the stroke grid owns its delete key and hands its symbol layer to the letter rows, with no case key");
+        check(slots(KeyboardLayout.STROKE_LAYOUT, true).equals(
+                slots(KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT, true)),
+            "the stroke keypad keeps the nine-key action row");
         check(slots(KeyboardLayout.ZHUYIN_LAYOUT, true).equals(
                 slots(KeyboardLayout.STANDARD_TOUCH_LAYOUT, true)),
             "the Dachen rows keep the standard action row");
@@ -83,6 +93,9 @@ public final class KeyboardActionRowSmoke {
         check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, false))
                 && "注".equals(KeyboardActionRow.layerTitle(KeyboardLayout.ZHUYIN_LAYOUT, true)),
             "the Zhuyin digit page returns to the Dachen keycaps");
+        check("123".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, false))
+                && "笔".equals(KeyboardActionRow.layerTitle(KeyboardLayout.STROKE_LAYOUT, true)),
+            "the stroke digit page returns to the stroke keypad");
         check("切换到数字和符号".equals(KeyboardActionRow.layerDescription(false))
             && "切换到字母键盘".equals(KeyboardActionRow.layerDescription(true)),
             "layer key descriptions");

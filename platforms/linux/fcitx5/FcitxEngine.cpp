@@ -101,6 +101,7 @@
 #include <cctype>
 #include <mutex>
 #include <thread>
+#include <tuple>
 #include <ctime>
 #if __has_include(<fcitx/candidateaction.h>)
 #include <fcitx/candidateaction.h>
@@ -467,6 +468,8 @@ public:
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
     paired_tracker_.clear();
+    pending_caret_.clear();
+    caret_forward_event_.reset();
     session_fullwidth_ = false;
     japanese_conversion_.reset();
     backspace_hold_.reset();
@@ -578,6 +581,7 @@ public:
     case msime::linux_host::InputModeIndicator::Korean: return "한";
     case msime::linux_host::InputModeIndicator::Cantonese: return "粤";
     case msime::linux_host::InputModeIndicator::Zhuyin: return "注";
+    case msime::linux_host::InputModeIndicator::Stroke: return "笔";
     case msime::linux_host::InputModeIndicator::Vietnamese: return "越";
     case msime::linux_host::InputModeIndicator::Tibetan: return "藏";
     case msime::linux_host::InputModeIndicator::English: return "英";
@@ -623,10 +627,11 @@ public:
     return true;
   }
   // The schemes in the order of the view's scheme index, which is also the order the status action steps through them.
-  static constexpr std::array<const char *, 9> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean",
-                                                           "cantonese", "zhuyin", "vietnamese", "tibetan"};
+  static constexpr std::array<const char *, 10> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean",
+                                                            "cantonese", "zhuyin", "vietnamese", "tibetan",
+                                                            "stroke"};
   static_assert(kSchemes.size() == msime::linux_host::kInputSchemeIds.size());
-  // Whether a scheme can run with the runtime options this context last read: Cantonese and Zhuyin need their language dictionary (core/InputSchemes.h).
+  // Whether a scheme can run with the runtime options this context last read: Cantonese, Zhuyin and Stroke need their language dictionary (core/InputSchemes.h).
   bool schemeAvailable(const char *id) const {
     return msime::linux_host::input_scheme_available(id, scheme_dictionaries_);
   }
@@ -636,7 +641,7 @@ public:
         scheme_override_.value_or(preferences_.value("scheme", std::string("quanpin"))),
         preferences_.value("last_chinese_scheme", std::string("quanpin")), scheme_dictionaries_);
   }
-  // Works out from the runtime options just read which language dictionaries are installed, once per read rather than per key, and lists Cantonese and Zhuyin in the scheme menu only while theirs is.
+  // Works out from the runtime options just read which language dictionaries are installed, once per read rather than per key, and lists Cantonese, Zhuyin and Stroke in the scheme menu only while theirs is.
   void noteSchemeOptions(const Json &options) {
     scheme_dictionaries_ = msime::linux_host::language_dictionary_availability(options);
     refreshSchemeMenu();
@@ -2955,7 +2960,7 @@ public:
     }
     return handled;
   }
-  // The character right after the caret. std::nullopt when the host publishes nothing usable; an empty string when the document ends at the caret.
+  // 逻辑光标右侧的字符，计入尚未转发的左右移；宿主信息不可用时返回 nullopt，文档末尾返回空串。
   std::optional<std::string> followingCharacter() {
     const auto &surrounding = ic_.surroundingText();
     if (privateInput() || !ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) ||
@@ -2963,15 +2968,50 @@ public:
       return std::nullopt;
     const auto &text = surrounding.text();
     const auto length = fcitx::utf8::lengthValidated(text);
-    if (length == fcitx::utf8::INVALID_LENGTH || surrounding.cursor() > length)
+    auto cursor = static_cast<int64_t>(surrounding.cursor());
+    for (const auto sym : pending_caret_) cursor += sym == FcitxKey_Left ? -1 : 1;
+    if (length == fcitx::utf8::INVALID_LENGTH || cursor < 0 || static_cast<size_t>(cursor) > length)
       return std::nullopt;
-    if (surrounding.cursor() == length) return std::string{};
-    const auto start = fcitx::utf8::nextNChar(text.begin(), surrounding.cursor());
+    if (static_cast<size_t>(cursor) == length) return std::string{};
+    const auto start = fcitx::utf8::nextNChar(text.begin(), static_cast<size_t>(cursor));
     return std::string(start, fcitx::utf8::nextChar(start));
   }
+  std::optional<bool> caretShiftHeld() const;
   void forwardCaret(fcitx::KeySym sym) {
+    // Wayland 虚拟键盘沿用物理修饰状态；Shift 尚未松开时不能发送方向键，否则会选中文字。
+    if (std::string_view(ic_.frontend()).find("wayland") == 0 && caretShiftHeld().value_or(caret_shift_)) {
+      pending_caret_.push_back(sym);
+#ifdef MSIME_FCITX5_XKB_STATE_MASK
+      if (!caret_forward_event_) {
+        caret_forward_event_ = loop_->addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC), 0,
+            [this](fcitx::EventSourceTime *timer, uint64_t) {
+              if (!ic_.hasFocus() || restricted() || privateInput()) {
+                pending_caret_.clear();
+              } else if (const auto shift = caretShiftHeld()) {
+                if (*shift) {
+                  // 松开按键与 modifiers 更新会跨轮到达；只轮询状态，不按固定延时盲发。
+                  timer->setNextInterval(1000);
+                  timer->setOneShot();
+                } else {
+                  flushPendingCaret();
+                }
+              }
+              // 无可回读状态时停止轮询，交给下一次无 Shift 按键处理。
+              return true;
+            });
+      } else {
+        caret_forward_event_->setNextInterval(1000);
+      }
+      caret_forward_event_->setOneShot();
+#endif
+      return;
+    }
     ic_.forwardKey(fcitx::Key(sym), false);
     ic_.forwardKey(fcitx::Key(sym), true);
+  }
+  void flushPendingCaret() {
+    const auto pending = std::exchange(pending_caret_, {});
+    for (const auto sym : pending) forwardCaret(sym);
   }
   bool pairedPunctuationEnabled() const {
     return chinese_punctuation_ && paired_punctuation_ &&
@@ -3150,7 +3190,7 @@ public:
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     return apply(msime_client_reset_cache(session_));
   }
-  // 繁体输出转换只用于简体中文（`script_conversion_applies`）：日文（假名和 Engine 选的汉字）与韩文（谚文和用户选的汉字）原样通过，粤拼和注音本来就写繁体字，越南文和藏文不是中文。候选行、上屏和状态区动作都问这同一道关口，所以候选行显示的字永远就是它上屏的字（s2t 会把汉字 后 画成 後）。
+  // 繁体输出转换只用于简体中文（`script_conversion_applies`）：日文（假名和 Engine 选的汉字）与韩文（谚文和用户选的汉字）原样通过，粤拼和注音本来就写繁体字，笔画候选按 stroke.db 里存的字形原样取用，越南文和藏文不是中文。候选行、上屏和状态区动作都问这同一道关口，所以候选行显示的字永远就是它上屏的字（s2t 会把汉字 后 画成 後）。
   bool scriptConversionApplies() const {
     return msime::linux_host::scheme::ScriptConversionApplies(view_.value("scheme", 0));
   }
@@ -3298,7 +3338,7 @@ public:
   std::string dictionary_user_data_;
   std::string resources_;
   std::optional<std::string> scheme_override_;
-  // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese and Zhuyin can run (noteSchemeOptions).
+  // The language dictionaries the runtime options named when this context last read them, which decide whether Cantonese, Zhuyin and Stroke can run (noteSchemeOptions).
   msime::linux_host::LanguageDictionaryAvailability scheme_dictionaries_;
   bool caps_lock_ = false;
   std::string mode_indicator_label_;
@@ -3336,6 +3376,9 @@ public:
   // Ctrl+. pressed in English mode under the "follow" lock: English mode types Chinese punctuation until the next Chinese/English switch, as Windows does with its punctuation compartment on and the IME closed. Session-only and kept apart from chinese_punctuation_, which a preference refresh re-derives from the saved preference.
   bool english_chinese_punctuation_ = false;
   bool pair_inserted_ = false;
+  bool caret_shift_ = false;
+  std::vector<fcitx::KeySym> pending_caret_;
+  std::unique_ptr<fcitx::EventSourceTime> caret_forward_event_;
   // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
   msime::linux_host::JapaneseConversion japanese_conversion_;
   msime::linux_host::BackspaceHoldPolicy backspace_hold_;
@@ -3748,6 +3791,7 @@ public:
     case 6: return "输入方案：注音";
     case 7: return "输入方案：越南文";
     case 8: return "输入方案：藏文";
+    case 9: return "输入方案：笔画";
     default: return "输入方案：全拼";
     }
   }
@@ -5470,6 +5514,7 @@ public:
              {&scheme_korean_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-korean"},
              {&scheme_cantonese_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-cantonese"},
              {&scheme_zhuyin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-zhuyin"},
+             {&scheme_stroke_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-stroke"},
              {&scheme_vietnamese_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-vietnamese"},
              {&scheme_tibetan_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-tibetan"},
              {&input_group_action_, MSIME_EDITION_FCITX5_ADDON "-group-input"},
@@ -5479,9 +5524,9 @@ public:
              {&candidate_group_action_, MSIME_EDITION_FCITX5_ADDON "-group-candidate"},
              {&candidate_group_separator_, MSIME_EDITION_FCITX5_ADDON "-group-candidate-separator"}})
       action->registerAction(name, &instance->userInterfaceManager());
-    // 输入方案 lists the schemes rather than stepping through them on each click. Cantonese and Zhuyin join it once a context has read runtime options naming their dictionaries (rebuildSchemeMenu).
+    // 输入方案 lists the schemes rather than stepping through them on each click. Cantonese, Zhuyin and Stroke join it once a context has read runtime options naming their dictionaries (rebuildSchemeMenu).
     scheme_action_.setMenu(&scheme_menu_);
-    rebuildSchemeMenu(nullptr, false, false);
+    rebuildSchemeMenu(nullptr, false, false, false);
     // The design menu keeps 中文/英文, 全角/标点/译文, 输入方案 and 主题/词库…/设置…/关于 at the top; every other switch the status area listed moves, as the same action, into one of three groups.
     input_group_action_.setMenu(&input_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
@@ -5817,6 +5862,8 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->backspace_hold_.reset();
     state->toggle_chord_held_ = FcitxKey_None;
+    state->pending_caret_.clear();
+    state->caret_forward_event_.reset();
     // 为不支持预编辑的客户端画在面板里的韩文音节、注音转换、越南文单词或藏文音节串只存在于这里，所以重置时把它写出去，而不是丢掉用户已经打的字（失焦时的同一规则见 focus_watch_）。
     const bool koreanPanelSyllable =
         state->session_ && state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty() &&
@@ -5915,9 +5962,10 @@ public:
   FcitxSchemeItemAction scheme_zhuyin_action_{&factory_, 6, "注音"};
   FcitxSchemeItemAction scheme_vietnamese_action_{&factory_, 7, "越南文"};
   FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};
-  // The entries scheme_menu_ holds, in menu order, and whether Cantonese and Zhuyin were among them when it was last built.
+  FcitxSchemeItemAction scheme_stroke_action_{&factory_, 9, "笔画"};
+  // The entries scheme_menu_ holds, in menu order, and whether Cantonese, Zhuyin and Stroke were among them when it was last built.
   std::vector<fcitx::Action *> scheme_menu_entries_;
-  std::optional<std::pair<bool, bool>> scheme_menu_languages_;
+  std::optional<std::tuple<bool, bool, bool>> scheme_menu_languages_;
   FcitxShuangpinProfileAction shuangpin_profile_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
@@ -5981,7 +6029,7 @@ public:
   std::vector<std::unique_ptr<FcitxGlobalThemeItemAction>> global_theme_package_items_;
   std::vector<std::pair<std::string, std::string>> global_theme_packages_;
   void rebuildThemeMenu(fcitx::InputContext *ic);
-  void rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin);
+  void rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin, bool stroke);
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
@@ -6104,7 +6152,8 @@ void FcitxState::refreshThemeMenu() {
 }
 
 void FcitxState::refreshSchemeMenu() {
-  if (engine_) engine_->rebuildSchemeMenu(&ic_, schemeAvailable("cantonese"), schemeAvailable("zhuyin"));
+  if (engine_) engine_->rebuildSchemeMenu(&ic_, schemeAvailable("cantonese"), schemeAvailable("zhuyin"),
+                                          schemeAvailable("stroke"));
 }
 
 void FcitxState::refreshToolbar() {
@@ -6254,10 +6303,29 @@ void FcitxState::showInputModeHud() {
 #endif
 }
 
+std::optional<bool> FcitxState::caretShiftHeld() const {
+#ifdef MSIME_FCITX5_XKB_STATE_MASK
+  if (const auto mask = engine_->instance()->xkbStateMask(ic_.display())) {
+    const auto [depressed, latched, locked] = *mask;
+    // XKB 核心修饰位的 Shift 与 Fcitx 的 ShiftMask 均为最低位；锁定及粘滞 Shift 也须等待。
+    return ((depressed | latched | locked) & static_cast<uint32_t>(fcitx::KeyState::Shift)) != 0;
+  }
+#endif
+  // debt: 老版 Fcitx5 无法回读修饰状态，等下一次无 Shift 的按键再回移；升级至 5.1.22 后可即时回移。
+  return std::nullopt;
+}
+
 bool FcitxState::key(fcitx::KeyEvent &event) {
   const auto &key = event.key();
   const auto sym = key.sym();
   const auto states = key.states();
+  // 规范化后的符号可能已丢掉 Shift 位，光标转发必须按原始事件判断。
+  caret_shift_ = event.rawKey().states().test(fcitx::KeyState::Shift);
+  if (!caret_shift_ && !isShiftKey(event)) {
+    // 下一按键可能与松开事件同批到达；先回移，再处理输入，避免文字落在闭标点外。
+    caret_forward_event_.reset();
+    flushPendingCaret();
+  }
   if (sym == FcitxKey_BackSpace && event.isRelease()) {
     const bool owned = backspace_hold_.armed();
     backspace_hold_.release();
@@ -7003,21 +7071,22 @@ void FcitxEngine::rebuildThemeMenu(fcitx::InputContext *ic) {
 }
 
 // The scheme menu is shared by every context, so it follows the runtime options the last context read, as the theme menu does. The Chinese schemes come first and the other input languages after them, as in the IBus menu; nothing is rebuilt while the languages stay the same, so an entry is never replaced under a menu that shows it.
-void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin) {
-  const std::pair languages{cantonese, zhuyin};
+void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, bool zhuyin, bool stroke) {
+  const std::tuple languages{cantonese, zhuyin, stroke};
   if (scheme_menu_languages_ == languages) return;
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
   scheme_menu_entries_.clear();
-  scheme_menu_entries_.reserve(9);
-  // 只列本版本提供的方案（版本表的 input_schemes）：不提供的方案选了也会被 selectScheme 拒绝。粤拼与注音另外要有词库，cantonese 与 zhuyin 已经算上了版本。
+  scheme_menu_entries_.reserve(10);
+  // 只列本版本提供的方案（版本表的 input_schemes）：不提供的方案选了也会被 selectScheme 拒绝。粤拼、注音与笔画另外要有词库，cantonese、zhuyin 与 stroke 已经算上了版本。
   for (const auto &[id, action] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
            {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
            {"wubi", &scheme_wubi_action_}, {"cantonese", &scheme_cantonese_action_},
-           {"zhuyin", &scheme_zhuyin_action_}, {"japanese", &scheme_japanese_action_},
-           {"korean", &scheme_korean_action_}, {"vietnamese", &scheme_vietnamese_action_},
-           {"tibetan", &scheme_tibetan_action_}}) {
+           {"zhuyin", &scheme_zhuyin_action_}, {"stroke", &scheme_stroke_action_},
+           {"japanese", &scheme_japanese_action_}, {"korean", &scheme_korean_action_},
+           {"vietnamese", &scheme_vietnamese_action_}, {"tibetan", &scheme_tibetan_action_}}) {
     const bool offered = id == "cantonese" ? cantonese
                          : id == "zhuyin"  ? zhuyin
+                         : id == "stroke"  ? stroke
                                            : msime::linux_host::edition_offers_scheme(id);
     if (offered) scheme_menu_entries_.push_back(action);
   }

@@ -4,6 +4,7 @@ import {
   cantoneseInputSchemeOptions,
   japaneseInputSchemeOptions,
   koreanInputSchemeOptions,
+  strokeLayoutOptions,
   tibetanInputSchemeOptions,
   vietnameseInputMethodOptions,
   vietnameseToneStyleOptions,
@@ -58,6 +59,8 @@ export interface InputSchemeDetailsSectionProps {
 const cantoneseDescription = "按不带声调的粤拼输入，用 ' 分隔音节，数字键选词，候选为繁体字词";
 const zhuyinDescription =
   "按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词";
+const strokeDescription =
+  "按 h s p n z 依次输入横、竖、撇、点、折，x 代替不确定的一笔，数字键选词，候选为笔顺以此开头的单字";
 const vietnameseDescription = "Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键";
 const tibetanDescription =
   "按 EWTS 威利转写输入，区分大小写；空格加音节点 ་ 上屏，/ 加垂符 ། 上屏，回车只上屏藏文，Esc 恢复原始按键";
@@ -78,7 +81,7 @@ export function InputSchemeDetailsSection({
   vietnamese,
   onVietnameseChange,
 }: InputSchemeDetailsSectionProps) {
-  // 双拼方案和五笔方案只涉及拼音和五笔；粤拼、注音、越南文和藏文各有自己的行。
+  // 双拼方案和五笔方案只涉及拼音和五笔；粤拼、注音、越南文、藏文和笔画各有自己的行。
   const hideChineseSchemeOptions =
     hasTouchKeyboardSchemes ||
     scheme === "japanese" ||
@@ -86,7 +89,8 @@ export function InputSchemeDetailsSection({
     scheme === "cantonese" ||
     scheme === "zhuyin" ||
     scheme === "vietnamese" ||
-    scheme === "tibetan";
+    scheme === "tibetan" ||
+    scheme === "stroke";
   const inputMethod = vietnamese?.input_method ?? "telex";
   const toneStyle = vietnamese?.tone_style ?? "modern";
   const changeVietnamese = (patch: VietnamesePreferences) =>
@@ -152,6 +156,14 @@ export function InputSchemeDetailsSection({
         hidden={hasTouchKeyboardSchemes || scheme !== "zhuyin"}
         options={zhuyinLayoutOptions}
         value="dachen"
+        onChange={() => {}}
+      />
+      <SegmentedRow
+        title="笔画方案"
+        description={strokeDescription}
+        hidden={hasTouchKeyboardSchemes || scheme !== "stroke"}
+        options={strokeLayoutOptions}
+        value="hspnz"
         onChange={() => {}}
       />
       <SegmentedRow

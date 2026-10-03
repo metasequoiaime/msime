@@ -216,9 +216,10 @@ target_link_libraries(msime-linux-emoji PRIVATE msime-ibus-host)
 add_executable(ibus-engine-smoke tests/runtime/engine_smoke.cpp)
 target_compile_options(ibus-engine-smoke PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ibus-engine-smoke PRIVATE msime-ibus-host)
-# The Zhuyin cases install this dictionary into a directory of their own; the locked resources carry none.
+# The Zhuyin and Stroke cases install these dictionaries into a directory of their own; the locked resources carry none.
 target_compile_definitions(ibus-engine-smoke PRIVATE
-  MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py")
+  MSIME_ZHUYIN_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/zhuyin_dictionary.py"
+  MSIME_STROKE_DICTIONARY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime/stroke_dictionary.py")
 if(BUILD_TESTING AND MSIME_ENGINE_RESOURCES)
   add_test(NAME ibus-page-number-visibility
     COMMAND ibus-engine-smoke "${MSIME_ENGINE_RESOURCES}" --page-number)
@@ -699,10 +700,10 @@ if(MSIME_OFFLINE_GLOSSES)
   install(FILES ${MSIME_OFFLINE_GLOSS_FILES} "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/offline-glosses")
 endif()
-# The Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), installed as the `language-dictionaries` sibling of the resource bundle for the same reason as the settled model: the resource directory must match the dictionary lock exactly. msime_client_refresh_host names the directory in the runtime options when the host starts, and a scheme whose dictionary is missing is shown as unavailable and falls back. Optional, picked up from target/language-dictionaries when present; each dictionary is installed only with its licence text, which must travel with the data. MSIME_REQUIRE_LANGUAGE_DICTIONARIES makes a package fail instead of shipping without either of them.
-set(MSIME_LANGUAGE_DICTIONARIES "" CACHE PATH "Cantonese and Zhuyin dictionaries with their licences, e.g. target/language-dictionaries")
-option(MSIME_REQUIRE_LANGUAGE_DICTIONARIES "Fail unless cantonese.db and zhuyin.db are both installed" OFF)
-# 不用粤语和注音的版本（版本表的 language_dictionaries 为空）不装这两份词库，也不从暂存目录捡。
+# The Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), installed as the `language-dictionaries` sibling of the resource bundle for the same reason as the settled model: the resource directory must match the dictionary lock exactly. msime_client_refresh_host names the directory in the runtime options when the host starts, and a scheme whose dictionary is missing is shown as unavailable and falls back. Optional, picked up from target/language-dictionaries when present; each dictionary is installed only with its licence text, which must travel with the data. MSIME_REQUIRE_LANGUAGE_DICTIONARIES makes a package fail instead of shipping without any dictionary the lock pins.
+set(MSIME_LANGUAGE_DICTIONARIES "" CACHE PATH "Cantonese, Zhuyin and Stroke dictionaries with their licences, e.g. target/language-dictionaries")
+option(MSIME_REQUIRE_LANGUAGE_DICTIONARIES "Fail unless every dictionary resources/language-dictionaries.lock.json pins is installed" OFF)
+# 不用粤语、注音和笔画的版本（版本表的 language_dictionaries 为空）不装这些词库，也不从暂存目录捡。
 if(NOT MSIME_EDITION_LANGUAGE_DICTIONARIES)
   set(MSIME_LANGUAGE_DICTIONARIES "")
 elseif(NOT MSIME_LANGUAGE_DICTIONARIES AND
@@ -712,11 +713,13 @@ elseif(NOT MSIME_LANGUAGE_DICTIONARIES AND
   message(STATUS "Using language dictionary staging directory: ${MSIME_LANGUAGE_DICTIONARIES}")
 endif()
 set(MSIME_LANGUAGE_DICTIONARY_COUNT 0)
+set(MSIME_LANGUAGE_DICTIONARIES_INSTALLED)
 if(MSIME_LANGUAGE_DICTIONARIES)
   if(NOT IS_DIRECTORY "${MSIME_LANGUAGE_DICTIONARIES}")
     message(FATAL_ERROR "MSIME_LANGUAGE_DICTIONARIES is not a directory: ${MSIME_LANGUAGE_DICTIONARIES}")
   endif()
-  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt")
+  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt"
+          "stroke.db:rime_stroke_LICENSE.txt")
     string(REPLACE ":" ";" MSIME_LANGUAGE_PAIR "${MSIME_LANGUAGE_PAIR}")
     list(GET MSIME_LANGUAGE_PAIR 0 MSIME_LANGUAGE_DATABASE)
     list(GET MSIME_LANGUAGE_PAIR 1 MSIME_LANGUAGE_LICENSE)
@@ -730,13 +733,38 @@ if(MSIME_LANGUAGE_DICTIONARIES)
     install(FILES "${MSIME_LANGUAGE_DATABASE_FILE}" "${MSIME_LANGUAGE_DICTIONARIES}/${MSIME_LANGUAGE_LICENSE}"
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/language-dictionaries")
     math(EXPR MSIME_LANGUAGE_DICTIONARY_COUNT "${MSIME_LANGUAGE_DICTIONARY_COUNT} + 1")
+    list(APPEND MSIME_LANGUAGE_DICTIONARIES_INSTALLED "${MSIME_LANGUAGE_DATABASE}")
   endforeach()
 endif()
 if(MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 0)
-  message(STATUS "No language dictionaries; Cantonese and Zhuyin stay unavailable")
+  message(STATUS "No language dictionaries; Cantonese, Zhuyin and Stroke stay unavailable")
 endif()
-if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES AND NOT MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 2)
-  message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but cantonese.db and zhuyin.db were not both found in '${MSIME_LANGUAGE_DICTIONARIES}'")
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is installed when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES)
+  set(MSIME_LANGUAGE_DICTIONARIES_LOCK "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/language-dictionaries.lock.json")
+  if(NOT EXISTS "${MSIME_LANGUAGE_DICTIONARIES_LOCK}")
+    message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DICTIONARIES_LOCK} does not exist")
+  endif()
+  file(READ "${MSIME_LANGUAGE_DICTIONARIES_LOCK}" MSIME_LANGUAGE_LOCK_JSON)
+  string(JSON MSIME_LANGUAGE_LOCK_LENGTH LENGTH "${MSIME_LANGUAGE_LOCK_JSON}" artifacts)
+  set(MSIME_LANGUAGE_DICTIONARIES_PINNED)
+  if(MSIME_LANGUAGE_LOCK_LENGTH GREATER 0)
+    math(EXPR MSIME_LANGUAGE_LOCK_LAST "${MSIME_LANGUAGE_LOCK_LENGTH} - 1")
+    foreach(MSIME_LANGUAGE_LOCK_INDEX RANGE ${MSIME_LANGUAGE_LOCK_LAST})
+      string(JSON MSIME_LANGUAGE_LOCK_NAME GET "${MSIME_LANGUAGE_LOCK_JSON}" artifacts ${MSIME_LANGUAGE_LOCK_INDEX} name)
+      if(MSIME_LANGUAGE_LOCK_NAME MATCHES "\\.db$")
+        list(APPEND MSIME_LANGUAGE_DICTIONARIES_PINNED "${MSIME_LANGUAGE_LOCK_NAME}")
+      endif()
+    endforeach()
+  endif()
+  if(NOT MSIME_LANGUAGE_DICTIONARIES_PINNED)
+    message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DICTIONARIES_LOCK} pins no dictionary")
+  endif()
+  foreach(MSIME_LANGUAGE_DATABASE IN LISTS MSIME_LANGUAGE_DICTIONARIES_PINNED)
+    if(NOT MSIME_LANGUAGE_DATABASE IN_LIST MSIME_LANGUAGE_DICTIONARIES_INSTALLED)
+      message(FATAL_ERROR "MSIME_REQUIRE_LANGUAGE_DICTIONARIES is ON but ${MSIME_LANGUAGE_DATABASE}, pinned by resources/language-dictionaries.lock.json, was not found in '${MSIME_LANGUAGE_DICTIONARIES}'")
+    endif()
+  endforeach()
 endif()
 if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")
@@ -901,7 +929,7 @@ if(NOT MSIME_ENABLE_FCITX5)
   message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
                  "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
 endif()
-# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS); it also covers the input engine (crates/engine), which is this project's code. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), whose notices travel with every engine build even where those schemes are not offered; the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
+# License and third-party notices, the Linux counterpart of the macOS bundle's Resources/Licenses. Every install redistributes the code compiled into the host library, so plain `cmake --install` gets them as well, not only packages. The project license is `copyright` here (GPL-3.0.txt on macOS); it also covers the input engine (crates/engine), which is this project's code. What the engine carries from elsewhere keeps its own notice: zinnia, whose recognizer crates/engine/src/handwriting ports; the place names `@` mode offers, from modood/Administrative-divisions-of-China (WTFPL); the Korean Hanja table, from libhangul's data/hanja/hanja.txt (BSD-3-Clause); the Jyutping and bopomofo data of the Cantonese and Zhuyin schemes, from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the stroke orders of the Stroke scheme, from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered; the provenance of the dictionary data msime-linux-setup downloads, carried verbatim from msime-engine as resources/licenses/msime-engine-dictionary-NOTICE.md, the copy every platform ships; and the provenance of the helpcode tables installed into the packaged resource directory: the five the Engine brought (ENGINE-NOTICE.md) and jiajia (NOTICE.md).
 set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/data/THIRD_PARTY_NOTICES.txt"
@@ -914,6 +942,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-core/data/opencc/LICENSE")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
@@ -928,6 +957,7 @@ set(MSIME_NOTICE_NAMES
   rime-cantonese-CC-BY-4.0.txt
   libchewing-data-LGPL-2.1.txt
   ewts-MIT.txt
+  rime-stroke-LGPL-3.0.txt
   OpenCC-Apache-2.0.txt)
 # The handwriting model's LGPL-2.1 license travels with the model, so it is a notice only when the model is installed.
 if(MSIME_HANDWRITING_MODEL_DIR)

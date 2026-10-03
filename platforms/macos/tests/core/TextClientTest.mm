@@ -527,6 +527,13 @@ int main() {
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihon", @"reading": @"にほん",
                                           @"caret_position": @2}}, client);
         assert([client.markedString isEqual:@"nihon"] && client.selection.location == 2);
+        // 笔画走同一条 reading 路径：editing_text 是键入的 hspnzx 字母，reading 与 preedit 是笔画字形，两种内嵌样式都画字形，光标落在末尾。
+        for (NSNumber *style in @[@(MSIMEInlinePreeditStylePinyin), @(MSIMEInlinePreeditStyleRaw)]) {
+            MSIMEApplyTransitionWithPendingClosing(
+                @{@"view": @{@"scheme": @9, @"editing_text": @"hspx", @"preedit": @"一丨丿＊", @"reading": @"一丨丿＊", @"caret_position": @4}},
+                client, (MSIMEInlinePreeditStyle)style.integerValue, nil);
+            assert([client.markedString isEqual:@"一丨丿＊"] && client.selection.location == 4);
+        }
         // Every other scheme is untouched: an empty reading is what they all carry.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihao", @"reading": @"",
                                           @"caret_position": @5}}, client);

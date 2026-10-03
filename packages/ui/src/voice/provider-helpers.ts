@@ -19,6 +19,23 @@ export function fillIfDefault(
   return next;
 }
 
+/** Fill provider endpoint and model fields when they are still shipped defaults or blank. */
+export function fillProviderDefaults(
+  currentEndpoint: string | undefined,
+  currentModel: string | undefined,
+  nextEndpoint: string,
+  nextModel: string,
+  knownEndpoints: string[],
+  knownModels: string[],
+): { endpoint?: string; model?: string } {
+  const endpoint = fillIfDefault(currentEndpoint, nextEndpoint, knownEndpoints);
+  const model = fillIfDefault(currentModel, nextModel, knownModels);
+  return {
+    ...(endpoint === undefined ? {} : { endpoint }),
+    ...(model === undefined ? {} : { model }),
+  };
+}
+
 export function swapTokenSlot(
   from: string,
   to: string,

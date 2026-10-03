@@ -191,8 +191,10 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音会下载对应的语言词库，所以即便还没下载，这两个方案也保持可选。
-    if !cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
+    if cfg!(target_os = "macos") {
+        drop_unpinned_language_schemes(&mut capabilities);
+    } else {
         drop_uninstalled_language_schemes(
             &mut capabilities,
             host_options.as_ref(),
@@ -222,7 +224,7 @@ pub(crate) fn host_edition(
     }
 }
 
-/// Cantonese and Zhuyin each read a dictionary the package installs beside the Engine resources, which the HostOptions document names in `language_dictionaries` only when one is there. Without its dictionary host-api falls back from the scheme, so the page shows it unavailable instead of offering a choice that never takes effect. Every other scheme needs nothing beyond the resources.
+/// Cantonese, Zhuyin and Stroke each read a dictionary the package installs beside the Engine resources, which the HostOptions document names in `language_dictionaries` only when one is there. Without its dictionary host-api falls back from the scheme, so the page shows it unavailable instead of offering a choice that never takes effect. Every other scheme needs nothing beyond the resources.
 ///
 /// `beside_resources` is for Windows, whose `runtime-options.json` is written once at first run and never refreshed: the Server and the TIP each find the dictionaries beside the resources in memory, so a document without the key still means the `language-dictionaries` directory next to its absolute `resources`.
 fn drop_uninstalled_language_schemes(
@@ -254,11 +256,28 @@ fn drop_uninstalled_language_schemes(
         let dictionary = match scheme {
             InputScheme::Cantonese => "cantonese.db",
             InputScheme::Zhuyin => "zhuyin.db",
+            InputScheme::Stroke => "stroke.db",
             _ => return true,
         };
         directory
             .as_deref()
             .is_some_and(|directory| directory.join(dictionary).is_file())
+    });
+}
+
+/// macOS 按需下载语言词库包：包里没有某方案的词库（锁文件还没固定它）时，选了它 host-api 也只会退回别的方案，所以设置页不列出它。
+fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
+    use msime_client_core::preferences::InputScheme;
+    use msime_client_core::resource_packs::ResourcePack;
+    let pinned = ResourcePack::LanguageDictionaries.schemes();
+    capabilities.input_schemes.retain(|scheme| {
+        let name = match scheme {
+            InputScheme::Cantonese => "cantonese",
+            InputScheme::Zhuyin => "zhuyin",
+            InputScheme::Stroke => "stroke",
+            _ => return true,
+        };
+        pinned.contains(&name)
     });
 }
 
@@ -4337,11 +4356,7 @@ fn external_url_is_safe(url: &str) -> bool {
     url.len() <= 4096
         && msime_client_core::is_bounded_text(url, 4096)
         && !url.bytes().any(|byte| {
-            byte <= b' '
-                || matches!(
-                    byte,
-                    b'"' | b'\'' | b'`' | b'&' | b'|' | b'<' | b'>' | b'\\'
-                )
+            byte <= b' ' || matches!(byte, b'"' | b'\'' | b'`' | b'|' | b'<' | b'>' | b'\\')
         })
         && url
             .strip_prefix("https://")
@@ -4393,7 +4408,7 @@ fn open_external_url_blocking(url: &str) -> Result<(), HostActionError> {
     launch_external_url(url)
 }
 
-/// Hands an https URL the caller has already validated to the default browser. None of the launch paths goes through a shell (`open` and `xdg-open` receive it as one argument, Windows uses ShellExecuteW), which is what lets the Google sign-in pass an authorization URL with `&`-separated query parameters that `external_url_is_safe` refuses for page-supplied links.
+/// Hands an https URL the caller has already validated to the default browser. None of the launch paths goes through a shell (`open` and `xdg-open` receive it as one argument, Windows uses ShellExecuteW), so encoded query parameters such as the feedback form's `&`-separated title and body are safe to pass through.
 #[cfg(not(target_os = "android"))]
 fn launch_external_url(url: &str) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]
@@ -4518,7 +4533,7 @@ fn ios_host_options_document(
                 "resources": resources.to_string_lossy(),
                 "state_root": state_root.to_string_lossy(),
             });
-            // The Cantonese and Zhuyin dictionaries are bundled beside EngineResources; naming them here is what lets host-api run those schemes and the page offer them.
+            // The Cantonese, Zhuyin and Stroke dictionaries are bundled beside EngineResources; naming them here is what lets host-api run those schemes and the page offer them.
             if let Some(directory) = msime_host_api::installed_language_dictionaries(resources) {
                 document["language_dictionaries"] = Value::String(directory);
             }

@@ -1,4 +1,5 @@
 import { ActionButton } from "../core/action-button";
+import { StatusMessage } from "../core/status-message";
 
 export function SettingsStartupPage({ onClose }: { onClose?: () => void }) {
   return (
@@ -10,7 +11,7 @@ export function SettingsStartupPage({ onClose }: { onClose?: () => void }) {
         <i />
       </div>
       <h1>正在打开设置</h1>
-      <p role="status">冷启动可能需要稍等片刻</p>
+      <StatusMessage role="status">冷启动可能需要稍等片刻</StatusMessage>
       {onClose && (
         <ActionButton
           action={onClose}

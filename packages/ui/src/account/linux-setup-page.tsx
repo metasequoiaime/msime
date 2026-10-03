@@ -47,12 +47,12 @@ export function LinuxSetupPage({
   const log = useRef<HTMLPreElement>(null);
   const mounted = useRef(true);
   const actionRunning = useRef(false);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   const directory = status.stateDirectory ?? "~/.config/msime-client";
   const blocked = !status.setupAvailable
     ? linuxSetupFailureMessage({ code: "setup_unavailable" })

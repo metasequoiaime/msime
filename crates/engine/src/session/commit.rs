@@ -122,6 +122,14 @@ impl InputSession {
             self.chain.reset();
             return KeyResult::committed(selected.word);
         }
+        // 笔画的提交不学习：候选来自只读的 `stroke.db`，键是笔画字母，任何学习路径都会把它当拼音写进用户词典。选中的字结束整个组合；没有候选时上屏键入的字母串，与 Enter 相同。
+        if self.stroke_rules_apply() {
+            let text =
+                selected.map_or_else(|| self.engine.request().raw_input.clone(), |item| item.word);
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
         // 藏文提交的是显示出来的藏文（不附加音节点），同样不学习。
         if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
         {

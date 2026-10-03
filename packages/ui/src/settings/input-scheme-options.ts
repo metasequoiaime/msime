@@ -14,6 +14,7 @@ export const chineseInputSchemeOptions = [
   { value: "wubi", label: "五笔" },
   { value: "cantonese", label: "粤拼" },
   { value: "zhuyin", label: "注音" },
+  { value: "stroke", label: "笔画" },
 ] as const satisfies readonly { value: ChineseInputScheme; label: string }[];
 
 export const japaneseInputSchemeOptions = [{ value: "romaji", label: "罗马音" }] as const;
@@ -23,6 +24,8 @@ export const koreanInputSchemeOptions = [{ value: "dubeolsik", label: "两套式
 export const cantoneseInputSchemeOptions = [{ value: "jyutping", label: "粤拼" }] as const;
 
 export const zhuyinLayoutOptions = [{ value: "dachen", label: "大千" }] as const;
+
+export const strokeLayoutOptions = [{ value: "hspnz", label: "横竖撇点折" }] as const;
 
 export const vietnameseInputMethodOptions = [
   { value: "telex", label: "Telex" },
@@ -65,6 +68,7 @@ const knownInputSchemes: readonly InputScheme[] = [
   "zhuyin",
   "vietnamese",
   "tibetan",
+  "stroke",
 ];
 
 /** The schemes the host offers, or `baseInputSchemes` without a host. A value the page has no label for is dropped rather than shown as an unlabelled option. */

@@ -196,6 +196,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-h
 # The Cantonese and Zhuyin schemes, whose syllables and words come from the dictionaries in language-dictionaries/ (when installed), built from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-cantonese-CC-BY-4.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt" "${MSIME_LEGAL_DIRECTORY}/libchewing-data-LGPL-2.1.txt" COPYONLY)
+# The Stroke scheme, whose stroke orders come from stroke.db in language-dictionaries/ (when installed), built from rime-stroke (LGPL-3.0, which requires the licence text and a source pointer; its main table also carries the CNS11643 attribution).
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-stroke-LGPL-3.0.txt" COPYONLY)
 # The vi crate the engine links for Vietnamese Telex and VNI; MIT requires its copyright and permission notice in every copy, and macOS is where the Vietnamese scheme ships.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/vi-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/vi-MIT.txt" COPYONLY)
 # 引擎为藏文方案链接的 ewts crate（EWTS 威利转写转藏文）；它以 MIT OR Apache-2.0 双许可发布，这里选 MIT，MIT 要求每份副本都带上版权和许可声明。
@@ -217,7 +219,7 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "${MSIME_INP
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-# 输入菜单自己的图标，是模板 TIFF 而不是应用图标：bundle 的标志（切换 HUD 也显示它），以及十个输入模式各自的大字图标。标志为什么不能和应用图标是同一个文件，见 Info.plist.in 里 tsInputMethodIconFileKey 旁的注释。
+# 输入菜单自己的图标，是模板 TIFF 而不是应用图标：bundle 的标志（切换 HUD 也显示它），以及十一个输入模式各自的大字图标。标志为什么不能和应用图标是同一个文件，见 Info.plist.in 里 tsInputMethodIconFileKey 旁的注释。
 set(MSIME_MENU_ICON_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconChinese.tiff"
@@ -229,6 +231,7 @@ set(MSIME_MENU_ICON_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconKorean.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconVietnamese.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconTibetan.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconStroke.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconEnglish.tiff")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_MENU_ICON_RESOURCES})
 set_source_files_properties(${MSIME_MENU_ICON_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)

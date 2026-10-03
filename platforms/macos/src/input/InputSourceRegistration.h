@@ -29,7 +29,7 @@ NSArray<NSString *> *MSIMEEnableNewInputModes(NSString *bundleIdentifier, NSArra
                                               MSIMEInputSourcePropertyGetter propertyGetter,
                                               MSIMEInputSourceEnabler enabler,
                                               MSIMEInputSourceEnabler disabler);
-/// 启用这个标识符对应的已安装输入源，不论它当前是否启用。用户选中粤拼、注音、越南文或藏文时就靠它打开对应的按需模式，用户不必去系统设置「添加」对话框的「粤语」「繁体中文」「越南语」或「藏语」下面找。
+/// 启用这个标识符对应的已安装输入源，不论它当前是否启用。用户选中粤拼、注音、越南文、藏文或笔画时就靠它打开对应的按需模式，用户不必去系统设置「添加」对话框的「粤语」「繁体中文」「越南语」「藏语」或「简体中文」下面找。
 OSStatus MSIMEEnableInputMode(NSString *identifier, MSIMEInputSourceLister lister, MSIMEInputSourceEnabler enabler);
 /// Whether the input source with this identifier is enabled, so the system can select it.
 BOOL MSIMEInputSourceIsEnabled(NSString *identifier);

@@ -18,6 +18,7 @@ constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
 constexpr int Tibetan = 8;
+constexpr int Stroke = 9;
 
 // ---- Host-only traits ----
 
@@ -43,19 +44,36 @@ constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese || sc
 // A choice from the list fixes one reading and keeps the conversion composing in the TIP's own host session, which a row picked or a page turned by the mouse in the Server's candidate window would leave behind, so the list is driven from the keyboard only. A Korean Hanja click ends the syllable on both sides and stays clickable.
 constexpr bool KeyboardOnlyCandidateList(int scheme) { return scheme == Zhuyin; }
 
+// Stroke's five stroke keys, the Engine's STROKES (crates/engine/src/stroke/mod.rs): h 横, s 竖, p 撇, n 点, z 折. Only they start a composition; the wildcard x only extends one.
+inline constexpr std::string_view kStrokeKeys = "hspnz";
+inline constexpr wchar_t kStrokeWildcard = L'x';
+
+// A letter the TIP would otherwise take into a composition that, with nothing composing, belongs to the application: under Stroke every letter but the five lowercase strokes (the wildcard x, the other letters, a capital) is one the Engine answers handled=false for, so the application inserts it. While composing the TIP takes every letter, and the Engine swallows the ones that are not strokes on both sides alike. In the Engine's own English mode (`dedicated_english`, which the Server sends as DedicatedEnglishChanged because the TIP still reports Chinese there) the Engine checks that mode before the scheme and composes every letter as English, so none passes.
+constexpr bool LetterPassesWhileIdle(int scheme, bool dedicatedEnglish, wchar_t wch)
+{
+    if (scheme != Stroke || dedicatedEnglish)
+        return false;
+    const bool letter = (wch >= L'a' && wch <= L'z') || (wch >= L'A' && wch <= L'Z');
+    return letter && (wch > 0x7F || kStrokeKeys.find(static_cast<char>(wch)) == std::string_view::npos);
+}
+
+// A composing apostrophe is ordinary punctuation rather than the pinyin syllable separator the TIP and the Server otherwise take as composition input: the Engine refuses it under Stroke (`accepts_apostrophe` is false there), so as composition input it would be dropped, while as punctuation it commits the highlighted row followed by the mark, as on Linux and macOS. Only Stroke, of the schemes that key through the Server's candidate window: Wubi refuses it too, but the TIP keys Wubi as quanpin (mode_scheme) and cannot tell the two apart.
+constexpr bool ApostropheIsPunctuationWhileComposing(int scheme) { return scheme == Stroke; }
+
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `is_chinese`: a Chinese scheme, the kind `last_chinese_scheme` remembers and the Chinese mode returns to.
 constexpr bool IsChinese(int scheme)
 {
-    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin;
+    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin ||
+           scheme == Stroke;
 }
 
-// `script_conversion_applies`: commits are Simplified and the Traditional output switch converts them. Cantonese and Zhuyin write Traditional as stored, so converting them again would be wrong; the view's own `script_conversion` also turns off in the Unicode and temporary Japanese modes.
+// `script_conversion_applies`: commits are Simplified and the Traditional output switch converts them. Cantonese, Zhuyin and Stroke write their characters as stored, so converting them again would be wrong; the view's own `script_conversion` also turns off in the Unicode and temporary Japanese modes.
 constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // `outputs_traditional_natively`: the scheme's dictionary is Traditional, whatever the Traditional output switch says.
-constexpr bool OutputsTraditionalNatively(int scheme) { return scheme == Cantonese || scheme == Zhuyin; }
+constexpr bool OutputsTraditionalNatively(int scheme) { return scheme == Cantonese || scheme == Zhuyin || scheme == Stroke; }
 
 // `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
 constexpr bool CommitsOnBlur(int scheme)
@@ -73,20 +91,20 @@ constexpr bool LocksCaret(int scheme)
 constexpr bool UsesChinesePunctuation(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||
-           scheme == Zhuyin;
+           scheme == Zhuyin || scheme == Stroke;
 }
 
 // `host_smart_punctuation`: the reversible smart punctuation gestures (space-to-ASCII, repeat-to-Chinese) may run.
 constexpr bool HostSmartPunctuation(int scheme)
 {
-    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese;
+    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Stroke;
 }
 
 // `widens_full_width`: commits and direct characters are widened when the full-width switch is on.
 constexpr bool WidensFullWidth(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||
-           scheme == Zhuyin;
+           scheme == Zhuyin || scheme == Stroke;
 }
 
 // `shows_glosses`: candidates may carry translation glosses.
@@ -94,7 +112,7 @@ constexpr bool ShowsGlosses(int scheme) { return scheme == Quanpin || scheme == 
 
 // ---- The input mode the Server tells the TIP about ----
 
-// The scheme family the TIP has to know before its host session answers a key, carried as one character in FanyImeWorkerReplyType::InputModeChanged (shared/contracts/windows_ipc.h). The three pinyin and shape schemes share Chinese: the TIP keys them alike. The values are the wire codes and never change; a DLL that predates a mode compares against '1' and '2' only, so it reads a newer code as Chinese.
+// The scheme family the TIP has to know before its host session answers a key, carried as one character in FanyImeWorkerReplyType::InputModeChanged (shared/contracts/windows_ipc.h). The three pinyin and shape schemes share Chinese: the TIP keys them alike. Stroke has a code of its own: its traits are not quanpin's (ScriptConversionApplies, ShowsGlosses) and the TIP hands most letters to the application while it is idle (LetterPassesWhileIdle). The values are the wire codes and never change; a DLL that predates a mode compares against '1' and '2' only, so it reads a newer code as Chinese.
 enum class InputMode : wchar_t
 {
     Chinese = L'0',
@@ -104,9 +122,10 @@ enum class InputMode : wchar_t
     Zhuyin = L'4',
     Vietnamese = L'5',
     Tibetan = L'6',
+    Stroke = L'7',
 };
 
-// 一个模式写的语言。日文、韩文、越南文和藏文各是独立的输入语言；粤拼和注音是中文方案，切到它们时和其他中文方案一样更新 `last_chinese_scheme`。
+// 一个模式写的语言。日文、韩文、越南文和藏文各是独立的输入语言；粤拼、注音和笔画是中文方案，切到它们时和其他中文方案一样更新 `last_chinese_scheme`。
 enum class InputLanguage
 {
     Chinese,
@@ -131,6 +150,7 @@ constexpr InputLanguage input_language(InputMode mode)
     case InputMode::Chinese:
     case InputMode::Cantonese:
     case InputMode::Zhuyin:
+    case InputMode::Stroke:
         break;
     }
     return InputLanguage::Chinese;
@@ -153,6 +173,8 @@ constexpr InputMode input_mode(int scheme)
         return InputMode::Vietnamese;
     case Tibetan:
         return InputMode::Tibetan;
+    case Stroke:
+        return InputMode::Stroke;
     default:
         return InputMode::Chinese;
     }
@@ -179,6 +201,8 @@ constexpr int scheme_from_name(std::string_view name)
         return Vietnamese;
     if (name == "tibetan")
         return Tibetan;
+    if (name == "stroke")
+        return Stroke;
     return -1;
 }
 
@@ -205,42 +229,47 @@ constexpr std::string_view scheme_name(int scheme)
         return "vietnamese";
     case Tibetan:
         return "tibetan";
+    case Stroke:
+        return "stroke";
     default:
         return {};
     }
 }
 
-// Which of the Cantonese and Zhuyin dictionaries are installed (language-dictionaries/cantonese.db and zhuyin.db beside the resources).
+// Which of the Cantonese, Zhuyin and Stroke dictionaries are installed (language-dictionaries/cantonese.db, zhuyin.db and stroke.db beside the resources).
 struct LanguageDictionaryPresence
 {
     bool cantonese = false;
     bool zhuyin = false;
+    bool stroke = false;
 };
 
-// Whether a scheme can run with the installed dictionaries: Cantonese and Zhuyin need their own, the others read only the shared resources. An unknown scheme cannot.
+// Whether a scheme can run with the installed dictionaries: Cantonese, Zhuyin and Stroke need their own, the others read only the shared resources. An unknown scheme cannot.
 constexpr bool scheme_installed(int scheme, LanguageDictionaryPresence installed)
 {
     if (scheme == Cantonese)
         return installed.cantonese;
     if (scheme == Zhuyin)
         return installed.zhuyin;
-    return scheme >= Quanpin && scheme <= Tibetan;
+    if (scheme == Stroke)
+        return installed.stroke;
+    return scheme >= Quanpin && scheme <= Stroke;
 }
 
 // 一个版本提供的方案和它的默认方案（版本表 `input_schemes`、`default_scheme`）。不在其中的方案在这个版本里不存在：托盘不列出它，配置里写着它（例如从账号同步下来）时按 host-api 的 `effective_scheme` 退回。
 struct OfferedSchemes
 {
-    bool offered[Tibetan + 1] = {};
+    bool offered[Stroke + 1] = {};
     int fallback = Quanpin;
 
-    constexpr bool offers(int scheme) const { return scheme >= Quanpin && scheme <= Tibetan && offered[scheme]; }
+    constexpr bool offers(int scheme) const { return scheme >= Quanpin && scheme <= Stroke && offered[scheme]; }
 };
 
 // 引擎的全部方案，默认全拼：full 就是这样。
 constexpr OfferedSchemes all_schemes()
 {
     OfferedSchemes result;
-    for (int scheme = Quanpin; scheme <= Tibetan; ++scheme)
+    for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
         result.offered[scheme] = true;
     return result;
 }
@@ -292,6 +321,8 @@ constexpr InputMode input_mode_from_code(wchar_t code)
         return InputMode::Vietnamese;
     case static_cast<wchar_t>(InputMode::Tibetan):
         return InputMode::Tibetan;
+    case static_cast<wchar_t>(InputMode::Stroke):
+        return InputMode::Stroke;
     default:
         return InputMode::Chinese;
     }
@@ -322,6 +353,8 @@ constexpr int mode_scheme(InputMode mode)
         return Vietnamese;
     case InputMode::Tibetan:
         return Tibetan;
+    case InputMode::Stroke:
+        return Stroke;
     case InputMode::Chinese:
         break;
     }

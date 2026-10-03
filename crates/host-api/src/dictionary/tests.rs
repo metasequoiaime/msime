@@ -59,6 +59,7 @@ fn import_engine_options() -> msime_engine::host::EngineOptions {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     }
 }

@@ -27,6 +27,7 @@ mod punctuation;
 mod quanpin;
 mod session;
 mod shuangpin;
+pub mod stroke;
 mod text;
 mod tibetan;
 mod types;

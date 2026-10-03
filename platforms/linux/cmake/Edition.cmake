@@ -51,7 +51,7 @@ else()
   set(MSIME_EDITION_IS_FULL OFF)
   set(MSIME_EDITION_RESOURCE_LOCK "${CMAKE_CURRENT_LIST_DIR}/../../../resources/editions/${MSIME_EDITION}.lock.json")
 endif()
-# 本版本是否用到粤语、注音词库；不用的版本不装它们。
+# 本版本是否用到粤语、注音和笔画词库；不用的版本不装它们。
 if(msime_edition_language_dictionaries GREATER 0)
   set(MSIME_EDITION_LANGUAGE_DICTIONARIES ON)
 else()

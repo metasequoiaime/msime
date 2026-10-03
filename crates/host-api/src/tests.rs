@@ -190,6 +190,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     };
     apply_local_mode_resource_gates(&mut options, Edition::full());
@@ -1396,7 +1397,7 @@ fn nine_key_mode_follows_only_the_scheme_the_grid_spells() {
 
 #[test]
 fn the_repeat_gesture_arms_except_in_schemes_that_write_no_chinese_marks() {
-    // The repeat gesture turns an ASCII mark into a Chinese one. It never arms in Korean or Vietnamese, which write only ASCII marks, or in Zhuyin, whose punctuation keys spell bopomofo; Japanese arms as it did before the new schemes. Cantonese and Zhuyin are left out because this host installs no language dictionaries, so the runtime would not run them.
+    // The repeat gesture turns an ASCII mark into a Chinese one. It never arms in Korean or Vietnamese, which write only ASCII marks, or in Zhuyin, whose punctuation keys spell bopomofo; Japanese arms as it did before the new schemes. Cantonese, Zhuyin and Stroke are left out because this host installs no language dictionaries, so the runtime would not run them; Stroke writes Chinese marks like Cantonese and is not on the engine's disarm list.
     for (scheme, arms) in [
         (InputScheme::Quanpin, true),
         (InputScheme::Shuangpin, true),
@@ -1474,7 +1475,13 @@ fn the_c_header_aliases_the_candidate_list_command_and_extends_the_scheme_legend
     assert!(HEADER.contains("MSIME_OPEN_CANDIDATE_LIST = 16,"));
     // platforms/android/check-host.sh greps the Korean legend line, so it stays as it was.
     assert!(HEADER.contains("4 korean (preferences scheme \"korean\")"));
-    for legend in ["5 cantonese", "6 zhuyin", "7 vietnamese", "8 tibetan"] {
+    for legend in [
+        "5 cantonese",
+        "6 zhuyin",
+        "7 vietnamese",
+        "8 tibetan",
+        "9 stroke",
+    ] {
         assert!(HEADER.contains(legend), "{legend} missing from the legend");
     }
 }
@@ -4845,6 +4852,63 @@ fn cloud_candidate_requires_an_existing_local_candidate_page() {
 }
 
 #[test]
+fn direct_cloud_callbacks_follow_a_pending_disable() {
+    for batch in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            scheme: InputScheme::Quanpin,
+            cloud_candidates: true,
+            ..chinese_preferences()
+        };
+        let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+        read(msime_client_focus(handle, true));
+        for byte in b"nihao" {
+            read(msime_client_character(handle, *byte, false));
+        }
+        let old_query = read(msime_client_online_query(handle))["value"].clone();
+        assert_eq!(old_query["cloud_candidates"], true);
+        let before = read(msime_client_view(handle))["value"].clone();
+        assert!(!before["candidates"].as_array().unwrap().is_empty());
+
+        let disabled = Preferences {
+            cloud_candidates: false,
+            ..preferences
+        };
+        assert_eq!(update(handle, 1, &disabled)["value"]["deferred"], true);
+
+        let query = old_query.to_string();
+        let result = if batch {
+            let candidates = serde_json::to_vec(&json!(["云候选"])).unwrap();
+            read(unsafe {
+                msime_client_apply_online_candidates(
+                    handle,
+                    query.as_ptr(),
+                    query.len(),
+                    candidates.as_ptr(),
+                    candidates.len(),
+                    0,
+                )
+            })
+        } else {
+            let candidate = "云候选";
+            read(unsafe {
+                msime_client_apply_online_candidate(
+                    handle,
+                    query.as_ptr(),
+                    query.len(),
+                    candidate.as_ptr(),
+                    candidate.len(),
+                    0,
+                )
+            })
+        };
+        assert_eq!(result["value"]["applied"], false, "batch={batch}: {result}");
+        assert_eq!(result["value"]["view"], before, "batch={batch}: {result}");
+        read(msime_client_destroy(handle));
+    }
+}
+
+#[test]
 fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -6114,6 +6178,7 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
         LanguageDictionaries {
             cantonese: Some(beside.join("cantonese.db")),
             zhuyin: None,
+            stroke: None,
         }
     );
 
@@ -6124,7 +6189,25 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
         LanguageDictionaries {
             cantonese: Some(beside.join("cantonese.db")),
             zhuyin: Some(beside.join("zhuyin.db")),
+            stroke: None,
         }
+    );
+
+    // stroke.db alone is enough for the directory to count as installed.
+    std::fs::remove_file(beside.join("cantonese.db")).expect("cantonese");
+    std::fs::remove_file(beside.join("zhuyin.db")).expect("zhuyin");
+    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    assert_eq!(
+        super::language_dictionaries_beside(&resources),
+        LanguageDictionaries {
+            cantonese: None,
+            zhuyin: None,
+            stroke: Some(beside.join("stroke.db")),
+        }
+    );
+    assert_eq!(
+        super::installed_language_dictionaries(&resources).as_deref(),
+        beside.to_str()
     );
 }
 
@@ -6133,17 +6216,24 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
     use msime_client_core::preferences::ChineseScheme;
     use InputScheme::*;
     let all = [
-        Quanpin, Shuangpin, Wubi, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Tibetan,
+        Quanpin, Shuangpin, Wubi, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke,
     ];
     let base = &all[..5];
     let none = LanguageDictionaries::default();
     let cantonese_only = LanguageDictionaries {
         cantonese: Some("/dictionaries/cantonese.db".into()),
         zhuyin: None,
+        stroke: None,
     };
     let both = LanguageDictionaries {
         cantonese: Some("/dictionaries/cantonese.db".into()),
         zhuyin: Some("/dictionaries/zhuyin.db".into()),
+        stroke: None,
+    };
+    let stroke_only = LanguageDictionaries {
+        cantonese: None,
+        zhuyin: None,
+        stroke: Some("/dictionaries/stroke.db".into()),
     };
     const OFFERED: Option<&str> = None;
     const NOT_OFFERED: Option<&str> = Some("this host does not offer it");
@@ -6239,6 +6329,48 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
             Quanpin,
             NO_DICTIONARY,
         ),
+        // Stroke runs only with stroke.db, and is itself a Chinese scheme to return to.
+        (
+            Stroke,
+            Some(ChineseScheme::Wubi),
+            &all[..],
+            &stroke_only,
+            Stroke,
+            OFFERED,
+        ),
+        (
+            Stroke,
+            Some(ChineseScheme::Wubi),
+            &all[..],
+            &both,
+            Wubi,
+            NO_DICTIONARY,
+        ),
+        (
+            Stroke,
+            Some(ChineseScheme::Stroke),
+            &all[..],
+            &both,
+            Quanpin,
+            NO_DICTIONARY,
+        ),
+        (
+            Japanese,
+            Some(ChineseScheme::Stroke),
+            &all[..],
+            &stroke_only,
+            Japanese,
+            OFFERED,
+        ),
+        (
+            Zhuyin,
+            Some(ChineseScheme::Stroke),
+            &all[..],
+            &stroke_only,
+            Stroke,
+            NO_DICTIONARY,
+        ),
+        (Stroke, None, base, &stroke_only, Quanpin, NOT_OFFERED),
     ] {
         let preferences = Preferences {
             scheme,
@@ -6268,6 +6400,7 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     let directory = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&directory).expect("directory");
     std::fs::write(directory.join("cantonese.db"), b"sqlite").expect("cantonese");
+    std::fs::write(directory.join("stroke.db"), b"sqlite").expect("stroke");
     let preferences = Preferences {
         scheme: InputScheme::Vietnamese,
         last_chinese_scheme: Some(msime_client_core::preferences::ChineseScheme::Wubi),
@@ -6288,6 +6421,10 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
         directory.join("cantonese.db").to_str().unwrap()
     );
     assert_eq!(options.zhuyin_dictionary, "");
+    assert_eq!(
+        options.stroke_dictionary,
+        directory.join("stroke.db").to_str().unwrap()
+    );
     // Production passes `compiled_input_schemes()`, which offers the scheme or returns to the last Chinese one.
     let expected = if compiled_input_schemes().contains(&InputScheme::Vietnamese) {
         7
@@ -6312,6 +6449,7 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
         .into_engine_options();
     assert_eq!(options.cantonese_dictionary, "");
     assert_eq!(options.zhuyin_dictionary, "");
+    assert_eq!(options.stroke_dictionary, "");
     assert_eq!(options.vietnamese_input_method, 0);
     assert_eq!(options.vietnamese_tone_style, 0);
     // Cantonese with no dictionary never reaches the Engine; the 全拼 helpcode comes with the fallback.
@@ -6322,7 +6460,7 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     );
 }
 
-/// Cantonese and Zhuyin run on every build once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs regardless.
+/// Cantonese, Zhuyin and Stroke run on every build once their dictionary is installed beside the resources, and fall back without it; Vietnamese needs no data and runs regardless.
 #[test]
 fn installed_language_dictionaries_enable_their_schemes() {
     let root = tempfile::tempdir().expect("tempdir");
@@ -6344,6 +6482,7 @@ fn installed_language_dictionaries_enable_their_schemes() {
     assert_eq!(super::installed_language_dictionaries(&resources), None);
     assert_eq!(engine_scheme(InputScheme::Cantonese), 2);
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 2);
+    assert_eq!(engine_scheme(InputScheme::Stroke), 2);
     assert_eq!(engine_scheme(InputScheme::Vietnamese), 7);
     assert_eq!(engine_scheme(InputScheme::Tibetan), 8);
 
@@ -6357,8 +6496,12 @@ fn installed_language_dictionaries_enable_their_schemes() {
     );
     assert_eq!(engine_scheme(InputScheme::Cantonese), 5);
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 6);
+    assert_eq!(engine_scheme(InputScheme::Stroke), 2);
     assert_eq!(engine_scheme(InputScheme::Vietnamese), 7);
     assert_eq!(engine_scheme(InputScheme::Tibetan), 8);
+
+    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    assert_eq!(engine_scheme(InputScheme::Stroke), 9);
 }
 
 #[test]
@@ -7625,6 +7768,12 @@ fn refresh_keeps_the_language_dictionaries_in_step_with_the_installed_package() 
     assert_eq!(refresh(&moved), None);
 
     std::fs::remove_file(beside.join("zhuyin.db")).expect("uninstall");
+    assert_eq!(refresh(&installed), Some(current.clone()));
+
+    // stroke.db alone records the directory as well.
+    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    assert_eq!(refresh(&current), Some(installed.clone()));
+    std::fs::remove_file(beside.join("stroke.db")).expect("uninstall");
     assert_eq!(refresh(&installed), Some(current.clone()));
 }
 
@@ -9356,7 +9505,11 @@ fn publish_resource_pack(state_root: &Path, pack: ResourcePack, files: &[&str]) 
     for name in files {
         std::fs::write(directory.join(name), b"downloaded").unwrap();
     }
-    std::fs::write(directory.join("msime-model.json"), b"{}").unwrap();
+    std::fs::write(
+        directory.join("msime-model.json"),
+        serde_json::to_vec(&pack.manifest()).unwrap(),
+    )
+    .unwrap();
     directory
 }
 
@@ -9368,11 +9521,13 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     std::fs::create_dir_all(&recorded).unwrap();
     std::fs::write(recorded.join("cantonese.db"), b"bundled").unwrap();
     std::fs::write(recorded.join("zhuyin.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("stroke.db"), b"bundled").unwrap();
 
     // 没有资源包：用记录的（随包内置的）那份。
     let bundled = LanguageDictionaries {
         cantonese: Some(recorded.join("cantonese.db")),
         zhuyin: Some(recorded.join("zhuyin.db")),
+        stroke: Some(recorded.join("stroke.db")),
     };
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), Some(&recorded)),
@@ -9399,7 +9554,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         bundled
     );
 
-    // 资源包里的粤拼词库优先，资源包缺的注音词库退回记录的那份。
+    // 资源包里的粤拼词库优先，资源包缺的注音与笔画词库退回记录的那份。
     let pack = publish_resource_pack(
         &state,
         ResourcePack::LanguageDictionaries,
@@ -9410,6 +9565,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         LanguageDictionaries {
             cantonese: Some(pack.join("cantonese.db")),
             zhuyin: Some(recorded.join("zhuyin.db")),
+            stroke: Some(recorded.join("stroke.db")),
         }
     );
     assert_eq!(
@@ -9417,6 +9573,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         LanguageDictionaries {
             cantonese: Some(pack.join("cantonese.db")),
             zhuyin: None,
+            stroke: None,
         }
     );
 
@@ -9436,6 +9593,10 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     assert_eq!(
         options.zhuyin_dictionary,
         recorded.join("zhuyin.db").to_str().unwrap()
+    );
+    assert_eq!(
+        options.stroke_dictionary,
+        recorded.join("stroke.db").to_str().unwrap()
     );
     assert_eq!(options.scheme, 5);
 }
@@ -9645,6 +9806,7 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
         LanguageDictionaries {
             cantonese: Some(language.join("cantonese.db")),
             zhuyin: None,
+            stroke: None,
         }
     );
     assert_eq!(

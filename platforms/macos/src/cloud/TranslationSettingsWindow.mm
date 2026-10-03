@@ -57,6 +57,7 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     NSTextField *_appId, *_plainNiuTransKey;
     BOOL _busy, _saving, _pending, _holdCommits;
     NSUInteger _epoch;
+    NSUInteger _callbackGeneration;
 }
 - (instancetype)initWithDirectory:(NSString *)directory saved:(void (^)(NSDictionary *))saved {
     if ((self = [super initWithWindow:nil])) {
@@ -136,6 +137,9 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
 - (void)showWindow:(id)sender {
     if (!self.window) [self loadWindow];
     [super showWindow:sender]; [self reload:nil];
+}
+- (void)invalidatePendingCallbacks {
+    ++_callbackGeneration;
 }
 - (void)updateControls:(id)sender {
     (void)sender;
@@ -315,9 +319,10 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     dispatch_async(_queue, ^{
         NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             MSIMETranslationSettingsWindow *current = weakSelf;
             if (!current || current->_epoch != epoch) return;
+            // 保存排队期间窗口可能已经关闭或开始新一轮加载；这个结果属于旧页面，不能通知当前宿主。
+            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             current->_saving = NO;
             if (saved) { current->_snapshot = saved; current->_committed = form; }
             current->_status.stringValue = saved ? @"已保存到本机配置。" : @"保存失败，修改尚未写入；再次修改或关闭窗口时会重试。";
@@ -337,9 +342,14 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
             NSString *directory = _directory;
             NSDictionary *snapshot = _snapshot;
             void (^savedHandler)(NSDictionary *) = _saved;
+            NSUInteger callbackGeneration = _callbackGeneration;
+            __weak MSIMETranslationSettingsWindow *weakSelf = self;
             dispatch_async(_queue, ^{
                 NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
-                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{ savedHandler(saved[@"preferences"]); });
+                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{
+                    MSIMETranslationSettingsWindow *current = weakSelf;
+                    if (current && current->_callbackGeneration == callbackGeneration) savedHandler(saved[@"preferences"]);
+                });
             });
         }
     }

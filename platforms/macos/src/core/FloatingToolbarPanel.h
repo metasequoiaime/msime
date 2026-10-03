@@ -41,7 +41,7 @@ FOUNDATION_EXPORT NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
           chinesePunctuationEnabled:(BOOL)chinesePunctuationEnabled
                    fullWidthEnabled:(BOOL)fullWidthEnabled
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled;
-/// 模式按钮在大写锁定时显示 A，英文模式显示 英，英文候选显示 En，其余情况显示方案徽标——全拼 中、双拼 双、五笔 五、日语 日、韩语 한，与输入菜单一致。一个字分不出双拼键位或五笔版本，所以 `schemeTitle`（小鹤双拼、五笔 86、五笔 98 等）放在按钮提示和辅助功能标签的开头；传 nil 时只写动作。
+/// 模式按钮在大写锁定时显示 A，英文模式显示 英，英文候选显示 En，其余情况显示方案徽标——全拼 中、双拼 双、五笔 五、日语 日、韩语 한、粤拼 粤、注音 注、越南语 越、藏文 ཀ、笔画 笔，与输入菜单一致。一个字分不出双拼键位或五笔版本，所以 `schemeTitle`（小鹤双拼、五笔 86、五笔 98 等）放在按钮提示和辅助功能标签的开头；传 nil 时只写动作。
 - (void)updateEnglishInputMode:(BOOL)englishInputMode
          englishCandidateMode:(BOOL)englishCandidateMode
                         scheme:(NSString *)scheme

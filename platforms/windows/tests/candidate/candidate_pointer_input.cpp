@@ -34,7 +34,7 @@ nlohmann::json view(unsigned scheme_number) {
 int main() {
   try {
     const FocusLease lease{{42, {1, 2, 3}}, 1, 1};
-    for (unsigned number = 0; number <= 8; ++number) {
+    for (unsigned number = 0; number <= 9; ++number) {
       const bool keyboard_only = number == static_cast<unsigned>(scheme::Zhuyin);
       // The projection the Server draws from a view it reads itself.
       const auto projected = candidate_presentation_from_view(lease, view(number), 0, 0, "");

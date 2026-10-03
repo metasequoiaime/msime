@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 
-/// 粤拼、注音、越南语和藏文：键盘提供其中哪些、它们怎样写进共享偏好、大千键位，以及键盘经桥接层看到的就地组字。
+/// 粤拼、注音、越南语、藏文和笔画：键盘提供其中哪些、它们怎样写进共享偏好、大千键位和笔画键，以及键盘经桥接层看到的就地组字。
 @MainActor
 final class LanguageSchemesTests: XCTestCase {
   private var state: URL!
@@ -29,13 +29,13 @@ final class LanguageSchemesTests: XCTestCase {
 
   // MARK: - Availability
 
-  func testTheThreeSchemesStartDisabledOnAFreshInstall() throws {
+  func testTheLanguageSchemesStartDisabledOnAFreshInstall() throws {
     let defaults = try XCTUnwrap(UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier))
     let previous = defaults.object(forKey: InputSchemePreference.enabledSchemesKey)
     defer { defaults.set(previous, forKey: InputSchemePreference.enabledSchemesKey) }
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan].contains($0) })
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
@@ -49,6 +49,10 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: [.cantonese], installed: []), [.quanpin])
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: [.quanpin, .tibetan], installed: []), [.quanpin, .tibetan],
                    "藏文不需要词库")
+    let withStroke: [ChineseInputScheme] = [.quanpin, .zhuyin, .stroke]
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: withStroke, installed: [.zhuyin]), [.quanpin, .zhuyin])
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: withStroke, installed: [.stroke]), [.quanpin, .stroke])
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: [.stroke], installed: [.cantonese, .zhuyin]), [.quanpin])
   }
 
   func testInstalledSchemesAreReadFromTheDictionaryFiles() throws {
@@ -59,6 +63,11 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese])
     try Data().write(to: state.appendingPathComponent("zhuyin.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin])
+    try Data().write(to: state.appendingPathComponent("stroke.db"))
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin, .stroke])
+    try FileManager.default.removeItem(at: state.appendingPathComponent("cantonese.db"))
+    try FileManager.default.removeItem(at: state.appendingPathComponent("zhuyin.db"))
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.stroke], "stroke.db alone offers Stroke")
   }
 
   /// The test host bundles EngineResources, so it can tell what is installed; the App bundle carries no Engine and cannot.
@@ -70,9 +79,9 @@ final class LanguageSchemesTests: XCTestCase {
 
   // MARK: - Shared preferences
 
-  func testCantoneseAndZhuyinAreChineseSchemesAndVietnameseIsNot() {
+  func testCantoneseZhuyinAndStrokeAreChineseSchemesAndVietnameseIsNot() {
     let enabled = ChineseInputScheme.allCases
-    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false)] {
+    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false), (.stroke, "stroke", true)] {
       var document: [String: Any] = ["last_chinese_scheme": "wubi"]
       MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: enabled)?(&document)
       XCTAssertEqual(document["scheme"] as? String, engine)
@@ -80,6 +89,24 @@ final class LanguageSchemesTests: XCTestCase {
       XCTAssertEqual(document["touch_keyboard_layout"] as? String, "twenty_six_key", engine)
       XCTAssertEqual(ChineseInputScheme.scheme(sharedIdentifier: scheme.sharedIdentifier), scheme)
     }
+    XCTAssertEqual(ChineseInputScheme.stroke.sharedIdentifier, "stroke")
+    XCTAssertEqual(ChineseInputScheme(rawValue: "stroke"), .stroke, "the App Group value is the shared one")
+    XCTAssertEqual(ChineseInputScheme.stroke.title, "笔画")
+    XCTAssertEqual(ChineseInputScheme.allCases.last, .stroke, "the scheme order is persisted, so new schemes go last")
+  }
+
+  /// The cloud settings document knows quanpin, shuangpin, wubi, japanese and korean only; a device that uploaded any other `input.schema` would make every other device reject the whole document.
+  func testTheCloudCarriesNoLanguageScheme() {
+    for scheme in [ChineseInputScheme.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke] {
+      XCTAssertNil(scheme.cloudSchema, scheme.rawValue)
+    }
+    XCTAssertEqual(ChineseInputScheme.quanpin.cloudSchema, "quanpin")
+    XCTAssertEqual(ChineseInputScheme.nineKey.cloudSchema, "quanpin")
+    XCTAssertEqual(ChineseInputScheme.handwriting.cloudSchema, "quanpin")
+    XCTAssertEqual(ChineseInputScheme.microsoft.cloudSchema, "shuangpin")
+    XCTAssertEqual(ChineseInputScheme.wubi.cloudSchema, "wubi")
+    XCTAssertEqual(ChineseInputScheme.japaneseNineKey.cloudSchema, "japanese")
+    XCTAssertEqual(ChineseInputScheme.korean.cloudSchema, "korean")
   }
 
   func testSchemeTraits() {
@@ -100,10 +127,21 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(.tibetan))
     XCTAssertEqual(ChineseInputScheme.allCases.filter(\.typesCasedLetters), [.vietnamese, .tibetan])
     XCTAssertFalse(ChineseInputScheme.japanese.writesAsciiPunctuation, "Japanese keeps its own marks")
-    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese, .tibetan].contains(scheme) {
+    // 笔画在 Engine 里与粤拼同构（自己的只读词库，不用普通话那一套功能），但键面画成笔画字形，所以没有可移动光标的字母拼写。
+    XCTAssertFalse(ChineseInputScheme.stroke.writesChinese)
+    XCTAssertTrue(ChineseInputScheme.stroke.needsLanguageDictionary)
+    XCTAssertFalse(ChineseInputScheme.stroke.hasSpellingCaret)
+    XCTAssertFalse(ChineseInputScheme.stroke.composesInPlace)
+    XCTAssertFalse(ChineseInputScheme.stroke.writesAsciiPunctuation)
+    XCTAssertFalse(ChineseInputScheme.stroke.typesCasedLetters)
+    XCTAssertTrue(ChineseInputScheme.stroke.drawsKeysAsGlyphs)
+    XCTAssertNil(ChineseInputScheme.stroke.shuangpinProfile)
+    XCTAssertFalse(ChineseInputScheme.stroke.editsBySyllable)
+    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese, .tibetan, .stroke].contains(scheme) {
       XCTAssertFalse(scheme.needsLanguageDictionary, scheme.rawValue)
       XCTAssertEqual(scheme.composesInPlace, scheme.isKorean, scheme.rawValue)
       XCTAssertEqual(scheme.hasSpellingCaret, scheme.writesChinese, scheme.rawValue)
+      XCTAssertFalse(scheme.drawsKeysAsGlyphs, scheme.rawValue)
     }
     XCTAssertEqual(KeyboardViewController.languageKeyTitle(.cantonese), "粤")
     XCTAssertEqual(KeyboardViewController.languageKeyTitle(.zhuyin), "注")
@@ -121,6 +159,10 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(KeyboardViewController.symbolRowKey("=", tibetan: true), "+")
     XCTAssertEqual(KeyboardViewController.symbolRowKey("=", tibetan: false), "=")
     XCTAssertEqual(KeyboardViewController.symbolRowKey("_", tibetan: true), "_")
+    XCTAssertEqual(KeyboardViewController.languageKeyTitle(.stroke), "笔")
+    XCTAssertEqual(KeyboardViewController.languageKeyValue(.stroke), "笔画输入")
+    XCTAssertEqual(TypingSource(rawValue: "stroke"), .stroke, "the keyboard counts by the scheme's raw value")
+    XCTAssertEqual(TypingSource.stroke.title, "笔画")
     XCTAssertEqual(TypingSource.cantonese.rawValue, "cantonese")
     XCTAssertEqual(TypingSource.zhuyin.rawValue, "zhuyin")
     XCTAssertEqual(TypingSource.vietnamese.rawValue, "vietnamese")
@@ -138,12 +180,30 @@ final class LanguageSchemesTests: XCTestCase {
     for boundary in [CompositionBoundary.modeSwitch, .returnKey] {
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .cantonese, boundary: boundary), .commitRaw,
                      "Cantonese keeps its letters like pinyin")
+      XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .stroke, boundary: boundary), .commitRaw,
+                     "Return and the mode switch commit the typed stroke letters, as for Cantonese")
     }
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .stroke, boundary: .deactivate), .finishComposition)
+    XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .stroke, boundary: .returnKey), .none)
   }
 
   func testAnInPlaceCompositionIsMarkedWhateverThePreeditSetting() {
     XCTAssertEqual(InlineCompositionPolicy.markedText(
       inPlace: true, style: .off, phrasePrefix: "", preedit: "việt", editingText: "vieejt", japaneseReading: nil), "việt")
+  }
+
+  /// Stroke's `editing_text` is the letters its keys send, which the user never saw: 原始按键 marks the glyphs instead, and the other styles follow the setting as usual.
+  func testAStrokeCompositionIsMarkedAsItsGlyphs() {
+    let mark = { (style: InlinePreeditPreference.Style) in
+      InlineCompositionPolicy.markedText(inPlace: false, style: style, drawsKeysAsGlyphs: true, phrasePrefix: "",
+                                         preedit: "一丨＊", editingText: "hsx", japaneseReading: nil)
+    }
+    XCTAssertEqual(mark(.raw), "一丨＊")
+    XCTAssertEqual(mark(.pinyin), "一丨＊")
+    XCTAssertEqual(mark(.off), "")
+    XCTAssertEqual(InlineCompositionPolicy.markedText(inPlace: false, style: .raw, phrasePrefix: "", preedit: "ni hao",
+                                                      editingText: "nihao", japaneseReading: nil), "nihao",
+                   "a spelled scheme still marks its keys")
   }
 
   // MARK: - Dachen keys
@@ -191,6 +251,82 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertTrue(KeyboardViewController.writesChinesePunctuation(switchOn: false, punctuationLock: "chinese"))
   }
 
+  // MARK: - Stroke keys
+
+  func testTheStrokeKeysSendTheFiveStrokesAndTheWildcard() {
+    let keys = StrokeKeyLayout.rows.flatMap { $0 }
+    XCTAssertEqual(StrokeKeyLayout.rows.map(\.count), [3, 3], "a 2×3 grid")
+    XCTAssertEqual(keys.map(\.ascii), ["h", "s", "p", "n", "z", "x"])
+    XCTAssertEqual(keys.map(\.face), ["一", "丨", "丿", "丶", "乛", "＊"], "the glyphs the Engine draws in the preedit")
+    XCTAssertEqual(keys.map(\.name), ["横", "竖", "撇", "点", "折", "通配"])
+    XCTAssertEqual(StrokeKeyLayout.keycap(for: "z"), "乛")
+    XCTAssertNil(StrokeKeyLayout.keycap(for: "a"))
+    XCTAssertNil(StrokeKeyLayout.keycap(for: "*"), "the wildcard is a letter, never a punctuation mark")
+    for key in ["h", "s", "p", "n", "z"] {
+      XCTAssertTrue(StrokeKeyLayout.accepts(key, composing: false), key)
+      XCTAssertTrue(StrokeKeyLayout.accepts(key, composing: true), key)
+    }
+    XCTAssertFalse(StrokeKeyLayout.accepts("x", composing: false), "an idle wildcard starts nothing")
+    XCTAssertTrue(StrokeKeyLayout.accepts("x", composing: true))
+    XCTAssertFalse(StrokeKeyLayout.accepts("a", composing: true))
+  }
+
+  func testTheStrokeKeypadDrawsTheGlyphsAndSendsTheLetters() throws {
+    var sent: [String] = []
+    let keypad = StrokeKeypadView(makeKey: { title, label, action in
+      let button = UIButton(type: .system, primaryAction: UIAction { _ in action() })
+      button.setTitle(title, for: .normal)
+      button.accessibilityLabel = label
+      return button
+    })
+    keypad.onStroke = { sent.append($0) }
+    keypad.frame = CGRect(x: 0, y: 0, width: 280, height: 150)
+    keypad.layoutIfNeeded()
+    XCTAssertEqual(keypad.arrangedSubviews.count, 2)
+    XCTAssertEqual(keypad.keyButtons.map { $0.title(for: .normal) }, ["一", "丨", "丿", "丶", "乛", "＊"])
+    XCTAssertEqual(keypad.keyButtons.map(\.accessibilityIdentifier), ["strokeKeyh", "strokeKeys", "strokeKeyp", "strokeKeyn", "strokeKeyz", "strokeKeyx"])
+    XCTAssertEqual(keypad.keyButtons.first?.accessibilityLabel, "笔画 横")
+    let names = nodes(keypad).compactMap { $0 as? UILabel }.filter { $0.accessibilityIdentifier == "strokeKeyName" }
+    XCTAssertEqual(names.map(\.text), ["横", "竖", "撇", "点", "折", "通配"])
+    let heights = keypad.keyButtons.map(\.bounds.height)
+    XCTAssertGreaterThan(heights.min() ?? 0, 0)
+    XCTAssertEqual(heights.min() ?? 0, heights.max() ?? 0, accuracy: 1, "both rows share the height")
+    for button in keypad.keyButtons { button.sendActions(for: .primaryActionTriggered) }
+    XCTAssertEqual(sent, ["h", "s", "p", "n", "z", "x"])
+    let wildcard = try XCTUnwrap(keypad.keyButtons.last)
+    XCTAssertFalse(wildcard.isEnabled, "the wildcard waits for a stroke")
+    keypad.setComposing(true)
+    XCTAssertTrue(wildcard.isEnabled)
+    XCTAssertTrue(keypad.keyButtons.dropLast().allSatisfy(\.isEnabled))
+    keypad.setComposing(false)
+    XCTAssertFalse(wildcard.isEnabled)
+  }
+
+  func testTheStrokeKeysReplaceTheLettersWhileStrokeIsActive() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.stroke) == true,
+                      "stroke.db is not staged into the test host")
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .stroke
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+    let all = nodes(controller.view)
+    let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+    let keypad = try XCTUnwrap(all.first { $0.accessibilityIdentifier == "strokeKeypad" })
+    XCTAssertTrue(shown(keypad))
+    XCTAssertFalse(all.contains { $0.accessibilityLabel == "字母 Q" && shown($0) }, "no letter keys")
+    XCTAssertTrue(shown(try XCTUnwrap(all.first { $0.accessibilityIdentifier == "nineKeySidebar" })), "the nine-key punctuation sidebar stays")
+    XCTAssertTrue(shown(try XCTUnwrap(all.first { $0.accessibilityIdentifier == "nineKeyDelete" })))
+    let heng = try XCTUnwrap(all.first { $0.accessibilityIdentifier == "strokeKeyh" } as? UIButton)
+    let wildcard = try XCTUnwrap(all.first { $0.accessibilityIdentifier == "strokeKeyx" } as? UIButton)
+    XCTAssertFalse(wildcard.isEnabled)
+    heng.sendActions(for: .primaryActionTriggered)
+    XCTAssertTrue(wildcard.isEnabled, "a stroke opens the composition, so the wildcard can follow")
+  }
+
   // MARK: - Through the bridge
 
   func testAnIdleZhuyinToneKeyIsLeftToTheKeyboardToType() throws {
@@ -222,6 +358,32 @@ final class LanguageSchemesTests: XCTestCase {
     let committed = bridge.commitRaw()
     XCTAssertTrue(committed.isHandled, "Return confirms the conversion, so no newline follows")
     XCTAssertEqual(committed.commitText, "你好")
+  }
+
+  /// Synthetic expectations that hold for any stroke.db: 一 is the single stroke 横, and an idle wildcard is left to the host.
+  func testStrokeLooksUpByStrokeOrderAndReturnCommitsTheLetters() throws {
+    try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.stroke) == true,
+                      "stroke.db is not staged into the test host")
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switchToStroke()
+    let idle = bridge.handleCharacter("x")
+    XCTAssertFalse(idle.isHandled, "an idle wildcard starts nothing")
+    XCTAssertEqual(idle.preedit, "")
+    let one = bridge.handleCharacter("h")
+    XCTAssertNil(one.diagnosticText)
+    XCTAssertTrue(one.isHandled)
+    XCTAssertEqual(one.preedit, "一")
+    XCTAssertTrue(one.candidates.contains("一"), "\(one.candidates.prefix(5))")
+    let wildcard = type("x", into: bridge)
+    XCTAssertTrue(wildcard.isHandled)
+    XCTAssertEqual(wildcard.preedit, "一＊")
+    let swallowed = bridge.handleCharacter("a")
+    XCTAssertTrue(swallowed.isHandled, "a letter that is no stroke is swallowed while composing")
+    XCTAssertEqual(swallowed.preedit, "一＊")
+    XCTAssertEqual(bridge.handleBackspace().preedit, "一")
+    let committed = bridge.commitRaw()
+    XCTAssertEqual(committed.commitText, "h", "Return commits the typed letters, as Cantonese does")
+    XCTAssertEqual(committed.preedit, "")
   }
 
   func testVietnameseComposesTheWordAndTheFirstCancelRestoresTheKeys() {

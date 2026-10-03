@@ -115,6 +115,7 @@ export interface HardwareSpelling {
   readonly editing: string;
   /** Index into `editing`, which is ASCII. */
   readonly caret: number;
+  /** 编码没有音节可分的方案（五笔、笔画），见 HardwareKeyRouter.spellsWithoutSyllables；字段名沿用最早只有五笔时的叫法。 */
   readonly wubi: boolean;
   readonly microsoftShuangpin: boolean;
   /** Ctrl+Shift+E's English candidate mode, where the Engine spells letters only. */
@@ -270,6 +271,11 @@ export class HardwareKeyRouter {
    */
   static composing(editing: string, phrasePrefix: string): boolean {
     return editing.length > 0 || phrasePrefix.length > 0;
+  }
+
+  /** 编码里没有音节的方案（按方案的 wire name）：五笔字根码和笔画笔顺码都不分音节，硬件 `'` 不当分隔符送给引擎，引擎对这两个方案也不接（`accepts_apostrophe`）。 */
+  static spellsWithoutSyllables(schemeName: string): boolean {
+    return schemeName === "wubi" || schemeName === "stroke";
   }
 
   /**

@@ -1108,8 +1108,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _serviceSnapshotViewLoaded;
     NSDictionary *_serviceSnapshotQuery;
     NSDictionary *_serviceSnapshotView;
-    // Each English word this controller sent to the on-device model, mapped to the English gloss request of the page that sent it: that request carries the Engine source and directory persisting needs, and the reply often lands after the page has moved on.
-    NSMutableDictionary<NSString *, NSDictionary *> *_onDeviceEnglishQueries;
+    // Each English word this controller sent to the on-device model, queued with the English gloss requests of the pages that sent it: the same word can be requested again before an older reply lands, and each request carries the Engine source and directory persisting needs.
+    NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *_onDeviceEnglishQueries;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -2242,8 +2242,15 @@ static NSImage *MSIMECandidateLogoImage() {
         if (!words.count) continue;
         if ([target isEqualToString:@"en"] && gloss) {
             // Words a newer page displaced from the backend's queue never reply, so the map is bounded rather than drained.
-            if (!_onDeviceEnglishQueries || _onDeviceEnglishQueries.count > 64) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
-            for (NSString *word in words) _onDeviceEnglishQueries[word] = gloss;
+            if (!_onDeviceEnglishQueries) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
+            NSUInteger pendingQueries = 0;
+            for (NSArray *queries in _onDeviceEnglishQueries.allValues) pendingQueries += queries.count;
+            if (pendingQueries > 64) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
+            for (NSString *word in words) {
+                NSMutableArray *queries = _onDeviceEnglishQueries[word];
+                if (!queries) { queries = [NSMutableArray array]; _onDeviceEnglishQueries[word] = queries; }
+                [queries addObject:[gloss copy]];
+            }
         }
         [self fetchOnDeviceGlosses:words targets:@[target]];
     }
@@ -2274,9 +2281,11 @@ static NSImage *MSIMECandidateLogoImage() {
 // Windows saves every English gloss it fetches to the user glossary the moment it arrives (cloud_translation.cpp PersistGloss), so the offline lookup answers that word from then on, across restarts. On-device glosses get the same treatment: the model spends about half a second per word, one at a time, and the process cache it otherwise lives in is gone when the input method restarts. Only English, because the learned glossary is the English one, and only words this controller asked about, since every controller hears every reply; each is written with the gloss request of the page that asked, which carries the source the plan needs.
 - (void)persistOnDeviceGlosses:(NSDictionary *)values {
     for (NSString *text in values) {
-        NSDictionary *query = [text isKindOfClass:NSString.class] ? _onDeviceEnglishQueries[text] : nil;
+        NSMutableArray *queries = [text isKindOfClass:NSString.class] ? _onDeviceEnglishQueries[text] : nil;
+        NSDictionary *query = queries.firstObject;
         if (!query) continue;
-        [_onDeviceEnglishQueries removeObjectForKey:text];
+        [queries removeObjectAtIndex:0];
+        if (!queries.count) [_onDeviceEnglishQueries removeObjectForKey:text];
         NSString *value = values[text];
         if ([value isKindOfClass:NSString.class] && value.length)
             [self persistFetchedTranslations:@[@{@"text":text, @"translation":value}] forQuery:query];
@@ -2836,7 +2845,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)refreshFloatingToolbarState {
     if (!_toolbar || !_appearance) return;
     const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
-    // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan。
+    // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = [_view[@"scheme"] integerValue];
     NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
@@ -2852,6 +2861,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         @"zhuyin": @"注音",
         @"vietnamese": @"越南语",
         @"tibetan": @"藏文",
+        @"stroke": @"笔画",
     };
     [_toolbar updateEnglishInputMode:_appearance.englishMode
              englishCandidateMode:englishCandidateMode
@@ -3005,10 +3015,10 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSString *profile = [NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(_appearance.shuangpinProfile.UTF8String ?: "")];
     if ([profile hasSuffix:@"双拼"] && profile.length > 2) profile = [profile substringToIndex:profile.length - 2];
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
-    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文"];
+    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文", @"笔画"];
     NSMenu *schemeMenu = [[NSMenu alloc] initWithTitle:@"输入方案"];
     schemeMenu.autoenablesItems = NO;
-    // A scheme that cannot run here (Cantonese or Zhuyin without its dictionary) is not offered, and the check is on the scheme actually running, so a preference naming one shows the scheme it fell back to.
+    // A scheme that cannot run here (Cantonese, Zhuyin or Stroke without its dictionary) is not offered, and the check is on the scheme actually running, so a preference naming one shows the scheme it fell back to.
     NSDictionary *hostOptions = [self inputSchemeHostOptions];
     NSString *effectiveScheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, hostOptions);
     for (NSUInteger index = 0; index < schemes.count; ++index) {
@@ -3412,9 +3422,9 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     if (![_session isKindOfClass:MSIMEClientSession.class]) return NO;
     return MSIMEEnableInputMode(identifier, TISCreateInputSourceList, TISEnableInputSource) == noErr;
 }
-// 让输入菜单里选中的模式（中、双、五、粤、注、英、日、한、越或藏）与中英文状态和实际运行的方案保持一致。系统报告过的切换已经记为当前显示的模式，所以这里不会把它回声回去。
+// 让输入菜单里选中的模式（中、双、五、粤、注、英、日、한、越、藏或笔）与中英文状态和实际运行的方案保持一致。系统报告过的切换已经记为当前显示的模式，所以这里不会把它回声回去。
 //
-// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音、越南文或藏文时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这四个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
+// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音、越南文、藏文或笔画时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这五个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
 - (void)syncSystemInputModeForClient:(id)client {
     NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
     NSString *synced = _appearance.lastSyncedInputScheme;

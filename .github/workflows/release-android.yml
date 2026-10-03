@@ -28,7 +28,7 @@ jobs:
       # build-apk.sh packs target/offline-glosses when it is there.
       - name: Fetch the locked offline candidate glosses
         run: python3 scripts/fetch_offline_glosses.py
-      # build-apk.sh packs the language dictionaries the edition needs from target/language-dictionaries (Cantonese and Zhuyin, with their licences, for full; none for wubi and pinyin); a release must carry every one of them, so it fails rather than packing fewer.
+      # build-apk.sh packs the language dictionaries the edition needs from target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences, for full; none for wubi and pinyin); a release must carry every one of them that resources/language-dictionaries.lock.json pins, so it fails rather than packing fewer.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
       # build-native.sh 需要固定提交的 vcpkg（只用来装 nlohmann-json）和两个 Android Rust target；runner 上都没有。bootstrap-vcpkg.sh 放在 platforms/windows 下但不限平台，装到 build-native.sh 默认读取的 target/tooling/vcpkg。

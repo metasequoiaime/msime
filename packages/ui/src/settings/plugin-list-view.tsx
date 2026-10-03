@@ -5,6 +5,7 @@ import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { MAX_COMMAND_TABLES, type PluginPreferences } from "./plugin-preferences";
 import {
@@ -141,17 +142,15 @@ export function PluginListView({
       )}
       <div className={settings.subViewStack} aria-label="已安装的插件">
         {hasClient && catalogState === "loading" && (
-          <p className={settings.clipboardEmpty} role="status">
-            正在读取插件…
-          </p>
+          <SettingsEmptyMessage role="status">正在读取插件…</SettingsEmptyMessage>
         )}
         {hasClient && catalogState === "failed" && (
-          <p className={settings.clipboardEmpty}>
+          <SettingsEmptyMessage>
             插件列表没有读取成功，重新打开这个页面会再试一次。
-          </p>
+          </SettingsEmptyMessage>
         )}
         {hasClient && catalogState === "loaded" && groups.length === 0 && (
-          <p className={settings.clipboardEmpty}>没有插件</p>
+          <SettingsEmptyMessage>没有插件</SettingsEmptyMessage>
         )}
         {groups.map(({ kind, packs, gone }) => (
           <GroupList key={kind} title={kindLabels[kind]}>

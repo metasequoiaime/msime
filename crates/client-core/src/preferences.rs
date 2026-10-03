@@ -35,6 +35,8 @@ pub enum InputScheme {
     Vietnamese,
     /// 藏文：在拉丁字母键盘上按 EWTS（扩展威利转写）输入，不用词库，也不是中文方案。Engine 序号为 8。
     Tibetan,
+    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `stroke.db`。是中文方案。Engine 序号为 9。
+    Stroke,
 }
 
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
@@ -358,11 +360,13 @@ pub enum TouchKeyboardScheme {
     Vietnamese,
     /// 藏文 26 键：在拉丁 26 键字母上按 EWTS 威利转写输入藏文，字母区分大小写（`InputScheme::Tibetan`）。
     Tibetan,
+    /// 笔画键盘：横竖撇点折加一个通配键，每个键发送对应的笔画字母 h s p n z 或 x（`InputScheme::Stroke`）。不论选的是 26 键还是九键布局，宿主都画这个笔画键盘。
+    Stroke,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -378,9 +382,10 @@ impl TouchKeyboardScheme {
         Self::Zhuyin,
         Self::Vietnamese,
         Self::Tibetan,
+        Self::Stroke,
     ];
 
-    /// 用户还没挑选时键盘显示的方案：除粤拼、注音、越南文和藏文以外的全部，这四个由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
+    /// 用户还没挑选时键盘显示的方案：除粤拼、注音、越南文、藏文和笔画以外的全部，这五个由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
     pub const DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,
@@ -539,6 +544,7 @@ pub enum ChineseScheme {
     Wubi,
     Cantonese,
     Zhuyin,
+    Stroke,
 }
 
 impl ChineseScheme {
@@ -550,6 +556,7 @@ impl ChineseScheme {
             InputScheme::Wubi => Some(Self::Wubi),
             InputScheme::Cantonese => Some(Self::Cantonese),
             InputScheme::Zhuyin => Some(Self::Zhuyin),
+            InputScheme::Stroke => Some(Self::Stroke),
             InputScheme::Japanese
             | InputScheme::Korean
             | InputScheme::Vietnamese
@@ -566,6 +573,7 @@ impl From<ChineseScheme> for InputScheme {
             ChineseScheme::Wubi => Self::Wubi,
             ChineseScheme::Cantonese => Self::Cantonese,
             ChineseScheme::Zhuyin => Self::Zhuyin,
+            ChineseScheme::Stroke => Self::Stroke,
         }
     }
 }

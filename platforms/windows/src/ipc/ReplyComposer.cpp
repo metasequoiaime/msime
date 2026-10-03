@@ -47,7 +47,7 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
     throw std::logic_error("Missing candidate highlight");
   return uiless_reply(request, display, candidates, highlighted);
 }
-// 参考实现的 CandidateTextForOutput：不论简繁开关怎样，日文方案的假名和汉字都不经过简转繁表。韩文、越南文和藏文也不是中文文字，粤拼和注音本来就是繁体（scheme::ScriptConversionApplies）。开关本身不变，所以离开这些方案后繁体输出恢复。
+// 参考实现的 CandidateTextForOutput：不论简繁开关怎样，日文方案的假名和汉字都不经过简转繁表。韩文、越南文和藏文也不是中文文字，粤拼和注音本来就是繁体，笔画按词库存储的字形原样上屏（scheme::ScriptConversionApplies）。开关本身不变，所以离开这些方案后繁体输出恢复。
 bool traditional_projection(const ServerSession &session) {
   if (!session.traditional_output())
     return false;
@@ -416,7 +416,8 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                 before.at("editing_text").get<std::string>(),
                 before.at("caret_position").get<size_t>(),
                 before.value("scheme", 0u) == 3u,
-                before.value("spelling_symbols", std::string{}));
+                before.value("spelling_symbols", std::string{}),
+                scheme::ApostropheIsPunctuationWhileComposing(view_scheme(before)));
   // 藏文组字时的空格是组字输入，不是选词：引擎把音节串连同音节点上屏，TIP 已经从自己的宿主会话写出同样的文字（host_composition_takes_key），所以它和注音的空格一样走编辑路径，这里只计数。
   const bool tibetan_space = kind == EditKind::None && view_scheme(before) == scheme::Tibetan &&
                              !before.value("dedicated_english", false) &&

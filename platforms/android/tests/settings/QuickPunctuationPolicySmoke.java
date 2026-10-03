@@ -23,6 +23,8 @@ public final class QuickPunctuationPolicySmoke {
             "Tibetan quick punctuation is half-width ASCII, as Korean's is");
         check(QuickPunctuationPolicy.entries(false, 5, "none").equals(chinese),
             "Cantonese quick punctuation is the Chinese set");
+        check(QuickPunctuationPolicy.entries(false, 9, "none").equals(chinese),
+            "Stroke quick punctuation is the Chinese set; its wildcard is the letter x, not a mark");
         var zhuyin = QuickPunctuationPolicy.entries(false, 6, "none");
         check(zhuyin.size() == 7 && zhuyin.get(0).face().equals("，") && zhuyin.get(0).input() == '<'
             && zhuyin.get(1).face().equals("。") && zhuyin.get(1).input() == '>',

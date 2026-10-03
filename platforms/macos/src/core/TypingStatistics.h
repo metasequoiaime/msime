@@ -24,6 +24,7 @@ enum class TypingSource {
     Zhuyin,
     Vietnamese,
     Tibetan,
+    Stroke,
     Handwriting,
     English,
     Local,
@@ -48,6 +49,7 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     case TypingSource::Zhuyin: return "zhuyin";
     case TypingSource::Vietnamese: return "vietnamese";
     case TypingSource::Tibetan: return "tibetan";
+    case TypingSource::Stroke: return "stroke";
     case TypingSource::Handwriting: return "handwriting";
     case TypingSource::English: return "english";
     case TypingSource::Local: return "local";
@@ -59,7 +61,7 @@ constexpr std::string_view TypingSourceId(TypingSource source) {
     return "unknown";
 }
 
-// 视图给出实际生效的引擎方案：0 全拼、1 双拼、2 五笔、3 日文、4 韩文、5 粤拼、6 注音、7 越南文、8 藏文。本地模式优先，与其他原生宿主一致。
+// 视图给出实际生效的引擎方案：0 全拼、1 双拼、2 五笔、3 日文、4 韩文、5 粤拼、6 注音、7 越南文、8 藏文、9 笔画。本地模式优先，与其他原生宿主一致。
 constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
                                             bool dedicatedEnglish,
                                             std::string_view localMode,
@@ -81,6 +83,7 @@ constexpr TypingSource ResolveTypingSource(int scheme, bool nineKey,
     case 6: return TypingSource::Zhuyin;
     case 7: return TypingSource::Vietnamese;
     case 8: return TypingSource::Tibetan;
+    case 9: return TypingSource::Stroke;
     default: return TypingSource::Unknown;
     }
 }

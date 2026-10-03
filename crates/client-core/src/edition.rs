@@ -295,6 +295,7 @@ impl Edition {
             TouchKeyboardScheme::Zhuyin => InputScheme::Zhuyin,
             TouchKeyboardScheme::Vietnamese => InputScheme::Vietnamese,
             TouchKeyboardScheme::Tibetan => InputScheme::Tibetan,
+            TouchKeyboardScheme::Stroke => InputScheme::Stroke,
         };
         self.offers(input)
     }

@@ -26,6 +26,7 @@ const allSchemes = [
   "zhuyin",
   "vietnamese",
   "tibetan",
+  "stroke",
 ] as const;
 
 function client(enabled: string[] | null, openSettings = vi.fn(() => Promise.resolve())) {
@@ -53,6 +54,7 @@ test("names the language each missing entry sits under in the add dialog", async
   expect(text).toContain("「水杉输入法 · 粤」在「粤语」下");
   expect(text).toContain("「水杉输入法 · 注」在「繁体中文」下");
   expect(text).toContain("「水杉输入法 · 藏」在「藏语」下");
+  expect(text).toContain("「水杉输入法 · 笔」在「简体中文」下");
   expect(text).not.toContain("水杉输入法 · 双");
   expect(text).not.toContain("菜单栏里还没有");
   expect(screen.getByRole("button", { name: "打开键盘设置" })).toBeTruthy();
@@ -70,6 +72,21 @@ test("leads with the current scheme's entry when it is missing", async () => {
 
   const text = (await screen.findByText(/还没加入的/)).textContent ?? "";
   expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」")).toBe(true);
+  expect(text).toContain("要注销并重新登录一次才会出现在「添加」对话框里");
+});
+
+test("leads with the Stroke entry when Stroke is the current scheme", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client([prefix + "Hans"])}
+      scheme="stroke"
+      inputSchemes={allSchemes}
+      onError={vi.fn()}
+    />,
+  );
+
+  const text = (await screen.findByText(/还没加入的/)).textContent ?? "";
+  expect(text.startsWith("菜单栏里还没有「水杉输入法 · 笔」")).toBe(true);
 });
 
 test("leaves out the entries of schemes the host does not offer", async () => {

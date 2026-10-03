@@ -136,6 +136,9 @@ int main() {
     // Every other scheme keeps the ordinary classification.
     check(host_composed_key_action(scheme::Cantonese, 'S', L's', false, false, {}) == KoreanKeyAction::Default,
           "Cantonese keys are ordinary");
+    check(host_composed_key_action(scheme::Stroke, 'H', L'h', true, false, {}) == KoreanKeyAction::Default &&
+              host_composed_key_action(scheme::Stroke, 'X', L'x', false, false, {}) == KoreanKeyAction::Default,
+          "Stroke keys take the ordinary classification, which LetterPassesWhileIdle narrows");
 
     // The projected Zhuyin list: Down opens it, a choice fixes a reading and keeps composing, Escape closes it.
     using msime::tsf::project_korean_hanja_key;

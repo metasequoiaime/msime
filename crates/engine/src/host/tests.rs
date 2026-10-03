@@ -6,6 +6,7 @@ use rusqlite::Connection;
 
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
+use crate::types::SchemeType;
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -67,6 +68,7 @@ fn options(root: &Path) -> EngineOptions {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     }
 }
@@ -1065,8 +1067,8 @@ fn scheme_eight_is_tibetan_and_needs_no_dictionary() {
     let space = session.command(Command::CommitCandidate).unwrap();
     assert!(space.handled);
     assert_eq!(space.commit, "བོད་");
-    value.scheme = 9;
-    let error = Session::new(&value).err().expect("scheme nine");
+    value.scheme = 10;
+    let error = Session::new(&value).err().expect("scheme ten");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::UNSUPPORTED_INPUT_SCHEME
@@ -1090,6 +1092,55 @@ fn zhuyin_is_unavailable_without_its_dictionary() {
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
     );
     assert!(!dir.path().join("missing.db").exists());
+}
+
+#[test]
+fn stroke_is_unavailable_without_its_dictionary() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = 9;
+    let error = Session::new(&value).err().expect("no stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+    value.stroke_dictionary = dir.path().join("missing.db").to_str().unwrap().to_owned();
+    let error = Session::new(&value).err().expect("missing stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+    assert!(!dir.path().join("missing.db").exists());
+}
+
+// 笔画的快照：`preedit` 与 `reading` 是笔画字形，`editing_text` 与光标是键入的 ASCII 字母；Enter 上屏字母串，两条 CommitRaw 都不学习。
+#[test]
+fn stroke_snapshot_draws_glyphs_and_edits_letters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stroke.db");
+    crate::stroke::fixture::build(&path);
+    let mut value = options(dir.path());
+    value.scheme = 9;
+    value.stroke_dictionary = path.to_str().unwrap().to_owned();
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"hsx");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.scheme, 9);
+    assert_eq!(snapshot.preedit, "一丨＊");
+    assert_eq!(snapshot.reading, "一丨＊");
+    assert_eq!(snapshot.editing_text, "hsx");
+    assert_eq!(snapshot.caret_position, 3);
+    assert!(snapshot.segment_raw_boundaries.is_empty());
+    assert!(!snapshot.candidate_list_open);
+    assert_eq!(snapshot.candidates, ["土"]);
+    assert_eq!(snapshot.candidate_codes, ["hsx"]);
+
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert_eq!((result.handled, result.commit.as_str()), (true, "hsx"));
+    type_text(&mut session, b"pn");
+    let result = session.command(Command::CommitRawWithoutLearning).unwrap();
+    assert_eq!((result.handled, result.commit.as_str()), (true, "pn"));
+    assert!(session.snapshot().unwrap().reading.is_empty());
 }
 
 #[test]
@@ -1839,6 +1890,74 @@ fn helpcode_display_toggle_keeps_candidates_and_filtering_enabled() {
         );
         assert!(session.character(b'A', true).unwrap().handled);
     }
+}
+
+#[test]
+fn wubi_reverse_codes_are_shown_for_quanpin_and_mixed_wubi_candidates() {
+    let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
+
+    let quanpin_root = tempfile::tempdir().unwrap();
+    let mut quanpin = helpcode_fixture(quanpin_root.path(), extra, "");
+    quanpin.show_helpcode = false;
+    let mut session = Session::new(&quanpin).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("wqvb"));
+
+    let mixed_root = tempfile::tempdir().unwrap();
+    let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
+    mixed.scheme = SchemeType::Wubi as u8;
+    mixed.wubi_mixed_pinyin = true;
+    let mut session = Session::new(&mixed).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("wqvb"));
+
+    let native_root = tempfile::tempdir().unwrap();
+    let mut native = helpcode_fixture(native_root.path(), extra, "");
+    native.scheme = SchemeType::Wubi as u8;
+    let mut session = Session::new(&native).unwrap();
+    type_text(&mut session, b"wqvb");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("wqvb"));
+}
+
+#[test]
+fn wubi_reverse_codes_follow_the_selected_profile() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(
+        root.path(),
+        "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+         INSERT INTO wubi86 VALUES('wqvb','你好',300);
+         INSERT INTO wubi98 VALUES('abcd','你好',300);",
+        "",
+    );
+    options.wubi_profile = 1;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("abcd"));
+    assert!(!view.candidate_annotations[index].contains("wqvb"));
 }
 
 #[test]

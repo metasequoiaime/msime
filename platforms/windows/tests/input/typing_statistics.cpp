@@ -61,7 +61,11 @@ int main() {
     require(resolve_typing_source(8, false, false, "none", "xiaohe") ==
             TypingSource::Tibetan);
     require(typing_source_id(TypingSource::Tibetan) == "tibetan");
+    // 笔画按自己的 id 计数，就是 client-core 的 TypingSource 读的那个。
     require(resolve_typing_source(9, false, false, "none", "xiaohe") ==
+            TypingSource::Stroke);
+    require(typing_source_id(TypingSource::Stroke) == "stroke");
+    require(resolve_typing_source(10, false, false, "none", "xiaohe") ==
             TypingSource::Unknown);
     require(resolve_typing_source(-1, false, false, "none", "xiaohe") ==
             TypingSource::Unknown);

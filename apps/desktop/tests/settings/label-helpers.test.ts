@@ -11,4 +11,5 @@ test("labels every supported input scheme", () => {
   expect(schemeTitle("zhuyin")).toBe("注音");
   expect(schemeTitle("vietnamese")).toBe("越南语");
   expect(schemeTitle("tibetan")).toBe("藏文");
+  expect(schemeTitle("stroke")).toBe("笔画");
 });

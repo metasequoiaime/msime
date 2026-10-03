@@ -21,6 +21,8 @@ use super::snapshot::{dump_journal, query_rows, result_json, scrub, snapshot_jso
 const CANTONESE_DICTIONARY: &str = "cantonese.db";
 /// The file name a scenario fixture stages `zhuyin.db` under, beside the resource set's own files.
 const ZHUYIN_DICTIONARY: &str = "zhuyin.db";
+/// The file name a scenario fixture stages `stroke.db` under, beside the resource set's own files.
+const STROKE_DICTIONARY: &str = "stroke.db";
 
 pub const SCENARIO_ENV: &str = "MSIME_GOLDEN_SCENARIO";
 
@@ -335,6 +337,7 @@ fn scheme_from(name: &str) -> SchemeType {
         "vietnamese" => SchemeType::Vietnamese,
         "tibetan" => SchemeType::Tibetan,
         "zhuyin" => SchemeType::Zhuyin,
+        "stroke" => SchemeType::Stroke,
         _ => panic!("unknown scheme {name}"),
     }
 }
@@ -449,7 +452,7 @@ impl Scenario {
         });
         let mut options = self.options.clone();
         options.paths = self.paths.clone();
-        // `cantonese.db` and `zhuyin.db` ship beside the resource set, so a fixture that stages one hands its path to the session as a host would.
+        // `cantonese.db`, `zhuyin.db` and `stroke.db` ship beside the resource set, so a fixture that stages one hands its path to the session as a host would.
         let cantonese = self.resources.join(CANTONESE_DICTIONARY);
         if cantonese.exists() {
             options.cantonese_dictionary = cantonese;
@@ -457,6 +460,10 @@ impl Scenario {
         let zhuyin = self.resources.join(ZHUYIN_DICTIONARY);
         if zhuyin.exists() {
             options.zhuyin_dictionary = zhuyin;
+        }
+        let stroke = self.resources.join(STROKE_DICTIONARY);
+        if stroke.exists() {
+            options.stroke_dictionary = stroke;
         }
         self.session = Some(Session::new(options).unwrap_or_else(|error| {
             panic!(
@@ -827,7 +834,7 @@ mod tests {
     #[test]
     fn every_scenario_is_selected_in_name_order_without_a_filter() {
         let all = selected_scenarios_from(None);
-        assert_eq!(all.len(), 296);
+        assert_eq!(all.len(), 299);
         let mut sorted = all.clone();
         sorted.sort();
         assert_eq!(all, sorted);

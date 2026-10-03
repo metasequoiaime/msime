@@ -77,6 +77,12 @@ int main() {
   assert(!engine_spelling(tibetan_composing, U','));
   assert(!spelling_digits(tibetan_composing));
   assert(!spelling_space(tibetan_composing));
+  // 笔画只用字母 h s p n z 和通配符 x 拼写，它们走字母路径：方案不列任何拼写符号，所以组字时数字行仍然选词，标点仍然是标点。
+  const Json stroke = {{"scheme", 9}, {"local_mode", "none"}, {"editing_text", "hx"}, {"spelling_symbols", ""}};
+  for (char32_t character : {U'1', U'0', U'\'', U',', U'x', U'*'})
+    assert(!engine_spelling(stroke, character));
+  assert(!spelling_digits(stroke));
+  assert(!spelling_space(stroke));
   // Quanpin's idle mode-entry keys stay on the punctuation route, and the dedicated English mode keeps no scheme rules.
   assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"spelling_symbols", "/@"}}, U'/'));
   assert(!engine_spelling(Json{{"scheme", 6}, {"dedicated_english", true}, {"spelling_symbols", "1"}}, U'1'));

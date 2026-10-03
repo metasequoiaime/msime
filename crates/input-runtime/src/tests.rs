@@ -2997,6 +2997,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     }
 }
@@ -5510,7 +5511,7 @@ fn a_cantonese_partial_selection_commits_at_once_and_learns_nothing() {
     assert_eq!(database_rows(directory.path()), before);
 }
 
-/// The sentence model and the runner-up demotion reorder Chinese lattice readings; a Cantonese list comes from its own dictionary in its own order, so neither touches it.
+/// The sentence model and the runner-up demotion reorder Chinese lattice readings; a Cantonese or Stroke list comes from its own dictionary in its own order, so neither touches it.
 #[test]
 fn cantonese_lists_are_never_reranked_or_demoted() {
     let reordered = |scheme: u8, words: &[&str], sources: Vec<u8>, model: Option<SentenceModel>| {
@@ -5547,6 +5548,11 @@ fn cantonese_lists_are_never_reranked_or_demoted() {
     );
     assert_eq!(
         reordered(CANTONESE_SCHEME, &rows, vec![LATTICE_SOURCE; 3], favours()),
+        rows
+    );
+    // Stroke lists come from stroke.db in its own order as well.
+    assert_eq!(
+        reordered(STROKE_SCHEME, &rows, vec![LATTICE_SOURCE; 3], favours()),
         rows
     );
     let sentences = ["你好嗎", "妳好嗎", "尼好嗎", "你號嗎", "妳號嗎", "你", "好"];
@@ -5881,4 +5887,238 @@ fn zhuyin_spelling_symbols_stay_visible_with_phrase_preedit() {
         .unwrap();
     assert_eq!(enter.commit.as_deref(), Some("你郝"));
     assert_eq!(enter.view.phrase_prefix, "");
+}
+
+const STROKE_SCHEME: u8 = 9;
+
+/// A `stroke.db` with a few single characters keyed by their stroke letters, written with the shipped schema. `土` has two codes, as characters with variant stroke orders do in the real data. The weights are made up.
+fn stroke_dictionary(directory: &std::path::Path) -> String {
+    use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
+    let path = directory.join("stroke.db");
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection.execute_batch(SCHEMA).unwrap();
+    connection
+        .execute(
+            "INSERT INTO metadata VALUES (?1, ?2)",
+            (METADATA_FORMAT_VERSION, FORMAT_VERSION.to_string()),
+        )
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO syllables VALUES ('h'),('s'),('p'),('n'),('z');\
+             INSERT INTO entries VALUES ('h','一',9000),('hh','二',5000),('hhh','三',4000),('hs','十',4500),('hsh','土',2000),('hshh','土',10),('hhsh','王',2500),('hpn','大',5500),('pn','人',6000),('szh','口',3500);",
+        )
+        .unwrap();
+    path.to_str().unwrap().to_owned()
+}
+
+/// A real Engine on the Stroke scheme with learning on, so a learning path the scheme failed to skip would write. Focused.
+fn stroke_runtime(directory: &std::path::Path) -> Runtime {
+    let mut options = real_engine_options(directory);
+    options.scheme = STROKE_SCHEME;
+    options.learning = true;
+    options.stroke_dictionary = stroke_dictionary(directory);
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+}
+
+/// Types `keys` as plain characters, each one composing without a commit.
+fn compose_stroke(runtime: &mut Runtime, keys: &str) -> Transition {
+    let mut last = None;
+    for value in keys.bytes() {
+        let transition = character(runtime, value);
+        assert!(
+            transition.handled && transition.commit.is_none(),
+            "{keys}: {}",
+            value as char
+        );
+        last = Some(transition);
+    }
+    last.unwrap()
+}
+
+/// The stroke letters compose on the character route and the preedit draws their glyphs while editing_text keeps the letters; exact matches lead and completions follow, each character once. Digits 1-9 pick from the visible page, since the scheme spells with no digit or symbol. The text is written as stored, so nothing is script-converted.
+#[test]
+fn stroke_letters_compose_and_digits_select() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = stroke_runtime(directory.path());
+    let idle = runtime.view();
+    assert_eq!(idle.scheme, STROKE_SCHEME);
+    assert_eq!(idle.spelling_symbols, "");
+    assert!(idle.chinese_text);
+    assert!(!idle.script_conversion);
+
+    let typed = compose_stroke(&mut runtime, "hs");
+    assert_eq!(typed.view.scheme, STROKE_SCHEME);
+    assert_eq!(typed.view.editing_text, "hs");
+    assert_eq!(typed.view.caret_position, 2);
+    assert_eq!(typed.view.preedit, "一丨");
+    assert_eq!(typed.view.reading, "一丨");
+    assert_eq!(texts(&typed.view), ["十", "土"]);
+    assert_eq!(typed.view.spelling_symbols, "");
+    assert!(!typed.view.candidate_list_open);
+    assert!(typed.view.chinese_text);
+    assert!(!typed.view.script_conversion);
+
+    let picked = character(&mut runtime, b'2');
+    assert!(picked.handled);
+    assert_eq!(picked.commit.as_deref(), Some("土"));
+    let context = picked.commit_context.unwrap();
+    assert_eq!(context.scheme, STROKE_SCHEME);
+    assert!(!context.script_conversion);
+    assert_eq!(picked.view.editing_text, "");
+    assert_eq!(picked.view.preedit, "");
+
+    // A digit past the end of the page is swallowed rather than typed into the document.
+    compose_stroke(&mut runtime, "szh");
+    let beyond = character(&mut runtime, b'9');
+    assert!(beyond.handled && beyond.commit.is_none());
+    assert_eq!(beyond.view.editing_text, "szh");
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+}
+
+/// With nothing composed only h s p n z start a composition: the wildcard, the other letters and the digits go back to the host to type. While composing the wildcard appends a stroke that matches any one, other letters are swallowed without touching the composition, Backspace drops the last stroke and Escape clears it all.
+#[test]
+fn stroke_wildcard_and_other_letters_follow_the_composition() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = stroke_runtime(directory.path());
+
+    for value in *b"xa1" {
+        let typed = character(&mut runtime, value);
+        assert!(
+            !typed.handled && typed.commit.is_none(),
+            "{}",
+            value as char
+        );
+        assert_eq!(typed.view.editing_text, "", "{}", value as char);
+    }
+
+    compose_stroke(&mut runtime, "hs");
+    for value in *b"aqy" {
+        let swallowed = character(&mut runtime, value);
+        assert!(
+            swallowed.handled && swallowed.commit.is_none(),
+            "{}",
+            value as char
+        );
+        assert_eq!(swallowed.view.editing_text, "hs", "{}", value as char);
+        assert_eq!(swallowed.view.preedit, "一丨", "{}", value as char);
+    }
+
+    let wildcard = character(&mut runtime, b'x');
+    assert!(wildcard.handled && wildcard.commit.is_none());
+    assert_eq!(wildcard.view.editing_text, "hsx");
+    assert_eq!(wildcard.view.preedit, "一丨＊");
+    assert_eq!(texts(&wildcard.view), ["土"]);
+
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(back.handled && back.commit.is_none());
+    assert_eq!(back.view.editing_text, "hs");
+    assert_eq!(texts(&back.view), ["十", "土"]);
+
+    // A wildcard in the middle matches any one stroke there.
+    let middle = compose_stroke(&mut runtime, "xh");
+    assert_eq!(middle.view.preedit, "一丨＊一");
+    assert_eq!(texts(&middle.view), ["土"]);
+
+    let cleared = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(cleared.handled && cleared.commit.is_none());
+    assert_eq!(cleared.view.editing_text, "");
+    assert!(cleared.view.candidates.is_empty());
+}
+
+/// Space takes the highlighted row, Enter commits the typed letters, and a composition with no match commits its letters on Space as well. Leaving the client commits nothing.
+#[test]
+fn stroke_space_picks_and_enter_commits_the_letters() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = stroke_runtime(directory.path());
+
+    compose_stroke(&mut runtime, "hh");
+    runtime.dispatch(Action::NextCandidate).unwrap();
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("三"));
+    assert_eq!(space.commit_context.unwrap().scheme, STROKE_SCHEME);
+    assert_eq!(space.view.editing_text, "");
+
+    compose_stroke(&mut runtime, "pn");
+    let enter = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert!(enter.handled);
+    assert_eq!(enter.commit.as_deref(), Some("pn"));
+    assert_eq!(enter.view.editing_text, "");
+
+    let unmatched = compose_stroke(&mut runtime, "zzz");
+    assert!(unmatched.view.candidates.is_empty());
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("zzz"));
+    assert_eq!(space.view.editing_text, "");
+
+    compose_stroke(&mut runtime, "hs");
+    let left = runtime.focus(false).unwrap();
+    assert!(left.commit.is_none());
+}
+
+/// Punctuation while composing commits the top row followed by the full-width mark.
+#[test]
+fn stroke_punctuation_commits_the_top_row_then_the_mark() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = stroke_runtime(directory.path());
+
+    compose_stroke(&mut runtime, "pn");
+    let comma = runtime
+        .dispatch(Action::Character {
+            value: b',',
+            shift: false,
+        })
+        .unwrap();
+    assert!(comma.handled);
+    assert_eq!(comma.commit.as_deref(), Some("人，"));
+    assert_eq!(comma.view.editing_text, "");
+
+    compose_stroke(&mut runtime, "hpn");
+    let question = runtime.dispatch(Action::Punctuation(b'?')).unwrap();
+    assert!(question.handled);
+    assert_eq!(question.commit.as_deref(), Some("大？"));
+    assert_eq!(question.view.editing_text, "");
+
+    // The apostrophe separates no syllables under Stroke, so it is punctuation like the rest: the Windows Server and the Linux hosts send it here rather than as composition input.
+    compose_stroke(&mut runtime, "pn");
+    let apostrophe = runtime.dispatch(Action::Punctuation(b'\'')).unwrap();
+    assert!(apostrophe.handled);
+    let written = apostrophe.commit.unwrap();
+    assert!(
+        written.starts_with('人') && written.chars().count() == 2,
+        "{written}"
+    );
+    assert_eq!(apostrophe.view.editing_text, "");
+}
+
+/// Picking a lower row again and again does not lift it, and nothing the user picks is written to any database.
+#[test]
+fn stroke_selections_learn_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = stroke_runtime(directory.path());
+    let first = compose_stroke(&mut runtime, "hh");
+    assert_eq!(texts(&first.view), ["二", "三", "王"]);
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    let before = database_rows(directory.path());
+
+    for _ in 0..3 {
+        compose_stroke(&mut runtime, "hh");
+        assert_eq!(character(&mut runtime, b'3').commit.as_deref(), Some("王"));
+    }
+    let again = compose_stroke(&mut runtime, "hh");
+    assert_eq!(texts(&again.view), ["二", "三", "王"]);
+    runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+
+    drop(runtime);
+    msime_engine::flush_personal_learning();
+    assert_eq!(database_rows(directory.path()), before);
 }

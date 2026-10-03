@@ -1,0 +1,63 @@
+{
+ "name": "stroke_prefix_select",
+ "source": "crates/engine/src/stroke (no C++ reference: the Stroke scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "stroke",
+  "glyph preedit",
+  "exact code first",
+  "prefix completion",
+  "duplicate text listed once",
+  "selection",
+  "digit selection",
+  "space selection",
+  "punctuation after a composition"
+ ],
+ "fixture": {
+  "databases": {
+   "stroke.db": "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key, text)) WITHOUT ROWID;CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);INSERT INTO metadata VALUES('format_version','1');INSERT INTO syllables VALUES('h'),('s'),('p'),('n'),('z');INSERT INTO entries VALUES('h','一',9000),('hh','二',5000),('hhh','三',4000),('hs','十',4500),('hsh','土',2000),('hshh','土',10),('hhsh','王',2500),('hhs','干',1500),('hpn','大',5500),('pn','人',6000),('szh','口',3500);"
+  }
+ },
+ "options": {
+  "scheme": "stroke"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "h"
+  },
+  {
+   "op": "type",
+   "arg": "s"
+  },
+  {
+   "op": "candidate_key",
+   "arg": "2"
+  },
+  {
+   "op": "type",
+   "arg": "hpn"
+  },
+  {
+   "op": "command",
+   "arg": "CommitCandidate"
+  },
+  {
+   "op": "type",
+   "arg": "h"
+  },
+  {
+   "op": "select",
+   "arg": {
+    "word": "王"
+   }
+  },
+  {
+   "op": "type",
+   "arg": "pn"
+  },
+  {
+   "op": "punctuation",
+   "arg": ","
+  }
+ ]
+}

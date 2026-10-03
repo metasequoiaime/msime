@@ -1860,7 +1860,7 @@ static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
 @implementation SchemeHostSession
 @end
 
-// Cantonese and Zhuyin are offered only where their dictionary is installed: the input menu leaves them out, its check falls on the scheme the Engine falls back to, and the settings radios are disabled. An opt-in mode is enabled when the scheme running moves to its scheme - in this process, while the input method was not running, or by the dictionary arriving after the scheme was picked - and never for the scheme the last sync already showed.
+// Cantonese, Zhuyin and Stroke are offered only where their dictionary is installed: the input menu leaves them out, its check falls on the scheme the Engine falls back to, and the settings radios are disabled. An opt-in mode is enabled when the scheme running moves to its scheme - in this process, while the input method was not running, or by the dictionary arriving after the scheme was picked - and never for the scheme the last sync already showed.
 static void TestOptInSchemeModes() {
     NSString *suite = [@"msime.opt-in-modes." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -1883,7 +1883,7 @@ static void TestOptInSchemeModes() {
     MSIMEInputController *controller = makeController(appearance, YES);
     id client = [controller valueForKey:@"activeClient"];
 
-    // 只有 cantonese.db 时菜单按引擎顺序正好列出八个方案，没有注音。
+    // 只有 cantonese.db 时菜单按引擎顺序正好列出八个方案，没有注音或笔画。
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
     NSMutableArray<NSString *> *listed = [NSMutableArray array];
     for (NSMenuItem *item in schemeItem.submenu.itemArray) [listed addObject:item.representedObject];
@@ -1955,7 +1955,23 @@ static void TestOptInSchemeModes() {
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
 
-    // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 is disabled and says why, and the rest are enabled.
+    // 笔画没有 stroke.db 时按全拼运行、不启用模式；词库到位后成为实际方案，启用「笔」，菜单最后一项是笔画并打勾。
+    [defaults setObject:@"stroke" forKey:@"MSIMEClientInputScheme"];
+    relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    next = makeController(relaunched, YES);
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
+    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"stroke.db"] atomically:YES]);
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 7 && [enabled.lastObject isEqual:MSIMEStrokeInputModeID] && [relaunched.lastSyncedInputScheme isEqual:@"stroke"]);
+    schemeItem = [next.menu itemAtIndex:9];
+    assert(schemeItem.submenu.numberOfItems == 10 && [schemeItem.title isEqual:@"输入方案（笔画）"]);
+    NSMenuItem *strokeItem = [schemeItem.submenu itemAtIndex:9];
+    assert([strokeItem.representedObject isEqual:@"stroke"] && [strokeItem.title isEqual:@"笔画"] && strokeItem.state == NSControlStateValueOn);
+    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"stroke.db"] error:nil]);
+    [defaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
+
+    // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 and 笔画 are disabled and say why, and the rest are enabled.
     assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"zhuyin.db"] error:nil]);
     NSString *optionsPath = MSIMEDefaultRuntimeOptionsPath(NSFileManager.defaultManager);
     assert(![NSFileManager.defaultManager fileExistsAtPath:optionsPath]);
@@ -1963,9 +1979,9 @@ static void TestOptInSchemeModes() {
     assert([[NSJSONSerialization dataWithJSONObject:@{@"language_dictionaries": dictionaries} options:0 error:nil] writeToFile:optionsPath atomically:YES]);
     MSIMEAppearancePreferences *settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     NSArray<NSControl *> *radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    assert(radios.count == 9);
+    assert(radios.count == 10);
     for (NSControl *radio in radios) {
-        const BOOL missing = radio.tag == 6;
+        const BOOL missing = radio.tag == 6 || radio.tag == 9;
         assert(radio.enabled == !missing && (missing ? [radio.toolTip isEqual:@"未安装该方案的词库，暂不可用"] : radio.toolTip == nil));
     }
     // 选中粤拼而「粤」不在输入法列表里时，输入方式卡片说明去「粤语」下添加；没有探针时不显示，加进去之后也不显示。
@@ -1996,7 +2012,7 @@ static void TestOptInSchemeModes() {
     assert([NSFileManager.defaultManager removeItemAtPath:optionsPath error:nil]);
     settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6));
+    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6 && radio.tag != 9));
 
     // 藏文和越南文一样按需启用，而且不需要词库：从菜单选中藏文时启用「藏」一次，再同步同一方案不重复。
     NSString *tibetanSuite = [@"msime.opt-in-tibetan." stringByAppendingString:NSUUID.UUID.UUIDString];
@@ -2505,7 +2521,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     assert(!MSIMECandidateListOpen(@{@"scheme": @0, @"candidate_list_open": @NO, @"candidates": @[@{@"text": @"中"}]}));
     // Glosses: the three Chinese schemes that always had them, not temporary Japanese inside them, and none of the schemes after them. A view without a scheme is quanpin.
     for (NSNumber *scheme in @[@0, @1, @2, @4]) assert(MSIMEViewShowsGlosses(@{@"scheme": scheme}));
-    for (NSNumber *scheme in @[@3, @5, @6, @7, @8, @99]) assert(!MSIMEViewShowsGlosses(@{@"scheme": scheme}));
+    for (NSNumber *scheme in @[@3, @5, @6, @7, @8, @9, @99]) assert(!MSIMEViewShowsGlosses(@{@"scheme": scheme}));
     assert(!MSIMEViewShowsGlosses(@{@"scheme": @0, @"local_mode": @"temporary_japanese"}));
     assert(MSIMEViewShowsGlosses(@{}));
     // Scheme traits hold only while the scheme's own rules do: dedicated English and the local modes keep theirs.
@@ -2529,7 +2545,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     };
 
     // 只有光标不锁在组字末尾时 Ctrl+Backspace 才编辑分段；注音、越南文和藏文与韩文一样结束组字，把这个组合键留给应用。
-    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7, @8]) {
+    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7, @8, @9]) {
         const BOOL locked = scheme.intValue == 4 || scheme.intValue == 6 || scheme.intValue == 7 || scheme.intValue == 8;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
@@ -2538,7 +2554,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     }
 
     // Option+Return opens the candidate list of a scheme that has one to open (Korean, Zhuyin) and is swallowed while composing; elsewhere it finishes the composition and goes to the application as before.
-    for (NSNumber *scheme in @[@0, @3, @5, @7, @8, @4, @6]) {
+    for (NSNumber *scheme in @[@0, @3, @5, @7, @8, @9, @4, @6]) {
         const BOOL opens = scheme.intValue == 4 || scheme.intValue == 6;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
@@ -2557,7 +2573,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
-    for (NSNumber *scheme in @[@0, @5, @6, @4, @7, @8]) {
+    for (NSNumber *scheme in @[@0, @5, @6, @9, @4, @7, @8]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
                                @"candidates": @[]} forKey:@"view"];
@@ -2675,7 +2691,7 @@ static void TestSchemeKeyRouting() {
     send(view(@6, @"", zhuyinIdle, NO), key(125, down, arrowFlags), NO);
     assert(session.lastCommand != MSIME_OPEN_CANDIDATE_LIST);
     // Down in a scheme without a Down-opened list keeps its arrow meaning.
-    for (NSNumber *scheme in @[@0, @4, @5, @7]) {
+    for (NSNumber *scheme in @[@0, @4, @5, @7, @9]) {
         send(view(scheme, @"abc", @"", NO), key(125, down, arrowFlags), NO);
         assert(session.lastCommand == MSIME_NEXT_CANDIDATE);
     }
@@ -2711,6 +2727,26 @@ static void TestSchemeKeyRouting() {
     assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(49, @" ", 0), NO) && session.lastCommand == MSIME_COMMIT_CANDIDATE && session.asciiCalls == asciiBefore);
     assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(36, @"\r", 0), NO) && session.lastCommand == MSIME_COMMIT_RAW && session.asciiCalls == asciiBefore);
     assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(53, @"\x1b", 0), NO) && session.lastCommand == MSIME_CANCEL && session.asciiCalls == asciiBefore);
+
+    // Stroke spells with the letters h s p n z and the wildcard x, so it publishes no spelling symbols: every stroke key reaches the Engine as a plain letter, idle or composing, and the Engine decides which of them start a composition.
+    const struct { unsigned short code; char letter; } strokeKeys[] = {{4, 'h'}, {1, 's'}, {35, 'p'}, {45, 'n'}, {6, 'z'}, {7, 'x'}};
+    for (const auto &stroke : strokeKeys) {
+        NSString *characters = [NSString stringWithFormat:@"%c", stroke.letter];
+        assert(send(view(@9, @"", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter && !session.lastShift);
+        assert(send(view(@9, @"hs", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter);
+    }
+    assert(session.punctuationASCIICalls == punctuationRoutes && session.enginePunctuationCalls == 0 && client.insertions.count == 0);
+    // With the stroke candidates up the physical digits still pick a row and Space still commits the highlighted one; strokes are never digits.
+    NSMutableDictionary *stroke = [view(@9, @"hs", @"", YES) mutableCopy];
+    stroke[@"candidate_list_open"] = @NO;
+    stroke[@"preedit"] = @"一丨";
+    stroke[@"reading"] = @"一丨";
+    [controller setValue:stroke forKey:@"view"];
+    panel.requestedVisible = YES;
+    asciiBefore = session.asciiCalls;
+    assert([controller handleEvent:key(18, @"1", 0) client:client] && session.asciiCalls == asciiBefore);
+    assert(!send(stroke, key(49, @" ", 0), YES) && session.lastCommand == MSIME_COMMIT_CANDIDATE);
+    assert(session.asciiCalls == asciiBefore);
 
     // Quanpin is unchanged: with the panel up a digit picks a row, `-` turns the page and Space commits the candidate.
     // An ordinary conversion's panel: candidates shown with no opened list, which would make the paging marks punctuation.
@@ -4677,7 +4713,7 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.inputScheme = @"quanpin";
     appearance.shuangpinProfile = @"ziranma";
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
-    // 粤拼和注音只在装了词库时列出，隔离的 home 里两个词库都没有，所以按引擎顺序列出其余七个。词库在场的情形由 TestOptInSchemeModes 覆盖。
+    // 粤拼、注音和笔画只在装了词库时列出，隔离的 home 里三个词库都没有，所以按引擎顺序列出其余七个；笔画排在最后，下面的表不列它。词库在场的情形由 TestOptInSchemeModes 覆盖。
     assert([schemeItem.title isEqual:@"输入方案（全拼）"] && schemeItem.submenu.numberOfItems == 7);
     NSArray<NSString *> *schemeTitles = @[@"全拼", @"双拼（自然码）", @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文"];
     NSArray<NSString *> *schemeIDs = @[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"tibetan"];
@@ -6963,6 +6999,57 @@ static void TestOnDeviceGlossPersistence() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     [[MSIMETranslationCache sharedCache] clear];
 }
+
+// 同一控制器先后为同一个词发起两个端侧英文释义请求时，晚到的第一个回复仍须使用它自己的 Engine 来源写入词库；不能被后一个页面的同名词覆盖。
+static void TestOnDeviceGlossDuplicateTextKeepsRequestMetadata() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.on-device-gloss-duplicate." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.targetLanguage = @"en"; session.generation = 1;
+    session.targetLanguages = @[@"en"];
+    session.page = @[@{ @"text": @"同名", @"source": @0 }];
+    session.queryCandidates = @[@{ @"text": @"同名", @"online_gloss": @YES }];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.onDeviceFetches = [NSMutableArray array];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        DrainMainQueue();
+        [controller synchronizeOnDeviceGloss];
+    };
+    settle();
+    assert(controller.onDeviceFetches.count == 1);
+
+    // The next page asks for the same text with a different Engine source and target set,
+    // replacing the visible request while the first model answer is still in flight.
+    session.generation = 2;
+    session.targetLanguages = @[@"en", @"de"];
+    session.page = @[@{ @"text": @"同名", @"source": @6 }];
+    settle();
+    assert(controller.onDeviceFetches.count == 3);
+
+    [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
+        object:nil userInfo:@{@"target": @"en", @"translations": @{@"同名": @"old reply"}}]];
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    __block NSDictionary *lookup;
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{
+        lookup = [MSIMEClientSession learnedTranslationRequest:@{@"directory": root, @"action": @"lookup", @"target_language": @"en",
+            @"generation": @1, @"items": @[@{@"text": @"同名", @"direction": @"chinese_to_english"},
+                                               @{@"text": @"同名", @"direction": @"english_to_chinese"}]} error:nil];
+    });
+    assert(([lookup[@"translations"] isEqual:@[@{@"text": @"同名", @"translation": @"old reply"}]]));
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -7615,6 +7702,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestOfflineTargetGlosses(); }
             @autoreleasepool { TestOnDeviceGlosses(); }
             @autoreleasepool { TestOnDeviceGlossPersistence(); }
+            @autoreleasepool { TestOnDeviceGlossDuplicateTextKeepsRequestMetadata(); }
             @autoreleasepool { TestCustomTranslationController(); }
             @autoreleasepool { TestSecondaryTranslationScheduling(); }
             @autoreleasepool { TestCustomTranslationCacheDelivery(); }
@@ -7653,6 +7741,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestOfflineTargetGlosses(); }
         @autoreleasepool { TestOnDeviceGlosses(); }
         @autoreleasepool { TestOnDeviceGlossPersistence(); }
+        @autoreleasepool { TestOnDeviceGlossDuplicateTextKeepsRequestMetadata(); }
         @autoreleasepool { TestCustomTranslationController(); }
         @autoreleasepool { TestSecondaryTranslationScheduling(); }
         @autoreleasepool { TestCustomTranslationCacheDelivery(); }

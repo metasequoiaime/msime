@@ -167,6 +167,17 @@ const TIBETAN: SchemeDefinition = {
   glyph: "藏",
   badge: "26",
 };
+// 笔画：五个笔画键加通配键，键盘由 KeyboardView 按方案画成九键外框里的笔画面板，所以布局仍记作 twenty_six_key（与大千注音同理），不会触发九键拼音的数字串解码。
+const STROKE: SchemeDefinition = {
+  id: "STROKE",
+  preferenceId: "stroke",
+  engineScheme: "stroke",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "笔画",
+  glyph: "笔",
+  badge: "5",
+};
 const HANDWRITING: SchemeDefinition = {
   id: "HANDWRITING",
   preferenceId: "handwriting",
@@ -194,6 +205,7 @@ export class KeyboardScheme {
   static readonly ZHUYIN: SchemeDefinition = ZHUYIN;
   static readonly VIETNAMESE: SchemeDefinition = VIETNAMESE;
   static readonly TIBETAN: SchemeDefinition = TIBETAN;
+  static readonly STROKE: SchemeDefinition = STROKE;
 
   /** Declaration order is the fixed order the pickers render. */
   static readonly SCHEMES: SchemeDefinition[] = [
@@ -213,6 +225,7 @@ export class KeyboardScheme {
     ZHUYIN,
     VIETNAMESE,
     TIBETAN,
+    STROKE,
   ];
 
   /** 26 键符号层按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）走标点路由交给引擎；符号面板直接写入编辑框，不能用来叠写。其他方案原样发出。 */
@@ -284,7 +297,7 @@ export class KeyboardScheme {
     return offered.length > 0 ? offered[0] : HANDWRITING;
   }
 
-  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语和藏文由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。 */
+  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。 */
   static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter(
       (candidate: SchemeDefinition): boolean =>
@@ -292,6 +305,7 @@ export class KeyboardScheme {
         candidate !== ZHUYIN &&
         candidate !== VIETNAMESE &&
         candidate !== TIBETAN &&
+        candidate !== STROKE &&
         KeyboardScheme.offeredBy(candidate, edition),
     );
   }
@@ -300,13 +314,16 @@ export class KeyboardScheme {
     AppEdition.current(),
   );
 
-  /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese and Zhuyin read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
+  /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese, Zhuyin and Stroke read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
   static languageDictionary(engineScheme: string): string | null {
     if (engineScheme === "cantonese") {
       return "cantonese.db";
     }
     if (engineScheme === "zhuyin") {
       return "zhuyin.db";
+    }
+    if (engineScheme === "stroke") {
+      return "stroke.db";
     }
     return null;
   }
@@ -480,6 +497,8 @@ export class KeyboardScheme {
         return "vietnamese";
       case 8:
         return "tibetan";
+      case 9:
+        return "stroke";
       default:
         return "quanpin";
     }

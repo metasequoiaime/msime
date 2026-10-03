@@ -213,7 +213,7 @@ impl Session {
         self.input.finish_composition(first_index)
     }
 
-    /// Discards the composition. Fails, staying in the current scheme with the composition untouched, when the new scheme's dictionary cannot be opened (Cantonese without a usable `cantonese.db`: `LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`).
+    /// Discards the composition. Fails, staying in the current scheme with the composition untouched, when the new scheme's dictionary cannot be opened (Cantonese without a usable `cantonese.db`, Stroke without a usable `stroke.db`: `LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`).
     pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
         self.input.switch_scheme(scheme)?;
         self.nine_key.command(Command::Cancel);
@@ -364,6 +364,14 @@ impl Session {
             candidate_list_open: input.candidate_list_open(),
             candidates,
         }
+    }
+
+    /// 返回候选词的完整五笔编码，仅供宿主显示反查结果；九宫格会话不沿用旧的普通候选反查。
+    pub fn candidate_wubi_code(&self, word: &str) -> Option<&str> {
+        if self.nine_key.active() {
+            return None;
+        }
+        self.input.engine.candidate_wubi_code(word)
     }
 
     /// Byte offsets into `editing_text` for pinyin-unit editing; empty when idle, in local modes, for non-pinyin schemes and during nine-key input. Read-only.

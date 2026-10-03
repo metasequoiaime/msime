@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsPreviewLabel } from "./settings-preview-label";
 
 export interface SettingsPreviewBlockProps extends Omit<
   ComponentPropsWithoutRef<"div">,
@@ -23,7 +24,7 @@ export function SettingsPreviewBlock({
   const Element = as;
   return (
     <Element {...props} className={`${settings.groupPreview}${className ? ` ${className}` : ""}`}>
-      <div className={settings.panelPreviewLabel}>{label}</div>
+      <SettingsPreviewLabel>{label}</SettingsPreviewLabel>
       {children}
     </Element>
   );

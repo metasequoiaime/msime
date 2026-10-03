@@ -16,6 +16,8 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunityMetrics } from "./community-metrics";
+import { StatusMessage } from "../core/status-message";
+import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
@@ -332,7 +334,7 @@ export function CandidateSkinPublishDialog({
       onLogin={onLogin}
       onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
     >
-      {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
+      {optionsLoading && <StatusMessage role="status">正在读取本地皮肤…</StatusMessage>}
       {!optionsLoading && options.length === 0 && (
         <CommunityNotice>
           还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「主题」的外部皮肤中刷新。
@@ -374,7 +376,7 @@ export function CandidateSkinPublishDialog({
           仅自己可见
         </label>
       </fieldset>
-      {packLoading && <p role="status">正在检查皮肤包…</p>}
+      {packLoading && <StatusMessage role="status">正在检查皮肤包…</StatusMessage>}
       {packError && previewless && readImage && (
         <div className={style.confirmation} role="alert">
           <p>
@@ -383,7 +385,7 @@ export function CandidateSkinPublishDialog({
           {drawFailed && (
             <p>生成预览图失败，请重试，或自己在 skin.toml 中用 preview 指定一张图片。</p>
           )}
-          <div className={style.confirmationActions}>
+          <CommunityConfirmationActions>
             {openSkinDirectory && (
               <ActionButton
                 action={() => void openFolder()}
@@ -398,7 +400,7 @@ export function CandidateSkinPublishDialog({
               disabled={drawing}
               label={drawing ? "正在生成…" : "生成预览图"}
             />
-          </div>
+          </CommunityConfirmationActions>
           {openFailed && <p>无法打开皮肤目录，请重试。</p>}
         </div>
       )}
@@ -451,13 +453,13 @@ export function CandidateSkinPublishDialog({
         <div className={style.confirmation} role="alert">
           <p>{packError}</p>
           {openSkinDirectory && (
-            <div className={style.confirmationActions}>
+            <CommunityConfirmationActions>
               <ActionButton
                 action={() => void openFolder()}
                 className="secondary"
                 label="打开目录"
               />
-            </div>
+            </CommunityConfirmationActions>
           )}
           {openFailed && <p>无法打开皮肤目录，请重试。</p>}
         </div>

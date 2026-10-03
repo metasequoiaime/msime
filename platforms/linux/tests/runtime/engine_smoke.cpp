@@ -3876,7 +3876,7 @@ int main(int argc, char **argv) {
     }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
-    // 注音、越南文和藏文跑在单独的引擎上，上面的用例不受它们留下的状态影响。注入的选项是权威来源，所以从菜单选的方案立即生效，而不是经由偏好存储。
+    // 注音、越南文、藏文和笔画各自跑在单独的引擎上，上面的用例不受它们留下的状态影响。注入的选项是权威来源，所以从菜单选的方案立即生效，而不是经由偏好存储。
     {
       const auto dictionaries = root / "language-dictionaries";
       std::filesystem::create_directory(dictionaries);
@@ -3903,8 +3903,8 @@ int main(int argc, char **argv) {
       // Zhuyin saved as the scheme while its dictionary is missing: host-api runs the last Chinese scheme instead, and the menu neither offers Zhuyin nor claims it is in use.
       restart();
       require(offered("Scheme/Quanpin") && offered("Scheme/Vietnamese") && !offered("Scheme/Zhuyin") &&
-                  !offered("Scheme/Cantonese"),
-              "The scheme menu offered Zhuyin without its dictionary");
+                  !offered("Scheme/Cantonese") && !offered("Scheme/Stroke"),
+              "The scheme menu offered Zhuyin or Stroke without its dictionary");
       require(checked("Scheme/Chinese") && checked("Scheme/Quanpin"),
               "The scheme menu did not mark the quanpin fallback of a missing Zhuyin dictionary");
       require(key('n') && seen.preedit == "n" && seen.lookup_visible && !seen.candidates.empty(),
@@ -3913,6 +3913,10 @@ int main(int argc, char **argv) {
       invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Zhuyin", PROP_STATE_CHECKED));
       require(key('n') && seen.preedit == "n" && seen.lookup_visible,
               "Zhuyin was selected without its dictionary");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible && !checked("Scheme/Stroke"),
+              "Stroke was selected without its dictionary");
       invoke("Reset");
       // With the dictionary installed the saved Zhuyin runs and is offered.
       const auto fixture = std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
@@ -4073,6 +4077,53 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(key('g') && key('a') && seen.preedit == "ག" && seen.committed == before,
               "The Tibetan syllable survived the focus change");
+      invoke("Reset");
+      // 笔画：装好 stroke.db 并重新读取选项后出现在菜单里，并从菜单选中，这样能发现 PropertyActivate 白名单或 id 映射漏掉的 Scheme/Stroke 一项。
+      const auto stroke_fixture =
+          std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");
+      languages["preferences"]["scheme"] = "quanpin";
+      restart();
+      require(offered("Scheme/Stroke") && offered("Scheme/Zhuyin") && !checked("Scheme/Stroke") &&
+                  checked("Scheme/Quanpin"),
+              "The scheme menu did not offer Stroke with its dictionary installed");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Stroke") && checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Stroke");
+      // 空闲时只有五个笔画字母开始组合：通配符 x 和其他字母都交给应用。
+      before = seen.committed;
+      require(!key('x') && !seen.preedit_visible && !key('a') && !seen.preedit_visible && seen.committed == before,
+              "An idle Stroke wildcard or other letter was not left to the application");
+      // 原样预编辑样式画出 Engine 放在 `reading` 里的笔画字形，editing_text 仍是 ASCII 字母，所以原样样式的可打印 ASCII 检查不会拒绝它。
+      require(key('h') && seen.preedit_visible && seen.preedit == "一" && seen.lookup_visible &&
+                  !seen.candidates.empty() && seen.candidates[0].rfind("一", 0) == 0,
+              "h did not compose the stroke 一");
+      require(key('s') && seen.preedit == "一丨" && seen.candidates.size() >= 3 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("木", 0) == 0 &&
+                  seen.candidates[2].rfind("古", 0) == 0,
+              "h s did not list 十 exactly and then its completions");
+      // 组字中其他字母被吞掉，组合不变。
+      require(key('q') && seen.preedit == "一丨" && seen.committed == before,
+              "A non-stroke letter changed the Stroke composition");
+      require(key(IBUS_space) && seen.committed == before + "十" && !seen.preedit_visible,
+              "Space did not commit the highlighted Stroke candidate");
+      // 组字中 x 是通配符：h x 先列出两笔的码，再列更长的。
+      before = seen.committed;
+      require(key('h') && key('x') && seen.preedit == "一＊" && seen.candidates.size() >= 2 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("二", 0) == 0,
+              "The Stroke wildcard did not match any one stroke");
+      require(key('2') && seen.committed == before + "二" && !seen.preedit_visible,
+              "A digit did not pick the Stroke candidate");
+      // Backspace 删掉最后一笔，回车写出键入的字母，Esc 清空。
+      before = seen.committed;
+      require(key('h') && key('s') && key(IBUS_BackSpace) && seen.preedit == "一" && seen.committed == before,
+              "Backspace did not remove the last stroke");
+      require(key('s') && key(IBUS_Return) && seen.committed == before + "hs" && !seen.preedit_visible,
+              "Return did not commit the typed stroke letters");
+      before = seen.committed;
+      require(key('p') && key('n') && seen.preedit == "丿丶" && key(IBUS_Escape) && !seen.preedit_visible &&
+                  seen.committed == before,
+              "Escape did not clear the Stroke composition");
       invoke("Reset");
     }
     finish();

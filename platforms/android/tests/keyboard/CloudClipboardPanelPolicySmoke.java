@@ -37,6 +37,10 @@ public final class CloudClipboardPanelPolicySmoke {
 
         check(CloudClipboardPanelPolicy.accepts(4, 4), "a result for the same field is drawn");
         check(!CloudClipboardPanelPolicy.accepts(4, 5), "a result for a previous field is discarded");
+        check(CloudClipboardPanelPolicy.acceptsUploadResult(4, 4),
+            "an upload result for the same panel may show its status");
+        check(!CloudClipboardPanelPolicy.acceptsUploadResult(4, 5),
+            "an upload result for a closed panel stays silent");
         check(CloudClipboardPanelPolicy.showsItems(Status.READY), "a ready list draws entries");
         for (Status status : Status.values()) {
             if (status != Status.READY) check(!CloudClipboardPanelPolicy.showsItems(status), status + " draws only a status line");

@@ -1,6 +1,7 @@
 import { errorCode } from "./error-code";
 
-const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
+/** Message shown when the host cannot read the saved preferences document. */
+export const unreadablePreferencesMessage = "配置文件无法读取或版本较新，原文件已保留。";
 
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;

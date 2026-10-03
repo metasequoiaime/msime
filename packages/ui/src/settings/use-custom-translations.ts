@@ -87,7 +87,10 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
     setSaveError("");
     let failed = false;
     try {
-      while (mounted.current && dirtyRef.current) {
+      // Keep draining edits even if the component unmounts while the current write is in flight.
+      // The client call itself is independent of React state, and dropping this loop on unmount
+      // would lose text entered after the first request started.
+      while (dirtyRef.current) {
         const sent = textRef.current;
         if (!customTranslationsWithinBounds(sent)) break;
         dirtyRef.current = false;

@@ -13,6 +13,7 @@ constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
 constexpr int Tibetan = 8;
+constexpr int Stroke = 9;
 
 // ---- Host-only traits ----
 
@@ -43,20 +44,20 @@ constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhu
 constexpr bool UsesChinesePunctuation(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||
-           scheme == Zhuyin;
+           scheme == Zhuyin || scheme == Stroke;
 }
 
 // `host_smart_punctuation`: the reversible smart punctuation gestures (space-to-ASCII, repeat-to-Chinese) may run.
 constexpr bool HostSmartPunctuation(int scheme)
 {
-    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese;
+    return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Stroke;
 }
 
 // `widens_full_width`: commits and direct characters are widened when the full-width switch is on. host-api's `complete_transition` applies the same rule to Engine commits.
 constexpr bool WidensFullWidth(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||
-           scheme == Zhuyin;
+           scheme == Zhuyin || scheme == Stroke;
 }
 
 // `shows_glosses`: candidates may carry translation glosses.

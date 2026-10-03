@@ -37,6 +37,8 @@ export function schemeTitle(scheme: InputScheme): string {
       return "越南语";
     case "tibetan":
       return "藏文";
+    case "stroke":
+      return "笔画";
     default: {
       const unhandled: never = scheme;
       return unhandled;

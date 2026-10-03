@@ -3,6 +3,7 @@ import { SettingsTextareaField } from "./settings-textarea-field";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { ActionButton } from "./action-button";
+import { StatusMessage } from "../core/status-message";
 
 export function AiTestToolsSection({
   input,
@@ -23,7 +24,7 @@ export function AiTestToolsSection({
 }) {
   const result = (
     <>
-      {status && <p role="status">{status}</p>}
+      {status && <StatusMessage role="status">{status}</StatusMessage>}
       {output && (
         <div className="ai-test-result">
           <div>{output}</div>

@@ -1254,6 +1254,10 @@ export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,
 } from "./community/community-card-author";
+export {
+  CommunityConfirmationActions,
+  type CommunityConfirmationActionsProps,
+} from "./community/community-confirmation-actions";
 export { CommunityMetrics, type CommunityMetricsProps } from "./community/community-metrics";
 export { CommunityCard, type CommunityCardProps } from "./community/community-card";
 export {
@@ -1284,6 +1288,14 @@ export {
   SettingsPreviewBlock,
   type SettingsPreviewBlockProps,
 } from "./settings/settings-preview-block";
+export {
+  SettingsPreviewLabel,
+  type SettingsPreviewLabelProps,
+} from "./settings/settings-preview-label";
+export {
+  SettingsEmptyMessage,
+  type SettingsEmptyMessageProps,
+} from "./settings/settings-empty-message";
 export { SettingsServiceRow, type SettingsServiceRowProps } from "./settings/settings-service-row";
 export { SettingsPhraseForm, type SettingsPhraseFormProps } from "./settings/settings-phrase-form";
 export {
@@ -1298,6 +1310,10 @@ export {
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
+export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
+export { formatZhNumber } from "./core/format-number";
+export { StatusMessage, type StatusMessageProps } from "./core/status-message";
+export { SettingsNotice, type SettingsNoticeProps } from "./settings/settings-notice";
 export {
   SettingsManagerNote,
   type SettingsManagerNoteProps,
@@ -1516,9 +1532,10 @@ export type InputScheme =
   | "cantonese"
   | "zhuyin"
   | "vietnamese"
-  | "tibetan";
+  | "tibetan"
+  | "stroke";
 /** 对应 `client-core::preferences::ChineseScheme`：选日文、韩文、越南文或藏文后要回到的中文方案。 */
-export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin";
+export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin" | "stroke";
 /** Mirrors `client-core::preferences::VietnamesePreferences`. Absent from a document left at its defaults: Telex with modern tone placement. */
 export type VietnamesePreferences = {
   input_method?: "telex" | "vni";
@@ -2126,7 +2143,7 @@ export interface SettingsClient {
   pickVoiceModelPath?: () => Promise<string | null>;
   /** The host's on-device speech model store; hosts that provide it offer the `local` provider with a model manager. */
   localVoiceModels?: LocalVoiceModelClient;
-  /** 按需下载的资源包（日文词库、粤语与注音词库、手写模型）。只有 macOS 提供：发布包不再内置它们，选用对应方案时由设置页下载。 */
+  /** 按需下载的资源包（日文词库、「粤语、注音与笔画词库」、手写模型）。只有 macOS 提供：发布包不再内置它们，选用对应方案时由设置页下载。 */
   resourcePacks?: ResourcePackClient;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;

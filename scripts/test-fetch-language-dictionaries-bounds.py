@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Language dictionary downloads skip without a lock, refuse non-HTTPS sources, stop at the lock size and leave no partial or mismatched file."""
+"""Language dictionary downloads skip without a lock, refuse non-HTTPS sources, stop at the lock size and leave no partial or mismatched file; --list-databases names the pinned databases."""
 
 import contextlib
 import hashlib
 import io
+import json
 import pathlib
 import sys
 import tempfile
@@ -69,6 +70,27 @@ def main():
                 failures.append(f"no skipped line without a lock: {stderr.getvalue()!r}")
             if (root / "out").exists():
                 failures.append("created the output directory without a lock")
+            # --list-databases without a lock prints nothing, so a release that requires the dictionaries fails rather than requiring none.
+            sys.argv = ["fetch_language_dictionaries.py", "--list-databases"]
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                module.main()
+            if stdout.getvalue():
+                failures.append(f"listed databases without a lock: {stdout.getvalue()!r}")
+
+            # --list-databases names only the pinned *.db files, in lock order, never a licence, and downloads nothing: the release staging requires exactly these.
+            synthetic_lock = root / "language-dictionaries.lock.json"
+            synthetic_lock.write_text(json.dumps({"artifacts": [
+                {"name": "alpha.db"}, {"name": "alpha_LICENSE.txt"}, {"name": "beta.db"}, {"name": "beta_LICENSE.txt"},
+            ]}), encoding="utf-8")
+            module.LOCK = synthetic_lock
+            module.urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("downloaded while listing databases")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                module.main()
+            if stdout.getvalue().split() != ["alpha.db", "beta.db"]:
+                failures.append(f"--list-databases printed {stdout.getvalue()!r}")
+            synthetic_lock.unlink()
             module.LOCK = original_lock
             sys.argv = original_argv
 
@@ -105,7 +127,7 @@ def main():
         print(f"FAIL: {failure}")
     if failures:
         return 1
-    print("language dictionary downloads skip without a lock and enforce HTTPS, the lock size and the digest")
+    print("language dictionary downloads skip without a lock and enforce HTTPS, the lock size and the digest; --list-databases names the pinned databases")
     return 0
 
 

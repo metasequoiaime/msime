@@ -14,6 +14,7 @@ import {
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { StatusMessage } from "../core/status-message";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
@@ -224,7 +225,7 @@ function CommunitySkinPublishDialog({
       onLogin={onLogin}
       onSubmit={(event) => void submit(event)}
     >
-      {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
+      {busy && saved.length === 0 && <StatusMessage role="status">正在读取我的皮肤…</StatusMessage>}
       {!busy && saved.length === 0 && (
         <CommunityNotice>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</CommunityNotice>
       )}

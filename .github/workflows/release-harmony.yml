@@ -32,7 +32,7 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile --ignore-scripts
           bash platforms/harmony/stage-settings.sh
-      # The HAP carries the engine resources only if stage-resources.sh put them in resfile/ (without them the keyboard logs "no packaged resources at /engine"). It takes the directory install_resources verified and unpacked, and stages target/language-dictionaries (Cantonese and Zhuyin, with their licences); a release must carry both, so it fails rather than staging fewer.
+      # The HAP carries the engine resources only if stage-resources.sh put them in resfile/ (without them the keyboard logs "no packaged resources at /engine"). It takes the directory install_resources verified and unpacked, and stages target/language-dictionaries (Cantonese, Zhuyin and Stroke, with their licences); a release must carry all three, so it fails rather than staging fewer.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
       - name: Stage the HarmonyOS engine resources

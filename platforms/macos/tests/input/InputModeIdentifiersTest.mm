@@ -275,29 +275,34 @@ int main() {
         require(MSIMESharedSystemInputModeState().current == nil, "The shared record did not reset.");
         MSIMEAdoptReportedInputMode(state, MSIMEChineseInputModeID);
 
-        // 粤拼、注音、越南文和藏文各有自己的模式，每个模式都映射回自己的方案。
-        for (NSString *scheme in @[@"cantonese", @"zhuyin", @"vietnamese", @"tibetan"]) {
+        // 粤拼、注音、越南文、藏文和笔画各有自己的模式，每个模式都映射回自己的方案。
+        for (NSString *scheme in @[@"cantonese", @"zhuyin", @"vietnamese", @"tibetan", @"stroke"]) {
             NSString *identifier = MSIMEInputModeID(MSIMEInputModeFor(NO, scheme));
             require(MSIMEIsInputModeID(identifier) && MSIMEIsOptInInputModeID(identifier) &&
                         [MSIMESchemeForInputMode(MSIMEInputModeForID(identifier)) isEqualToString:scheme] &&
                         MSIMEInputModeFor(YES, scheme) == MSIMEInputMode::English,
-                    "A Cantonese, Zhuyin, Vietnamese or Tibetan scheme does not round-trip through its opt-in mode.");
+                    "A Cantonese, Zhuyin, Vietnamese, Tibetan or Stroke scheme does not round-trip through its opt-in mode.");
         }
         require([MSIMEInputModeID(MSIMEInputMode::Cantonese) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Cantonese"] &&
                     [MSIMEInputModeID(MSIMEInputMode::Zhuyin) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Zhuyin"] &&
                     [MSIMEInputModeID(MSIMEInputMode::Vietnamese) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Vietnamese"] &&
-                    [MSIMEInputModeID(MSIMEInputMode::Tibetan) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Tibetan"],
+                    [MSIMEInputModeID(MSIMEInputMode::Tibetan) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Tibetan"] &&
+                    [MSIMEInputModeID(MSIMEInputMode::Stroke) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Stroke"],
                 "The new modes do not use the identifiers Info.plist.in declares.");
         require(!MSIMEIsOptInInputModeID(MSIMEChineseInputModeID) && !MSIMEIsOptInInputModeID(MSIMEKoreanInputModeID) && !MSIMEIsOptInInputModeID(nil),
                 "A mode every install enables was treated as opt-in.");
-        require([MSIMEInputSchemeNames() isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"tibetan"]],
+        require([MSIMEInputSchemeNames() isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"tibetan", @"stroke"]],
                 "The scheme names are not in the Engine's wire order.");
         // 菜单名和「添加」对话框里的语言与 InfoPlist.strings、Info.plist.in 和共享设置页的表一致。
         require([MSIMEInputModeMenuName(MSIMETibetanInputModeID) isEqualToString:@"水杉输入法 · 藏"] &&
                     [MSIMEInputModeAddDialogLanguage(MSIMETibetanInputModeID) isEqualToString:@"藏语"],
                 "The Tibetan mode is named or grouped differently from the plist and the settings page.");
+        // 笔画在输入菜单里叫「水杉输入法 · 笔」，在系统设置「添加」对话框的「简体中文」下。
+        require([MSIMEInputModeMenuName(MSIMEStrokeInputModeID) isEqualToString:@"水杉输入法 · 笔"] &&
+                    [MSIMEInputModeAddDialogLanguage(MSIMEStrokeInputModeID) isEqualToString:@"简体中文"],
+                "The Stroke mode's menu name or Add dialog language is wrong.");
 
-        // 中 from Vietnamese goes back to the Chinese scheme it was entered from, like Japanese and Korean; 中 picked over 粤 or 注 means quanpin, like over 双 or 五.
+        // 中 from Vietnamese goes back to the Chinese scheme it was entered from, like Japanese and Korean; 中 picked over 粤, 注 or 笔 means quanpin, like over 双 or 五.
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available) isEqualToString:@"quanpin"] &&
                     [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"quanpin", Available) isEqualToString:@"quanpin"],
                 "中 from Vietnamese did not leave it.");
@@ -306,8 +311,11 @@ int main() {
                 "中 from Vietnamese did not return to the Chinese scheme it was entered from.");
         gWubiModeEnabled = YES;
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"cantonese", @"quanpin", Available) isEqualToString:@"quanpin"] &&
-                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"zhuyin", @"quanpin", Available) isEqualToString:@"quanpin"],
-                "中 picked over 粤 or 注 did not move to quanpin.");
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"zhuyin", @"quanpin", Available) isEqualToString:@"quanpin"] &&
+                    [MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"stroke", @"quanpin", Available) isEqualToString:@"quanpin"],
+                "中 picked over 粤, 注 or 笔 did not move to quanpin.");
+        require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Stroke, @"quanpin", @"quanpin", Available) isEqualToString:@"stroke"],
+                "The Stroke mode did not select its scheme.");
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Vietnamese, @"quanpin", @"quanpin", Available) isEqualToString:@"vietnamese"],
                 "The Vietnamese mode did not select its scheme.");
         // 藏文和越南文一样不是中文方案：从藏文选 中 回到进入前的中文方案，选 藏 切到藏文。
@@ -319,12 +327,19 @@ int main() {
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Tibetan, @"quanpin", @"quanpin", Available) isEqualToString:@"tibetan"],
                 "The Tibetan mode did not select its scheme.");
 
-        // Cantonese and Zhuyin are available only with their dictionary in the HostOptions language_dictionaries directory; everything else needs nothing more.
+        // Cantonese, Zhuyin and Stroke are available only with their dictionary in the HostOptions language_dictionaries directory; everything else needs nothing more.
         NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         [NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
         [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"cantonese.db"] atomically:YES];
         [NSFileManager.defaultManager createDirectoryAtPath:[directory stringByAppendingPathComponent:@"zhuyin.db"] withIntermediateDirectories:YES attributes:nil error:nil];
         NSDictionary *hostOptions = @{@"language_dictionaries": directory};
+        require(!MSIMEInputSchemeAvailable(@"stroke", hostOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", hostOptions) isEqualToString:@"wubi"],
+                "Stroke was available without stroke.db.");
+        [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"stroke.db"] atomically:YES];
+        require(MSIMEInputSchemeAvailable(@"stroke", hostOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", hostOptions) isEqualToString:@"stroke"] &&
+                    [MSIMEEffectiveInputScheme(@"japanese", @"stroke", hostOptions) isEqualToString:@"japanese"] &&
+                    [MSIMEEffectiveInputScheme(@"stroke", @"zhuyin", @{}) isEqualToString:@"quanpin"],
+                "stroke.db in language_dictionaries did not make Stroke available.");
         require(MSIMEInputSchemeAvailable(@"cantonese", hostOptions) && !MSIMEInputSchemeAvailable(@"zhuyin", hostOptions) &&
                     !MSIMEInputSchemeAvailable(@"cantonese", @{}) && !MSIMEInputSchemeAvailable(@"cantonese", nil) &&
                     MSIMEInputSchemeAvailable(@"vietnamese", nil) && MSIMEInputSchemeAvailable(@"tibetan", nil) && MSIMEInputSchemeAvailable(@"korean", @{}) &&
@@ -347,8 +362,12 @@ int main() {
         require(!MSIMEInputSchemeAvailable(@"cantonese", packOptions),
                 "A language dictionary pack without msime-model.json made Cantonese available.");
         [@"{}" writeToFile:[pack stringByAppendingPathComponent:@"msime-model.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        require(MSIMEInputSchemeAvailable(@"cantonese", packOptions) && !MSIMEInputSchemeAvailable(@"zhuyin", packOptions),
+        require(MSIMEInputSchemeAvailable(@"cantonese", packOptions) && !MSIMEInputSchemeAvailable(@"zhuyin", packOptions) &&
+                    !MSIMEInputSchemeAvailable(@"stroke", packOptions),
                 "A downloaded language dictionary pack did not make exactly Cantonese available.");
+        [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"stroke.db"] atomically:YES];
+        require(MSIMEInputSchemeAvailable(@"stroke", packOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", packOptions) isEqualToString:@"stroke"],
+                "stroke.db in the downloaded pack did not make Stroke available.");
         require([MSIMEEffectiveInputScheme(@"cantonese", @"wubi", packOptions) isEqualToString:@"cantonese"] &&
                     [MSIMEEffectiveInputScheme(@"cantonese", @"wubi", @{@"preferences_directory": stateRoot, @"language_dictionaries": @""}) isEqualToString:@"cantonese"],
                 "The effective scheme ignored Cantonese from the downloaded pack.");
@@ -382,11 +401,13 @@ int main() {
         [files removeItemAtPath:linkedStateRoot error:nil];
         [files removeItemAtPath:linkedOutside error:nil];
 
-        // 方案切到粤、注、越、藏时启用对应模式，第一次同步就落在这类方案上也启用；方案没变、方案跑不起来、或方案没有按需模式时都不启用。
+        // 方案切到粤、注、越、藏、笔时启用对应模式，第一次同步就落在这类方案上也启用；方案没变、方案跑不起来、或方案没有按需模式时都不启用。
         require([MSIMEOptInInputModeToEnable(@"quanpin", @"cantonese", YES) isEqualToString:MSIMECantoneseInputModeID] &&
                     [MSIMEOptInInputModeToEnable(@"korean", @"vietnamese", YES) isEqualToString:MSIMEVietnameseInputModeID] &&
                     [MSIMEOptInInputModeToEnable(@"vietnamese", @"tibetan", YES) isEqualToString:MSIMETibetanInputModeID] &&
                     [MSIMEOptInInputModeToEnable(nil, @"zhuyin", YES) isEqualToString:MSIMEZhuyinInputModeID] &&
+                    [MSIMEOptInInputModeToEnable(@"wubi", @"stroke", YES) isEqualToString:MSIMEStrokeInputModeID] &&
+                    !MSIMEOptInInputModeToEnable(@"wubi", @"stroke", NO) && !MSIMEOptInInputModeToEnable(@"stroke", @"stroke", YES) &&
                     !MSIMEOptInInputModeToEnable(nil, @"quanpin", YES) && !MSIMEOptInInputModeToEnable(@"zhuyin", @"zhuyin", YES) &&
                     !MSIMEOptInInputModeToEnable(@"quanpin", @"zhuyin", NO) && !MSIMEOptInInputModeToEnable(@"quanpin", @"wubi", YES),
                 "An opt-in mode was enabled at the wrong time.");

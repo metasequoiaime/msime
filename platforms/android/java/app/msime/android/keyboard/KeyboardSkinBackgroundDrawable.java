@@ -13,6 +13,8 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
+import java.lang.ref.WeakReference;
+import java.util.Arrays;
 
 /** Draws Apple's built-in touch-keyboard backdrop patterns without external assets. */
 public final class KeyboardSkinBackgroundDrawable extends Drawable {
@@ -20,6 +22,7 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     private final Paint pattern = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint photoPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Paint shade = new Paint();
+    private final KeyboardSkin skin;
     private final float density;
     private final int patternId;
     private final int backgroundStart;
@@ -31,7 +34,17 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
     private final double photoPosition;
     private int alpha = 255;
 
+    /** 这块底图用的那条照片缓存；底图强引用它，缓存本身只弱引用，所以还有底图在画这张照片时它一直留着。 */
+    private final DecodedPhoto decodedPhoto;
+
+    /** 一张照片的字节和解码结果。`KeyboardSkin.photo()` 每次返回副本，所以字节要和位图一起由底图留住，才能按内容认出同一张照片。 */
+    private record DecodedPhoto(byte[] bytes, Bitmap bitmap) {}
+
+    /** 最近一次解码的照片。键盘底图、各个面板和表情面板用的是同一张照片，解码一次大家共用；只弱引用，换成没有照片的皮肤后随底图一起被回收，不在整个输入法进程里一直占着整张位图。 */
+    private static WeakReference<DecodedPhoto> photoCache = new WeakReference<>(null);
+
     public KeyboardSkinBackgroundDrawable(KeyboardSkin skin, float density) {
+        this.skin = skin;
         this.density = density;
         patternId = skin.pattern();
         backgroundStart = Color.parseColor(skin.background());
@@ -42,15 +55,34 @@ public final class KeyboardSkinBackgroundDrawable extends Drawable {
         patternAlpha = (int) Math.round(255 * skin.patternOpacity());
         pattern.setColor(Color.argb(patternAlpha, Color.red(accent), Color.green(accent), Color.blue(accent)));
         pattern.setStyle(Paint.Style.FILL);
-        byte[] photoBytes = skin.photo();
-        photo = photoBytes == null ? null
-            : BitmapFactory.decodeByteArray(photoBytes, 0, photoBytes.length);
+        decodedPhoto = decodedPhoto(skin.photo());
+        photo = decodedPhoto == null ? null : decodedPhoto.bitmap();
         photoShade = skin.photoShade();
         photoPosition = skin.photoPosition();
         shade.setColor(Color.BLACK);
     }
 
     private float dp(double value) { return (float) value * density; }
+
+    /**
+     * 照片按字节内容缓存解码结果：同一张照片只解码一次，所有底图共用这一个只读的 `Bitmap`。
+     *
+     * <p>照片最大约半兆，整张解码在主线程上要几十毫秒；以前每个底图各解一次，一次换肤要解十来次。按内容比较而不是按哈希，换了照片一定会重新解码。旧位图不 `recycle()`，还挂着它的底图照常能画，没有底图引用后交给 GC。
+     */
+    private static synchronized DecodedPhoto decodedPhoto(byte[] bytes) {
+        if (bytes == null) return null;
+        DecodedPhoto cached = photoCache.get();
+        if (cached != null && Arrays.equals(bytes, cached.bytes())) return cached;
+        DecodedPhoto decoded = new DecodedPhoto(bytes,
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.length));
+        photoCache = new WeakReference<>(decoded);
+        return decoded;
+    }
+
+    /** 这块底图是否正是按 `target` 和 `targetDensity` 画的；`KeyboardSkin` 不可变，同一个对象画出来就完全相同。 */
+    public boolean draws(KeyboardSkin target, float targetDensity) {
+        return skin == target && density == targetDensity;
+    }
 
     @Override protected void onBoundsChange(Rect bounds) {
         super.onBoundsChange(bounds);

@@ -208,6 +208,8 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONArray themeCatalog;
     /** Resolved keyboards by request, so the four surfaces of one snapshot cost at most two native calls. */
     private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>();
+    /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
+    private final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
@@ -246,6 +248,8 @@ public final class MSIMEInputService extends InputMethodService {
     private Button globeButton;
     private Button deleteButton;
     private View nineKeySidebar;
+    /** 笔画网格的通配键：只在组字中可用，render 时按组字状态更新。 */
+    private Button strokeWildcardKey;
     private String actionRowSignature = "";
     private boolean brandPillVisible;
     private JapaneseFlickPreview japaneseFlickPreview;
@@ -614,12 +618,36 @@ public final class MSIMEInputService extends InputMethodService {
             public void begin() { target.beginBatchEdit(); }
             public boolean commit(String text) {
                 boolean committed = target.commitText(text, 1);
-                if (committed) recordTypingStatistics(text, source);
+                if (committed) {
+                    selectionEcho.commit(text.length());
+                    recordTypingStatistics(text, source);
+                } else {
+                    selectionEcho.invalidate();
+                }
                 return committed;
             }
-            public boolean compose(String text) { return target.setComposingText(text, 1); }
-            public boolean finish() { return target.finishComposingText(); }
-            public void end() { target.endBatchEdit(); }
+            public boolean compose(String text) {
+                boolean composed = target.setComposingText(text, 1);
+                if (composed) selectionEcho.compose(text.length());
+                else selectionEcho.invalidate();
+                return composed;
+            }
+            public boolean finish() {
+                boolean finished = target.finishComposingText();
+                if (finished) selectionEcho.finish();
+                else selectionEcho.invalidate();
+                return finished;
+            }
+            public boolean select(int start, int end) {
+                // 恢复用户点选的位置之后，回报的选区由编辑器决定，这里不去预测，退回到旧的保守行为。
+                selectionEcho.invalidate();
+                return target.setSelection(start, end);
+            }
+            public void end() {
+                target.endBatchEdit();
+                // 编辑器在批量编辑结束后才回报一次选区，所以整批写完再记预期。
+                selectionEcho.expect();
+            }
         };
     }
 
@@ -651,29 +679,30 @@ public final class MSIMEInputService extends InputMethodService {
             reportTypingStatisticsFailure();
             return;
         }
-        submitTypingStatistics(request, null);
+        submitTypingStatistics(request, null, engineStartGeneration);
     }
 
     /**
      * Send one statistics request on the worker; {@code nothingRecorded}, when given, runs on the main thread if the store took none of a non-empty batch, which is how it answers once statistics are off.
      */
-    private void submitTypingStatistics(String request, Runnable nothingRecorded) {
+    private void submitTypingStatistics(String request, Runnable nothingRecorded,
+                                        long lifecycleGeneration) {
         try {
             typingStatisticsWorker.execute(() -> {
                 try {
                     JSONObject result = new JSONObject(NativeClient.typingStatistics(request));
                     if (!result.getBoolean("ok")) {
-                        reportTypingStatisticsFailure();
+                        reportTypingStatisticsFailure(lifecycleGeneration);
                     } else if (nothingRecorded != null
                         && result.getJSONObject("value").getLong("recorded") == 0) {
                         main.post(nothingRecorded);
                     }
                 } catch (Exception | LinkageError error) {
-                    reportTypingStatisticsFailure();
+                    reportTypingStatisticsFailure(lifecycleGeneration);
                 }
             });
         } catch (RuntimeException error) {
-            reportTypingStatisticsFailure();
+            reportTypingStatisticsFailure(lifecycleGeneration);
         }
     }
 
@@ -786,11 +815,17 @@ public final class MSIMEInputService extends InputMethodService {
         long generation = keyStatisticsGeneration;
         submitTypingStatistics(request, () -> {
             if (generation == keyStatisticsGeneration) disableKeyStatistics();
-        });
+        }, engineStartGeneration);
     }
 
     private void reportTypingStatisticsFailure() {
+        reportTypingStatisticsFailure(engineStartGeneration);
+    }
+
+    private void reportTypingStatisticsFailure(long lifecycleGeneration) {
         main.post(() -> {
+            if (!TypingStatisticsLifecyclePolicy.acceptsFailure(
+                    lifecycleGeneration, engineStartGeneration)) return;
             if (statisticsFailureReported) return;
             statisticsFailureReported = true;
             preferencesNotice = " · 打字统计未能写入";
@@ -802,9 +837,46 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection == null) return false;
         boolean committed;
         try { committed = connection.commitText(text, 1); }
-        catch (RuntimeException error) { return false; }
-        if (committed) recordTypingStatistics(text, source);
+        catch (RuntimeException error) {
+            selectionEcho.invalidate();
+            return false;
+        }
+        if (committed) {
+            selectionEcho.commit(text.length());
+            selectionEcho.expect();
+            recordTypingStatistics(text, source);
+        } else {
+            selectionEcho.invalidate();
+        }
         return committed;
+    }
+
+    /** 删光标前 `length` 个 UTF-16 单元，并记下删完后的选区预期，免得这次删除迟到的回报把紧接着开始的新组字取消掉。有选区或组字区时删的位置由编辑器决定，追踪器会自己作废预期。 */
+    private boolean deleteBeforeCursor(int length) {
+        boolean deleted = connection.deleteSurroundingText(length, 0);
+        if (deleted) {
+            selectionEcho.deleteBefore(length);
+            selectionEcho.expect();
+        } else {
+            selectionEcho.invalidate();
+        }
+        return deleted;
+    }
+
+    /** 按码位删光标前一个字符，同样记下预期；删掉的是一个还是两个 UTF-16 单元由追踪器按回声确定。 */
+    private void deleteCodePointBeforeCursor() {
+        if (connection.deleteSurroundingTextInCodePoints(1, 0)) {
+            selectionEcho.deleteCodePointBefore();
+            selectionEcho.expect();
+        } else {
+            selectionEcho.invalidate();
+        }
+    }
+
+    /** 编辑器动作可能改文字也可能不改，选区预期先作废。 */
+    private boolean performEditorAction(int action) {
+        selectionEcho.invalidate();
+        return connection.performEditorAction(action);
     }
 
     private boolean commitText(String text) { return commitText(text, typingSource()); }
@@ -833,6 +905,8 @@ public final class MSIMEInputService extends InputMethodService {
         resetSpaceCursor();
         stop(false);
         connection = getCurrentInputConnection();
+        selectionEcho.reset(info == null ? -1 : info.initialSelStart,
+            info == null ? -1 : info.initialSelEnd);
         ensureCandidateTranslationStore();
         editorContextRevision++;
         clearSmartPunctuationSnapshots();
@@ -947,6 +1021,7 @@ public final class MSIMEInputService extends InputMethodService {
         schedulePersonalDictionarySynchronization(false);
         scheduleDictionarySnapshotProcessing();
         connection = null;
+        selectionEcho.reset(-1, -1);
         currentDocumentIdentifier = 0;
         super.onFinishInput();
     }
@@ -1064,7 +1139,9 @@ public final class MSIMEInputService extends InputMethodService {
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
         }
-        if (connection != null) bridge.abandon(sink(typingSource()));
+        // A Stroke composition still marked here (the session stopped without CommitRaw) is stroke glyphs, not text: remove it rather than finish it into the document.
+        if (connection != null && strokeCompositionMarked()) bridge.discard(sink(typingSource()));
+        else if (connection != null) bridge.abandon(sink(typingSource()));
         view = null;
         closeCandidatePanel();
         closeClipboardHistory();
@@ -1605,9 +1682,11 @@ public final class MSIMEInputService extends InputMethodService {
         // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first. Zhuyin's editing_text is the Dachen keys too, and it marks the reading (the conversion and the pending bopomofo) by the same rule.
         int nextViewScheme = next.optInt("scheme", -1);
         boolean nextDedicatedEnglish = next.optBoolean("dedicated_english", dedicatedEnglish);
+        // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。
         String composing = KoreanInputPolicy.composing(
             KoreanInputPolicy.active(nextViewScheme, nextDedicatedEnglish)
-                || ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish),
+                || ZhuyinInputPolicy.active(nextViewScheme, nextDedicatedEnglish)
+                || StrokeInputPolicy.active(nextViewScheme, nextDedicatedEnglish),
             next.optString("phrase_prefix", ""), next.getString("editing_text"),
             next.optString("reading", ""));
         // 九键的 editing_text 是按下的数字键（64426），写进输入框对用户没有意义；和 iOS 默认一样不在输入框里标记组词，组词只显示在键盘自己的预编辑栏上（选过的音节显示为拼音，如 ni'426）。
@@ -1726,7 +1805,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         try {
             connection.beginBatchEdit();
-            if (!connection.deleteSurroundingText(replacement.deleteCount(), 0)) return;
+            if (!deleteBeforeCursor(replacement.deleteCount())) return;
             if (!commitText(fullWidthOutput(replacement.insert()))) return;
         } finally {
             connection.endBatchEdit();
@@ -1868,10 +1947,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 粤拼、注音、越南语和藏文的候选不带任何释义（`shows_glosses`）。它们之前的方案沿用本宿主原有的规则，日语候选仍附英文释义。 */
+    /** 粤拼、注音、越南语、藏文和笔画的候选不带任何释义（`shows_glosses`）。它们之前的方案沿用本宿主原有的规则，日语候选仍附英文释义。 */
     private static boolean schemeShowsGlosses(int scheme) {
         return scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
-            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN;
+            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
+            && scheme != InputSchemeTraits.STROKE;
     }
 
     private void scheduleCandidateTranslations() {
@@ -2374,7 +2454,7 @@ public final class MSIMEInputService extends InputMethodService {
             String replacement = decision == null || decision.isNull("replace_with")
                 ? null : decision.optString("replace_with", null);
             if (replacement != null && !replacement.isEmpty()) {
-                if (connection == null || !connection.deleteSurroundingText(1, 0)) return false;
+                if (connection == null || !deleteBeforeCursor(1)) return false;
                 smartRepeatSnapshot = null;
                 return commitText(replacement);
             }
@@ -2445,7 +2525,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
         if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
             int ascii = spaceDecision.optInt("space_ascii", 0);
-            if (ascii >= 32 && ascii <= 126 && connection.deleteSurroundingText(1, 0)) {
+            if (ascii >= 32 && ascii <= 126 && deleteBeforeCursor(1)) {
                 smartSpaceSnapshot = null;
                 commitText(String.valueOf((char) ascii));
                 return;
@@ -2509,6 +2589,13 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean zhuyinSchemeActive() {
         return view != null
             && ZhuyinInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+    }
+
+    /** A Stroke composition whose glyphs the editor holds as its composing region (apply marks View.reading for Stroke). */
+    private boolean strokeCompositionMarked() {
+        return view != null && !view.optString("editing_text", "").isEmpty()
+            && StrokeInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish)
+            && !view.optBoolean("nine_key", false);
     }
 
     private boolean vietnameseSchemeActive() {
@@ -2599,6 +2686,7 @@ public final class MSIMEInputService extends InputMethodService {
         int layout = displayedTouchLayout(view);
         return keyboardLayer == KeyboardLayout.Layer.LETTERS
             && layout != QUANPIN_NINE_KEY_LAYOUT && layout != JAPANESE_NINE_KEY_LAYOUT
+            && layout != KeyboardLayout.STROKE_LAYOUT
             && selectedScheme != KeyboardScheme.QUANPIN_NINE_KEY
             && selectedScheme != KeyboardScheme.JAPANESE_NINE_KEY;
     }
@@ -2748,7 +2836,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean disabled = info == null
                 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         if (ReturnKeyAction.shouldPerformEditorAction(action, disabled, false)
-                && connection.performEditorAction(action)) return;
+                && performEditorAction(action)) return;
         commitText("\n");
     }
 
@@ -2831,6 +2919,8 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void moveEditorCursor(int offset) {
+        // 方向键由编辑器自己解释（换行、代理对、双向文字），落点算不出来。
+        if (offset != 0) selectionEcho.invalidate();
         int keyCode = offset < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT;
         for (int index = 0; index < Math.abs(offset); index++) sendDownUpKeyEvents(keyCode);
     }
@@ -3105,7 +3195,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (replyTarget != null || (selectionChanged && replyVisible)) {
             invalidateReplyContext("输入位置已变化，请重新选择回复方式");
         }
-        if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
+        // 迟到的回报可能只是输入法自己上一次写入的回声（例如上屏之后用户已经按下了下一个键），那不是光标移动，不能把新开始的组字取消掉；对不上任何预期的才按原来的规则处理。
+        boolean ownEcho = selectionEcho.acknowledge(newStart, newEnd, composingStart, composingEnd);
+        if (!ownEcho && session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
             // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
@@ -3123,7 +3215,14 @@ public final class MSIMEInputService extends InputMethodService {
                 if (keepsComposition && left != null && !left.optString("editing_text", "").isEmpty())
                     value(NativeClient.command(session, 3));
             } catch (JSONException | LinkageError error) { fail(); }
-            if (connection != null) bridge.abandon(sink(typingSource()));
+            // Stroke marks its stroke glyphs, which are not text the user wrote (`commits_on_blur` is false): finishing the region would leave 一丨 in the document, so the region is removed and the tapped selection put back.
+            if (connection != null && strokeCompositionMarked()) {
+                bridge.discard(sink(typingSource()), composingStart, composingEnd, newStart, newEnd);
+            } else if (connection != null) {
+                bridge.abandon(sink(typingSource()));
+                // 结束组字区也会有一条回报；记下它，免得它晚到时把用户紧接着开始的新组字当成光标移动取消掉。
+                selectionEcho.expect();
+            }
             view = null;
             render();
         }
@@ -3467,18 +3566,23 @@ public final class MSIMEInputService extends InputMethodService {
             : tile ? (selected ? target.accentText() : target.keyForeground())
             : selected ? target.onAccent()
             : action ? target.actionForeground() : target.keyForeground();
-        if (target.designed()) {
-            button.setBackground(new KeyboardSkinKeyDrawable(target,
-                Color.parseColor(background), selected || action || confirm,
-                getResources().getDisplayMetrics().density));
-        } else {
-            GradientDrawable drawable = new GradientDrawable();
-            drawable.setColor(Color.parseColor(background));
-            drawable.setCornerRadius(pixels(tile ? MoreToolsLayout.TILE_RADIUS_DP : target.cornerRadius()));
-            int borderWidth = pixels(target.borderWidth());
-            if (borderWidth > 0)
-                drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
-            button.setBackground(drawable);
+        float density = getResources().getDisplayMetrics().density;
+        KeyboardPressButton press = button instanceof KeyboardPressButton key ? key : null;
+        // 键帽完全由皮肤、角色、选中状态和密度决定；这几项都没变就留着现在这块，不再每次 render 换一个一样的新 Drawable 让整块键盘重画。
+        if (press == null || !press.keepsFace(target, role, selected, density)) {
+            if (target.designed()) {
+                button.setBackground(new KeyboardSkinKeyDrawable(target,
+                    Color.parseColor(background), selected || action || confirm, density));
+            } else {
+                GradientDrawable drawable = new GradientDrawable();
+                drawable.setColor(Color.parseColor(background));
+                drawable.setCornerRadius(pixels(tile ? MoreToolsLayout.TILE_RADIUS_DP : target.cornerRadius()));
+                int borderWidth = pixels(target.borderWidth());
+                if (borderWidth > 0)
+                    drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
+                button.setBackground(drawable);
+            }
+            if (press != null) press.rememberFace(target, role, selected, density);
         }
         button.setTextColor(Color.parseColor(foreground));
         if (button instanceof ShuangpinHintButton hintButton)
@@ -3647,8 +3751,11 @@ public final class MSIMEInputService extends InputMethodService {
     private void applySkinBackground(View node) { applySkinBackground(node, skin); }
 
     private void applySkinBackground(View node, KeyboardSkin target) {
-        node.setBackground(new KeyboardSkinBackgroundDrawable(
-            target, getResources().getDisplayMetrics().density));
+        float density = getResources().getDisplayMetrics().density;
+        // 同一个皮肤对象画出的底图完全一样；已经是它就不再换新的，免得每按一个键都让整块键盘底图重画（照片皮肤还要重新上传位图）。
+        if (node.getBackground() instanceof KeyboardSkinBackgroundDrawable current
+                && current.draws(target, density)) return;
+        node.setBackground(new KeyboardSkinBackgroundDrawable(target, density));
     }
 
     private boolean systemDark() {
@@ -3820,7 +3927,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean supportsLocalTools() {
         if (view == null) return false;
         int scheme = view.optInt("scheme", 0);
-        // 韩语没有本地模式：那里 Shift+字母是双辅音。粤拼、注音、越南语和藏文也没有（`opens_local_modes`）。
+        // 韩语没有本地模式：那里 Shift+字母是双辅音。粤拼、注音、越南语、藏文和笔画也没有（`opens_local_modes`）。
         return !dedicatedEnglish && scheme != 2 && scheme != 3
             && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.opensLocalModes(scheme));
@@ -4138,7 +4245,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void deleteFromEmojiPicker() {
         if (connection != null && !command(0))
-            connection.deleteSurroundingTextInCodePoints(1, 0);
+            deleteCodePointBeforeCursor();
     }
 
     private void showEmojiPicker() {
@@ -5987,12 +6094,12 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 CloudClipboardPanelPolicy.Status result = failure;
                 main.post(() -> {
+                    if (!CloudClipboardPanelPolicy.acceptsUploadResult(
+                            generation, cloudClipboardGeneration) || !clipboardPanelOpen()) return;
                     Toast.makeText(this, result == null ? "已发到云剪贴板"
                         : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                             ? CloudClipboardPanelPolicy.SIGNED_OUT_MESSAGE
                             : "未能发到云剪贴板，请稍后重试", Toast.LENGTH_SHORT).show();
-                    if (!CloudClipboardPanelPolicy.accepts(generation, cloudClipboardGeneration)
-                            || !clipboardPanelOpen()) return;
                     // Re-read rather than splice the entry in: the service deduplicates and orders the list.
                     refreshCloudClipboard();
                 });
@@ -6307,7 +6414,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
-        // 粤拼和注音本来就写繁体字，越南语和藏文不是中文（`script_conversion_applies`）。
+        // 粤拼和注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
             && canSaveChineseOutput();
@@ -6437,10 +6544,11 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateManagementEnabled() {
         if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
         int scheme = view.optInt("scheme", 0);
-        // 粤拼、注音、越南语和藏文的候选不属于拼音用户词库，不能固定、删除或调整顺序。
+        // 粤拼、注音、越南语、藏文和笔画的候选不属于拼音用户词库，不能固定、删除或调整顺序。
         return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
-            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN;
+            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
+            && scheme != InputSchemeTraits.STROKE;
     }
 
     private void editCandidate(JSONObject id, CandidateManagementAction action) {
@@ -7137,10 +7245,10 @@ public final class MSIMEInputService extends InputMethodService {
             handwritingCanvas.undo();
         } else if (directEnglishActive() && connection != null) {
             clearEnglishSuggestions();
-            connection.deleteSurroundingTextInCodePoints(1, 0);
+            deleteCodePointBeforeCursor();
             refreshEnglishSuggestions();
         } else if (connection != null && !command(0)) {
-            connection.deleteSurroundingTextInCodePoints(1, 0);
+            deleteCodePointBeforeCursor();
         }
     }
 
@@ -7240,6 +7348,7 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyInputs.clear();
         microsoftFinalKey = null;
         nineKeySidebar = null;
+        strokeWildcardKey = null;
         japaneseSpaceKey = null;
         japaneseReturnKey = null;
         japaneseSymbolsKey = null;
@@ -7260,6 +7369,13 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyboardLayer == KeyboardLayout.Layer.LETTERS
             && displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
             rebuildHandwritingRows();
+            applyKeyboardGeometry();
+            return;
+        }
+        // 笔画键盘的符号页与手写一样交给 26 键符号行，字母层才画笔画网格。
+        if (keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && displayedTouchLayout(view) == KeyboardLayout.STROKE_LAYOUT) {
+            rebuildStrokeRows();
             applyKeyboardGeometry();
             return;
         }
@@ -7460,6 +7576,72 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
         Runnable deleteAction = () -> {
+            if (connection != null && !command(0)) deleteCodePointBeforeCursor();
+        };
+        Button delete = keyId(keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        bindBackspaceRepeat(delete, deleteAction);
+        addNineKey(actions, delete);
+        addNineKey(actions, keyId(keyboardKey(".", "句点", this::commitNineKeyPeriod), "Period"));
+        addNineKey(actions, keyId(keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")),
+            "Nine0"));
+        container.addView(actions, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+    }
+
+    /**
+     * 笔画键盘：九键外框（标点侧栏、⌫ 列、固定高度）中间换成 {@link StrokeKeyboardLayout} 的 2×3 笔画网格。
+     *
+     * <p>笔画键直接走 character()，不走 type()：type() 会套用 Shift 大小写，也会把 ASCII 标点交给标点路径。九键的拼音选择条只属于拼音九键，这里不挂（挂上去要先从旧侧栏摘下，否则 addView 会抛异常）。
+     */
+    private void rebuildStrokeRows() {
+        dismissNineKeyHoldOptions();
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.HORIZONTAL);
+        adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
+        keyRows.addView(container, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
+
+        LinearLayout punctuation = new LinearLayout(this);
+        punctuation.setOrientation(LinearLayout.VERTICAL);
+        for (String symbol : NineKeyLayout.punctuation()) {
+            Button key = keyId(keyboardKey(symbol, "符号 " + symbol,
+                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            if (key instanceof KeyboardPressButton press)
+                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
+            punctuation.addView(key, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        FrameLayout sidebar = new FrameLayout(this);
+        nineKeySidebar = sidebar;
+        applySidebarRail();
+        sidebar.addView(punctuation, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        container.addView(sidebar, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
+
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (java.util.List<StrokeKeyboardLayout.Key> keys : StrokeKeyboardLayout.rows()) {
+            LinearLayout row = new LinearLayout(this);
+            for (StrokeKeyboardLayout.Key key : keys) {
+                Button keyButton = keyboardKey(StrokeKeyboardLayout.face(key),
+                    StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
+                keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
+                if (keyButton instanceof KeyboardPressButton press)
+                    press.setKeyboardRole(KeyboardKeyRole.KEY);
+                keyId(keyButton, KeyPressIds.forCharacter(key.input()));
+                if (key.input() == StrokeKeyboardLayout.WILDCARD) strokeWildcardKey = keyButton;
+                addNineKey(row, keyButton);
+            }
+            grid.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        container.addView(grid, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        Runnable deleteAction = () -> {
             if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
         };
         Button delete = keyId(keyboardKey("⌫", "删除", deleteAction), "Backspace");
@@ -7470,6 +7652,20 @@ public final class MSIMEInputService extends InputMethodService {
             "Nine0"));
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+        updateStrokeWildcardKey();
+    }
+
+    /** 笔画键送出它的字母；Engine 不收的键（空组合时的通配）什么也不写，免得往输入框里漏一个 x。 */
+    private void strokeKey(StrokeKeyboardLayout.Key key) {
+        if (connection == null) return;
+        if (!StrokeKeyboardLayout.sends(key.input(), hasEngineComposition())) return;
+        character(key.input(), false);
+    }
+
+    private void updateStrokeWildcardKey() {
+        if (strokeWildcardKey == null) return;
+        strokeWildcardKey.setEnabled(
+            StrokeKeyboardLayout.sends(StrokeKeyboardLayout.WILDCARD, hasEngineComposition()));
     }
 
     /** Show the digit and literal letters printed on a nine-key key, like Apple's hold popup. */
@@ -7506,8 +7702,9 @@ public final class MSIMEInputService extends InputMethodService {
         options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         final PopupWindow[] holder = new PopupWindow[1];
+        // 弹窗不能取焦点：输入法里一个可取焦点的窗口会把焦点从宿主的输入框抢走，编辑器一失焦系统就收起整个键盘。点外面关闭由 `setOutsideTouchable` 负责。
         PopupWindow popup = new PopupWindow(options, options.getMeasuredWidth(),
-            options.getMeasuredHeight(), true);
+            options.getMeasuredHeight(), false);
         holder[0] = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);
@@ -7701,7 +7898,7 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
         Runnable deleteAction = () -> {
-            if (connection != null && !command(0)) connection.deleteSurroundingTextInCodePoints(1, 0);
+            if (connection != null && !command(0)) deleteCodePointBeforeCursor();
         };
         Button delete = keyId(keyboardKey("⌫", "删除", deleteAction), "Backspace");
         bindBackspaceRepeat(delete, deleteAction);
@@ -8041,10 +8238,11 @@ public final class MSIMEInputService extends InputMethodService {
         replyKeyboard.setVisibility(View.GONE);
         keyboard.addView(replyKeyboard, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        keyRows = new LinearLayout(this);
+        // 键距是键的外边距；这两个容器把落在空隙里的按下交给拥有那段空隙的键，画面不变（见 KeyboardKeyArea）。
+        keyRows = new KeyboardKeyArea(this, this::followsKeySpacing);
         keyRows.setOrientation(LinearLayout.VERTICAL);
         keyboard.addView(keyRows);
-        actionRow = new LinearLayout(this);
+        actionRow = new KeyboardKeyArea(this, this::followsKeySpacing);
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         actionRow.setContentDescription("键盘功能行");
         actionRowSignature = "";
@@ -8391,7 +8589,7 @@ public final class MSIMEInputService extends InputMethodService {
 
                 @Override public void delete() {
                     if (connection != null && !command(0))
-                        connection.deleteSurroundingTextInCodePoints(1, 0);
+                        deleteCodePointBeforeCursor();
                 }
 
                 @Override public void close() { closeSymbolPanel(); }
@@ -8409,6 +8607,7 @@ public final class MSIMEInputService extends InputMethodService {
         updateSymbolKeyFaces();
         updateShuangpinKeyHints();
         updateQuickPunctuation();
+        updateStrokeWildcardKey();
         String currentEditingText = view == null ? "" : view.optString("editing_text", "");
         if (!japaneseSchemeActive() || currentEditingText.isEmpty()) {
             japaneseConversionIndex = null;
@@ -8532,7 +8731,8 @@ public final class MSIMEInputService extends InputMethodService {
                     : selectedScheme == KeyboardScheme.CANTONESE ? InputSchemeTraits.CANTONESE
                     : selectedScheme == KeyboardScheme.ZHUYIN ? InputSchemeTraits.ZHUYIN
                     : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
-                    : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN : -1)
+                    : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
+                    : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
                 : view.optInt("scheme", -1);
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
@@ -8540,8 +8740,9 @@ public final class MSIMEInputService extends InputMethodService {
             boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
             boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
+            boolean stroke = scheme == InputSchemeTraits.STROKE;
             scriptShortcutButton.setEnabled(!japanese && !korean && !cantonese && !zhuyin
-                && !vietnamese && !tibetan && canSaveChineseOutput());
+                && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
             String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
@@ -8549,6 +8750,7 @@ public final class MSIMEInputService extends InputMethodService {
                 : zhuyin ? "注音直接输出繁体"
                 : vietnamese ? "越南语不使用简繁转换"
                 : tibetan ? "藏文不使用简繁转换"
+                : stroke ? "笔画不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
                 : traditionalChineseOutput ? "繁体" : "简体";
             scriptShortcutButton.setContentDescription(

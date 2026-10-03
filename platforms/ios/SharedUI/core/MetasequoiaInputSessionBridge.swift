@@ -443,7 +443,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let selectedID = selected.sharedIdentifier
     let mapping: (inout [String: Any]) -> Void = { preferences in
       preferences["scheme"] = engineScheme
-      // `last_chinese_scheme` 是切回中文时要回到的方案，所以写其他语言的日语、韩语、越南语和藏文从不替换它；粤拼和注音是中文方案，会替换。
+      // `last_chinese_scheme` 是切回中文时要回到的方案，所以写其他语言的日语、韩语、越南语和藏文从不替换它；粤拼、注音和笔画是中文方案，会替换。
       if !["japanese", "korean", "vietnamese", "tibetan"].contains(engineScheme) {
         preferences["last_chinese_scheme"] = engineScheme
       }
@@ -970,6 +970,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func switchToVietnamese() -> MetasequoiaInputSnapshot { switchScheme("vietnamese", profile: nil) }
   /// 藏文 EWTS 威利转写，就地组字，没有候选。切换会丢掉正在组的音节，所以调用方先结束组字。
   func switchToTibetan() -> MetasequoiaInputSnapshot { switchScheme("tibetan", profile: nil) }
+  /// 笔画输入，按笔顺查单字。缺少 language-dictionaries 里的 stroke.db 时运行时继续用最近一次的中文方案，所以键盘只在文件在时提供它。
+  func switchToStroke() -> MetasequoiaInputSnapshot { switchScheme("stroke", profile: nil) }
 
   func editCandidate(at index: UInt, expectedWord: String, action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
     guard let row = (try? currentCandidates())?[safe: Int(index)],

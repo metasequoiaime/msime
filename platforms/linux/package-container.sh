@@ -7,7 +7,7 @@
 #   VERSION defaults to platforms/linux/version.txt, the version release-linux.yml tags as linux-vVERSION. It becomes both the package version and the version the desktop binary reports, so the in-app update check compares like with like.
 #   MSIME_PACKAGE_DESKTOP=0 packages without the Tauri desktop binary (no settings window); the default requires it.
 #   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
-#   MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails unless target/language-dictionaries holds both cantonese.db and zhuyin.db with their licences; the default packages whatever is there.
+#   MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails unless target/language-dictionaries holds every dictionary resources/language-dictionaries.lock.json pins, each with its licence; the default packages whatever is there.
 #   MSIME_PACKAGE_EDITIONS 是要打包的版本 id，逗号分隔，缺省是版本表里每个有 Linux 段的版本（platforms/linux/scripts/edition_linux.py editions）。各版本共用同一次构建出的宿主库、msime-mcp 和桌面二进制，原生宿主按版本各配置、各打一个包：full 是今天的 msime-linux，装在 /usr；其他版本是 msime-linux-<id>，装在 /opt/msime-linux-<id>。单测只在 full 的构建上跑，其他版本的原生代码与它只差 LinuxEdition.h 里的名字。
 #   MSIME_PACKAGE_FORMAT=rpm builds the RPM in a Fedora container (tests/tools/Dockerfile.package-rpm) instead of the .deb and .tar.gz in the Debian one. It is a separate build, not a conversion: rpmbuild takes Requires from the libraries the binaries link, so they have to be linked against Fedora's (#2095).
 #
@@ -114,7 +114,7 @@ docker run --rm --init \
     if compgen -G "target/offline-glosses/zh-*.db" >/dev/null && [ -f target/offline-glosses/offline-glosses-NOTICE.txt ]; then
       glosses_args=(-DMSIME_OFFLINE_GLOSSES=/source/target/offline-glosses)
     fi
-    # The Cantonese and Zhuyin dictionaries from scripts/fetch_language_dictionaries.py, each installed with its licence text; without them the package offers both schemes as unavailable. MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails the package instead.
+    # The Cantonese, Zhuyin and Stroke dictionaries from scripts/fetch_language_dictionaries.py, each installed with its licence text; without them the package offers those schemes as unavailable. MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails the package instead.
     languages_args=(-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES="$([ "$MSIME_REQUIRE_LANGUAGE_DICTIONARIES" = 1 ] && echo ON || echo OFF)")
     if [ -d target/language-dictionaries ]; then
       languages_args+=(-DMSIME_LANGUAGE_DICTIONARIES=/source/target/language-dictionaries)
@@ -123,7 +123,7 @@ docker run --rm --init \
     rm -rf /build/cmake /build/cmake-* /build/dist
     IFS=, read -r -a editions <<<"$MSIME_PACKAGE_EDITIONS"
     for edition in "${editions[@]}"; do
-      # 每个版本一个构建目录：full 仍是 /build/cmake，装在 /usr；其他版本装在版本表给的前缀下。粤语和注音词库只有用到它们的版本要（cmake/Edition.cmake 对其他版本忽略），所以「必须带齐」也只对 full 生效。单测只跑 full 的。
+      # 每个版本一个构建目录：full 仍是 /build/cmake，装在 /usr；其他版本装在版本表给的前缀下。粤语、注音和笔画词库只有用到它们的版本要（cmake/Edition.cmake 对其他版本忽略），所以「必须带齐」也只对 full 生效。单测只跑 full 的。
       build=/build/cmake
       testing=ON
       edition_languages_args=("${languages_args[@]}")

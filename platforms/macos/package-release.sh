@@ -3,7 +3,7 @@
 #
 # 包里只带装好就能打中文的核心词库（msime.db、bigram/trigram、english.db、others.db、sentence-model、helpcodes/、dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
 #   japanese              dict_japanese.dat 与 mozc README，用户选日文方案时下载
-#   language-dictionaries 粤拼与注音词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼或注音时下载
+#   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
 # 打包时在编译之前先把三个资源包按 App 用的同一套安装器、URL 和哈希装一遍，链接失效或内容漂移的资源包不会随发布包出去。
 #
@@ -160,7 +160,7 @@ dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
 echo "packaging edition $edition: $bundle_name ($bundle_id)"
 
 # ---- Core dictionaries for this edition ----
-# 只暂存核心词库：日文词典那一对文件不进 EngineResources，粤拼、注音词库和手写模型也不再取回，三者都由 App 按需下载。MSIME_EDITION 让不是 full 的版本只带自己资源锁里的文件。
+# 只暂存核心词库：日文词典那一对文件不进 EngineResources，粤拼、注音、笔画词库和手写模型也不再取回，三者都由 App 按需下载。MSIME_EDITION 让不是 full 的版本只带自己资源锁里的文件。
 MSIME_EDITION="$edition" MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
 
 # ---- Input method bundle for this edition ----
@@ -237,7 +237,7 @@ check_app() {
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt NOTICE.md NOTICE-jiajia.md; do
     test -f "$resources_dir/EngineResources/helpcodes/$table"
   done
-  # 按需下载的资源包不该出现在包里：日文词典、粤拼与注音词库、手写模型都由 App 下载到 resource-packs/<id>/。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里。
+  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里。
   test ! -e "$resources_dir/EngineResources/dict_japanese.dat"
   test ! -e "$resources_dir/EngineResources/mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/language-dictionaries"

@@ -28,12 +28,12 @@ cp resources/helpcodes/NOTICE.md "$staged/helpcodes/NOTICE-jiajia.md"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$staged" >/dev/null
 echo "Staged for the HAP: $staged"
 
-# Licences of what the native library carries that its own notices do not cover: the input engine embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions, and its Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), whose notices travel with every engine build even where those schemes are not offered. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts it to context.resourceDir/licenses.
+# Licences of what the native library carries that its own notices do not cover: the input engine embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions, its Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and its Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts it to context.resourceDir/licenses.
 licenses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/licenses"
 rm -rf "$licenses_staged"
 mkdir -p "$licenses_staged"
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$licenses_staged/"
-cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt "$licenses_staged/"
+cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt resources/licenses/rime-stroke-LGPL-3.0.txt "$licenses_staged/"
 # 越南文和藏文方案编入原生库的 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用）的许可证全文。
 cp resources/licenses/vi-MIT.txt resources/licenses/ewts-MIT.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
@@ -57,12 +57,12 @@ else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
 
-# Optional: the Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS and iOS. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/language-dictionaries, the keyboard copies them to language-dictionaries/ beside its copy of the resources, where host-api finds them and names them in the runtime options, and the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is staged only with its licence text, which must travel with the data.
+# Optional: the Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS and iOS. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/language-dictionaries, the keyboard copies them to language-dictionaries/ beside its copy of the resources, where host-api finds them and names them in the runtime options, and the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is staged only with its licence text, which must travel with the data.
 languages_source=${3:-$repo_root/target/language-dictionaries}
 languages_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/language-dictionaries"
 rm -rf "$languages_staged"
 staged_languages=()
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt; do
   database=${pair%%:*}
   license=${pair#*:}
   [ -f "$languages_source/$database" ] || continue
@@ -77,9 +77,19 @@ done
 if [ "${#staged_languages[@]}" -gt 0 ]; then
   echo "Language dictionaries staged for the HAP (${staged_languages[*]}): $languages_staged"
 else
-  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+  echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
-  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both staged from $languages_source" >&2
-  exit 1
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is staged when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+  required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
+  if [ -z "$required_languages" ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2
+    exit 1
+  fi
+  for database in $required_languages; do
+    if [[ " ${staged_languages[*]:-} " != *" $database "* ]]; then
+      echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not staged from $languages_source" >&2
+      exit 1
+    fi
+  done
 fi

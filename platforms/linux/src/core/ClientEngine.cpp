@@ -1110,14 +1110,14 @@ struct State {
       preferences["learning"] = false;
   }
 };
-// The scheme the Engine runs for this context: the menu's choice or the configured one, given way to the last Chinese scheme as host-api does when Cantonese or Zhuyin has no dictionary installed here (InputSchemes.h). The menus, the indicator and the key rules follow this one, so none of them claims a scheme the user is not typing in.
+// The scheme the Engine runs for this context: the menu's choice or the configured one, given way to the last Chinese scheme as host-api does when Cantonese, Zhuyin or Stroke has no dictionary installed here (InputSchemes.h). The menus, the indicator and the key rules follow this one, so none of them claims a scheme the user is not typing in.
 std::string effective_scheme(const State &s) {
   const auto &preferences = configured.at("preferences");
   return msime::linux_host::effective_input_scheme(
       s.scheme_override.value_or(preferences.value("scheme", std::string("quanpin"))),
       preferences.value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
 }
-// 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字（`script_conversion_applies`）。
+// 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
   return context.is_object() &&
          msime::linux_host::scheme::ScriptConversionApplies(context.value("scheme", 255)) &&
@@ -2657,6 +2657,7 @@ IBusProperty *input_mode_property(IBusEngine *engine) {
   case msime::linux_host::InputModeIndicator::Korean: symbol = "한"; break;
   case msime::linux_host::InputModeIndicator::Cantonese: symbol = "粤"; break;
   case msime::linux_host::InputModeIndicator::Zhuyin: symbol = "注"; break;
+  case msime::linux_host::InputModeIndicator::Stroke: symbol = "笔"; break;
   case msime::linux_host::InputModeIndicator::Vietnamese: symbol = "越"; break;
   case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;
   case msime::linux_host::InputModeIndicator::English: symbol = "A"; break;
@@ -2706,7 +2707,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   }
   clipboard_schedule(engine);
   auto toolbar = toolbar_property(engine);
-  // The scheme the Engine runs: a Cantonese or Zhuyin preference without its dictionary falls back, and the menu checks the fallback.
+  // The scheme the Engine runs: a Cantonese, Zhuyin or Stroke preference without its dictionary falls back, and the menu checks the fallback.
   const auto active_scheme = effective_scheme(s);
   const int active_scheme_number = msime::linux_host::scheme_number(active_scheme);
   const bool japanese_scheme = active_scheme_number == msime::linux_host::scheme::Japanese;
@@ -3266,7 +3267,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
     // The input languages and the Chinese schemes are two radio groups; without the rule ibus-ui-gtk3 joins them and marks only one of the two checked entries.
     ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
   }
-  // Cantonese and Zhuyin are offered only when their dictionary is installed: host-api would fall back from either without it.
+  // Cantonese, Zhuyin and Stroke are offered only when their dictionary is installed: host-api would fall back from each of them without it.
   // 五笔一项跟随存储的码表版本显示「86 五笔」或「98 五笔」。
   const char *wubi_label = msime::linux_host::wubi_scheme_label(
       configured.at("preferences").value("wubi_profile", std::string("wubi86")));
@@ -3274,7 +3275,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                            std::tuple{"shuangpin", "Scheme/Shuangpin", "双拼"},
                                            std::tuple{"wubi", "Scheme/Wubi", wubi_label},
                                            std::tuple{"cantonese", "Scheme/Cantonese", "粤拼"},
-                                           std::tuple{"zhuyin", "Scheme/Zhuyin", "注音"}}) {
+                                           std::tuple{"zhuyin", "Scheme/Zhuyin", "注音"},
+                                           std::tuple{"stroke", "Scheme/Stroke", "笔画"}}) {
     if (!msime::linux_host::input_scheme_available(value, configured_dictionaries)) continue;
     auto item = ibus_property_new(
         name, PROP_TYPE_RADIO,
@@ -3991,7 +3993,7 @@ void render_after_voice(IBusEngine *engine) {
   s.wave_overlay.reset();
   clear(engine);
 }
-// 由方案决定繁体输出转换是否适用。没有 Engine 视图时（英文模式）取 Engine 将要运行的方案，所以日文、韩文、粤拼、注音、越南文和藏文的文字仍然不被改动。
+// 由方案决定繁体输出转换是否适用。没有 Engine 视图时（英文模式）取 Engine 将要运行的方案，所以日文、韩文、粤拼、注音、越南文、藏文和笔画的文字仍然不被改动。
 Json voice_commit_context(const State &s) {
   if (s.view.is_object())
     return Json{{"scheme", s.view.value("scheme", 0)}, {"local_mode", "none"}};
@@ -4860,6 +4862,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
        property_name != "Scheme/Shuangpin" && property_name != "Scheme/Wubi" &&
        property_name != "Scheme/Cantonese" && property_name != "Scheme/Zhuyin" &&
        property_name != "Scheme/Vietnamese" && property_name != "Scheme/Tibetan" &&
+       property_name != "Scheme/Stroke" &&
        property_name.rfind("ShuangpinProfile/", 0) != 0) ||
       !s.focused || s.blocked ||
       (value != PROP_STATE_CHECKED && value != PROP_STATE_UNCHECKED))
@@ -5579,10 +5582,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
           : property_name == "Scheme/Wubi" ? std::string("wubi")
           : property_name == "Scheme/Cantonese" ? std::string("cantonese")
           : property_name == "Scheme/Zhuyin" ? std::string("zhuyin")
+          : property_name == "Scheme/Stroke" ? std::string("stroke")
           : property_name == "Scheme/Vietnamese" ? std::string("vietnamese")
           : property_name == "Scheme/Tibetan" ? std::string("tibetan")
           : configured.at("preferences").value("last_chinese_scheme", std::string("quanpin"));
-      // A scheme this host does not know, or Cantonese and Zhuyin once their dictionary is gone, is saved as the scheme host-api would run instead.
+      // A scheme this host does not know, or Cantonese, Zhuyin and Stroke once their dictionary is gone, is saved as the scheme host-api would run instead.
       selected = msime::linux_host::effective_input_scheme(
           selected, configured.at("preferences").value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
       if (s.scheme_override.value_or(
@@ -6903,7 +6907,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool accepted_apostrophe =
         key == IBUS_apostrophe && has_composition && caret_position != 0 &&
         ((local_mode == "none" && active_scheme != "wubi" && active_scheme != "zhuyin" &&
-          active_scheme != "vietnamese" && active_scheme != "tibetan") ||
+          active_scheme != "vietnamese" && active_scheme != "tibetan" && active_scheme != "stroke") ||
          local_mode == "emoji" || local_mode == "kaomoji" ||
          local_mode == "temporary_japanese");
     const bool candidate_input =

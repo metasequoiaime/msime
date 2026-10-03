@@ -359,6 +359,19 @@ fn a_local_package_is_uploaded_private_under_its_manifest_name_once() {
 }
 
 #[test]
+fn sync_reports_state_storage_failure_after_remote_success() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fs::create_dir(&fixture.state).unwrap();
+
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Storage),
+    );
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
+}
+
+#[test]
 fn matching_packages_on_both_sides_are_recorded_without_an_upload() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);
@@ -780,6 +793,29 @@ fn publishing_cancels_when_same_user_relogs_in_before_state_save() {
 }
 
 #[test]
+fn publishing_reports_state_storage_failure_after_remote_success() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fs::create_dir(&fixture.state).unwrap();
+
+    assert_eq!(
+        publish(
+            &fixture.root,
+            &fixture.state,
+            &fixture.library,
+            "sakura",
+            Uuid::new_v4(),
+            "樱花".into(),
+            String::new(),
+            CandidateSkinVisibility::Private,
+            None,
+        ),
+        Err(CandidateSkinPublishError::Account(AccountError::Storage))
+    );
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
+}
+
+#[test]
 fn publishing_a_new_package_creates_a_row_that_sync_then_knows() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);
@@ -837,13 +873,13 @@ fn an_unpublished_row_is_uploaded_again_rather_than_deleted_locally() {
 }
 
 #[test]
-fn a_failed_unpublish_keeps_the_row_remembered() {
+fn an_unrelated_missing_unpublish_keeps_the_row_remembered() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);
     fixture.sync();
     assert_eq!(
         unpublish(&fixture.state, &fixture.library, Uuid::new_v4()),
-        Err(AccountError::NotFound)
+        Ok(())
     );
     assert_eq!(
         synced_packages(&fixture.state).keys().collect::<Vec<_>>(),
@@ -865,6 +901,24 @@ fn a_successful_unpublish_reports_state_storage_failure() {
         Err(AccountError::Storage),
     );
     assert!(fixture.library.rows.borrow().is_empty());
+}
+
+#[test]
+fn an_unpublish_retry_cleans_state_after_remote_success_was_persisted_late() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.sync();
+    let id = *fixture.library.rows.borrow().keys().next().unwrap();
+    fs::remove_file(&fixture.state).unwrap();
+    fs::create_dir(&fixture.state).unwrap();
+
+    assert_eq!(
+        unpublish(&fixture.state, &fixture.library, id),
+        Err(AccountError::Storage)
+    );
+    fs::remove_dir(&fixture.state).unwrap();
+    assert_eq!(unpublish(&fixture.state, &fixture.library, id), Ok(()));
+    assert!(synced_packages(&fixture.state).is_empty());
 }
 
 #[test]
@@ -933,9 +987,12 @@ fn a_symlinked_sync_state_does_not_delete_a_local_skin() {
     symlink(&external_state, &fixture.state).unwrap();
 
     // 外部同步状态不能让同步删除本地皮肤，且外部文件不能被改写。
-    let report = fixture.sync();
-    assert_eq!(report.uploaded, ids(&["sakura"]));
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Storage)
+    );
     assert!(fixture.installed("sakura"));
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
     assert_eq!(fs::read(&external_state).unwrap(), bytes);
 }
 
@@ -952,10 +1009,13 @@ fn a_symlinked_sync_state_parent_does_not_write_outside() {
     let state_path = linked_parent.join(STATE_FILE);
 
     // 状态文件父目录是外部链接时，保存不能在外部目录留下同步状态。
-    let report = sync_candidate_skins(&fixture.root, &state_path, &fixture.library).unwrap();
-    assert_eq!(report.uploaded, ids(&["sakura"]));
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &state_path, &fixture.library),
+        Err(AccountError::Storage)
+    );
     assert!(!outside.path().join(STATE_FILE).exists());
     assert!(fixture.installed("sakura"));
+    assert_eq!(fixture.library.rows.borrow().len(), 1);
 }
 
 #[cfg(unix)]

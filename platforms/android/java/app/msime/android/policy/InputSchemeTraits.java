@@ -16,23 +16,24 @@ public final class InputSchemeTraits {
     public static final int ZHUYIN = 6;
     public static final int VIETNAMESE = 7;
     public static final int TIBETAN = 8;
+    public static final int STROKE = 9;
 
     private InputSchemeTraits() {}
 
     // `is_chinese`: a Chinese scheme, the kind `last_chinese_scheme` remembers.
-    public static boolean isChinese(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == CANTONESE || scheme == ZHUYIN; }
+    public static boolean isChinese(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == CANTONESE || scheme == ZHUYIN || scheme == STROKE; }
 
     // `outputs_traditional_natively`: the scheme's own candidates are Traditional characters, so there is nothing for Simplified-to-Traditional conversion to do.
-    public static boolean outputsTraditionalNatively(int scheme) { return scheme == CANTONESE || scheme == ZHUYIN; }
+    public static boolean outputsTraditionalNatively(int scheme) { return scheme == CANTONESE || scheme == ZHUYIN || scheme == STROKE; }
 
     // `script_conversion_applies`: the host's Simplified-to-Traditional output conversion runs on this scheme's commits.
     public static boolean scriptConversionApplies(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI; }
 
     // `uses_chinese_punctuation`: punctuation goes through the Chinese table. Korean and Vietnamese write half-width ASCII marks whatever the Chinese punctuation switch says.
-    public static boolean usesChinesePunctuation(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == CANTONESE || scheme == ZHUYIN; }
+    public static boolean usesChinesePunctuation(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == CANTONESE || scheme == ZHUYIN || scheme == STROKE; }
 
     // `widens_full_width`: commits and direct characters are widened when the full-width switch is on.
-    public static boolean widensFullWidth(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == CANTONESE || scheme == ZHUYIN; }
+    public static boolean widensFullWidth(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == CANTONESE || scheme == ZHUYIN || scheme == STROKE; }
 
     // `opens_local_modes`: the local modes (`/` commands, `@` mentions, the tools that start them) are offered.
     public static boolean opensLocalModes(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN; }
@@ -44,7 +45,7 @@ public final class InputSchemeTraits {
     public static boolean commitsOnBlur(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
     // `draws_reading`: the composition to mark inline is the view's `reading`, not its `editing_text`.
-    public static boolean drawsReading(int scheme) { return scheme == JAPANESE || scheme == KOREAN || scheme == ZHUYIN; }
+    public static boolean drawsReading(int scheme) { return scheme == JAPANESE || scheme == KOREAN || scheme == ZHUYIN || scheme == STROKE; }
 
     // `has_openable_candidate_list`: candidates appear only in a list the user opens with command 16 (the Korean Hanja list, the Zhuyin list).
     public static boolean hasOpenableCandidateList(int scheme) { return scheme == KOREAN || scheme == ZHUYIN; }
@@ -55,8 +56,8 @@ public final class InputSchemeTraits {
     // `locks_caret`: the caret stays at the end of the composition, so the caret keys write it out and keep their meaning in the editor.
     public static boolean locksCaret(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
-    // 宿主专用：方案序号是上面九个之一。某个判断早于某个方案存在时，对不认识的序号沿用它原来的答案，而不是各谓词统一给出的 false。
-    public static boolean known(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == KOREAN || scheme == CANTONESE || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
+    // 宿主专用：方案序号是上面十个之一。某个判断早于某个方案存在时，对不认识的序号沿用它原来的答案，而不是各谓词统一给出的 false。
+    public static boolean known(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == KOREAN || scheme == CANTONESE || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN || scheme == STROKE; }
 
     // 宿主专用：字母直接拼成书写的文字（韩文音节、越南语单词、按区分大小写的威利转写拼出的藏文音节），所以 Shift 是字母大小写而不是语言切换，也没有可以以词定字的词。
     public static boolean letterComposition(int scheme) { return scheme == KOREAN || scheme == VIETNAMESE || scheme == TIBETAN; }

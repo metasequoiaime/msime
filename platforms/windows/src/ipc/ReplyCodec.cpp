@@ -228,7 +228,7 @@ std::vector<uint8_t> caps_lock_frame(bool enabled) {
 
 std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config) {
   std::vector<std::vector<uint8_t>> frames;
-  frames.reserve(9);
+  frames.reserve(10);
   // The paging frame carries the preedit style after a '|', which is how the
   // TIP receives it - there is no separate message type for it.
   std::wstring paging = config.paging_comma_period ? L"1" : L"0";
@@ -249,7 +249,7 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
       FanyImeWorkerReplyType::PairedPunctuationChanged, config.paired_punctuation));
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::MicrosoftShuangpinChanged, config.microsoft_shuangpin));
-  // "0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文。
+  // "0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画。
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::InputModeChanged,
       std::wstring(1, scheme::input_mode_code(config.input_mode))));
@@ -272,6 +272,9 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
                                  config.mention_mode && pinyin_modes ? L'1' : L'0'};
   frames.push_back(worker_text_frame(
       FanyImeWorkerReplyType::LocalModeTriggersChanged, triggers));
+  // After the trigger frame, so an older TIP that drops the unknown type still finds every frame before it where it was. The Engine's own English mode composes every letter, which the TIP has to know before it hands an idle Stroke letter to the application.
+  frames.push_back(worker_flag_frame(
+      FanyImeWorkerReplyType::DedicatedEnglishChanged, config.dedicated_english));
   return frames;
 }
 

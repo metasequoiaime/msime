@@ -3,6 +3,7 @@ import { useConfirm } from "../core/confirm";
 import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 
 // The largest word list the page reads. The shared layer takes at most 8 MiB of decoded text (`vocabulary::session::MAX_IMPORT_BYTES`), well under the dictionary import's bound, so this keeps the 1 MiB the page has always read rather than following that one.
 const WORDBOOK_FILE_BYTES = 1_048_576;
@@ -32,7 +33,6 @@ const answerButton =
 const answerKnown =
   "min-h-[44px] rounded-[10px] border-0 bg-accent text-[15px] font-medium text-white not-disabled:hover:opacity-90";
 const field = "flex items-center justify-between gap-3 py-1.5";
-const empty = "mt-0.5 mb-3.5 text-center text-muted";
 
 /** A word list the host can draw a session from. */
 export type VocabularyWordbook = {
@@ -208,7 +208,7 @@ export function VocabularyReviewPage({
   if (!status && busy) {
     return (
       <section className={page} aria-busy="true">
-        <p className={empty}>正在读取…</p>
+        <SettingsEmptyMessage centered>正在读取…</SettingsEmptyMessage>
       </section>
     );
   }
@@ -216,7 +216,7 @@ export function VocabularyReviewPage({
   if (!status) {
     return (
       <section className={page}>
-        <p className={empty}>{error || "无法读取背单词进度。"}</p>
+        <SettingsEmptyMessage centered>{error || "无法读取背单词进度。"}</SettingsEmptyMessage>
         <ActionButton action={() => update(() => client.load())} label="重试" />
       </section>
     );
@@ -357,9 +357,9 @@ export function VocabularyReviewPage({
       {reviewing && (
         <div className="section">
           {!selected ? (
-            <p className={empty}>先选一本词书。</p>
+            <SettingsEmptyMessage centered>先选一本词书。</SettingsEmptyMessage>
           ) : !card ? (
-            <p className={empty}>今天的复习已经完成。</p>
+            <SettingsEmptyMessage centered>今天的复习已经完成。</SettingsEmptyMessage>
           ) : (
             <>
               <ActionButton
@@ -426,7 +426,7 @@ export function VocabularyReviewPage({
         </div>
       )}
 
-      {error && <p className={empty}>{error}</p>}
+      {error && <SettingsEmptyMessage centered>{error}</SettingsEmptyMessage>}
       {confirmation}
     </section>
   );

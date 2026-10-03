@@ -697,7 +697,7 @@ class SettingsBridge {
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
       `${context.filesDir}/engine.ready`);
-    // Here as well as in the keyboard, so the page offers Cantonese and Zhuyin (see hostCapabilities) before the keyboard has ever run.
+    // Here as well as in the keyboard, so the page offers Cantonese, Zhuyin and Stroke (see hostCapabilities) before the keyboard has ever run.
     StagedResources.stageLanguageDictionaries(context.resourceDir, context.filesDir);
   }
 
@@ -1462,7 +1462,7 @@ class SettingsBridge {
       if (release !== null) {
         value['os_version'] = release;
       }
-      // Cantonese and Zhuyin are offered only with their dictionary installed, as the desktop app's `drop_uninstalled_language_schemes` does; the keyboard leaves such a scheme out of its picker by the same rule.
+      // Cantonese, Zhuyin and Stroke are offered only with their dictionary installed, as the desktop app's `drop_uninstalled_language_schemes` does; the keyboard leaves such a scheme out of its picker by the same rule.
       const schemes: Object | undefined = value['input_schemes'];
       if (Array.isArray(schemes)) {
         value['input_schemes'] = (schemes as string[]).filter((scheme: string): boolean =>

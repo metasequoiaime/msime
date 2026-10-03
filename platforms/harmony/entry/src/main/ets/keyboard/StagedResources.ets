@@ -60,7 +60,7 @@ export class StagedResources {
   }
 
   /**
-   * The Cantonese and Zhuyin dictionaries, from `language-dictionaries` under `resourceDir` to `language-dictionaries` beside the staged Engine resources in `filesDir`, where host-api looks for them. A package built without them removes any an earlier one left, and those schemes are then not offered; either way the keyboard still starts.
+   * The Cantonese, Zhuyin and Stroke dictionaries, from `language-dictionaries` under `resourceDir` to `language-dictionaries` beside the staged Engine resources in `filesDir`, where host-api looks for them. A package built without them removes any an earlier one left, and those schemes are then not offered; either way the keyboard still starts.
    */
   static stageLanguageDictionaries(resourceDir: string, filesDir: string): void {
     const packaged: string = `${resourceDir}/language-dictionaries`;

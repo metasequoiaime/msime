@@ -9,7 +9,7 @@ BarWidget {
   id: root
   moduleName: "metasequoia.msime"
 
-  readonly property var schemeNames: ({ quanpin: "全拼", shuangpin: "双拼", wubi: "五笔", cantonese: "粤拼", zhuyin: "注音", japanese: "日文", korean: "韩文", vietnamese: "越南文", tibetan: "藏文" })
+  readonly property var schemeNames: ({ quanpin: "全拼", shuangpin: "双拼", wubi: "五笔", cantonese: "粤拼", zhuyin: "注音", japanese: "日文", korean: "韩文", vietnamese: "越南文", tibetan: "藏文", stroke: "笔画" })
   property bool active: false
   property string label: ""
   property string scheme: ""

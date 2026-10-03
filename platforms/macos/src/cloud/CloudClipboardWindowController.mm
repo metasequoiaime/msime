@@ -25,7 +25,19 @@
     }
     _status.stringValue = @"请仅选择一个条目中的文本";
 }
-- (void)upload:(id)sender { (void)sender; NSString *t=_editor.string; if(!t.length||t.length>4000)return; MSIMEAddCloudClipboard(t,_token,^(NSData*d,NSInteger s,NSError*e){(void)d;(void)e;if(s>=200&&s<300)[self refresh:nil];}); }
+- (void)upload:(id)sender {
+    (void)sender;
+    NSString *t = _editor.string;
+    if (!t.length || t.length > 4000) return;
+    NSString *token = [_token copy];
+    NSUInteger generation = _refreshGeneration;
+    MSIMEAddCloudClipboard(t, token, ^(NSData *data, NSInteger status, NSError *error) {
+        (void)data;
+        if (generation != self->_refreshGeneration || ![token isEqualToString:self->_token]) return;
+        if (!error && status >= 200 && status < 300) [self refresh:nil];
+        else self->_status.stringValue = @"上传失败";
+    });
+}
 - (void)refresh:(id)sender {
     (void)sender;
     NSUInteger generation = ++_refreshGeneration;

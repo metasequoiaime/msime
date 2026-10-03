@@ -26,6 +26,9 @@ public final class TypingSourceSmoke {
         check(TypingSource.resolve(KeyboardScheme.TIBETAN, false, null) == TypingSource.TIBETAN
             && TypingSource.TIBETAN.id().equals("tibetan"));
         check(TypingSource.resolve(KeyboardScheme.TIBETAN, true, null) == TypingSource.ENGLISH);
+        check(TypingSource.resolve(KeyboardScheme.STROKE, false, null) == TypingSource.STROKE
+            && TypingSource.STROKE.id().equals("stroke"));
+        check(TypingSource.resolve(KeyboardScheme.STROKE, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.HANDWRITING, false, null) == TypingSource.HANDWRITING);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, "emoji") == TypingSource.LOCAL);

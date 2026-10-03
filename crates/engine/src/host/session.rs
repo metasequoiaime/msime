@@ -63,7 +63,7 @@ pub struct EngineSnapshot {
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub preedit: String,
-    /// The kana reading in Japanese, the composed Hangul in Korean, the converted text plus the pending bopomofo in Zhuyin, else empty.
+    /// The kana reading in Japanese, the composed Hangul in Korean, the converted text plus the pending bopomofo in Zhuyin, the stroke glyphs (一丨丿丶乛＊) in Stroke, else empty. In Stroke each glyph stands for one ASCII letter of `editing_text`, so `caret_position` also counts glyphs.
     pub reading: String,
     pub editing_text: String,
     pub caret_position: usize,
@@ -214,6 +214,22 @@ impl Session {
                 } else if annotation.is_empty() && candidate.source == CandidateSource::Generated {
                     // The engine annotates dictionary rows itself; a sentence it synthesised carries no helpcode until the host adds one.
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
+                }
+            }
+            if value.local_mode == LocalInputMode::None
+                && !value.dedicated_english
+                && matches!(
+                    candidate.scheme,
+                    SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+                )
+            {
+                if let Some(code) = self.inner.candidate_wubi_code(&candidate.word) {
+                    if !annotation.contains(code) {
+                        if !annotation.is_empty() {
+                            annotation.push(' ');
+                        }
+                        annotation.push_str(code);
+                    }
                 }
             }
             output.candidate_annotations.push(annotation);

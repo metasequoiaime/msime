@@ -69,6 +69,9 @@ int main() {
     REQUIRE(edit_kind(key(0xDE, '\''), "none", true) == EditKind::Character);
     REQUIRE(edit_kind(key(0xDE, '\''), "none", false) == EditKind::None);
     REQUIRE(edit_kind(key(0xDE, '\''), "emoji", true) == EditKind::None);
+    // Under Stroke the Engine refuses the separator, so a composing apostrophe is punctuation (scheme::ApostropheIsPunctuationWhileComposing) and not composition input.
+    REQUIRE(edit_kind(key(0xDE, '\''), "none", true, false, {}, 0, false, {}, true) == EditKind::None);
+    REQUIRE(edit_kind(key('A', 'a'), "none", true, false, {}, 0, false, {}, true) == EditKind::Character);
 
     // Japanese reserves the OEM minus key for the long vowel mark. Elsewhere
     // that key is navigation or punctuation and must not reach the composition.

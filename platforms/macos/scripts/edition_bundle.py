@@ -47,6 +47,7 @@ SCHEME_MODES = {
     "zhuyin": "Zhuyin",
     "vietnamese": "Vietnamese",
     "tibetan": "Tibetan",
+    "stroke": "Stroke",
 }
 PRIMARY = "Hans"
 ENGLISH = "Roman"

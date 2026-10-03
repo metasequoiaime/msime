@@ -396,7 +396,7 @@ if (-not $Light) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# 粤拼和注音词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有同时带上两个词库的包会失败。
+# 粤拼、注音和笔画词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有带上 resources/language-dictionaries.lock.json 固定的每一个词库的包会失败。
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'
 if (Test-Path -LiteralPath $languagesTarget) {
@@ -404,7 +404,7 @@ if (Test-Path -LiteralPath $languagesTarget) {
 }
 if (-not $Light) {
     $stagedLanguages = @()
-    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'))) {
+    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'), @('stroke.db', 'rime_stroke_LICENSE.txt'))) {
         # 只带本版本的方案用得到的语言词库（版本表 language_dictionaries）。
         if ($languageDictionaryNames -notcontains $pair[0]) { continue }
         $database = Join-Path $languagesSource $pair[0]
@@ -421,10 +421,24 @@ if (-not $Light) {
     if ($stagedLanguages.Count -gt 0) {
         Write-Host "语言词库已装入（$($stagedLanguages -join ', ')）：$languagesTarget"
     } else {
-        Write-Host "未找到语言词库（$languagesSource），粤拼和注音保持不可用"
+        Write-Host "未找到语言词库（$languagesSource），粤拼、注音和笔画保持不可用"
     }
-    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1' -and $stagedLanguages.Count -ne $languageDictionaryNames.Count) {
-        throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesSource 中本版本要带的语言词库（$($languageDictionaryNames -join ', ')）没有全部装入"
+    # 发版要求的是本版本要带的（版本表 language_dictionaries）、resources/language-dictionaries.lock.json 又固定了的每一份词库，而不是写死的清单：还没发布的词库存在时照常装入，但不会让发版失败；发布它的那次锁更新会让它变成必需。
+    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1') {
+        $languagesLock = Join-Path $RepoRoot 'resources/language-dictionaries.lock.json'
+        if (-not (Test-Path -LiteralPath $languagesLock -PathType Leaf)) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 不存在"
+        }
+        $pinnedLanguages = @((Get-Content -LiteralPath $languagesLock -Raw -Encoding UTF8 | ConvertFrom-Json).artifacts | ForEach-Object { $_.name } | Where-Object { $_ -like '*.db' })
+        if ($pinnedLanguages.Count -eq 0) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 没有固定任何词库"
+        }
+        foreach ($pinned in $pinnedLanguages) {
+            if ($languageDictionaryNames -notcontains $pinned) { continue }
+            if ($stagedLanguages -notcontains $pinned) {
+                throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但锁文件固定的 $pinned 没有从 $languagesSource 装入"
+            }
+        }
     }
 }
 # Both package modes replace Server output. Copy model resources afterwards,

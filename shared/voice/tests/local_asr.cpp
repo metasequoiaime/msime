@@ -4,6 +4,10 @@
 #include <fstream>
 #include <string>
 
+#if defined(__linux__)
+#include <sys/stat.h>
+#endif
+
 namespace fs = std::filesystem;
 
 int main() {
@@ -30,6 +34,23 @@ int main() {
     assert(!is_local_model_dir((root / "model").u8string()));
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
+
+#if defined(__linux__)
+    // Linux distributions may keep `/bin` as a root-owned system link (for
+    // example to `/usr/bin`).  The Rust installer trusts that link, so the
+    // native recognizer must accept the same path to the already installed
+    // model instead of making the install unusable.
+    struct stat bin_link {};
+    struct stat bin_parent {};
+    if (::lstat("/bin", &bin_link) == 0 && S_ISLNK(bin_link.st_mode) &&
+        bin_link.st_uid == 0 && ::stat("/", &bin_parent) == 0 &&
+        S_ISDIR(bin_parent.st_mode) && bin_parent.st_uid == 0 &&
+        (bin_parent.st_mode & 022) == 0) {
+      const auto through_system_link = fs::path("/bin") / ".." / root.relative_path() / "model";
+      assert(is_local_model_dir(through_system_link.u8string()));
+    }
+#endif
+
     assert(local_asr_thread_count(5) == 4);
 
     // 会话 API 自身必须执行已安装模型边界；独立 helper 直接构造会话，不经过 provider 封装层。

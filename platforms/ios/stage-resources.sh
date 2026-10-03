@@ -35,13 +35,13 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
-# Optional: the Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS. host-api finds them in language-dictionaries/ beside EngineResources and names them in the runtime options; the keyboard leaves an enabled scheme whose dictionary is missing out of its picker. The directory is always created, empty when there are none, since the keyboard target bundles it as a folder. Each dictionary is staged only with its licence text, which must travel with the data.
+# Optional: the Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS. host-api finds them in language-dictionaries/ beside EngineResources and names them in the runtime options; the keyboard leaves an enabled scheme whose dictionary is missing out of its picker. The directory is always created, empty when there are none, since the keyboard target bundles it as a folder. Each dictionary is staged only with its licence text, which must travel with the data.
 languages_source=${3:-$repo_root/target/language-dictionaries}
 languages_destination="$repo_root/target/ios/language-dictionaries"
 rm -rf "$languages_destination"
 mkdir -p "$languages_destination"
 staged_languages=()
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt; do
   database=${pair%%:*}
   license=${pair#*:}
   [ -f "$languages_source/$database" ] || continue
@@ -55,10 +55,20 @@ done
 if [ "${#staged_languages[@]}" -gt 0 ]; then
   echo "language dictionaries staged (${staged_languages[*]}): $languages_destination"
 else
-  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+  echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 2 ]; then
-  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db and zhuyin.db were not both staged from $languages_source" >&2
-  exit 1
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is staged when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+  required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
+  if [ -z "$required_languages" ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2
+    exit 1
+  fi
+  for database in $required_languages; do
+    if [[ " ${staged_languages[*]:-} " != *" $database "* ]]; then
+      echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not staged from $languages_source" >&2
+      exit 1
+    fi
+  done
 fi
 echo "iOS resources staged from the pinned dictionary release: $destination"

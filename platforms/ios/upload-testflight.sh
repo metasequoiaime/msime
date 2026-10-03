@@ -60,8 +60,8 @@ for bundle in "$app" "$keyboard"; do
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$bundle/Info.plist")" = "$MSIME_IOS_BUILD_NUMBER"
   test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Info.plist")" = "$MSIME_IOS_VERSION"
 done
-# 键盘扩展读粤语和注音词库；发布包必须带着它们（与 build-app.sh 对 simulator/device 产物的检查相同）。
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+# 键盘扩展读粤语、注音和笔画词库；发布包必须带着它们（与 build-app.sh 对 simulator/device 产物的检查相同）。
+for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt; do
   [[ -f "$repo_root/target/ios/language-dictionaries/${pair%%:*}" ]] || continue
   [[ -s "$keyboard/language-dictionaries/${pair%%:*}" && -f "$keyboard/language-dictionaries/${pair#*:}" ]] \
     || { echo "The archived keyboard extension lacks ${pair%%:*} or ${pair#*:}" >&2; exit 1; }

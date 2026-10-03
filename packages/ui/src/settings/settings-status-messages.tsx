@@ -1,5 +1,7 @@
-import { unreadablePreferencesMessage } from "./preferences-recovery-message";
+import { unreadablePreferencesMessage } from "../core/error-message";
 import { ActionButton } from "./action-button";
+import { ErrorAlert } from "../core/error-alert";
+import { SettingsNotice } from "./settings-notice";
 
 export interface SettingsStatusMessagesProps {
   error: string;
@@ -28,7 +30,7 @@ export function SettingsStatusMessages({
   return (
     <>
       {error && (
-        <p role="alert" className="error">
+        <ErrorAlert>
           {error}
           {error === unreadablePreferencesMessage && canRecover && (
             <>
@@ -36,10 +38,10 @@ export function SettingsStatusMessages({
               <ActionButton action={onRecover} disabled={busy} label="修复配置文件…" />
             </>
           )}
-        </p>
+        </ErrorAlert>
       )}
       {notice && (
-        <p role="status" className="notice">
+        <SettingsNotice role="status">
           {notice}
           {recoveredBackup && openPreferencesDirectory && (
             <>
@@ -52,7 +54,7 @@ export function SettingsStatusMessages({
               />
             </>
           )}
-        </p>
+        </SettingsNotice>
       )}
     </>
   );

@@ -119,10 +119,11 @@ final class KeystrokeLatencyTests: XCTestCase {
     }
     CandidateGlossPreference.enabled = true
 
-    for scheme in [ChineseInputScheme.quanpin] {
+    // 九键按「nihao」的数字 64426 打，量的是共享引擎逐键刷新九键拼写之后的整条按键路径。
+    for scheme in [ChineseInputScheme.quanpin, .nineKey] {
       let controller = self.controller(scheme)
       let labels = scheme == .nineKey
-        ? ["九键 6", "九键 4", "九键 4", "九键 2", "九键 6"]
+        ? ["6 MNO", "4 GHI", "4 GHI", "2 ABC", "6 MNO"]
         : ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"]
       var letters: [Double] = []
       var spaces: [Double] = []

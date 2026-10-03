@@ -22,7 +22,8 @@ pub struct CustomTranslations {
     pub zh_en: HashMap<String, String>,
 }
 
-const PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display LIMIT ?3";
+/// 行数上限接在末尾写成字面量：`LIMIT ?` 会让 SQLite 每次执行都重新解析和规划整条语句，九键一键要查几十个前缀（见 `pinyin` 里的同一说明）。
+const PREFIX_SQL: &str = "SELECT word,display,weight FROM english_words WHERE word >= ?1 AND word < ?2 ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display LIMIT ";
 const EN_ZH_SQL: &str = "SELECT chinese_gloss FROM en_zh_glosses WHERE english=?1";
 const ZH_EN_SQL: &str = "SELECT english_gloss FROM zh_en_glosses WHERE chinese=?1";
 const ENGLISH_WORDS_DDL: &str = "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;";
@@ -86,10 +87,10 @@ impl EnglishDictionary {
             return Vec::new();
         }
         let upper_bound = prefix_upper_bound(prefix);
-        let Ok(mut statement) = connection.prepare_cached(PREFIX_SQL) else {
+        let Ok(mut statement) = connection.prepare_cached(&prefix_sql(sql_limit(limit))) else {
             return Vec::new();
         };
-        let Ok(mut rows) = statement.query((prefix, upper_bound.as_str(), sql_limit(limit))) else {
+        let Ok(mut rows) = statement.query([prefix, upper_bound.as_str()]) else {
             return Vec::new();
         };
         let mut candidates = Vec::with_capacity(limit);
@@ -311,10 +312,14 @@ pub fn load_custom_translations(path: &Path) -> CustomTranslations {
 /// Opens the dictionary and checks the prefix statement prepares, which is what the reference's `ready()` meant: a file without `english_words` is not a dictionary (english_dictionary.cpp:317-343).
 fn open_prefix_connection(path: &Path) -> Option<Connection> {
     let connection = open_read_only(path)?;
-    if connection.prepare_cached(PREFIX_SQL).is_err() {
+    if connection.prepare(&prefix_sql(1)).is_err() {
         return None;
     }
     Some(connection)
+}
+
+fn prefix_sql(limit: i64) -> String {
+    format!("{PREFIX_SQL}{limit}")
 }
 
 fn open_read_only(path: &Path) -> Option<Connection> {

@@ -183,6 +183,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var typesZhuyin: Bool { isChineseMode && inputScheme.isZhuyin && !isInLocalMode }
   /// Whether the Zhuyin candidate list is on the strip. The editor offers no candidates while the list is closed, so a Zhuyin composition with candidates is that list.
   private var zhuyinListOpen: Bool { typesZhuyin && hasComposition && !visibleCandidates.isEmpty }
+  /// Whether the stroke keys are on screen and feed the Stroke editor: their faces are the stroke glyphs 一丨丿丶乛＊, and each sends the letter the Engine reads for it.
+  private var typesStroke: Bool { isChineseMode && inputScheme.isStroke && !isInLocalMode }
   /// Whether the letter keys feed the Vietnamese word: Shift and Caps Lock give capitals, as in English, instead of switching to English.
   private var typesVietnamese: Bool { isChineseMode && inputScheme.isVietnamese && !isInLocalMode }
   /// 字母键是否在拼藏文威利转写：Shift 和大写锁定给出大写字母，大写字母是另一种拼写（T D N Sh A I U M H 等），不是切到英文。
@@ -197,6 +199,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var actionGlobeButton: UIButton!
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
+  /// 笔画方案在九键外框里替换 3×3 网格的 2×3 笔画键。
+  private var strokeKeys: StrokeKeypadView!
   private weak var japaneseGlobeButton: UIButton?
   private weak var japaneseSpaceButton: UIButton?
   private weak var japaneseReturnButton: UIButton?
@@ -271,12 +275,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
   private var lastShiftTapTime: TimeInterval?
-  // UIKit sends textWillChange/textDidChange for the keyboard's own edits too, not just for edits
-  // the host makes. textWillChange cancels the composition, so every commit that was meant to leave
-  // a residual composition running destroyed it a runloop turn later. The proxy is cross-process,
-  // so the callback does not arrive inside insertText and a simple set/clear flag is already false
-  // by the time it lands — the count has to stay raised until the callback consumes it.
-  private var pendingOwnEdits = 0
+  /// UIKit 也为键盘自己的改动回调 `textWillChange`，而它会结束组字：没认出回声，一次留着剩余组字的上屏会在一轮之后把组字毁掉，下一键刚开始的组字也会被前一键迟到的回声结束。怎么认见 `OwnEditEchoWindow`。
+  private var ownEditEcho = OwnEditEchoWindow()
   /// What 行内预编辑 last wrote into the host as marked text; empty when nothing is marked.
   private var inlineMarkedText = ""
 
@@ -507,10 +507,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       DiagnosticLog.shared.write("dictionary_resume_failed")
       showDiagnostic(error.localizedDescription)
     }
-    // A fresh editing session owes us no callbacks. Clearing the count here bounds the damage if
-    // UIKit ever skips the delegate pair for one of our own edits: the worst case is that a single
-    // host-initiated change is treated as an echo, not a counter that stays raised forever.
-    pendingOwnEdits = 0
+    // 新的编辑会话不欠任何回调，上一次出现时留下的回声窗口不能延续到这里。
+    ownEditEcho.reset()
     inlineMarkedText = ""
     if schemePicker != nil { closeKeyboardPicker() }
     synchronizeInputContext()
@@ -577,15 +575,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     replyModel.invalidateContext()
     handwriting.clear()
     closeKeyboardService()
-    // Our own edit coming back to us: the composition it produced is still the live one.
-    if pendingOwnEdits > 0 {
-      pendingOwnEdits -= 1
-      return
-    }
+    // 自己改动的回声：那次改动之后的组字仍是当前的组字。
+    if ownEditEcho.isEcho(at: ProcessInfo.processInfo.systemUptime) { return }
     // With 行内预编辑 the host already holds the letters: moving the caret out of marked text makes them ordinary text, and clearing the field removes them. Committing the composition as well would write it a second time, so the engine lets it go instead.
     if !inlineMarkedText.isEmpty {
       inlineMarkedText = ""
       textDocumentProxy.unmarkText()
+      noteOwnEdit()
       render(discardComposition())
       return
     }
@@ -636,7 +632,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // throw them away.
     render(session.finishComposition())
     _ = session.suspendDictionarySession()
-    pendingOwnEdits = 0
+    ownEditEcho.reset()
     cancelBackspacePress()
     diagnosticDismissTimer?.invalidate()
     diagnosticDismissTimer = nil
@@ -648,7 +644,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func installKeyboard() {
-    let root = UIStackView()
+    let root = KeyAreaStackView()
     keyboardRoot = root
     root.axis = .vertical
     root.spacing = 7
@@ -662,7 +658,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       root.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -7),
     ])
 
-    root.addArrangedSubview(makeCandidateStrip())
+    let candidateStrip = makeCandidateStrip()
+    root.addArrangedSubview(candidateStrip)
+    // 候选栏和手写区不是键：落在它们里面的触摸照旧，它们的按钮也不来接键距里的触摸。
+    root.gapRoutingExclusions = [candidateStrip, handwriting]
     let numberRow = makeNumberRow()
     numberRowView = numberRow
     root.addArrangedSubview(numberRow)
@@ -813,6 +812,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyGrid.spacing = 7
     nineKeyGrid.distribution = .fillEqually
     nineKeyContainer.addArrangedSubview(nineKeyGrid)
+    // 笔画键与九键网格占同一格：笔画方案沿用九键的标点栏、删除列和动作行，只换中间这块。
+    strokeKeys = StrokeKeypadView(makeKey: { [unowned self] title, label, action in
+      makeKey(title: title, accessibilityLabel: label, action: action)
+    })
+    strokeKeys.isHidden = true
+    strokeKeys.onStroke = { [weak self] key in
+      self?.countKeyPress(TypingKeyID.character(key))
+      self?.handleStrokeKey(key)
+    }
+    nineKeyContainer.addArrangedSubview(strokeKeys)
     // Keys 2-9 share their legends with the hold menu below. Key 1 remains the pinyin
     // separator and has no direct English/digit hold option.
     for rowIndex in 0..<3 {
@@ -860,7 +869,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           ])
           button.tag = digit
           let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
-          hold.minimumPressDuration = 0.3
+          // 0.5 秒与 UIKit 自己的默认值、HarmonyOS `LongPressGesture` 的默认 500ms 一致；Android 这里用系统长按时长 `ViewConfiguration.getLongPressTimeout()`，12 起默认 400ms、之前 500ms。原来的 0.3 秒比哪一端都短，主线程稍一卡顿，一次普通的点按就会被当成长按、弹出菜单而不出字。
+          hold.minimumPressDuration = Self.nineKeyHoldDuration
           button.addGestureRecognizer(hold)
           button.accessibilityHint = "长按输入 \(digit) 或 \(letters)"
         }
@@ -906,6 +916,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       key.button.accessibilityHint = digits ? nil : key.letters.map { "长按输入 \(key.digit) 或 \($0)" }
     }
   }
+
+  /// 九键 2–9 按住多久弹出数字与字母菜单，理由见 `makeNineKeyLayout` 里设置它的地方。
+  static let nineKeyHoldDuration: TimeInterval = 0.5
 
   private static let nineKeyLetters: [Int: String] = [
     2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ",
@@ -1228,7 +1241,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(punctuationShortcut, title: chinesePunctuation ? "，" : ",", symbol: nil,
               label: "中英文标点", id: "punctuationShortcut")
     punctuationShortcut.accessibilityValue = chinesePunctuation ? "中文标点" : "英文标点"
-    punctuationShortcut.isEnabled = isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin)
+    punctuationShortcut.isEnabled = isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin || inputScheme.isStroke)
       && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow"
     layoutShortcut.isHidden = !pinned.layout
     emojiShortcut.isHidden = !pinned.emoji
@@ -1302,7 +1315,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // A locked punctuation setting decides on its own, and English mode types ASCII marks anyway, so the switch only means something in Chinese mode under 跟随中英文, and only for the schemes that write Chinese marks: those whose marks go through the Engine's punctuation route, and Zhuyin, whose symbol panel picks the mark by the same switch.
         KeyboardTool(title: "中文标点", symbol: "textformat.characters",
                      selected: chinesePunctuation,
-                     enabled: isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin)
+                     enabled: isChineseMode && (inputScheme.writesChinese || inputScheme.isCantonese || inputScheme.isZhuyin || inputScheme.isStroke)
                        && (session.sharedPreferences?["punctuation_lock"] as? String ?? "follow") == "follow") { [weak self] in
           guard let self else { return }
           self.setChinesePunctuation(!self.chinesePunctuation)
@@ -1810,6 +1823,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !snapshot.isHandled { insertDirectText(key) }
   }
 
+  /// A stroke key: its letter goes to the Stroke editor, which appends the stroke and looks the characters up. The wildcard only extends a composition (the Engine leaves an idle `x` unhandled, and the keypad greys it out then), so with nothing composing it does nothing rather than type a letter. Every stroke key the Engine takes is handled, so an unhandled answer is never typed into the document as a letter either.
+  private func handleStrokeKey(_ key: String) {
+    playInputClick()
+    guard isChineseMode else { return }
+    synchronizeInputSchemePreference()
+    guard typesStroke, StrokeKeyLayout.accepts(key, composing: hasComposition) else { return }
+    render(session.handleCharacter(key))
+  }
+
   /// Read the current word from the host document instead of maintaining a shadow
   /// buffer; autocorrect, cursor movement and external edits then stay truthful.
   private var englishWordBeforeCursor: String {
@@ -1949,6 +1971,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       && pairedPunctuation.stepOver(ascii: punctuation, editor: editor, following: textDocumentProxy.documentContextAfterInput) {
       clearSmartPunctuationArming()
       textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+      noteOwnEdit()
       return
     }
 
@@ -1984,6 +2007,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     insertOwnText(completion.closing)
     if completion.opening == "<" { session.balancePairedPunctuationAfterAutoClose(opening: completion.opening) }
     textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+    noteOwnEdit()
     pairedPunctuation.push(closing: completion.closing, editor: editor)
   }
 
@@ -2237,7 +2261,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
-  /// The face of the 中/英 key while the scheme is on: the language it writes, with Cantonese and Zhuyin named apart from Mandarin. Not private: the scheme tests pin it.
+  /// The face of the 中/英 key while the scheme is on: the language it writes, with Cantonese, Zhuyin and Stroke named apart from Mandarin. Not private: the scheme tests pin it.
   static func languageKeyTitle(_ scheme: ChineseInputScheme) -> String {
     if scheme.isJapanese { return "日" }
     switch scheme {
@@ -2246,6 +2270,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .zhuyin: return "注"
     case .vietnamese: return "越"
     case .tibetan: return "藏"
+    case .stroke: return "笔"
     default: return "中"
     }
   }
@@ -2259,6 +2284,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .zhuyin: return "注音输入"
     case .vietnamese: return "越南语输入"
     case .tibetan: return "藏文输入"
+    case .stroke: return "笔画输入"
     default: return "中文输入"
     }
   }
@@ -2468,6 +2494,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .zhuyin: session.switchToZhuyin()
     case .vietnamese: session.switchToVietnamese()
     case .tibetan: session.switchToTibetan()
+    case .stroke: session.switchToStroke()
     case .handwriting: session.switchToHandwriting()
     case .quanpin: session.switch(toShuangpin: usesShuangpin)
     case .shuangpin: session.switch(toShuangpinProfile: "xiaohe")
@@ -3068,6 +3095,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyboardRoot?.spacing = layout.rowSpacing
     nineGrid?.spacing = layout.rowSpacing
     nineControls?.spacing = layout.rowSpacing
+    strokeKeys?.applySpacing(row: layout.rowSpacing, key: layout.keySpacing)
     nineKeyHeight.constant = layout.rowSpacing * 2
     for row in [numberRowView as UIView?].compactMap({ $0 }) + letterRowViews + zhuyinRowViews + symbolRowViews + nineKeyRows {
       (row as? UIStackView)?.spacing = layout.keySpacing
@@ -3168,23 +3196,29 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Dachen takes the digit row and four punctuation keys for bopomofo, so Zhuyin draws its own four rows in place of the letter rows and the number row.
     let dachen = isChineseMode && inputScheme.isZhuyin && !isInLocalMode
     zhuyinRowViews.forEach { $0.isHidden = !dachen || showsSymbols }
-    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana || dachen }
+    // Stroke draws its 2×3 stroke keys inside the nine-key frame: the same punctuation sidebar, delete column and action row, with its digit layer on the nine-key grid.
+    let strokes = isChineseMode && inputScheme.isStroke && !isInLocalMode
+    let nineKeyFrame = nineKey || strokes
+    letterRowViews.forEach { $0.isHidden = showsSymbols || nineKeyFrame || writes || kana || dachen }
     let fullKeys = formFactor.canShowFullKeys && KeyboardLayoutPreference.tabletFullKeys
-    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKey || writes || kana || dachen
+    numberRowView?.isHidden = !fullKeys || showsSymbols || nineKeyFrame || writes || kana || dachen
     tabKey?.isHidden = !fullKeys
     let rowPunctuation = formFactor.showsLetterRowPunctuation
     for key in letterRowPunctuationKeys where key.isHidden == rowPunctuation { key.isHidden = !rowPunctuation }
     // The nine-key digit layer keeps the three-column grid and only changes its legends. This
     // avoids replacing it with the ten-across symbol rows and preserves the user's chosen layout.
-    let nineKeyDigits = nineKey && showsSymbols
-    nineKeyContainer.isHidden = !nineKey
-    nineKeyRows.forEach { $0.isHidden = !nineKey }
+    let nineKeyDigits = nineKeyFrame && showsSymbols
+    nineKeyContainer.isHidden = !nineKeyFrame
+    let strokePad = strokes && !showsSymbols
+    nineGrid?.isHidden = strokePad
+    strokeKeys?.isHidden = !strokePad
+    nineKeyRows.forEach { $0.isHidden = !nineKeyFrame || strokePad }
     applyNineKeyDigitLayer(nineKeyDigits)
     let hasSpellings = !currentNineKeySpellings.isEmpty
     spellingScrollView.isHidden = !hasSpellings
     punctuationStack.isHidden = hasSpellings
     if actionRow != nil {
-      let usesNineKeyLayout = nineKey
+      let usesNineKeyLayout = nineKeyFrame
       nineKeyHeight.isActive = usesNineKeyLayout
       let globeIndex = usesNineKeyLayout ? 5 : 2
       if actionRow.arrangedSubviews.firstIndex(of: actionGlobeButton) != globeIndex {
@@ -3222,15 +3256,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbolDeleteWidth?.isActive = showsSymbols && !kana
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
-    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKey }
+    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKeyFrame }
     updateSymbolKeyFaces()
     for (row, height) in standardRowHeights { height.isActive = !row.isHidden }
     if var configuration = layoutToggleButton?.configuration {
-      configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : "ABC")) : "123"
+      configuration.title = showsSymbols ? (kana ? "あいう" : (nineKey ? "九键" : (strokes ? "笔画" : "ABC"))) : "123"
       layoutToggleButton?.configuration = configuration
     }
     layoutToggleButton?.accessibilityLabel =
-      showsSymbols ? "切换到字母" : "切换到数字和符号"
+      showsSymbols ? (strokes ? "切换到笔画" : "切换到字母") : "切换到数字和符号"
     // The kana layout keeps this key on its own Japanese punctuation menu rather than the symbol
     // panel, which carries no kana marks. Everywhere else the key opens the panel, so the menu has
     // to be taken back off or a stale one would keep answering the tap.
@@ -3389,6 +3423,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     guard KeyboardHostContext.documentIdentifier(for: textDocumentProxy) == document else { return }
     pairedPunctuation.clear()
     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+    noteOwnEdit()
   }
 
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
@@ -3513,8 +3548,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     handleInputModeList(from: sender, with: event)
   }
 
-  // Every document mutation the keyboard makes goes through here so textWillChange can tell its own
-  // echo apart from a genuine host-initiated change.
+  /// 键盘每次经 `textDocumentProxy` 改动文档之后都记一笔，`textWillChange` 据此认出自己的回声。
+  private func noteOwnEdit() {
+    ownEditEcho.recordOwnEdit(at: ProcessInfo.processInfo.systemUptime)
+  }
+
   private var typingSource: TypingSource {
     if localModeTrigger == "R" || (isChineseMode && inputScheme.isJapanese) { return .japanese }
     if localModeTrigger != nil { return .local }
@@ -3527,13 +3565,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if replacingComposition && !inlineMarkedText.isEmpty {
       // Turning the marked letters into the committed text and unmarking it is one change to the document, where removing them and then inserting would be two.
       inlineMarkedText = ""
-      pendingOwnEdits += 1
       textDocumentProxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
       textDocumentProxy.unmarkText()
+      noteOwnEdit()
     } else {
       showInlineComposition("")
-      pendingOwnEdits += 1
       textDocumentProxy.insertText(text)
+      noteOwnEdit()
     }
     recordTypingStatistics(text, source: source ?? typingSource)
   }
@@ -3677,15 +3715,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func deleteOwnBackward() {
     showInlineComposition("")
-    pendingOwnEdits += 1
     textDocumentProxy.deleteBackward()
+    noteOwnEdit()
   }
 
   /// Bring the host's marked text in line with `text`; an empty `text` takes it out.
   private func showInlineComposition(_ text: String) {
     guard let edit = InlineCompositionPolicy.edit(showing: inlineMarkedText, next: text) else { return }
     inlineMarkedText = text
-    pendingOwnEdits += 1
     switch edit {
     case .mark(let marked):
       textDocumentProxy.setMarkedText(marked, selectedRange: NSRange(location: (marked as NSString).length, length: 0))
@@ -3693,6 +3730,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       textDocumentProxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
       textDocumentProxy.unmarkText()
     }
+    noteOwnEdit()
   }
 
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
@@ -3712,6 +3750,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let wasComposing = hasComposition
     let wasKoreanHanjaListOpen = koreanHanjaListOpen
     hasComposition = !snapshot.preedit.isEmpty
+    strokeKeys?.setComposing(hasComposition)
     if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
     if inputScheme.isJapanese {
       updateSpaceKeyTitle()
@@ -3735,7 +3774,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     showInlineComposition(hasComposition
       ? InlineCompositionPolicy.markedText(
         inPlace: isChineseMode && inputScheme.composesInPlace, style: InlinePreeditPreference.style,
-        phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,
+        drawsKeysAsGlyphs: isChineseMode && inputScheme.drawsKeysAsGlyphs, phrasePrefix: snapshot.phrasePrefix, preedit: snapshot.preedit,
         editingText: snapshot.editingText, japaneseReading: japaneseReading)
       : "")
     updateCandidateStrip(
@@ -3881,8 +3920,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !wubi.isEmpty { return (wubi, "还需输入 \(wubi)") }
     // A Hanja carries its 훈음 (meaning and reading) as the Engine's annotation; its code is only the key letters, which is not drawn (msime_client.h).
     if typesKorean { return engine.isEmpty ? ("", "") : (engine, "训音 \(engine)") }
-    // Pinyin schemes only: that is where the Engine puts helpcodes and corrections, and what other schemes carry there is not something these settings govern.
-    guard !engine.isEmpty, !isInLocalMode, inputScheme == .quanpin || usesShuangpin else { return ("", "") }
+    // 全拼、双拼以及五笔候选都可能在这里携带展示注释：前两者是辅助码或纠错提示，五笔是词条反查编码。
+    guard !engine.isEmpty, !isInLocalMode,
+          inputScheme == .quanpin || usesShuangpin || inputScheme == .wubi else { return ("", "") }
     // The Engine brackets its suffix for desktop windows that append it after the word; here it sits under the word like the Wubi hint, which is bare.
     let bare = engine.hasPrefix("(") && engine.hasSuffix(")") && engine.count > 2
       ? String(engine.dropFirst().dropLast()) : engine

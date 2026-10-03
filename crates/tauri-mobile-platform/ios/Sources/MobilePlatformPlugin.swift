@@ -613,9 +613,10 @@ private struct IOSKeyboardPreferenceStore {
     "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
     "japaneseNineKey", "japanese", "korean", "handwriting", "cantonese", "zhuyin", "vietnamese",
     "tibetan",
+    "stroke",
   ]
   /// 没有存过 `enabledInputSchemes` 的键盘不打开这些方案，所以新增它们不会改变已有的键盘；由用户在设置里打开。
-  static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese", "tibetan"]
+  static let optInSchemes: Set<String> = ["cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
   /// The global theme ids (`GlobalTheme::ALL` in client-core), the only values `globalTheme` may hold.
   static let themeOrder = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
   static let hapticStrengths = ["light", "medium", "strong"]

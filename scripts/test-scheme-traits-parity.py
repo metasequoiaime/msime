@@ -41,7 +41,7 @@ PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
 HOST_ALIASES = {"OpensCandidateList": "has_openable_candidate_list"}
 
 # Scheme numbers no build knows, which every header trait must answer false for.
-UNKNOWN_SCHEMES = (-1, 9, 255)
+UNKNOWN_SCHEMES = (-1, 10, 255)
 
 
 def rel(path: pathlib.Path) -> str:

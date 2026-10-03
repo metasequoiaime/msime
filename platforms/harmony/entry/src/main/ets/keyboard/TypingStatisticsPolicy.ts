@@ -18,6 +18,7 @@ export class TypingStatisticsPolicy {
     if (scheme === "zhuyin") return "zhuyin";
     if (scheme === "vietnamese") return "vietnamese";
     if (scheme === "tibetan") return "tibetan";
+    if (scheme === "stroke") return "stroke";
     if (scheme === "shuangpin") {
       if (profile === "ziranma") return "ziranma";
       if (profile === "microsoft") return "microsoft";

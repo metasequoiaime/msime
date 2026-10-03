@@ -13,8 +13,8 @@ try {
         'resources/helpcodes/NOTICE.md', 'target/handwriting-model/HandwritingModel-LICENSE.txt',
         'resources/licenses/Zinnia-LICENSE.txt', 'resources/licenses/Administrative-divisions-of-China-WTFPL.txt',
         'resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'resources/licenses/rime-cantonese-CC-BY-4.0.txt',
-        'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/vi-MIT.txt',
-        'resources/licenses/ewts-MIT.txt',
+        'resources/licenses/libchewing-data-LGPL-2.1.txt', 'resources/licenses/rime-stroke-LGPL-3.0.txt',
+        'resources/licenses/vi-MIT.txt', 'resources/licenses/ewts-MIT.txt',
         'platforms/windows/third_party/miniaudio/LICENSE',
         'crates/client-core/data/opencc/LICENSE')
     foreach ($relative in $repositoryNotices) {

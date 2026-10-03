@@ -19,8 +19,10 @@ import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { ErrorAlert } from "../../core/error-alert";
 import { SettingsInputDescription } from "../settings-input-description";
 import { SettingsManagerActions } from "../settings-manager-actions";
+import { SettingsEmptyMessage } from "../settings-empty-message";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -107,11 +109,7 @@ export function DictionarySettingsPage() {
                 {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
               </SettingsInputDescription>
             )}
-            {dictionarySnapshotError && (
-              <p role="alert" className="error">
-                {dictionarySnapshotError}
-              </p>
-            )}
+            {dictionarySnapshotError && <ErrorAlert>{dictionarySnapshotError}</ErrorAlert>}
             <DictionaryFailuresNotice
               failures={dictionaryFailures}
               busy={phraseBusy}
@@ -120,15 +118,11 @@ export function DictionarySettingsPage() {
               onRetry={(requestId) => void retryDictionaryFailure(requestId)}
               onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
             />
-            {phraseError && (
-              <p role="alert" className="error">
-                {phraseError}
-              </p>
-            )}
+            {phraseError && <ErrorAlert>{phraseError}</ErrorAlert>}
             {phraseNotice && (
-              <p role="status" className={settings.empty}>
+              <SettingsEmptyMessage compact role="status">
                 {phraseNotice}
-              </p>
+              </SettingsEmptyMessage>
             )}
             <DictionaryEntries
               kind={dictionaryKind}

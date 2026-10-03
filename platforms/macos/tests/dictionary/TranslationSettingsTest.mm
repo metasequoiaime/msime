@@ -1,6 +1,7 @@
 #import "../../src/cloud/TranslationSettingsWindow.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
+#import <objc/message.h>
 
 @interface MSIMETranslationSettingsWindow (TestActions)
 - (void)reload:(id)sender;
@@ -260,6 +261,70 @@ int main() {
         });
         assert(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+
+        // 首次保存仍在排队时关闭窗口只能发布一次完成通知：关闭时的补写负责最终通知，旧保存已经过期。
+        NSString *queuedRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        __block NSUInteger queuedSaves = 0;
+        MSIMETranslationSettingsWindow *queuedWindow = [[MSIMETranslationSettingsWindow alloc] initWithDirectory:queuedRoot saved:^(NSDictionary *preferences) {
+            assert(NSThread.isMainThread && [preferences isKindOfClass:NSDictionary.class]); ++queuedSaves;
+        }];
+        [queuedWindow showWindow:nil]; Wait(queuedWindow);
+        NSPopUpButton *queuedProvider = [queuedWindow valueForKey:@"provider"];
+        NSTextField *queuedEndpoint = [queuedWindow valueForKey:@"endpoint"];
+        NSSecureTextField *queuedKey = [queuedWindow valueForKey:@"key"];
+        [queuedProvider selectItemAtIndex:2]; [queuedWindow providerChanged:nil]; Wait(queuedWindow);
+        queuedEndpoint.stringValue = @"https://translation.invalid/api";
+        queuedKey.stringValue = @"synthetic-queued-key";
+        dispatch_queue_t queuedQueue = [queuedWindow valueForKey:@"queue"];
+        dispatch_semaphore_t blockerStarted = dispatch_semaphore_create(0);
+        dispatch_semaphore_t releaseBlocker = dispatch_semaphore_create(0);
+        dispatch_async(queuedQueue, ^{
+            dispatch_semaphore_signal(blockerStarted);
+            dispatch_semaphore_wait(releaseBlocker, DISPATCH_TIME_FOREVER);
+        });
+        assert(dispatch_semaphore_wait(blockerStarted, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
+        [queuedWindow controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:nil]];
+        assert([[queuedWindow valueForKey:@"saving"] boolValue]);
+        [queuedWindow close];
+        dispatch_semaphore_signal(releaseBlocker);
+        NSDate *queuedDeadline = [NSDate dateWithTimeIntervalSinceNow:3];
+        while (queuedSaves == 0 && queuedDeadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        assert(queuedSaves == 1);
+        assert([NSFileManager.defaultManager removeItemAtPath:queuedRoot error:&error] && !error);
+
+        // A window discarded because its preferences directory changed must not publish its
+        // close-time flush into the replacement host.
+        NSString *invalidatedRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        __block NSUInteger invalidatedSaves = 0;
+        MSIMETranslationSettingsWindow *invalidatedWindow = [[MSIMETranslationSettingsWindow alloc] initWithDirectory:invalidatedRoot saved:^(NSDictionary *preferences) {
+            assert([preferences isKindOfClass:NSDictionary.class]); ++invalidatedSaves;
+        }];
+        [invalidatedWindow showWindow:nil]; Wait(invalidatedWindow);
+        NSPopUpButton *invalidatedProvider = [invalidatedWindow valueForKey:@"provider"];
+        NSTextField *invalidatedEndpoint = [invalidatedWindow valueForKey:@"endpoint"];
+        NSSecureTextField *invalidatedKey = [invalidatedWindow valueForKey:@"key"];
+        [invalidatedProvider selectItemAtIndex:2]; [invalidatedWindow providerChanged:nil]; Wait(invalidatedWindow);
+        invalidatedEndpoint.stringValue = @"https://translation.invalid/invalidated";
+        invalidatedKey.stringValue = @"synthetic-invalidated-key";
+        assert([invalidatedWindow respondsToSelector:NSSelectorFromString(@"invalidatePendingCallbacks")]);
+        dispatch_queue_t invalidatedQueue = [invalidatedWindow valueForKey:@"queue"];
+        dispatch_semaphore_t invalidatedBlockStarted = dispatch_semaphore_create(0);
+        dispatch_semaphore_t invalidatedRelease = dispatch_semaphore_create(0);
+        dispatch_async(invalidatedQueue, ^{
+            dispatch_semaphore_signal(invalidatedBlockStarted);
+            dispatch_semaphore_wait(invalidatedRelease, DISPATCH_TIME_FOREVER);
+        });
+        assert(dispatch_semaphore_wait(invalidatedBlockStarted, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
+        [invalidatedWindow controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:nil]];
+        SEL invalidatePendingCallbacks = NSSelectorFromString(@"invalidatePendingCallbacks");
+        [invalidatedWindow close];
+        ((void (*)(id, SEL))objc_msgSend)(invalidatedWindow, invalidatePendingCallbacks);
+        dispatch_semaphore_signal(invalidatedRelease);
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        assert(invalidatedSaves == 0);
+        assert([NSFileManager.defaultManager removeItemAtPath:invalidatedRoot error:&error] && !error);
     }
     return 0;
 }

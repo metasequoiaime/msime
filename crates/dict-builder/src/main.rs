@@ -25,6 +25,7 @@ mod places;
 mod product;
 mod sources;
 mod sqlite;
+mod stroke;
 mod text;
 mod zhuyin;
 
@@ -130,7 +131,7 @@ enum Command {
     Places(Places),
     /// Write the Korean Hanja table (crates/engine/src/korean/hanja.tsv) from the libhangul hanja.txt pinned under hanja/ in the sources lock.
     Hanja(Hanja),
-    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock.
+    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db, stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
     Languages(Languages),
 }
 

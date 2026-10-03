@@ -90,6 +90,7 @@ test("shows only the Korean scheme details in Korean mode", () => {
 test.each([
   ["cantonese", "粤拼方案", "粤拼"],
   ["zhuyin", "注音键盘", "大千"],
+  ["stroke", "笔画方案", "横竖撇点折"],
   ["tibetan", "藏文方案", "威利转写"],
 ] as const)(
   "%s shows its read-only scheme row and no pinyin or Wubi rows",
@@ -110,6 +111,44 @@ test.each([
     expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
   },
 );
+
+test("the 笔画方案 row appears only under Stroke and never on touch hosts", () => {
+  const { rerender } = render(
+    <InputSchemeDetailsSection
+      scheme="quanpin"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("radiogroup", { name: "笔画方案" })).toBeNull();
+
+  rerender(
+    <InputSchemeDetailsSection
+      scheme="stroke"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("radiogroup", { name: "笔画方案" })).toBeTruthy();
+  expect(
+    screen.getByText(/按 h s p n z 依次输入横、竖、撇、点、折，x 代替不确定的一笔/),
+  ).toBeTruthy();
+
+  rerender(
+    <InputSchemeDetailsSection
+      scheme="stroke"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole("radiogroup", { name: "笔画方案" })).toBeNull();
+});
 
 test("Vietnamese input method and tone placement are live controls", () => {
   const onVietnameseChange = vi.fn();

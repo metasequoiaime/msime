@@ -78,11 +78,13 @@ if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offl
 else
   echo "no offline glosses at $glosses_source; candidates are glossed offline in English only"
 fi
-# Optional Cantonese and Zhuyin dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS, iOS and HarmonyOS. Bootstrap extracts them to language-dictionaries/ beside the resources, where host-api finds them and names them in the runtime options; the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is packaged only with its licence text, which must travel with the data.
+# Optional Cantonese, Zhuyin and Stroke dictionaries fetched by scripts/fetch_language_dictionaries.py (or built by `msime-dict-build languages`), as on macOS, iOS and HarmonyOS. Bootstrap extracts them to language-dictionaries/ beside the resources, where host-api finds them and names them in the runtime options; the keyboard and the settings page leave a scheme whose dictionary is missing out. Each dictionary is packaged only with its licence text, which must travel with the data.
 languages_source=${MSIME_LANGUAGE_DICTIONARIES:-$repo_root/target/language-dictionaries}
+# Each dictionary beside the licence file that must travel with it; the staging below and the APK check at the end read the same list.
+language_pairs="cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt"
 rm -rf "$assets/language-dictionaries"
 staged_languages=()
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+for pair in $language_pairs; do
   database=${pair%%:*}
   license=${pair#*:}
   # 只带本版本要的语言词库（版本表的 language_dictionaries）。
@@ -101,12 +103,22 @@ if [ "${#staged_languages[@]}" -gt 0 ]; then
 elif [ -z "$edition_languages" ]; then
   echo "edition $edition packs no language dictionaries"
 else
-  echo "no language dictionaries at $languages_source; Cantonese and Zhuyin stay unavailable"
+  echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-required_languages=$(grep -c . <<< "$edition_languages" || true)
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne "$required_languages" ]; then
-  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but the language dictionaries edition $edition needs ($(tr '\n' ' ' <<< "$edition_languages")) were not all packaged from $languages_source" >&2
-  exit 1
+# A release requires every dictionary this edition packs (the edition table's language_dictionaries) that resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is packaged when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+  required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
+  if [ -z "$required_languages" ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2
+    exit 1
+  fi
+  for database in $required_languages; do
+    grep -qxF "$database" <<< "$edition_languages" || continue
+    if [[ " ${staged_languages[*]:-} " != *" $database "* ]]; then
+      echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, which edition $edition packs and resources/language-dictionaries.lock.json pins, was not packaged from $languages_source" >&2
+      exit 1
+    fi
+  done
 fi
 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_android_dir" \
   ORG_GRADLE_PROJECT_msimeEdition="$edition" pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
@@ -118,9 +130,9 @@ output="$repo_root/target/android/$apk_name.apk"
   --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"
 "$android_sdk/build-tools/35.0.0/apksigner" verify "$output"
 "$android_sdk/build-tools/35.0.0/zipalign" -c -P 16 4 "$output"
-# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than both).
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).
 apk_entries=$(unzip -Z1 "$output")
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt; do
+for pair in $language_pairs; do
   [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue
   for entry in "${pair%%:*}" "${pair#*:}"; do
     grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }

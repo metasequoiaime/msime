@@ -14,6 +14,8 @@ public final class KeyboardLayout {
     public static final int KOREAN_LAYOUT = 4;
     /** The four Dachen bopomofo rows of {@link ZhuyinKeyboardLayout}; they send the Dachen ASCII keys. */
     public static final int ZHUYIN_LAYOUT = 5;
+    /** 笔画方案的九键外框：标点侧栏、{@link StrokeKeyboardLayout} 的 2×3 笔画网格和 ⌫ 列；笔画键发送字母 h s p n z x。 */
+    public static final int STROKE_LAYOUT = 6;
 
     private static final List<List<String>> LETTER_ROWS = List.of(
         List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -36,6 +38,8 @@ public final class KeyboardLayout {
         // Zhuyin is Dachen only, so it has no nine-key or handwriting surface either.
         if (scheme == InputSchemeTraits.ZHUYIN) return ZHUYIN_LAYOUT;
         if (handwriting || "handwriting".equals(touchLayout)) return HANDWRITING_LAYOUT;
+        // 笔画方案画自己的笔画键盘：偏好是 26 键还是 9 键都一样，只有手写让给手写面板。
+        if (scheme == InputSchemeTraits.STROKE) return STROKE_LAYOUT;
         if (scheme == 3 && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY_LAYOUT;
         if (nineKey) return QUANPIN_NINE_KEY_LAYOUT;
         return STANDARD_TOUCH_LAYOUT;

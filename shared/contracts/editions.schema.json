@@ -54,11 +54,11 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"] }
+          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"] }
         },
         "default_scheme": {
           "description": "本版本的默认方案，也是偏好里的方案不可用时的回退值。必须在 input_schemes 里。",
-          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"]
+          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
         },
         "preference_defaults": {
           "description": "叠加在 Preferences::default() 之上的版本默认值，没有偏好文件时和恢复默认时都生效。用户之后仍可以修改这些偏好。",
@@ -103,7 +103,7 @@
           }
         },
         "language_dictionaries": {
-          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 cantonese.db，含 zhuyin 的必须列出 zhuyin.db，不需要的不能列。",
+          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 cantonese.db，含 zhuyin 的必须列出 zhuyin.db，含 stroke 的必须列出 stroke.db，不需要的不能列。",
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string" }

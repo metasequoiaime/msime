@@ -16,7 +16,8 @@ export type TouchKeyboardScheme =
   | "cantonese"
   | "zhuyin"
   | "vietnamese"
-  | "tibetan";
+  | "tibetan"
+  | "stroke";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -44,6 +45,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "zhuyin":
     case "vietnamese":
     case "tibetan":
+    case "stroke":
       return scheme;
   }
 }
@@ -73,14 +75,16 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       zhuyin: "大千注音",
       vietnamese: "越南语 26 键",
       tibetan: "藏文 26 键",
+      stroke: "笔画",
     }[selected];
   }
-  // 韩语、粤拼、注音、越南语和藏文各只有一个键盘，不管文档里记的是哪种布局。
+  // 韩语、粤拼、注音、越南语、藏文和笔画各只有一个键盘，不管文档里记的是哪种布局。
   if (preferences.scheme === "korean") return "韩语 26 键";
   if (preferences.scheme === "cantonese") return "粤拼 26 键";
   if (preferences.scheme === "zhuyin") return "大千注音";
   if (preferences.scheme === "vietnamese") return "越南语 26 键";
   if (preferences.scheme === "tibetan") return "藏文 26 键";
+  if (preferences.scheme === "stroke") return "笔画";
   if (preferences.touch_keyboard_layout === "handwriting") return "手写";
   if (preferences.touch_keyboard_layout === "nine_key")
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
@@ -106,16 +110,18 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["zhuyin", "大千注音"],
   ["vietnamese", "越南语 26 键"],
   ["tibetan", "藏文 26 键"],
+  ["stroke", "笔画"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
-/** 没有存过列表的文档显示的方案。粤拼、注音、越南语和藏文需要用户自己打开，这样新增它们不会改变已有的键盘。对应 client-core 的 `TouchKeyboardScheme::DEFAULT_ENABLED`。 */
+/** 没有存过列表的文档显示的方案。粤拼、注音、越南语、藏文和笔画需要用户自己打开，这样新增它们不会改变已有的键盘。对应 client-core 的 `TouchKeyboardScheme::DEFAULT_ENABLED`。 */
 export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
   (scheme) =>
     scheme !== "cantonese" &&
     scheme !== "zhuyin" &&
     scheme !== "vietnamese" &&
-    scheme !== "tibetan",
+    scheme !== "tibetan" &&
+    scheme !== "stroke",
 );
 
 /**
@@ -129,12 +135,13 @@ export function inferredTouchKeyboardScheme(
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
   const scheme = preferences.scheme;
-  // 粤拼、注音、越南语和藏文有各自的触屏键盘；键盘没打开时显示记住的中文方案的键盘。
+  // 粤拼、注音、越南语、藏文和笔画有各自的触屏键盘（笔画键盘在 26 键和九键布局下都显示）；键盘没打开时显示记住的中文方案的键盘。
   if (
     (scheme === "cantonese" ||
       scheme === "zhuyin" ||
       scheme === "vietnamese" ||
-      scheme === "tibetan") &&
+      scheme === "tibetan" ||
+      scheme === "stroke") &&
     enabled.includes(scheme)
   )
     return scheme;
@@ -146,7 +153,7 @@ export function inferredTouchKeyboardScheme(
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
-/** 文档方案对应的触屏方案。对没打开自己触屏键盘的文档，粤拼、注音、越南语和藏文对应记住的中文方案的触屏方案，那个也没有时用全拼。 */
+/** 文档方案对应的触屏方案。对没打开自己触屏键盘的文档，粤拼、注音、越南语、藏文和笔画对应记住的中文方案的触屏方案，那个也没有时用全拼。 */
 function touchSchemeOf(
   preferences: Preferences,
   scheme: Preferences["scheme"],
@@ -162,7 +169,8 @@ function touchSchemeOf(
     case "cantonese":
     case "zhuyin":
     case "vietnamese":
-    case "tibetan": {
+    case "tibetan":
+    case "stroke": {
       const remembered = preferences.last_chinese_scheme;
       return remembered === "quanpin" || remembered === "shuangpin" || remembered === "wubi"
         ? touchSchemeOf(preferences, remembered)
@@ -229,7 +237,7 @@ export function selectTouchKeyboardScheme(
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,
     };
-  if (selected === "cantonese" || selected === "zhuyin")
+  if (selected === "cantonese" || selected === "zhuyin" || selected === "stroke")
     return {
       ...preferences,
       scheme: selected,

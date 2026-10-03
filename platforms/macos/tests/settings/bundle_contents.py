@@ -175,6 +175,9 @@ def main() -> int:
     for notice in ("rime-cantonese-CC-BY-4.0.txt", "libchewing-data-LGPL-2.1.txt"):
         if not (contents / "Resources" / "Licenses" / notice).is_file():
             failures.append(f"Contents/Resources/Licenses/{notice} is missing; Cantonese and Zhuyin ship without the licence of their data")
+    # Stroke reads a dictionary built from rime-stroke (LGPL-3.0, with the CNS11643 attribution); its notice ships unconditionally as well.
+    if not (contents / "Resources" / "Licenses" / "rime-stroke-LGPL-3.0.txt").is_file():
+        failures.append("Contents/Resources/Licenses/rime-stroke-LGPL-3.0.txt is missing; Stroke ships without the licence of its data")
     # Vietnamese links the MIT-licensed vi crate, whose copyright and permission notice has to travel with the binary.
     if not (contents / "Resources" / "Licenses" / "vi-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/vi-MIT.txt is missing; the vi crate Vietnamese mode links ships without its licence")

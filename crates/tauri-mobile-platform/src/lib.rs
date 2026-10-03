@@ -390,6 +390,7 @@ impl IosKeyboardPreferences {
                 | "zhuyin"
                 | "vietnamese"
                 | "tibetan"
+                | "stroke"
         ) && matches!(self.haptic_strength.as_str(), "light" | "medium" | "strong")
             // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
@@ -1126,13 +1127,20 @@ mod tests {
     }
 
     #[test]
-    fn ios_keyboard_preferences_accept_the_cantonese_zhuyin_and_vietnamese_touch_schemes() {
-        for scheme in ["cantonese", "zhuyin", "vietnamese"] {
+    fn ios_keyboard_preferences_accept_the_cantonese_zhuyin_vietnamese_and_stroke_touch_schemes() {
+        for scheme in ["cantonese", "zhuyin", "vietnamese", "stroke"] {
             let mut preferences = keyboard_preferences();
             preferences.input_scheme = scheme.into();
             assert!(preferences.is_valid(), "{scheme}");
         }
-        for scheme in ["Cantonese", "jyutping", "bopomofo", "telex"] {
+        for scheme in [
+            "Cantonese",
+            "jyutping",
+            "bopomofo",
+            "telex",
+            "Stroke",
+            "bihua",
+        ] {
             let mut preferences = keyboard_preferences();
             preferences.input_scheme = scheme.into();
             assert!(!preferences.is_valid(), "{scheme}");

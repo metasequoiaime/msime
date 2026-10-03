@@ -1605,6 +1605,7 @@ fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
         (InputScheme::Cantonese, "cantonese"),
         (InputScheme::Zhuyin, "zhuyin"),
         (InputScheme::Vietnamese, "vietnamese"),
+        (InputScheme::Stroke, "stroke"),
     ]
     .into_iter()
     .enumerate()
@@ -1624,17 +1625,18 @@ fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
             name
         );
     }
-    // Cantonese and Zhuyin are Chinese schemes to return to; Vietnamese is not.
+    // Cantonese, Zhuyin and Stroke are Chinese schemes to return to; Vietnamese is not.
     for (revision, (scheme, name)) in [
         (ChineseScheme::Cantonese, "cantonese"),
         (ChineseScheme::Zhuyin, "zhuyin"),
+        (ChineseScheme::Stroke, "stroke"),
     ]
     .into_iter()
     .enumerate()
     {
         let saved = store
             .save(
-                revision as u64 + 3,
+                revision as u64 + 4,
                 Preferences {
                     scheme: InputScheme::Vietnamese,
                     last_chinese_scheme: Some(scheme),
@@ -1656,6 +1658,10 @@ fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
     assert_eq!(
         InputScheme::from(ChineseScheme::Zhuyin),
         InputScheme::Zhuyin
+    );
+    assert_eq!(
+        InputScheme::from(ChineseScheme::Stroke),
+        InputScheme::Stroke
     );
 }
 
@@ -1934,6 +1940,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Zhuyin,
             TouchKeyboardScheme::Vietnamese,
             TouchKeyboardScheme::Tibetan,
+            TouchKeyboardScheme::Stroke,
         ]
     );
     for (scheme, id) in [
@@ -1941,6 +1948,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
         (TouchKeyboardScheme::Tibetan, "tibetan"),
+        (TouchKeyboardScheme::Stroke, "stroke"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);
         assert!(!TouchKeyboardSchemePreferences::default()

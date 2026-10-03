@@ -30,6 +30,7 @@ export const macosInputModeEntries: readonly ModeEntry[] = [
   { mode: "Korean", name: "水杉输入法 · 韩", scheme: "korean", language: "韩语" },
   { mode: "Vietnamese", name: "水杉输入法 · 越", scheme: "vietnamese", language: "越南语" },
   { mode: "Tibetan", name: "水杉输入法 · 藏", scheme: "tibetan", language: "藏语" },
+  { mode: "Stroke", name: "水杉输入法 · 笔", scheme: "stroke", language: "简体中文" },
   { mode: "Roman", name: "水杉输入法 · 英", scheme: null, language: "简体中文" },
 ];
 
@@ -103,7 +104,7 @@ export interface MacosInputModeEntriesSectionProps {
   client?: MacosInputModesClient;
   /** 当前（草稿里）的输入方案：它的入口还没加入时，这一行先说它。 */
   scheme: InputScheme;
-  /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音）不列出它的入口。 */
+  /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音、笔画）不列出它的入口。 */
   inputSchemes: readonly InputScheme[];
   /** 运行中的版本（`HostCapabilities.edition`），不是 full 时才有：入口和名字按版本来，见 `macosInputModeEntriesFor`。 */
   edition?: EditionInfo;
@@ -114,6 +115,8 @@ export interface MacosInputModeEntriesSectionProps {
  * 「菜单栏入口」：列出还没加入输入法列表的模式，告诉用户在系统设置里去哪个语言下添加。
  *
  * macOS 27 不允许进程启用键盘输入模式（`TISEnableInputSource` 返回 noErr 而状态不变），输入法和设置应用都没法替用户加；而系统设置的「添加」对话框按语言分组，粤在「粤语」、注在「繁体中文」，只看「简体中文」会以为它们不存在。
+ *
+ * 「添加」对话框所在的键盘设置扩展跑在沙盒里，读的是它自己容器里的输入源缓存，替换输入法 bundle 后不会刷新：0.51.1 升级上来时，新加的「藏」一直不出现在「藏语」下，而 0.51.1 里已有的「粤」「越」照常列出；同一个 `IPAddInputSourceSheetController` 在沙盒外的进程里却列得出「藏」。注销并重新登录后缓存才重建，所以提示里要说这一句。
  */
 export function MacosInputModeEntriesSection({
   client,
@@ -140,7 +143,7 @@ export function MacosInputModeEntriesSection({
     const where = missing.map((entry) => `「${entry.name}」在「${entry.language}」下`).join("，");
     description = `${
       current ? `菜单栏里还没有「${current.name}」，要先把它加进输入法列表才能从菜单栏切过去。` : ""
-    }macOS 只允许你自己添加：点「打开键盘设置」，在「输入法」一行点「编辑…」，再点左下角「+」，在左栏选或搜索对应的语言后添加。还没加入的：${where}。`;
+    }macOS 只允许你自己添加：点「打开键盘设置」，在「输入法」一行点「编辑…」，再点左下角「+」，在左栏选或搜索对应的语言后添加。还没加入的：${where}。刚安装或刚更新出来的入口，要注销并重新登录一次才会出现在「添加」对话框里。`;
   }
 
   const openSettings = () => {

@@ -19,10 +19,12 @@ enum InlineCompositionPolicy {
   }
 
   /// The marked text for a composition. A scheme that composes in place (`inPlace`: Korean, Zhuyin, Vietnamese) always marks its preedit, whatever 行内预编辑 says: a Korean syllable, a Zhuyin conversion with its pending bopomofo, or a Vietnamese word is the text being written rather than a spelling waiting to be converted, and a keyboard that kept it off the field would leave the user typing into a strip above it. Every other scheme follows the chosen style.
-  static func markedText(inPlace: Bool, style: InlinePreeditPreference.Style, phrasePrefix: String, preedit: String,
-                         editingText: String, japaneseReading: String?) -> String {
+  ///
+  /// A scheme that draws its keys as glyphs (`drawsKeysAsGlyphs`: Stroke) marks those glyphs under 原始按键 too: its `editing_text` holds the letters h s p n z x the keys send, which the user never typed as letters, and msime_client.h tells every host to draw the reading or preedit instead.
+  static func markedText(inPlace: Bool, style: InlinePreeditPreference.Style, drawsKeysAsGlyphs: Bool = false,
+                         phrasePrefix: String, preedit: String, editingText: String, japaneseReading: String?) -> String {
     if inPlace { return preedit }
-    return style.text(phrasePrefix: phrasePrefix, preedit: preedit, editingText: editingText,
+    return style.text(phrasePrefix: phrasePrefix, preedit: preedit, editingText: drawsKeysAsGlyphs ? "" : editingText,
                       japaneseReading: japaneseReading)
   }
 

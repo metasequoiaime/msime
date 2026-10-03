@@ -1015,6 +1015,14 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             return isTouchKeyboardSpecialKeys;
         }
 
+        // With nothing composing, a Stroke letter other than the five strokes is the application's: the Engine answers handled=false for it, so the TIP must not eat it (scheme::LetterPassesWhileIdle). Not in the Engine's own English mode, which composes every letter.
+        if (!isInputInProgress &&
+            msime::windows::scheme::LetterPassesWhileIdle(
+                scheme, Global::DedicatedEnglish.active(GetTickCount64()), wch))
+        {
+            return isTouchKeyboardSpecialKeys;
+        }
+
         // "/" and "@" open their modes on an empty composition instead of typing a mark: they start the composition, and the Server hands them to the Engine as its first character.
         if (!isInputInProgress && candidateMode == CANDIDATE_NONE &&
             Global::OpensLocalMode(wch, false,
@@ -1614,6 +1622,14 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         }
     }
 
+    // As in _IsKeyEaten: with nothing projected composing, a Stroke letter other than the five strokes is queued as application text.
+    if (shadow.imeOpen && shadow.inputLength == 0 && !shadow.candidateActive &&
+        msime::windows::scheme::LetterPassesWhileIdle(
+            scheme, Global::DedicatedEnglish.active(GetTickCount64()), *classifiedWch))
+    {
+        return true;
+    }
+
     _KEYSTROKE_STATE inputState = {};
     WCHAR inputWch = *classifiedWch;
     bool isInputKey = false;
@@ -1622,7 +1638,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         isInputKey = _pCompositionProcessorEngine->IsVirtualKeyNeedForFreshComposition(*classifiedCode, &inputWch,
                                                                                        &inputState) != FALSE;
         if (!isInputKey && shadow.inputLength > 0 &&
-            ((*classifiedWch == L'\'') || (_pCompositionProcessorEngine->IsWildcard() &&
+            ((*classifiedWch == L'\'' && !msime::windows::scheme::ApostropheIsPunctuationWhileComposing(scheme)) ||
+             (_pCompositionProcessorEngine->IsWildcard() &&
                                            _pCompositionProcessorEngine->IsWildcardChar(*classifiedWch))))
         {
             isInputKey = true;
@@ -2455,6 +2472,11 @@ STDAPI CMetasequoiaIME::OnKeyDown(ITfContext *pContext, WPARAM wParam, LPARAM lP
     PerfTimer onKeyDownTimer;
     const uint64_t focusGeneration = _deferredKeyFocusGeneration;
     (void)_DispatchKeyDown(pContext, wParam, lParam, pIsEaten, nullptr, nullptr, nullptr, true, focusGeneration);
+    // TIP 只把 Ctrl+Shift+E 当作 Engine 英文模式的切换键吞下（_IsKeyEaten 与 _ClassifyDeferredKeyDown 同一条规则），之后不读 Server 的回复。在这里先翻转镜像：后面的字母无论立即分类还是入队时分类，都在本线程上排在它之后。每次按下 TSF 只调用一次 OnKeyDown，排队回放不经过这里，所以只翻一次。
+    if (*pIsEaten && IsEnglishInputModeToggle(static_cast<UINT>(LOWORD(wParam)), CaptureIpcModifiers()))
+    {
+        Global::DedicatedEnglish.toggled(GetTickCount64());
+    }
     DebugTsfKeyLatency(L"on-key-down", 0, onKeyDownTimer.ElapsedMs(), S_OK);
     return S_OK;
 }

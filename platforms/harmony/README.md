@@ -310,7 +310,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ### 词库与暂存
 
-粤语和注音各需一份语言词库（`cantonese.db`、`zhuyin.db`，由 `scripts/fetch_language_dictionaries.py` 取回或 `msime-dict-build languages` 生成），越南语不需要。`stage-resources.sh` 的第三个参数（默认 `target/language-dictionaries`）指向这些文件，每份词库只在其许可证文本（`rime_cantonese_LICENSE.txt`、`libchewing_data_LICENSE.txt`）同在时才暂存到 `resfile/language-dictionaries/`，缺许可证直接失败；一份都没有时只打印提示，设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 则要求两份都在。键盘与设置页启动时用 `StagedResources.stageLanguageDictionaries` 把它们复制到 `files/language-dictionaries/`，与 `files/engine` 相邻，host-api 在那里找到并写进运行时选项；新包不带词库时删掉旧副本。词库缺失的方案不出现：设置页的 `hostCapabilities` 从 `input_schemes` 里去掉它（与桌面端 `drop_uninstalled_language_schemes` 一致），键盘的方案列表经 `KeyboardScheme.withInstalledDictionaries` 过滤，全部被过滤时回落到全拼。
+粤语、注音和笔画各需一份语言词库（`cantonese.db`、`zhuyin.db`、`stroke.db`，由 `scripts/fetch_language_dictionaries.py` 取回或 `msime-dict-build languages` 生成），越南语不需要。`stage-resources.sh` 的第三个参数（默认 `target/language-dictionaries`）指向这些文件，每份词库只在其许可证文本（`rime_cantonese_LICENSE.txt`、`libchewing_data_LICENSE.txt`、`rime_stroke_LICENSE.txt`）同在时才暂存到 `resfile/language-dictionaries/`，缺许可证直接失败；一份都没有时只打印提示，设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 则要求 `resources/language-dictionaries.lock.json` 固定的每一份都在（`fetch_language_dictionaries.py --list-databases`）；锁固定 `stroke.db` 之前，笔画词库存在就暂存，缺少也不让发版失败。键盘与设置页启动时用 `StagedResources.stageLanguageDictionaries` 把它们复制到 `files/language-dictionaries/`，与 `files/engine` 相邻，host-api 在那里找到并写进运行时选项；新包不带词库时删掉旧副本。词库缺失的方案不出现：设置页的 `hostCapabilities` 从 `input_schemes` 里去掉它（与桌面端 `drop_uninstalled_language_schemes` 一致），键盘的方案列表经 `KeyboardScheme.withInstalledDictionaries` 过滤，全部被过滤时回落到全拼。
 
 ### 注音（大千）
 
@@ -330,6 +330,16 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 输入是在拉丁字母键盘上打 EWTS（扩展威利转写），由 Engine 转成藏文：组字保存当前音节串的威利原文，组字行画 Engine 写出的藏文（`preedit`），没有候选列表。威利转写区分大小写（`T D N Sh A I U M H` 等是不同的字母），所以触屏字母按 Shift 给出的大小写发出，硬件键盘的 Caps Lock 也当作大写，和越南语一样不做自动大写；第二排没有 `;` 键，符号键面、逗号键与快捷标点都是半角 ASCII。触屏空格交给 Engine：组字时上屏藏文加音节点（U+0F0B），没有组字时 Engine 不处理，键盘照常打出空格（`KeyboardSession.pressThenType`）；回车走共享规则，组字时提交藏文（不加音节点）并吞掉回车，没有组字时照常换行或提交编辑框。符号键面上的 `/` `'` `+` `.` `-` 走标点路线（`+` 是藏文方案下第三排替换 `=` 的键，`KeyboardScheme.symbolRowKey`；符号面板直接写入编辑框，不能用来叠写），运行时按 Engine 的 `spelling_symbols`（空闲时 `'/`，组字时 `'+-./`）把它们作为字符交给 Engine：`/` 组字时上屏藏文加垂符（U+0F0D），空闲时单独上屏垂符；其余是拼写符号。数字先提交音节串再打数字本身，不转成藏文数字。
 
 硬件键盘走 `routeKorean` 的同一条路（`tibetan` 为 true，不认汉字键）：字母总是组字；Engine 列出的拼写符号空闲时也组字（`'` 开头 achung 音节，`/` 单独上屏垂符），其余键空闲时交还应用；组字时空格经 `PRESS_THEN_TYPE` 交给 Engine 上屏藏文加音节点，回车发 `MSIME_COMMIT_RAW` 只上屏藏文，两者都不再交给应用；退格删一个原文按键，Esc 第一次退回威利原文、第二次丢弃；其他标点连音节串一起提交，数字、Tab、方向键等先提交再交还应用。
+以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
+
+## 笔画
+
+选择器末尾在「藏文 26 键」之后再加一张卡「笔画」（`KeyboardScheme.STROKE`，Engine 方案名 `stroke`，编号 9，字形「笔」，角标「5」），默认不启用，需要 `stroke.db`（见上文「词库与暂存」），缺词库时和粤语、注音一样不出现。笔画是中文方案：选中时它自己就是 `last_chinese_scheme`，打字统计记在 `stroke` 名下；`SchemeTraits` 里它的谓词逐项照抄粤语（中文标点、智能标点、全角加宽成立，不学进主词库、不做简繁转换、失焦不提交、光标不锁定、没有可开关的候选列表），由 `scripts/test-scheme-traits-parity.py` 对照 Engine 检查。账号同步不上传它（`AccountPreferencePlan` 的 `LOCAL_ONLY_SCHEMES`），云端写来的 `stroke` 保留本机方案。
+
+触屏画 `input/StrokeLayout.ts` 描述的笔画键盘，套用九键的外框：左侧是九键的标点栏，中间两行三列 `一 横`、`丨 竖`、`丿 撇` / `丶 点`、`乛 折`、`＊ 通配`，右侧整列是删除键，底排与九键相同（「符」代替逗号）。卡片的布局仍记作 `twenty_six_key`，键面按方案选（与大千注音同理），所以不会打开九键拼音的数字解码；符号层沿用共用的字母面。点击发出字母 `h s p n z x`，Engine 负责组字与候选；空组合时 Engine 不接通配键，键盘也就不发送它。组字行和 2in1 的预览文本画 Engine 的 `preedit`，也就是笔画字形 一丨丿丶乛＊，不画键入的字母，光标沿用 Engine 的位置（字母与字形一一对应）。空格、退格和失焦沿用粤语的共享规则；回车不同：粤语有候选时回车上屏高亮候选，笔画的触屏回车与硬件回车、iOS、Android 一致，总是上屏键入的字母（`ReturnKeyAction` 的 `COMMIT_RAW`，即 MSIME_COMMIT_RAW），选字用空格。快捷栏的输入模式指示显示「笔」，触屏语言键仍显示「中」。
+
+硬件键盘走中文的共享路线：字母交给 Engine，空组合时只有 `h s p n z` 开始组字，`x` 与其它字母由 Engine 交回应用照常输入（键盘不把这当作故障记日志）；组字中 `x` 追加通配，其它字母被吞掉；数字 1–9 选本页；`'` 不当音节分隔符（`HardwareKeyRouter.spellsWithoutSyllables`，与五笔相同）。
+
 以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
 
 ## 2026-09-21：首次在模拟器上跑起来
@@ -391,7 +401,7 @@ V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决�
 1. 版本表：给 wubi、pinyin 填 `platforms.harmony` 段，至少包括 `bundleName`（例如 `app.msime.harmony.wubi`）和 HAP 文件名；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查。不同的 `bundleName` 各有各的沙盒，`files/state`、`files/engine` 和偏好文档自然分开。
 2. 工程：`build-profile.json5` 为每个版本加一个 product，覆盖 `bundleName`、应用名（水杉五笔、水杉拼音；图标与 full 相同）和输入法扩展在系统列表里显示的名字，并把版本 id、方案和默认方案作为构建参数写进去，再让 `AppEdition.current()` 读出来；`entry` 的 target 用 `applyToProducts` 关联到这些 product。多 product 下 hvigor 的这些参数我没有在本仓验证过。
 3. 设置页：`Settings.ets` 的 `hostCapabilities` 取自 `msime_client_host_capabilities`，这个 C ABI 目前只接受平台名、不按版本收窄方案，共享设置页因此仍会列出 full 的全部方案。需要让它（或 Harmony 一侧）按版本调用 client-core 的 `HostCapabilities::narrow_to_edition`。
-4. 资源：`stage-resources.sh` 目前按 full 的 `resources/desktop-dictionary.lock.json` 暂存，要改成按版本的 `resources/editions/<id>.lock.json`；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音词库。
+4. 资源：`stage-resources.sh` 目前按 full 的 `resources/desktop-dictionary.lock.json` 暂存，要改成按版本的 `resources/editions/<id>.lock.json`；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
 5. 签名与发布：零售设备装不上不签名的 HAP。要在 AppGallery Connect 为每个 `bundleName` 建应用，申请发布证书和 profile，填进 `signingConfigs` 并按 product 关联；`release-harmony.yml` 现在只打一个 HAP、按 `find ... | head -1` 取产物，要改成按版本逐个构建，产物名带版本 id。
 - `native/`：NAPI/C++ 适配层。
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
@@ -434,7 +444,7 @@ hvigorw assembleHap
 
 `stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进 `resfile/engine/helpcodes/`：Engine 从资源目录下的 `helpcodes/` 读辅助码表，共享校验放行这个真实目录。`StagedResources` 按相对路径列出其中的文件，所以辅助码表跟其他资源一起复制到 `files/engine`，表有变化时同样重新暂存。
 
-引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），鸿蒙版的这两个方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。
+引擎编进了取自 libhangul `data/hanja/hanja.txt` 的韩语汉字表，其 BSD-3-Clause 许可第 2 条要求二进制分发附带声明；引擎的粤语与注音方案所用的粤拼、注音音节与词条分别取自 rime-cantonese（CC BY 4.0，要求署名）与 libchewing-data（LGPL-2.1-or-later，要求附许可证全文与源码位置），笔画方案的笔顺取自 rime-stroke（LGPL-3.0，另含 CNS11643 全字库的署名要求），鸿蒙版的这些方案只在词库随包时提供（见上文「粤语、注音与越南语」），但声明随每一份引擎走，各平台共用一份清单，所以 `stage-resources.sh` 把 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`、`rime-cantonese-CC-BY-4.0.txt`、`libchewing-data-LGPL-2.1.txt` 与 `rime-stroke-LGPL-3.0.txt` 暂存到与 `resfile/engine` 相邻的 `resfile/licenses/`，随 HAP 一起分发；放在 `engine` 里会被锁文件校验拒绝。
 
 `stage-resources.sh` 的第二个参数（默认 `target/offline-glosses`）是可选的非英文离线释义，由 `scripts/build_offline_glosses.py` 生成。数据库和 `offline-glosses-NOTICE.txt` 都在时暂存到 `resfile/offline-glosses`，键盘启动时用同一个 `StagedResources` 复制到 `files/offline-glosses`，与 `files/engine` 相邻，引擎就在那里找 `zh-<lang>.db`；新包不带它们时会删掉旧副本。已安装词典的目标语言在翻译查询里以 `offline_gloss_languages` 出现：用户自己配置的在线翻译先答，离线词典只补在线没答上的候选，同一行按目标顺序合并。
 

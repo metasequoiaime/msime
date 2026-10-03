@@ -62,7 +62,7 @@ inline bool candidate_removal_available(std::string_view text) {
   return candidate_utf8_codepoint_count(text).value_or(0) > 1;
 }
 
-// 只有基础中文方案把候选存进用户词库（`learns_into_main_dictionary`）：日文、韩文、粤拼、注音、越南文和藏文的候选在用户词库里没有身份，无法置顶、固定或删除。
+// 只有基础中文方案把候选存进用户词库（`learns_into_main_dictionary`）：日文、韩文、粤拼、注音、越南文、藏文和笔画的候选在用户词库里没有身份，无法置顶、固定或删除。
 inline bool candidate_dictionary_actions_available(std::uint64_t scheme, std::uint64_t source) {
   return scheme <= 255 && scheme::LearnsIntoMainDictionary(static_cast<int>(scheme)) &&
          (source == 0 || source == 1 || source == 4);

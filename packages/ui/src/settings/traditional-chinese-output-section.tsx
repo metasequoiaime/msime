@@ -3,7 +3,7 @@ import { SwitchRow } from "./switch-row";
 
 export interface TraditionalChineseOutputSectionProps {
   value?: boolean;
-  /** The document's input scheme; Cantonese and Zhuyin commit Traditional characters as stored, so the switch does not touch them and the row says so. */
+  /** The document's input scheme; Cantonese and Zhuyin commit Traditional characters as stored and Stroke commits the character picked as it is, so the switch does not touch them and the row says so. */
   scheme?: InputScheme;
   onChange: (value: boolean) => void;
 }
@@ -21,7 +21,9 @@ export function TraditionalChineseOutputSection({
       description={
         native
           ? "将提交的简体中文转换为繁体中文。粤拼与注音直接输出繁体，此开关不影响它们"
-          : "将提交的简体中文转换为繁体中文"
+          : scheme === "stroke"
+            ? "将提交的简体中文转换为繁体中文。笔画按所选的字原样输出，此开关不影响它"
+            : "将提交的简体中文转换为繁体中文"
       }
       checked={value ?? false}
       onChange={onChange}

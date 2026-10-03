@@ -47,6 +47,8 @@ export interface ToolbarState {
   readonly vietnamese?: boolean;
   /** 藏文同样是独立的语言，显示「藏」。 */
   readonly tibetan?: boolean;
+  /** 笔画方案：同样是中文，但指示字是「笔」，与其它平台的笔画模式徽标一致。 */
+  readonly stroke?: boolean;
   /** Hardware Caps Lock takes precedence over the language face on desktop keyboards. */
   readonly capsLock: boolean;
   readonly chinesePunctuation: boolean;
@@ -76,6 +78,7 @@ export class FloatingToolbarLayout {
       korean: false,
       vietnamese: false,
       tibetan: false,
+      stroke: false,
       capsLock: false,
       chinesePunctuation: true,
       fullWidth: false,
@@ -155,7 +158,9 @@ export class FloatingToolbarLayout {
                     ? "越"
                     : state.tibetan === true
                       ? "藏"
-                      : "中";
+                      : state.stroke === true
+                        ? "笔"
+                        : "中";
       case ToolbarButton.PUNCTUATION:
         return state.chinesePunctuation ? "。" : ".";
       case ToolbarButton.FULL_WIDTH:

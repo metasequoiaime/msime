@@ -244,7 +244,7 @@ constexpr std::uint32_t UpdateVoiceComposition = 15;
 constexpr std::uint32_t CancelVoiceComposition = 16;
 // Streaming ASR: replace the inline composition with this snapshot and commit.
 constexpr std::uint32_t CommitVoiceComposition = 17;
-// Payload: one character naming the configured scheme's family, "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Tibetan (platforms/windows/common/InputSchemeTraits.h InputMode). A DLL reads a code it does not know as "0".
+// Payload: one character naming the configured scheme's family, "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Tibetan, "7" Stroke (platforms/windows/common/InputSchemeTraits.h InputMode). A DLL reads a code it does not know as "0".
 constexpr std::uint32_t InputModeChanged = 18;
 // Payload "1" when Caps Lock is on. Server is the source of truth.
 constexpr std::uint32_t CapsLockChanged = 19;
@@ -260,7 +260,9 @@ constexpr std::uint32_t CancelKeyboardComposition = 22;
 constexpr std::uint32_t CommitCandidateAndContinue = 27;
 // Which of the V, "/" and "@" local modes the Engine opens, so the TIP routes their keys as composition input. Payload: three '0'/'1' flags in that order. Each is already false outside the pinyin schemes, where the Engine opens none of them.
 constexpr std::uint32_t LocalModeTriggersChanged = 28;
-constexpr std::uint32_t MaxKnown = LocalModeTriggersChanged;
+// Payload "1" while the focused client's Engine is in its own English mode (Ctrl+Shift+E, the toolbar or tray English), "0" otherwise. The TIP keeps reporting Chinese there, so this is the only way it learns that every letter belongs to the Engine: under Stroke it otherwise hands idle letters other than the five strokes to the application (InputSchemeTraits.h LetterPassesWhileIdle).
+constexpr std::uint32_t DedicatedEnglishChanged = 29;
+constexpr std::uint32_t MaxKnown = DedicatedEnglishChanged;
 // Source compatibility for the Server's historical spellings.
 constexpr std::uint32_t SwitchToEn = SwitchToEnglish;
 constexpr std::uint32_t SwitchToCn = SwitchToChinese;

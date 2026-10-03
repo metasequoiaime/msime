@@ -42,7 +42,7 @@ int main() {
     auto frames = tsf_config_frames(config);
     // Every setting the TIP consumes gets a frame; it kept compiled defaults
     // because the Server encoded none of them.
-    require(frames.size() == 9);
+    require(frames.size() == 10);
     for (const auto &frame : frames)
       require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
 
@@ -56,7 +56,8 @@ int main() {
         FanyImeWorkerReplyType::InputModeChanged,
         FanyImeWorkerReplyType::TsfDiagnosticLogChanged,
         FanyImeWorkerReplyType::PunctuationLockChanged,
-        FanyImeWorkerReplyType::LocalModeTriggersChanged};
+        FanyImeWorkerReplyType::LocalModeTriggersChanged,
+        FanyImeWorkerReplyType::DedicatedEnglishChanged};
     for (size_t i = 0; i < frames.size(); ++i)
       require(frame_type(frames[i]) == expected[i]);
 
@@ -74,7 +75,7 @@ int main() {
     require(frame_text(frames[3]) == L"1"); // paired punctuation on
     require(frame_text(frames[4]) == L"1"); // Microsoft shuangpin on
 
-    // 输入模式帧给出方案所属的族："0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文。
+    // 输入模式帧给出方案所属的族："0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画。
     require(frame_text(frames[5]) == L"0");
     const std::pair<msime::windows::scheme::InputMode, const wchar_t *> modes[] = {
         {msime::windows::scheme::InputMode::Japanese, L"1"},
@@ -83,6 +84,7 @@ int main() {
         {msime::windows::scheme::InputMode::Zhuyin, L"4"},
         {msime::windows::scheme::InputMode::Vietnamese, L"5"},
         {msime::windows::scheme::InputMode::Tibetan, L"6"},
+        {msime::windows::scheme::InputMode::Stroke, L"7"},
         {msime::windows::scheme::InputMode::Chinese, L"0"}};
     for (const auto &[mode, code] : modes) {
       config.input_mode = mode;
@@ -150,6 +152,12 @@ int main() {
     // The TIP drops every type above MaxKnown, so the new type has to be inside it.
     require(FanyImeWorkerReplyType::LocalModeTriggersChanged <=
             FanyImeWorkerReplyType::MaxKnown);
+    // The Engine's own English mode travels on its own frame too, after every older one: the TIP keeps reporting Chinese there, and under Stroke it would otherwise hand an idle non-stroke letter (the 'a' of "apple") to the application instead of the Engine.
+    require(frame_text(tsf_config_frames(TsfLocalConfig{})[9]) == L"0");
+    config.dedicated_english = true;
+    require(frame_text(tsf_config_frames(config)[9]) == L"1");
+    config.dedicated_english = false;
+    require(FanyImeWorkerReplyType::DedicatedEnglishChanged == FanyImeWorkerReplyType::MaxKnown);
 
     // Caps Lock travels on its own frame rather than in the configuration set:
     // the Server owns the indicator because the TIP only sampled GetKeyState at

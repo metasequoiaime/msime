@@ -59,6 +59,7 @@ const allSchemes = [
   "zhuyin",
   "vietnamese",
   "tibetan",
+  "stroke",
 ] as const;
 
 test("switching to Vietnamese remembers the current Cantonese scheme", () => {
@@ -91,6 +92,33 @@ test("switching from Vietnamese to Chinese restores a remembered Zhuyin scheme",
   expect((screen.getByLabelText("越南文") as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByLabelText("中文"));
   expect(onChange).toHaveBeenCalledWith({ scheme: "zhuyin" });
+});
+
+test("Stroke counts as 中文 and is remembered across a Japanese round trip", () => {
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <InputModeSection
+      scheme="stroke"
+      lastChineseScheme="quanpin"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("中文") as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByLabelText("日文"));
+  expect(onChange).toHaveBeenCalledWith({ last_chinese_scheme: "stroke", scheme: "japanese" });
+
+  rerender(
+    <InputModeSection
+      scheme="japanese"
+      lastChineseScheme="stroke"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenLastCalledWith({ scheme: "stroke" });
 });
 
 test("switching from Vietnamese to Tibetan keeps the remembered Chinese scheme", () => {

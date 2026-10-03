@@ -9,6 +9,9 @@ import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
+import { SettingsNotice } from "./settings-notice";
+import { StatusMessage } from "../core/status-message";
+import { ErrorAlert } from "../core/error-alert";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -382,7 +385,7 @@ export function McpConnectSection({
           MCP
           在本机运行，不联网。助手还能做什么由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
         </SettingsManagerNote>
-        {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
+        {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
         {server &&
           (server.config ? (
             <>
@@ -443,10 +446,10 @@ export function McpConnectSection({
                     后生效。
                   </SettingsManagerNote>
                   {outdated && (
-                    <p className="notice">
+                    <SettingsNotice>
                       下面的权限和 {clientNames[client.id]} 现在的配置不同，点「更新{" "}
                       {clientNames[client.id]}」写入。
-                    </p>
+                    </SettingsNotice>
                   )}
                   <SettingsManagerActions>
                     <ActionButton
@@ -473,7 +476,7 @@ export function McpConnectSection({
                   {copyButton("json", "复制配置", configWithFlags(server.config, flags))}
                 </>
               )}
-              {result && <p role="status">{result}</p>}
+              {result && <StatusMessage role="status">{result}</StatusMessage>}
               {permissionFlags.map((permission) => (
                 <SettingsServiceRow key={permission.flag}>
                   <span>
@@ -498,7 +501,7 @@ export function McpConnectSection({
               </SettingsManagerNote>
             </>
           ) : (
-            <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
+            <SettingsNotice>输入法尚未完成初始化，完成设置向导后即可连接。</SettingsNotice>
           ))}
         {confirmation}
       </SettingsManagerBlock>

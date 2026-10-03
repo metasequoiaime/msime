@@ -18,12 +18,12 @@ export function HostActionButton({
   const [result, setResult] = useState<"success" | "error" | null>(null);
   const [errorMessage, setErrorMessage] = useState("操作失败，请重试。");
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   async function run() {
     if (!action || running.current || !mounted.current) return;
     running.current = true;

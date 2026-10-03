@@ -34,14 +34,15 @@ export type ResourcePackClient = {
 
 export const resourcePackTitles: Record<ResourcePackId, string> = {
   japanese: "日文词库",
-  "language-dictionaries": "粤语与注音词库",
+  "language-dictionaries": "粤语、注音与笔画词库",
   handwriting: "手写模型",
 };
 
 /** 选用某个输入方案时需要下载的资源包；不需要额外资源的方案返回 undefined。 */
 export function resourcePackForScheme(scheme: string | undefined): ResourcePackId | undefined {
   if (scheme === "japanese") return "japanese";
-  if (scheme === "cantonese" || scheme === "zhuyin") return "language-dictionaries";
+  if (scheme === "cantonese" || scheme === "zhuyin" || scheme === "stroke")
+    return "language-dictionaries";
   return undefined;
 }
 

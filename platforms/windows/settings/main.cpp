@@ -2769,12 +2769,12 @@ private:
              {L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
              {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
              {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
-             {L"tibetan", L"藏文"}})
+             {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}})
       if (edition_offers_scheme(option.value))
         scheme_options.push_back(option);
-    // Cantonese and Zhuyin need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
+    // Cantonese, Zhuyin and Stroke need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
     add_row(schemes, 0xE765, L"输入方案",
-            L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语或藏文。粤拼和注音需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
+            L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏文或笔画。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
         L"输入方案", scheme_options, scheme, [this](std::wstring const &next) { select_scheme(next); }));
     if (scheme == L"shuangpin" || indexing_)
       select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
@@ -2961,7 +2961,7 @@ private:
                       L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
   }
 
-  // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼和注音）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
+  // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
   void select_scheme(std::wstring const &next) {
     const auto current = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     if (current == next)
@@ -2982,7 +2982,7 @@ private:
                      std::wstring const &prefix) {
     const bool enabled = document_.Boolean(prefix + L".enabled", false);
     bool_row(group, 0xE8CB, label + L"辅助码",
-             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、日语、韩语、越南语和快捷模式不使用辅助码。",
+             L"再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、粤拼、注音、笔画、日语、韩语、越南语和快捷模式不使用辅助码。",
              prefix + L".enabled", false, true);
     select_row(group, 0xE8D2, label + L"辅助码方案", L"", prefix + L".schema",
                {{L"lantian", L"蓝天小雨点"}, {L"ziranma", L"自然码"},

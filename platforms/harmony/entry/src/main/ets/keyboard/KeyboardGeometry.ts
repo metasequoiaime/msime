@@ -5,6 +5,12 @@
  *
  * Input algorithms stay in the Engine. This is only the geometry the host draws with.
  */
+/** 键的一块触摸矩形相对键左上角的偏移（vp），矩形与键同大。 */
+export interface HitOffset {
+  readonly x: number;
+  readonly y: number;
+}
+
 export class KeyboardGeometry {
   static readonly DEFAULT_HEIGHT_ADJUSTMENT_VP: number = 0;
   static readonly MIN_HEIGHT_ADJUSTMENT_VP: number = -12;
@@ -81,6 +87,29 @@ export class KeyboardGeometry {
       return 0;
     }
     return Math.max(0, Math.round((tenths * density) / 20));
+  }
+
+  /**
+   * 键距和行距是容器的 `space`，键帽之间那几 vp 不属于任何键，落在那里的按下没有组件接收，整个手势就丢了。每个键把触摸区向四边的空隙各扩出给定的 vp（通常是那一侧空隙的一半，相邻两键的触摸区正好在空隙中线相接），布局和绘制都不变。
+   *
+   * ArkUI 的 `responseRegion` 是一组矩形的并集，每块的 `x`、`y` 是相对键左上角的偏移，宽高的百分比按键自身尺寸算，没有「100% 加若干 vp」的写法。所以扩大后的区域用与键同大、按 (-left 或 +right, -top 或 +bottom) 平移的几块矩形拼出：只要两侧扩出之和不超过键的宽高，它们的并集恰好是 `[-left, width + right] x [-top, height + bottom]`。某一侧不扩时对应的平移重合，只留一块。
+   */
+  static hitOffsets(left: number, top: number, right: number, bottom: number): HitOffset[] {
+    const xs: number[] = KeyboardGeometry.shifts(left, right);
+    const ys: number[] = KeyboardGeometry.shifts(top, bottom);
+    const offsets: HitOffset[] = [];
+    for (const y of ys) {
+      for (const x of xs) {
+        offsets.push({ x: x, y: y });
+      }
+    }
+    return offsets;
+  }
+
+  private static shifts(before: number, after: number): number[] {
+    const lead: number = -Math.max(0, before);
+    const trail: number = Math.max(0, after);
+    return lead === trail ? [0] : [lead, trail];
   }
 
   static bounded(value: number, minimum: number, maximum: number): number {

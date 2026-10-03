@@ -40,7 +40,8 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
                           bool microsoft_shuangpin = false,
                           std::string_view editing = {}, size_t caret = 0,
                           bool japanese_scheme = false,
-                          std::string_view spelling_symbols = {}) {
+                          std::string_view spelling_symbols = {},
+                          bool apostrophe_is_punctuation = false) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
@@ -74,7 +75,8 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     if ((caret - start) % 2 == 1)
       return EditKind::Character;
   }
-  if (composing && modifiers == 0 && text == '\'' && mode == "none")
+  // The pinyin syllable separator. Under Stroke (scheme::ApostropheIsPunctuationWhileComposing) the Engine refuses it, so it goes on to the punctuation route like a comma.
+  if (composing && modifiers == 0 && text == '\'' && mode == "none" && !apostrophe_is_punctuation)
     return EditKind::Character;
   if (key >= 'A' && key <= 'Z' &&
       ((text >= 'a' && text <= 'z') || (text >= 'A' && text <= 'Z')))

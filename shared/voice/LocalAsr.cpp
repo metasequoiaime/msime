@@ -27,6 +27,9 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#if defined(__unix__)
+#include <sys/stat.h>
+#endif
 #include <unistd.h>
 #endif
 #if defined(__APPLE__)
@@ -248,9 +251,39 @@ bool model_path_inside(const fs::path &directory, const fs::path &candidate) {
   return true;
 }
 
+// A storage path may pass through one system-owned alias, matching the Rust
+// installer and the other native hosts. Linux has no fixed alias list because
+// distributions commonly link /home or /bin into another tree; a link is
+// trusted only when root owns it and its parent is a closed root directory.
+bool trusted_model_path_link(const fs::path &path) {
+#if defined(__linux__)
+  struct stat link {};
+  if (::lstat(path.c_str(), &link) != 0 || !S_ISLNK(link.st_mode) || link.st_uid != 0)
+    return false;
+  struct stat parent {};
+  const auto parent_path = path.parent_path();
+  return ::stat(parent_path.c_str(), &parent) == 0 && S_ISDIR(parent.st_mode) && parent.st_uid == 0 &&
+         (parent.st_mode & 022) == 0;
+#elif defined(__APPLE__)
+  const fs::path expected = path == fs::path("/var")   ? fs::path("/private/var")
+                            : path == fs::path("/tmp") ? fs::path("/private/tmp")
+                                                       : fs::path();
+  if (expected.empty())
+    return false;
+  std::error_code error;
+  const auto target = fs::read_symlink(path, error);
+  if (error)
+    return false;
+  return (path.parent_path() / target).lexically_normal() == expected;
+#else
+  (void)path;
+  return false;
+#endif
+}
+
 // Check the path itself and every existing ancestor without following a link. The model path comes
 // from preferences, so checking only the final directory would let a link in the middle redirect
-// the recognizer to a different tree. macOS exposes /var and /tmp as stable aliases to /private/*.
+// the recognizer to a different tree. The one trusted alias is never the final path component.
 bool model_directory_has_real_ancestors(const fs::path &directory) {
   if (!directory.is_absolute())
     return false;
@@ -263,13 +296,19 @@ bool model_directory_has_real_ancestors(const fs::path &directory) {
       break;
   }
   std::error_code error;
+  bool saw_trusted_link = false;
   for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
-#if defined(__APPLE__)
-    if (*it == fs::path("/var") || *it == fs::path("/tmp"))
-      continue;
-#endif
     const auto status = fs::symlink_status(*it, error);
-    if (error || fs::is_symlink(status) || !fs::is_directory(status))
+    if (error)
+      return false;
+    if (fs::is_symlink(status)) {
+      const bool last = std::next(it) == ancestors.rend();
+      if (last || saw_trusted_link || !trusted_model_path_link(*it))
+        return false;
+      saw_trusted_link = true;
+      continue;
+    }
+    if (!fs::is_directory(status))
       return false;
   }
   return true;

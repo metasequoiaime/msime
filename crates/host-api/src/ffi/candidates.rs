@@ -32,6 +32,9 @@ pub unsafe extern "C" fn msime_client_apply_online_candidate(
             std::str::from_utf8(unsafe { std::slice::from_raw_parts(candidate, candidate_length) })
                 .map_err(|_| "candidate is not UTF-8")?;
         with_session(handle, |session| {
+            if source == 0 && !session.cloud_candidates_enabled() {
+                return Ok(json!({"applied":false,"view":session.runtime.view()}));
+            }
             if source == 1 && !session.ai_query_is_current(&query) {
                 return Ok(json!({"applied":false,"view":session.runtime.view()}));
             }
@@ -122,6 +125,9 @@ pub unsafe extern "C" fn msime_client_apply_online_candidates(
         })
         .map_err(|_| "invalid online candidates document")?;
         with_session(handle, |session| {
+            if source == 0 && !session.cloud_candidates_enabled() {
+                return Ok(json!({"applied":false,"view":session.runtime.view()}));
+            }
             if source == 1 && !session.ai_query_is_current(&query) {
                 return Ok(json!({"applied":false,"view":session.runtime.view()}));
             }

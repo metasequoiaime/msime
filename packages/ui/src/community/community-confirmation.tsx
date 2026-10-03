@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import * as style from "./community-style";
 import { ActionButton } from "../core/action-button";
+import { CommunityConfirmationActions } from "./community-confirmation-actions";
 
 export interface CommunityConfirmationProps {
   ariaLabel: string;
@@ -20,12 +21,12 @@ export function CommunityConfirmation({
   onConfirm,
   onCancel,
   confirmLabel,
-  actionsClassName = style.confirmationActions,
+  actionsClassName,
 }: CommunityConfirmationProps) {
   return (
     <div className={style.confirmation} role="alertdialog" aria-label={ariaLabel}>
       <p>{message}</p>
-      <div className={actionsClassName}>
+      <CommunityConfirmationActions className={actionsClassName}>
         <ActionButton
           action={onConfirm}
           ariaBusy={actionBusy}
@@ -34,7 +35,7 @@ export function CommunityConfirmation({
           label={confirmLabel}
         />
         <ActionButton action={onCancel} ariaBusy={actionBusy} disabled={actionBusy} label="取消" />
-      </div>
+      </CommunityConfirmationActions>
     </div>
   );
 }

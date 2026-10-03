@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { StatusMessage } from "../core/status-message";
 import { runAsyncAction } from "../core/async-action";
 import { ActionButton } from "../core/action-button";
 import { SettingActionHeader } from "../settings/setting-action-header";
@@ -92,7 +93,7 @@ export function VoiceDevicePicker({
           label={busy ? "读取中…" : "刷新设备"}
         />
       </SettingActionHeader>
-      <p role="status">{notice}</p>
+      <StatusMessage role="status">{notice}</StatusMessage>
     </div>
   );
 }

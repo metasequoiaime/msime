@@ -14,6 +14,7 @@ import { AccountInputField } from "./account-input-field";
 import { AccountStatusMessages } from "./account-status-messages";
 import { AccountIdentityDetails } from "./account-identity-details";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
+import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { runAccountOperation } from "./account-operation";
 
@@ -402,7 +403,7 @@ function AppIconSettingsCard({
               : "系统会使用平台提供的图标切换能力保存选择。"}
         </p>
       </div>
-      {info === null && !error && <p role="status">正在读取图标状态…</p>}
+      {info === null && !error && <StatusMessage role="status">正在读取图标状态…</StatusMessage>}
       <AccountStatusMessages error={error} />
       {info && !info.supported && <p className={account.muted}>当前设备暂不支持更换 App 图标。</p>}
       {info && (
@@ -583,8 +584,8 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
           label="下载并应用云端设置"
         />
       </div>
-      {busy && <p role="status">正在处理…</p>}
-      {message && <p role="status">{message}</p>}
+      {busy && <StatusMessage role="status">正在处理…</StatusMessage>}
+      {message && <StatusMessage role="status">{message}</StatusMessage>}
       {confirmation && (
         <div
           className={account.confirmation}
@@ -1036,7 +1037,7 @@ function AccountDetailsPage({
   if (loading)
     return (
       <div className={account.page}>
-        <p role="status">正在读取账号状态…</p>
+        <StatusMessage role="status">正在读取账号状态…</StatusMessage>
       </div>
     );
 

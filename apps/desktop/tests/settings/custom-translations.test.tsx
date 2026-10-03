@@ -194,6 +194,28 @@ test("an edit made while a save is in flight is saved after it", async () => {
   expect(result.current.saveState).toBe("saved");
 });
 
+test("an edit made during a save is not lost when the page closes", async () => {
+  vi.useFakeTimers();
+  let finish: () => void = () => undefined;
+  const save = vi
+    .fn()
+    .mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)))
+    .mockResolvedValue(undefined);
+  const client = overlayClient(save);
+  const { result, unmount } = renderHook(() => useCustomTranslations({ client }));
+  await advance(0);
+
+  act(() => result.current.setText("a\tb"));
+  await advance(SETTINGS_AUTOSAVE_DELAY_MS);
+  expect(save).toHaveBeenCalledExactlyOnceWith("a\tb");
+  act(() => result.current.setText("a\tc"));
+  unmount();
+
+  await act(async () => finish());
+  expect(save).toHaveBeenCalledTimes(2);
+  expect(save).toHaveBeenLastCalledWith("a\tc");
+});
+
 test("leaving the page saves the pending edit at once", async () => {
   vi.useFakeTimers();
   const save = vi.fn().mockResolvedValue(undefined);

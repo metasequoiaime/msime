@@ -5,7 +5,7 @@ public enum TypingSource {
     QUANPIN("quanpin"), NINE_KEY("nineKey"), SHUANGPIN("shuangpin"),
     ZIRANMA("ziranma"), MICROSOFT("microsoft"), SHOUDAO("shoudao"),
     WUBI("wubi"), JAPANESE("japanese"), KOREAN("korean"), CANTONESE("cantonese"),
-    ZHUYIN("zhuyin"), VIETNAMESE("vietnamese"), TIBETAN("tibetan"), HANDWRITING("handwriting"),
+    ZHUYIN("zhuyin"), VIETNAMESE("vietnamese"), TIBETAN("tibetan"), STROKE("stroke"), HANDWRITING("handwriting"),
     ENGLISH("english"), LOCAL("local"), AI("ai"), REPLY("reply"),
     VOICE("voice"), UNKNOWN("unknown");
 
@@ -35,6 +35,7 @@ public enum TypingSource {
             case ZHUYIN -> ZHUYIN;
             case VIETNAMESE -> VIETNAMESE;
             case TIBETAN -> TIBETAN;
+            case STROKE -> STROKE;
             case HANDWRITING -> HANDWRITING;
         };
     }

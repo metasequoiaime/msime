@@ -11,5 +11,6 @@
 "app.msime.inputmethod.MetasequoiaIME.Zhuyin" = "Metasequoia · ZY";
 "app.msime.inputmethod.MetasequoiaIME.Vietnamese" = "Metasequoia · VI";
 "app.msime.inputmethod.MetasequoiaIME.Tibetan" = "Metasequoia · BO";
+"app.msime.inputmethod.MetasequoiaIME.Stroke" = "Metasequoia · BH";
 "NSMicrophoneUsageDescription" = "Record speech only when voice input is started, to transcribe and insert your words.";
 "NSSpeechRecognitionUsageDescription" = "Send the recording to macOS speech recognition when the system recogniser is selected, to transcribe your words.";

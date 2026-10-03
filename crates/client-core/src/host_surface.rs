@@ -296,7 +296,7 @@ pub struct HostCapabilities {
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
-    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese or Zhuyin dictionary is not installed.
+    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese, Zhuyin or Stroke dictionary is not installed.
     ///
     /// 不是 full 的版本还会经 [`HostCapabilities::narrow_to_edition`] 去掉本版本不含的方案；那些方案在本版本里不存在，设置页应该直接不列出，而不是显示为禁用，`edition` 就是用来区分这两种情况的。
     pub input_schemes: Vec<InputScheme>,
@@ -325,8 +325,8 @@ pub struct EditionInfo {
     pub wubi_mixed_pinyin_default: bool,
 }
 
-/// 基础方案加上粤拼、注音、越南文和藏文，所有宿主都提供。
-const ALL_INPUT_SCHEMES: [InputScheme; 9] = [
+/// 基础方案加上粤拼、注音、越南文、藏文和笔画，所有宿主都提供。
+const ALL_INPUT_SCHEMES: [InputScheme; 10] = [
     InputScheme::Quanpin,
     InputScheme::Shuangpin,
     InputScheme::Wubi,
@@ -336,9 +336,10 @@ const ALL_INPUT_SCHEMES: [InputScheme; 9] = [
     InputScheme::Zhuyin,
     InputScheme::Vietnamese,
     InputScheme::Tibetan,
+    InputScheme::Stroke,
 ];
 
-/// 本构建交给 Engine 的方案：所有宿主都是全部九个，因为每个宿主都路由粤拼、注音、越南文和藏文的按键，并放置粤拼和注音的词库（越南文和藏文不需要词库）。偏好文档里写的其他方案由 host-api 回退；粤拼和注音在词库没装时仍然回退。
+/// 本构建交给 Engine 的方案：所有宿主都是全部十个，因为每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并放置粤拼、注音和笔画的词库（越南文和藏文不需要词库）。偏好文档里写的其他方案由 host-api 回退；粤拼、注音和笔画在词库没装时仍然回退。
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
     &ALL_INPUT_SCHEMES
 }
@@ -600,7 +601,7 @@ impl HostCapabilities {
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
             candidate_panel_limit: None,
-            // 每个宿主都路由粤拼、注音、越南文和藏文的按键，并附带前两者需要的词库。
+            // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
             edition: None,
         }

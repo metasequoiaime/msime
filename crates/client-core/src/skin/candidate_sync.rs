@@ -324,7 +324,10 @@ pub fn unpublish(
     publication: Uuid,
 ) -> Result<(), AccountError> {
     let _run = lock_runs();
-    remote.unpublish(publication)?;
+    match remote.unpublish(publication) {
+        Ok(()) | Err(AccountError::NotFound) => {}
+        Err(error) => return Err(error),
+    }
     let mut state = load_state(state_path);
     state
         .packages
@@ -449,7 +452,7 @@ pub fn publish(
                 local_digest,
             },
         );
-        let _ = save_state(state_path, &state);
+        save_state(state_path, &state).map_err(|_| AccountError::Storage)?;
         Ok(())
     })
     .map_err(CandidateSkinPublishError::Account)?;
@@ -551,7 +554,7 @@ pub fn sync_candidate_skins(
         run.package(id, local.contains(id), newest.get(id))?;
     }
     run.with_local_effect(|run| {
-        let _ = save_state(run.state_path, &run.state);
+        save_state(run.state_path, &run.state).map_err(|_| AccountError::Storage)?;
         Ok(())
     })?;
     Ok(run.report)
