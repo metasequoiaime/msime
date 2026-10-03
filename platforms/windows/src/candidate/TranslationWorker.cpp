@@ -530,10 +530,17 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
             into.emplace_back(entry.value("text", std::string{}),
                               entry.value("translation", std::string{}));
       };
-      if (online)
-        entries(nlohmann::json::parse(online->translations), answered);
-      if (offline)
+      if (online) {
+        const auto parsed = nlohmann::json::parse(online->translations);
+        if (parsed.is_array())
+          answered.reserve(parsed.size());
+        entries(parsed, answered);
+      }
+      if (offline) {
+        if (offline->is_array())
+          dictionary.reserve(offline->size());
         entries(*offline, dictionary);
+      }
       msime::windows::fill_offline_glosses(answered, dictionary);
       auto merged = nlohmann::json::array();
       for (const auto &[text, translation] : answered)
