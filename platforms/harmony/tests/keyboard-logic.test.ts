@@ -12698,6 +12698,22 @@ group("URL mode and its trigger keys route through the symbols the Engine lists"
     route({ keyCode: 2050, unicodeChar: 0x20 }, url).action === HardwareKeyAction.COMMIT,
     "Space takes the single row, the URL itself",
   );
+  // 有意的行为变化：组字中只列了撇号这类符号（粤拼 `cantonese::SPELLING_SYMBOLS_COMPOSING`、藏文 `tibetan::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。
+  for (const [name, spelling] of [
+    ["Cantonese", { editing: "nei", caret: 3, spellingSymbols: "'" }],
+    ["Tibetan", { editing: "bod", caret: 3, spellingSymbols: "'+-./" }],
+  ] as [string, Partial<HardwareSpelling>][]) {
+    const bang = route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, spelling);
+    check(
+      bang.action === HardwareKeyAction.PUNCTUATION && bang.character === 0x21,
+      `${name} composing: Shift+1 is the ! it types, not a pick`,
+    );
+    const one = route({ keyCode: 2001, unicodeChar: 0x31 }, spelling);
+    check(
+      one.action === HardwareKeyAction.SELECT && one.index === 0,
+      `${name} composing: a bare 1 still picks the first candidate`,
+    );
+  }
 });
 
 group(
