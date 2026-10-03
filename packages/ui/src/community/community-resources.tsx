@@ -30,8 +30,8 @@ import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
-import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { CommunityDetailFrame } from "./community-detail-frame";
+import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -731,18 +731,12 @@ export function CommunityResourcesPage({
           <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />
         ))}
       </div>
-      {busy && (
-        <p role="status" className={style.notice}>
-          正在读取社区…
-        </p>
-      )}
-      {more && (
-        <CommunityLoadMoreButton
-          className="secondary community-more"
-          disabled={busy}
-          onClick={() => void load(true)}
-        />
-      )}
+      <CommunityGalleryLoadMore
+        hasMore={more}
+        busy={busy}
+        loadingText="正在读取社区…"
+        onLoadMore={() => void load(true)}
+      />
       {editing && (
         <ResourceEditor
           client={client}

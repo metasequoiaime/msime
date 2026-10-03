@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("resource galleries reuse the shared load-more button", () => {
+test("resource galleries reuse the shared load-more component", () => {
   const resources = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/community/community-resources.tsx", {
       eager: true,
@@ -9,7 +9,10 @@ test("resource galleries reuse the shared load-more button", () => {
     }),
   )[0];
 
-  expect(resources).toContain("CommunityLoadMoreButton");
-  expect(resources).toContain("<CommunityLoadMoreButton");
-  expect(resources).not.toContain('label="加载更多"');
+  expect(resources).toContain(
+    'import { CommunityGalleryLoadMore } from "./community-gallery-load-more";',
+  );
+  expect(resources).toContain("<CommunityGalleryLoadMore");
+  expect(resources).not.toContain("CommunityLoadMoreButton");
+  expect(resources).not.toContain('className="secondary community-more"');
 });

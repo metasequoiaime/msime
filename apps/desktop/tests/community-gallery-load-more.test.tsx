@@ -36,3 +36,14 @@ test("community gallery load more hides when there is no next page", () => {
   expect(screen.queryByRole("status")).toBeNull();
   expect(onLoadMore).not.toHaveBeenCalled();
 });
+
+test("community gallery load more keeps the loading status without a next page", () => {
+  const LoadMore = (ui as unknown as { CommunityGalleryLoadMore: ComponentType<LoadMoreProps> })
+    .CommunityGalleryLoadMore;
+  render(
+    <LoadMore hasMore={false} busy loadingText="正在读取社区…" onLoadMore={() => undefined} />,
+  );
+
+  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("正在读取社区…");
+});
