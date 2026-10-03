@@ -25,7 +25,6 @@
 #define MySettingsExeName "msime-client-settings.exe"
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName MyEditionWatchdogTask
-#define MyMcpName      "msime-mcp.exe"
 ; Global::MetasequoiaIMECLSID in platforms/windows/tsf/Global/Globals.cpp.
 #define MyTipKey       "SOFTWARE\Microsoft\CTF\TIP\" + MyEditionClsid
 #define MyVersionDirBase "msime_v" + MyAppVersion
@@ -155,9 +154,10 @@ Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
 
 [Code]
 const
+  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，其他版本接上自己的名字后缀），都以 DataDirMarkerPrefix 开头。几个版本可以同时安装：OwnsDataDir 只认本版本的标记，目录里只要有别的版本的标记就不归本安装器管，所以一个版本不会接管、清理或删除另一个版本的数据目录。 }
   DataDirMarkerName = '{#MyEditionDataDirMarker}';
+  DataDirMarkerPrefix = '{#MyDataDirMarkerPrefix}';
 #if !MyEditionIsFull
-  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，本版本接上自己的名字后缀）。几个版本可以同时安装，full 的安装器只要看到 .metasequoiaime-data 就认目录归自己，所以本版本必须用别的文件名，full 才不会接管、清理或删除本版本的数据目录。 }
   { 本版本写进所有权标记的内容。标记里带着版本 id，OwnsDataDir 只认它，不认别的版本的标记。 }
   DataDirMarkerText = 'This directory is managed by Metasequoia IME (edition {#Edition}).';
 #endif
@@ -412,23 +412,48 @@ begin
   Result := AddBackslash(Directory) + DataDirMarkerName;
 end;
 
+{ 目录里有没有别的版本的所有权标记：以 DataDirMarkerPrefix 开头、又不是本版本标记文件名的文件。 }
+function HasOtherEditionDataDirMarker(const Directory: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Directory) + DataDirMarkerPrefix + '*', FindRec) then
+  begin
+    try
+      repeat
+        if CompareText(FindRec.Name, DataDirMarkerName) <> 0 then
+        begin
+          Result := True;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function OwnsDataDir(const Directory: String): Boolean;
 #if MyEditionIsFull
 begin
+  { 带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录：升级不能清理它，卸载也不能删它。.metasequoiaime-data 这个文件名只有 full 会写，所以只看文件在不在、不核对内容，以前的 full 写下的标记照样认。 }
   Result :=
-    (CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
-    FileExists(DataDirMarkerPath(Directory));
+    (not HasOtherEditionDataDirMarker(Directory)) and
+    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
+     FileExists(DataDirMarkerPath(Directory)));
 end;
 #else
 var
   Lines: TArrayOfString;
 begin
-  { 几个版本可以同时安装。只认写着本版本 id 的所有权标记：带着另一个版本标记的目录不归本安装器管，升级不能清理它，卸载也不能删它。 }
+  { 几个版本可以同时安装。只认写着本版本 id 的所有权标记：带着另一个版本标记的目录不归本安装器管，即使它就是本版本的默认数据目录，升级不能清理它，卸载也不能删它。 }
   Result :=
-    (CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
-    (LoadStringsFromFile(DataDirMarkerPath(Directory), Lines) and
-     (GetArrayLength(Lines) > 0) and
-     (Lines[0] = DataDirMarkerText));
+    (not HasOtherEditionDataDirMarker(Directory)) and
+    ((CompareText(Directory, ExpandConstant('{localappdata}\{#MyEditionInstallDir}')) = 0) or
+     (LoadStringsFromFile(DataDirMarkerPath(Directory), Lines) and
+      (GetArrayLength(Lines) > 0) and
+      (Lines[0] = DataDirMarkerText)));
 end;
 #endif
 
@@ -784,34 +809,7 @@ begin
   Result := True;
 end;
 
-#if MyEditionIsFull
-procedure StopProcess(const ImageName: String);
-var
-  ResultCode: Integer;
-begin
-  Exec(
-    ExpandConstant('{sys}\taskkill.exe'),
-    '/F /T /IM "' + ImageName + '"',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-end;
-
-procedure StopImeProcesses;
-begin
-  { Watchdog 必须先停，否则它可能在升级或卸载期间重新启动 Server。}
-  StopProcess('{#MyWatchdogName}');
-  StopProcess('{#MyAppExeName}');
-  { 设置窗口是独立的 WinUI 3 msime-client-settings.exe；表情 / 手写 / 屏幕键盘面板仍由同目录的 Tauri MSIME.exe 承载。两个进程都不在 Server 的进程树里，覆盖安装和卸载前由安装器统一停止。}
-  StopProcess('{#MySettingsExeName}');
-  StopProcess('MSIME.exe');
-  { AI 助手按需拉起的 msime-mcp.exe 同样不在 Server 的进程树里，助手开着就一直驻留，也会占住 server 目录。}
-  StopProcess('{#MyMcpName}');
-end;
-#else
-{ 只停可执行文件在本版本 server 目录里的进程。几个版本的 Server、看门狗、设置窗口、MSIME.exe 和 msime-mcp.exe 同名，按映像名结束（taskkill /IM）会把同时安装的其他版本一起停掉。ProcessName 为空时停目录里的全部进程。 }
+{ 只停可执行文件在本安装的 server 目录里的进程。几个版本的 Server、看门狗、设置窗口、MSIME.exe 和 msime-mcp.exe 同名，按映像名结束（taskkill /IM）会把同时安装的其他版本一起停掉，所以每个版本（包括 full）都按路径停。ProcessName 为空时停目录里的全部进程。 }
 procedure StopProcessesUnder(const Directory, ProcessName: String);
 var
   ResultCode: Integer;
@@ -843,7 +841,6 @@ begin
   { 然后是 Server、WinUI 设置窗口、承载面板的 MSIME.exe 和 AI 助手拉起的 msime-mcp.exe：它们都在 server 目录里，也都不在 Server 的进程树里。}
   StopProcessesUnder(ServerDir, '');
 end;
-#endif
 
 procedure DeleteWatchdogLogonTask;
 var

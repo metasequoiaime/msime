@@ -1,6 +1,7 @@
 #ifndef Edition
 #define Edition "full"
 #endif
+#define MyDataDirMarkerPrefix ".metasequoiaime-data"
 #if Edition == "full"
 #define MyEditionIsFull 1
 #define MyEditionAppName "Metasequoia IME 水杉输入法"

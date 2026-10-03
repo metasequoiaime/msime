@@ -178,6 +178,8 @@ def inno_text(table: dict) -> str:
     """Inno Setup 的版本定义。只有预处理指令：ISPP 不把指令行写进预处理结果，所以引入它不改变 full 的预处理输出。"""
     editions = windows_editions(table)
     lines = ["#ifndef Edition", '#define Edition "full"', "#endif"]
+    # 所有版本的标记文件名都以它开头。安装器拿它找目录里别的版本的标记：带着别的版本标记的目录，哪怕是本版本的默认数据目录，也不归本版本管。
+    lines.append(f'#define MyDataDirMarkerPrefix "{DATA_DIR_MARKER_PREFIX}"')
     for index, entry in enumerate(editions):
         windows = entry["platforms"]["windows"]
         lines.append(("#if" if index == 0 else "#elif") + f' Edition == "{entry["id"]}"')

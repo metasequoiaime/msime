@@ -81,7 +81,7 @@ $fullData = (Get-ItemProperty -LiteralPath "HKLM:\$((Identity 'full').registry_k
 $run = Start-Process -FilePath (Resolve-Path -LiteralPath $Installers[$other]).Path -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$fullData`"", "/LOG=`"$logs\takeover-$other.log`"" -Wait -PassThru
 Check ($run.ExitCode -ne 0) "$other refuses full's data directory"
 Check-Installed 'full' "after $other tried to take over full's data directory"
-# 反过来也一样：full 的安装器只认 .metasequoiaime-data 这个文件名，别的版本的标记文件名不同，所以把 full 重新装到它们的数据目录上同样失败，它们的数据目录原样留着。
+# 反过来也一样：full 的安装器只认 .metasequoiaime-data 这个标记，目录里有别的版本的标记就不认，所以把 full 重新装到它们的数据目录上同样失败，它们的数据目录原样留着。
 $otherData = (Get-ItemProperty -LiteralPath "HKLM:\$((Identity $other).registry_key)").DataDir
 $run = Start-Process -FilePath (Resolve-Path -LiteralPath $Installers['full']).Path -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DATADIR=`"$otherData`"", "/LOG=`"$logs\takeover-full.log`"" -Wait -PassThru
 Check ($run.ExitCode -ne 0) "full refuses $other's data directory"
