@@ -91,7 +91,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         });
 
         loadAi.setOnClickListener(ignored -> {
-            if (models.isEmpty()) loadModels(loadAi, sendAi);
+            if (models.isEmpty()) loadModels(field, loadAi, sendAi);
             else showModelMenu(loadAi, sendAi);
         });
         sendAi.setOnClickListener(ignored -> {
@@ -104,7 +104,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         WindowCompat.getInsetsController(getWindow(), field).show(WindowInsetsCompat.Type.ime());
     }
 
-    private void loadModels(MaterialButton load, MaterialButton send) {
+    private void loadModels(TextInputEditText field, MaterialButton load, MaterialButton send) {
         load.setEnabled(false);
         load.setText("加载中…");
         operation = worker.submit(() -> {
