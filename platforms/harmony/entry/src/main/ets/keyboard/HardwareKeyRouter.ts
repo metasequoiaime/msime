@@ -749,11 +749,17 @@ export class HardwareKeyRouter {
       return undefined;
     }
     if (spelling.spellingSymbols.length > 0) {
-      // A local mode that spells with more than letters: U mode's hexadecimal digits, V mode's digits and operators. What the Engine lists is input, decided by the character the key typed, so V mode's Shift+9 is its `(`. Shift+1..9 picks otherwise, as on Windows, since the plain digits are taken.
+      // 引擎列出的符号就是输入，按键打出的字符决定，所以 V 模式的 Shift+9 是它的 `(`：U 模式的十六进制数字、V 模式的数字和运算符、网址模式的网址字符，以及组字原文是网址触发词时的 `.` `:`。
       if (HardwareKeyRouter.spells(spelling, key.unicodeChar)) {
         return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
       }
-      if (key.shiftKey && key.keyCode >= KEYCODE_1 && key.keyCode <= KEYCODE_9) {
+      // 只有数字被列为拼写时 Shift+1..9 才改为选候选（数字键已被占用），与 Windows EditPolicy.h 一致；只列了 `.` 这类符号时 Shift+1 仍是它打出的 `!`。
+      if (
+        key.shiftKey &&
+        key.keyCode >= KEYCODE_1 &&
+        key.keyCode <= KEYCODE_9 &&
+        /[0-9]/.test(spelling.spellingSymbols)
+      ) {
         return decision(HardwareKeyAction.SELECT, 0, key.keyCode - KEYCODE_1);
       }
       // `U+1F600` as well as `u1f600`: the plus is only part of the spelling straight after the U.
@@ -764,7 +770,10 @@ export class HardwareKeyRouter {
       ) {
         return decision(HardwareKeyAction.COMPOSE, PLUS);
       }
-      return undefined;
+      // 本地模式的拼写完全由列出的符号决定。没有本地模式时列出的只是个别键（网址触发键、粤拼的 `'`），没被它们接住的键继续走下面的撇号分隔和微软双拼 `;`，否则组字原文恰好是 `www` 时 `xi'an` 式的撇号和双拼 `;` 会变成标点。
+      if (spelling.localMode !== "none") {
+        return undefined;
+      }
     }
     if (key.shiftKey) {
       return undefined;

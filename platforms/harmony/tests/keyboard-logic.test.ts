@@ -12596,6 +12596,110 @@ group("V mode spells digits and operators the Engine lists, and Shift+digit pick
   );
 });
 
+group("URL mode and its trigger keys route through the symbols the Engine lists", () => {
+  const route = (over: Record<string, unknown>, spelling: Partial<HardwareSpelling>) =>
+    HardwareKeyRouter.route(
+      {
+        keyCode: 0,
+        unicodeChar: 0,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        logoKey: false,
+        ...over,
+      } as HardwareKey,
+      true,
+      true,
+      true,
+      undefined,
+      false,
+      false,
+      "disabled",
+      true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  // 组字原文是 `www` 时引擎只列出触发键 `.`（`SessionCore::spelling_symbols`）。
+  const www: Partial<HardwareSpelling> = { editing: "www", caret: 3, spellingSymbols: "." };
+  const dot = route({ keyCode: 2044, unicodeChar: 0x2e }, www);
+  check(
+    dot.action === HardwareKeyAction.COMPOSE && dot.character === 0x2e,
+    "the . after www goes to the Engine as input rather than paging or ending the composition",
+  );
+  check(
+    route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, www).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Shift+1 is still the ! it types when only a trigger key is listed, not a pick",
+  );
+  const apostrophe = route({ keyCode: 2063, unicodeChar: 0x27 }, www);
+  check(
+    apostrophe.action === HardwareKeyAction.COMPOSE && apostrophe.character === 0x27,
+    "the syllable apostrophe still separates while a trigger key is listed",
+  );
+  const semicolon = route(
+    { keyCode: 2062, unicodeChar: 0x3b },
+    { ...www, editing: "w", caret: 1, microsoftShuangpin: true },
+  );
+  check(
+    semicolon.action === HardwareKeyAction.COMPOSE && semicolon.character === 0x3b,
+    "and Microsoft shuangpin's ; is still the second key of a syllable",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, www).action === HardwareKeyAction.SELECT,
+    "a plain digit still picks, since no digit is listed",
+  );
+  const colon = route(
+    { keyCode: 2062, unicodeChar: 0x3a, shiftKey: true },
+    { editing: "http", caret: 4, spellingSymbols: ":" },
+  );
+  check(
+    colon.action === HardwareKeyAction.COMPOSE && colon.character === 0x3a,
+    "Shift+; after http is the : of the scheme",
+  );
+  // 网址模式下引擎列出的符号集（`local::url::SPELLING_SYMBOLS`）。
+  const url: Partial<HardwareSpelling> = {
+    localMode: "url",
+    editing: "www.",
+    caret: 4,
+    spellingSymbols: "0123456789-._~:/?#[]@!$&'()*+,;=%^",
+  };
+  const four = route({ keyCode: 2004, unicodeChar: 0x34 }, url);
+  check(
+    four.action === HardwareKeyAction.COMPOSE && four.character === 0x34,
+    "a digit is part of the URL, not a pick",
+  );
+  const at = route({ keyCode: 2002, unicodeChar: 0x40, shiftKey: true }, url);
+  check(
+    at.action === HardwareKeyAction.COMPOSE && at.character === 0x40,
+    "every Shift+digit mark is listed, so Shift+2 is the @ of the URL rather than a pick",
+  );
+  const slash = route({ keyCode: 2064, unicodeChar: 0x2f }, url);
+  check(
+    slash.action === HardwareKeyAction.COMPOSE && slash.character === 0x2f,
+    "/ is part of the URL",
+  );
+  const quote = route({ keyCode: 2063, unicodeChar: 0x27 }, url);
+  check(
+    quote.action === HardwareKeyAction.COMPOSE && quote.character === 0x27,
+    "' is a literal character of the URL",
+  );
+  const doubleQuote = route({ keyCode: 2063, unicodeChar: 0x22, shiftKey: true }, url);
+  check(
+    doubleQuote.action === HardwareKeyAction.PUNCTUATION && doubleQuote.character === 0x22,
+    "a mark the URL cannot hold goes the punctuation way, which ends the URL first",
+  );
+  check(
+    route(
+      { keyCode: 2062, unicodeChar: 0x3b },
+      { ...url, microsoftShuangpin: true, editing: "w", caret: 1 },
+    ).action === HardwareKeyAction.COMPOSE,
+    "; is listed in URL mode, so it spells there too",
+  );
+  check(
+    route({ keyCode: 2050, unicodeChar: 0x20 }, url).action === HardwareKeyAction.COMMIT,
+    "Space takes the single row, the URL itself",
+  );
+});
+
 group(
   "/ and @ with nothing composed reach the Engine as punctuation, which opens their modes",
   () => {
