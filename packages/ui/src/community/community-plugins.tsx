@@ -41,6 +41,7 @@ import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
@@ -328,9 +329,9 @@ export function CommunityPluginsPage({
             loadingText="正在读取插件详情…"
           />
           {installed ? (
-            <p role="status" className={style.actionNotice}>
+            <CommunityActionNotice>
               已安装到插件目录，可在「我的插件」中选用。
-            </p>
+            </CommunityActionNotice>
           ) : (
             <CommunityInstallButton
               actionBusy={actionBusy}
@@ -425,11 +426,7 @@ export function CommunityPluginsPage({
         ))}
       </div>
       {errorAlert}
-      {actionNotice && (
-        <p role="status" className={style.actionNotice}>
-          {actionNotice}
-        </p>
-      )}
+      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
       {!listBusy && !error && plugins.length === 0 && hasMore && (
         <p className={style.notice}>
           {activeSearch || kind

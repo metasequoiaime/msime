@@ -24,6 +24,7 @@ import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
 import {
@@ -470,9 +471,7 @@ export function CommunityCandidateSkinsPage({
           />
           {installed ? (
             <>
-              <p role="status" className={style.actionNotice}>
-                已安装到外部皮肤。
-              </p>
+              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
               {onOpenSkinPage && (
                 <ActionButton
                   action={onOpenSkinPage}
@@ -573,11 +572,7 @@ export function CommunityCandidateSkinsPage({
         onChange={(next) => void changeCategory(next)}
       />
       {errorAlert}
-      {actionNotice && (
-        <p role="status" className={style.actionNotice}>
-          {actionNotice}
-        </p>
-      )}
+      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
       {!listBusy && skins.length === 0 && (
         <p className={style.notice}>
           {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}

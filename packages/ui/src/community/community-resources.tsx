@@ -34,6 +34,7 @@ import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
+import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 
 export type CommunityResourceKind = "dictionary" | "reply";
@@ -552,11 +553,7 @@ function ResourceDetail({
             />
           </>
         )}
-        {notice && (
-          <p role="status" className={style.actionNotice}>
-            {notice}
-          </p>
-        )}
+        {notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
         <ActionButton
           action={save}
           className={`secondary ${style.action}`}
