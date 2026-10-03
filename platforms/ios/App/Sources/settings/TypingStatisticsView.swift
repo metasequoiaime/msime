@@ -15,6 +15,7 @@ private enum StatisticsSymbol {
     case .cantonese: return "character.book.closed"
     case .zhuyin: return "character.phonetic"
     case .vietnamese: return "textformat.abc.dottedunderline"
+    case .stroke: return "pencil.line"
     case .handwriting: return "hand.draw"
     case .english: return "abc"
     case .local: return "clock.arrow.circlepath"
@@ -138,7 +139,7 @@ struct TypingStatisticsView: View {
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi", "cantonese", "zhuyin"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi", "cantonese", "zhuyin", "stroke"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
       StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: colors[1], symbol: "character.bubble"),
       StatisticsSlice(id: "korean", title: "韩语模式", count: sources["korean"] ?? 0, color: colors[2], symbol: "character.bubble.fill"),
       StatisticsSlice(id: "vietnamese", title: "越南语模式", count: sources["vietnamese"] ?? 0, color: colors[3], symbol: "textformat.abc.dottedunderline"),
@@ -188,7 +189,7 @@ struct TypingStatisticsView: View {
         Section {
           distribution(languageSlices, chart: .donut)
         } header: { Text("语言模式") }
-          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；粤拼和大千注音计入中文模式，中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
+          footer: { Text("按提交时使用的键盘模式统计，不推测文本语言；粤拼、大千注音和笔画计入中文模式，中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。") }
       case .scheme:
         Section {
           distribution(sourceSlices, chart: .rank)

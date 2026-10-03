@@ -435,6 +435,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case .cantonese: engineScheme = "cantonese"
     case .zhuyin: engineScheme = "zhuyin"
     case .vietnamese: engineScheme = "vietnamese"
+    case .stroke: engineScheme = "stroke"
     case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
     case .quanpin, .nineKey, .handwriting: engineScheme = "quanpin"
     }
@@ -451,7 +452,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let selectedID = selected.sharedIdentifier
     let mapping: (inout [String: Any]) -> Void = { preferences in
       preferences["scheme"] = engineScheme
-      // `last_chinese_scheme` is the Chinese scheme to come back to, so Japanese, Korean and Vietnamese, which write other languages, never replace it; Cantonese and Zhuyin are Chinese schemes and do.
+      // `last_chinese_scheme` is the Chinese scheme to come back to, so Japanese, Korean and Vietnamese, which write other languages, never replace it; Cantonese, Zhuyin and Stroke are Chinese schemes and do.
       if !["japanese", "korean", "vietnamese"].contains(engineScheme) {
         preferences["last_chinese_scheme"] = engineScheme
       }
@@ -974,6 +975,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func switchToZhuyin() -> MetasequoiaInputSnapshot { switchScheme("zhuyin", profile: nil) }
   /// Vietnamese Telex and VNI, composed in place with no candidates. Switching discards an open word, so callers finish the composition first.
   func switchToVietnamese() -> MetasequoiaInputSnapshot { switchScheme("vietnamese", profile: nil) }
+  /// 笔画输入，按笔顺查单字。缺少 language-dictionaries 里的 stroke.db 时运行时继续用最近一次的中文方案，所以键盘只在文件在时提供它。
+  func switchToStroke() -> MetasequoiaInputSnapshot { switchScheme("stroke", profile: nil) }
 
   func editCandidate(at index: UInt, expectedWord: String, action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
     guard let row = (try? currentCandidates())?[safe: Int(index)],

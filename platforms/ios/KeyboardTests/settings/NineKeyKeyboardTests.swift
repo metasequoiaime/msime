@@ -1359,6 +1359,8 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases
       where scheme != .handwriting && scheme != .japaneseNineKey {
         InputSchemePreference.scheme = scheme
+        // 笔画只在测试宿主带了 stroke.db 时才能选上；没带时上面的赋值落到别的方案，那个方案已经单独测过。
+        if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
         controller.viewWillAppear(false)
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
@@ -1371,6 +1373,16 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertEqual(try button("zhuyinKeyq", in: controller).bounds.height, returnHeight, accuracy: 0.5)
           } else {
             XCTAssertEqual(try button("returnKey", in: controller).bounds.height, reference, accuracy: 0.5)
+          }
+          if scheme == .stroke {
+            // 笔画键在九键外框里占九键网格的位置：两行键填满三行的高度，数字层回到九键网格。
+            let shown = { (view: UIView) in sequence(first: view, next: \.superview).allSatisfy { !$0.isHidden } }
+            let stroke = try button("strokeKeyh", in: controller)
+            XCTAssertEqual(shown(stroke), !symbols)
+            XCTAssertEqual(shown(try button("nineKey6", in: controller)), symbols)
+            if !symbols { XCTAssertGreaterThan(stroke.bounds.height, reference) }
+            XCTAssertTrue(shown(try button("nineKeyDelete", in: controller)))
+            XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "笔画" : "123")
           }
           XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
@@ -1392,7 +1404,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             }
           }
           let punctuation = try button("quickPunctuationKey", in: controller)
-          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .japaneseNineKey, .handwriting].contains(scheme))
+          XCTAssertEqual(punctuation.isHidden, symbols || [.nineKey, .japaneseNineKey, .handwriting, .stroke].contains(scheme))
           if !punctuation.isHidden {
             XCTAssertEqual(punctuation.configuration?.title, scheme.isJapanese ? "、" : scheme.writesAsciiPunctuation ? "," : "，")
             XCTAssertEqual(punctuation.bounds.width, 44, accuracy: 0.5)
@@ -1402,7 +1414,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           // The Japanese nine-key owns its delete key inside the kana grid, including its digit
           // layer; the shared action-row delete remains hidden in both states.
           XCTAssertEqual(try button("symbolDeleteKey", in: controller).isHidden, !symbols || scheme == .japaneseNineKey)
-          if !symbols && ![.nineKey, .japaneseNineKey, .handwriting, .zhuyin].contains(scheme) {
+          if !symbols && ![.nineKey, .japaneseNineKey, .handwriting, .zhuyin, .stroke].contains(scheme) {
             let delete = try button("letterDeleteKey", in: controller)
             let shift = try button("shiftButton", in: controller)
             // Korean keys are named by the jamo they type.

@@ -2,10 +2,10 @@ import Foundation
 
 enum ChineseInputScheme: String, CaseIterable {
   // 「高情商回复」已改为工具栏入口，不再是方案。旧版存下的 `thoughtfulReply`（App Group）或 `thoughtful_reply`（共享文档）在这里认不出来，与其他未知值一样走 `InputSchemePreference` 的回退：已选的落到全拼 26 键或第一个可用方案，启用列表里直接忽略。
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, stroke
 
   /// The schemes a fresh install leaves off until the user enables them, as the settings host does (`optInSchemes` in MobilePlatformPlugin).
-  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese]
+  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .stroke]
 
   var isJapanese: Bool { self == .japanese || self == .japaneseNineKey }
 
@@ -21,20 +21,26 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Vietnamese Telex or VNI on the 26 letter keys: the Engine composes the word in place and offers no candidates.
   var isVietnamese: Bool { self == .vietnamese }
 
-  /// Whether the scheme takes the Mandarin feature set: traditional output conversion, candidate glosses, the local input modes and the candidate menu. Japanese, Korean and Vietnamese write their own scripts, and Cantonese and Zhuyin write Traditional Chinese straight from their own dictionaries without any of these.
-  var writesChinese: Bool { !isJapanese && !isKorean && !isCantonese && !isZhuyin && !isVietnamese }
+  /// 笔画输入：五个笔画键 h s p n z 加通配 x，从笔画词库按笔顺查单字，候选只读、不学习。键面和预编辑都画笔画字形 一丨丿丶乛＊，ASCII 字母只是发给 Engine 的键。
+  var isStroke: Bool { self == .stroke }
+
+  /// Whether the preedit is the drawn form of the keys rather than a spelling of them: Stroke's 一丨丿丶乛＊ stand for the letters h s p n z x. The letters in `editing_text` are only what the keys send, so no display, inline or on the strip, shows them (msime_client.h).
+  var drawsKeysAsGlyphs: Bool { isStroke }
+
+  /// Whether the scheme takes the Mandarin feature set: traditional output conversion, candidate glosses, the local input modes and the candidate menu. Japanese, Korean and Vietnamese write their own scripts, Cantonese and Zhuyin write Traditional Chinese straight from their own dictionaries, and Stroke looks characters up by stroke order in its own dictionary, all without any of these.
+  var writesChinese: Bool { !isJapanese && !isKorean && !isCantonese && !isZhuyin && !isVietnamese && !isStroke }
 
   /// Whether the scheme writes half-width ASCII punctuation, as Korean and Vietnamese do; every other scheme offers Chinese or Japanese marks.
   var writesAsciiPunctuation: Bool { isKorean || isVietnamese }
 
-  /// Whether the composition is a letter spelling with a caret the user can move: the Mandarin schemes and Cantonese. A Japanese reading converts as a whole, and the in-place schemes have no caret inside what they compose.
+  /// Whether the composition is a letter spelling with a caret the user can move: the Mandarin schemes and Cantonese. A Japanese reading converts as a whole, the in-place schemes have no caret inside what they compose, and a stroke sequence is drawn as glyphs whose letters the user never sees.
   var hasSpellingCaret: Bool { writesChinese || isCantonese }
 
   /// Whether what the Engine composes is already the text: a Korean syllable, a Zhuyin conversion or a Vietnamese word. It is marked inline whatever the preedit setting says, and leaving the scheme or the composition commits it rather than throwing it away.
   var composesInPlace: Bool { isKorean || isZhuyin || isVietnamese }
 
   /// Whether the scheme reads a dictionary that ships apart from the resource set, and so is offered only where it is installed.
-  var needsLanguageDictionary: Bool { isCantonese || isZhuyin }
+  var needsLanguageDictionary: Bool { isCantonese || isZhuyin || isStroke }
 
   /// Whether a held backspace and a quick space-bar flick edit the spelling a syllable at a time. Only a lettered pinyin spelling has syllables to step over: a nine-key digit run is still ambiguous, and a wubi code is not made of syllables, so those keep a hold that clears the composition.
   var editsBySyllable: Bool { self == .quanpin || shuangpinProfile != nil }
@@ -65,6 +71,18 @@ enum ChineseInputScheme: String, CaseIterable {
     case .cantonese: "cantonese"
     case .zhuyin: "zhuyin"
     case .vietnamese: "vietnamese"
+    case .stroke: "stroke"
+    }
+  }
+  /// The `input.schema` the cloud settings document carries for this scheme, or nil for one it cannot carry. The cloud knows quanpin, shuangpin, wubi, japanese and korean only, and every device rejects a document with any other value (`IOSPreferencePlan`), so Cantonese, Zhuyin, Vietnamese and Stroke leave the field out and keep the account's scheme, as the Tauri `local_account_preferences` does.
+  var cloudSchema: String? {
+    switch self {
+    case .quanpin, .nineKey, .handwriting: "quanpin"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
+    case .wubi: "wubi"
+    case .japanese, .japaneseNineKey: "japanese"
+    case .korean: "korean"
+    case .cantonese, .zhuyin, .vietnamese, .stroke: nil
     }
   }
   static func scheme(sharedIdentifier value: String) -> ChineseInputScheme? {
@@ -86,6 +104,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .cantonese: "粤拼 26 键"
     case .zhuyin: "大千注音"
     case .vietnamese: "越南语 26 键"
+    case .stroke: "笔画"
     }
   }
 }
@@ -154,12 +173,12 @@ enum InputSchemePreference {
     }
   }
 
-  /// The enabled schemes this process can run: an enabled Cantonese or Zhuyin whose dictionary is not installed is left out, because the Engine would answer it with another scheme. The enabled list itself keeps it, so the choice holds once the dictionary arrives. A process that carries no Engine (the App) cannot tell and leaves every enabled scheme in, so its settings never rewrite a selection the keyboard can run.
+  /// The enabled schemes this process can run: an enabled Cantonese, Zhuyin or Stroke whose dictionary is not installed is left out, because the Engine would answer it with another scheme. The enabled list itself keeps it, so the choice holds once the dictionary arrives. A process that carries no Engine (the App) cannot tell and leaves every enabled scheme in, so its settings never rewrite a selection the keyboard can run.
   static var offeredSchemes: [ChineseInputScheme] {
     offeredSchemes(enabled: enabledSchemes, installed: installedLanguageSchemes)
   }
 
-  /// `enabled` without the Cantonese and Zhuyin schemes missing from `installed`; nil `installed` means unknown and filters nothing.
+  /// `enabled` without the Cantonese, Zhuyin and Stroke schemes missing from `installed`; nil `installed` means unknown and filters nothing.
   static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?) -> [ChineseInputScheme] {
     guard let installed else { return enabled }
     let offered = enabled.filter { !$0.needsLanguageDictionary || installed.contains($0) }
@@ -177,7 +196,7 @@ enum InputSchemePreference {
   /// The schemes whose dictionary `directory` holds, by the file names host-api looks for; nil when there is no directory to look in, which `offeredSchemes` reads as unknown.
   static func installedLanguageSchemes(in directory: URL?) -> Set<ChineseInputScheme>? {
     guard let directory else { return nil }
-    let files: [(ChineseInputScheme, String)] = [(.cantonese, "cantonese.db"), (.zhuyin, "zhuyin.db")]
+    let files: [(ChineseInputScheme, String)] = [(.cantonese, "cantonese.db"), (.zhuyin, "zhuyin.db"), (.stroke, "stroke.db")]
     return Set(files.filter { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.1).path) }.map(\.0))
   }
 
