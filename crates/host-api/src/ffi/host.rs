@@ -125,6 +125,9 @@ pub unsafe extern "C" fn msime_client_prepare_host(
     struct Bootstrap {
         resources: String,
         state_root: String,
+        /// 版本 id，缺省是 full；见 `prepare_host_configuration_for_edition`。
+        #[serde(default)]
+        edition: Option<String>,
     }
     response(|| {
         if options.is_null() || length > 16384 {
@@ -139,7 +142,12 @@ pub unsafe extern "C" fn msime_client_prepare_host(
         if !resources.is_absolute() || !state.is_absolute() {
             return Err("bootstrap paths must be absolute".into());
         }
-        let document = prepare_host_configuration(resources, state).map_err(|e| e.to_string())?;
+        let edition = match options.edition.as_deref() {
+            None => msime_client_core::edition::Edition::full(),
+            Some(id) => msime_client_core::edition::Edition::by_id(id).ok_or("unknown edition")?,
+        };
+        let document = prepare_host_configuration_for_edition(resources, state, edition)
+            .map_err(|e| e.to_string())?;
         serde_json::from_str(&document).map_err(|e| e.to_string())
     })
 }

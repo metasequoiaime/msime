@@ -53,6 +53,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
             options.sound_packs.as_deref(),
             &options.resources,
         );
+        let edition = options.edition();
         let mut options = options.into_engine_options();
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
@@ -124,6 +125,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                 HostSession {
                     runtime,
                     options,
+                    edition,
                     applied,
                     requested: None,
                     preferences_pending: false,

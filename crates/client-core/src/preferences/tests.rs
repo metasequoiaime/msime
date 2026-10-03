@@ -3559,3 +3559,148 @@ fn candidate_window_style_rejects_out_of_range_values() {
         "candidate window scale must be 50-200%, opacity 50-100% and corner radius 0-32"
     );
 }
+
+fn wubi_edition() -> &'static crate::edition::Edition {
+    crate::edition::Edition::by_id("wubi").unwrap()
+}
+
+/// full 的版本默认值就是 `Default`，所以 full 的偏好、首启快照和触屏方案都与引入版本之前相同。
+#[test]
+fn full_edition_defaults_are_the_defaults() {
+    let full = crate::edition::Edition::full();
+    assert_eq!(Preferences::for_edition(full), Preferences::default());
+    assert_eq!(
+        PreferencesSnapshot::for_edition(full),
+        PreferencesSnapshot::default()
+    );
+    assert_eq!(
+        TouchKeyboardSchemePreferences::for_edition(full),
+        TouchKeyboardSchemePreferences::default()
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), full);
+    assert!(store.edition().is_full());
+    assert_eq!(store.load().unwrap(), PreferencesSnapshot::default());
+    assert!(PreferencesStore::new(directory.path()).edition().is_full());
+}
+
+/// 五笔版第一次运行、还没有偏好文件时：方案是五笔，切回中文也回到五笔，混拼默认打开，触屏键盘只有五笔和手写。
+#[test]
+fn wubi_edition_first_run_defaults_to_wubi_with_mixed_pinyin_on() {
+    let wubi = wubi_edition();
+    let defaults = Preferences::for_edition(wubi);
+    assert_eq!(defaults.scheme, InputScheme::Wubi);
+    assert_eq!(defaults.last_chinese_scheme, Some(ChineseScheme::Wubi));
+    assert!(defaults.wubi_mixed_pinyin);
+    assert_eq!(
+        defaults.touch_keyboard_schemes.enabled,
+        [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        defaults.touch_keyboard_schemes.first_enabled(),
+        TouchKeyboardScheme::Wubi
+    );
+    defaults.validate().unwrap();
+    // 其余设置与 full 相同。
+    assert_eq!(
+        Preferences {
+            scheme: InputScheme::Quanpin,
+            last_chinese_scheme: None,
+            wubi_mixed_pinyin: false,
+            touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+            ..defaults.clone()
+        },
+        Preferences::default()
+    );
+
+    // 没有偏好文件这条路：读到的是五笔版的默认值，修订号 0。
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), wubi);
+    assert_eq!(store.edition().id, "wubi");
+    let first = store.load().unwrap();
+    assert_eq!(first.revision, 0);
+    assert_eq!(first.preferences, defaults);
+    assert!(
+        store
+            .try_load()
+            .unwrap()
+            .unwrap()
+            .preferences
+            .wubi_mixed_pinyin
+    );
+
+    // 收窄后的触屏方案不等于 full 的缺省，所以会被写进文件，读回来不变。
+    let saved = store.save(0, first.preferences.clone()).unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(
+        PreferencesStore::new(directory.path()).load().unwrap(),
+        saved
+    );
+
+    // 混拼只是默认打开，用户可以关掉，关掉后保持关闭。
+    let mut off = saved.preferences.clone();
+    off.wubi_mixed_pinyin = false;
+    store.save(saved.revision, off).unwrap();
+    assert!(!store.load().unwrap().preferences.wubi_mixed_pinyin);
+}
+
+/// 拼音版只有全拼和双拼：默认方案仍是全拼，触屏键盘去掉五笔、日文和韩文入口，保留手写。
+#[test]
+fn pinyin_edition_narrows_the_touch_keyboard() {
+    let pinyin = crate::edition::Edition::by_id("pinyin").unwrap();
+    let defaults = Preferences::for_edition(pinyin);
+    assert_eq!(defaults.scheme, InputScheme::Quanpin);
+    assert_eq!(defaults.last_chinese_scheme, None);
+    assert!(!defaults.wubi_mixed_pinyin);
+    assert_eq!(
+        defaults.touch_keyboard_schemes.enabled,
+        [
+            TouchKeyboardScheme::Quanpin,
+            TouchKeyboardScheme::NineKey,
+            TouchKeyboardScheme::Xiaohe,
+            TouchKeyboardScheme::Ziranma,
+            TouchKeyboardScheme::Microsoft,
+            TouchKeyboardScheme::Shoudao,
+            TouchKeyboardScheme::Handwriting,
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+/// 五笔版恢复默认设置和修复损坏的偏好文件时，回到的都是五笔版的默认值。
+#[test]
+fn wubi_edition_restores_and_recovers_to_its_own_defaults() {
+    let wubi = wubi_edition();
+    let mut edited = Preferences::for_edition(wubi);
+    edited.wubi_mixed_pinyin = false;
+    edited.candidate_page_size = 7;
+    let restored = edited.restored_to_defaults_for(wubi);
+    assert_eq!(restored, Preferences::for_edition(wubi));
+    assert_eq!(edited.restored_to_defaults(), Preferences::default());
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::for_edition(directory.path(), wubi);
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":4,"preferences":{"scheme":"#,
+    )
+    .unwrap();
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(!salvaged);
+    assert_eq!(snapshot.preferences, Preferences::for_edition(wubi));
+
+    // 能挽救的设置照常保留，没有的设置取五笔版的默认值。
+    fs::write(
+        directory.path().join("preferences.json"),
+        br#"{"format_version":1,"revision":9,"preferences":{"candidate_page_size":6,"unknown_field":1}}"#,
+    )
+    .unwrap();
+    let (snapshot, _, salvaged) = expect_recovered(store.recover().unwrap());
+    assert!(salvaged);
+    assert_eq!(snapshot.preferences.candidate_page_size, 6);
+    assert_eq!(snapshot.preferences.scheme, InputScheme::Wubi);
+    assert!(snapshot.preferences.wubi_mixed_pinyin);
+}

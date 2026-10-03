@@ -2,6 +2,7 @@
 //!
 //! Everything here is settled when the agent registers the server: the command line is written into the agent's configuration once, so a model talking to the server can neither widen what it may do nor point it at another directory.
 
+use msime_client_core::edition::Edition;
 use serde_json::Value;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -217,6 +218,21 @@ impl Config {
                 serde_json::to_value(&snapshot.preferences).map_err(|error| error.to_string())?;
         }
         Ok(document)
+    }
+
+    /// 运行时选项记录的版本，没有 `edition` 键就是 full。记录了不认识的版本时拒绝，而不是按 full 去改另一个版本的偏好。
+    pub fn edition(&self, document: &Value) -> Result<&'static Edition, String> {
+        Edition::of_host_options(document)
+            .ok_or_else(|| "the runtime options name an unknown edition of the input method".into())
+    }
+
+    /// 向助手报告的服务器名，与设置页登记条目用的键相同（`Edition::mcp_server_name`）：full 是 `msime`。运行时选项还读不了时按 full 报告，各个工具被调用时会再读一次并报告问题。
+    pub fn server_name(&self) -> String {
+        self.read_options()
+            .ok()
+            .and_then(|document| Edition::of_host_options(&document))
+            .unwrap_or_else(Edition::full)
+            .mcp_server_name()
     }
 
     /// The directory holding preferences.json, typing-statistics.json and the skins folder.
@@ -461,5 +477,36 @@ mod tests {
             config.read_host_options().unwrap()["preferences"]["scheme"],
             "quanpin"
         );
+    }
+
+    #[test]
+    fn the_edition_and_server_name_come_from_the_runtime_options() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        let config = Config {
+            options: options.clone(),
+            state_dir: None,
+            allow_write: false,
+            allow_dictionary_read: false,
+        };
+        // 还没有运行时选项：按 full 报告服务器名。
+        assert_eq!(config.server_name(), "msime");
+
+        std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
+        assert!(config
+            .edition(&config.read_options().unwrap())
+            .unwrap()
+            .is_full());
+        assert_eq!(config.server_name(), "msime");
+
+        std::fs::write(&options, br#"{"api_version":1,"edition":"wubi"}"#).unwrap();
+        assert_eq!(
+            config.edition(&config.read_options().unwrap()).unwrap().id,
+            "wubi"
+        );
+        assert_eq!(config.server_name(), "msime-wubi");
+
+        std::fs::write(&options, br#"{"api_version":1,"edition":"klingon"}"#).unwrap();
+        assert!(config.edition(&config.read_options().unwrap()).is_err());
     }
 }

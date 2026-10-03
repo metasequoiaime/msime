@@ -4,7 +4,7 @@
 //!
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）由平台构建脚本读取，本模块不解析。
 
-use crate::preferences::InputScheme;
+use crate::preferences::{InputScheme, TouchKeyboardScheme};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -110,9 +110,56 @@ impl Edition {
         Self::by_id(Self::FULL_ID).expect("shared/contracts/editions.json defines the full edition")
     }
 
+    /// HostOptions 文档里记录版本 id 的键。full 的文档不写这个键，所以 full 的文档与引入版本之前逐字节相同，旧版读取方（`HostOptions` 拒绝未知键）照样能读。
+    pub const HOST_OPTIONS_KEY: &'static str = "edition";
+
+    /// 是否就是 full 版本。
+    pub fn is_full(&self) -> bool {
+        self.id == Self::FULL_ID
+    }
+
     /// 本版本是否提供这个方案。
     pub fn offers(&self, scheme: InputScheme) -> bool {
         self.input_schemes.contains(&scheme)
+    }
+
+    /// 本版本的触屏键盘是否提供这个方案入口：入口背后的输入方案在本版本里时提供。手写不属于任何一个输入方案（识别由平台的手写识别器完成，不经过 Engine 的方案），每个版本都保留它。
+    pub fn offers_touch_scheme(&self, scheme: TouchKeyboardScheme) -> bool {
+        let input = match scheme {
+            TouchKeyboardScheme::Handwriting => return true,
+            TouchKeyboardScheme::Quanpin | TouchKeyboardScheme::NineKey => InputScheme::Quanpin,
+            TouchKeyboardScheme::Xiaohe
+            | TouchKeyboardScheme::Ziranma
+            | TouchKeyboardScheme::Microsoft
+            | TouchKeyboardScheme::Shoudao => InputScheme::Shuangpin,
+            TouchKeyboardScheme::Wubi => InputScheme::Wubi,
+            TouchKeyboardScheme::JapaneseNineKey | TouchKeyboardScheme::Japanese => {
+                InputScheme::Japanese
+            }
+            TouchKeyboardScheme::Korean => InputScheme::Korean,
+            TouchKeyboardScheme::Cantonese => InputScheme::Cantonese,
+            TouchKeyboardScheme::Zhuyin => InputScheme::Zhuyin,
+            TouchKeyboardScheme::Vietnamese => InputScheme::Vietnamese,
+        };
+        self.offers(input)
+    }
+
+    /// 本版本在 AI 助手配置文件 `mcpServers` 下登记 `msime-mcp` 用的键：full 仍是 `msime`，其他版本是 `msime-<id>`。多个版本同时安装时，每个版本各登记一条，互不覆盖。
+    pub fn mcp_server_name(&self) -> String {
+        if self.is_full() {
+            "msime".to_owned()
+        } else {
+            format!("msime-{}", self.id)
+        }
+    }
+
+    /// HostOptions 文档记录的版本：没有 `edition` 键（或为 null）是 full；键的值不是版本表里的 id 时返回 `None`，调用方应拒绝这份文档，而不是猜成 full。
+    pub fn of_host_options(document: &serde_json::Value) -> Option<&'static Edition> {
+        match document.get(Self::HOST_OPTIONS_KEY) {
+            None | Some(serde_json::Value::Null) => Some(Self::full()),
+            Some(serde_json::Value::String(id)) => Self::by_id(id),
+            Some(_) => None,
+        }
     }
 }
 
@@ -197,6 +244,51 @@ mod tests {
     fn an_unknown_id_is_not_an_edition() {
         assert!(Edition::by_id("unknown").is_none());
         assert!(Edition::by_id("").is_none());
+    }
+
+    #[test]
+    fn host_options_without_an_edition_are_full() {
+        use serde_json::json;
+        let of = |document: serde_json::Value| {
+            Edition::of_host_options(&document).map(|e| e.id.as_str())
+        };
+        assert_eq!(of(json!({ "api_version": 1 })), Some("full"));
+        assert_eq!(of(json!({ "edition": null })), Some("full"));
+        assert_eq!(of(json!({ "edition": "full" })), Some("full"));
+        assert_eq!(of(json!({ "edition": "wubi" })), Some("wubi"));
+        assert_eq!(of(json!({ "edition": "pinyin" })), Some("pinyin"));
+        assert_eq!(of(json!({ "edition": "klingon" })), None);
+        assert_eq!(of(json!({ "edition": 3 })), None);
+    }
+
+    #[test]
+    fn full_keeps_the_mcp_server_name_and_the_others_get_their_own() {
+        assert_eq!(Edition::full().mcp_server_name(), "msime");
+        assert_eq!(
+            Edition::by_id("wubi").unwrap().mcp_server_name(),
+            "msime-wubi"
+        );
+        assert_eq!(
+            Edition::by_id("pinyin").unwrap().mcp_server_name(),
+            "msime-pinyin"
+        );
+    }
+
+    #[test]
+    fn touch_scheme_entries_follow_the_input_schemes_and_handwriting_stays() {
+        let full = Edition::full();
+        assert!(TouchKeyboardScheme::ALL
+            .into_iter()
+            .all(|scheme| full.offers_touch_scheme(scheme)));
+        let wubi = Edition::by_id("wubi").unwrap();
+        let offered: Vec<_> = TouchKeyboardScheme::ALL
+            .into_iter()
+            .filter(|scheme| wubi.offers_touch_scheme(*scheme))
+            .collect();
+        assert_eq!(
+            offered,
+            [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
+        );
     }
 
     #[test]

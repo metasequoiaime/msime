@@ -3,6 +3,7 @@
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
 use super::*;
+use msime_client_core::host_surface::compiled_input_schemes;
 use sha2::{Digest, Sha256};
 
 #[test]
@@ -6184,7 +6185,8 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
             last_chinese_scheme: last,
             ..Preferences::default()
         };
-        let (effective, diagnostic) = effective_scheme(&preferences, supported, dictionaries);
+        let (effective, diagnostic) =
+            effective_scheme(&preferences, supported, dictionaries, InputScheme::Quanpin);
         assert_eq!(effective, expected, "{scheme:?} after {last:?}");
         match (diagnostic, reason, effective == scheme) {
             (None, _, true) => {}
@@ -6328,6 +6330,162 @@ fn a_scheme_this_build_does_not_run_falls_back_and_says_why() {
     let updated = update(handle, 2, &quanpin);
     assert!(updated["value"].get("diagnostic").is_none());
     read(msime_client_destroy(handle));
+}
+
+/// 五笔版的 HostOptions 文档即使带着写着全拼的偏好（例如从 full 同步来的），会话跑的也是五笔，之后的偏好更新同样回退到五笔；full 拿到同一份偏好仍跑全拼。
+#[test]
+fn the_wubi_edition_runs_wubi_whatever_scheme_the_preferences_name() {
+    let quanpin = Preferences {
+        scheme: InputScheme::Quanpin,
+        last_chinese_scheme: Some(msime_client_core::preferences::ChineseScheme::Quanpin),
+        ..chinese_preferences()
+    };
+    let document = |edition: Option<&str>| {
+        let mut document = json!({ "api_version": 1, "resources": "/r", "user_data": "/u", "cache": "/c", "dictionaries": "/d", "preferences": quanpin });
+        if let Some(edition) = edition {
+            document["edition"] = json!(edition);
+        }
+        document
+    };
+    let engine_scheme = |document: Value| {
+        HostOptions::from_document(document)
+            .expect("host options")
+            .into_engine_options()
+            .scheme
+    };
+    assert_eq!(engine_scheme(document(None)), 0);
+    assert_eq!(engine_scheme(document(Some("full"))), 0);
+    assert_eq!(engine_scheme(document(Some("wubi"))), 2);
+    assert_eq!(engine_scheme(document(Some("pinyin"))), 0);
+    // 拼音版不含五笔：写着五笔的偏好回退到拼音版的默认方案全拼。
+    let mut wubi_preferences = document(Some("pinyin"));
+    wubi_preferences["preferences"]["scheme"] = json!("wubi");
+    wubi_preferences["preferences"]["last_chinese_scheme"] = json!("wubi");
+    assert_eq!(engine_scheme(wubi_preferences), 0);
+    // 不认识的版本不猜成 full，整份文档被拒。
+    assert!(HostOptions::from_document(document(Some("klingon"))).is_none());
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name| {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": quanpin, "edition": "wubi" }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let handle = created["value"]["session"].as_u64().unwrap();
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.scheme, 2));
+
+    let shuangpin = Preferences {
+        scheme: InputScheme::Shuangpin,
+        last_chinese_scheme: Some(msime_client_core::preferences::ChineseScheme::Quanpin),
+        ..chinese_preferences()
+    };
+    let updated = update(handle, 1, &shuangpin);
+    assert_eq!(updated["ok"], true, "{updated}");
+    let diagnostic = updated["value"]["diagnostic"].as_str().unwrap();
+    assert!(diagnostic.contains("does not offer"), "{diagnostic}");
+    assert!(diagnostic.contains("Wubi"), "{diagnostic}");
+    SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.scheme, 2));
+    read(msime_client_destroy(handle));
+}
+
+/// 回退到的方案在 full 是全拼，在别的版本是该版本的默认方案；能跑的上一次中文方案仍然优先。
+#[test]
+fn the_fallback_scheme_is_the_edition_default() {
+    use msime_client_core::preferences::ChineseScheme;
+    let none = LanguageDictionaries::default();
+    let wubi = Edition::by_id("wubi").unwrap();
+    let offered = msime_client_core::host_surface::offered_input_schemes(wubi);
+    for (scheme, last) in [
+        (InputScheme::Quanpin, None),
+        (InputScheme::Quanpin, Some(ChineseScheme::Quanpin)),
+        (InputScheme::Shuangpin, Some(ChineseScheme::Shuangpin)),
+        (InputScheme::Japanese, Some(ChineseScheme::Quanpin)),
+        (InputScheme::Cantonese, Some(ChineseScheme::Zhuyin)),
+    ] {
+        let preferences = Preferences {
+            scheme,
+            last_chinese_scheme: last,
+            ..Preferences::default()
+        };
+        let (effective, diagnostic) =
+            effective_scheme(&preferences, &offered, &none, wubi.default_scheme);
+        assert_eq!(effective, InputScheme::Wubi, "{scheme:?} after {last:?}");
+        assert!(diagnostic.unwrap().contains("does not offer"));
+        // full 拿到同样的偏好：除了要词库的粤拼，都照原样跑；粤拼没有词库时回退到全拼。
+        let (full, _) = effective_scheme(
+            &preferences,
+            compiled_input_schemes(),
+            &none,
+            Edition::full().default_scheme,
+        );
+        let expected = if scheme == InputScheme::Cantonese {
+            InputScheme::Quanpin
+        } else {
+            scheme
+        };
+        assert_eq!(full, expected, "{scheme:?} after {last:?}");
+    }
+    let wubi_preferences = Preferences {
+        scheme: InputScheme::Wubi,
+        ..Preferences::default()
+    };
+    assert_eq!(
+        effective_scheme(&wubi_preferences, &offered, &none, wubi.default_scheme),
+        (InputScheme::Wubi, None)
+    );
+}
+
+/// full 准备出的文档没有 `edition` 键，也不替用户写偏好文件，与引入版本之前相同；五笔版的文档记下版本，第一次准备时把五笔版的默认偏好（五笔、混拼打开）写成第一份偏好文件，之后不再覆盖用户的修改。
+#[test]
+fn prepared_options_record_only_a_non_full_edition_and_seed_its_first_preferences() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_desktop_lock(&resources);
+    let prepare = |state: &Path, edition: &'static Edition| -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(&resources, state, &specification, &[], edition)
+                .unwrap(),
+        )
+        .unwrap()
+    };
+
+    let full_state = root.path().join("full");
+    let full = prepare(&full_state, Edition::full());
+    assert!(full.get("edition").is_none(), "{full}");
+    assert_eq!(full["preferences"], json!(Preferences::default()));
+    assert!(!full_state.join("preferences.json").exists());
+    assert!(HostOptions::from_document(full.clone()).is_some());
+
+    let wubi = Edition::by_id("wubi").unwrap();
+    let wubi_state = root.path().join("wubi");
+    let prepared = prepare(&wubi_state, wubi);
+    assert_eq!(prepared["edition"], "wubi");
+    assert_eq!(prepared["preferences"]["scheme"], "wubi");
+    assert_eq!(prepared["preferences"]["last_chinese_scheme"], "wubi");
+    assert_eq!(prepared["preferences"]["wubi_mixed_pinyin"], true);
+    let options = HostOptions::from_document(prepared).unwrap();
+    assert_eq!(options.edition().id, "wubi");
+    assert_eq!(options.into_engine_options().scheme, 2);
+
+    // 平台宿主经 C 接口按目录读偏好，不知道版本；第一次读到的已经是五笔版的默认值。
+    let stored = PreferencesStore::new(&wubi_state).load().unwrap();
+    assert_eq!(stored.revision, 1);
+    assert_eq!(stored.preferences, Preferences::for_edition(wubi));
+    assert!(stored.preferences.wubi_mixed_pinyin);
+
+    // 用户关掉混拼之后再准备（例如升级后），不会被版本默认值改回去。
+    let mut off = stored.preferences.clone();
+    off.wubi_mixed_pinyin = false;
+    PreferencesStore::new(&wubi_state).save(1, off).unwrap();
+    let again = prepare(&wubi_state, wubi);
+    assert_eq!(again["preferences"]["wubi_mixed_pinyin"], false);
+    assert_eq!(
+        PreferencesStore::new(&wubi_state).load().unwrap().revision,
+        2
+    );
 }
 
 #[test]
@@ -8883,6 +9041,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
             &state,
             &specification,
             &MACOS_ON_DEMAND_ARTIFACTS,
+            Edition::full(),
         )
         .unwrap(),
     )
@@ -8908,6 +9067,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
         &root.path().join("state"),
         &specification,
         ON_DEMAND_ARTIFACTS,
+        Edition::full(),
     );
     #[cfg(target_os = "macos")]
     {

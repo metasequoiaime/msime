@@ -199,6 +199,13 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
             cfg!(target_os = "windows"),
         );
     }
+    // HostOptions 文档记录了版本时，去掉本版本不含的方案；full 的文档没有这个键，什么也不改。
+    if let Some(edition) = host_options
+        .as_ref()
+        .and_then(msime_client_core::edition::Edition::of_host_options)
+    {
+        capabilities.narrow_to_edition(edition);
+    }
     capabilities
 }
 
@@ -1288,7 +1295,11 @@ async fn restored_default_preferences(
     tauri::async_runtime::spawn_blocking(move || {
         store
             .load()
-            .map(|snapshot| snapshot.preferences.restored_to_defaults())
+            .map(|snapshot| {
+                snapshot
+                    .preferences
+                    .restored_to_defaults_for(store.edition())
+            })
             .map_err(CommandError::from)
     })
     .await

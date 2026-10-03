@@ -5,6 +5,7 @@
 //! from injected capabilities instead of sniffing the user agent. Both sides of
 //! that agreement live here so no host re-implements the strings.
 
+use crate::edition::Edition;
 use crate::preferences::InputScheme;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -292,7 +293,24 @@ pub struct HostCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
     /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese or Zhuyin dictionary is not installed.
+    ///
+    /// 不是 full 的版本还会经 [`HostCapabilities::narrow_to_edition`] 去掉本版本不含的方案；那些方案在本版本里不存在，设置页应该直接不列出，而不是显示为禁用，`edition` 就是用来区分这两种情况的。
     pub input_schemes: Vec<InputScheme>,
+    /// 运行中的版本，不是 full 时才有。缺省（包括引入版本之前的宿主）就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<EditionInfo>,
+}
+
+/// 设置页需要知道的版本信息。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditionInfo {
+    /// 版本 id。
+    pub id: String,
+    /// 本版本提供的方案；不在其中的方案在本版本里不存在。
+    pub input_schemes: Vec<InputScheme>,
+    /// 本版本的默认方案，偏好里的方案不可用时回退到它。
+    pub default_scheme: InputScheme,
 }
 
 /// The base schemes plus Cantonese, Zhuyin and Vietnamese, which every host offers.
@@ -310,6 +328,14 @@ const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
 /// The schemes this build hands to its Engine: all eight on every host, since each one routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese and Zhuyin still fall back when their dictionary is not installed.
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
     &ALL_INPUT_SCHEMES
+}
+
+/// `edition` 交给 Engine 的方案：[`compiled_input_schemes`] 里本版本提供的那些，顺序不变。full 得到的就是全部八个。host-api 对偏好里其他的方案一律回退到本版本的方案，所以在不是 full 的版本里，任何偏好文档都不会让 Engine 跑一个本版本不含的方案。
+pub fn offered_input_schemes(edition: &Edition) -> Vec<InputScheme> {
+    ALL_INPUT_SCHEMES
+        .into_iter()
+        .filter(|scheme| edition.offers(*scheme))
+        .collect()
 }
 
 impl HostCapabilities {
@@ -563,7 +589,21 @@ impl HostCapabilities {
             candidate_panel_limit: None,
             // Every host routes the Cantonese, Zhuyin and Vietnamese keys and ships their dictionaries.
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
+            edition: None,
         }
+    }
+
+    /// 收窄到 `edition`：去掉本版本不含的方案，并在不是 full 时带上版本信息。对 full 什么也不改，序列化结果与引入版本之前相同。
+    pub fn narrow_to_edition(&mut self, edition: &Edition) {
+        if edition.is_full() {
+            return;
+        }
+        self.input_schemes.retain(|scheme| edition.offers(*scheme));
+        self.edition = Some(EditionInfo {
+            id: edition.id.clone(),
+            input_schemes: offered_input_schemes(edition),
+            default_scheme: edition.default_scheme,
+        });
     }
 }
 

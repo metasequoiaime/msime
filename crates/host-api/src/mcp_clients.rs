@@ -10,6 +10,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The key the entry is stored under in `mcpServers`.
+///
+/// 这是 full 版本的键；其他版本用 `Edition::mcp_server_name`，由 [`server_name`] 按运行时选项里记录的版本选出。
 pub const SERVER_NAME: &str = "msime";
 /// A configuration file larger than this is not one an assistant wrote; refuse it rather than read it whole.
 const CONFIG_READ_LIMIT: u64 = 4 << 20;
@@ -142,9 +144,22 @@ pub fn entry_flags(existing: &Value, base: &Value) -> Option<Vec<McpFlag>> {
     (Value::Object(stripped) == *base).then(|| canonical(&flags))
 }
 
-/// The entry wrapped the way both assistants, and most others, expect it.
-pub fn config_snippet(entry: &Value) -> String {
-    let document = json!({ "mcpServers": { SERVER_NAME: entry } });
+/// `options` 这份运行时选项所属版本登记用的键（`Edition::mcp_server_name`）：full 的文档没有 `edition` 键，得到 [`SERVER_NAME`]。文档读不了或记录了不认识的版本时同样用 [`SERVER_NAME`]：这里只决定条目的名字，文档本身有没有问题由 `msime-mcp` 启动后去报告。
+pub fn server_name(options: &Path) -> String {
+    std::fs::File::open(options)
+        .ok()
+        .and_then(|file| crate::bounded_file::read(file, CONFIG_READ_LIMIT).ok())
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|document| msime_client_core::edition::Edition::of_host_options(&document))
+        .map_or_else(
+            || SERVER_NAME.to_owned(),
+            |edition| edition.mcp_server_name(),
+        )
+}
+
+/// 把条目包成两个助手（以及大多数别的助手）期望的样子，登记在 `name` 下。
+pub fn config_snippet(name: &str, entry: &Value) -> String {
+    let document = json!({ "mcpServers": { name: entry } });
     serde_json::to_string_pretty(&document).unwrap_or_default()
 }
 
@@ -193,13 +208,13 @@ pub fn status(
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
 ) -> Result<McpServerStatus, &'static str> {
     let command = server_command(executable).ok_or("storage")?;
-    let entry = options.map(|options| server_entry(&command, options));
+    let entry = options.map(|options| (server_name(options), server_entry(&command, options)));
     let clients = client_paths(env)
         .into_iter()
         .map(|(id, path)| {
             let flags = entry
                 .as_ref()
-                .and_then(|entry| configured_flags(&path, entry));
+                .and_then(|(name, entry)| configured_flags(&path, name, entry));
             McpClientStatus {
                 id,
                 configured: flags.is_some(),
@@ -212,7 +227,9 @@ pub fn status(
         installed: command.is_file(),
         command: command.to_string_lossy().into_owned(),
         options: options.map(|path| path.to_string_lossy().into_owned()),
-        config: entry.as_ref().map(config_snippet),
+        config: entry
+            .as_ref()
+            .map(|(name, entry)| config_snippet(name, entry)),
         clients,
     })
 }
@@ -234,7 +251,13 @@ pub fn install_client(
         .into_iter()
         .find(|(id, _)| *id == client)
         .ok_or("mcp_client_missing")?;
-    install(&path, &server_entry(&command, options), flags, replace)
+    install(
+        &path,
+        &server_name(options),
+        &server_entry(&command, options),
+        flags,
+        replace,
+    )
 }
 
 /// The configuration as it is, or an empty object when there is no file yet.
@@ -261,17 +284,18 @@ fn read_config(path: &Path) -> Result<Map<String, Value>, &'static str> {
     }
 }
 
-/// 文件里的 `msime` 条目是 `base` 加上若干权限参数时，返回这些参数；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
-pub fn configured_flags(path: &Path, base: &Value) -> Option<Vec<McpFlag>> {
+/// 文件里 `name`（full 是 `msime`）条目是 `base` 加上若干权限参数时，返回这些参数；没有条目、条目不是这里写的、或文件读不了时返回 `None`。
+pub fn configured_flags(path: &Path, name: &str, base: &Value) -> Option<Vec<McpFlag>> {
     let document = read_config(path).ok()?;
-    entry_flags(document.get("mcpServers")?.get(SERVER_NAME)?, base)
+    entry_flags(document.get("mcpServers")?.get(name)?, base)
 }
 
-/// 把 `base`（`args` 末尾加上 `flags`）写到 `path` 文件的 `mcpServers.msime` 下，保留其它所有内容。
+/// 把 `base`（`args` 末尾加上 `flags`）写到 `path` 文件的 `mcpServers.<name>` 下（full 是 `mcpServers.msime`），保留其它所有内容；多个版本各写各的键，互不覆盖。
 ///
 /// 所在目录必须已经存在：它由助手自己创建，不存在说明没装这个助手，替用户建出来只会留下一个不存在的应用的目录。已有条目就是 `base` 只差权限参数时直接改成这次的参数（`Updated`）；其它不同的 `msime` 条目只在 `replace` 时替换，否则以 `mcp_entry_exists` 失败，让设置页先问。符号链接（比如放在 dotfiles 仓库里的配置）会写穿到目标文件，而不是被替换掉。
 pub fn install(
     path: &Path,
+    name: &str,
     base: &Value,
     flags: &[McpFlag],
     replace: bool,
@@ -293,7 +317,7 @@ pub fn install(
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .ok_or("mcp_config_invalid")?;
-    let outcome = match servers.get(SERVER_NAME) {
+    let outcome = match servers.get(name) {
         None => InstallOutcome::Added,
         Some(existing) => match entry_flags(existing, base) {
             Some(current) if current == flags => return Ok(InstallOutcome::Unchanged),
@@ -302,7 +326,7 @@ pub fn install(
             None => return Err("mcp_entry_exists"),
         },
     };
-    servers.insert(SERVER_NAME.to_owned(), entry);
+    servers.insert(name.to_owned(), entry);
     let mut text = serde_json::to_string_pretty(&Value::Object(document)).map_err(|_| "storage")?;
     text.push('\n');
     let mut file = tempfile::NamedTempFile::new_in(directory).map_err(|_| "storage")?;
@@ -345,7 +369,7 @@ mod tests {
             entry(),
             json!({ "command": "/opt/msime/msime-mcp", "args": ["--options", "/state/runtime-options.json"] })
         );
-        let snippet: Value = serde_json::from_str(&config_snippet(&entry())).unwrap();
+        let snippet: Value = serde_json::from_str(&config_snippet(SERVER_NAME, &entry())).unwrap();
         assert_eq!(snippet, json!({ "mcpServers": { "msime": entry() } }));
         assert_eq!(
             server_command(Path::new("/opt/msime/msime-desktop")).unwrap(),
@@ -361,14 +385,14 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mcp.json");
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Added)
         );
         let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(written, json!({ "mcpServers": { "msime": entry() } }));
-        assert_eq!(configured_flags(&path, &entry()), Some(vec![]));
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), Some(vec![]));
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Unchanged)
         );
     }
@@ -383,7 +407,7 @@ mod tests {
         });
         std::fs::write(&path, serde_json::to_vec(&before).unwrap()).unwrap();
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Added)
         );
         let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -406,17 +430,17 @@ mod tests {
         let before = json!({ "mcpServers": { "msime": { "command": "/old/msime-mcp", "args": ["--allow-write"] } } });
         std::fs::write(&path, serde_json::to_vec(&before).unwrap()).unwrap();
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Err("mcp_entry_exists")
         );
         let unchanged: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(unchanged, before);
-        assert_eq!(configured_flags(&path, &entry()), None);
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), None);
         assert_eq!(
-            install(&path, &entry(), &[], true),
+            install(&path, SERVER_NAME, &entry(), &[], true),
             Ok(InstallOutcome::Replaced)
         );
-        assert_eq!(configured_flags(&path, &entry()), Some(vec![]));
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), Some(vec![]));
     }
 
     #[test]
@@ -425,7 +449,7 @@ mod tests {
         let path = directory.path().join("mcp.json");
         let both = [McpFlag::AllowDictionaryRead, McpFlag::AllowWrite];
         assert_eq!(
-            install(&path, &entry(), &both, false),
+            install(&path, SERVER_NAME, &entry(), &both, false),
             Ok(InstallOutcome::Added)
         );
         let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -439,27 +463,27 @@ mod tests {
             ])
         );
         assert_eq!(
-            configured_flags(&path, &entry()),
+            configured_flags(&path, SERVER_NAME, &entry()),
             Some(vec![McpFlag::AllowWrite, McpFlag::AllowDictionaryRead])
         );
         assert_eq!(
-            install(&path, &entry(), &both, false),
+            install(&path, SERVER_NAME, &entry(), &both, false),
             Ok(InstallOutcome::Unchanged)
         );
         // 只差权限参数的条目是这里写的，直接改成新的一组，不需要 replace。
         assert_eq!(
-            install(&path, &entry(), &[McpFlag::AllowWrite], false),
+            install(&path, SERVER_NAME, &entry(), &[McpFlag::AllowWrite], false),
             Ok(InstallOutcome::Updated)
         );
         assert_eq!(
-            configured_flags(&path, &entry()),
+            configured_flags(&path, SERVER_NAME, &entry()),
             Some(vec![McpFlag::AllowWrite])
         );
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Updated)
         );
-        assert_eq!(configured_flags(&path, &entry()), Some(vec![]));
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), Some(vec![]));
     }
 
     #[test]
@@ -493,12 +517,13 @@ mod tests {
             "--allow-write"
         ]));
         assert_eq!(
-            configured_flags(&path, &entry()),
+            configured_flags(&path, SERVER_NAME, &entry()),
             Some(vec![McpFlag::AllowWrite, McpFlag::AllowDictionaryRead])
         );
         assert_eq!(
             install(
                 &path,
+                SERVER_NAME,
                 &entry(),
                 &[McpFlag::AllowWrite, McpFlag::AllowDictionaryRead],
                 false
@@ -512,14 +537,14 @@ mod tests {
             "--allow-write",
             "--verbose"
         ]));
-        assert_eq!(configured_flags(&path, &entry()), None);
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), None);
         assert_eq!(
-            install(&path, &entry(), &[McpFlag::AllowWrite], false),
+            install(&path, SERVER_NAME, &entry(), &[McpFlag::AllowWrite], false),
             Err("mcp_entry_exists")
         );
         // 指向另一份运行时选项的条目同样不是这里的。
         write(json!(["--options", "/elsewhere.json", "--allow-write"]));
-        assert_eq!(configured_flags(&path, &entry()), None);
+        assert_eq!(configured_flags(&path, SERVER_NAME, &entry()), None);
     }
 
     #[test]
@@ -546,6 +571,7 @@ mod tests {
         let path = home.path().join(".cursor").join("mcp.json");
         install(
             &path,
+            SERVER_NAME,
             &server_entry(&command, options),
             &[McpFlag::AllowDictionaryRead],
             false,
@@ -563,6 +589,59 @@ mod tests {
         assert_eq!(serialized["flags"], json!(["--allow-dictionary-read"]));
     }
 
+    /// 五笔版的运行时选项记录了版本，条目登记在 `msime-wubi` 下，旁边 full 的 `msime` 条目不受影响；full 的运行时选项仍用 `msime`。
+    #[test]
+    fn each_edition_registers_under_its_own_name() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join(".cursor")).unwrap();
+        let executable = home.path().join("msime-desktop");
+        let command = server_command(&executable).unwrap();
+        std::fs::write(&command, b"").unwrap();
+        let env = |name: &str| {
+            matches!(name, "HOME" | "USERPROFILE").then(|| home.path().as_os_str().to_owned())
+        };
+        let full_options = home.path().join("full-runtime-options.json");
+        std::fs::write(&full_options, br#"{"api_version":1}"#).unwrap();
+        let wubi_options = home.path().join("wubi-runtime-options.json");
+        std::fs::write(&wubi_options, br#"{"api_version":1,"edition":"wubi"}"#).unwrap();
+        assert_eq!(server_name(&full_options), SERVER_NAME);
+        assert_eq!(server_name(&wubi_options), "msime-wubi");
+        assert_eq!(server_name(&home.path().join("missing.json")), SERVER_NAME);
+
+        let install = |options: &Path| {
+            install_client(
+                &executable,
+                Some(options),
+                McpClient::Cursor,
+                &[],
+                false,
+                env,
+            )
+        };
+        assert_eq!(install(&full_options), Ok(InstallOutcome::Added));
+        assert_eq!(install(&wubi_options), Ok(InstallOutcome::Added));
+        let document: Value = serde_json::from_slice(
+            &std::fs::read(home.path().join(".cursor").join("mcp.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            document["mcpServers"]["msime"],
+            server_entry(&command, &full_options)
+        );
+        assert_eq!(
+            document["mcpServers"]["msime-wubi"],
+            server_entry(&command, &wubi_options)
+        );
+
+        let status = status(&executable, Some(&wubi_options), env).unwrap();
+        let snippet: Value = serde_json::from_str(status.config.as_deref().unwrap()).unwrap();
+        assert!(snippet["mcpServers"].get("msime-wubi").is_some());
+        assert!(status
+            .clients
+            .iter()
+            .any(|client| client.id == McpClient::Cursor && client.configured));
+    }
+
     #[test]
     fn a_file_that_is_not_a_json_object_is_never_overwritten() {
         let directory = tempfile::tempdir().unwrap();
@@ -570,14 +649,14 @@ mod tests {
         for text in ["{ \"mcpServers\": ", "[]", "{\"mcpServers\": []}"] {
             std::fs::write(&path, text).unwrap();
             assert_eq!(
-                install(&path, &entry(), &[], true),
+                install(&path, SERVER_NAME, &entry(), &[], true),
                 Err("mcp_config_invalid")
             );
             assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
         }
         std::fs::write(&path, "\n").unwrap();
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Added)
         );
     }
@@ -587,7 +666,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".cursor").join("mcp.json");
         assert_eq!(
-            install(&path, &entry(), &[], false),
+            install(&path, SERVER_NAME, &entry(), &[], false),
             Err("mcp_client_missing")
         );
         assert!(!directory.path().join(".cursor").exists());
@@ -604,14 +683,14 @@ mod tests {
         let link = directory.path().join("mcp.json");
         std::os::unix::fs::symlink(&real, &link).unwrap();
         assert_eq!(
-            install(&link, &entry(), &[], false),
+            install(&link, SERVER_NAME, &entry(), &[], false),
             Ok(InstallOutcome::Added)
         );
         assert!(std::fs::symlink_metadata(&link)
             .unwrap()
             .file_type()
             .is_symlink());
-        assert_eq!(configured_flags(&real, &entry()), Some(vec![]));
+        assert_eq!(configured_flags(&real, SERVER_NAME, &entry()), Some(vec![]));
         assert_eq!(
             std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
             0o644

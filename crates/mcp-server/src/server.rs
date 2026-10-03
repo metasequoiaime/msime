@@ -276,15 +276,16 @@ impl MsimeServer {
     async fn get_preferences(&self) -> Result<Json<PreferencesView>, String> {
         let config = self.config.clone();
         blocking(move || {
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            preferences::load(&state_dir).map(Json)
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            preferences::load(&state_dir, config.edition(&document)?).map(Json)
         })
         .await
     }
 
     #[tool(
         name = "update_preferences",
-        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read.",
+        description = "Change some of the preferences get_preferences returns. Only the fields given change. Refused when the preferences changed since expected_revision was read, and for a scheme the installed edition of the input method does not offer.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -305,8 +306,10 @@ impl MsimeServer {
         let result = blocking(move || {
             let _guard = guard;
             let _shared = claim_shared_write(&config)?;
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            preferences::update(&state_dir, &config.options, &change).map(Json)
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let edition = config.edition(&document)?;
+            preferences::update(&state_dir, &config.options, edition, &change).map(Json)
         })
         .await;
         eprintln!(
@@ -417,8 +420,10 @@ impl MsimeServer {
         let result = blocking(move || {
             let _guard = guard;
             let _shared = claim_shared_write(&config)?;
-            let state_dir = config.state_dir(&config.read_options()?)?;
-            diagnostics::set(&state_dir, &config.options, request.enabled).map(Json)
+            let document = config.read_options()?;
+            let state_dir = config.state_dir(&document)?;
+            let edition = config.edition(&document)?;
+            diagnostics::set(&state_dir, &config.options, edition, request.enabled).map(Json)
         })
         .await;
         eprintln!(
@@ -593,7 +598,10 @@ impl ServerHandler for MsimeServer {
                 .enable_prompts()
                 .build(),
         )
-        .with_server_info(Implementation::new("msime", env!("CARGO_PKG_VERSION")))
+        .with_server_info(Implementation::new(
+            self.config.server_name(),
+            env!("CARGO_PKG_VERSION"),
+        ))
         .with_instructions(INSTRUCTIONS)
     }
 }
