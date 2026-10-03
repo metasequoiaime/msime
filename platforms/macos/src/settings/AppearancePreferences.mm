@@ -24,6 +24,11 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
 
+@interface MSIMETranslationSettingsWindow (Lifecycle)
+- (void)invalidatePendingCallbacks;
+@end
+
+
 /// The voice form, looked up at runtime. Linking it here would drag the voice module — and the
 /// keychain and CoreAudio with it — into every test executable that builds this window.
 @protocol MSIMEVoiceSettingsForm <NSObject>
@@ -1113,7 +1118,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (NSURL *)skinsRoot { return _skinsRoot; }
 - (void)setTranslationPreferencesDirectory:(NSString *)directory {
     if ([_translationPreferencesDirectory isEqual:directory]) return;
-    [_translationWindow close]; _translationWindow = nil;
+    MSIMETranslationSettingsWindow *translationWindow = _translationWindow;
+    [translationWindow close];
+    [translationWindow invalidatePendingCallbacks];
+    _translationWindow = nil;
+    [_aiWindow close]; _aiWindow = nil;
     _translationPreferencesDirectory = [directory copy];
 }
 - (void)showTranslationSettings:(id)sender {

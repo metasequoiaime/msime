@@ -57,6 +57,7 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     NSTextField *_appId, *_plainNiuTransKey;
     BOOL _busy, _saving, _pending, _holdCommits;
     NSUInteger _epoch;
+    NSUInteger _callbackGeneration;
 }
 - (instancetype)initWithDirectory:(NSString *)directory saved:(void (^)(NSDictionary *))saved {
     if ((self = [super initWithWindow:nil])) {
@@ -136,6 +137,9 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
 - (void)showWindow:(id)sender {
     if (!self.window) [self loadWindow];
     [super showWindow:sender]; [self reload:nil];
+}
+- (void)invalidatePendingCallbacks {
+    ++_callbackGeneration;
 }
 - (void)updateControls:(id)sender {
     (void)sender;
@@ -338,9 +342,14 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
             NSString *directory = _directory;
             NSDictionary *snapshot = _snapshot;
             void (^savedHandler)(NSDictionary *) = _saved;
+            NSUInteger callbackGeneration = _callbackGeneration;
+            __weak MSIMETranslationSettingsWindow *weakSelf = self;
             dispatch_async(_queue, ^{
                 NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
-                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{ savedHandler(saved[@"preferences"]); });
+                if (saved && savedHandler) dispatch_async(dispatch_get_main_queue(), ^{
+                    MSIMETranslationSettingsWindow *current = weakSelf;
+                    if (current && current->_callbackGeneration == callbackGeneration) savedHandler(saved[@"preferences"]);
+                });
             });
         }
     }
