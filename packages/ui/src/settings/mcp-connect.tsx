@@ -11,6 +11,7 @@ import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsNotice } from "./settings-notice";
 import { StatusMessage } from "../core/status-message";
+import { ErrorAlert } from "../core/error-alert";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -384,7 +385,7 @@ export function McpConnectSection({
           MCP
           在本机运行，不联网。助手还能做什么由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
         </SettingsManagerNote>
-        {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
+        {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
         {server &&
           (server.config ? (
             <>

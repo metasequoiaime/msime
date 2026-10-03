@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
 import { StatusMessage } from "../core/status-message";
+import { ErrorAlert } from "../core/error-alert";
 import { runAsyncAction } from "../core/async-action";
 import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
@@ -769,11 +770,7 @@ export function TouchKeyboardSkinEditor({
                   }}
                 />
               </label>
-              {photoError && (
-                <p role="alert" className={skin.warning}>
-                  {photoError}
-                </p>
-              )}
+              {photoError && <ErrorAlert className={skin.warning}>{photoError}</ErrorAlert>}
               {design.photo && (
                 <div className={skin.formGrid}>
                   <label>

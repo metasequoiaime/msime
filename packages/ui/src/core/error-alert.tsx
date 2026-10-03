@@ -1,13 +1,13 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
-export interface ErrorAlertProps {
+export interface ErrorAlertProps extends Omit<ComponentPropsWithoutRef<"p">, "children" | "role"> {
   children: ReactNode;
 }
 
 /** Shared error alert styling for account, community, and settings surfaces. */
-export function ErrorAlert({ children }: ErrorAlertProps) {
+export function ErrorAlert({ children, className = "error", ...props }: ErrorAlertProps) {
   return (
-    <p role="alert" className="error">
+    <p {...props} role="alert" className={className}>
       {children}
     </p>
   );
