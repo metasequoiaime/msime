@@ -12707,20 +12707,17 @@ group("URL mode and its trigger keys route through the symbols the Engine lists"
   check(!touch({ spellingSymbols: "/@" }, 0x2f), "idle / stays on the punctuation route");
   check(!touch({ ...url, englishCandidates: true }, 0x31), "the English candidate mode spells letters only");
   // 有意的行为变化只有粤拼：组字中只列了撇号（`cantonese::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。藏文由 route() 交给 routeKorean，不经过这里。
-  for (const [name, spelling] of [
-    ["Cantonese", { editing: "nei", caret: 3, spellingSymbols: "'" }],
-  ] as [string, Partial<HardwareSpelling>][]) {
-    const bang = route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, spelling);
-    check(
-      bang.action === HardwareKeyAction.PUNCTUATION && bang.character === 0x21,
-      `${name} composing: Shift+1 is the ! it types, not a pick`,
-    );
-    const one = route({ keyCode: 2001, unicodeChar: 0x31 }, spelling);
-    check(
-      one.action === HardwareKeyAction.SELECT && one.index === 0,
-      `${name} composing: a bare 1 still picks the first candidate`,
-    );
-  }
+  const cantonese: Partial<HardwareSpelling> = { editing: "nei", caret: 3, spellingSymbols: "'" };
+  const bang = route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, cantonese);
+  check(
+    bang.action === HardwareKeyAction.PUNCTUATION && bang.character === 0x21,
+    "Cantonese composing: Shift+1 is the ! it types, not a pick",
+  );
+  const one = route({ keyCode: 2001, unicodeChar: 0x31 }, cantonese);
+  check(
+    one.action === HardwareKeyAction.SELECT && one.index === 0,
+    "Cantonese composing: a bare 1 still picks the first candidate",
+  );
 });
 
 group(
