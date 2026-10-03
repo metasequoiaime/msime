@@ -260,6 +260,38 @@ int main() {
         });
         assert(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
+
+        // 首次保存仍在排队时关闭窗口只能发布一次完成通知：关闭时的补写负责最终通知，旧保存已经过期。
+        NSString *queuedRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        __block NSUInteger queuedSaves = 0;
+        MSIMETranslationSettingsWindow *queuedWindow = [[MSIMETranslationSettingsWindow alloc] initWithDirectory:queuedRoot saved:^(NSDictionary *preferences) {
+            assert(NSThread.isMainThread && [preferences isKindOfClass:NSDictionary.class]); ++queuedSaves;
+        }];
+        [queuedWindow showWindow:nil]; Wait(queuedWindow);
+        NSPopUpButton *queuedProvider = [queuedWindow valueForKey:@"provider"];
+        NSTextField *queuedEndpoint = [queuedWindow valueForKey:@"endpoint"];
+        NSSecureTextField *queuedKey = [queuedWindow valueForKey:@"key"];
+        [queuedProvider selectItemAtIndex:2]; [queuedWindow providerChanged:nil]; Wait(queuedWindow);
+        queuedEndpoint.stringValue = @"https://translation.invalid/api";
+        queuedKey.stringValue = @"synthetic-queued-key";
+        dispatch_queue_t queuedQueue = [queuedWindow valueForKey:@"queue"];
+        dispatch_semaphore_t blockerStarted = dispatch_semaphore_create(0);
+        dispatch_semaphore_t releaseBlocker = dispatch_semaphore_create(0);
+        dispatch_async(queuedQueue, ^{
+            dispatch_semaphore_signal(blockerStarted);
+            dispatch_semaphore_wait(releaseBlocker, DISPATCH_TIME_FOREVER);
+        });
+        assert(dispatch_semaphore_wait(blockerStarted, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0);
+        [queuedWindow controlTextDidEndEditing:[NSNotification notificationWithName:NSControlTextDidEndEditingNotification object:nil]];
+        assert([[queuedWindow valueForKey:@"saving"] boolValue]);
+        [queuedWindow close];
+        dispatch_semaphore_signal(releaseBlocker);
+        NSDate *queuedDeadline = [NSDate dateWithTimeIntervalSinceNow:3];
+        while (queuedSaves == 0 && queuedDeadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        assert(queuedSaves == 1);
+        assert([NSFileManager.defaultManager removeItemAtPath:queuedRoot error:&error] && !error);
     }
     return 0;
 }

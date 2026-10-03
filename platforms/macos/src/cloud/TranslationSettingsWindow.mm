@@ -315,9 +315,10 @@ static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *sna
     dispatch_async(_queue, ^{
         NSDictionary *saved = SaveTranslationEdits(directory, snapshot, edits);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             MSIMETranslationSettingsWindow *current = weakSelf;
             if (!current || current->_epoch != epoch) return;
+            // 保存排队期间窗口可能已经关闭或开始新一轮加载；这个结果属于旧页面，不能通知当前宿主。
+            if (saved && savedHandler) savedHandler(saved[@"preferences"]);
             current->_saving = NO;
             if (saved) { current->_snapshot = saved; current->_committed = form; }
             current->_status.stringValue = saved ? @"已保存到本机配置。" : @"保存失败，修改尚未写入；再次修改或关闭窗口时会重试。";
