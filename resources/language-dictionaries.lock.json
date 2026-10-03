@@ -1,39 +1,39 @@
 {
-  "source_commit": "478319917e04d4f564d210e171637eee0aa8dcd3",
+  "source_commit": "60b22d8d1cf9d12002d4a79a85d713a5d63af50f",
   "artifacts": [
     {
       "name": "cantonese.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/cantonese.db",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/cantonese.db",
       "sha256": "dd320d9b6a3751857fc32b4f6acd1eb80bc007fa7a600cfb7ef8fade7a2bf4c1",
       "size": 7241728
     },
     {
       "name": "zhuyin.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/zhuyin.db",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/zhuyin.db",
       "sha256": "8c610e3faf46aad1caacd951dc9ecab9383cf091d31bb20a54d249e626df9fdd",
       "size": 11628544
     },
     {
       "name": "stroke.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/stroke.db",
-      "sha256": "a1bf827687460bbb13f2a28e0c3147bd0f7349942d1dea4f38243f682eba616e",
-      "size": 8634368
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/stroke.db",
+      "sha256": "31d33143e340be9bf3ee122ec952eaf2ce91edd7a4c17d9989965e317d04ca9c",
+      "size": 2310144
     },
     {
       "name": "rime_cantonese_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/rime_cantonese_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/rime_cantonese_LICENSE.txt",
       "sha256": "d02c17226d724bfd0b30fef1e9b423e4f004ed3c10e4f39e73c3d49b99c3315a",
       "size": 20179
     },
     {
       "name": "libchewing_data_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/libchewing_data_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/libchewing_data_LICENSE.txt",
       "sha256": "97ef498416e8347d4911e9b6c8db760263b6f279d037167fc12fb7a340049878",
       "size": 27515
     },
     {
       "name": "rime_stroke_LICENSE.txt",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.1.0/rime_stroke_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime/releases/download/langdict-v1.2.0/rime_stroke_LICENSE.txt",
       "sha256": "9aa16daf3aa59111e5a52d531fc1785637101ca95dbb0de75e3ef945fe2d91ac",
       "size": 10072
     }
