@@ -14,6 +14,8 @@ import { UPDATE_CHECK_TIMEOUT_MS, clientReleasesUrl, updateManifestUrl } from ".
 export interface UseUpdateCheckOptions {
   clientHostedPlatform: boolean;
   releasePlatform: string | null;
+  /** 运行中的版本 id（`HostCapabilities.edition.id`），缺省是 full：只选本版本的安装包。 */
+  edition?: string;
   releasePageUrl: string;
   currentAppVersion: string;
 }
@@ -22,6 +24,7 @@ export interface UseUpdateCheckOptions {
 export function useUpdateCheck({
   clientHostedPlatform,
   releasePlatform,
+  edition,
   releasePageUrl,
   currentAppVersion,
 }: UseUpdateCheckOptions) {
@@ -40,7 +43,7 @@ export function useUpdateCheck({
     return () => {
       requestGeneration.current += 1;
     };
-  }, [clientHostedPlatform, currentAppVersion, releasePageUrl, releasePlatform]);
+  }, [clientHostedPlatform, currentAppVersion, edition, releasePageUrl, releasePlatform]);
 
   async function checkForUpdate() {
     if (busy || actionRunning.current) return;
@@ -72,7 +75,7 @@ export function useUpdateCheck({
             let update: ValidatedUpdate | null;
             if (clientHostedPlatform && releasePlatform) {
               if (!Array.isArray(manifest)) throw new Error("invalid release list");
-              update = selectPlatformRelease(manifest, releasePlatform, releasePageUrl);
+              update = selectPlatformRelease(manifest, releasePlatform, releasePageUrl, edition);
               if (!update) {
                 if (isCurrent()) setStatus("暂无可用发行版");
                 return;

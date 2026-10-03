@@ -4,9 +4,11 @@
 //!
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）由平台构建脚本读取，本模块不解析。
 
+use crate::account::AccountPreferenceValue;
 use crate::preferences::{InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 const EDITIONS_JSON: &str = include_str!("../../../shared/contracts/editions.json");
@@ -185,6 +187,77 @@ impl Edition {
             Some(_) => None,
         }
     }
+}
+
+/// 账号偏好里记录输入方案的键。
+const ACCOUNT_SCHEME_KEY: &str = "input.schema";
+/// iOS 的九键开关：它说的是 `input.schema` 那个方案用不用九键，只随方案一起同步。
+const ACCOUNT_NINE_KEY_KEY: &str = "platform.ios.nine_key";
+/// 双拼方案的键。不提供双拼的版本里它只是本机的缺省值，不该盖掉账号里别的设备选的方案。
+const ACCOUNT_SHUANGPIN_KEY: &str = "input.shuangpin_schema";
+/// 五笔版本（86/98）的键，理由同上。
+const ACCOUNT_WUBI_KEY: &str = "input.wubi_schema";
+
+/// 账号设置里 `input.schema` 的值对应的方案；不是字符串或不认识的取值返回 `None`。
+fn account_scheme(settings: &BTreeMap<String, AccountPreferenceValue>) -> Option<InputScheme> {
+    match settings.get(ACCOUNT_SCHEME_KEY) {
+        Some(AccountPreferenceValue::String(value)) => {
+            serde_json::from_value(serde_json::Value::String(value.clone())).ok()
+        }
+        _ => None,
+    }
+}
+
+/// 本版本是否同步 `input.schema`：只有一个方案的版本没有可选的方案，既不上传也不应用它，否则会把 full 等其他版本记在账号里的方案盖掉，或把账号里的方案带进本版本。`None` 是认不出的版本，同样不同步。
+fn syncs_account_scheme(edition: Option<&Edition>) -> bool {
+    edition.is_some_and(|edition| edition.input_schemes.len() > 1)
+}
+
+/// 本版本不同步 `input.schema`，或它的值是本版本不提供的方案时，去掉它和随它的 iOS 九键开关。
+fn drop_unsynced_account_scheme(
+    edition: Option<&Edition>,
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+) {
+    let keeps_scheme = syncs_account_scheme(edition)
+        && account_scheme(settings)
+            .is_none_or(|scheme| edition.is_some_and(|edition| edition.offers(scheme)));
+    if !keeps_scheme {
+        settings.remove(ACCOUNT_SCHEME_KEY);
+        settings.remove(ACCOUNT_NINE_KEY_KEY);
+    }
+}
+
+/// 上传前按版本过滤本机整理出的账号设置。各平台把本机偏好换成账号设置之后、合并进账号文档之前调用。
+///
+/// - 只有一个方案的版本（以及认不出的版本，`edition` 为 `None`）不上传 `input.schema` 和随它的 iOS 九键开关；
+/// - 有多个方案的版本只上传本版本提供的方案；
+/// - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
+///
+/// full 提供全部方案，什么也不去掉。
+pub fn filter_uploaded_account_settings(
+    edition: Option<&Edition>,
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+) {
+    drop_unsynced_account_scheme(edition, settings);
+    if !edition.is_some_and(|edition| edition.offers(InputScheme::Shuangpin)) {
+        settings.remove(ACCOUNT_SHUANGPIN_KEY);
+    }
+    if !edition.is_some_and(|edition| edition.offers(InputScheme::Wubi)) {
+        settings.remove(ACCOUNT_WUBI_KEY);
+    }
+}
+
+/// 应用前按版本过滤从账号下载的设置，各平台在解析账号文档之前调用。
+///
+/// - 只有一个方案的版本（以及认不出的版本）忽略 `input.schema` 和随它的 iOS 九键开关；
+/// - 有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，文档其余部分照常应用。不认识的取值留给平台代码按原来的规则处理。
+///
+/// full 提供全部方案，什么也不去掉。
+pub fn filter_downloaded_account_settings(
+    edition: Option<&Edition>,
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+) {
+    drop_unsynced_account_scheme(edition, settings);
 }
 
 #[cfg(test)]
@@ -400,5 +473,145 @@ mod tests {
         let error = serde_json::from_str::<PreferenceDefaults>(r#"{"wubi_mixed_pinyn": true}"#)
             .unwrap_err();
         assert!(error.to_string().contains("wubi_mixed_pinyn"), "{error}");
+    }
+
+    fn account_settings(scheme: &str) -> BTreeMap<String, AccountPreferenceValue> {
+        BTreeMap::from([
+            (
+                "input.schema".to_owned(),
+                AccountPreferenceValue::String(scheme.to_owned()),
+            ),
+            (
+                "platform.ios.nine_key".to_owned(),
+                AccountPreferenceValue::Boolean(true),
+            ),
+            (
+                "input.shuangpin_schema".to_owned(),
+                AccountPreferenceValue::String("ziranma".to_owned()),
+            ),
+            (
+                "input.wubi_schema".to_owned(),
+                AccountPreferenceValue::String("wubi98".to_owned()),
+            ),
+            (
+                "input.learning".to_owned(),
+                AccountPreferenceValue::Boolean(false),
+            ),
+        ])
+    }
+
+    fn keys(settings: &BTreeMap<String, AccountPreferenceValue>) -> Vec<&str> {
+        settings.keys().map(String::as_str).collect()
+    }
+
+    #[test]
+    fn full_syncs_every_account_setting_unchanged() {
+        let full = Some(Edition::full());
+        for scheme in [
+            "quanpin",
+            "shuangpin",
+            "wubi",
+            "japanese",
+            "korean",
+            "cantonese",
+            "klingon",
+        ] {
+            let mut uploaded = account_settings(scheme);
+            filter_uploaded_account_settings(full, &mut uploaded);
+            assert_eq!(uploaded, account_settings(scheme), "{scheme}");
+            let mut downloaded = account_settings(scheme);
+            filter_downloaded_account_settings(full, &mut downloaded);
+            assert_eq!(downloaded, account_settings(scheme), "{scheme}");
+        }
+    }
+
+    #[test]
+    fn a_single_scheme_edition_neither_uploads_nor_applies_the_scheme() {
+        let wubi = Edition::by_id("wubi");
+        for scheme in ["quanpin", "wubi", "klingon"] {
+            let mut uploaded = account_settings(scheme);
+            filter_uploaded_account_settings(wubi, &mut uploaded);
+            // 五笔版本照常上传（本版本就是五笔），双拼方案只是本机缺省值，不上传。
+            assert_eq!(
+                keys(&uploaded),
+                ["input.learning", "input.wubi_schema"],
+                "{scheme}"
+            );
+            let mut downloaded = account_settings(scheme);
+            filter_downloaded_account_settings(wubi, &mut downloaded);
+            assert_eq!(
+                keys(&downloaded),
+                [
+                    "input.learning",
+                    "input.shuangpin_schema",
+                    "input.wubi_schema"
+                ],
+                "{scheme}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_multi_scheme_edition_syncs_only_its_own_schemes() {
+        let pinyin = Edition::by_id("pinyin");
+        for scheme in ["quanpin", "shuangpin"] {
+            let mut uploaded = account_settings(scheme);
+            filter_uploaded_account_settings(pinyin, &mut uploaded);
+            assert_eq!(
+                keys(&uploaded),
+                [
+                    "input.learning",
+                    "input.schema",
+                    "input.shuangpin_schema",
+                    "platform.ios.nine_key"
+                ],
+                "{scheme}"
+            );
+            let mut downloaded = account_settings(scheme);
+            filter_downloaded_account_settings(pinyin, &mut downloaded);
+            assert_eq!(downloaded, account_settings(scheme), "{scheme}");
+        }
+        // 账号里是本版本没有的方案：当作没有这一项，本机方案不变，其余设置照常应用。
+        for scheme in ["wubi", "japanese", "korean", "cantonese"] {
+            let mut downloaded = account_settings(scheme);
+            filter_downloaded_account_settings(pinyin, &mut downloaded);
+            assert_eq!(
+                keys(&downloaded),
+                [
+                    "input.learning",
+                    "input.shuangpin_schema",
+                    "input.wubi_schema"
+                ],
+                "{scheme}"
+            );
+            let mut uploaded = account_settings(scheme);
+            filter_uploaded_account_settings(pinyin, &mut uploaded);
+            assert_eq!(
+                keys(&uploaded),
+                ["input.learning", "input.shuangpin_schema"],
+                "{scheme}"
+            );
+        }
+        // 不认识的取值留给平台代码，按原来的规则保留本机方案。
+        let mut downloaded = account_settings("klingon");
+        filter_downloaded_account_settings(pinyin, &mut downloaded);
+        assert!(downloaded.contains_key("input.schema"));
+    }
+
+    #[test]
+    fn an_unknown_edition_does_not_touch_the_scheme() {
+        let mut uploaded = account_settings("quanpin");
+        filter_uploaded_account_settings(None, &mut uploaded);
+        assert_eq!(keys(&uploaded), ["input.learning"]);
+        let mut downloaded = account_settings("quanpin");
+        filter_downloaded_account_settings(None, &mut downloaded);
+        assert_eq!(
+            keys(&downloaded),
+            [
+                "input.learning",
+                "input.shuangpin_schema",
+                "input.wubi_schema"
+            ]
+        );
     }
 }

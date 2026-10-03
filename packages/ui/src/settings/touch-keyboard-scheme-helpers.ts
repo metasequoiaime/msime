@@ -1,4 +1,4 @@
-import type { Preferences } from "../index";
+import type { InputScheme, Preferences } from "../index";
 import { isChineseScheme } from "./input-scheme-options";
 
 export type TouchKeyboardScheme =
@@ -20,6 +20,31 @@ export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
 };
+
+/** 触屏键盘背后的输入方案；手写不属于任何方案（由平台的手写识别器识别），返回 null。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
+export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): InputScheme | null {
+  switch (scheme) {
+    case "handwriting":
+      return null;
+    case "quanpin":
+    case "nine_key":
+      return "quanpin";
+    case "xiaohe":
+    case "ziranma":
+    case "microsoft":
+    case "shoudao":
+      return "shuangpin";
+    case "japanese":
+    case "japanese_nine_key":
+      return "japanese";
+    case "wubi":
+    case "korean":
+    case "cantonese":
+    case "zhuyin":
+    case "vietnamese":
+      return scheme;
+  }
+}
 
 /** 五笔触屏方案的标题：只有一个五笔键盘，标题跟随 `wubi_profile`。 */
 export function wubiProfileTitle(profile: Preferences["wubi_profile"]): string {

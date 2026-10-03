@@ -311,6 +311,10 @@ pub struct EditionInfo {
     pub input_schemes: Vec<InputScheme>,
     /// 本版本的默认方案，偏好里的方案不可用时回退到它。
     pub default_scheme: InputScheme,
+    /// 本版本是否带临时日文。不带时设置页不列出临时日语开关，host-api 也始终把它关掉。
+    pub temporary_japanese: bool,
+    /// 本版本里五笔混拼的默认值，偏好文档缺这一项时设置页按它显示。
+    pub wubi_mixed_pinyin_default: bool,
 }
 
 /// The base schemes plus Cantonese, Zhuyin and Vietnamese, which every host offers.
@@ -603,6 +607,11 @@ impl HostCapabilities {
             id: edition.id.clone(),
             input_schemes: offered_input_schemes(edition),
             default_scheme: edition.default_scheme,
+            temporary_japanese: edition.features.temporary_japanese,
+            wubi_mixed_pinyin_default: edition
+                .preference_defaults
+                .wubi_mixed_pinyin
+                .unwrap_or(crate::preferences::Preferences::default().wubi_mixed_pinyin),
         });
     }
 }

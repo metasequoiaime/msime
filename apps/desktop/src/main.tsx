@@ -941,6 +941,7 @@ function DesktopSettings() {
         onSkip={skipOnboarding}
         // The splash belongs to a first launch; replaying the flow from settings skips it.
         splash={Boolean(bootstrapRequired) && !replayOnboarding}
+        edition={settingsClient?.host?.edition}
       />
     );
   if (!settingsClient)

@@ -209,6 +209,19 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     capabilities
 }
 
+/// 本应用所属的版本，取自 HostOptions 文档：没有 `edition` 键（包括还没有文档、读不到文档）是 full；文档写着版本表里没有的 id 时返回 `None`，调用方按认不出的版本处理，不当成 full。
+pub(crate) fn host_edition(
+    app: &tauri::AppHandle,
+) -> Option<&'static msime_client_core::edition::Edition> {
+    match app
+        .try_state::<DictionaryHostOptions>()
+        .and_then(|options| options.snapshot().ok())
+    {
+        Some(document) => msime_client_core::edition::Edition::of_host_options(&document),
+        None => Some(msime_client_core::edition::Edition::full()),
+    }
+}
+
 /// Cantonese and Zhuyin each read a dictionary the package installs beside the Engine resources, which the HostOptions document names in `language_dictionaries` only when one is there. Without its dictionary host-api falls back from the scheme, so the page shows it unavailable instead of offering a choice that never takes effect. Every other scheme needs nothing beyond the resources.
 ///
 /// `beside_resources` is for Windows, whose `runtime-options.json` is written once at first run and never refreshed: the Server and the TIP each find the dictionaries beside the resources in memory, so a document without the key still means the `language-dictionaries` directory next to its absolute `resources`.
@@ -1289,17 +1302,16 @@ fn custom_skin_library_error(value: CustomSkinLibraryError) -> CommandError {
 /// struct rather than in the page.
 #[tauri::command]
 async fn restored_default_preferences(
+    app: tauri::AppHandle,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Preferences, CommandError> {
     let store = store.inner().clone();
+    // 设置应用的偏好存储在读到 HostOptions 文档之前就建好了，不知道自己属于哪个版本，所以版本以文档为准；认不出的版本退回存储自己的版本（full）。
+    let edition = host_edition(&app).unwrap_or_else(|| store.edition());
     tauri::async_runtime::spawn_blocking(move || {
         store
             .load()
-            .map(|snapshot| {
-                snapshot
-                    .preferences
-                    .restored_to_defaults_for(store.edition())
-            })
+            .map(|snapshot| snapshot.preferences.restored_to_defaults_for(edition))
             .map_err(CommandError::from)
     })
     .await

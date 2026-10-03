@@ -64,6 +64,8 @@ export function InputSettingsPage() {
   // 升级后补齐已保存方案的词库由宿主在启动时完成，这里挂载时不自动下载，只在用户选用方案或点「下载」时下载。
   const resourcePacks = useResourcePacks(macosPlatform ? client.resourcePacks : undefined);
   const japanesePack = resourcePackStatus(resourcePacks, "japanese");
+  // 不带临时日文的版本（host-api 也始终把它关掉）不列出这个开关和它的词库。
+  const temporaryJapanese = host?.edition?.temporary_japanese ?? true;
   return (
     <SettingsPageFieldset disabled={busy} hidden={page !== "input"} ariaLabel="输入">
       {/* 组的顺序按「基础 → 进阶」排：先选方案，再是每次打字都会碰到的中英文、选词与翻页，然后是候选从哪来（含中英混输）、以什么形式输出，最后是少数人才调的快捷模式、模糊音、辅助码和调频。这里不再沿用参考窗口的顺序，不要按参考窗口把它们挪回去。方案相关的行在当前方案用不到时隐藏而不删除，换方案时原样出现。 */}
@@ -75,6 +77,7 @@ export function InputSettingsPage() {
         selectedTouchKeyboardScheme={selectedTouchKeyboardScheme}
         macos={macosPlatform}
         inputSchemes={supportedInputSchemes(host)}
+        edition={host?.edition}
         macosShuangpinKeymap={
           macosPlatform && client.loadMacosShuangpinKeymap && macosShuangpinKeymap !== undefined
             ? macosShuangpinKeymap
@@ -151,10 +154,12 @@ export function InputSettingsPage() {
               triggers={showPluginTriggers}
               mentions={showPluginTriggers && Boolean(client.plugins)}
               translationService={translationProvider !== "none"}
+              temporaryJapanese={temporaryJapanese}
               onChange={onLocalModesChange}
             />
             {/* 临时日语只是一个快捷模式，不为它自动下载 60 多 MB 的词库，由用户手动下载。当前方案是日文时方案组里已有同一行，这里不再重复。 */}
             {macosPlatform &&
+              temporaryJapanese &&
               localModes.temporary_japanese &&
               draft.scheme !== "japanese" &&
               japanesePack &&

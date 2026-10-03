@@ -625,12 +625,14 @@ pub async fn account_preferences_load(
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_preferences_upload(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
 ) -> Result<AccountPreferences, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let store = store.inner().clone();
+    let edition = crate::host_edition(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let schema = session.preference_schema()?;
         let cloud = session.preferences()?;
@@ -638,14 +640,17 @@ pub async fn account_preferences_upload(
             .load_keyboard_preferences()
             .map_err(|_| AccountError::Storage)?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
-        let values = account_preferences::local_account_preferences(
+        let mut values = account_preferences::local_account_preferences(
             &native,
             &local.preferences,
             local.preferences.custom_theme.keyboard.as_ref(),
-        )?
-        .into_iter()
-        .filter(|(key, _)| schema.fields.contains_key(key))
-        .collect::<BTreeMap<_, _>>();
+        )?;
+        // 单方案版本不上传方案，多方案版本只上传本版本提供的方案。
+        msime_client_core::edition::filter_uploaded_account_settings(edition, &mut values);
+        let values = values
+            .into_iter()
+            .filter(|(key, _)| schema.fields.contains_key(key))
+            .collect::<BTreeMap<_, _>>();
         if values.is_empty() {
             return Err(AccountError::Unavailable);
         }
@@ -662,14 +667,20 @@ pub async fn account_preferences_upload(
 #[cfg(target_os = "ios")]
 #[tauri::command]
 pub async fn account_preferences_apply(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
     user_id: String,
-    preferences: AccountPreferences,
+    mut preferences: AccountPreferences,
 ) -> Result<(), crate::CommandError> {
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let store = store.inner().clone();
+    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失。
+    msime_client_core::edition::filter_downloaded_account_settings(
+        crate::host_edition(&app),
+        &mut preferences.settings,
+    );
     tauri::async_runtime::spawn_blocking(move || {
         let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
         let plan = account_preferences::IosPreferencePlan::from_cloud(&preferences)?;

@@ -32,6 +32,9 @@ use msime_client_core::cloud::snapshot_validation::{
     has_keys as snapshot_has_keys, parse_strict_object, required_integer as snapshot_integer,
     required_text as snapshot_text, valid_timestamp as snapshot_timestamp,
 };
+use msime_client_core::edition::{
+    filter_downloaded_account_settings, filter_uploaded_account_settings,
+};
 use msime_client_core::preferences::{
     FrequencyMode, InputScheme, Preferences, PreferencesSnapshot, PreferencesStore,
     ShuangpinProfile, ThemeMode, TouchKeyboardLayout, WubiProfile,
@@ -1557,18 +1560,23 @@ pub async fn account_preferences_load(
 
 #[tauri::command]
 pub async fn account_preferences_upload(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
 ) -> Result<AccountPreferences, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
+    let edition = crate::host_edition(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
         let schema = session.preference_schema()?;
         let cloud = session.preferences()?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
-        let values = local_account_preferences(&local, &feedback)?
+        let mut values = local_account_preferences(&local, &feedback)?;
+        // 单方案版本不上传方案，多方案版本只上传本版本提供的方案。
+        filter_uploaded_account_settings(edition, &mut values);
+        let values = values
             .into_iter()
             .filter(|(key, _)| schema.fields.contains_key(key))
             .collect::<BTreeMap<_, _>>();
@@ -1587,14 +1595,17 @@ pub async fn account_preferences_upload(
 
 #[tauri::command]
 pub async fn account_preferences_apply(
+    app: tauri::AppHandle,
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
     user_id: String,
-    preferences: AccountPreferences,
+    mut preferences: AccountPreferences,
 ) -> Result<(), crate::CommandError> {
     let session = Arc::clone(&state.session);
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
+    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失。
+    filter_downloaded_account_settings(crate::host_edition(&app), &mut preferences.settings);
     tauri::async_runtime::spawn_blocking(move || {
         let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
         let schema = session.preference_schema()?;

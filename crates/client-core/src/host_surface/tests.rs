@@ -681,12 +681,20 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
             id: "wubi".into(),
             input_schemes: vec![InputScheme::Wubi],
             default_scheme: InputScheme::Wubi,
+            temporary_japanese: false,
+            wubi_mixed_pinyin_default: true,
         })
     );
     let document = serde_json::to_value(&capabilities).unwrap();
     assert_eq!(
         document["edition"],
-        serde_json::json!({ "id": "wubi", "input_schemes": ["wubi"], "default_scheme": "wubi" })
+        serde_json::json!({
+            "id": "wubi",
+            "input_schemes": ["wubi"],
+            "default_scheme": "wubi",
+            "temporary_japanese": false,
+            "wubi_mixed_pinyin_default": true,
+        })
     );
     assert_eq!(
         serde_json::from_value::<HostCapabilities>(document).unwrap(),
@@ -701,8 +709,11 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
         .retain(|scheme| *scheme != InputScheme::Shuangpin);
     capabilities.narrow_to_edition(pinyin);
     assert_eq!(capabilities.input_schemes, [InputScheme::Quanpin]);
+    let edition = capabilities.edition.unwrap();
     assert_eq!(
-        capabilities.edition.unwrap().input_schemes,
+        edition.input_schemes,
         [InputScheme::Quanpin, InputScheme::Shuangpin]
     );
+    assert!(edition.temporary_japanese);
+    assert!(!edition.wubi_mixed_pinyin_default);
 }

@@ -1,4 +1,10 @@
-import type { ChineseScheme, HostCapabilities, InputScheme, VietnamesePreferences } from "../index";
+import type {
+  ChineseScheme,
+  EditionInfo,
+  HostCapabilities,
+  InputScheme,
+  VietnamesePreferences,
+} from "../index";
 
 export type ChineseInputScheme = ChineseScheme;
 
@@ -64,10 +70,33 @@ export function supportedInputSchemes(host?: HostCapabilities): readonly InputSc
     : baseInputSchemes;
 }
 
-/** The scheme host-api runs when the document names one the host does not offer: the remembered Chinese scheme when it is offered, else 全拼. */
+/** 文档里的方案宿主不提供时 host-api 实际运行的方案：记住的中文方案可用就用它，否则用版本的默认方案（`defaultScheme`，full 和没有宿主时是全拼）。 */
 export function fallbackChineseScheme(
   lastChineseScheme: ChineseScheme | null | undefined,
   supported: readonly InputScheme[],
+  defaultScheme: ChineseScheme = "quanpin",
 ): ChineseScheme {
-  return lastChineseScheme && supported.includes(lastChineseScheme) ? lastChineseScheme : "quanpin";
+  return lastChineseScheme && supported.includes(lastChineseScheme)
+    ? lastChineseScheme
+    : defaultScheme;
+}
+
+/** 版本的默认中文方案；没有版本信息（full，以及没有宿主时）是全拼。 */
+export function editionDefaultChineseScheme(edition?: EditionInfo): ChineseScheme {
+  const scheme = edition?.default_scheme;
+  return scheme && isChineseScheme(scheme) ? scheme : "quanpin";
+}
+
+/** 只有一个方案的版本的那个方案；full、没有宿主和有多个方案的版本返回 undefined。这样的版本没有可选的方案，设置页隐藏方案选择。 */
+export function singleEditionScheme(edition?: EditionInfo): InputScheme | undefined {
+  return edition?.input_schemes.length === 1 ? edition.input_schemes[0] : undefined;
+}
+
+/** 版本是否提供全拼或双拼，也就是辅助码有没有用处：Engine 只在这两个方案下使用辅助码（五笔的辅助码在 client-core 里始终关闭）。没有版本信息时提供。 */
+export function editionUsesHelpcode(edition?: EditionInfo): boolean {
+  return (
+    !edition ||
+    edition.input_schemes.includes("quanpin") ||
+    edition.input_schemes.includes("shuangpin")
+  );
 }

@@ -64,4 +64,26 @@ describe("completeOnboardingPreferences", () => {
       selected: "quanpin",
     });
   });
+
+  test("the wubi edition's keyboard selects the Wubi scheme", () => {
+    const preferences = completeOnboardingPreferences(
+      {
+        ...snapshot,
+        preferences: {
+          ...snapshot.preferences,
+          scheme: "quanpin",
+          touch_keyboard_schemes: { enabled: ["wubi", "handwriting"], selected: "handwriting" },
+        },
+      },
+      "wubi",
+      {},
+    );
+
+    expect(preferences).toMatchObject({
+      scheme: "wubi",
+      last_chinese_scheme: "wubi",
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes: { enabled: ["wubi", "handwriting"], selected: "wubi" },
+    });
+  });
 });
