@@ -24,6 +24,7 @@ public final class NativeClient {
     /** The shared provider FFI rejects an online query document larger than this. */
     private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
+    private static final int ENGLISH_COMPLETION_RESOURCES_LIMIT = 4 * 1024;
     private static final int SHUANGPIN_PROFILE_LIMIT = 64;
     private static final int SHUANGPIN_HINT_RESPONSE_LIMIT = 65_536;
     private static final int SMART_PUNCTUATION_REQUEST_LIMIT = 4_096;
@@ -123,6 +124,8 @@ public final class NativeClient {
             JSONObject request = new JSONObject().put("prefix", prefix).put("limit", 12);
             byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
             byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+            if (resourcesBytes.length > ENGLISH_COMPLETION_RESOURCES_LIMIT)
+                throw new IllegalArgumentException("English completion resources are too large");
             byte[] result = englishCompletionsRaw(requestBytes, resourcesBytes);
             if (result == null || result.length > ENGLISH_COMPLETION_RESPONSE_LIMIT)
                 throw new IllegalStateException("English completion response is too large");
