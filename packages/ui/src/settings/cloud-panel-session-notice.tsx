@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsPreviewLabel } from "./settings-preview-label";
 
 /** Where macOS users open the cloud clipboard: pasting needs the input method's own session, so the settings window points at the entry the input method offers instead of opening it itself. The cloud dictionary only manages words and opens normally from settings. */
 export const CLOUD_PANEL_SESSION_NOTE =
@@ -6,5 +6,5 @@ export const CLOUD_PANEL_SESSION_NOTE =
 
 /** Explains where macOS users can open the cloud clipboard, which needs an input session. */
 export function CloudPanelSessionNotice() {
-  return <p className={settings.panelPreviewLabel}>{CLOUD_PANEL_SESSION_NOTE}</p>;
+  return <SettingsPreviewLabel as="p">{CLOUD_PANEL_SESSION_NOTE}</SettingsPreviewLabel>;
 }
