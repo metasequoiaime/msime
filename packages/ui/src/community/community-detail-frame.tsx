@@ -6,6 +6,7 @@ import * as style from "./community-style";
 export interface CommunityDetailFrameProps {
   backDisabled: boolean;
   onBack: () => void;
+  backAriaLabel?: string;
   error?: string;
   signInRequired?: boolean;
   onLogin?: () => void;
@@ -16,6 +17,7 @@ export interface CommunityDetailFrameProps {
 export function CommunityDetailFrame({
   backDisabled,
   onBack,
+  backAriaLabel,
   error,
   signInRequired = false,
   onLogin,
@@ -23,7 +25,7 @@ export function CommunityDetailFrame({
 }: CommunityDetailFrameProps) {
   return (
     <div className={style.page}>
-      <CommunityBackButton disabled={backDisabled} onClick={onBack} />
+      <CommunityBackButton disabled={backDisabled} onClick={onBack} ariaLabel={backAriaLabel} />
       {error && (
         <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
       )}

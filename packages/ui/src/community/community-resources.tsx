@@ -30,8 +30,8 @@ import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
-import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -490,107 +490,103 @@ function ResourceDetail({
     return reported;
   };
   return (
-    <div className={style.page}>
-      <CommunityBackButton ariaLabel="← 社区" disabled={busy} onClick={close} />
-      {error && <CommunityErrorAlert message={error} />}
-      <section className={`section ${style.detail}`}>
-        <CommunityDetailHeader
-          title={item.name}
-          note={`${item.author} · v${item.revision}`}
-          owned={item.owned}
-          moderation={item.moderation}
-          description={item.description}
-        />
-        <p className={style.metrics}>
-          {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
-          {communityRating(item.rating_count, item.rating_average)} ·{" "}
-          {item.rating_count.toLocaleString("zh-CN")} 人评分
-        </p>
-        {item.kind === "dictionary" ? (
-          <>
-            <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>
-            <div className={style.entryPreview}>
-              {(item.content.entries ?? []).map((entry, index) => (
-                <div key={`${entry.kind}-${entry.code}-${index}`}>
-                  <span>{entry.word}</span>
-                  <code>{entry.code}</code>
-                </div>
-              ))}
-            </div>
-            {localDictionary?.import && (
-              <ActionButton
-                action={applyLocal}
-                className={`primary ${style.action}`}
-                disabled={busy}
-                label="导入这版词库到本机"
-              />
-            )}
+    <CommunityDetailFrame backDisabled={busy} onBack={close} backAriaLabel="← 社区" error={error}>
+      <CommunityDetailHeader
+        title={item.name}
+        note={`${item.author} · v${item.revision}`}
+        owned={item.owned}
+        moderation={item.moderation}
+        description={item.description}
+      />
+      <p className={style.metrics}>
+        {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
+        {communityRating(item.rating_count, item.rating_average)} ·{" "}
+        {item.rating_count.toLocaleString("zh-CN")} 人评分
+      </p>
+      {item.kind === "dictionary" ? (
+        <>
+          <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>
+          <div className={style.entryPreview}>
+            {(item.content.entries ?? []).map((entry, index) => (
+              <div key={`${entry.kind}-${entry.code}-${index}`}>
+                <span>{entry.word}</span>
+                <code>{entry.code}</code>
+              </div>
+            ))}
+          </div>
+          {localDictionary?.import && (
             <ActionButton
-              action={apply}
-              className={`secondary ${style.action}`}
-              disabled={busy}
-              label="导入这版词库到云端"
-            />
-            <p className={`${style.metrics} ${style.divided}`}>
-              本机导入只更新当前设备；云端导入会合并到账号云词库。版本发生变化时云端导入会停止并要求重新查看。
-            </p>
-          </>
-        ) : (
-          <>
-            <h3>提示词预览</h3>
-            <pre className={style.promptPreview}>{item.content.prompt}</pre>
-            <ActionButton
-              action={storeReply}
+              action={applyLocal}
               className={`primary ${style.action}`}
               disabled={busy}
-              label="添加到高情商回复键盘"
+              label="导入这版词库到本机"
             />
-            <ActionButton
-              action={removeReply}
-              className={`secondary ${style.action}`}
-              disabled={busy}
-              label="从本机高情商回复键盘移除"
-            />
-          </>
-        )}
-        {notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
-        <ActionButton
-          action={save}
-          className={`secondary ${style.action}`}
-          disabled={busy}
-          label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
-        />
-        {item.owned && (
+          )}
           <ActionButton
-            action={() => setEditing(true)}
+            action={apply}
             className={`secondary ${style.action}`}
             disabled={busy}
-            label="编辑并发布新版本"
+            label="导入这版词库到云端"
           />
-        )}
-        <CommunityModerationSection
-          owned={item.owned}
-          actionBusy={busy}
-          ratingDescription="我的评分（可重新选择）"
-          unpublishMessage={
-            <>
-              下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
-              {item.name}”吗？
-            </>
-          }
-          confirmUnpublish={confirmDelete}
-          onRate={rateResource}
-          onRequestUnpublish={() => setConfirmDelete(true)}
-          onUnpublish={unpublish}
-          onCancelUnpublish={() => setConfirmDelete(false)}
-          unpublishButtonClassName="danger-text community-unpublish"
-          unpublishLabel="下架作品"
-          unpublishConfirmLabel="确认下架作品"
+          <p className={`${style.metrics} ${style.divided}`}>
+            本机导入只更新当前设备；云端导入会合并到账号云词库。版本发生变化时云端导入会停止并要求重新查看。
+          </p>
+        </>
+      ) : (
+        <>
+          <h3>提示词预览</h3>
+          <pre className={style.promptPreview}>{item.content.prompt}</pre>
+          <ActionButton
+            action={storeReply}
+            className={`primary ${style.action}`}
+            disabled={busy}
+            label="添加到高情商回复键盘"
+          />
+          <ActionButton
+            action={removeReply}
+            className={`secondary ${style.action}`}
+            disabled={busy}
+            label="从本机高情商回复键盘移除"
+          />
+        </>
+      )}
+      {notice && <CommunityActionNotice>{notice}</CommunityActionNotice>}
+      <ActionButton
+        action={save}
+        className={`secondary ${style.action}`}
+        disabled={busy}
+        label={item.saved ? "取消收藏" : "收藏，关注后续更新"}
+      />
+      {item.owned && (
+        <ActionButton
+          action={() => setEditing(true)}
+          className={`secondary ${style.action}`}
+          disabled={busy}
+          label="编辑并发布新版本"
         />
-        {!item.owned && client.report && (
-          <CommunityReportSection actionBusy={busy} onReport={report} />
-        )}
-      </section>
+      )}
+      <CommunityModerationSection
+        owned={item.owned}
+        actionBusy={busy}
+        ratingDescription="我的评分（可重新选择）"
+        unpublishMessage={
+          <>
+            下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
+            {item.name}”吗？
+          </>
+        }
+        confirmUnpublish={confirmDelete}
+        onRate={rateResource}
+        onRequestUnpublish={() => setConfirmDelete(true)}
+        onUnpublish={unpublish}
+        onCancelUnpublish={() => setConfirmDelete(false)}
+        unpublishButtonClassName="danger-text community-unpublish"
+        unpublishLabel="下架作品"
+        unpublishConfirmLabel="确认下架作品"
+      />
+      {!item.owned && client.report && (
+        <CommunityReportSection actionBusy={busy} onReport={report} />
+      )}
       {editing && (
         <ResourceEditor
           client={client}
@@ -605,7 +601,7 @@ function ResourceDetail({
           }}
         />
       )}
-    </div>
+    </CommunityDetailFrame>
   );
 }
 
