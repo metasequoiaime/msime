@@ -26,17 +26,33 @@ public final class NumberRowSelectionPolicy {
     private NumberRowSelectionPolicy() {}
 
     /**
-     * The candidate slot this key picks, or {@link #NONE}.
+     * 组字中或本地模式里，按键打出的字符被 Engine 列在 View.spelling_symbols 里时，它是 Engine 的输入，宿主要在选候选、翻页之前把它当字符送进去：网址模式的数字和网址符号、组字原文是网址触发词时的 `.` 和 `:`、V 模式的数字和运算符、U 模式的十六进制数字。没有组字时列出的 `/` 和 `@` 不在此列，它们照旧走标点路径。
+     */
+    public static boolean engineSpells(String localMode, String editingText, String spellingSymbols, int unicode) {
+        if (unicode <= 0x20 || unicode >= 0x7f || spellingSymbols == null) return false;
+        boolean composing = (localMode != null && !"none".equals(localMode))
+            || (editingText != null && !editingText.isEmpty());
+        return composing && spellingSymbols.indexOf((char) unicode) >= 0;
+    }
+
+    /**
+     * The candidate slot this key picks, or {@link #NONE}. 与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 同一套规则：U 模式按键位，Shift+数字选词、裸数字是十六进制；其他状态下 Engine 列为拼写的字符是输入；Engine 把数字列为拼写时（V、网址模式），打出别的字符的数字键（Shift+1 的 `!` 没被列出时）带不带 Shift 都选词；其余状态裸数字选词。
      *
      * @param localMode the active local input mode from the shared view, `none` when there is none
+     * @param spellingSymbols View.spelling_symbols
+     * @param unicode 这次按键打出的字符
      */
-    public static int slotForKeyCode(int keyCode, boolean shift, boolean enabled, String localMode) {
+    public static int slotForKeyCode(int keyCode, boolean shift, boolean enabled, String localMode,
+            String spellingSymbols, int unicode) {
         if (!enabled) return NONE;
         if (keyCode < KeyEvent.KEYCODE_1 || keyCode > KeyEvent.KEYCODE_9) return NONE;
-        boolean unicode = UNICODE_MODE.equals(localMode);
+        int slot = keyCode - KeyEvent.KEYCODE_1;
         // Outside U mode the shifted faces are the marks above the digits, and the user is entitled
         // to type them mid-composition; inside it they are the only way left to pick.
-        if (shift != unicode) return NONE;
-        return keyCode - KeyEvent.KEYCODE_1;
+        if (UNICODE_MODE.equals(localMode)) return shift ? slot : NONE;
+        String symbols = spellingSymbols == null ? "" : spellingSymbols;
+        if (unicode > 0x20 && unicode < 0x7f && symbols.indexOf((char) unicode) >= 0) return NONE;
+        if (symbols.matches("(?s).*[0-9].*")) return slot;
+        return shift ? NONE : slot;
     }
 }

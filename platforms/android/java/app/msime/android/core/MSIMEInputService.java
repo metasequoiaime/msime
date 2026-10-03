@@ -3043,12 +3043,19 @@ public final class MSIMEInputService extends InputMethodService {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
         }
-        // Shift belongs to the policy rather than to this condition: which face of the number row
-        // picks a candidate depends on the local mode, because in U mode the plain digits are the
-        // code point and the pick moves to the shifted face.
+        // 组字中或本地模式里 Engine 列为拼写的字符是输入，要在数字选词、翻页键和标点之前送给 Engine：网址模式的 `.` `=` 和数字、`www` 之后的 `.`、V 模式的运算符。
+        if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
+                && !event.isMetaPressed() && NumberRowSelectionPolicy.engineSpells(
+                    view.optString("local_mode", "none"), view.optString("editing_text", ""),
+                    view.optString("spelling_symbols", ""), event.getUnicodeChar())) {
+            return character(event.getUnicodeChar(), event.isShiftPressed())
+                || super.onKeyDown(keyCode, event);
+        }
+        // 哪一面数字键选词由策略决定：Engine 把数字列为拼写时（U、V、网址模式）裸数字是输入，选词移到 Shift 那一面。
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
             event.isShiftPressed(), numberRowSelection,
-            view == null ? "none" : view.optString("local_mode", "none"));
+            view == null ? "none" : view.optString("local_mode", "none"),
+            view == null ? "" : view.optString("spelling_symbols", ""), event.getUnicodeChar());
         if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
                 && view != null
