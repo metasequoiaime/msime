@@ -8,11 +8,12 @@
 #   MSIME_PACKAGE_DESKTOP=0 packages without the Tauri desktop binary (no settings window); the default requires it.
 #   CARGO_BUILD_JOBS and CMAKE_BUILD_PARALLEL_LEVEL are passed through when set, to bound memory on a shared Docker VM.
 #   MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 fails unless target/language-dictionaries holds both cantonese.db and zhuyin.db with their licences; the default packages whatever is there.
+#   MSIME_PACKAGE_EDITIONS 是要打包的版本 id，逗号分隔，缺省是版本表里每个有 Linux 段的版本（platforms/linux/scripts/edition_linux.py editions）。各版本共用同一次构建出的宿主库、msime-mcp 和桌面二进制，原生宿主按版本各配置、各打一个包：full 是今天的 msime-linux，装在 /usr；其他版本是 msime-linux-<id>，装在 /opt/msime-linux-<id>。单测只在 full 的构建上跑，其他版本的原生代码与它只差 LinuxEdition.h 里的名字。
 #   MSIME_PACKAGE_FORMAT=rpm builds the RPM in a Fedora container (tests/tools/Dockerfile.package-rpm) instead of the .deb and .tar.gz in the Debian one. It is a separate build, not a conversion: rpmbuild takes Requires from the libraries the binaries link, so they have to be linked against Fedora's (#2095).
 #
 # The desktop binary embeds the web frontend at compile time, so apps/desktop/dist must be built first (`pnpm install --frozen-lockfile && pnpm --filter @msime/desktop build`). It is built outside the container because the container has no Node toolchain and a bind-mounted node_modules would mix host and container binaries.
 #
-# Output: target/linux-package/dist/{*.deb,*.tar.gz,SHA256SUMS}, or target/linux-package-rpm/dist/{*.rpm,SHA256SUMS} for the RPM.
+# Output: target/linux-package/dist/{*.deb,*.tar.gz,SHA256SUMS}, or target/linux-package-rpm/dist/{*.rpm,SHA256SUMS} for the RPM; each edition contributes its own package (msime-linux_*, msime-linux-<id>_* and so on).
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -29,6 +30,16 @@ version="${1:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"
   exit 2
 }
 desktop="${MSIME_PACKAGE_DESKTOP:-1}"
+editions="${MSIME_PACKAGE_EDITIONS:-$(python3 platforms/linux/scripts/edition_linux.py editions)}"
+known_editions=",$(python3 platforms/linux/scripts/edition_linux.py editions),"
+IFS=, read -r -a edition_list <<<"$editions"
+[ "${#edition_list[@]}" -gt 0 ] || { echo "MSIME_PACKAGE_EDITIONS names no edition" >&2; exit 2; }
+for edition in "${edition_list[@]}"; do
+  [[ "$known_editions" == *",$edition,"* ]] || {
+    echo "MSIME_PACKAGE_EDITIONS names $edition, which has no Linux identifiers in shared/contracts/editions.json" >&2
+    exit 2
+  }
+done
 format="${MSIME_PACKAGE_FORMAT:-deb}"
 case "$format" in
   deb) build_root="$repo_root/target/linux-package" ;;
@@ -72,6 +83,7 @@ docker run --rm --init \
   -e MSIME_VERSION="$version" \
   -e MSIME_PACKAGE_DESKTOP="$desktop" \
   -e MSIME_PACKAGE_FORMAT="$format" \
+  -e MSIME_PACKAGE_EDITIONS="$editions" \
   -e MSIME_REQUIRE_LANGUAGE_DICTIONARIES="${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
@@ -108,27 +120,44 @@ docker run --rm --init \
       languages_args+=(-DMSIME_LANGUAGE_DICTIONARIES=/source/target/language-dictionaries)
     fi
     # Configure from scratch every time: a cached MSIME_DESKTOP_BINARY or version from an earlier run must not leak into this package.
-    rm -rf /build/cmake /build/dist
-    cmake -S platforms/linux -B /build/cmake -G Ninja \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=/usr \
-      -DMSIME_ENABLE_PACKAGING=ON \
-      -DMSIME_ENABLE_FCITX5=ON \
-      -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
-      -DMSIME_MCP_BINARY=/build/cargo/release/msime-mcp \
-      -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
-      -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
-      -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \
-      -DMSIME_HANDWRITING_MODEL_DIR=/build/handwriting-model \
-      "${desktop_args[@]}" "${glosses_args[@]}" "${languages_args[@]}"
-    cmake --build /build/cmake
-    ctest --test-dir /build/cmake --output-on-failure
-    if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
-      cpack --config /build/cmake/CPackConfig.cmake -G RPM -B /build/dist
-    else
-      cpack --config /build/cmake/CPackConfig.cmake -G "TGZ;DEB" -B /build/dist
-    fi
-    rm -rf /build/dist/_CPack_Packages
+    rm -rf /build/cmake /build/cmake-* /build/dist
+    IFS=, read -r -a editions <<<"$MSIME_PACKAGE_EDITIONS"
+    for edition in "${editions[@]}"; do
+      # 每个版本一个构建目录：full 仍是 /build/cmake，装在 /usr；其他版本装在版本表给的前缀下。粤语和注音词库只有用到它们的版本要（cmake/Edition.cmake 对其他版本忽略），所以「必须带齐」也只对 full 生效。单测只跑 full 的。
+      build=/build/cmake
+      testing=ON
+      edition_languages_args=("${languages_args[@]}")
+      if [ "$edition" != full ]; then
+        build=/build/cmake-$edition
+        testing=OFF
+        edition_languages_args=(-DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=OFF)
+      fi
+      prefix=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" install_prefix)
+      cmake -S platforms/linux -B "$build" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$prefix" \
+        -DMSIME_EDITION="$edition" \
+        -DBUILD_TESTING="$testing" \
+        -DMSIME_ENABLE_PACKAGING=ON \
+        -DMSIME_ENABLE_FCITX5=ON \
+        -DMSIME_HOST_LIBRARY=/build/cargo/release/libmsime_host_api.so \
+        -DMSIME_MCP_BINARY=/build/cargo/release/msime-mcp \
+        -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
+        -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
+        -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \
+        -DMSIME_HANDWRITING_MODEL_DIR=/build/handwriting-model \
+        "${desktop_args[@]}" "${glosses_args[@]}" "${edition_languages_args[@]}"
+      cmake --build "$build"
+      if [ "$testing" = ON ]; then
+        ctest --test-dir "$build" --output-on-failure
+      fi
+      if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
+        cpack --config "$build/CPackConfig.cmake" -G RPM -B /build/dist
+      else
+        cpack --config "$build/CPackConfig.cmake" -G "TGZ;DEB" -B /build/dist
+      fi
+      rm -rf /build/dist/_CPack_Packages
+    done
     cd /build/dist
     if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
       sha256sum -- *.rpm > SHA256SUMS
