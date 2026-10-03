@@ -424,7 +424,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
   static func schemeMapping(_ scheme: ChineseInputScheme,
                             enabledSchemes: [ChineseInputScheme]) -> ((inout [String: Any]) -> Void)? {
-    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
+    // 本版本不提供的入口不写进共享文档：写进去的方案 host-api 会按版本回退，文档里记的和 Engine 跑的就对不上了。full 提供全部入口，这里不过滤任何东西。
+    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) && $0.isOfferedByEdition }
     guard !enabled.isEmpty else { return nil }
     let selected = enabled.contains(scheme) ? scheme : enabled[0]
     // 手写写的是本版本的默认方案（full 是全拼）：识别由平台识别器完成，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退，偏好里记的和 Engine 跑的就对不上了。

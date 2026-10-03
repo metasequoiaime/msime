@@ -26,7 +26,7 @@ struct WelcomeFlowView: View {
     Step(symbol: "keyboard", kicker: "第一步 · 约 30 秒", title: "把水杉加进键盘",
          body: "在系统设置里添加水杉键盘，再打开「允许完全访问」，云候选、云剪贴板和同步才能工作。"),
     Step(symbol: "textformat", kicker: "第二步 · 随时可以改", title: "选一套输入方案",
-         body: "全拼、9 键、双拼和五笔用的是同一套引擎，词库和自造词通用。"),
+         body: WelcomeFlowView.schemeStepBody),
     Step(symbol: "translate", kicker: "第三步 · 水杉的特点", title: "候选下方就是译文",
          body: "每个候选词下面那行小字是英文释义，本地词库优先，没命中时才联网查询。"),
     Step(symbol: "arrow.triangle.2.circlepath", kicker: "最后一步", title: "登录后多端同步",
@@ -269,12 +269,22 @@ struct WelcomeFlowView: View {
     }
   }
 
+  /// 只列本版本提供的入口：五笔版只剩五笔，拼音版没有五笔。
   private static let schemeChoices: [(scheme: ChineseInputScheme, title: String, detail: String)] = [
     (.quanpin, "全拼 26 键", "最常用，完整拼音"),
     (.nineKey, "全拼 9 键", "单手更顺手"),
     (.shuangpin, "双拼", "每字两键 · 默认小鹤"),
     (.wubi, "五笔", "形码 · 默认 86 版"),
-  ]
+  ].filter { $0.scheme.isOfferedByEdition }
+
+  /// full 的说法不变；其他版本只说本版本提供的入口。
+  private static var schemeStepBody: String {
+    if MSIMEAppEdition.isFull { return "全拼、9 键、双拼和五笔用的是同一套引擎，词库和自造词通用。" }
+    if schemeChoices.count > 1 {
+      return schemeChoices.map(\.title).joined(separator: "、") + "用的是同一套引擎，词库和自造词通用。"
+    }
+    return "之后可以在设置里调整方案的细项。"
+  }
 
   private static let glossSample = [("候选", "candidate"), ("后选", "choice"), ("侯选", "option"), ("候", "wait")]
 
