@@ -1,6 +1,6 @@
-//! The read-only dictionaries of the Cantonese and Zhuyin schemes (`cantonese.db`, `zhuyin.db`). They ship beside the resource set rather than inside it, so the engine opens one only when its scheme is activated and treats a missing or unknown file as the scheme being unavailable.
+//! The read-only dictionaries of the Cantonese, Zhuyin and Stroke schemes (`cantonese.db`, `zhuyin.db`, `stroke.db`). They ship beside the resource set rather than inside it, so the engine opens one only when its scheme is activated and treats a missing or unknown file as the scheme being unavailable.
 //!
-//! dict-builder writes both files with `SCHEMA` and the metadata below; this module is the one definition of that contract.
+//! dict-builder writes every file with `SCHEMA` and the metadata below; this module is the one definition of that contract.
 
 use std::path::Path;
 
@@ -12,7 +12,7 @@ use crate::error::{EngineError, Result};
 /// The schema version the engine reads. A file with any other `format_version` is refused.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// The whole schema. `entries.key` is the syllables of an entry joined by a single space.
+/// The whole schema. `entries.key` is the syllables of an entry joined by a single space; in `stroke.db` it is the character's stroke code (`hspnz` letters, no spaces).
 pub const SCHEMA: &str = "\
 CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;
@@ -148,6 +148,74 @@ impl LanguageDictionary {
         }
         Ok(result)
     }
+
+    /// The entries whose key matches `pattern`, where `wildcard` stands for any one character other than a space and every other character for itself. With `completions` the pattern only has to match the start of the key, as in `lookup_completions`, and the rest of the key may not hold a syllable boundary; without it the key must match the whole pattern. Each comes with its key, heaviest first and by text within a weight, at most `limit`. The literal characters before the first wildcard bound the scan to their key range, so only a leading wildcard reads the whole table.
+    pub fn lookup_pattern(
+        &self,
+        pattern: &str,
+        wildcard: char,
+        completions: bool,
+        limit: usize,
+    ) -> Result<Vec<(String, LanguageEntry)>> {
+        if pattern.is_empty() {
+            return Ok(Vec::new());
+        }
+        let glob = glob_pattern(pattern, wildcard, completions);
+        let length = i64::try_from(pattern.chars().count()).unwrap_or(i64::MAX);
+        let literal = pattern.split(wildcard).next().unwrap_or_default();
+        let requested_limit = limit;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let read = |row: &rusqlite::Row<'_>| {
+            Ok((
+                row.get(0)?,
+                LanguageEntry {
+                    text: row.get(1)?,
+                    weight: row.get(2)?,
+                },
+            ))
+        };
+        let mut result = query_capacity(requested_limit).map_or_else(Vec::new, Vec::with_capacity);
+        // 字面前缀为空（通配符打头）时没有可用的键范围，只能整表按 GLOB 过滤。
+        match completion_upper_bound(literal) {
+            Some(upper) => {
+                let mut statement = self.connection.prepare_cached(
+                    "SELECT key, text, weight FROM entries WHERE key >= ?1 AND key < ?2 AND key GLOB ?3 AND instr(substr(key, ?4 + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?5",
+                )?;
+                for row in statement.query_map((literal, upper, glob, length, limit), read)? {
+                    result.push(row?);
+                }
+            }
+            None => {
+                let mut statement = self.connection.prepare_cached(
+                    "SELECT key, text, weight FROM entries WHERE key GLOB ?1 AND instr(substr(key, ?2 + 1), ' ') = 0 ORDER BY weight DESC, text ASC LIMIT ?3",
+                )?;
+                for row in statement.query_map((glob, length, limit), read)? {
+                    result.push(row?);
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+/// `pattern` as a GLOB: the wildcard becomes `[^ ]`, so it never matches a syllable boundary, GLOB's own metacharacters are matched literally, and a pattern for completions ends in `*`.
+fn glob_pattern(pattern: &str, wildcard: char, completions: bool) -> String {
+    let mut glob = String::with_capacity(pattern.len() * 4 + 1);
+    for character in pattern.chars() {
+        match character {
+            _ if character == wildcard => glob.push_str("[^ ]"),
+            '*' | '?' | '[' => {
+                glob.push('[');
+                glob.push(character);
+                glob.push(']');
+            }
+            _ => glob.push(character),
+        }
+    }
+    if completions {
+        glob.push('*');
+    }
+    glob
 }
 
 fn completion_upper_bound(prefix: &str) -> Option<String> {
@@ -293,6 +361,75 @@ mod tests {
         assert!(completions("nei ho", 0).1.is_empty());
         assert!(completions("ngo", 10).1.is_empty());
         assert!(completions("", 10).1.is_empty());
+    }
+
+    #[test]
+    fn glob_pattern_maps_the_wildcard_and_escapes_glob_metacharacters() {
+        assert_eq!(glob_pattern("hxs", 'x', false), "h[^ ]s");
+        assert_eq!(glob_pattern("hxs", 'x', true), "h[^ ]s*");
+        assert_eq!(glob_pattern("a*?[", 'x', false), "a[*][?][[]");
+    }
+
+    // 合成的笔画数据：键是笔顺字母串。通配符可以在中间、末尾或开头；补全只匹配前缀，精确只匹配同长度的键；带空格的键（将来的词组）不进单字结果。
+    #[test]
+    fn matches_wildcard_patterns_within_the_literal_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stroke.db");
+        build(&path, &FORMAT_VERSION.to_string());
+        let connection = Connection::open(&path).unwrap();
+        for (key, text, weight) in [
+            ("hs", "十", 800),
+            ("hh", "二", 900),
+            ("hhh", "三", 700),
+            ("hsh", "土", 600),
+            ("hpn", "大", 950),
+            ("sh", "上", 650),
+            ("hs hs", "十十", 5000),
+            ("a*b", "星", 1),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO entries VALUES (?1, ?2, ?3)",
+                    (key, text, weight),
+                )
+                .unwrap();
+        }
+        drop(connection);
+
+        let dictionary = open_read_only(&path).unwrap();
+        let texts = |pattern: &str, completions, limit| {
+            let rows = dictionary
+                .lookup_pattern(pattern, 'x', completions, limit)
+                .unwrap();
+            (
+                rows.capacity(),
+                rows.into_iter()
+                    .map(|(key, entry)| format!("{key}:{}", entry.text))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let (capacity, rows) = texts("hx", false, 10);
+        assert_eq!(capacity, 10);
+        assert_eq!(rows, ["hh:二", "hs:十"]);
+        assert_eq!(
+            texts("hx", true, 10).1,
+            ["hpn:大", "hh:二", "hs:十", "hhh:三", "hsh:土"]
+        );
+        assert_eq!(texts("hx", true, 2).1, ["hpn:大", "hh:二"]);
+        assert_eq!(texts("hxh", false, 10).1, ["hhh:三", "hsh:土"]);
+        assert_eq!(texts("xh", false, 10).1, ["hh:二", "sh:上"]);
+        assert_eq!(
+            texts("xxx", false, 10).1,
+            ["nei:你", "hpn:大", "hhh:三", "hsh:土", "a*b:星"]
+        );
+        assert_eq!(texts("hs", false, 10).1, ["hs:十"]);
+        assert_eq!(texts("hsx", true, 10).1, ["hsh:土"]);
+        // GLOB 的元字符按字面匹配。
+        assert_eq!(texts("a*b", false, 10).1, ["a*b:星"]);
+        assert!(texts("a?b", false, 10).1.is_empty());
+        assert!(texts("", true, 10).1.is_empty());
+        assert!(texts("xxxxxx", true, 10).1.is_empty());
+        assert!(texts("hx", true, 0).1.is_empty());
     }
 
     #[cfg(unix)]
