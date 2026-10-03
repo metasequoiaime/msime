@@ -2183,6 +2183,7 @@ private:
       std::sort(values.begin(), values.end());
     }
     std::vector<Option> options;
+    options.reserve(values.size());
     for (const int value : values)
       options.push_back({std::to_wstring(value), std::to_wstring(value) + suffix});
     add_row(group, glyph, title, subtitle,
