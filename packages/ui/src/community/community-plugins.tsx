@@ -47,6 +47,7 @@ import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -447,11 +448,11 @@ export function CommunityPluginsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {plugins.map((plugin) => (
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />
         ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}

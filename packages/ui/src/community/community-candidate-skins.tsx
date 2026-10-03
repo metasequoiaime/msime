@@ -32,6 +32,7 @@ import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityNotice } from "./community-notice";
 import { ActionButton } from "../core/action-button";
 import {
@@ -568,7 +569,7 @@ export function CommunityCandidateSkinsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {skins.map((skin) => (
           <CommunityCandidateSkinCard
             key={skin.id}
@@ -577,7 +578,7 @@ export function CommunityCandidateSkinsPage({
             open={() => open(skin)}
           />
         ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}

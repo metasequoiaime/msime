@@ -1245,6 +1245,10 @@ export {
   type CommunityGalleryLoadMoreProps,
 } from "./community/community-gallery-load-more";
 export {
+  CommunityGalleryGrid,
+  type CommunityGalleryGridProps,
+} from "./community/community-gallery-grid";
+export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,
 } from "./community/community-card-author";

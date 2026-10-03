@@ -35,6 +35,7 @@ import { CommunityCard } from "./community-card";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
@@ -633,13 +634,13 @@ export function CommunitySkinsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {skins
           .filter((skin) => !mineOnly || skin.owned)
           .map((skin) => (
             <CommunitySkinCard key={skin.id} skin={skin} theme={theme} open={() => open(skin)} />
           ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}
