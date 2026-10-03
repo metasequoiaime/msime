@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/metasequoiaime/msime/shared/contracts/editions.schema.json",
+  "title": "水杉输入法版本表",
+  "description": "shared/contracts/editions.json 的结构说明。版本表是各版本（full、pinyin、wubi 等）的单一事实源：Rust 侧由 crates/client-core/src/edition.rs 用 include_str! 读入，结构与跨字段约束由 scripts/test-editions.py 在 contracts job 里检查，该脚本同时核对本文件声明的字段集合与版本表一致。多个版本可以同时安装，彼此完全隔离；full 保持现有的全部标识和行为不变。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "resource_components", "editions"],
+  "properties": {
+    "schema_version": {
+      "description": "版本表格式的版本号。读取方只接受自己认识的版本。",
+      "const": 1
+    },
+    "resource_components": {
+      "description": "把 resources/desktop-dictionary.lock.json 的条目按用途分组。键是组件名，值是该组件包含的锁文件条目名。各组件互不重叠，并集恰好等于锁文件的全部条目。",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 1,
+        "uniqueItems": true
+      }
+    },
+    "editions": {
+      "description": "全部版本。第一个必须是 full。",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/edition" }
+    }
+  },
+  "$defs": {
+    "edition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "display_name", "input_schemes", "default_scheme", "preference_defaults", "resources", "features", "language_dictionaries", "platforms"],
+      "properties": {
+        "id": {
+          "description": "版本 id，小写字母、数字和连字符。写入后不能改名：它会成为状态目录、包名等标识的一部分，由 editions.frozen.json 守住。",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "display_name": {
+          "description": "版本的产品名。full 等于现有的 CFBundleDisplayName 和 Tauri productName。所有版本共用同一个图标，只有名字不同。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["zh-Hans", "en"],
+          "properties": {
+            "zh-Hans": { "type": "string", "minLength": 1 },
+            "en": { "type": "string", "minLength": 1 }
+          }
+        },
+        "input_schemes": {
+          "description": "本版本提供的输入方案，取值与 InputScheme 的 serde 名相同，顺序与 crates/client-core/src/host_surface.rs 的 ALL_INPUT_SCHEMES 一致。不在列表里的方案在本版本中不存在，而不是显示为禁用。",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"] }
+        },
+        "default_scheme": {
+          "description": "本版本的默认方案，也是偏好里的方案不可用时的回退值。必须在 input_schemes 里。",
+          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"]
+        },
+        "preference_defaults": {
+          "description": "叠加在 Preferences::default() 之上的版本默认值，没有偏好文件时和恢复默认时都生效。用户之后仍可以修改这些偏好。",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wubi_mixed_pinyin": {
+              "description": "五笔混拼的默认值，只对含 wubi 方案的版本有意义。",
+              "type": "boolean"
+            }
+          }
+        },
+        "resources": {
+          "description": "本版本随包带的资源。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["components"],
+          "properties": {
+            "components": {
+              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "features": {
+          "description": "本版本是否提供这些可选功能。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["temporary_japanese", "neural_keyboard"],
+          "properties": {
+            "temporary_japanese": {
+              "description": "临时日文。为 true 时 resources.components 必须包含 japanese。",
+              "type": "boolean"
+            },
+            "neural_keyboard": {
+              "description": "神经网络整句重排。为 true 时 resources.components 必须包含 sentence-model。",
+              "type": "boolean"
+            }
+          }
+        },
+        "language_dictionaries": {
+          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 cantonese.db，含 zhuyin 的必须列出 zhuyin.db，不需要的不能列。",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "platforms": {
+          "description": "各平台的身份标识（bundle id、CLSID、包名等）。六个平台的键都必须出现；值为 null 表示该平台的标识尚未定义，由引入该平台的阶段补齐。非 null 的段必须同时原样写进 editions.frozen.json，写入后不能修改。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["macos", "windows", "linux", "android", "ios", "harmony"],
+          "properties": {
+            "macos": { "type": ["object", "null"] },
+            "windows": { "type": ["object", "null"] },
+            "linux": { "type": ["object", "null"] },
+            "android": { "type": ["object", "null"] },
+            "ios": { "type": ["object", "null"] },
+            "harmony": { "type": ["object", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

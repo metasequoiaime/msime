@@ -26,6 +26,7 @@ pub mod cloud;
 pub mod community;
 pub mod credential;
 pub mod dictionary;
+pub mod edition;
 pub mod file_lock;
 pub mod helpcode;
 pub mod host_surface;

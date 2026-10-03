@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "editions": [
+    { "id": "full", "platforms": {} },
+    { "id": "pinyin", "platforms": {} },
+    { "id": "wubi", "platforms": {} }
+  ]
+}

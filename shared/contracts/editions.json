@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "resource_components": {
+    "core": ["english.db", "others.db", "dictionary-manifest.json"],
+    "chinese-main": ["msime.db"],
+    "ngram": ["bigram.bin", "trigram.bin"],
+    "sentence-model": ["sentence-model.safetensors"],
+    "japanese": ["dict_japanese.dat", "mozc_dictionary_oss_README.txt"]
+  },
+  "editions": [
+    {
+      "id": "full",
+      "display_name": { "zh-Hans": "水杉输入法", "en": "MSIME" },
+      "input_schemes": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"],
+      "default_scheme": "quanpin",
+      "preference_defaults": {},
+      "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
+      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "language_dictionaries": ["cantonese.db", "zhuyin.db"],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+    },
+    {
+      "id": "pinyin",
+      "display_name": { "zh-Hans": "水杉拼音", "en": "MSIME Pinyin" },
+      "input_schemes": ["quanpin", "shuangpin"],
+      "default_scheme": "quanpin",
+      "preference_defaults": {},
+      "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
+      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "language_dictionaries": [],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+    },
+    {
+      "id": "wubi",
+      "display_name": { "zh-Hans": "水杉五笔", "en": "MSIME Wubi" },
+      "input_schemes": ["wubi"],
+      "default_scheme": "wubi",
+      "preference_defaults": { "wubi_mixed_pinyin": true },
+      "resources": { "components": ["core", "chinese-main", "ngram"] },
+      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "language_dictionaries": [],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+    }
+  ]
+}
