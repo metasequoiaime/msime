@@ -282,7 +282,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let mode = try? localMode() else { return false }
     return !mode.isEmpty && mode != "none"
   }
-  var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
 
   /// 组字中或本地模式里，Engine 把这个单个 ASCII 符号列在 `spelling_symbols` 里时它是 Engine 的输入，要作为字符交给会话，而不是选候选或标点：网址模式的数字和网址符号、`www` 之后的 `.`、U 模式的十六进制数字。没有组字时列出的 `/` 和 `@` 不在此列。
   func engineSpellsWhileComposing(_ symbol: String) -> Bool {

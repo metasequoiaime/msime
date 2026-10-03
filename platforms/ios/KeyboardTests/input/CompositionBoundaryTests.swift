@@ -47,6 +47,18 @@ final class CompositionBoundaryTests: XCTestCase {
     XCTAssertFalse(bridge.engineSpellsWhileComposing("/"), "with nothing composed / stays on the punctuation route")
   }
 
+  /// U 模式里码点的数字是 Engine 的输入：宿主据此把数字作为字符交给会话，而不是按槽位选候选。
+  func testUnicodeModeDigitsAreEngineInputNotCandidatePicks() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("4"), "with nothing composed a digit is not spelled")
+    XCTAssertTrue(bridge.openLocalMode("U").isInLocalMode, "Shift+U opens the Unicode mode")
+    for digit in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+      XCTAssertTrue(bridge.engineSpellsWhileComposing(digit), digit)
+    }
+    XCTAssertTrue(bridge.handleCharacter("4").isHandled)
+    XCTAssertTrue(bridge.engineSpellsWhileComposing("9"), "digits stay input once the code point has begun")
+  }
+
   /// A Korean syllable is text already: Return commits it raw so the newline still follows, and every other boundary finishes it.
   func testKoreanCommitsTheSyllableAtEveryBoundary() {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .korean, boundary: .returnKey), .none)
