@@ -1,4 +1,5 @@
 import { clamp } from "../core/number";
+import { formatZhMonthDay } from "../core/format-date";
 
 export function dayKey(date: Date): string {
   const year = date.getFullYear();
@@ -12,7 +13,7 @@ export function recentDays(length: number, today = new Date()): { key: string; l
   return Array.from({ length }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() - (length - index - 1));
-    return { key: dayKey(date), label: `${date.getMonth() + 1}月${date.getDate()}日` };
+    return { key: dayKey(date), label: formatZhMonthDay(date) };
   });
 }
 
@@ -63,7 +64,7 @@ export function statisticsHeatmapWeeks(
       const key = dayKey(date);
       return {
         key,
-        label: `${date.getMonth() + 1}月${date.getDate()}日`,
+        label: formatZhMonthDay(date),
         count: days[key] ?? 0,
         future: date > current,
       };
