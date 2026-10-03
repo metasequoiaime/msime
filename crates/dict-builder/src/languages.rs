@@ -1,4 +1,4 @@
-//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`cantonese.db`, `zhuyin.db`), each with its licence text, plus `language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
+//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`cantonese.db`, `zhuyin.db`, `stroke.db`), each with its licence text, plus `language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
 
 use std::path::Path;
 
@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 
 use crate::cantonese;
 use crate::sources::{sha256_file, Sources};
+use crate::stroke;
 use crate::text;
 use crate::zhuyin;
 
@@ -67,6 +68,28 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         counts.phrases
     ));
 
+    let source = text::read(&stroke::source(sources)?)?;
+    let frequencies = text::read(&sources.pinned(stroke::FREQUENCIES)?)?;
+    let database = out.join(stroke::DATABASE);
+    stroke::write(
+        &stroke::build(
+            &stroke::parse(&source)?,
+            &stroke::parse_frequencies(&frequencies)?,
+        ),
+        &database,
+        stroke::source_commit(sources),
+    )?;
+    let counts = stroke::verify(&database, stroke::FLOORS, &stroke::EXPECTED)?;
+    copy_license(licenses, stroke::LICENSE_SOURCE, out, stroke::LICENSE_NAME)?;
+    written.extend([stroke::DATABASE, stroke::LICENSE_NAME]);
+    summaries.push(format!(
+        "{}: {} entries of {} characters, {} of them with a frequency",
+        stroke::DATABASE,
+        counts.entries,
+        counts.characters,
+        counts.weighted
+    ));
+
     write_sums(out, &written)?;
     Ok(summaries)
 }
@@ -119,9 +142,9 @@ mod tests {
         );
     }
 
-    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 12 MB）。
+    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 12 MB）。锁文件固定 `stroke/stroke.dict.yaml` 之前，要先把 rime-stroke 的原文件放到 `target/dict-cache/stroke/`（见 `stroke::source`）。
     #[test]
-    #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼与注音源文件"]
+    #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼、注音与字频源文件"]
     fn builds_from_the_pinned_sources() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let sources = Sources {
@@ -132,7 +155,7 @@ mod tests {
         };
         let out = tempfile::tempdir().unwrap();
         let summaries = build(&sources, &root.join("resources/licenses"), out.path()).unwrap();
-        assert_eq!(summaries.len(), 2, "{summaries:?}");
+        assert_eq!(summaries.len(), 3, "{summaries:?}");
         let sums = std::fs::read_to_string(out.path().join(SUMS)).unwrap();
         let names: Vec<&str> = sums
             .lines()
@@ -144,6 +167,8 @@ mod tests {
                 cantonese::DATABASE,
                 zhuyin::LICENSE_NAME,
                 cantonese::LICENSE_NAME,
+                stroke::LICENSE_NAME,
+                stroke::DATABASE,
                 zhuyin::DATABASE
             ]
         );
@@ -151,5 +176,7 @@ mod tests {
         assert!(license.contains("Attribution 4.0 International"));
         let license = std::fs::read_to_string(out.path().join(zhuyin::LICENSE_NAME)).unwrap();
         assert!(license.contains("GNU LESSER GENERAL PUBLIC LICENSE"));
+        let license = std::fs::read_to_string(out.path().join(stroke::LICENSE_NAME)).unwrap();
+        assert!(license.contains("Version 3, 29 June 2007"));
     }
 }
