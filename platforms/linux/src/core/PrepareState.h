@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <iterator>
 #include <system_error>
 #include <vector>
 
@@ -11,6 +12,7 @@ inline bool state_directory_path_is_safe(const std::filesystem::path &path) {
   if (!path.is_absolute()) return false;
   const auto components = [&] {
     std::vector<std::filesystem::path> result;
+    result.reserve(static_cast<std::size_t>(std::distance(path.begin(), path.end())));
     for (const auto &component : path) result.push_back(component);
     return result;
   }();
