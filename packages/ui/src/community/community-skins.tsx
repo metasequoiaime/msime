@@ -30,6 +30,7 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
@@ -592,35 +593,28 @@ export function CommunitySkinsPage({
         onChange={setSearch}
         onSubmit={() => void requestList(search, false)}
       />
-      <div className={style.heading}>
-        <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>
-            {mineOnly ? "你的公开设计" : "换个心情，从键盘开始"}
-          </h2>
-          <p className={style.headingNote}>
-            {mineOnly ? "管理你发布到社区的皮肤" : "发现创作者的配色与巧思，找到你的那一款"}
-          </p>
-        </div>
-        <div className={style.headingActions}>
-          <CommunityScopeButtons
-            ariaLabel="社区皮肤范围"
-            mineOnly={mineOnly}
-            allLabel="全部皮肤"
-            mineLabel="我的作品"
-            onMineOnlyChange={(nextMineOnly) => {
-              setMineOnly(nextMineOnly);
-              void requestList(activeSearch, false, nextMineOnly);
-            }}
+      <CommunityGalleryHeading
+        title={mineOnly ? "你的公开设计" : "换个心情，从键盘开始"}
+        note={mineOnly ? "管理你发布到社区的皮肤" : "发现创作者的配色与巧思，找到你的那一款"}
+      >
+        <CommunityScopeButtons
+          ariaLabel="社区皮肤范围"
+          mineOnly={mineOnly}
+          allLabel="全部皮肤"
+          mineLabel="我的作品"
+          onMineOnlyChange={(nextMineOnly) => {
+            setMineOnly(nextMineOnly);
+            void requestList(activeSearch, false, nextMineOnly);
+          }}
+        />
+        {localSkinLibrary && (
+          <ActionButton
+            action={() => setPublishOpen(true)}
+            className="primary"
+            label="发布我的设计"
           />
-          {localSkinLibrary && (
-            <ActionButton
-              action={() => setPublishOpen(true)}
-              className="primary"
-              label="发布我的设计"
-            />
-          )}
-        </div>
-      </div>
+        )}
+      </CommunityGalleryHeading>
       <CommunitySkinCategoryFilter
         ariaLabel="键盘皮肤分类"
         value={categoryFilter.category}

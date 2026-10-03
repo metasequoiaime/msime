@@ -34,6 +34,7 @@ import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
+import { CommunityGalleryHeading } from "./community-gallery-heading";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -705,32 +706,29 @@ export function CommunityResourcesPage({
         onChange={setSearch}
         onSubmit={() => void load(false, search)}
       />
-      <div className={style.heading}>
-        <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>
-            {scope === "mine"
-              ? `我的${resourceKindTitle(kind)}作品`
-              : scope === "saved"
-                ? `收藏的${resourceKindTitle(kind)}`
-                : kind === "dictionary"
-                  ? "好词，随手可得"
-                  : "找到舒服的表达"}
-          </h2>
-          <p className={style.headingNote}>
-            {kind === "dictionary"
-              ? "把常用词带进云词库，让输入更顺手"
-              : "收藏喜欢的语气，给每次回应一点灵感"}
-          </p>
-        </div>
-        <div className={style.headingActions}>
-          <CommunityResourceScopeButtons
-            resourceLabel={resourceKindTitle(kind)}
-            scope={scope}
-            onScopeChange={setScope}
-          />
-          <ActionButton action={() => setEditing(true)} className="primary" label="发布作品" />
-        </div>
-      </div>
+      <CommunityGalleryHeading
+        title={
+          scope === "mine"
+            ? `我的${resourceKindTitle(kind)}作品`
+            : scope === "saved"
+              ? `收藏的${resourceKindTitle(kind)}`
+              : kind === "dictionary"
+                ? "好词，随手可得"
+                : "找到舒服的表达"
+        }
+        note={
+          kind === "dictionary"
+            ? "把常用词带进云词库，让输入更顺手"
+            : "收藏喜欢的语气，给每次回应一点灵感"
+        }
+      >
+        <CommunityResourceScopeButtons
+          resourceLabel={resourceKindTitle(kind)}
+          scope={scope}
+          onScopeChange={setScope}
+        />
+        <ActionButton action={() => setEditing(true)} className="primary" label="发布作品" />
+      </CommunityGalleryHeading>
       {error && <CommunityErrorAlert message={error} />}
       {!busy && items.length === 0 && (
         <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>

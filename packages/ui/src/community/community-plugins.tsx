@@ -41,6 +41,7 @@ import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { CommunityGalleryHeading } from "./community-gallery-heading";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -384,33 +385,28 @@ export function CommunityPluginsPage({
         onChange={setSearch}
         onSubmit={() => void requestList(search, false)}
       />
-      <div className={style.heading}>
-        <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>社区插件</h2>
-          <p className={style.headingNote}>
-            音效、音乐、指令表、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用
-          </p>
-        </div>
-        <div className={style.headingActions}>
-          <CommunityScopeButtons
-            ariaLabel="插件范围"
-            mineOnly={mineOnly}
-            allLabel="全部插件"
-            mineLabel="我的作品"
-            onMineOnlyChange={(nextMineOnly) => {
-              setMineOnly(nextMineOnly);
-              void requestList(activeSearch, false, nextMineOnly);
-            }}
+      <CommunityGalleryHeading
+        title="社区插件"
+        note="音效、音乐、指令表、短语表、辅助码表、单词本与符号集，安装后在「我的插件」中选用"
+      >
+        <CommunityScopeButtons
+          ariaLabel="插件范围"
+          mineOnly={mineOnly}
+          allLabel="全部插件"
+          mineLabel="我的作品"
+          onMineOnlyChange={(nextMineOnly) => {
+            setMineOnly(nextMineOnly);
+            void requestList(activeSearch, false, nextMineOnly);
+          }}
+        />
+        {localPlugins && (
+          <ActionButton
+            action={() => setPublishOpen(true)}
+            className="primary"
+            label="发布我的插件"
           />
-          {localPlugins && (
-            <ActionButton
-              action={() => setPublishOpen(true)}
-              className="primary"
-              label="发布我的插件"
-            />
-          )}
-        </div>
-      </div>
+        )}
+      </CommunityGalleryHeading>
       <div className={style.kindFilter} role="group" aria-label="插件类型">
         <ActionButton
           action={() => changeKind(null)}

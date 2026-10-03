@@ -1256,6 +1256,10 @@ export {
 } from "./community/community-textarea-field";
 export { CommunityField, type CommunityFieldProps } from "./community/community-field";
 export {
+  CommunityGalleryHeading,
+  type CommunityGalleryHeadingProps,
+} from "./community/community-gallery-heading";
+export {
   CommunityInputField,
   type CommunityInputFieldProps,
 } from "./community/community-input-field";
