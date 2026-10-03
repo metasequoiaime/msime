@@ -355,7 +355,24 @@
               }
             },
             "linux": { "type": ["object", "null"] },
-            "android": { "type": ["object", "null"] },
+            "android": {
+              "description": "Android 的身份标识。所有版本的每个字段两两不同，由 scripts/test-editions.py 检查；full 的值等于现有的 applicationId 和发布 APK 名。版本在 platforms/android/gradle-app 里是同名的 productFlavor，应用名和输入法列表里的子类型名取自 platforms/android/editions/<id>/res（full 用主资源），图标所有版本相同。ContentProvider 的 authority 一律写成 `${applicationId}.<名字>`，随 application_id 各不相同，不单独列在这里。",
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["application_id", "apk_name"],
+              "properties": {
+                "application_id": {
+                  "description": "APK 的 applicationId，也是系统里的包名、私有数据目录和输入法服务的组件包名。full 是 `app.msime.android`；其他版本是它加上 `.<id>`，Gradle 里写成 flavor 的 applicationIdSuffix。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.android(\\.[a-z][a-z0-9]*)?$"
+                },
+                "apk_name": {
+                  "description": "build-apk.sh 产出、发布到 android-v 版本页的 APK 文件名（不含 `.apk`）。full 是 `msime-client`；其他版本是 `msime-client-<id>`。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                }
+              }
+            },
             "ios": { "type": ["object", "null"] },
             "harmony": { "type": ["object", "null"] }
           }

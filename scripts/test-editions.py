@@ -14,6 +14,7 @@
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
+- Android 身份标识：applicationId 和 APK 名在所有版本间两两不同（不区分大小写），不是 full 的版本按版本 id 推出（`app.msime.android.<id>`、`msime-client-<id>`），清单里每个 ContentProvider 的 authority 都写成 `${applicationId}.<名字>`，所以各版本的 authority 也两两不同；full 的值等于今天 gradle-app 的 applicationId、tauri.android.conf.json 的 identifier 和 build-apk.sh 产出的 APK 名，主资源的应用名等于 full 的显示名；其他版本的 `platforms/android/editions/<id>/res` 里应用名等于版本的显示名，覆盖的另外几句与主资源只差产品名，method.xml 与主资源只差子类型标签；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
 不带参数运行时检查仓库里的文件；`--editions` 和 `--frozen` 可以换成别的文件，用来确认某种错误确实会被拦下。
@@ -27,6 +28,7 @@ import json
 import pathlib
 import re
 import sys
+from xml.etree import ElementTree
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EDITIONS = ROOT / "shared/contracts/editions.json"
@@ -41,6 +43,10 @@ TAURI_MACOS_CONF = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
 EDITION_IDENTITY = ROOT / "platforms/macos/src/core/EditionIdentity.h"
 TAURI_WINDOWS_CONF = ROOT / "apps/desktop/src-tauri/tauri.windows.conf.json"
 UPDATE_MANIFEST = ROOT / "packages/ui/src/settings/update-manifest.ts"
+ANDROID_ROOT = ROOT / "platforms/android"
+ANDROID_GRADLE = ANDROID_ROOT / "gradle-app/app/build.gradle.kts"
+ANDROID_MANIFEST = ANDROID_ROOT / "AndroidManifest.xml"
+TAURI_ANDROID_CONF = ROOT / "apps/desktop/src-tauri/tauri.android.conf.json"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
@@ -100,6 +106,8 @@ FULL_WINDOWS = {
 WINDOWS_UNIQUE_NAMES = ["app_name", "text_service_description", "install_dir", "registry_key", "state_directory", "user_data_directory", "data_dir_environment_variable", "name_suffix", "watchdog_task", "host_dll", "tauri_identifier", "installer_base_name"]
 # 落在 %LOCALAPPDATA% 下的目录名：安装器的默认数据目录（install_dir）、没有 DataDir 时的状态目录和按用户的账号与统计目录。任意两个版本的任意两个撞名，一个版本就会读写、卸载时删掉另一个版本的数据。
 WINDOWS_LOCAL_APP_DATA_NAMES = ["install_dir", "state_directory", "user_data_directory"]
+# full 今天的 Android 标识：applicationId 写在 gradle-app/app/build.gradle.kts 的 defaultConfig 和 tauri.android.conf.json 里，APK 名是 build-apk.sh 产出、release-android.yml 发布的文件名。改了 applicationId，已装的用户就收不到覆盖升级，私有数据也换了一个目录。
+FULL_ANDROID = {"application_id": "app.msime.android", "apk_name": "msime-client"}
 # macOS 上不写进版本表、由 EditionIdentity.h 从版本身份推出的标识：full 沿用今天的值，其他版本按下面的规则推出。
 FULL_VOICE_PROVIDER_SERVICE = "app.msime.client.voice.providers"
 FULL_USAGE_REPORTING_DIRECTORY = "MSIME/telemetry"
@@ -186,7 +194,7 @@ def check_schema_shape(errors: list[str], table: dict, schema: dict) -> None:
             for platform, section in entry["platforms"].items():
                 if section is not None and not isinstance(section, dict):
                     errors.append(f"{where}.platforms.{platform}: expected an object or null")
-            for platform in ["macos", "windows"]:
+            for platform in ["macos", "windows", "android"]:
                 section = entry["platforms"].get(platform)
                 node = edition["properties"]["platforms"]["properties"][platform]
                 if isinstance(section, dict):
@@ -309,6 +317,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
 
     check_macos(errors, editions)
     check_windows(errors, editions)
+    check_android(errors, editions)
 
     check_frozen(errors, editions, frozen)
 
@@ -462,6 +471,94 @@ def check_windows(errors: list[str], editions: list[dict]) -> None:
     for fragment in ['if (isFullEdition(edition)) return "MetasequoiaIME_Setup_v";', "return `MetasequoiaIME-${edition.charAt(0).toUpperCase()}${edition.slice(1)}_Setup_v`;"]:
         if fragment not in manifest:
             errors.append(f"{UPDATE_MANIFEST.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
+
+
+def android_strings(path: pathlib.Path) -> dict[str, str]:
+    """一个 Android values 资源文件里的字符串。"""
+    root = ElementTree.parse(path).getroot()
+    return {element.get("name"): element.text or "" for element in root.iter("string")}
+
+
+def without_subtype_label(path: pathlib.Path) -> str:
+    """method.xml 去掉注释和子类型标签之后的样子，用来和主资源比较。"""
+    root = ElementTree.parse(path).getroot()
+    for element in root.iter():
+        element.text = None
+        element.tail = None
+    for subtype in root.iter("subtype"):
+        subtype.attrib.pop("{http://schemas.android.com/apk/res/android}label", None)
+    return ElementTree.tostring(root, encoding="unicode")
+
+
+def check_android(errors: list[str], editions: list[dict]) -> None:
+    """多个版本同时装在一台 Android 设备上：applicationId 一样，后装的就会被当成先装的那个的升级（或因签名不同装不上）；authority 一样，第二个版本根本装不上。"""
+    sections = [(entry["id"], entry, entry["platforms"].get("android")) for entry in editions]
+    sections = [(edition_id, entry, section) for edition_id, entry, section in sections if section is not None]
+    for key in FULL_ANDROID:
+        seen: dict[str, str] = {}
+        for edition_id, _, section in sections:
+            folded = section[key].casefold()
+            if folded in seen:
+                errors.append(f"editions {seen[folded]} and {edition_id}: platforms.android.{key} {section[key]!r} is not unique (case-insensitive)")
+            seen[folded] = edition_id
+    manifest = ANDROID_MANIFEST.read_text(encoding="utf-8")
+    authorities = re.findall(r'android:authorities="([^"]*)"', manifest)
+    if not authorities:
+        errors.append(f"{ANDROID_MANIFEST.relative_to(ROOT)} declares no provider authority; update check_android in this script")
+    for authority in authorities:
+        if not authority.startswith("${applicationId}."):
+            errors.append(f"{ANDROID_MANIFEST.relative_to(ROOT)}: authority {authority!r} must be written as ${{applicationId}}.<name>, or two editions installed together collide on it")
+    resolved: dict[str, str] = {}
+    for edition_id, _, section in sections:
+        for authority in authorities:
+            value = authority.replace("${applicationId}", section["application_id"]).casefold()
+            if value in resolved:
+                errors.append(f"edition {edition_id}: provider authority {value!r} is also edition {resolved[value]}'s")
+            resolved[value] = edition_id
+    main_strings = android_strings(ANDROID_ROOT / "res/values/strings.xml")
+    main_method = without_subtype_label(ANDROID_ROOT / "res/xml/method.xml")
+    for edition_id, entry, section in sections:
+        name = entry["display_name"]["zh-Hans"]
+        if edition_id == FULL:
+            if section != FULL_ANDROID:
+                errors.append(f"edition full: platforms.android must be the identifiers the product ships with today: {FULL_ANDROID}")
+            gradle = re.search(r'^\s*applicationId = "([^"]+)"', ANDROID_GRADLE.read_text(encoding="utf-8"), re.MULTILINE)
+            if gradle is None or gradle.group(1) != section["application_id"]:
+                errors.append(f"edition full: platforms.android.application_id must equal applicationId in {ANDROID_GRADLE.relative_to(ROOT)}")
+            identifier = json.loads(TAURI_ANDROID_CONF.read_text(encoding="utf-8")).get("identifier")
+            if section["application_id"] != identifier:
+                errors.append(f"edition full: platforms.android.application_id must equal identifier {identifier!r} in {TAURI_ANDROID_CONF.relative_to(ROOT)}")
+            if main_strings.get("app_name") != name:
+                errors.append(f"edition full: app_name in platforms/android/res/values/strings.xml must be {name!r}")
+            continue
+        expected = {"application_id": f"{FULL_ANDROID['application_id']}.{edition_id}", "apk_name": f"{FULL_ANDROID['apk_name']}-{edition_id}"}
+        for key, value in expected.items():
+            if section[key] != value:
+                errors.append(f"edition {edition_id}: platforms.android.{key} must be {value!r}, found {section[key]!r}")
+        resources = ANDROID_ROOT / "editions" / edition_id / "res"
+        strings_path = resources / "values/strings.xml"
+        method_path = resources / "xml/method.xml"
+        if not strings_path.is_file() or not method_path.is_file():
+            errors.append(f"edition {edition_id}: {resources.relative_to(ROOT)} must hold values/strings.xml and xml/method.xml")
+            continue
+        strings = android_strings(strings_path)
+        if strings.get("app_name") != name:
+            errors.append(f"edition {edition_id}: app_name in {strings_path.relative_to(ROOT)} must be its display_name.zh-Hans {name!r}")
+        for key, value in strings.items():
+            if key == "app_name":
+                continue
+            if key not in main_strings:
+                errors.append(f"edition {edition_id}: {strings_path.relative_to(ROOT)} overrides {key!r}, which the main resources do not define")
+            elif value != main_strings[key].replace(main_strings["app_name"], name) or value == main_strings[key]:
+                errors.append(f"edition {edition_id}: {key} in {strings_path.relative_to(ROOT)} must be the main string with only the product name replaced")
+        for key, value in main_strings.items():
+            if key != "app_name" and main_strings["app_name"] in value and key not in strings:
+                errors.append(f"edition {edition_id}: {key} names {main_strings['app_name']!r} in the main resources; override it in {strings_path.relative_to(ROOT)}")
+        if without_subtype_label(method_path) != main_method:
+            errors.append(f"edition {edition_id}: {method_path.relative_to(ROOT)} must equal res/xml/method.xml apart from the subtype label")
+        method = method_path.read_text(encoding="utf-8")
+        if 'android:label="@string/app_name"' not in method:
+            errors.append(f"edition {edition_id}: {method_path.relative_to(ROOT)} must label its subtype with @string/app_name")
 
 
 def check_frozen(errors: list[str], editions: list[dict], frozen: dict) -> None:
