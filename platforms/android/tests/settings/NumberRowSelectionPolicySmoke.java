@@ -18,20 +18,20 @@ public final class NumberRowSelectionPolicySmoke {
         // The four quadrants of the mode/shift split. In U mode the plain digits are the code point
         // and must reach the Engine, so the pick is on the shifted face; everywhere else the shifted
         // face is the mark above the digit and the plain one picks.
-        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_4, false, true, "unicode", "0123456789abcdefABCDEF", '4') == -1,
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_4, false, true, "unicode", "0123456789", '4') == -1,
             "U mode plain digit is a hex digit, not a pick");
-        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, true, "unicode", "0123456789abcdefABCDEF", '!') == 0,
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, true, "unicode", "0123456789", '!') == 0,
             "U mode shift picks");
-        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_9, true, true, "unicode", "0123456789abcdefABCDEF", '(') == 8,
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_9, true, true, "unicode", "0123456789", '(') == 8,
             "U mode shift picks the ninth");
         check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, true, "none", "", '!') == -1,
             "outside U mode the shifted face is a mark");
 
         // A disabled row stays disabled in U mode too: the shifted face is not a way around the
         // preference, it is the same feature moved.
-        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, false, "unicode", "0123456789abcdefABCDEF", '!') == -1,
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, false, "unicode", "0123456789", '!') == -1,
             "disabled in U mode");
-        // Every other local mode keeps the ordinary arrangement; only U spells with digits.
+        // 不把数字列为拼写的本地模式照常：裸数字选词，Shift+数字打出符号。数字被列为拼写的 V、网址模式见下面。
         for (String mode : new String[] {"none", "quick_phrase", "date_time", "emoji", "kaomoji"}) {
             check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_2, false, true, mode, "", '2') == 1,
                 "plain digit picks in " + mode);
