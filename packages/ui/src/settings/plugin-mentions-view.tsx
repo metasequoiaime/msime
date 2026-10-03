@@ -4,6 +4,7 @@ import * as settings from "./settings-style";
 import { PluginViewHeader } from "./plugin-view-header";
 import type { MentionEntry } from "./plugin-types";
 import { ActionButton } from "./action-button";
+import { SettingsInputField } from "./settings-input-field";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
@@ -72,27 +73,23 @@ export function PluginMentionsView({
           </p>
           {mentions.map((entry, index) => (
             <div className={settings.phraseForm} key={index}>
-              <label className={settings.field}>
-                名字或地点
-                <input
-                  className={settings.fieldInput}
-                  value={entry.text}
-                  maxLength={MAX_MENTION_TEXT_UTF16}
-                  onChange={(event) => updateMention(index, { text: event.target.value })}
-                />
-              </label>
-              <label className={settings.field}>
-                拼音
-                <input
-                  className={settings.fieldInput}
-                  value={entry.key}
-                  placeholder="zhang'san"
-                  maxLength={MAX_MENTION_KEY_BYTES}
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  onChange={(event) => updateMention(index, { key: event.target.value })}
-                />
-              </label>
+              <SettingsInputField
+                label="名字或地点"
+                ariaLabel="名字或地点"
+                value={entry.text}
+                maxLength={MAX_MENTION_TEXT_UTF16}
+                onChange={(value) => updateMention(index, { text: value })}
+              />
+              <SettingsInputField
+                label="拼音"
+                ariaLabel="拼音"
+                value={entry.key}
+                placeholder="zhang'san"
+                maxLength={MAX_MENTION_KEY_BYTES}
+                autoCapitalize="off"
+                spellCheck={false}
+                onChange={(value) => updateMention(index, { key: value })}
+              />
               <ActionButton
                 action={() =>
                   setMentions((current) => current.filter((_, position) => position !== index))
