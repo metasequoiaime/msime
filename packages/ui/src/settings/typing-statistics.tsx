@@ -13,6 +13,7 @@ import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
+import { StatusMessage } from "../core/status-message";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -1442,7 +1443,11 @@ export function TypingStatisticsPage({
   if (!status)
     return (
       <div className={page}>
-        {error ? <ErrorAlert>{error}</ErrorAlert> : <p role="status">正在读取打字统计…</p>}
+        {error ? (
+          <ErrorAlert>{error}</ErrorAlert>
+        ) : (
+          <StatusMessage role="status">正在读取打字统计…</StatusMessage>
+        )}
       </div>
     );
   const statistics = status.statistics;

@@ -10,6 +10,7 @@ import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsNotice } from "./settings-notice";
+import { StatusMessage } from "../core/status-message";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -474,7 +475,7 @@ export function McpConnectSection({
                   {copyButton("json", "复制配置", configWithFlags(server.config, flags))}
                 </>
               )}
-              {result && <p role="status">{result}</p>}
+              {result && <StatusMessage role="status">{result}</StatusMessage>}
               {permissionFlags.map((permission) => (
                 <SettingsServiceRow key={permission.flag}>
                   <span>
