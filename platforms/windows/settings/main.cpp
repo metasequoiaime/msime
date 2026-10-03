@@ -3153,6 +3153,7 @@ private:
         {L"hotkey_hold_space_lock", L"长按录音时按空格锁定"},
     }};
     std::vector<Check> hotkey_checks;
+    hotkey_checks.reserve(hotkeys.size());
     for (const auto &[id, label] : hotkeys) {
       const std::wstring key = std::wstring(L"voice_input.") + id;
       hotkey_checks.push_back({label, document_.Boolean(key, false),
