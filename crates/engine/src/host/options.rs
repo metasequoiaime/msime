@@ -313,7 +313,7 @@ fn reject_storage_ancestors(path: &Path) -> io::Result<()> {
         current.push(component.as_os_str());
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !is_system_path_alias(&current) {
+                if !crate::paths::is_trusted_system_alias(&current) {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "translation sidecar path has a symbolic-link ancestor",
@@ -332,18 +332,6 @@ fn reject_storage_ancestors(path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        path == Path::new("/var") || path == Path::new("/tmp")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
 }
 
 fn is_real_file(path: &Path) -> bool {

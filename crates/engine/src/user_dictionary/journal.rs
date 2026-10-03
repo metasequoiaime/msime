@@ -150,7 +150,7 @@ fn reject_database_parent(path: &Path) -> std::io::Result<()> {
         current.push(component.as_os_str());
         match std::fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if !is_system_path_alias(&current) {
+                if !crate::paths::is_trusted_system_alias(&current) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "database path has a symbolic-link parent",
@@ -169,18 +169,6 @@ fn reject_database_parent(path: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
-}
-
-fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        path == Path::new("/var") || path == Path::new("/tmp")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
 }
 
 /// A dictionary (`msime.db`, `english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
