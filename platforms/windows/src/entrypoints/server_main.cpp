@@ -709,7 +709,7 @@ int wmain(int argc, wchar_t **argv) {
         nlohmann::json{{"resources", config.resources.u8string()},
                        {"state_root", config.state_root.u8string()}};
     // 不是 full 的版本把版本 id 交给宿主库：它按版本选资源锁、收窄方案，并在状态根里记下版本。full 不带这个键，请求与引入版本之前相同。
-    if (!MSIME_EDITION_IS_FULL)
+    if constexpr (!MSIME_EDITION_IS_FULL)
       bootstrap_document["edition"] = MSIME_EDITION_ID;
     const auto bootstrap = bootstrap_document.dump();
     std::unique_ptr<char, decltype(&msime_client_string_free)> response(

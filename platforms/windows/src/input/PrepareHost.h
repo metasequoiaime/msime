@@ -84,7 +84,7 @@ inline std::filesystem::path prepare_host_state_in_directory(
       {"resources", std::filesystem::canonical(resources).u8string()},
       {"state_root", state.u8string()}};
   // 不是 full 的版本带上版本 id，宿主库按它选资源锁、收窄方案并在状态根里记下版本；full 的请求与引入版本之前相同。
-  if (!MSIME_EDITION_IS_FULL)
+  if constexpr (!MSIME_EDITION_IS_FULL)
     request_document["edition"] = MSIME_EDITION_ID;
   const auto request = request_document.dump();
   if (request.size() > 16384)

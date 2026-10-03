@@ -311,6 +311,13 @@ std::wstring response_error(Response const &response) {
   }
 }
 
+// 本版本在 AI 助手配置里登记的服务器名，与 client-core 的 `Edition::mcp_server_name` 相同：full 是 msime，其他版本是 msime-<id>。
+std::wstring mcp_server_name() {
+  const std::string_view id = MSIME_EDITION_ID;
+  return MSIME_EDITION_IS_FULL ? std::wstring(L"msime")
+                               : L"msime-" + std::wstring(id.begin(), id.end());
+}
+
 std::wstring mcp_client_name(std::wstring_view id) {
   if (id == L"claude_desktop")
     return L"Claude Desktop";
@@ -3417,11 +3424,12 @@ private:
     auto response = call_mcp(msime_client_mcp_install, request);
     if (!response.ok && response_error(response) == L"mcp_entry_exists") {
       ContentDialog dialog;
-      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 msime？")));
+      const auto server = mcp_server_name();
+      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 " + server + L"？")));
       dialog.Content(box_value(
-          hstring(name + L" 的配置里已有另一个名为 msime "
-                         L"的服务器。替换后，它原来的命令和参数（包括手动加上的"
-                         L" --allow-write）会被这里的设置覆盖。")));
+          hstring(name + L" 的配置里已有另一个名为 " + server +
+                  L" 的服务器。替换后，它原来的命令和参数（包括手动加上的"
+                  L" --allow-write）会被这里的设置覆盖。")));
       dialog.PrimaryButtonText(L"替换");
       dialog.CloseButtonText(L"取消");
       dialog.DefaultButton(ContentDialogButton::Close);

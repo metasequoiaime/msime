@@ -70,7 +70,7 @@ int main() {
   // 本次构建的版本提供它自己的默认方案，full 提供全部方案。
   constexpr auto built = edition_schemes();
   assert(built.offers(built.fallback));
-  if (MSIME_EDITION_IS_FULL)
+  if constexpr (MSIME_EDITION_IS_FULL != 0)
     for (int scheme = Quanpin; scheme <= Tibetan; ++scheme)
       assert(built.offers(scheme) && built.fallback == Quanpin);
   assert(scheme_from_name("pinyin") == -1 && input_mode("pinyin") == InputMode::Chinese);
