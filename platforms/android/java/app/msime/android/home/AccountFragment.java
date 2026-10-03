@@ -23,6 +23,8 @@ import com.google.android.material.snackbar.Snackbar;
  * 这台设备的身份是自己生成的，日常使用不需要登录。What it shows first is the device's own anonymous identity -- the one the community catalogue is read with -- then Google sign-in when the backend offers it and this build carries a client ID (see {@link SignIn}), and rows for the things this host can actually do.
  */
 public final class AccountFragment extends HomeTabFragment {
+    private final SignInAttemptPolicy signInAttempt = new SignInAttemptPolicy();
+
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
         return inflater.inflate(R.layout.page_account, parent, false);
@@ -78,6 +80,7 @@ public final class AccountFragment extends HomeTabFragment {
                 : ListRows.add(list, R.drawable.ic_tab_account,
                     getString(R.string.account_sign_in_google),
                     getString(R.string.account_sign_in_hint), this::signIn);
+            row.setEnabled(!signInAttempt.active());
             // Inside the account card the row keeps the card's 16dp inset, so its glyph lines up with the avatar above it.
             int inset = ListRows.dp(requireContext(), 16);
             row.setPaddingRelative(inset, row.getPaddingTop(), inset, row.getPaddingBottom());
@@ -85,7 +88,9 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     private void signIn() {
+        if (!signInAttempt.begin()) return;
         SignIn.start(requireActivity(), failure -> {
+            signInAttempt.finish();
             // Credential Manager may finish after the user has left this tab; a detached fragment has no view to report into.
             if (!isAdded() || getView() == null) return;
             if (failure.isEmpty()) render();

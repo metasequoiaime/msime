@@ -441,6 +441,7 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
+  "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
   "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
   "$repo_root/platforms/android/tests/core/BootstrapMarkerSmoke.java" \
   "$repo_root/platforms/android/tests/core/TelemetryHandlerSmoke.java" \
@@ -528,6 +529,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/SignInAttemptPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
@@ -618,6 +620,7 @@ java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" AccountTokenPolicySmoke
+java -cp "$output_dir" SignInAttemptPolicySmoke
 java -cp "$output_dir" TypingStatisticsModelSmoke
 java -cp "$output_dir" KeyPressCountingSmoke
 java -cp "$output_dir" VocabularyReviewModelSmoke
