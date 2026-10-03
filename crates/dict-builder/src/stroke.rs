@@ -117,14 +117,17 @@ pub struct Dictionary {
     pub entries: BTreeMap<(String, String), i64>,
 }
 
-/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。
-pub fn source(sources: &Sources) -> Result<PathBuf> {
+/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `stroke.db`，粤拼与注音词库照常构建和发布。
+pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
     if sources.lock.files.iter().any(|file| file.path == SOURCE) {
-        return sources.pinned(SOURCE);
+        return sources.pinned(SOURCE).map(Some);
     }
     let cached = sources.cache.join(SOURCE);
+    if !cached.exists() {
+        return Ok(None);
+    }
     check_cached(&cached, SOURCE_SIZE, SOURCE_SHA256)?;
-    Ok(cached)
+    Ok(Some(cached))
 }
 
 fn check_cached(path: &Path, size: u64, sha256: &str) -> Result<()> {
@@ -473,6 +476,28 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains(&digest), "{error}");
+    }
+
+    /// 锁文件没固定、缓存里也没有源文件时不构建笔画词库，而不是让整个 `languages` 失败；缓存里放了不对的文件仍然报错。
+    #[test]
+    fn an_unpinned_and_uncached_source_is_skipped() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut lock =
+            crate::sources::Lock::load(&root.join("resources/dictionary-sources.lock.json"))
+                .unwrap();
+        lock.files.retain(|file| file.path != SOURCE);
+        let dir = tempfile::tempdir().unwrap();
+        let sources = Sources {
+            lock,
+            repository_inputs: root.join("resources/dictionary-sources"),
+            cache: dir.path().to_path_buf(),
+            offline: true,
+        };
+        assert!(source(&sources).unwrap().is_none());
+        let cached = dir.path().join(SOURCE);
+        std::fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        std::fs::write(&cached, b"not rime-stroke").unwrap();
+        assert!(source(&sources).is_err());
     }
 
     /// 锁文件要么还没固定这份数据，要么固定的正是许可证覆盖的那个提交和那份原样文件。

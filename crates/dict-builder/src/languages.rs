@@ -68,27 +68,37 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         counts.phrases
     ));
 
-    let source = text::read(&stroke::source(sources)?)?;
-    let frequencies = text::read(&sources.pinned(stroke::FREQUENCIES)?)?;
-    let database = out.join(stroke::DATABASE);
-    stroke::write(
-        &stroke::build(
-            &stroke::parse(&source)?,
-            &stroke::parse_frequencies(&frequencies)?,
-        ),
-        &database,
-        stroke::source_commit(sources),
-    )?;
-    let counts = stroke::verify(&database, stroke::FLOORS, &stroke::EXPECTED)?;
-    copy_license(licenses, stroke::LICENSE_SOURCE, out, stroke::LICENSE_NAME)?;
-    written.extend([stroke::DATABASE, stroke::LICENSE_NAME]);
-    summaries.push(format!(
-        "{}: {} entries of {} characters, {} of them with a frequency",
-        stroke::DATABASE,
-        counts.entries,
-        counts.characters,
-        counts.weighted
-    ));
+    match stroke::source(sources)? {
+        Some(source) => {
+            let source = text::read(&source)?;
+            let frequencies = text::read(&sources.pinned(stroke::FREQUENCIES)?)?;
+            let database = out.join(stroke::DATABASE);
+            stroke::write(
+                &stroke::build(
+                    &stroke::parse(&source)?,
+                    &stroke::parse_frequencies(&frequencies)?,
+                ),
+                &database,
+                stroke::source_commit(sources),
+            )?;
+            let counts = stroke::verify(&database, stroke::FLOORS, &stroke::EXPECTED)?;
+            copy_license(licenses, stroke::LICENSE_SOURCE, out, stroke::LICENSE_NAME)?;
+            written.extend([stroke::DATABASE, stroke::LICENSE_NAME]);
+            summaries.push(format!(
+                "{}: {} entries of {} characters, {} of them with a frequency",
+                stroke::DATABASE,
+                counts.entries,
+                counts.characters,
+                counts.weighted
+            ));
+        }
+        // 笔画源文件既没被锁文件固定、也没放进缓存：只跳过笔画词库，不让粤拼与注音的发布跟着失败。
+        None => summaries.push(format!(
+            "{}: skipped, {} is not pinned in the sources lock and not in the cache",
+            stroke::DATABASE,
+            stroke::SOURCE
+        )),
+    }
 
     write_sums(out, &written)?;
     Ok(summaries)
