@@ -309,6 +309,7 @@ export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-m
 export {
   MacosInputModeEntriesSection,
   macosInputModeEntries,
+  macosInputModeEntriesFor,
   type MacosInputModesClient,
 } from "./settings/macos-input-mode-entries-section";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
@@ -1615,6 +1616,8 @@ export interface HostCapabilities {
 /** Mirrors `client-core::host_surface::EditionInfo`. */
 export interface EditionInfo {
   id: string;
+  /** 版本的中文产品名，例如「水杉五笔」。缺省时按 full 的「水杉输入法」。 */
+  display_name?: string;
   /** 本版本提供的方案，顺序与全部方案的顺序一致。 */
   input_schemes: InputScheme[];
   /** 本版本的默认方案，偏好里的方案不可用时 host-api 回退到它。 */

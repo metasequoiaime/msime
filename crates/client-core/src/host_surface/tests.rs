@@ -680,6 +680,7 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
         capabilities.edition,
         Some(EditionInfo {
             id: "wubi".into(),
+            display_name: "水杉五笔".into(),
             input_schemes: vec![InputScheme::Wubi],
             default_scheme: InputScheme::Wubi,
             temporary_japanese: false,
@@ -692,6 +693,7 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
         document["edition"],
         serde_json::json!({
             "id": "wubi",
+            "display_name": "水杉五笔",
             "input_schemes": ["wubi"],
             "default_scheme": "wubi",
             "temporary_japanese": false,

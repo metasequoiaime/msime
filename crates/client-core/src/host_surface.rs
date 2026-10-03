@@ -307,6 +307,8 @@ pub struct HostCapabilities {
 pub struct EditionInfo {
     /// 版本 id。
     pub id: String,
+    /// 版本的中文产品名（版本表 `display_name.zh-Hans`），例如「水杉五笔」。macOS 设置页用它称呼本版本在输入法菜单里的各个入口。
+    pub display_name: String,
     /// 本版本提供的方案；不在其中的方案在本版本里不存在。
     pub input_schemes: Vec<InputScheme>,
     /// 本版本的默认方案，偏好里的方案不可用时回退到它。
@@ -608,6 +610,7 @@ impl HostCapabilities {
         self.input_schemes.retain(|scheme| edition.offers(*scheme));
         self.edition = Some(EditionInfo {
             id: edition.id.clone(),
+            display_name: edition.display_name.zh_hans.clone(),
             input_schemes: offered_input_schemes(edition),
             default_scheme: edition.default_scheme,
             temporary_japanese: edition.features.temporary_japanese,

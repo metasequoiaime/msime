@@ -180,6 +180,7 @@ export function InputSchemeSettingsContent({
           client={macosInputModes}
           scheme={preferences.scheme}
           inputSchemes={inputSchemes}
+          edition={edition}
           onError={onError}
         />
       )}
