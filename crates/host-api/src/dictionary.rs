@@ -1988,6 +1988,12 @@ pub fn lookup_candidates(
     if !matches!(options.scheme, 0..=2) {
         return Err("candidates can only be looked up in pinyin, double pinyin or wubi".into());
     }
+    // 本版本的 Engine 跑不了这个方案（例如五笔版查全拼），直接说明原因，不要让建会话失败报成词库打不开。
+    if !msime_engine::SchemeType::from_u8(options.scheme)
+        .is_some_and(|scheme| options.enabled_schemes.contains(scheme))
+    {
+        return Err("this edition does not offer that scheme".into());
+    }
     // A semicolon is a key only in double pinyin; elsewhere it is punctuation and would end the composition.
     let allowed = |byte: u8| {
         byte.is_ascii_lowercase() || byte == b'\'' || (byte == b';' && options.scheme == 1)

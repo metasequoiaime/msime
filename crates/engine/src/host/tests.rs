@@ -19,6 +19,7 @@ fn options(root: &Path) -> EngineOptions {
         cache: path("cache"),
         dictionaries: path("dictionaries"),
         scheme: 0,
+        enabled_schemes: crate::types::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -1450,6 +1451,41 @@ fn session_options_map_every_host_field() {
     assert_eq!(mapped.rescoring_context, "上文");
     assert!(!mapped.sentence_alternatives);
     assert!(mapped.personal_context);
+    assert_eq!(mapped.enabled_schemes, crate::SchemeSet::ALL);
+}
+
+/// `enabled_schemes` 原样交给会话。双拼不在其中时双拼键位不校验，不合法的值按小鹤处理；双拼在其中时照旧报错。
+#[test]
+fn session_options_skip_the_shuangpin_profile_without_shuangpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = crate::SchemeType::Wubi as u8;
+    value.shuangpin_profile = 200;
+    assert_eq!(
+        super::options::session_options(&value)
+            .unwrap_err()
+            .to_string(),
+        "Unsupported shuangpin profile"
+    );
+
+    value.enabled_schemes = crate::SchemeSet::of(&[crate::SchemeType::Wubi]);
+    let mapped = super::options::session_options(&value).unwrap();
+    assert_eq!(mapped.enabled_schemes, value.enabled_schemes);
+    assert_eq!(
+        mapped.shuangpin_profile,
+        crate::ShuangpinProfileKind::Xiaohe
+    );
+    let session = Session::new(&value).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.scheme, crate::SchemeType::Wubi as u8);
+    assert_eq!(snapshot.shuangpin_profile, "xiaohe");
+    assert!(!snapshot.microsoft_shuangpin);
+
+    value.scheme = crate::SchemeType::Quanpin as u8;
+    assert_eq!(
+        Session::new(&value).err().unwrap().to_string(),
+        "Input scheme is not enabled"
+    );
 }
 
 #[test]

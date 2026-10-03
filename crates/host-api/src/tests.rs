@@ -142,6 +142,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
         cache: root.path().to_string_lossy().into_owned(),
         dictionaries: root.path().to_string_lossy().into_owned(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -6391,6 +6392,32 @@ fn the_wubi_edition_runs_wubi_whatever_scheme_the_preferences_name() {
     read(msime_client_destroy(handle));
 }
 
+/// Engine 的 `enabled_schemes` 跟着文档记录的版本走：full（含缺省）是全部方案；五笔版只有五笔；拼音版是全拼、双拼，加上临时日文要切到的日文。
+#[test]
+fn engine_schemes_follow_the_documents_edition() {
+    let enabled = |edition: Option<&str>| {
+        let mut document = json!({ "api_version": 1, "resources": "/r", "user_data": "/u", "cache": "/c", "dictionaries": "/d", "preferences": chinese_preferences() });
+        if let Some(edition) = edition {
+            document["edition"] = json!(edition);
+        }
+        HostOptions::from_document(document)
+            .expect("host options")
+            .into_engine_options()
+            .enabled_schemes
+    };
+    assert_eq!(enabled(None), SchemeSet::ALL);
+    assert_eq!(enabled(Some("full")), SchemeSet::ALL);
+    assert_eq!(enabled(Some("wubi")), SchemeSet::of(&[SchemeType::Wubi]));
+    assert_eq!(
+        enabled(Some("pinyin")),
+        SchemeSet::of(&[
+            SchemeType::Quanpin,
+            SchemeType::Shuangpin,
+            SchemeType::JapaneseRomaji,
+        ])
+    );
+}
+
 /// 回退到的方案在 full 是全拼，在别的版本是该版本的默认方案；能跑的上一次中文方案仍然优先。
 #[test]
 fn the_fallback_scheme_is_the_edition_default() {
@@ -6634,7 +6661,12 @@ fn wubi_resources_type_mixed_pinyin_and_wubi_codes() {
         let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
         assert_eq!(created["ok"], true, "{created}");
         let handle = created["value"]["session"].as_u64().unwrap();
-        SESSIONS.with(|sessions| assert_eq!(sessions.borrow()[&handle].options.scheme, 2));
+        SESSIONS.with(|sessions| {
+            let options = &sessions.borrow()[&handle].options;
+            assert_eq!(options.scheme, 2);
+            // 五笔版的 Engine 不构造双拼和日文 provider，拼音行仍由混拼用的全拼 provider 给出。
+            assert_eq!(options.enabled_schemes, SchemeSet::of(&[SchemeType::Wubi]));
+        });
         assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
         let mut view = Value::Null;
         for byte in input {

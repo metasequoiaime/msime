@@ -411,6 +411,40 @@ impl SchemeType {
     }
 }
 
+/// 会话允许运行的方案集合，每个方案占 `SchemeType` 序号对应的那一位。缺省是 [`SchemeSet::ALL`]，即全部八个方案，行为与没有这个集合时完全相同。
+///
+/// 收窄后，`ProviderRegistry` 只为集合里的方案构造 provider（全拼在全拼或五笔任一在集合里时构造，五笔混拼要用它），切换到集合外的方案报 `INPUT_SCHEME_NOT_ENABLED`。临时日文切到的也是日文方案，所以要用临时日文，集合里就得有 `JapaneseRomaji`；没有时临时日文的触发键不会进入这个模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SchemeSet(u8);
+
+impl SchemeSet {
+    /// 全部八个方案。
+    pub const ALL: Self = Self(0xFF);
+    pub const EMPTY: Self = Self(0);
+
+    pub const fn contains(self, scheme: SchemeType) -> bool {
+        self.0 & (1 << scheme as u8) != 0
+    }
+
+    #[must_use]
+    pub const fn with(self, scheme: SchemeType) -> Self {
+        Self(self.0 | (1 << scheme as u8))
+    }
+
+    /// 由方案列表组成的集合，重复的方案只算一次。
+    pub fn of(schemes: &[SchemeType]) -> Self {
+        schemes
+            .iter()
+            .fold(Self::EMPTY, |set, scheme| set.with(*scheme))
+    }
+}
+
+impl Default for SchemeSet {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
 /// Double-pinyin keyboard profile. The ordinal is the host ABI value (`EngineOptions::shuangpin_profile`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]

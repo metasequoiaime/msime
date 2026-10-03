@@ -34,7 +34,7 @@ use msime_client_core::voice::doubao_frame::{
 };
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine::host::{CandidateEdge, Command, EngineOptions, Session};
-use msime_engine::SchemeType;
+use msime_engine::{SchemeSet, SchemeType};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -641,6 +641,19 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     }
 }
 
+/// 交给 Engine 的 `enabled_schemes`：本版本提供的方案，版本带临时日文时再加上它要切到的日文方案。full 提供全部八个方案，得到的就是 [`SchemeSet::ALL`]，Engine 照旧构造全部 provider。
+fn engine_schemes(edition: &Edition) -> SchemeSet {
+    let offered = offered_input_schemes(edition)
+        .into_iter()
+        .filter_map(|scheme| SchemeType::from_u8(scheme_code(scheme)))
+        .fold(SchemeSet::EMPTY, SchemeSet::with);
+    if edition.features.temporary_japanese {
+        offered.with(SchemeType::JapaneseRomaji)
+    } else {
+        offered
+    }
+}
+
 fn scheme_code(scheme: InputScheme) -> u8 {
     match scheme {
         InputScheme::Quanpin => 0,
@@ -926,6 +939,7 @@ impl HostOptions {
             cache: self.cache,
             dictionaries: self.dictionaries,
             scheme: scheme_code(scheme),
+            enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             learning: self.preferences.learning,

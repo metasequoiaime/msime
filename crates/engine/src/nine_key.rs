@@ -48,19 +48,22 @@ pub struct NineKeySession {
     spellings: Vec<String>,
     candidates: Vec<WordItem>,
     english_only: bool,
+    /// 会话允许全拼时为真。为假时九宫格只拼英文，拼音词库永远不打开。
+    pinyin: bool,
     /// Opened on first use.
     dictionary: Option<QuanpinDictionary>,
     english: Option<EnglishDictionary>,
 }
 
 impl NineKeySession {
-    /// English options are fixed here; the reference never updated them afterwards.
+    /// English options are fixed here; the reference never updated them afterwards. `pinyin` 是会话的 `enabled_schemes` 是否含全拼：九宫格拼的是全拼音节，不含全拼时只给英文行，也不打开拼音词库。
     pub fn new(
         paths: &RuntimePaths,
         learning: bool,
         frequency: FrequencyAdjustmentOptions,
         fuzzy: FuzzyPinyinOptions,
         english: EnglishInputOptions,
+        pinyin: bool,
     ) -> Self {
         Self {
             paths: paths.clone(),
@@ -73,6 +76,7 @@ impl NineKeySession {
             spellings: Vec::new(),
             candidates: Vec::new(),
             english_only: false,
+            pinyin,
             dictionary: None,
             english: None,
         }
@@ -298,7 +302,7 @@ impl NineKeySession {
         if !self.active() {
             return;
         }
-        if self.english_only {
+        if self.english_only || !self.pinyin {
             // No syllables to offer and no pinyin to look up: the digits stand for letters only.
             self.candidates = self.english_candidates();
             return;
@@ -917,6 +921,7 @@ mod tests {
             FrequencyAdjustmentOptions::default(),
             FuzzyPinyinOptions::default(),
             EnglishInputOptions::default(),
+            true,
         )
     }
 
@@ -1000,6 +1005,7 @@ mod tests {
             frequency,
             FuzzyPinyinOptions::default(),
             english,
+            true,
         )
     }
 
@@ -1362,5 +1368,28 @@ mod tests {
         assert_eq!(words(&session), ["你", "米"]);
         session.set_english_only(true);
         assert!(words(&session).is_empty());
+    }
+
+    /// 会话不允许全拼时九宫格只拼英文：没有音节、没有拼音行，拼音词库也不打开。
+    #[test]
+    fn without_quanpin_the_grid_spells_english_only() {
+        let fixture = fixture();
+        let mut session = NineKeySession::new(
+            &fixture.paths,
+            false,
+            FrequencyAdjustmentOptions::default(),
+            FuzzyPinyinOptions::default(),
+            mixed(),
+            false,
+        );
+        type_digits(&mut session, "64");
+        assert!(session.snapshot().nine_key_spellings.is_empty());
+        assert!(!words(&session).contains(&"你".to_owned()));
+        assert!(session.dictionary.is_none());
+
+        let mut pinyin = open(&fixture.paths, false, mixed());
+        type_digits(&mut pinyin, "64");
+        assert!(words(&pinyin).contains(&"你".to_owned()));
+        assert!(pinyin.dictionary.is_some());
     }
 }
