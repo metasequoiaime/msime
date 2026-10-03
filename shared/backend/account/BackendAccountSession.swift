@@ -114,9 +114,13 @@ struct BackendKeychain: BackendSessionStorage {
 struct BackendDesktopSessionFile: BackendSessionStorage {
   static let fileName = "account-session.json"
   static let maximumBytes = 64 * 1024
+  /// 状态目录随版本而变：输入法的 Info.plist 声明了版本（`MSIMEEdition`）时取它的 `MSIMESettingsBundleIdentifier`，否则是 full 的 `app.msime.macos`。与 platforms/macos/src/core/EditionIdentity.h 一致。
   static var standardDirectory: URL? {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-      .appendingPathComponent("app.msime.macos", isDirectory: true)
+    let edition = Bundle.main.object(forInfoDictionaryKey: "MSIMEEdition") as? String
+    let declared = edition.map { !$0.isEmpty && $0 != "full" } ?? false
+    let identifier = declared ? (Bundle.main.object(forInfoDictionaryKey: "MSIMESettingsBundleIdentifier") as? String ?? "app.msime.macos") : "app.msime.macos"
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+      .appendingPathComponent(identifier, isDirectory: true)
   }
   static var refreshLock: BackendFileRefreshLock {
     BackendFileRefreshLock(url: standardDirectory?.appendingPathComponent("account-refresh.lock", isDirectory: false))

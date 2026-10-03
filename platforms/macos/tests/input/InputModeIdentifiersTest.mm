@@ -47,6 +47,29 @@ void require(bool condition, const char *message) {
 
 int main() {
     @autoreleasepool {
+        // 版本身份：没有 MSIMEEdition 的 Info.plist（full 的，以及不是 bundle 的测试进程）每个值都是 full 今天的那个；声明了版本的取 plist 里的值。
+        NSDictionary *wubi = @{@"MSIMEEdition": @"wubi", @"CFBundleIdentifier": @"app.msime.inputmethod.wubi",
+                               @"MSIMEInputSchemes": @[@"wubi"], @"MSIMEDefaultScheme": @"wubi",
+                               @"MSIMESettingsBundleIdentifier": @"app.msime.macos.wubi",
+                               @"MSIMEKeychainService": @"com.metasequoia.msime.wubi.account", @"MSIMEWubiMixedPinyinDefault": @YES};
+        require([MSIMEEditionIdentifierIn(@{}) isEqualToString:@"full"] && MSIMEEditionIsFullIn(@{@"CFBundleIdentifier": @"x"}) &&
+                    [MSIMEInputMethodBundleIdentifierIn(@{@"CFBundleIdentifier": @"x"}) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME"] &&
+                    [MSIMESettingsBundleIdentifierIn(@{}) isEqualToString:@"app.msime.macos"] &&
+                    [MSIMEKeychainServiceIn(@{}) isEqualToString:@"com.metasequoia.msime.account"] &&
+                    MSIMEEditionInputSchemesIn(@{}) == nil && [MSIMEEditionDefaultSchemeIn(@{}) isEqualToString:@"quanpin"] &&
+                    !MSIMEEditionWubiMixedPinyinDefaultIn(@{@"MSIMEWubiMixedPinyinDefault": @YES}) &&
+                    [MSIMEEditionNotificationNameIn(@{}, @"N") isEqualToString:@"N"],
+                "An Info.plist without an edition did not read as full.");
+        require([MSIMEEditionIdentifierIn(wubi) isEqualToString:@"wubi"] &&
+                    [MSIMEInputMethodBundleIdentifierIn(wubi) isEqualToString:@"app.msime.inputmethod.wubi"] &&
+                    [MSIMESettingsBundleIdentifierIn(wubi) isEqualToString:@"app.msime.macos.wubi"] &&
+                    [MSIMEKeychainServiceIn(wubi) isEqualToString:@"com.metasequoia.msime.wubi.account"] &&
+                    [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
+                    MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
+                "The wubi edition's Info.plist did not give the wubi identity.");
+        require(MSIMEEditionIsFull() && MSIMEEditionOffersScheme(@"tibetan") && !MSIMEEditionOffersScheme(@"klingon") &&
+                    [MSIMEEffectiveInputScheme(@"cantonese", @"klingon", @{}) isEqualToString:@"quanpin"],
+                "The test process, which is full, did not offer every scheme or fall back to quanpin.");
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Hans"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(YES, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Roman"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"japanese")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Japanese"] &&

@@ -167,6 +167,43 @@ int main() {
     assert(MSIMEApplyCloudAppearance(saved, defaults));
     values = [saved mutableCopy]; values[@"unexpected"] = @1;
     assert(!MSIMEApplyCloudAppearance(values, defaults));
+
+    // 版本收窄（与 client-core 的账号偏好过滤规则相同）。测试进程是 full：什么也不去掉。
+    assert(MSIMENarrowCloudAppearance(saved, nil) == saved);
+    assert(MSIMEAdoptCloudAppearance(saved, saved, nil) == saved);
+    // 五笔版只有一个方案：不带 input_scheme，也不带只属于全拼、双拼的字段；五笔的字段照常带。
+    NSArray *wubi = @[@"wubi"];
+    NSDictionary *wubiSnapshot = MSIMENarrowCloudAppearance(saved, wubi);
+    assert(wubiSnapshot[@"platform.macos.input_scheme"] == nil);
+    for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema", @"platform.macos.shuangpin_keymap", @"platform.macos.shuangpin_preedit_uses_raw"])
+      assert(wubiSnapshot[key] == nil);
+    assert(wubiSnapshot[@"platform.macos.wubi_auto_commit_unique"] != nil);
+    assert(wubiSnapshot.count == saved.count - 5);
+    assert(MSIMEValidateCloudAppearanceForSchemes(wubiSnapshot, wubi));
+    // 一份 full 的完整快照不是五笔版的快照，反之亦然。
+    assert(!MSIMEValidateCloudAppearanceForSchemes(saved, wubi));
+    assert(!MSIMEValidateCloudAppearanceForSchemes(wubiSnapshot, nil));
+    // 应用五笔版的快照不碰本机的方案和全拼、双拼的设置。
+    [defaults setObject:@"wubi" forKey:@"MSIMEClientInputScheme"];
+    [defaults setBool:YES forKey:@"MSIMEClientShuangpinKeymap"];
+    NSMutableDictionary *wubiValues = [wubiSnapshot mutableCopy];
+    wubiValues[@"platform.macos.candidate_font_size"] = @22;
+    assert(MSIMEApplyCloudAppearanceForSchemes(wubiValues, defaults, wubi));
+    assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqualToString:@"wubi"]);
+    assert([defaults boolForKey:@"MSIMEClientShuangpinKeymap"]);
+    assert([[defaults objectForKey:@"MSIMEClientCandidateFontSize"] isEqual:@22]);
+    // 拼音版有两个方案：同步 input_scheme，但只认全拼和双拼；别处来的五笔当作没有这一项，保留本机的选择。
+    NSArray *pinyin = @[@"quanpin", @"shuangpin"];
+    NSMutableDictionary *pinyinSnapshot = [MSIMENarrowCloudAppearance(saved, pinyin) mutableCopy];
+    assert(pinyinSnapshot[@"platform.macos.input_scheme"] != nil && pinyinSnapshot[@"platform.macos.wubi_auto_commit_unique"] == nil);
+    pinyinSnapshot[@"platform.macos.input_scheme"] = @1;
+    assert(MSIMEValidateCloudAppearanceForSchemes(pinyinSnapshot, pinyin));
+    NSMutableDictionary *fromWubi = [saved mutableCopy];
+    fromWubi[@"platform.macos.input_scheme"] = @2;
+    assert(!MSIMEValidateCloudAppearanceForSchemes(MSIMENarrowCloudAppearance(fromWubi, pinyin), pinyin));
+    NSDictionary *adopted = MSIMEAdoptCloudAppearance(fromWubi, pinyinSnapshot, pinyin);
+    assert([adopted[@"platform.macos.input_scheme"] isEqual:@1]);
+    assert(MSIMEValidateCloudAppearanceForSchemes(adopted, pinyin));
     MSIMERemoveTestPreferenceSuite(defaults, suite);
   }
 }

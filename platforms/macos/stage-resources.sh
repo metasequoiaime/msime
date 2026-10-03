@@ -4,7 +4,7 @@ umask 077
 
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-source_dir=${1:?usage: stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory]}
+source_dir=${1:?usage: [MSIME_EDITION=<id>] stage-resources.sh <verified-resource-directory> [settled-model-directory] [offline-glosses-directory] [language-dictionaries-directory]}
 source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
@@ -15,12 +15,22 @@ if [ "${MSIME_MACOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
   verify_flags=(--omit-on-demand)
 fi
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$source_dir")
+# MSIME_EDITION=<id> 只暂存该版本带的文件（版本表 shared/contracts/editions.json，资源锁 resources/editions/<id>.lock.json），暂存结果按该版本的锁校验。缺省是 full，暂存的文件和校验与引入版本之前相同。
+edition="${MSIME_EDITION:-full}"
+edition_flags=()
+if [ "$edition" != full ]; then
+  edition_lock="$repo_root/resources/editions/$edition.lock.json"
+  [ -f "$edition_lock" ] || { echo "unknown edition $edition: $edition_lock does not exist" >&2; exit 1; }
+  edition_artifacts=$(python3 -c 'import json, sys; print("\n".join(artifact["name"] for artifact in json.load(open(sys.argv[1]))["artifacts"]))' "$edition_lock")
+  artifacts=$(grep -Fx -f <(printf '%s\n' "$edition_artifacts") <<< "$artifacts")
+  edition_flags=(--edition "$edition")
+fi
 rm -rf "$destination"
 mkdir -p "$destination"
 while IFS= read -r artifact; do
   cp "$source_dir/$artifact" "$destination/$artifact"
 done <<< "$artifacts"
-cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} "$destination" >/dev/null
+cargo run --quiet -p msime-client-core --example verify_resources --locked -- ${verify_flags[@]+"${verify_flags[@]}"} ${edition_flags[@]+"${edition_flags[@]}"} "$destination" >/dev/null
 # Helpcode tables are not part of the dictionary release; the repository carries them in resources/helpcodes, and the Engine reads them from helpcodes/ under the resource directory (crates/engine/src/assets.rs names the six files). Without them the Engine has nothing to match: Shift letters are taken as helpcode and narrow nothing. The shared verifier lets a real helpcodes/ directory through.
 helpcodes="$repo_root/resources/helpcodes"
 mkdir -p "$destination/helpcodes"

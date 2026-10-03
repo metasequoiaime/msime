@@ -1431,7 +1431,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
-    return [snapshot copy];
+    // 本版本不同步的键不导出，规则见 CloudAppearanceSettings.h；full 什么也不去掉。
+    return [MSIMENarrowCloudAppearance(snapshot, MSIMEEditionInputSchemes()) copy];
 }
 /// The custom theme as this window stores it, for the host resolver.
 - (msime::mac::CustomTheme)customTheme {
@@ -1678,12 +1679,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)helpcodeDisplayChanged:(NSSwitch *)sender {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
-- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [MSIMEInputSchemeNames() containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![MSIMEInputSchemeNames() containsObject:value]) value = @"quanpin"; if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+// 不是本版本的方案（包括引擎不认识的值）读作本版本的默认方案，full 是全拼。
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return MSIMEEditionOffersScheme(value) ? value : MSIMEEditionDefaultScheme(); }
+- (void)setInputScheme:(NSString *)value { if (!MSIMEEditionOffersScheme(value)) value = MSIMEEditionDefaultScheme(); if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)lastChineseScheme {
     NSString *scheme = self.inputScheme;
     if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme]) return scheme;
-    return _lastChineseScheme ?: @"quanpin";
+    return _lastChineseScheme ?: MSIMEEditionDefaultScheme();
 }
 - (NSString *)lastSyncedInputScheme { return [_defaults stringForKey:LastSyncedSchemeKey]; }
 - (void)setLastSyncedInputScheme:(NSString *)value { [_defaults setObject:value forKey:LastSyncedSchemeKey]; }
@@ -1693,8 +1695,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setWubiProfile:(NSString *)value { if (![@[@"wubi86", @"wubi98"] containsObject:value]) value = @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+// 从没设置过时取本版本的默认值：五笔版默认打开混拼，full 默认关闭（与 client-core 的版本默认偏好一致）。它会被合并进共享偏好文档，所以缺省值不能是一个固定的 NO。
 - (BOOL)wubiMixedPinyinEnabled {
-    return _sharedWubiMixedPinyin ? _sharedWubiMixedPinyin.boolValue : [_defaults boolForKey:WubiMixedPinyinKey];
+    if (_sharedWubiMixedPinyin) return _sharedWubiMixedPinyin.boolValue;
+    return [_defaults objectForKey:WubiMixedPinyinKey] == nil ? MSIMEEditionWubiMixedPinyinDefault() : [_defaults boolForKey:WubiMixedPinyinKey];
 }
 - (void)setWubiMixedPinyinEnabled:(BOOL)value {
     _sharedWubiMixedPinyin = nil;
@@ -1767,9 +1771,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     id wubiProfile = preferences[@"wubi_profile"];
-    if ([MSIMEInputSchemeNames() containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if (MSIMEEditionOffersScheme(scheme)) _sharedInputScheme = [scheme copy];
     id lastChinese = preferences[@"last_chinese_scheme"];
-    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin"] containsObject:lastChinese]) _lastChineseScheme = [lastChinese copy];
+    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin"] containsObject:lastChinese] && MSIMEEditionOffersScheme(lastChinese)) _lastChineseScheme = [lastChinese copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
@@ -3350,9 +3354,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         }
         [schemeButtons addObject:button];
         NSView *accessory = index == 1 ? _shuangpinSchemeButton : (index == 2 ? _wubiSchemeButton : nil);
+        // 本版本没有的方案不列出来（而不是显示为不可用）；按钮照样建好，_schemeButtons 仍按方案编号取。
+        if (!MSIMEEditionOffersScheme(MSIMEInputSchemeNames()[index])) continue;
         [self registerSearchRow:button named:schemeTitles[index] aka:@[@"输入方案"]];
+        if (schemeRows.count > 2) [schemeRows addObject:MSIMECardSeparator()];
         [schemeRows addObject:SchemeChoiceRow(button, accessory)];
-        if (index < (NSInteger)schemeTitles.count - 1) [schemeRows addObject:MSIMECardSeparator()];
     }
     _schemeButtons = schemeButtons;
     // macOS 27 不允许进程启用键盘输入模式，选中粤拼、注音这类方案后菜单栏里不会自动出现对应入口；这一行说明它在系统设置「添加」对话框的哪个语言下。
@@ -4882,7 +4888,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *userData = configuredState ?: defaultState.path;
     BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
                                                   userData.fileSystemRepresentation,
-                                                  "app.msime.inputmethod.MetasequoiaIME",
+                                                  MSIMEInputMethodBundleIdentifier().UTF8String,
                                                   _removeUserDataButton.state == NSControlStateValueOn);
     if (!ok) {
         NSAlert *failure = [NSAlert new];
@@ -5027,7 +5033,8 @@ static NSString *const MSIMESettingsDocumentScope =
                                      reason:@"它不是水杉输入法导出的设置文件。"];
         return;
     }
-    id values = document[MSIMESettingsDocumentSettingsField];
+    // 另一个版本导出的文件先收窄到本版本，见 MSIMEAdoptCloudAppearance。
+    id values = MSIMEAdoptCloudAppearance(document[MSIMESettingsDocumentSettingsField], [self cloudSettingsSnapshot], MSIMEEditionInputSchemes());
     // The same check the account sync puts a downloaded snapshot through — +[MSIMEPreferencesWindowController validateCloudSettingsSnapshot:] is one line around this function — asked here first so that a document this host cannot read is told apart from one it can read and still has to refuse.
     if (![values isKindOfClass:NSDictionary.class] || !MSIMEValidateCloudAppearance(values)) {
         [self reportSettingsDocumentFailure:@"无法导入这个文件"

@@ -161,9 +161,14 @@ pub fn parse(
 fn default_options_path(env: &impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let absolute = |value: OsString| Some(PathBuf::from(value)).filter(|path| path.is_absolute());
     if cfg!(target_os = "macos") {
-        // `native_locator_root` in the desktop app.
+        // 设置应用的 `native_locator_root`：目录名是 msime-mcp 所在安装包所属版本的设置应用 identifier（full 是 app.msime.macos）。安装包的版本声明坏了时没有默认位置，而不是退回 full 的。
+        let identity = msime_client_core::edition::Edition::of_macos_bundle()
+            .ok()?
+            .macos()?;
         return env("HOME").and_then(absolute).map(|home| {
-            home.join("Library/Application Support/app.msime.macos/runtime-options.json")
+            home.join("Library/Application Support")
+                .join(&identity.settings_bundle_id)
+                .join("runtime-options.json")
         });
     }
     if cfg!(target_os = "linux") {

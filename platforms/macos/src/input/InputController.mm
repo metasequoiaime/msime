@@ -94,11 +94,12 @@ static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     return queue;
 }
 
-static NSString * const MSIMETypingStatisticsEnabledChangedNotification =
-    @"MetasequoiaTypingStatisticsEnabledChangedNotification";
-// Posted by the settings window (crates/host-macos/native/dictionary.mm) and by the native dictionary window once the quiesce lease is up. It only wakes the controllers; the lease beside the dictionary lock is what they check before letting go.
-static NSString * const MSIMEDictionaryMaintenanceWillBeginNotification =
-    @"MSIMEDictionaryMaintenanceWillBeginNotification";
+// 分布式通知在整个登录会话里广播，名字随版本而变（MSIMEEditionNotificationName，full 不变），一个版本的设置应用不会改动另一个版本的输入法。与 crates/host-macos/native/dictionary.mm 收发的是同一个名字。
+#define MSIMETypingStatisticsEnabledChangedNotification \
+    MSIMEEditionNotificationName(@"MetasequoiaTypingStatisticsEnabledChangedNotification")
+// 由设置窗口（crates/host-macos/native/dictionary.mm）和原生词库窗口在 quiesce 租约写好之后发出。它只负责叫醒控制器；控制器放手之前检查的是词库锁旁边的租约。
+#define MSIMEDictionaryMaintenanceWillBeginNotification \
+    MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification")
 
 // Dictionary maintenance needs the Engine's exclusive lock, and every open session holds it shared. While the settings window's lease (platforms/common/DictionaryQuiesceLease.h) is live on a session's user directory, that session is closed and none is opened on it.
 static BOOL MSIMEDictionaryQuiesced(NSDictionary *options) {
@@ -2838,7 +2839,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = [_view[@"scheme"] integerValue];
-    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : @"quanpin";
+    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
     NSString *profile = _view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = _appearance.shuangpinProfile;
     NSDictionary<NSString *, NSString *> *schemeTitles = @{

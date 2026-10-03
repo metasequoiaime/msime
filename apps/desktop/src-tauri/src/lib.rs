@@ -2666,7 +2666,7 @@ fn macos_input_source_restart_args() -> [&'static str; 5] {
     [
         "-n",
         "-b",
-        "app.msime.inputmethod.MetasequoiaIME",
+        macos_input_source::input_source_bundle_id(),
         "--args",
         "--reregister-input-source",
     ]
@@ -2866,7 +2866,7 @@ fn run_input_source_startup(
             enabled: None,
             system_bundles: Vec::new(),
             bundled_version: macos_input_source::bundle_version(
-                &resource_directory.join(macos_input_source::INPUT_SOURCE_BUNDLE_NAME),
+                &resource_directory.join(macos_input_source::input_source_bundle_name()),
             )
             .map(|version| version.label().to_string()),
             installed_version: macos_input_source::installed_bundle_path()
@@ -3025,9 +3025,11 @@ fn open_input_source_settings() -> Result<(), HostActionError> {
     })
 }
 
-// The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
+// 输入法经 NSUserDefaults.standardUserDefaults 写偏好，所以它的域就是它的 bundle id（随版本而变）；读别的名字只会读到一个空的或过期的 plist，而设置页还报告已保存。
 #[cfg(target_os = "macos")]
-const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
+fn macos_input_method_defaults_domain() -> &'static str {
+    macos_input_source::input_source_bundle_id()
+}
 
 #[cfg(target_os = "macos")]
 const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";
@@ -3042,7 +3044,7 @@ async fn load_macos_shuangpin_keymap() -> Result<bool, HostActionError> {
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
             ])
             .output()
@@ -3076,7 +3078,7 @@ async fn save_macos_shuangpin_keymap(enabled: bool) -> Result<(), HostActionErro
         let status = std::process::Command::new("defaults")
             .args([
                 "write",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
                 "-bool",
                 if enabled { "true" } else { "false" },
@@ -3102,7 +3104,7 @@ async fn load_macos_wubi_auto_commit_unique() -> Result<bool, HostActionError> {
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_WUBI_AUTO_COMMIT_UNIQUE_DEFAULTS_KEY,
             ])
             .output()
@@ -3135,7 +3137,7 @@ async fn save_macos_wubi_auto_commit_unique(enabled: bool) -> Result<(), HostAct
         let status = std::process::Command::new("defaults")
             .args([
                 "write",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_WUBI_AUTO_COMMIT_UNIQUE_DEFAULTS_KEY,
                 "-bool",
                 if enabled { "true" } else { "false" },
@@ -3182,7 +3184,7 @@ async fn on_device_translation_downloadable_languages() -> Result<Vec<String>, H
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_ON_DEVICE_TRANSLATION_DOWNLOADABLE_DEFAULTS_KEY,
             ])
             .output()
@@ -4641,6 +4643,12 @@ fn sync_omarchy_theme() -> i32 {
 }
 
 pub fn run() {
+    // 安装包声明了本构建不认识的版本时不能当成 full 运行，见 `check_macos_edition`。
+    #[cfg(target_os = "macos")]
+    if let Err(message) = platform::macos::check_macos_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
     #[cfg(target_os = "linux")]
     if std::env::args_os()
         .skip(1)
@@ -4655,6 +4663,7 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let context = {
         let mut context = context;
+        platform::macos::apply_edition_to_config(context.config_mut());
         macos_keyboard::prepare_windows(
             &mut context.config_mut().app.windows,
             requested_surface_route(),

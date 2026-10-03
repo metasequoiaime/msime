@@ -6,8 +6,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const MAX_OPTIONS_BYTES: u64 = 1024 * 1024;
-// The macOS bundle identifier in tauri.macos.conf.json, and therefore the default state directory `app_data_dir` resolves to.
-const APPLICATION_ID: &str = "app.msime.macos";
 
 pub(crate) struct LaunchState {
     pub options_path: PathBuf,
@@ -114,9 +112,10 @@ pub(crate) fn native_locator_root() -> Result<PathBuf, &'static str> {
     if !home.is_absolute() {
         return Err("Cannot resolve native HostOptions locator");
     }
+    // 设置应用的 bundle identifier（full 是 tauri.macos.conf.json 里的 app.msime.macos），也就是 `app_data_dir` 解析出的默认状态目录；随版本而变，同时安装的版本各用各的目录。
     Ok(home
         .join("Library/Application Support")
-        .join(APPLICATION_ID))
+        .join(&crate::platform::macos::macos_identity().settings_bundle_id))
 }
 
 fn read_options_bytes(file: impl Read) -> Result<Vec<u8>, &'static str> {
@@ -168,9 +167,9 @@ fn prepare_default_options(
 ) -> Result<(), &'static str> {
     crate::shared::atomic_file::create_directory_and_check(state_root)
         .map_err(|_| "Cannot prepare default HostOptions JSON")?;
-    // 还没有 HostOptions 文档时，版本只能取自状态目录里留下的记录（例如定位文件被删掉而状态还在）；第一次启动没有记录，准备的是 full。
+    // 还没有 HostOptions 文档时，版本取自状态目录里留下的记录（例如定位文件被删掉而状态还在）；没有记录时是本设置应用所属的版本（安装包的版本声明，full 的包没有声明）。
     let edition = msime_client_core::edition::Edition::recorded_in(state_root)
-        .unwrap_or_else(msime_client_core::edition::Edition::full);
+        .unwrap_or_else(crate::platform::macos::macos_edition);
     let document = msime_host_api::prepare_host_configuration_for_edition(
         resources_directory,
         state_root,

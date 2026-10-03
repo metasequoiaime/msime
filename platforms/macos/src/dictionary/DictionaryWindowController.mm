@@ -1,6 +1,7 @@
 #import "DictionaryWindowController.h"
 #import "MSIMEClientSession.h"
 #import "../core/ClientDictionaryRuntime.h"
+#import "../core/EditionIdentity.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "../../../common/DictionaryQuiesceLease.h"
 
@@ -19,7 +20,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
         std::string lease;
         if (msime::dictionary_lease::raise_dictionary_quiesce_lease(root, lease)) {
             void (^announce)(void) = ^{
-                [NSNotificationCenter.defaultCenter postNotificationName:@"MSIMEDictionaryMaintenanceWillBeginNotification" object:nil];
+                [NSNotificationCenter.defaultCenter postNotificationName:MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification") object:nil];
             };
             if (NSThread.isMainThread) announce();
             else dispatch_sync(dispatch_get_main_queue(), announce);

@@ -254,6 +254,22 @@ impl Edition {
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "unknown edition"))
     }
 
+    /// 本进程所在 macOS 安装包声明的版本。设置应用和 `msime-mcp` 的可执行文件都在 `<App>.app/Contents/MacOS/` 下，声明在 `Contents/Resources/edition.json`（[`Edition::PACKAGE_MARKER_FILE`]）。没有这个文件就是 full：full 的包、开发运行和测试进程都是这样。只在第一次调用时读，之后返回同一个结果。
+    ///
+    /// 声明坏了（读不了、不是合法的声明、或者是本构建不认识的版本）时是错误而不是 full：一个声明了版本的包不能去停、去改 full 的输入法和状态目录。设置应用启动时就检查它，坏了直接退出。
+    pub fn of_macos_bundle() -> Result<&'static Edition, &'static str> {
+        static EDITION: OnceLock<Result<&'static Edition, &'static str>> = OnceLock::new();
+        *EDITION.get_or_init(|| {
+            let executable =
+                std::env::current_exe().map_err(|_| "cannot locate the running executable")?;
+            let Some(contents) = executable.parent().and_then(Path::parent) else {
+                return Ok(Self::full());
+            };
+            Self::declared_by_package(&contents.join("Resources").join(Self::PACKAGE_MARKER_FILE))
+                .map_err(|_| "the package declares an edition this build does not know")
+        })
+    }
+
     /// 状态目录里记录它属于哪个版本的文件名，内容就是版本 id。
     ///
     /// 版本之间完全隔离，一个状态目录只属于一个版本，而各平台读写偏好的 C ABI 和设置应用的偏好存储只拿到这个目录：偏好文件不见了或要修复时，靠这份记录才知道该用哪个版本的默认偏好（`PreferencesStore::new`）。full 不写这个文件，所以 full 的状态目录与引入版本之前相同。
@@ -735,6 +751,11 @@ mod tests {
             .map(|edition| edition.macos().unwrap().settings_bundle_id.to_lowercase())
             .collect();
         assert_eq!(states.len(), Edition::all().len());
+    }
+
+    #[test]
+    fn a_test_process_is_not_inside_a_macos_bundle_and_runs_as_full() {
+        assert!(Edition::of_macos_bundle().unwrap().is_full());
     }
 
     #[test]

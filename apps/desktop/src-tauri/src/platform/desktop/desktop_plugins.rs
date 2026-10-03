@@ -43,7 +43,7 @@ fn builtin_sound_packs(
         use tauri::Manager;
         app.path().resource_dir().ok().map(|resources| {
             resources
-                .join(crate::macos_input_source::INPUT_SOURCE_BUNDLE_NAME)
+                .join(crate::macos_input_source::input_source_bundle_name())
                 .join("Contents/Resources/sound-packs")
         })
     };
