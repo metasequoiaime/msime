@@ -14,7 +14,7 @@ import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
-import { formatZhNumber } from "../core/format-number";
+import { formatZhNumber, formatZhPercent } from "../core/format-number";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import {
   charactersPerMinute,
@@ -986,9 +986,6 @@ function StatisticsTrendLine({
  */
 type DistributionVariant = "donut" | "rank";
 
-const shareText = (count: number, total: number) =>
-  total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`;
-
 function ShapeChart({
   title,
   slices,
@@ -1010,7 +1007,7 @@ function ShapeChart({
             className={`${rankRow} animate-row-reveal motion-reduce:animate-none`}
             style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
             key={slice.id}
-            aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+            aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
           >
             <span>{slice.title}</span>
             <div className={rankTrack}>
@@ -1020,7 +1017,7 @@ function ShapeChart({
               />
             </div>
             <strong>{formatZhNumber(slice.count)}</strong>
-            <small>{shareText(slice.count, total)}</small>
+            <small>{formatZhPercent(slice.count, total)}</small>
           </div>
         ))}
       </div>
@@ -1106,7 +1103,7 @@ function Distribution({
                   className={legendRow}
                   style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
                   key={slice.id}
-                  aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+                  aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
                 >
                   <span
                     className={legendDot}
@@ -1117,7 +1114,7 @@ function Distribution({
                   </span>
                   <span>{slice.title}</span>
                   <strong>{formatZhNumber(slice.count)}</strong>
-                  <small>{shareText(slice.count, total)}</small>
+                  <small>{formatZhPercent(slice.count, total)}</small>
                 </div>
               ))}
             </div>
@@ -1154,7 +1151,6 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
     })),
     { id: "beyond", label: "第 10 条以后", count: beyond },
   ];
-  const share = (count: number) => (total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`);
   return (
     <section className="section m-0" aria-labelledby="statistics-candidate-ranks">
       <h2 className={heading} id="statistics-candidate-ranks">
@@ -1162,7 +1158,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
       </h2>
       <p className="mt-3.5 mb-1 flex items-baseline gap-2">
         <strong className="text-[30px] leading-[1.1] tabular-nums" aria-label="首选命中率">
-          {total === 0 ? "—" : `${((ranks[0] / total) * 100).toFixed(1)}%`}
+          {formatZhPercent(ranks[0], total)}
         </strong>
         <span className="text-[13px] text-secondary" aria-hidden="true">
           首选命中率
@@ -1181,7 +1177,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
             <div
               className={rankRow}
               key={row.id}
-              aria-label={`${row.label}：${row.count} 次，${share(row.count)}`}
+              aria-label={`${row.label}：${row.count} 次，${formatZhPercent(row.count, total)}`}
             >
               <span>{row.label}</span>
               <div className={rankTrack}>
@@ -1191,7 +1187,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
                 />
               </div>
               <strong>{formatZhNumber(row.count)}</strong>
-              <small>{share(row.count)}</small>
+              <small>{formatZhPercent(row.count, total)}</small>
             </div>
           ))}
         </div>

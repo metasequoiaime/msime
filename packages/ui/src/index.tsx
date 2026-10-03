@@ -1311,7 +1311,7 @@ export {
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
 export { formatZhDate, formatZhMonthDay } from "./core/format-date";
-export { formatZhNumber } from "./core/format-number";
+export { formatZhNumber, formatZhPercent } from "./core/format-number";
 export { StatusMessage, type StatusMessageProps } from "./core/status-message";
 export { SettingsNotice, type SettingsNoticeProps } from "./settings/settings-notice";
 export {
