@@ -1569,24 +1569,32 @@ impl InputSession {
         KeyResult::handled()
     }
 
-    /// 网址模式里删掉一个字符。删空就退出；删掉的是非字母、剩下的全是小写字母（`www.` 删掉 `.`）时退回组字，把这些字母交还方案，由方案按自己的码长规则截断，误触发后还能选回原来的字（五笔 `www` 的“众”）。
+    /// 网址模式里删掉一个字符。删空就退出；删掉的是非字母、剩下的全是小写字母（`www.` 删掉 `.`），或五笔删掉进入网址模式的那个 `s` 时退回组字，误触发后还能选回原来的字（五笔 `www` 的“众”）。方案装不下剩下的全部字母时留在网址模式。
     fn url_backspace(&mut self) -> KeyResult {
         let removed = self.local_preedit.pop();
         if self.local_preedit.is_empty() {
             self.reset_composition();
             return KeyResult::handled();
         }
-        let back_to_composition = removed.is_some_and(|character| !character.is_ascii_alphabetic())
-            && self
-                .local_preedit
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase());
+        let back_to_composition = removed.is_some_and(|character| {
+            (!character.is_ascii_alphabetic()
+                && self
+                    .local_preedit
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase()))
+                || (self.scheme() == SchemeType::Wubi
+                    && url::wubi_reverts(&self.local_preedit, character))
+        });
         if back_to_composition {
             let letters = std::mem::take(&mut self.local_preedit);
             self.reset_composition();
             self.pending_sequence = Some(letters.clone());
-            self.pending_sequence_with_cases = Some(letters);
+            self.pending_sequence_with_cases = Some(letters.clone());
             self.apply_pending_sequence();
+            // 方案装不下全部字母（五笔不开混拼时码长 4，`https:` 删掉 `:` 剩 5 个字母）时留在网址模式，不能悄悄丢掉用户键入的字母。
+            if self.raw_with_cases() != letters {
+                self.enter_url_mode(letters);
+            }
             return KeyResult::handled();
         }
         KeyResult::handled().with_diagnostic(self.update_local_candidates())

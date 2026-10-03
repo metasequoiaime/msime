@@ -27,6 +27,11 @@ pub fn wubi_continues(raw: &str, letter: u8) -> bool {
     raw == "http" && letter == b's'
 }
 
+/// `wubi_continues` 的逆操作：五笔网址模式删掉 `s` 后剩下 `http`，说明删掉的正是进入网址模式的那个字母，应退回组字。
+pub fn wubi_reverts(remaining: &str, removed: char) -> bool {
+    removed == 's' && remaining == "http"
+}
+
 /// 网址模式接受的按键：字母、数字和 `SPELLING_SYMBOLS` 中的符号。其余按键结束网址。
 pub fn accepts(key: u8) -> bool {
     key.is_ascii_alphanumeric() || SPELLING_SYMBOLS.as_bytes().contains(&key)
@@ -34,7 +39,7 @@ pub fn accepts(key: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{accepts, entry_keys, opens, wubi_continues, SPELLING_SYMBOLS};
+    use super::{accepts, entry_keys, opens, wubi_continues, wubi_reverts, SPELLING_SYMBOLS};
 
     #[test]
     fn only_the_exact_scheme_words_open_the_mode() {
@@ -49,6 +54,8 @@ mod tests {
         assert!(!opens("www", b':') && !opens("www", b'@'));
         assert!(wubi_continues("http", b's'));
         assert!(!wubi_continues("http", b't') && !wubi_continues("htt", b's'));
+        assert!(wubi_reverts("http", 's'));
+        assert!(!wubi_reverts("http", 't') && !wubi_reverts("htt", 's'));
     }
 
     #[test]

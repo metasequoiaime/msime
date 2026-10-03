@@ -4014,6 +4014,31 @@ fn url_backspace_past_the_trigger_restores_the_code() {
 }
 
 #[test]
+fn url_wubi_backspace_never_clips_the_letters_and_undoes_the_s() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "http");
+    assert!(session.character(b's', false).handled);
+    type_url(&mut session, ":");
+    // 删掉 `:` 剩 5 个字母，五笔码长装不下，留在网址模式，`s` 不能丢。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https");
+    assert_eq!(words(&session), ["https"]);
+    type_url(&mut session, ":");
+    assert_eq!(session.snapshot().preedit, "https:");
+    assert!(session.command(Command::Backspace).handled);
+
+    // 删掉进入网址模式的那个 `s`，退回五笔组字 `http`。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "http");
+    assert_eq!(snapshot.spelling_symbols, ":");
+}
+
+#[test]
 fn url_backspace_keeps_the_mode_when_the_rest_is_not_lowercase_letters() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
