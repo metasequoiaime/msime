@@ -63,6 +63,7 @@ HOST_DIFFERENCES = {
 ARGUMENTS = {
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
     "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/zhuyin.db"],
+    "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/stroke.db"],
 }
 
 # The three online workers are the exception to "one translation unit": their
@@ -99,6 +100,16 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
     ),
     # The Server side of the Zhuyin scheme and its candidate list, against a real Engine session and a checked-in dictionary.
     "input/zhuyin_keys.cpp": (
+        [
+            "src/ipc/ReplyComposer.cpp",
+            "src/ipc/ReplyCodec.cpp",
+            "src/ipc/ServerSession.cpp",
+            "src/input/ChineseTextConversion.cpp",
+        ],
+        True,
+    ),
+    # The Server side of the Stroke scheme, against a real Engine session and a checked-in synthetic dictionary.
+    "input/stroke_keys.cpp": (
         [
             "src/ipc/ReplyComposer.cpp",
             "src/ipc/ReplyCodec.cpp",
