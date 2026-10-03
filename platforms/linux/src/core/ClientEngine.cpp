@@ -1,4 +1,5 @@
 #include "ClientEngine.h"
+#include "LinuxEdition.h"
 #include "KeyRouterAdapter.h"
 #include "BackspaceHoldPolicy.h"
 #include "../clipboard/ClipboardText.h"
@@ -278,7 +279,7 @@ std::string provider_socket_fallback(const Json &options, const char *option,
   const auto *runtime = g_get_user_runtime_dir();
   if (!runtime || !*runtime)
     return {};
-  const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
+  const auto candidate = std::filesystem::path(runtime) / MSIME_EDITION_CLIENT_DIRECTORY / filename;
   std::error_code error;
   return std::filesystem::is_socket(candidate, error) ? candidate.string() : std::string{};
 }
@@ -1365,7 +1366,7 @@ void voice_cancel(IBusEngine *engine);
 bool launch_desktop_panel(const char *panel) {
   const auto *command = g_getenv("MSIME_CLIENT_SETTINGS_COMMAND");
   if (!command || !*command)
-    command = "msime-linux-settings";
+    command = MSIME_EDITION_SETTINGS_PROGRAM;
   const std::string requested = panel ? panel : "";
   // About, help, feedback and the local dictionary are settings sections rather than desktop surfaces, so each travels as "settings:<category>"; the bare section name is not a route head and would be rejected by the shared parser.
   const bool settings_page = requested == "about" || requested == "help" ||
@@ -1412,7 +1413,7 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/CloudClipboard", "cloud-clipboard", "云剪贴板", false},
     {"DesktopTools/Dictionary", "dictionary", "词库…", true},
     {"DesktopTools/Settings", "settings", "设置…", true},
-    {"DesktopTools/About", "about", "关于水杉输入法", true},
+    {"DesktopTools/About", "about", "关于" MSIME_EDITION_DISPLAY_NAME, true},
     {"DesktopTools/Help", "help", "帮助", false},
     {"DesktopTools/Feedback", "feedback", "反馈", false},
 };
@@ -1532,7 +1533,7 @@ IBusProperty *toolbar_property(IBusEngine *engine) {
                 available && toolbar.value("emoji", true));
   append_action("Toolbar/ScreenKeyboard", "屏幕键盘", "打开屏幕键盘面板",
                 available && toolbar.value("screen_keyboard", false));
-  append_action("Toolbar/Settings", "设置", "打开水杉输入法设置",
+  append_action("Toolbar/Settings", "设置", "打开" MSIME_EDITION_DISPLAY_NAME "设置",
                 available && toolbar.value("settings", true));
   return ibus_property_new(
       "LinuxToolbar", PROP_TYPE_MENU,
@@ -2673,7 +2674,7 @@ IBusProperty *gnome_settings_property(IBusEngine *engine) {
   return ibus_property_new(
       "DesktopTools/Settings", PROP_TYPE_NORMAL,
       ibus_text_new_from_static_string("设置"), "",
-      ibus_text_new_from_static_string("打开水杉输入法设置"),
+      ibus_text_new_from_static_string("打开" MSIME_EDITION_DISPLAY_NAME "设置"),
       s.focused && !s.blocked, TRUE, PROP_STATE_UNCHECKED, nullptr);
 }
 void publish_mode(IBusEngine *engine, bool registration) {
@@ -3144,6 +3145,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
       {"command", "指令（/ 模式）"},
       {"mention", "名单（@ 模式）"}};
   for (const auto &[key, label] : local_mode_options) {
+    // 不带临时日文的版本（五笔版）不列这个本地模式：宿主库在这些版本里总是把它关掉，列出来也打不开。
+    if (!MSIME_EDITION_TEMPORARY_JAPANESE && std::string_view(key) == "temporary_japanese") continue;
     const bool enabled = s.local_mode_overrides.contains(key)
                              ? s.local_mode_overrides.at(key).get<bool>()
                              : configured_local_modes.value(

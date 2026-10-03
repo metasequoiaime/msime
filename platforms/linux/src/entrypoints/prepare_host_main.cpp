@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../core/LinuxEdition.h"
 #include "../core/PreparePaths.h"
 #include "../core/PrepareState.h"
 #include "../core/RuntimeOptionsRefresh.h"
@@ -174,8 +175,11 @@ int main(int argc, char **argv) {
       return 2;
     }
     const auto state = requested_state.lexically_normal();
-    const auto request = nlohmann::json({{"resources", std::filesystem::canonical(resources).string()},
-                                       {"state_root", state.string()}}).dump();
+    auto bootstrap = nlohmann::json({{"resources", std::filesystem::canonical(resources).string()},
+                                     {"state_root", state.string()}});
+    // 不是 full 的版本把版本 id 交给宿主库：它按本版本的资源锁校验词库，在 HostOptions 里记下版本，并写下本版本的默认偏好。full 不写，请求与引入版本之前相同。
+    if (!MSIME_EDITION_IS_FULL) bootstrap["edition"] = MSIME_EDITION_ID;
+    const auto request = bootstrap.dump();
     if (request.size() > 16384) return 2;
     umask(0077);
     if (!msime_linux::state_directory_path_is_safe(state) ||

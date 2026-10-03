@@ -9,6 +9,7 @@
 #include <cairo.h>
 
 #include "CandidateFcitxTheme.h"
+#include "../core/LinuxEdition.h"
 
 namespace msime::linux_host {
 
@@ -41,11 +42,12 @@ inline std::optional<FcitxPixels> read_fcitx_logo_pixels(const std::filesystem::
 }
 
 // The mark at 1x and 2x from <icons>/<size>x<size>/apps/msime-linux.png, `icons` being the hicolor directory. Without either size the theme is drawn without the mark, as it was before there was one.
+// 图标名按版本取（LinuxEdition.h 的 MSIME_EDITION_ICON）：各版本的图标内容相同，文件名不同，几个版本的包才能同时装。
 inline std::optional<FcitxThemeLogo> load_fcitx_theme_logo(const std::filesystem::path &icons) {
   constexpr int side = FcitxPanelGeometry::logo_side;
   const auto file = [&](int size) {
     const auto name = std::to_string(size) + "x" + std::to_string(size);
-    return icons / name / "apps/msime-linux.png";
+    return icons / name / "apps" / (MSIME_EDITION_ICON ".png");
   };
   auto one = read_fcitx_logo_pixels(file(side), side);
   auto two = read_fcitx_logo_pixels(file(2 * side), 2 * side);
