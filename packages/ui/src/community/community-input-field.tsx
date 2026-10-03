@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, ReactNode } from "react";
+import { CommunityField } from "./community-field";
 import * as style from "./community-style";
 
 export interface CommunityInputFieldProps {
@@ -24,8 +25,7 @@ export function CommunityInputField({
   onChange,
 }: CommunityInputFieldProps) {
   return (
-    <label className={style.field}>
-      {label}
+    <CommunityField label={label}>
       <input
         className={style.fieldControl}
         aria-label={ariaLabel}
@@ -36,6 +36,6 @@ export function CommunityInputField({
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </CommunityField>
   );
 }

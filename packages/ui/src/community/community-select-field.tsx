@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CommunityField } from "./community-field";
 import * as style from "./community-style";
 
 export interface CommunitySelectFieldProps {
@@ -20,8 +21,7 @@ export function CommunitySelectField({
   onChange,
 }: CommunitySelectFieldProps) {
   return (
-    <label className={style.field}>
-      {label}
+    <CommunityField label={label}>
       <select
         className={style.fieldControl}
         aria-label={ariaLabel}
@@ -31,6 +31,6 @@ export function CommunitySelectField({
       >
         {children}
       </select>
-    </label>
+    </CommunityField>
   );
 }

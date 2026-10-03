@@ -1254,6 +1254,7 @@ export {
   CommunityTextareaField,
   type CommunityTextareaFieldProps,
 } from "./community/community-textarea-field";
+export { CommunityField, type CommunityFieldProps } from "./community/community-field";
 export {
   CommunityInputField,
   type CommunityInputFieldProps,
