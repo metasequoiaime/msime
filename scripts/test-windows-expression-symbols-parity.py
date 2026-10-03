@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """让 Windows TIP 里 V 模式符号、网址模式符号和网址触发词的拷贝与 Engine 保持一致。
 
-The Engine decides which keys the V (expression) mode spells, and publishes them in View.spelling_symbols; the Windows Server reads them from there. The TSF DLL cannot: it decides whether a key is composition input or a candidate selection before the Server has answered, so `platforms/windows/tsf/Global/LocalModeKeyPolicy.h` keeps its own copy. A symbol added on one side alone splits the two: the TIP would put an operator into its keystroke buffer that the Engine never saw, or send a digit as a selection the Engine expected as input, and the composition the user sees stops matching the one that commits.
+V 模式（算式）和网址模式各自当作输入的数字和符号由 Engine 决定（crates/engine/src/local/expression.rs 与 url.rs 的 SPELLING_SYMBOLS），经 View.spelling_symbols 发布，Windows Server 从那里读取；进入网址模式的触发词和触发键（url.rs 的 TRIGGERS）也由 Engine 决定。TSF DLL 读不到这些：它要在 Server 回答之前判断一个键是组字输入还是选词、翻页，所以 platforms/windows/tsf/Global/LocalModeKeyPolicy.h 自己保留一份拷贝。只改一边就会让两边分歧：TIP 会把 Engine 没收下的符号放进键击缓冲，把 Engine 当作输入的数字当成选词发出，或者在 Engine 没有进入网址模式时就按网址分类，用户看到的组字与最终上屏的不再一致。
 """
 
 from __future__ import annotations

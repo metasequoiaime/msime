@@ -304,10 +304,7 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
     DWORD_PTR srgKeystrokeBufLen = _keystrokeBuffer.GetLength();
     _caretPosition = min(_caretPosition, srgKeystrokeBufLen);
     // 连续的分隔符只留一个，网址模式除外：那里的 `'` 是网址里的字符，Engine 照收不误。
-    if (wch == L'\'' &&
-        !Global::IsUrlModeComposition(_keystrokeBuffer.Get(), srgKeystrokeBufLen,
-                                      msime::windows::scheme::DetectsUrls(
-                                          Global::InputModeScheme.load(std::memory_order_relaxed))) &&
+    if (wch == L'\'' && !_urlMode &&
         ((_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'') ||
          (_caretPosition < srgKeystrokeBufLen && _keystrokeBuffer.Get()[_caretPosition] == L'\'')))
     {
@@ -328,6 +325,10 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
     {
         return FALSE;
     }
+    const bool opensUrlMode = Global::OpensUrlMode(
+        _keystrokeBuffer.Get(), srgKeystrokeBufLen, _caretPosition, wch,
+        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed)),
+        Global::DedicatedEnglish.active(GetTickCount64()));
 
     memcpy(pwch, _keystrokeBuffer.Get(), _caretPosition * sizeof(WCHAR));
     pwch[_caretPosition] = wch;
@@ -341,6 +342,7 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
     }
 
     _keystrokeBuffer.Set(pwch, srgKeystrokeBufLen + 1);
+    _urlMode = _urlMode || opensUrlMode;
 
     std::wstring keyString(pwch, srgKeystrokeBufLen + 1);
     Global::PinyinString = keyString;
@@ -366,6 +368,7 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
         return;
     }
 
+    const WCHAR removed = _keystrokeBuffer.Get()[dwIndex];
     if (dwIndex + 1 < srgKeystrokeBufLen)
     {
         // shift following eles left
@@ -375,6 +378,7 @@ void CCompositionProcessorEngine::RemoveVirtualKey(DWORD_PTR dwIndex)
     }
 
     _keystrokeBuffer.Set(_keystrokeBuffer.Get(), srgKeystrokeBufLen - 1);
+    _urlMode = Global::UrlModeAfterDeletion(_urlMode, _keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), removed);
     if (_caretPosition > dwIndex)
     {
         --_caretPosition;
@@ -447,6 +451,7 @@ void CCompositionProcessorEngine::PurgeVirtualKey()
         _keystrokeBuffer.Set(NULL, 0);
     }
     _caretPosition = 0;
+    _urlMode = false;
     _renderedPreedit.clear();
     _renderedPreeditPrefixLength = 0;
 }
@@ -2150,7 +2155,7 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     // V-mode: its digits and operators compose, ahead of the paging and punctuation meanings of '-', '+', '.' and '/'; a digit key printing anything else selects. Ctrl and Alt chords never reach here.
     if (IsExpressionModeComposition())
     {
-        switch (Global::ClassifyExpressionKey(uCode, pwch ? *pwch : 0))
+        switch (Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, uCode, pwch ? *pwch : 0))
         {
         case Global::ExpressionKey::Input:
             if (pKeyState)
@@ -2173,9 +2178,9 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
     // 网址模式：触发词后的 `.`、`:` 打开它，之后网址的数字和符号都是输入，排在 '-'、'='、','、'.'、'[' 和 ']' 的翻页、标点和数字选词之前；打出其他字符的数字键选词。
     const bool detectsUrls =
         msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed));
-    if (Global::IsUrlModeComposition(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), detectsUrls))
+    if (_urlMode)
     {
-        switch (Global::ClassifyUrlKey(uCode, pwch ? *pwch : 0))
+        switch (Global::ClassifyModeKey(Global::UrlSpellingSymbols, uCode, pwch ? *pwch : 0))
         {
         case Global::ExpressionKey::Input:
             if (pKeyState)
