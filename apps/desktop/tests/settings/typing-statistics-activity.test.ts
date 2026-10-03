@@ -7,6 +7,7 @@ import {
   dailySpeeds,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
   statisticsOverviewDetails,
   statisticsOverviewMetrics,
   usualHours,
@@ -27,6 +28,17 @@ test("day arithmetic crosses months, years and leap days without a calendar libr
   expect(addDays("2026-02-28", 1)).toBe("2026-03-01");
   // A key that is not a date is returned unchanged rather than becoming "NaN-NaN-NaN".
   expect(addDays("not-a-day", 1)).toBe("not-a-day");
+});
+
+test("statistic day keys ignore malformed entries and stay chronologically sorted", () => {
+  expect(
+    statisticDayKeys({
+      "2026-09-21": 1,
+      "not-a-day": 2,
+      "2026-01-02": 3,
+      "2026-1-03": 4,
+    }),
+  ).toEqual(["2026-01-02", "2026-09-21"]);
 });
 
 test("today still in progress does not break a streak", () => {

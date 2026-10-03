@@ -474,6 +474,7 @@ export {
   dailySpeeds,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
   statisticsOverviewMetrics,
   statisticsOverviewDetails,
   usualHours,

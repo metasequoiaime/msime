@@ -30,6 +30,7 @@ import {
   longestStreak,
   mobileTrendLength,
   recentDays,
+  statisticDayKeys,
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
@@ -43,6 +44,7 @@ export {
   currentStreak,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
 } from "./typing-statistics-helpers";
 export {
   statisticsOverviewDetails,
@@ -323,9 +325,7 @@ export type ActivityMetrics = {
  * arguments alone.
  */
 export function activityMetrics(statistics: TypingStatistics, todayKey: string): ActivityMetrics {
-  const recorded = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
-    .sort();
+  const recorded = statisticDayKeys(statistics.days);
   const activeByDay = statistics.dailyActiveMs ?? {};
   let totalActiveMs = 0;
   let totalReadable = 0;
@@ -449,9 +449,8 @@ export function dailyDetailRows(
   todayKey: string,
   days = DETAIL_DAYS,
 ): DailyDetailRow[] {
-  const keys = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key) && key <= todayKey)
-    .sort()
+  const keys = statisticDayKeys(statistics.days)
+    .filter((key) => key <= todayKey)
     .slice(-days)
     .reverse();
   return keys.map((key) => {
