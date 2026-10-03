@@ -24,6 +24,8 @@ import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityActionNotice } from "./community-action-notice";
+import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
@@ -469,9 +471,7 @@ export function CommunityCandidateSkinsPage({
           />
           {installed ? (
             <>
-              <p role="status" className={style.actionNotice}>
-                已安装到外部皮肤。
-              </p>
+              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
               {onOpenSkinPage && (
                 <ActionButton
                   action={onOpenSkinPage}
@@ -544,42 +544,35 @@ export function CommunityCandidateSkinsPage({
         onChange={setSearch}
         onSubmit={() => void requestList(search, false)}
       />
-      <div className={style.heading}>
-        <div className={style.headingBody}>
-          <h2 className={style.headingTitle}>社区皮肤</h2>
-          <p className={style.headingNote}>为输入候选窗口换一身新装，安装后在「我的皮肤」中启用</p>
-        </div>
-        <div className={style.headingActions}>
-          <CommunityScopeButtons
-            ariaLabel="候选窗口皮肤范围"
-            mineOnly={mineOnly}
-            allLabel="全部"
-            mineLabel="我的作品"
-            onMineOnlyChange={(nextMineOnly) => {
-              setMineOnly(nextMineOnly);
-              void requestList(activeSearch, false, nextMineOnly);
-            }}
+      <CommunityGalleryHeading
+        title="社区皮肤"
+        note="为输入候选窗口换一身新装，安装后在「我的皮肤」中启用"
+      >
+        <CommunityScopeButtons
+          ariaLabel="候选窗口皮肤范围"
+          mineOnly={mineOnly}
+          allLabel="全部"
+          mineLabel="我的作品"
+          onMineOnlyChange={(nextMineOnly) => {
+            setMineOnly(nextMineOnly);
+            void requestList(activeSearch, false, nextMineOnly);
+          }}
+        />
+        {localSkins && (
+          <ActionButton
+            action={() => setPublishOpen(true)}
+            className="primary"
+            label="发布我的皮肤"
           />
-          {localSkins && (
-            <ActionButton
-              action={() => setPublishOpen(true)}
-              className="primary"
-              label="发布我的皮肤"
-            />
-          )}
-        </div>
-      </div>
+        )}
+      </CommunityGalleryHeading>
       <CommunitySkinCategoryFilter
         ariaLabel="候选窗口皮肤分类"
         value={categoryFilter.category}
         onChange={(next) => void changeCategory(next)}
       />
       {errorAlert}
-      {actionNotice && (
-        <p role="status" className={style.actionNotice}>
-          {actionNotice}
-        </p>
-      )}
+      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
       {!listBusy && skins.length === 0 && (
         <p className={style.notice}>
           {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}

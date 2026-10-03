@@ -1,5 +1,6 @@
 import { communityRating } from "./community-helpers";
 import * as style from "./community-style";
+import { CommunityActionNotice } from "./community-action-notice";
 
 export interface CommunityDetailStatusProps {
   downloads: number;
@@ -28,11 +29,7 @@ export function CommunityDetailStatus({
       </p>
       {myRating > 0 && <p className={style.metrics}>我的评分：{myRating} 星</p>}
       {detailBusy && <p role="status">{loadingText}</p>}
-      {actionNotice && (
-        <p role="status" className={style.actionNotice}>
-          {actionNotice}
-        </p>
-      )}
+      {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
     </>
   );
 }

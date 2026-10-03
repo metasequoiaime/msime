@@ -28,6 +28,36 @@ fn activation_receipt_does_not_follow_a_fixed_temporary_symlink() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn activation_receipt_rejects_a_symlinked_receipt() {
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("user");
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir(&user).unwrap();
+    let outside_file = outside.path().join("receipt");
+    fs::write(&outside_file, b"10000000-0000-4000-8000-000000000001").unwrap();
+    symlink(&outside_file, user.join(super::ACTIVATION_RECEIPT_NAME)).unwrap();
+    let options: super::HostOptions = serde_json::from_value(serde_json::json!({
+        "api_version": 1,
+        "resources": root.path().join("resources"),
+        "user_data": user,
+        "cache": root.path().join("cache"),
+        "dictionaries": root.path().join("dictionaries"),
+        "preferences": Preferences::default(),
+    }))
+    .unwrap();
+
+    assert_eq!(
+        super::activation_receipt(&options.into_engine_options()),
+        Err("snapshot activation receipt unavailable")
+    );
+}
+
 #[test]
 fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
     use msime_client_core::dictionary::access::DictionaryAccess;
