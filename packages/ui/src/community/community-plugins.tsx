@@ -51,6 +51,7 @@ import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
+import { useCommunityInstallState } from "./community-install-state";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -231,9 +232,9 @@ export function CommunityPluginsPage({
   } = gallery;
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<CommunityPluginKind | null>(null);
-  const [installed, setInstalled] = useState(false);
-  const [confirmReplace, setConfirmReplace] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const { installed, setInstalled, confirmReplace, setConfirmReplace, closeDetail } =
+    useCommunityInstallState(actionBusy, closeGalleryDetail);
 
   const changeKind = async (next: CommunityPluginKind | null) => {
     const previous = kindFilter.current;
@@ -246,13 +247,6 @@ export function CommunityPluginsPage({
       kindFilter.current = previous;
       setKind(previous);
     }
-  };
-
-  const closeDetail = () => {
-    if (actionBusy) return;
-    closeGalleryDetail();
-    setInstalled(false);
-    setConfirmReplace(false);
   };
 
   const install = async (replace: boolean) => {

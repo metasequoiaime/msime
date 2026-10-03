@@ -36,6 +36,7 @@ import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
+import { useCommunityInstallState } from "./community-install-state";
 import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
@@ -314,9 +315,9 @@ export function CommunityCandidateSkinsPage({
     runAction,
   } = gallery;
   const [search, setSearch] = useState("");
-  const [installed, setInstalled] = useState(false);
-  const [confirmReplace, setConfirmReplace] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const { installed, setInstalled, confirmReplace, setConfirmReplace, closeDetail } =
+    useCommunityInstallState(actionBusy, closeGalleryDetail);
   const changeCategory = (next: CandidateSkinCategory | null) =>
     categoryFilter.change(next, () => requestList(activeSearch, false));
 
@@ -333,13 +334,6 @@ export function CommunityCandidateSkinsPage({
       return pending;
     };
   }, [client]);
-
-  const closeDetail = () => {
-    if (actionBusy) return;
-    closeGalleryDetail();
-    setInstalled(false);
-    setConfirmReplace(false);
-  };
 
   const install = async (replace: boolean) => {
     if (!selected) return;
