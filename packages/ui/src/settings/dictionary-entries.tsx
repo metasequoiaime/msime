@@ -5,6 +5,7 @@ import { localDictionaryKinds } from "../dictionary/dictionary-kinds";
 import * as settings from "./settings-style";
 import { SettingsPhraseForm } from "./settings-phrase-form";
 import { ActionButton } from "./action-button";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 
 export interface DictionaryPhraseForm {
   key: string;
@@ -73,10 +74,10 @@ export function DictionaryEntries({
         </SettingsPhraseForm>
       )}
       {entries.length === 0 ? (
-        <p className={settings.empty}>
+        <SettingsEmptyMessage compact>
           点击查询后查看
           {localDictionaryKinds.find(([value]) => value === kind)?.[1] ?? "词库"}词条
-        </p>
+        </SettingsEmptyMessage>
       ) : (
         <ul ref={listRef} className={settings.phraseList} aria-label="词库查询结果">
           {entries.map((entry, index) => (

@@ -7,12 +7,21 @@ export interface SettingsEmptyMessageProps extends Omit<
 > {
   children?: ReactNode;
   className?: string;
+  compact?: boolean;
 }
 
 /** Shared empty and loading message style used by settings list surfaces. */
-export function SettingsEmptyMessage({ children, className, ...props }: SettingsEmptyMessageProps) {
+export function SettingsEmptyMessage({
+  children,
+  className,
+  compact = false,
+  ...props
+}: SettingsEmptyMessageProps) {
   return (
-    <p {...props} className={`${settings.clipboardEmpty}${className ? ` ${className}` : ""}`}>
+    <p
+      {...props}
+      className={`${compact ? settings.empty : settings.clipboardEmpty}${className ? ` ${className}` : ""}`}
+    >
       {children}
     </p>
   );

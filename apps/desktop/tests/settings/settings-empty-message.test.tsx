@@ -27,3 +27,9 @@ test("forwards message attributes and appends a local class", () => {
   expect(message.getAttribute("role")).toBe("status");
   expect(message.getAttribute("aria-label")).toBe("状态");
 });
+
+test("supports the compact text-only empty message style", () => {
+  render(<SettingsEmptyMessage compact>点击查询后查看词条</SettingsEmptyMessage>);
+
+  expect(screen.getByText("点击查询后查看词条").className).toBe("text-muted");
+});

@@ -22,6 +22,7 @@ import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsErrorMessage } from "../settings-error-message";
 import { SettingsInputDescription } from "../settings-input-description";
 import { SettingsManagerActions } from "../settings-manager-actions";
+import { SettingsEmptyMessage } from "../settings-empty-message";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -121,9 +122,9 @@ export function DictionarySettingsPage() {
             />
             {phraseError && <SettingsErrorMessage>{phraseError}</SettingsErrorMessage>}
             {phraseNotice && (
-              <p role="status" className={settings.empty}>
+              <SettingsEmptyMessage compact role="status">
                 {phraseNotice}
-              </p>
+              </SettingsEmptyMessage>
             )}
             <DictionaryEntries
               kind={dictionaryKind}
