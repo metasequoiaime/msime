@@ -1,4 +1,4 @@
-import * as account from "./account-style";
+import { AccountInputField } from "./account-input-field";
 
 export interface AccountNicknameFieldProps {
   value: string;
@@ -15,16 +15,13 @@ export function AccountNicknameField({
   onChange,
 }: AccountNicknameFieldProps) {
   return (
-    <label className={account.field}>
-      社区昵称
-      <input
-        className={account.input}
-        aria-label={ariaLabel}
-        maxLength={64}
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
+    <AccountInputField
+      label="社区昵称"
+      ariaLabel={ariaLabel}
+      maxLength={64}
+      value={value}
+      disabled={disabled}
+      onChange={onChange}
+    />
   );
 }

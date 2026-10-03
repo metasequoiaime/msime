@@ -129,7 +129,13 @@ int main(int argc, char **argv) {
     if (items.size() > kMaxItems) items.resize(kMaxItems);
     return save(path, items) ? 0 : 1;
   }
-  if (op == "remove" && argc == 4) { auto old = items.size(); items.erase(std::remove(items.begin(), items.end(), argv[3]), items.end()); return old == items.size() ? 0 : (save(path, items) ? 0 : 1); }
+  if (op == "remove" && argc == 4) {
+    const auto text = normalize(argv[3]);
+    if (text.empty()) return 0;
+    auto old = items.size();
+    items.erase(std::remove(items.begin(), items.end(), text), items.end());
+    return old == items.size() ? 0 : (save(path, items) ? 0 : 1);
+  }
   if (op == "remove-index" && argc == 4) {
     try {
       const auto index = std::stoul(argv[3]);

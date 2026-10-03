@@ -5722,7 +5722,7 @@ test("the sidebar follows the six titled navigation groups", async () => {
   }
 });
 
-test("Linux Ctrl+Space defaults on, saves independently and reloads disabled", async () => {
+test("Linux Ctrl+Space dropdown preserves legacy defaults, saves exclusively and reloads disabled", async () => {
   let snapshot = initial;
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
     snapshot = { ...initial, revision: 8, preferences };
@@ -5735,32 +5735,50 @@ test("Linux Ctrl+Space defaults on, saves independently and reloads disabled", a
   };
   const page = render(<SettingsPage initialPage="shortcuts" client={client} />);
   await settingsReady();
-  const toggle = screen.getByRole("switch", { name: "Ctrl+Space 切换中英文" });
-  expect((toggle as HTMLInputElement).checked).toBe(true);
+  const select = screen.getByRole("combobox", { name: "切换中英文" }) as HTMLSelectElement;
+  expect(select.value).toBe("shift");
+  expect(screen.queryByRole("switch", { name: "Ctrl+Space 切换中英文" })).toBeNull();
   expect(screen.getByText(/Fcitx5.*全局快捷键/)).toBeTruthy();
-  fireEvent.click(toggle);
-  fireEvent.change(screen.getByRole("combobox", { name: "切换中英文" }), {
-    target: { value: "ctrl_alt_space" },
-  });
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(select, { target: { value: "ctrl_space" } });
   saveSettingsNow();
   await screen.findByText("已保存");
   expect(save).toHaveBeenCalledWith(
     7,
     expect.objectContaining({
       keybindings: expect.objectContaining({
-        switch_language_ctrl_space: false,
+        switch_language_ctrl_space: true,
         switch_language_shift: false,
         switch_language_ctrl: false,
-        switch_language_ctrl_alt_space: true,
+        switch_language_ctrl_alt_space: false,
       }),
     }),
   );
   page.unmount();
+  const reloaded = render(<SettingsPage initialPage="shortcuts" client={client} />);
+  await settingsReady();
+  const reloadedSelect = screen.getByRole("combobox", { name: "切换中英文" }) as HTMLSelectElement;
+  expect(reloadedSelect.value).toBe("ctrl_space");
+  fireEvent.change(reloadedSelect, { target: { value: "none" } });
+  saveSettingsNow();
+  await screen.findByText("已保存");
+  expect(save).toHaveBeenLastCalledWith(
+    8,
+    expect.objectContaining({
+      keybindings: expect.objectContaining({
+        switch_language_ctrl_space: false,
+        switch_language_shift: false,
+        switch_language_ctrl: false,
+        switch_language_ctrl_alt_space: false,
+      }),
+    }),
+  );
+  reloaded.unmount();
   render(<SettingsPage initialPage="shortcuts" client={client} />);
   await settingsReady();
-  expect(
-    (screen.getByRole("switch", { name: "Ctrl+Space 切换中英文" }) as HTMLInputElement).checked,
-  ).toBe(false);
+  expect((screen.getByRole("combobox", { name: "切换中英文" }) as HTMLSelectElement).value).toBe(
+    "none",
+  );
 });
 
 test.each(["macos", "windows"] as const)(
