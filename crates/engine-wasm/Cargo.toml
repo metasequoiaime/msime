@@ -1,0 +1,28 @@
+[package]
+name = "msime-engine-wasm"
+description = "The engine compiled to WebAssembly for the web built-in input method: key routing, candidate ordering and paging in Rust, a small wasm-bindgen surface for a browser Worker."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+msime-engine = { path = "../engine" }
+# 浏览器边界：wasm-bindgen 的版本必须和 CI、build-web-engine.sh 用的 wasm-bindgen CLI 完全一致，所以钉死。
+wasm-bindgen = "=0.2.128"
+js-sys = "0.3.105"
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+# 对照测试（parity.rs）拿 WebHost 和桌面宿主用的 Runtime 逐例比较首页。
+msime-input-runtime = { path = "../input-runtime" }
+# make_fixture 和 routing.rs 用它写出最小的 msime.db。
+rusqlite = { workspace = true, features = ["bundled"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

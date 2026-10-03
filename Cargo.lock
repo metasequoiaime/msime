@@ -2841,6 +2841,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-engine-wasm"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "msime-engine",
+ "msime-input-runtime",
+ "rusqlite",
+ "tempfile",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "msime-host-api"
 version = "0.1.0"
 dependencies = [
