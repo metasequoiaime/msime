@@ -42,6 +42,7 @@ public final class KeyboardFragment extends HomeTabFragment {
     };
     private boolean loaded;
     private boolean prepared = true;
+    @Nullable private FirstRunPreparation.Listener preparationListener;
     /** A settings row and the text the search pill matches it by. */
     private record SearchEntry(View row, String text) {}
     private final List<SearchEntry> searchable = new ArrayList<>();
@@ -91,7 +92,7 @@ public final class KeyboardFragment extends HomeTabFragment {
         // when the keyboard cannot reach the Engine, which is the one case the user has to know.
         TextView preparation = view.findViewById(R.id.keyboard_preparation);
         preparation.setOnClickListener(ignored -> FirstRunPreparation.retry(requireContext()));
-        FirstRunPreparation.observe(status -> {
+        preparationListener = status -> {
             if (!isAdded()) return;
             switch (status) {
                 case RUNNING -> {
@@ -111,11 +112,13 @@ public final class KeyboardFragment extends HomeTabFragment {
                     reload();
                 }
             }
-        });
+        };
+        FirstRunPreparation.observe(preparationListener);
     }
 
     @Override public void onDestroyView() {
-        FirstRunPreparation.observe(null);
+        if (preparationListener != null) FirstRunPreparation.stopObserving(preparationListener);
+        preparationListener = null;
         View view = getView();
         if (view != null) view.getViewTreeObserver().removeOnWindowFocusChangeListener(focusWatch);
         super.onDestroyView();

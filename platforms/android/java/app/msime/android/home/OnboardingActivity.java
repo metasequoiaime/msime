@@ -20,6 +20,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
+import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
 import com.google.android.material.button.MaterialButton;
@@ -66,6 +67,10 @@ public final class OnboardingActivity extends AppCompatActivity {
     private boolean signingIn;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
+    /** On a first install the onboarding opens while the dictionary is still being prepared, and the preferences are unreadable until it is done; without asking again the scheme and gloss pages say 词库还在准备 for good. */
+    private final FirstRunPreparation.Listener preparation = status -> {
+        if (status == FirstRunPreparation.State.READY && preferences() == null && !isFinishing() && !isDestroyed()) reload();
+    };
 
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
@@ -100,7 +105,13 @@ public final class OnboardingActivity extends AppCompatActivity {
         });
         render(false);
         reload();
+        FirstRunPreparation.observe(preparation);
         probeAccount();
+    }
+
+    @Override protected void onDestroy() {
+        FirstRunPreparation.stopObserving(preparation);
+        super.onDestroy();
     }
 
     @Override protected void onSaveInstanceState(@NonNull Bundle state) {
