@@ -37,6 +37,7 @@ public final class Bootstrap {
             File resources = new File(root, "bootstrap/resources");
             ensureSafeDirectory(resources.toPath());
             JSONObject manifest;
+            // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
             try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
                 // Small immutable APK manifest; large dictionary files are streamed below.
                 java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
@@ -58,6 +59,9 @@ public final class Bootstrap {
             }
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
+            // 不是 full 的版本把版本 id 交给 host-api：它按本版本的资源锁校验 APK 里的词库，在状态目录记下版本，从此没有偏好文件时读到的就是本版本的默认偏好（五笔版默认五笔、混拼打开）。full 不带这个键，请求与引入版本之前相同。
+            AppEdition edition = AppEdition.current();
+            if (!edition.isFull()) request.put("edition", edition.id());
             JSONObject result = new JSONObject(NativeClient.prepareHost(request.toString()));
             if (!result.getBoolean("ok")) throw new IllegalStateException("Shared resource verification/preparation failed: " + result.optString("error"));
             AtomicFile destination = new AtomicFile(configuration);

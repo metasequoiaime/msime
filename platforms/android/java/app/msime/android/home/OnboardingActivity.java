@@ -20,6 +20,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.widget.NestedScrollView;
+import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.R;
@@ -39,7 +40,10 @@ import org.json.JSONObject;
 public final class OnboardingActivity extends AppCompatActivity {
     private static final String STORE = "msime_onboarding_v1";
     private static final String SEEN = "seen";
-    private static final int PAGES = 4;
+    private static final int STEP_ENABLE = 0;
+    private static final int STEP_SCHEMES = 1;
+    private static final int STEP_TRANSLATION = 2;
+    private static final int STEP_SYNC = 3;
     private static final String STATE_PAGE = "onboarding-page";
     /** The keyboard reads this key for the per-candidate English line; the core's default is off. */
     private static final String GLOSS = "candidate_english_gloss";
@@ -55,6 +59,12 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     /** One scheme card: what it is called here, its supporting line, and the scheme it selects. */
     private record SchemeCard(String label, String detail, KeyboardScheme scheme) {}
+
+    /** 本版本走的步骤，顺序固定。只有一个方案的版本（五笔版）没有方案可选，跳过「选一套输入方案」这一步。 */
+    private final int[] steps = AppEdition.current().offersSchemeChoice()
+        ? new int[] {STEP_ENABLE, STEP_SCHEMES, STEP_TRANSLATION, STEP_SYNC}
+        : new int[] {STEP_ENABLE, STEP_TRANSLATION, STEP_SYNC};
+    private final int pages = steps.length;
 
     private int page;
     @Nullable private JSONObject snapshot;
@@ -76,11 +86,11 @@ public final class OnboardingActivity extends AppCompatActivity {
         AppMode.restore(this);
         super.onCreate(state);
         setContentView(R.layout.activity_onboarding);
-        if (state != null) page = Math.max(0, Math.min(PAGES - 1, state.getInt(STATE_PAGE, 0)));
+        if (state != null) page = Math.max(0, Math.min(pages - 1, state.getInt(STATE_PAGE, 0)));
         findViewById(R.id.onboarding_skip).setOnClickListener(ignored -> finishFlow());
         findViewById(R.id.onboarding_previous).setOnClickListener(ignored -> go(page - 1));
         findViewById(R.id.onboarding_next).setOnClickListener(ignored -> {
-            if (page < PAGES - 1) go(page + 1);
+            if (page < pages - 1) go(page + 1);
             else if (account == SignIn.State.OFFERED) signIn();
             else finishFlow();
         });
@@ -98,7 +108,7 @@ public final class OnboardingActivity extends AppCompatActivity {
                 float dy = end.getY() - start.getY();
                 // The design's rule: at least 50 px across, and clearly more across than down, so a vertical scroll never turns the page.
                 if (Math.abs(dx) < pixels(50) || Math.abs(dx) < Math.abs(dy) * 1.5f) return false;
-                if (dx < 0 && page < PAGES - 1) go(page + 1);
+                if (dx < 0 && page < pages - 1) go(page + 1);
                 else if (dx > 0 && page > 0) go(page - 1);
                 return true;
             }
@@ -136,7 +146,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void go(int target) {
-        if (target < 0 || target >= PAGES || target == page) return;
+        if (target < 0 || target >= pages || target == page) return;
         page = target;
         note = null;
         render(true);
@@ -147,9 +157,9 @@ public final class OnboardingActivity extends AppCompatActivity {
             .setProgressCompat(page + 1, animate);
         findViewById(R.id.onboarding_skip).setVisibility(page == 0 ? View.VISIBLE : View.GONE);
         findViewById(R.id.onboarding_previous).setVisibility(page == 0 ? View.GONE : View.VISIBLE);
-        boolean offer = page == PAGES - 1 && account == SignIn.State.OFFERED;
+        boolean offer = page == pages - 1 && account == SignIn.State.OFFERED;
         MaterialButton next = findViewById(R.id.onboarding_next);
-        next.setText(page < PAGES - 1 ? R.string.onboarding_next
+        next.setText(page < pages - 1 ? R.string.onboarding_next
             : offer ? R.string.onboarding_sign_in : R.string.onboarding_done);
         next.setEnabled(!signingIn);
         findViewById(R.id.onboarding_later).setVisibility(offer ? View.VISIBLE : View.GONE);
@@ -157,10 +167,10 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         LinearLayout column = findViewById(R.id.onboarding_page);
         column.removeAllViews();
-        switch (page) {
-            case 0 -> enable(column);
-            case 1 -> schemes(column);
-            case 2 -> translation(column);
+        switch (steps[page]) {
+            case STEP_ENABLE -> enable(column);
+            case STEP_SCHEMES -> schemes(column);
+            case STEP_TRANSLATION -> translation(column);
             default -> sync(column);
         }
         if (animate) {
@@ -171,8 +181,13 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     // ---- steps ----
 
+    /** 当前这一步是第几步：跳过了选方案的版本，后面的步骤依次往前挪。 */
+    private String ordinal() {
+        return "第" + "一二三四".charAt(page) + "步";
+    }
+
     private void enable(LinearLayout column) {
-        header(column, R.drawable.ic_tab_keyboard, "第一步 · 约 30 秒", "把水杉加进键盘",
+        header(column, R.drawable.ic_tab_keyboard, ordinal() + " · 约 30 秒", "把水杉加进键盘",
             "在系统设置里启用水杉，并设为默认输入法，之后在任何应用里都能直接用。");
         boolean enabled = ImeSetup.enabled(this);
         boolean current = enabled && ImeSetup.isDefault(this);
@@ -184,27 +199,39 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void schemes(LinearLayout column) {
-        header(column, R.drawable.ic_feature_scheme, "第二步 · 随时可以改", "选一套输入方案",
-            "全拼、9 键、双拼和五笔都在这里，之后随时可以在「设置 → 输入」里换。");
+        AppEdition edition = AppEdition.current();
         JSONObject preferences = preferences();
         KeyboardScheme current = preferences == null ? null : KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", "quanpin"),
+            preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         // 双拼 keeps whichever double-pinyin profile is already chosen; only a first pick lands on 小鹤, as the design's 默认小鹤 says.
         KeyboardScheme shuangpin = current != null && current.shuangpinProfile() != null
             ? current : KeyboardScheme.XIAOHE;
         // 五笔同理沿用已选的版本（选五笔不改 `wubi_profile`），说明文字照实写出当前是 86 还是 98。
         boolean wubi98 = preferences != null && KeyboardScheme.WUBI_98.equals(
             KeyboardScheme.normalizedWubiProfile(preferences.optString("wubi_profile", KeyboardScheme.WUBI_86)));
-        SchemeCard[] cards = {
+        SchemeCard[] all = {
             new SchemeCard("全拼 26 键", "最常用，完整拼音", KeyboardScheme.QUANPIN),
             new SchemeCard("全拼 9 键", "单手更顺手", KeyboardScheme.QUANPIN_NINE_KEY),
             new SchemeCard("双拼", "每字两键 · 默认小鹤", shuangpin),
             new SchemeCard("五笔", wubi98 ? "形码 · 当前 98 版" : "形码 · 默认 86 版", KeyboardScheme.WUBI),
         };
-        for (int index = 0; index < cards.length; index++) {
-            schemeCard(column, cards[index], cards[index].scheme() == current, index == 0 ? 6 : 10);
+        // 说明里的简称与上面的卡片一一对应，只列本版本有的那几张。
+        String[] names = {"全拼", "9 键", "双拼", "五笔"};
+        java.util.List<SchemeCard> cards = new java.util.ArrayList<>();
+        java.util.List<String> offered = new java.util.ArrayList<>();
+        for (int index = 0; index < all.length; index++) {
+            if (!all[index].scheme().offeredBy(edition)) continue;
+            cards.add(all[index]);
+            offered.add(names[index]);
+        }
+        String listed = offered.size() == 1 ? offered.get(0)
+            : String.join("、", offered.subList(0, offered.size() - 1)) + "和" + offered.get(offered.size() - 1);
+        header(column, R.drawable.ic_feature_scheme, ordinal() + " · 随时可以改", "选一套输入方案",
+            listed + "都在这里，之后随时可以在「设置 → 输入」里换。");
+        for (int index = 0; index < cards.size(); index++) {
+            schemeCard(column, cards.get(index), cards.get(index).scheme() == current, index == 0 ? 6 : 10);
         }
         if (preferences == null) {
             footnote(column, loaded ? "词库还在准备，暂时不能保存方案。稍后可以在「设置 → 输入」里选。"
@@ -215,7 +242,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void translation(LinearLayout column) {
-        header(column, R.drawable.ic_onboarding_translate, "第三步 · 水杉的特点", "候选下方就是译文",
+        header(column, R.drawable.ic_onboarding_translate, ordinal() + " · 水杉的特点", "候选下方就是译文",
             "打开后，每个候选词下面会多一行小字的英文释义，来自随应用打包的离线词典，不联网。");
         JSONObject preferences = preferences();
         boolean on = preferences != null && preferences.optBoolean(GLOSS, false);
@@ -290,12 +317,12 @@ public final class OnboardingActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (isFinishing() || isDestroyed()) return;
                 account = state;
-                if (page == PAGES - 1) render(false);
+                if (page == pages - 1) render(false);
             });
         }, () -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             account = SignIn.State.ABSENT;
-            if (page == PAGES - 1) render(false);
+            if (page == pages - 1) render(false);
         }));
     }
 
@@ -378,12 +405,12 @@ public final class OnboardingActivity extends AppCompatActivity {
                 if (isFinishing() || isDestroyed()) return;
                 snapshot = value;
                 loaded = true;
-                if (page == 1 || page == 2) render(false);
+                if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
             });
         }, () -> runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) return;
             loaded = true;
-            if (page == 1 || page == 2) render(false);
+            if (steps[page] == STEP_SCHEMES || steps[page] == STEP_TRANSLATION) render(false);
         }));
     }
 
