@@ -126,6 +126,7 @@ fs::path executable_directory() {
 
 std::vector<fs::path> library_candidates() {
   std::vector<fs::path> candidates;
+  candidates.reserve(5);
   if (!configured_library.empty())
     candidates.emplace_back(fs::u8path(configured_library));
   if (const char *overridden = std::getenv("MSIME_SHERPA_ONNX_LIBRARY"); overridden && *overridden)
