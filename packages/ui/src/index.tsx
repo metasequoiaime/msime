@@ -1384,6 +1384,10 @@ export {
   type CloudDictionaryEntryCardEntry,
   type CloudDictionaryEntryCardProps,
 } from "./keyboard/cloud-dictionary-entry-card";
+export {
+  CloudDictionaryItem,
+  type CloudDictionaryItemProps,
+} from "./keyboard/cloud-dictionary-item";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
   CloudDictionaryPagination,

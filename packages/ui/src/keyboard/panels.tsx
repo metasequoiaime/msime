@@ -38,6 +38,7 @@ import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
 import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
+import { CloudDictionaryItem } from "./cloud-dictionary-item";
 import { CloudPanelHeader } from "./cloud-panel-header";
 import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
 import { NativePanelHeader } from "./native-panel-header";
@@ -3581,55 +3582,52 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
             </p>
             {candidates.length ? (
               candidates.map((candidate, index) => (
-                <article
-                  className={cloud.dictionaryItem}
+                <CloudDictionaryItem
                   key={`${candidateMutationCode(candidate)}:${candidate.word}`}
+                  ariaLabel={`调频候选 ${candidate.word}`}
+                  busy={busy}
+                  disabled={kind === "quick"}
+                  onClick={() => void rank(candidate)}
+                  actions={
+                    kind !== "quick" && (
+                      <>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => void rank(candidate)}
+                          disabled={busy}
+                        >
+                          调频
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => void setFixed(candidate, position)}
+                          disabled={busy}
+                        >
+                          固定
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => void remove(candidate)}
+                          disabled={
+                            busy || (kind !== "english" && Array.from(candidate.word).length <= 1)
+                          }
+                        >
+                          删除
+                        </button>
+                      </>
+                    )
+                  }
                 >
-                  <button
-                    type="button"
-                    className={cloud.dictionaryItemMain}
-                    aria-label={`调频候选 ${candidate.word}`}
-                    onClick={() => void rank(candidate)}
-                    disabled={busy || kind === "quick"}
-                  >
-                    <strong>
-                      {index + 1}. <span className="break-anywhere">{candidate.word}</span>
-                    </strong>
-                    <small>
-                      {candidate.code} · 权重 {candidate.weight}
-                    </small>
-                  </button>
-                  {kind !== "quick" && (
-                    <div className={cloud.dictionaryItemActions}>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => void rank(candidate)}
-                        disabled={busy}
-                      >
-                        调频
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => void setFixed(candidate, position)}
-                        disabled={busy}
-                      >
-                        固定
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => void remove(candidate)}
-                        disabled={
-                          busy || (kind !== "english" && Array.from(candidate.word).length <= 1)
-                        }
-                      >
-                        删除
-                      </button>
-                    </div>
-                  )}
-                </article>
+                  <strong>
+                    {index + 1}. <span className="break-anywhere">{candidate.word}</span>
+                  </strong>
+                  <small>
+                    {candidate.code} · 权重 {candidate.weight}
+                  </small>
+                </CloudDictionaryItem>
               ))
             ) : (
               <p className={cloud.dictionaryEmpty}>没有匹配的候选</p>
