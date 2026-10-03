@@ -8,7 +8,7 @@
 - 字段集合与 `shared/contracts/editions.schema.json` 声明的一致，`platforms` 的六个键都在；
 - id 唯一且第一个是 full，显示名两两不同；
 - 方案是引擎全部方案（`host_surface.rs` 的 `ALL_INPUT_SCHEMES`）的子集，保持同样的顺序，默认方案在列表里；
-- full 等于现状：全部 8 个方案、默认全拼、没有额外默认值、带全部组件和功能，显示名等于 Info.plist 的 `CFBundleDisplayName` 和 Tauri 的 `productName`；
+- full 等于现状：全部 10 个方案、默认全拼、没有额外默认值、带全部组件和功能，显示名等于 Info.plist 的 `CFBundleDisplayName` 和 Tauri 的 `productName`；
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语、注音和笔画要列出对应语言词库；
