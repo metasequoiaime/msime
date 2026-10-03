@@ -1,4 +1,4 @@
-rime-cantonese (https://github.com/rime/rime-cantonese), commit 259f0e48bba840c3a2e0d117539e96937f3d89bc
+rime-cantonese (https://github.com/rime/rime-cantonese), commit ac277184f161f297c2031b497588975234019f9d
 
 Created and maintained by the Cantonese Computational Linguistics Infrastructure Development Workgroup (CanCLID, https://github.com/CanCLID), 粵語計算語言學基礎建設組, as stated in the rime-cantonese README.
 

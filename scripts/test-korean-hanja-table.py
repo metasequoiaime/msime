@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check the committed Korean Hanja table (crates/engine/src/korean/hanja.tsv) against the rules msime-dict-build hanja writes it by.
+"""检查提交的韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）是否符合 msime-dict-build hanja 的生成规则。
 
-The table is generated from libhangul's hanja.txt, which the sources lock pins, and committed so the engine can embed it. Nothing rebuilds it in CI, so a hand edit or a generator change committed without regenerating would otherwise ship unnoticed. The invariants are checked on every run without network. When the pinned source is already in the dict-builder cache (target/dictionary-sources/hanja/hanja.txt, the --cache path the release workflow uses) and matches the lock's size and SHA-256, the table is also recomputed from it and compared byte for byte; without the cache that part prints a skip line, because fetching 6 MB is not something a contract check should do.
+表由锁文件固定的 libhangul hanja.txt 生成并提交，供引擎内嵌；CI 不会重新生成，因此这里在无网络的情况下检查所有不变量。若构建器缓存中已有锁定源文件，还会重新生成并逐字节比较。
 
-The table is BSD-3-Clause and compiled into the engine every platform ships, so the check also requires each platform's notice channel to name the licence file.
+表按 BSD-3-Clause 授权，所有平台都必须随引擎分发对应许可证文件。
 """
 import hashlib
 import json
@@ -27,7 +27,7 @@ NOTICE_CHANNELS = {
     "platforms/ios/project.yml": "iOS: the app's bundled resources",
     "platforms/harmony/stage-resources.sh": "HarmonyOS: the licences staged into the HAP",
 }
-SOURCE = "hanja/hanja.txt"
+SOURCE = "ko/hanja.txt"
 COMMIT = "717409ce61524bb3d8426060a384822f21354c62"
 failures = []
 
@@ -108,7 +108,7 @@ def main() -> int:
         check(any(LICENSE.name in line for line in live), f"{channel} ({description}) does not ship {LICENSE.name}")
     if len(pinned) == 1:
         entry = pinned[0]
-        check(f"/libhangul/libhangul/{COMMIT}/data/hanja/hanja.txt" in entry["url"], f"the lock no longer pins libhangul {COMMIT}; update this check together with the table")
+        check(f"/libhangul/libhangul/{COMMIT}/data/hanja/hanja.txt" in entry["url"] or lock["references"].get("libhangul", {}).get("commit") == COMMIT, f"the lock no longer pins libhangul {COMMIT} or its msime-dictionary mirror; update this check together with the table")
         cached = CACHE / SOURCE
         if not cached.is_file():
             print(f"skipped: regeneration, {cached.relative_to(ROOT)} is not cached (msime-dict-build hanja --cache target/dictionary-sources fetches it)")

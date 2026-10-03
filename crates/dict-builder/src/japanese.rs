@@ -12,21 +12,21 @@ use crate::text;
 
 pub const MAGIC: &[u8; 8] = b"MSJPDT1\0";
 pub const DICTIONARY_FILES: [&str; 10] = [
-    "mozc/dictionary00.txt",
-    "mozc/dictionary01.txt",
-    "mozc/dictionary02.txt",
-    "mozc/dictionary03.txt",
-    "mozc/dictionary04.txt",
-    "mozc/dictionary05.txt",
-    "mozc/dictionary06.txt",
-    "mozc/dictionary07.txt",
-    "mozc/dictionary08.txt",
-    "mozc/dictionary09.txt",
+    "ja/mozc/dictionary00.txt",
+    "ja/mozc/dictionary01.txt",
+    "ja/mozc/dictionary02.txt",
+    "ja/mozc/dictionary03.txt",
+    "ja/mozc/dictionary04.txt",
+    "ja/mozc/dictionary05.txt",
+    "ja/mozc/dictionary06.txt",
+    "ja/mozc/dictionary07.txt",
+    "ja/mozc/dictionary08.txt",
+    "ja/mozc/dictionary09.txt",
 ];
-pub const ID_DEF: &str = "mozc/id.def";
-pub const CONNECTION: &str = "mozc/connection_single_column.txt";
-/// Mozc's README carries the IPAdic / ICOT / Okinawa notices the model is derived from, so it ships next to the model.
-pub const NOTICE: &str = "mozc/README.txt";
+pub const ID_DEF: &str = "ja/mozc/id.def";
+pub const CONNECTION: &str = "ja/mozc/connection_single_column.txt";
+/// Mozc 的 README 包含模型所依据的 IPAdic、ICOT 与冲绳词典说明，因此随模型一同发布。
+pub const NOTICE: &str = "ja/mozc/README.txt";
 pub const NOTICE_NAME: &str = "mozc_dictionary_oss_README.txt";
 
 const HEADER_SIZE: u64 = 56;
