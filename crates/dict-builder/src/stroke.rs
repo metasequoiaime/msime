@@ -2,6 +2,8 @@
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `SingleCharsAllV1.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
+//! 只收基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字，其余区段只收在字频表里出现过的字。上游还收了扩展 B 区及以后的七万多个字、西夏文部件、部首与笔画符号，几乎都没有字频；macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。
+//!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
 //! 在 msime-dictionary 发布收录这份文件的 `sources-v*` release、`resources/dictionary-sources.lock.json` 固定 `stroke/stroke.dict.yaml` 之前，构建从 `--cache` 目录下同一路径读取手动放入的上游文件，并按这里记下的大小与 SHA-256 校验；锁文件一旦固定它，就改走锁文件。
@@ -37,10 +39,10 @@ pub const DATABASE: &str = "stroke.db";
 pub const LICENSE_SOURCE: &str = "rime-stroke-LGPL-3.0.txt";
 pub const LICENSE_NAME: &str = "rime_stroke_LICENSE.txt";
 
-/// 发布构建时 `verify` 要求的下限。固定提交的实际值是 170386 条、110125 个字、7678 个有字频的字。
+/// 发布构建时 `verify` 要求的下限。固定提交经 `kept` 过滤后的实际值是 47095 条、27588 个字、7678 个有字频的字。
 pub const FLOORS: Floors = Floors {
-    entries: 165_000,
-    characters: 105_000,
+    entries: 45_000,
+    characters: 27_000,
     weighted: 7_000,
 };
 
@@ -212,16 +214,27 @@ pub fn parse_frequencies(source: &str) -> Result<HashMap<&str, i64>> {
     Ok(weights)
 }
 
-/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和；同一行重复出现只留一条。
+/// 每个 `(笔顺码, 字)` 一条，权重是该字的字频之和；同一行重复出现只留一条。`kept` 不收的字跳过。
 pub fn build(rows: &[Row], frequencies: &HashMap<&str, i64>) -> Dictionary {
     let mut dictionary = Dictionary::default();
     for row in rows {
         let weight = frequencies.get(row.text).copied().unwrap_or(0);
+        if !kept(row.text, weight) {
+            continue;
+        }
         dictionary
             .entries
             .insert((row.code.to_owned(), row.text.to_owned()), weight);
     }
     dictionary
+}
+
+/// 基本区和扩展 A 区的汉字都收；其他字符（扩展 B 区及以后、兼容汉字、部首、笔画符号、西夏文部件）只在有字频时收。
+fn kept(text: &str, weight: i64) -> bool {
+    let common = text.chars().next().is_some_and(
+        |character| matches!(character, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}'),
+    );
+    common || weight > 0
 }
 
 /// 按引擎的语言词典结构把 `dictionary` 写到 `path`（先删掉旧文件），最后 freeze，同样的输入得到同样的字节。
@@ -396,6 +409,47 @@ mod tests {
         assert_eq!(frequencies["乙"], 70);
         assert_eq!(frequencies["甲"], 50);
         assert_eq!(frequencies.len(), 6);
+    }
+
+    #[test]
+    fn only_common_blocks_and_characters_with_a_frequency_are_kept() {
+        // 基本区与扩展 A 区：没有字频也收。
+        assert!(kept("口", 0));
+        assert!(kept("\u{3AD1}", 0));
+        // 扩展 B 区及以后、西夏文部件、部首、笔画符号、兼容汉字：没有字频就不收。
+        for text in [
+            "\u{20BB9}",
+            "\u{31480}",
+            "\u{18800}",
+            "\u{2E8A}",
+            "\u{31C0}",
+            "\u{F900}",
+        ] {
+            assert!(!kept(text, 0), "{text}");
+        }
+        // 有字频的字照收，不论区段。
+        assert!(kept("\u{20BB9}", 1));
+        let rows = [
+            Row {
+                text: "口",
+                code: "szh",
+            },
+            Row {
+                text: "\u{20BB9}",
+                code: "szhhsp",
+            },
+            Row {
+                text: "\u{3AD1}",
+                code: "szhhzp",
+            },
+        ];
+        let dictionary = build(&rows, &HashMap::new());
+        let texts: Vec<&str> = dictionary
+            .entries
+            .keys()
+            .map(|(_, text)| text.as_str())
+            .collect();
+        assert_eq!(texts, ["口", "\u{3AD1}"]);
     }
 
     #[test]
