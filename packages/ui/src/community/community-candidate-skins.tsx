@@ -6,8 +6,9 @@ import { notifySkinCatalogChanged } from "../skin/skin-catalog-changes";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
 import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
-import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailFrame } from "./community-detail-frame";
+import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
@@ -22,7 +23,6 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
-import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
@@ -431,108 +431,106 @@ export function CommunityCandidateSkinsPage({
     await requestList(activeSearch, false);
   };
 
-  const errorAlert = error && (
-    <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-  );
-
   if (selected) {
     const license = licenseLine(selected.license);
     const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
-      <div className={style.page}>
-        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
-        {errorAlert}
-        <section className={`section ${style.detail}`}>
-          <CandidateSkinPreviewImage
-            id={selected.id}
-            name={selected.name}
-            load={loadPreview}
-            className={style.detailStage}
-          />
-          <CommunityDetailHeader
-            title={selected.name}
-            note={[selectedCategory, selected.author, selected.version && `v${selected.version}`]
-              .filter(Boolean)
-              .join(" · ")}
-            owned={selected.owned}
-            moderation={selected.moderation}
-            ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
-            description={selected.description}
-          />
-          {license && <p className={style.metrics}>{license}</p>}
-          <CommunityDetailStatus
-            downloads={selected.downloads}
-            ratingCount={selected.rating_count}
-            ratingAverage={selected.rating_average}
-            myRating={selected.my_rating}
-            detailBusy={detailBusy}
-            actionNotice={actionNotice}
-            loadingText="正在读取皮肤详情…"
-          />
-          {installed ? (
-            <>
-              <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
-              {onOpenSkinPage && (
-                <ActionButton
-                  action={onOpenSkinPage}
-                  className={`primary ${style.action}`}
-                  label="去启用"
-                />
-              )}
-            </>
-          ) : (
-            <CommunityInstallButton
-              actionBusy={actionBusy}
-              detailBusy={detailBusy}
-              confirmReplace={confirmReplace}
-              onInstall={() => void install(false)}
-            />
-          )}
-          {confirmReplace && (
-            <CommunityReplaceConfirmation
-              ariaLabel="确认替换皮肤"
-              message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
-              actionBusy={actionBusy}
-              onConfirm={() => void install(true)}
-              onCancel={() => setConfirmReplace(false)}
-            />
-          )}
-          {selected.owned && (
-            <ActionButton
-              action={() =>
-                void changeVisibility(selected.visibility === "private" ? "public" : "private")
-              }
-              className={`secondary ${style.action}`}
-              disabled={actionBusy || detailBusy}
-              label={selected.visibility === "private" ? "公开" : "设为私有"}
-            />
-          )}
-          {selected.owned && (
-            <CommunitySkinCategorySelect
-              ariaLabel="修改分类"
-              value={selected.category ?? "other"}
-              disabled={actionBusy || detailBusy}
-              onChange={(next) => void changeOwnCategory(next)}
-            />
-          )}
-          <CommunityModerationSection
-            owned={selected.owned}
-            unpublishable={selected.visibility === "public"}
+      <CommunityDetailFrame
+        backDisabled={actionBusy}
+        onBack={closeDetail}
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+      >
+        <CandidateSkinPreviewImage
+          id={selected.id}
+          name={selected.name}
+          load={loadPreview}
+          className={style.detailStage}
+        />
+        <CommunityDetailHeader
+          title={selected.name}
+          note={[selectedCategory, selected.author, selected.version && `v${selected.version}`]
+            .filter(Boolean)
+            .join(" · ")}
+          owned={selected.owned}
+          moderation={selected.moderation}
+          ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
+          description={selected.description}
+        />
+        {license && <p className={style.metrics}>{license}</p>}
+        <CommunityDetailStatus
+          downloads={selected.downloads}
+          ratingCount={selected.rating_count}
+          ratingAverage={selected.rating_average}
+          myRating={selected.my_rating}
+          detailBusy={detailBusy}
+          actionNotice={actionNotice}
+          loadingText="正在读取皮肤详情…"
+        />
+        {installed ? (
+          <>
+            <CommunityActionNotice>已安装到外部皮肤。</CommunityActionNotice>
+            {onOpenSkinPage && (
+              <ActionButton
+                action={onOpenSkinPage}
+                className={`primary ${style.action}`}
+                label="去启用"
+              />
+            )}
+          </>
+        ) : (
+          <CommunityInstallButton
             actionBusy={actionBusy}
-            ratingDescription="我的评分（安装后可评，可重新选择）"
-            unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；本地皮肤会保留并以私有方式同步。只想不让别人看到，可以改用“设为私有”。确定下架“${selected.name}”吗？`}
-            confirmUnpublish={confirmUnpublish}
-            onRate={(stars) => void rateSelected(stars)}
-            onRequestUnpublish={() => setConfirmUnpublish(true)}
-            onUnpublish={() => void unpublish()}
-            onCancelUnpublish={() => setConfirmUnpublish(false)}
-            confirmationActionsClassName={style.confirmationActions}
+            detailBusy={detailBusy}
+            confirmReplace={confirmReplace}
+            onInstall={() => void install(false)}
           />
-          {!selected.owned && client.report && (
-            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-          )}
-        </section>
-      </div>
+        )}
+        {confirmReplace && (
+          <CommunityReplaceConfirmation
+            ariaLabel="确认替换皮肤"
+            message={<>已存在同名皮肤“{selected.package_id}”，安装会整体替换它。</>}
+            actionBusy={actionBusy}
+            onConfirm={() => void install(true)}
+            onCancel={() => setConfirmReplace(false)}
+          />
+        )}
+        {selected.owned && (
+          <ActionButton
+            action={() =>
+              void changeVisibility(selected.visibility === "private" ? "public" : "private")
+            }
+            className={`secondary ${style.action}`}
+            disabled={actionBusy || detailBusy}
+            label={selected.visibility === "private" ? "公开" : "设为私有"}
+          />
+        )}
+        {selected.owned && (
+          <CommunitySkinCategorySelect
+            ariaLabel="修改分类"
+            value={selected.category ?? "other"}
+            disabled={actionBusy || detailBusy}
+            onChange={(next) => void changeOwnCategory(next)}
+          />
+        )}
+        <CommunityModerationSection
+          owned={selected.owned}
+          unpublishable={selected.visibility === "public"}
+          actionBusy={actionBusy}
+          ratingDescription="我的评分（安装后可评，可重新选择）"
+          unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；本地皮肤会保留并以私有方式同步。只想不让别人看到，可以改用“设为私有”。确定下架“${selected.name}”吗？`}
+          confirmUnpublish={confirmUnpublish}
+          onRate={(stars) => void rateSelected(stars)}
+          onRequestUnpublish={() => setConfirmUnpublish(true)}
+          onUnpublish={() => void unpublish()}
+          onCancelUnpublish={() => setConfirmUnpublish(false)}
+          confirmationActionsClassName={style.confirmationActions}
+        />
+        {!selected.owned && client.report && (
+          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+        )}
+      </CommunityDetailFrame>
     );
   }
 
@@ -571,7 +569,9 @@ export function CommunityCandidateSkinsPage({
         value={categoryFilter.category}
         onChange={(next) => void changeCategory(next)}
       />
-      {errorAlert}
+      {error && (
+        <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
+      )}
       {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
       {!listBusy && skins.length === 0 && (
         <p className={style.notice}>

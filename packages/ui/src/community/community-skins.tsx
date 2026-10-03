@@ -14,6 +14,7 @@ import { useCommunityGallery, type CommunityGalleryClient } from "./community-ga
 import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailStatus } from "./community-detail-status";
+import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityDetailHeader } from "./community-detail-header";
 import * as style from "./community-style";
 import { CommunitySearchForm } from "./community-search-form";
@@ -28,7 +29,6 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
-import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { ActionButton } from "../core/action-button";
@@ -503,86 +503,86 @@ export function CommunitySkinsPage({
 
   if (selected)
     return (
-      <div className={style.page}>
-        <CommunityBackButton disabled={actionBusy} onClick={() => void closeDetail()} />
-        {error && (
-          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
+      <CommunityDetailFrame
+        backDisabled={actionBusy}
+        onBack={() => void closeDetail()}
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+      >
+        <div className={style.detailStage}>
+          <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
+        </div>
+        <CommunityDetailHeader
+          title={selected.name}
+          note={[communitySkinCategoryLabel(selected.category), selected.author]
+            .filter(Boolean)
+            .join(" · ")}
+          owned={selected.owned}
+          moderation={selected.moderation}
+          description={selected.description}
+        />
+        <CommunityDetailStatus
+          downloads={selected.downloads}
+          ratingCount={selected.rating_count}
+          ratingAverage={selected.rating_average}
+          myRating={selected.my_rating}
+          detailBusy={detailBusy}
+          actionNotice={actionNotice}
+          loadingText="正在读取皮肤详情…"
+        />
+        {!trial && (
+          <ActionButton
+            action={() => void download()}
+            className={`primary ${style.action}`}
+            disabled={actionBusy || detailBusy}
+            label="下载并试用"
+          />
         )}
-        <section className={`section ${style.detail}`}>
-          <div className={style.detailStage}>
-            <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
-          </div>
-          <CommunityDetailHeader
-            title={selected.name}
-            note={[communitySkinCategoryLabel(selected.category), selected.author]
-              .filter(Boolean)
-              .join(" · ")}
-            owned={selected.owned}
-            moderation={selected.moderation}
-            description={selected.description}
-          />
-          <CommunityDetailStatus
-            downloads={selected.downloads}
-            ratingCount={selected.rating_count}
-            ratingAverage={selected.rating_average}
-            myRating={selected.my_rating}
-            detailBusy={detailBusy}
-            actionNotice={actionNotice}
-            loadingText="正在读取皮肤详情…"
-          />
-          {!trial && (
+        {trial && (
+          <div
+            className={`${style.divided} grid grid-cols-2 gap-2 [&>p]:col-span-full [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
+            aria-label="皮肤试用"
+          >
+            <p>正在试用：{trial.name}</p>
             <ActionButton
-              action={() => void download()}
-              className={`primary ${style.action}`}
-              disabled={actionBusy || detailBusy}
-              label="下载并试用"
+              action={() => void finishTrial(false)}
+              className="secondary"
+              disabled={actionBusy}
+              label="恢复原皮肤"
             />
-          )}
-          {trial && (
-            <div
-              className={`${style.divided} grid grid-cols-2 gap-2 [&>p]:col-span-full [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
-              aria-label="皮肤试用"
-            >
-              <p>正在试用：{trial.name}</p>
-              <ActionButton
-                action={() => void finishTrial(false)}
-                className="secondary"
-                disabled={actionBusy}
-                label="恢复原皮肤"
-              />
-              <ActionButton
-                action={() => void finishTrial(true)}
-                className="primary"
-                disabled={actionBusy}
-                label="保留使用"
-              />
-            </div>
-          )}
-          {selected.owned && (
-            <CommunitySkinCategorySelect
-              ariaLabel="修改分类"
-              value={selected.category ?? "other"}
-              disabled={actionBusy || detailBusy}
-              onChange={(next) => void changeOwnCategory(next)}
+            <ActionButton
+              action={() => void finishTrial(true)}
+              className="primary"
+              disabled={actionBusy}
+              label="保留使用"
             />
-          )}
-          <CommunityModerationSection
-            owned={selected.owned}
-            actionBusy={actionBusy}
-            ratingDescription="我的评分（下载后可评，可重新选择）"
-            unpublishMessage={`下架后其他用户无法再下载，已下载的本地皮肤会保留。确定下架“${selected.name}”吗？`}
-            unpublishDisabled={Boolean(trial)}
-            confirmUnpublish={confirmUnpublish}
-            onRate={(stars) => void rateSelected(stars)}
-            onRequestUnpublish={() => setConfirmUnpublish(true)}
-            onUnpublish={() => void unpublish()}
-            onCancelUnpublish={() => setConfirmUnpublish(false)}
+          </div>
+        )}
+        {selected.owned && (
+          <CommunitySkinCategorySelect
+            ariaLabel="修改分类"
+            value={selected.category ?? "other"}
+            disabled={actionBusy || detailBusy}
+            onChange={(next) => void changeOwnCategory(next)}
           />
-          {!selected.owned && client.report && (
-            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-          )}
-        </section>
-      </div>
+        )}
+        <CommunityModerationSection
+          owned={selected.owned}
+          actionBusy={actionBusy}
+          ratingDescription="我的评分（下载后可评，可重新选择）"
+          unpublishMessage={`下架后其他用户无法再下载，已下载的本地皮肤会保留。确定下架“${selected.name}”吗？`}
+          unpublishDisabled={Boolean(trial)}
+          confirmUnpublish={confirmUnpublish}
+          onRate={(stars) => void rateSelected(stars)}
+          onRequestUnpublish={() => setConfirmUnpublish(true)}
+          onUnpublish={() => void unpublish()}
+          onCancelUnpublish={() => setConfirmUnpublish(false)}
+        />
+        {!selected.owned && client.report && (
+          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+        )}
+      </CommunityDetailFrame>
     );
 
   return (

@@ -1186,6 +1186,10 @@ export {
   type CommunityDetailStatusProps,
 } from "./community/community-detail-status";
 export {
+  CommunityDetailFrame,
+  type CommunityDetailFrameProps,
+} from "./community/community-detail-frame";
+export {
   communityDestinationView,
   type CommunityDestination,
   type CommunityDestinationCategory,
