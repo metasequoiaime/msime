@@ -37,6 +37,7 @@ import {
 import { keyboardSkinStyles } from "./keyboard-skin-styles";
 import { keyboardRows, nineKeyRows } from "./panel-keyboard-layouts";
 import { CloudDictionaryEntryForm } from "./cloud-dictionary-entry-form";
+import { CloudDictionaryEntryCard } from "./cloud-dictionary-entry-card";
 import { CloudPanelHeader } from "./cloud-panel-header";
 import { CloudDictionaryPagination } from "./cloud-dictionary-pagination";
 import { NativePanelHeader } from "./native-panel-header";
@@ -2278,49 +2279,15 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
         <div className={cloud.dictionaryList} aria-label="云词条">
           {entries.length ? (
             entries.map((entry) => (
-              <article className={cloud.dictionaryItem} key={entry.id}>
-                <button
-                  type="button"
-                  className={cloud.dictionaryItemMain}
-                  aria-label={`编辑云词条 ${entry.word}`}
-                  onClick={() => beginEdit(entry)}
-                  disabled={busy}
-                >
-                  <strong>{entry.word}</strong>
-                  <small>
-                    {entry.code} · 权重 {entry.weight}
-                  </small>
-                </button>
-                <div className={cloud.dictionaryItemActions}>
-                  {client.downloadToLocal && (
-                    <button
-                      type="button"
-                      className="secondary"
-                      aria-label={`下载到本机 ${entry.word}`}
-                      onClick={() => void downloadToLocal(entry)}
-                      disabled={busy}
-                    >
-                      下载到本机
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => beginEdit(entry)}
-                    disabled={busy}
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => confirmRemove(entry)}
-                    disabled={busy}
-                  >
-                    删除
-                  </button>
-                </div>
-              </article>
+              <CloudDictionaryEntryCard
+                key={entry.id}
+                entry={entry}
+                editLabel={`编辑云词条 ${entry.word}`}
+                busy={busy}
+                onEdit={() => beginEdit(entry)}
+                onRemove={() => void confirmRemove(entry)}
+                onDownload={client.downloadToLocal ? () => void downloadToLocal(entry) : undefined}
+              />
             ))
           ) : (
             <p className={cloud.dictionaryEmpty}>暂无词条</p>
@@ -3214,41 +3181,14 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
             </p>
             {entries.length ? (
               entries.map((entry) => (
-                <article
-                  className={cloud.dictionaryItem}
+                <CloudDictionaryEntryCard
                   key={`${entry.kind}:${entry.code}:${entry.word}`}
-                >
-                  <button
-                    type="button"
-                    className={cloud.dictionaryItemMain}
-                    aria-label={`编辑完整目录词条 ${entry.word}`}
-                    onClick={() => beginEdit(entry)}
-                    disabled={busy}
-                  >
-                    <strong>{entry.word}</strong>
-                    <small>
-                      {entry.code} · 权重 {entry.weight}
-                    </small>
-                  </button>
-                  <div className={cloud.dictionaryItemActions}>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => beginEdit(entry)}
-                      disabled={busy}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => confirmRemove(entry)}
-                      disabled={busy}
-                    >
-                      删除
-                    </button>
-                  </div>
-                </article>
+                  entry={entry}
+                  editLabel={`编辑完整目录词条 ${entry.word}`}
+                  busy={busy}
+                  onEdit={() => beginEdit(entry)}
+                  onRemove={() => void confirmRemove(entry)}
+                />
               ))
             ) : (
               <p className={cloud.dictionaryEmpty}>没有匹配的词条</p>

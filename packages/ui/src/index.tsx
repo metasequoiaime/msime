@@ -1379,6 +1379,11 @@ export {
   type CloudDictionaryEntryFormProps,
   type CloudDictionaryEntryFormValue,
 } from "./keyboard/cloud-dictionary-entry-form";
+export {
+  CloudDictionaryEntryCard,
+  type CloudDictionaryEntryCardEntry,
+  type CloudDictionaryEntryCardProps,
+} from "./keyboard/cloud-dictionary-entry-card";
 export { CloudPanelHeader, type CloudPanelHeaderProps } from "./keyboard/cloud-panel-header";
 export {
   CloudDictionaryPagination,
