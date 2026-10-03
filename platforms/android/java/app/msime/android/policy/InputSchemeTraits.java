@@ -15,6 +15,7 @@ public final class InputSchemeTraits {
     public static final int CANTONESE = 5;
     public static final int ZHUYIN = 6;
     public static final int VIETNAMESE = 7;
+    public static final int TIBETAN = 8;
 
     private InputSchemeTraits() {}
 
@@ -40,7 +41,7 @@ public final class InputSchemeTraits {
     public static boolean showsGlosses(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == KOREAN; }
 
     // `commits_on_blur`: leaving the composition (focus loss, a caret jump, a scheme or mode switch) writes it out instead of discarding it.
-    public static boolean commitsOnBlur(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE; }
+    public static boolean commitsOnBlur(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
     // `draws_reading`: the composition to mark inline is the view's `reading`, not its `editing_text`.
     public static boolean drawsReading(int scheme) { return scheme == JAPANESE || scheme == KOREAN || scheme == ZHUYIN; }
@@ -48,15 +49,15 @@ public final class InputSchemeTraits {
     // `has_openable_candidate_list`: candidates appear only in a list the user opens with command 16 (the Korean Hanja list, the Zhuyin list).
     public static boolean hasOpenableCandidateList(int scheme) { return scheme == KOREAN || scheme == ZHUYIN; }
 
-    // `cancel_keeps_composition`: the first Cancel keeps the composition (it closes the open candidate list, or takes a Vietnamese word back to its raw keys), so discarding takes a second one.
-    public static boolean cancelKeepsComposition(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE; }
+    // `cancel_keeps_composition`: 第一次取消保留组字（关闭打开的候选列表，或把越南语单词、藏文音节退回原始按键），要丢弃组字需要再取消一次。
+    public static boolean cancelKeepsComposition(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
     // `locks_caret`: the caret stays at the end of the composition, so the caret keys write it out and keep their meaning in the editor.
-    public static boolean locksCaret(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE; }
+    public static boolean locksCaret(int scheme) { return scheme == KOREAN || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
-    // Host-only: the scheme number is one of the eight above. A gate that existed before a scheme did keeps its old answer for a number it does not know rather than the false every trait gives it.
-    public static boolean known(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == KOREAN || scheme == CANTONESE || scheme == ZHUYIN || scheme == VIETNAMESE; }
+    // 宿主专用：方案序号是上面九个之一。某个判断早于某个方案存在时，对不认识的序号沿用它原来的答案，而不是各谓词统一给出的 false。
+    public static boolean known(int scheme) { return scheme == QUANPIN || scheme == SHUANGPIN || scheme == WUBI || scheme == JAPANESE || scheme == KOREAN || scheme == CANTONESE || scheme == ZHUYIN || scheme == VIETNAMESE || scheme == TIBETAN; }
 
-    // Host-only: letters build the written text directly (a Hangul syllable, a Vietnamese word), so Shift is the letter's case rather than the language switch and there is no word to take a character from.
-    public static boolean letterComposition(int scheme) { return scheme == KOREAN || scheme == VIETNAMESE; }
+    // 宿主专用：字母直接拼成书写的文字（韩文音节、越南语单词、按区分大小写的威利转写拼出的藏文音节），所以 Shift 是字母大小写而不是语言切换，也没有可以以词定字的词。
+    public static boolean letterComposition(int scheme) { return scheme == KOREAN || scheme == VIETNAMESE || scheme == TIBETAN; }
 }

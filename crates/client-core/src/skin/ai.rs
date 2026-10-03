@@ -304,12 +304,16 @@ where
             return Err(AiSkinError::InvalidResponse);
         }
         check_cancelled(cancelled)?;
-        let (user_id, token) = self.session.credentials(None, None)?;
-        let catalog =
-            self.request_authenticated(&user_id, token, |api, token| api.ai_models(token))?;
+        let (user_id, token, generation) = self
+            .session
+            .credentials_with_generation(None, None)
+            .map_err(Self::account_error)?;
+        let catalog = self.request_authenticated(&user_id, generation, token, |api, token| {
+            api.ai_models(token)
+        })?;
         check_cancelled(cancelled)?;
-        let (_, token) = self.session.credentials(None, Some(&user_id))?;
-        let response = self.request_authenticated(&user_id, token, |api, token| {
+        let token = self.credentials_for_generation(&user_id, generation)?;
+        let response = self.request_authenticated(&user_id, generation, token, |api, token| {
             api.ai_chat(
                 &[
                     AiChatMessage {
@@ -337,7 +341,7 @@ where
                 let user_id = user_id_ref;
                 let progress = progress_ref;
                 handles.push(scope.spawn(move || {
-                    let result = self.illustrate(user_id, &plan, cancelled);
+                    let result = self.illustrate(user_id, generation, &plan, cancelled);
                     if result.is_ok() {
                         let count = completed.fetch_add(1, Ordering::AcqRel) + 1;
                         progress(count);
@@ -369,60 +373,91 @@ where
         results.sort_by_key(|(index, _)| *index);
         let mut ordered = Vec::with_capacity(results.len());
         ordered.extend(results.into_iter().map(|(_, result)| result));
-        self.ensure_identity(&user_id)?;
+        self.ensure_identity(&user_id, generation)?;
         Ok(ordered)
     }
 
     fn request_authenticated<T>(
         &self,
         user_id: &str,
+        generation: u64,
         token: String,
         operation: impl Fn(&A, &str) -> Result<T, AccountError>,
     ) -> Result<T, AiSkinError> {
         let result = match operation(&self.api, &token) {
             Err(AccountError::Unauthorized) => {
-                let (_, replacement) = self.session.credentials(Some(&token), Some(user_id))?;
+                let (_, replacement, replacement_generation) = self
+                    .session
+                    .credentials_with_generation(Some(&token), Some(user_id))
+                    .map_err(Self::account_error)?;
+                if replacement_generation != generation {
+                    return Err(AiSkinError::Cancelled);
+                }
                 operation(&self.api, &replacement)
             }
             result => result,
         }?;
-        self.ensure_identity(user_id)?;
+        self.ensure_identity(user_id, generation)?;
         Ok(result)
     }
 
-    fn ensure_identity(&self, user_id: &str) -> Result<(), AiSkinError> {
-        if self
-            .session
-            .status()?
-            .is_some_and(|user| user.id == user_id)
-        {
-            Ok(())
+    fn ensure_identity(&self, user_id: &str, generation: u64) -> Result<(), AiSkinError> {
+        self.session
+            .with_generation(generation, Some(user_id), || Ok(()))
+            .map_err(Self::account_error)
+    }
+
+    fn account_error(error: AccountError) -> AiSkinError {
+        if error == AccountError::Cancelled {
+            AiSkinError::Cancelled
         } else {
-            Err(AiSkinError::Cancelled)
+            AiSkinError::Account(error)
         }
+    }
+
+    fn credentials_for_generation(
+        &self,
+        user_id: &str,
+        generation: u64,
+    ) -> Result<String, AiSkinError> {
+        let (_, token, current_generation) = self
+            .session
+            .credentials_with_generation(None, Some(user_id))
+            .map_err(Self::account_error)?;
+        if current_generation != generation {
+            return Err(AiSkinError::Cancelled);
+        }
+        Ok(token)
     }
 
     fn illustrate(
         &self,
         user_id: &str,
+        generation: u64,
         plan: &AiSkinPlan,
         cancelled: &AtomicBool,
     ) -> Result<AiSkinProposal, AiSkinError> {
         check_cancelled(cancelled)?;
-        let (_, token) = self.session.credentials(None, Some(user_id))?;
+        let token = self.credentials_for_generation(user_id, generation)?;
         let job = match self.api.create_skin_artwork(&plan.artwork_prompt, &token) {
             Err(AccountError::Unauthorized) => {
-                let (_, replacement) = self.session.credentials(Some(&token), Some(user_id))?;
+                let (_, replacement, replacement_generation) = self
+                    .session
+                    .credentials_with_generation(Some(&token), Some(user_id))
+                    .map_err(Self::account_error)?;
+                if replacement_generation != generation {
+                    return Err(AiSkinError::Cancelled);
+                }
                 self.api
                     .create_skin_artwork(&plan.artwork_prompt, &replacement)?
             }
             result => result?,
         };
         let id = job.id;
-        let result = self.poll_artwork(user_id, &id, cancelled);
+        let result = self.poll_artwork(user_id, generation, &id, cancelled);
         // Completed and failed jobs are both released; cancellation must not
         // leave an upstream task billable after this call returns.
-        self.cleanup_job(user_id, &id);
+        self.cleanup_job(user_id, generation, &id);
         let artwork = result?;
         Ok(AiSkinProposal {
             name: plan.name.clone(),
@@ -436,6 +471,7 @@ where
     fn poll_artwork(
         &self,
         user_id: &str,
+        generation: u64,
         id: &str,
         cancelled: &AtomicBool,
     ) -> Result<AiSkinArtwork, AiSkinError> {
@@ -445,10 +481,16 @@ where
             if Instant::now() >= deadline {
                 return Err(AiSkinError::Account(AccountError::Unavailable));
             }
-            let (_, token) = self.session.credentials(None, Some(user_id))?;
+            let token = self.credentials_for_generation(user_id, generation)?;
             let job = match self.api.get_skin_artwork(id, &token) {
                 Err(AccountError::Unauthorized) => {
-                    let (_, replacement) = self.session.credentials(Some(&token), Some(user_id))?;
+                    let (_, replacement, replacement_generation) = self
+                        .session
+                        .credentials_with_generation(Some(&token), Some(user_id))
+                        .map_err(Self::account_error)?;
+                    if replacement_generation != generation {
+                        return Err(AiSkinError::Cancelled);
+                    }
                     self.api.get_skin_artwork(id, &replacement)?
                 }
                 result => result?,
@@ -471,8 +513,8 @@ where
         }
     }
 
-    fn cleanup_job(&self, user_id: &str, id: &str) {
-        let Ok((_, token)) = self.session.credentials(None, Some(user_id)) else {
+    fn cleanup_job(&self, user_id: &str, generation: u64, id: &str) {
+        let Ok(token) = self.credentials_for_generation(user_id, generation) else {
             return;
         };
         let _ = self.api.delete_skin_artwork(id, &token);
@@ -720,6 +762,124 @@ fn has_readable_text(design: &TouchKeyboardSkinDesign) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::{
+        AccountChallenge, AccountProfile, AccountSessionStorage, AccountTokens, AccountUser,
+        SavedAccountSession,
+    };
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::time::SystemTime;
+
+    #[derive(Clone, Default)]
+    struct MemoryStorage(Arc<Mutex<Option<SavedAccountSession>>>);
+
+    impl AccountSessionStorage for MemoryStorage {
+        fn load(&self) -> Result<Option<SavedAccountSession>, AccountError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+
+        fn save(&self, session: &SavedAccountSession) -> Result<(), AccountError> {
+            *self.0.lock().unwrap() = Some(session.clone());
+            Ok(())
+        }
+
+        fn clear(&self) -> Result<(), AccountError> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeApi;
+
+    impl AccountApi for FakeApi {
+        fn providers(&self) -> Result<HashMap<String, bool>, AccountError> {
+            Ok(HashMap::new())
+        }
+        fn challenge(&self, _: &str, _: &str) -> Result<AccountChallenge, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn login(&self, _: &str, _: &str) -> Result<AccountTokens, AccountError> {
+            Ok(AccountTokens {
+                access_token: token(b'c'),
+                refresh_token: token(b'd'),
+                token_type: "Bearer".into(),
+                expires_in: 900,
+                user: AccountUser {
+                    id: "fixture-user".into(),
+                    display_name: "Fixture".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    email: None,
+                    avatar_url: None,
+                },
+            })
+        }
+        fn refresh(&self, _: &str) -> Result<AccountTokens, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn profile(&self, _: &str) -> Result<AccountProfile, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn rename(&self, _: &str, _: &str) -> Result<(), AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn logout(&self, _: &str, _: bool) -> Result<(), AccountError> {
+            Ok(())
+        }
+        fn delete_account(&self, _: &str) -> Result<(), AccountError> {
+            Ok(())
+        }
+    }
+
+    impl AiSkinApi for FakeApi {
+        fn ai_models(&self, _: &str) -> Result<AiModelCatalog, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn ai_chat(
+            &self,
+            _: &[AiChatMessage<'_>],
+            _: &str,
+            _: &str,
+        ) -> Result<String, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn create_skin_artwork(&self, _: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn get_skin_artwork(&self, _: &str, _: &str) -> Result<AiSkinJob, AccountError> {
+            Err(AccountError::Unavailable)
+        }
+        fn delete_skin_artwork(&self, _: &str, _: &str) -> Result<(), AccountError> {
+            Err(AccountError::Unavailable)
+        }
+    }
+
+    fn token(byte: u8) -> String {
+        std::iter::repeat_n(char::from(byte), 64).collect()
+    }
+
+    fn installed(storage: &MemoryStorage) {
+        *storage.0.lock().unwrap() = Some(SavedAccountSession {
+            tokens: AccountTokens {
+                access_token: token(b'a'),
+                refresh_token: token(b'b'),
+                token_type: "Bearer".into(),
+                expires_in: 900,
+                user: AccountUser {
+                    id: "fixture-user".into(),
+                    display_name: "Fixture".into(),
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    email: None,
+                    avatar_url: None,
+                },
+            },
+            expires_at_unix_ms: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
+                + 60_000,
+        });
+    }
 
     fn response() -> String {
         let designs = [
@@ -798,5 +958,23 @@ mod tests {
         let mut bad = png.clone();
         bad.mime_type = "image/jpeg".into();
         assert!(validate_artwork(&bad).is_err());
+    }
+
+    #[test]
+    fn authenticated_ai_result_is_cancelled_after_same_user_relogin() {
+        let storage = MemoryStorage::default();
+        installed(&storage);
+        let session = Arc::new(BackendAccountSession::new(FakeApi, storage));
+        let service = BackendAiSkinService::new(FakeApi, Arc::clone(&session));
+        let (_, token, generation) = session
+            .credentials_with_generation(None, Some("fixture-user"))
+            .unwrap();
+        let result = service.request_authenticated("fixture-user", generation, token, |_, _| {
+            session.forget().unwrap();
+            // The replacement session has the same user id, which the old check accepted.
+            session.sign_in("synthetic-challenge", "123456").unwrap();
+            Ok::<_, AccountError>("stale result")
+        });
+        assert_eq!(result, Err(AiSkinError::Cancelled));
     }
 }

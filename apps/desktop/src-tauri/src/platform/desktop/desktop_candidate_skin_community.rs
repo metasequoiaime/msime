@@ -70,7 +70,8 @@ fn install_and_rescan(
 ) -> Result<SkinCatalogResponse, CommandError> {
     candidate_community::install(&root, package, replace).map_err(package_error)?;
     // Sync then knows where the package came from: someone else's publication stays out of the user's library.
-    candidate_sync::record_install(&sync_state(&root), &package.package_id, package.id);
+    candidate_sync::record_install(&sync_state(&root), &package.package_id, package.id)
+        .map_err(package_error)?;
     Ok(crate::rescan_skin_catalog(root, runtime))
 }
 

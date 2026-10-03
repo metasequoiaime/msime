@@ -7,7 +7,7 @@ using namespace msime::mac::scheme;
 
 namespace
 {
-// One row per scheme ordinal: the Engine predicates the view does not publish, mirrored from crates/engine/src/types.rs, and the host-only traits. Index 8 is an ordinal no Engine knows. Rows 0-4 are the rules this host applied before the traits existed: the smart punctuation gestures were off for Japanese and Korean (japaneseSchemeActive, koreanSchemeActive), glosses were off for Japanese and on for Korean's Hanja rows (the gloss gates), and every Korean-only branch (MSIMEKoreanComposition) answered for scheme 4 alone. Rows 5-7 follow the `SchemeType` predicates; scheme 6 (Zhuyin) follows the design table until the Engine has the variant.
+// 每个方案序号一行：视图不发布、从 crates/engine/src/types.rs 镜像过来的引擎谓词，以及宿主自己的特性。下标 9 是没有任何引擎认识的序号。第 0-4 行是有这些特性之前本宿主用的规则：智能标点手势在日文和韩文下关闭（japaneseSchemeActive、koreanSchemeActive），释义在日文下关闭、在韩文汉字行上打开（释义开关），所有只给韩文的分支（MSIMEKoreanComposition）只认方案 4。第 5-8 行按 `SchemeType` 谓词填写；藏文（8）的引擎谓词与越南文完全相同，威利转写区分大小写，所以大写锁定下的大写字母也交给引擎组字。
 struct Row
 {
     bool commitsOnBlur, locksCaret, usesChinesePunctuation, hostSmartPunctuation, widensFullWidth, showsGlosses;
@@ -24,6 +24,7 @@ constexpr Row Expected[] = {
     {false, false, true, true, true, false, false, false, false, false, false},   // 5 cantonese
     {true, true, true, false, true, false, false, false, false, true, true},      // 6 zhuyin
     {true, true, false, false, false, false, false, true, true, false, true},     // 7 vietnamese
+    {true, true, false, false, false, false, false, true, true, false, true},     // 8 tibetan
     {false, false, false, false, false, false, false, false, false, false, false} // unknown
 };
 
@@ -39,18 +40,19 @@ constexpr bool Matches(int scheme, const Row &row)
 }
 
 static_assert(Quanpin == 0 && Shuangpin == 1 && Wubi == 2 && Japanese == 3 && Korean == 4 && Cantonese == 5 &&
-              Zhuyin == 6 && Vietnamese == 7);
+              Zhuyin == 6 && Vietnamese == 7 && Tibetan == 8);
 static_assert(Matches(Quanpin, Expected[0]) && Matches(Shuangpin, Expected[1]) && Matches(Wubi, Expected[2]));
 static_assert(Matches(Japanese, Expected[3]) && Matches(Korean, Expected[4]));
-static_assert(Matches(Cantonese, Expected[5]) && Matches(Zhuyin, Expected[6]) && Matches(Vietnamese, Expected[7]));
-// Ordinals no Engine knows answer false everywhere, the way host-api reads an unknown scheme.
-static_assert(Matches(8, Expected[8]) && Matches(-1, Expected[8]) && Matches(255, Expected[8]));
+static_assert(Matches(Cantonese, Expected[5]) && Matches(Zhuyin, Expected[6]) && Matches(Vietnamese, Expected[7]) &&
+              Matches(Tibetan, Expected[8]));
+// 没有引擎认识的序号处处为 false，与 host-api 读未知方案的方式一致。
+static_assert(Matches(9, Expected[9]) && Matches(-1, Expected[9]) && Matches(255, Expected[9]));
 } // namespace
 
 int main()
 {
     // The same table at run time, so a failure names the row in a debugger rather than only failing the build.
-    for (int scheme = 0; scheme <= 7; ++scheme) assert(Matches(scheme, Expected[scheme]));
-    for (int scheme : {8, 99, -1}) assert(Matches(scheme, Expected[8]));
+    for (int scheme = 0; scheme <= 8; ++scheme) assert(Matches(scheme, Expected[scheme]));
+    for (int scheme : {9, 99, -1}) assert(Matches(scheme, Expected[9]));
     return 0;
 }

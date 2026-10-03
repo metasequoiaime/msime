@@ -2835,7 +2835,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (void)refreshFloatingToolbarState {
     if (!_toolbar || !_appearance) return;
     const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
-    // The view's scheme numbers, in the Engine's order: quanpin, shuangpin, wubi, japanese, korean, cantonese, zhuyin, vietnamese.
+    // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = [_view[@"scheme"] integerValue];
     NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : @"quanpin";
@@ -2850,6 +2850,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         @"cantonese": @"粤拼",
         @"zhuyin": @"注音",
         @"vietnamese": @"越南语",
+        @"tibetan": @"藏文",
     };
     [_toolbar updateEnglishInputMode:_appearance.englishMode
              englishCandidateMode:englishCandidateMode
@@ -3003,7 +3004,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     NSString *profile = [NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(_appearance.shuangpinProfile.UTF8String ?: "")];
     if ([profile hasSuffix:@"双拼"] && profile.length > 2) profile = [profile substringToIndex:profile.length - 2];
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
-    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语"];
+    NSArray<NSString *> *schemeTitles = @[@"全拼", [NSString stringWithFormat:@"双拼（%@）", profile], [_appearance.wubiProfile isEqual:@"wubi98"] ? @"五笔 98" : @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文"];
     NSMenu *schemeMenu = [[NSMenu alloc] initWithTitle:@"输入方案"];
     schemeMenu.autoenablesItems = NO;
     // A scheme that cannot run here (Cantonese or Zhuyin without its dictionary) is not offered, and the check is on the scheme actually running, so a preference naming one shows the scheme it fell back to.
@@ -3410,9 +3411,9 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     if (![_session isKindOfClass:MSIMEClientSession.class]) return NO;
     return MSIMEEnableInputMode(identifier, TISCreateInputSourceList, TISEnableInputSource) == noErr;
 }
-// Keeps the selected input mode - 中, 双, 五, 粤, 注, 英, 日, 한 or 越 in the input menu - in step with the Chinese/English state and the scheme actually running. A switch the system reported is already recorded as shown, so this does not echo it back.
+// 让输入菜单里选中的模式（中、双、五、粤、注、英、日、한、越或藏）与中英文状态和实际运行的方案保持一致。系统报告过的切换已经记为当前显示的模式，所以这里不会把它回声回去。
 //
-// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音或越南文时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这三个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
+// 所有方案切换都会走到这里——不论来自输入菜单、两个设置窗口、Tauri 设置页还是用户选中的模式——所以按需模式也在这里打开：实际运行的方案从上次同步的方案（lastSyncedInputScheme，跨启动保留）变成粤拼、注音、越南文或藏文时，先启用对应模式再选中它。这里看的是实际生效的方案，所以词库装好之前就选了的方案，在词库到位时才算选中。方案和上次同步的一样时不启用任何模式，用户从输入菜单移除的模式不会在每次启动时被加回来。第一次同步（还没有 lastSyncedInputScheme）落在这四个方案上同样启用：这个持久记录是后来才加的，加上它之前就在用粤拼的人，否则要先切走再切回来才能看到「粤」。模式没能打开时不记录这次切换，下一次同步再试。macOS 27 不允许进程启用键盘输入模式，`TISEnableInputSource` 在那里返回 noErr 而状态不变，所以这里在那个版本上打不开任何模式，只是照常记录；用户要在系统设置里自己添加，设置页的「菜单栏入口」会说明去哪里加。
 - (void)syncSystemInputModeForClient:(id)client {
     NSString *scheme = MSIMEEffectiveInputScheme(_appearance.inputScheme, _appearance.lastChineseScheme, [self inputSchemeHostOptions]);
     NSString *synced = _appearance.lastSyncedInputScheme;

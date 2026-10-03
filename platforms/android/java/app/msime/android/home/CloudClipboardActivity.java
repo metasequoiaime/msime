@@ -21,6 +21,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 import app.msime.android.BackendAccount;
 import app.msime.android.clipboard.CloudClipboardTextPolicy;
+import app.msime.android.CloudClipboardPanelPolicy;
 import app.msime.android.R;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -34,6 +35,7 @@ public final class CloudClipboardActivity extends AppCompatActivity {
     private LinearLayout items;
     private TextView status;
     private boolean busy;
+    private boolean loaded;
 
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
@@ -54,7 +56,7 @@ public final class CloudClipboardActivity extends AppCompatActivity {
         items = findViewById(R.id.cloud_clipboard_items);
         status = findViewById(R.id.cloud_clipboard_status);
         enabled.setOnCheckedChangeListener((button, checked) -> {
-            if (!button.isPressed() || busy) return;
+            if (!button.isPressed() || !CloudClipboardPanelPolicy.canMutate(loaded, busy)) return;
             run(() -> { new BackendAccount(this).setClipboardEnabled(checked); return null; });
         });
         findViewById(R.id.cloud_clipboard_refresh).setOnClickListener(ignored -> reload());
@@ -64,11 +66,13 @@ public final class CloudClipboardActivity extends AppCompatActivity {
 
     private void reload() {
         if (busy) return;
+        invalidateLoadedState();
         String query = search == null || search.getText() == null ? "" : search.getText().toString();
         run(() -> new BackendAccount(this).clipboard(query), this::render);
     }
 
     private void add() {
+        if (!CloudClipboardPanelPolicy.canMutate(loaded, busy)) return;
         String text = draft.getText() == null ? "" : draft.getText().toString();
         if (!CloudClipboardTextPolicy.valid(text)) {
             status.setText("请输入有效且不超过 4,000 个 UTF-16 单元的内容");
@@ -81,6 +85,9 @@ public final class CloudClipboardActivity extends AppCompatActivity {
     }
 
     private void render(BackendAccount.ClipboardPage page) {
+        loaded = true;
+        enabled.setEnabled(true);
+        draft.setEnabled(true);
         enabled.setChecked(page.enabled());
         items.removeAllViews();
         if (page.items().isEmpty()) {
@@ -128,6 +135,7 @@ public final class CloudClipboardActivity extends AppCompatActivity {
                 status.setText("已复制到系统剪贴板");
             });
             row.setOnLongClickListener(ignored -> {
+                if (!CloudClipboardPanelPolicy.canMutate(loaded, busy)) return true;
                 run(() -> { new BackendAccount(this).deleteClipboard(item.id()); return null; }, ignored2 -> reload());
                 return true;
             });
@@ -140,9 +148,12 @@ public final class CloudClipboardActivity extends AppCompatActivity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             gap.topMargin = dp(12);
             clear.setLayoutParams(gap);
-            clear.setOnClickListener(ignored -> run(
+            clear.setOnClickListener(ignored -> {
+                if (!CloudClipboardPanelPolicy.canMutate(loaded, busy)) return;
+                run(
                 () -> { new BackendAccount(this).deleteClipboard(null); return null; },
-                ignored2 -> reload()));
+                ignored2 -> reload());
+            });
             items.addView(clear);
         }
         status.setText("最多保存 50 条；点按复制，长按删除");
@@ -181,10 +192,22 @@ public final class CloudClipboardActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
                     busy = false;
+                    invalidateLoadedState();
                     status.setText("连接未完成，请登录后重试");
                 });
             }
         });
+    }
+
+    /** Drop rows and controls whose account state was not confirmed by the latest fetch. */
+    private void invalidateLoadedState() {
+        loaded = false;
+        if (enabled != null) {
+            enabled.setEnabled(false);
+            enabled.setChecked(false);
+        }
+        if (draft != null) draft.setEnabled(false);
+        if (items != null) items.removeAllViews();
     }
 
     @Override protected void onDestroy() {

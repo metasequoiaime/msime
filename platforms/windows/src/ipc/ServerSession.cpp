@@ -80,7 +80,7 @@ void ServerSession::set_input_enabled(uint64_t epoch, bool enabled) {
   }
 }
 nlohmann::json ServerSession::cancel_again(nlohmann::json result) {
-  // With a Korean Hanja or Zhuyin list open MSIME_CANCEL only closes the list and the composition stays (msime_client.h), and the first one on a Vietnamese word only shows its raw keys again; a second one discards it.
+  // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次只把原文重新显示出来；第二次才丢弃它。
   if (result.at("commit").is_null() &&
       scheme::AlwaysInlinePreedit(static_cast<int>(result.at("view").value("scheme", 0u))) &&
       !result.at("view").at("editing_text").get<std::string>().empty())
@@ -171,7 +171,7 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   // more candidates would have been worse, committing candidate 17 for a
   // letter press. Typing shuangpin through this path could not work at all,
   // and nothing noticed because these suites had never been run.
-  // Korean and Zhuyin have candidates only while their list is open, and a digit then chooses from it; Vietnamese has none. Otherwise a digit is text, which the Engine spells or lets end the composition when it receives it as a character.
+  // 韩文和注音只在列表打开时有候选，这时数字从中选择；越南文和藏文没有候选。其他情况下数字是文字，引擎作为字符收到时要么拼写它，要么让它结束组字。
   const bool selection_digit =
       digit_key >= '1' && digit_key <= '9' &&
       !(current.is_object() &&
@@ -256,7 +256,7 @@ ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
   const auto current = view();
   if (current.at("editing_text").get<std::string>().empty())
     return std::nullopt;
-  // Japanese, Korean, Zhuyin and Vietnamese are schemes, not local modes; no local mode is ever named after them. They keep '-' and '=' as text rather than paging keys: Zhuyin's list pages with Page Up/Down and the arrows (KoreanHanjaKey.h).
+  // 日文、韩文、注音、越南文和藏文是方案，不是本地模式，没有本地模式以它们命名。它们把 '-' 和 '=' 当作文字而不是翻页键：注音列表用 Page Up/Down 和方向键翻页（KoreanHanjaKey.h），藏文的 '-' 是威利拼写符号。
   const int scheme = static_cast<int>(current.value("scheme", 0u));
   action = navigation_action(packet, bindings,
                              current.at("local_mode").get<std::string>() == "unicode",
@@ -577,7 +577,7 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
   if (!input_enabled_)
     return std::nullopt;
   const auto current = view();
-  // Korean's '-', '=', '[' and ']' are punctuation, with or without a Hanja list open: the Engine closes the list and writes the Hangul with the mark, as on every other host, rather than taking an edge character of a single Hanja. Zhuyin and Vietnamese compose in the TIP's own host session the same way, so neither takes an edge character either.
+  // 不论汉字列表是否打开，韩文的 '-'、'='、'[' 和 ']' 都是标点：引擎关闭列表，把韩文连同标点写出，和其他宿主一样，而不是取单个汉字的首尾字。注音、越南文和藏文同样在 TIP 自己的宿主会话里组字，所以也不取首尾字。
   // A key the Engine spells in its current state (V mode's '-') is input, as `edit_kind` routes it; taking it here first would commit the highlighted row instead.
   if (current.at("local_mode") == "unknown" ||
       current.at("editing_text").get<std::string>().empty() ||

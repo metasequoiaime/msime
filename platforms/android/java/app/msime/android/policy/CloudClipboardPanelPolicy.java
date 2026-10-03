@@ -82,6 +82,11 @@ public final class CloudClipboardPanelPolicy {
             && CloudClipboardTextPolicy.valid(text);
     }
 
+    /** A failed reload invalidates the page before any mutating action may use its old rows. */
+    public static boolean canMutate(boolean loaded, boolean busy) {
+        return loaded && !busy;
+    }
+
     /** The status line drawn above the cloud list. */
     public static String message(Status status, int itemCount) {
         if (status == null) throw new IllegalArgumentException("No cloud clipboard status");

@@ -393,5 +393,13 @@ assert ibus_key.index(ibus_convert) < ibus_key.index("commits_on_blur && has_com
 assert "command(openedList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcitx_key
 ibus_return = ibus_key[ibus_key.index("case IBUS_Return:"):]
 assert ibus_return.index("if (opened_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
+# 两个宿主都提供藏文（Engine 方案 8），面板符号为「藏」。藏文和越南文一样离开组字时写出组字内容：IBus 的导航键必须发 MSIME_FINISH_COMPOSITION，若发 MSIME_COMMIT_CANDIDATE，Engine 会把它当作空格，多上屏一个音节点。
+assert '{&scheme_tibetan_action_, "msime-scheme-tibetan"}' in source
+assert 'FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};' in source
+assert 'case 8: return "输入方案：藏文";' in source
+assert 'case msime::linux_host::InputModeIndicator::Tibetan: return "藏";' in source
+assert '"Scheme/Tibetan"' in ibus_source
+assert 'case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;' in ibus_source
+assert "korean_hanja_list || zhuyin_scheme || vietnamese_scheme || tibetan_scheme" in ibus_key
 
 print("Fcitx5 addon metadata passed")

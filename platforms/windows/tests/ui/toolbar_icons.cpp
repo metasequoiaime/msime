@@ -120,9 +120,11 @@ int main() {
       capped_korean.mode = scheme::InputMode::Korean;
       require(toolbar_icon(kToolbarLanguage, true, capped_korean).codepoint == 0xE7B5);
 
-      // Cantonese, Zhuyin and Vietnamese draw their character as text the same way, behind Caps Lock and the English toggle.
-      const std::pair<scheme::InputMode, const wchar_t *> drawn[] = {
-          {scheme::InputMode::Cantonese, L"粤"}, {scheme::InputMode::Zhuyin, L"注"}, {scheme::InputMode::Vietnamese, L"越"}};
+      // 粤拼、注音、越南文和藏文同样把各自的字当文字画出来，排在 Caps Lock 和英文切换之后。
+      const std::pair<scheme::InputMode, const wchar_t *> drawn[] = {{scheme::InputMode::Cantonese, L"粤"},
+                                                                     {scheme::InputMode::Zhuyin, L"注"},
+                                                                     {scheme::InputMode::Vietnamese, L"越"},
+                                                                     {scheme::InputMode::Tibetan, L"藏"}};
       for (const auto &[mode, text] : drawn) {
         ToolbarLanguageState language;
         language.mode = mode;

@@ -31,6 +31,7 @@ export const macosInputModeEntries: readonly ModeEntry[] = [
   { mode: "Japanese", name: "水杉输入法 · 日", scheme: "japanese", language: "日语" },
   { mode: "Korean", name: "水杉输入法 · 韩", scheme: "korean", language: "韩语" },
   { mode: "Vietnamese", name: "水杉输入法 · 越", scheme: "vietnamese", language: "越南语" },
+  { mode: "Tibetan", name: "水杉输入法 · 藏", scheme: "tibetan", language: "藏语" },
   { mode: "Roman", name: "水杉输入法 · 英", scheme: null, language: "简体中文" },
 ];
 

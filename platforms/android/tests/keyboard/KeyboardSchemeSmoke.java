@@ -22,14 +22,14 @@ public final class KeyboardSchemeSmoke {
     public static void main(String[] args) throws Exception {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
             "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "韩语 26 键",
-            "粤拼 26 键", "大千注音", "越南语 26 键")));
+            "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键")));
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::preferenceId).toList().equals(List.of(
             "quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi",
             "japanese_nine_key", "japanese", "handwriting", "korean",
-            "cantonese", "zhuyin", "vietnamese")));
+            "cantonese", "zhuyin", "vietnamese", "tibetan")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
             List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ9", "あ26", "写手", "한26",
-                "粤26", "注大千", "越26")));
+                "粤26", "注大千", "越26", "藏26")));
         // 五笔只有一个方案入口，标题与角标跟随 `wubi_profile`；缺省和未知值按 86 版，其它方案不受影响。
         check(KeyboardScheme.normalizedWubiProfile("wubi98").equals("wubi98"));
         check(KeyboardScheme.normalizedWubiProfile("wubi86").equals("wubi86"));
@@ -99,30 +99,41 @@ public final class KeyboardSchemeSmoke {
         mapping(KeyboardScheme.ZHUYIN, "wubi", "shoudao", "zhuyin", "zhuyin", "shoudao");
         mapping(KeyboardScheme.VIETNAMESE, "wubi", "shoudao", "vietnamese", "wubi", "shoudao");
         mapping(KeyboardScheme.VIETNAMESE, "zhuyin", "xiaohe", "vietnamese", "zhuyin", "xiaohe");
+        // 藏文和越南语一样不是中文方案，保留要切回的中文方案；记着的不是中文方案时回到全拼。
+        mapping(KeyboardScheme.TIBETAN, "wubi", "shoudao", "tibetan", "wubi", "shoudao");
+        mapping(KeyboardScheme.TIBETAN, "cantonese", "xiaohe", "tibetan", "cantonese", "xiaohe");
+        mapping(KeyboardScheme.TIBETAN, "tibetan", "xiaohe", "tibetan", "quanpin", "xiaohe");
+        mapping(KeyboardScheme.KOREAN, "tibetan", "xiaohe", "korean", "quanpin", "xiaohe");
         mapping(KeyboardScheme.JAPANESE, "cantonese", "xiaohe", "japanese", "cantonese", "xiaohe");
         check(KeyboardScheme.fromPreferences("cantonese", "xiaohe", "twenty_six_key") == KeyboardScheme.CANTONESE);
         check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "nine_key") == KeyboardScheme.ZHUYIN);
         check(KeyboardScheme.fromPreferences("vietnamese", "xiaohe", "twenty_six_key") == KeyboardScheme.VIETNAMESE);
+        check(KeyboardScheme.fromPreferences("tibetan", "xiaohe", "twenty_six_key") == KeyboardScheme.TIBETAN);
+        // 藏文只有 26 键，残留的九键或手写取值不会落到别的方案。
+        check(KeyboardScheme.fromPreferences("tibetan", "xiaohe", "nine_key") == KeyboardScheme.TIBETAN);
+        check(KeyboardScheme.fromPreferenceId("tibetan") == KeyboardScheme.TIBETAN);
         check(KeyboardScheme.fromPreferenceId("zhuyin") == KeyboardScheme.ZHUYIN);
         // Without a stored list the three newest schemes stay off; a stored list turns them on in the fixed order.
         List<KeyboardScheme> defaults = KeyboardScheme.enabledFromPreferenceIds(null);
         check(defaults.size() == 11 && !defaults.contains(KeyboardScheme.CANTONESE)
             && !defaults.contains(KeyboardScheme.ZHUYIN) && !defaults.contains(KeyboardScheme.VIETNAMESE)
-            && defaults.contains(KeyboardScheme.KOREAN));
+            && !defaults.contains(KeyboardScheme.TIBETAN) && defaults.contains(KeyboardScheme.KOREAN));
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
-            KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE)));
+            KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
         List<KeyboardScheme> languages = KeyboardScheme.enabledFromPreferenceIds(List.of(
-            "vietnamese", "zhuyin", "cantonese", "quanpin"));
+            "tibetan", "vietnamese", "zhuyin", "cantonese", "quanpin"));
         check(languages.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.CANTONESE,
-            KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE)));
+            KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
         // A scheme is offered only when its dictionary is in the recorded directory; Vietnamese needs none.
         check(KeyboardScheme.CANTONESE.languageDictionary().equals("cantonese.db"));
         check(KeyboardScheme.ZHUYIN.languageDictionary().equals("zhuyin.db"));
         check(KeyboardScheme.VIETNAMESE.languageDictionary() == null && KeyboardScheme.QUANPIN.languageDictionary() == null);
         check(KeyboardScheme.VIETNAMESE.installed("") && KeyboardScheme.KOREAN.installed(null));
+        // 藏文同样不需要词库，没有记录词库目录时也提供。
+        check(KeyboardScheme.TIBETAN.languageDictionary() == null && KeyboardScheme.TIBETAN.installed(null));
         check(!KeyboardScheme.CANTONESE.installed("") && !KeyboardScheme.ZHUYIN.installed(null));
         check(KeyboardScheme.installedOf(languages, "").equals(List.of(
-            KeyboardScheme.QUANPIN, KeyboardScheme.VIETNAMESE)));
+            KeyboardScheme.QUANPIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.ZHUYIN), "").equals(List.of(KeyboardScheme.QUANPIN)));
         Path directory = Files.createTempDirectory("msime-language-dictionaries");
         try {
@@ -131,7 +142,7 @@ public final class KeyboardSchemeSmoke {
             check(KeyboardScheme.ZHUYIN.installed(recorded) && !KeyboardScheme.CANTONESE.installed(recorded));
             check(!KeyboardScheme.ZHUYIN.installed("relative/" + directory.getFileName()));
             check(KeyboardScheme.installedOf(languages, recorded).equals(List.of(
-                KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE)));
+                KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
             check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN, "cantonese",
                 KeyboardScheme.installedOf(languages, recorded)) == KeyboardScheme.QUANPIN);
         } finally {

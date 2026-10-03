@@ -15,7 +15,8 @@ export type TouchKeyboardScheme =
   | "korean"
   | "cantonese"
   | "zhuyin"
-  | "vietnamese";
+  | "vietnamese"
+  | "tibetan";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -42,6 +43,7 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "cantonese":
     case "zhuyin":
     case "vietnamese":
+    case "tibetan":
       return scheme;
   }
 }
@@ -70,13 +72,15 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       cantonese: "粤拼 26 键",
       zhuyin: "大千注音",
       vietnamese: "越南语 26 键",
+      tibetan: "藏文 26 键",
     }[selected];
   }
-  // Korean, Cantonese, Zhuyin and Vietnamese each have one keyboard, whatever layout the document carries.
+  // 韩语、粤拼、注音、越南语和藏文各只有一个键盘，不管文档里记的是哪种布局。
   if (preferences.scheme === "korean") return "韩语 26 键";
   if (preferences.scheme === "cantonese") return "粤拼 26 键";
   if (preferences.scheme === "zhuyin") return "大千注音";
   if (preferences.scheme === "vietnamese") return "越南语 26 键";
+  if (preferences.scheme === "tibetan") return "藏文 26 键";
   if (preferences.touch_keyboard_layout === "handwriting") return "手写";
   if (preferences.touch_keyboard_layout === "nine_key")
     return preferences.scheme === "japanese" ? "日语 9 键" : "全拼 9 键";
@@ -101,12 +105,17 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["cantonese", "粤拼 26 键"],
   ["zhuyin", "大千注音"],
   ["vietnamese", "越南语 26 键"],
+  ["tibetan", "藏文 26 键"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
-/** The schemes a document without a stored list shows. Cantonese, Zhuyin and Vietnamese are opt-in so that adding them changes no existing keyboard. Mirrors `TouchKeyboardScheme::DEFAULT_ENABLED` in client-core. */
+/** 没有存过列表的文档显示的方案。粤拼、注音、越南语和藏文需要用户自己打开，这样新增它们不会改变已有的键盘。对应 client-core 的 `TouchKeyboardScheme::DEFAULT_ENABLED`。 */
 export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboardSchemes.filter(
-  (scheme) => scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese",
+  (scheme) =>
+    scheme !== "cantonese" &&
+    scheme !== "zhuyin" &&
+    scheme !== "vietnamese" &&
+    scheme !== "tibetan",
 );
 
 export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyboardScheme {
@@ -114,9 +123,12 @@ export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyb
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
   const scheme = preferences.scheme;
-  // Cantonese, Zhuyin and Vietnamese have their own touch keyboard; while it is not enabled they show the remembered Chinese scheme's.
+  // 粤拼、注音、越南语和藏文有各自的触屏键盘；键盘没打开时显示记住的中文方案的键盘。
   if (
-    (scheme === "cantonese" || scheme === "zhuyin" || scheme === "vietnamese") &&
+    (scheme === "cantonese" ||
+      scheme === "zhuyin" ||
+      scheme === "vietnamese" ||
+      scheme === "tibetan") &&
     enabled.includes(scheme)
   )
     return scheme;
@@ -128,7 +140,7 @@ export function inferredTouchKeyboardScheme(preferences: Preferences): TouchKeyb
   return enabled.includes(inferred) ? inferred : (enabled[0] ?? "quanpin");
 }
 
-/** The touch scheme for a document scheme. Cantonese, Zhuyin and Vietnamese map to the remembered Chinese scheme's touch scheme, or 全拼 when that has none either, for documents that have not enabled their own touch keyboard. */
+/** 文档方案对应的触屏方案。对没打开自己触屏键盘的文档，粤拼、注音、越南语和藏文对应记住的中文方案的触屏方案，那个也没有时用全拼。 */
 function touchSchemeOf(
   preferences: Preferences,
   scheme: Preferences["scheme"],
@@ -143,7 +155,8 @@ function touchSchemeOf(
       return scheme;
     case "cantonese":
     case "zhuyin":
-    case "vietnamese": {
+    case "vietnamese":
+    case "tibetan": {
       const remembered = preferences.last_chinese_scheme;
       return remembered === "quanpin" || remembered === "shuangpin" || remembered === "wubi"
         ? touchSchemeOf(preferences, remembered)
@@ -152,7 +165,7 @@ function touchSchemeOf(
   }
 }
 
-/** The Chinese scheme a Japanese, Korean or Vietnamese selection returns to; switching among those keeps the one already remembered. */
+/** 选日文、韩文、越南语或藏文后要回到的中文方案；在这几个之间切换时保留已经记住的那个。 */
 function rememberedChineseScheme(preferences: Preferences): Preferences["last_chinese_scheme"] {
   return isChineseScheme(preferences.scheme) ? preferences.scheme : preferences.last_chinese_scheme;
 }
@@ -190,10 +203,10 @@ export function selectTouchKeyboardScheme(
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,
     };
-  if (selected === "vietnamese")
+  if (selected === "vietnamese" || selected === "tibetan")
     return {
       ...preferences,
-      scheme: "vietnamese",
+      scheme: selected,
       last_chinese_scheme: rememberedChineseScheme(preferences),
       touch_keyboard_layout: "twenty_six_key",
       touch_keyboard_schemes,

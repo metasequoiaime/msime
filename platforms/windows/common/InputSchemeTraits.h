@@ -15,17 +15,18 @@ constexpr int Korean = 4;
 constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
+constexpr int Tibetan = 8;
 
 // ---- Host-only traits ----
 
 // The letter the Engine receives takes its case from Shift alone, so Caps Lock does not change it (Dubeolsik binds jamo by case; see korean_letter in tsf/HostKoreanKey.h).
 constexpr bool FoldsLetterCase(int scheme) { return scheme == Korean; }
 
-// A Caps Lock uppercase letter that would start a composition is not handed back to the application: the scheme composes it (Korean folds it, Vietnamese keeps it uppercase).
-constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// Caps Lock 打出的大写字母会开始组字时不交还给应用，由方案自己组字：韩文把它折成小写，越南文保留大写，藏文的威利转写区分大小写（`T` `D` `N` `Sh` `A` `I` `U` `M` `H` 都是不同的字母）。
+constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
-// Letters build the written text directly (a Hangul syllable, a Vietnamese word) rather than a reading converted through candidates. The TIP writes that text from its own host session (ReplyPath::SyllableCommit), there is no word to take a character from, and every key outside the composition ends it.
-constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// 字母直接组成要写的文字（一个韩文音节、一个越南文词、一串藏文音节），而不是经候选转换的读音。TIP 从自己的宿主会话写出这段文字（ReplyPath::SyllableCommit），没有词可以取字，组字之外的任何按键都会结束它。
+constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
 // Candidates appear only in a list the user opens (MSIME_OPEN_CANDIDATE_LIST: the Korean Hanja list, the Zhuyin list), and that list's keys follow common/KoreanHanjaKey.h rather than the Chinese navigation bindings.
 constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || scheme == Zhuyin; }
@@ -33,8 +34,8 @@ constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || schem
 // The composition is always drawn inline whatever the preedit display preference says: until a list is opened there is no candidate window to show it in, and hidden it would be text the user cannot see being written.
 constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme) || OpensCandidateList(scheme); }
 
-// Escape first shows the keys typed for the composing word again and keeps composing, and only an Escape with those keys already showing discards it (`restore_vietnamese_raw` in crates/engine/src/ime/mod.rs). The TIP and the Server each send one MSIME_CANCEL for the key, so their sessions take the same step.
-constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese; }
+// 第一次 Esc 把正在组的词重新显示为打过的按键并继续组字，只有按键已经显示出来时的 Esc 才丢弃它（crates/engine/src/ime/mod.rs 的 `restore_vietnamese_raw` 和 `restore_tibetan_raw`）。TIP 和 Server 各为这个键发一次 MSIME_CANCEL，两边的会话走同一步。
+constexpr bool CancelRestoresRaw(int scheme) { return scheme == Vietnamese || scheme == Tibetan; }
 
 
 // A choice from the list fixes one reading and keeps the conversion composing in the TIP's own host session, which a row picked or a page turned by the mouse in the Server's candidate window would leave behind, so the list is driven from the keyboard only. A Korean Hanja click ends the syllable on both sides and stays clickable.
@@ -55,12 +56,18 @@ constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin ||
 constexpr bool OutputsTraditionalNatively(int scheme) { return scheme == Cantonese || scheme == Zhuyin; }
 
 // `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
-constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+constexpr bool CommitsOnBlur(int scheme)
+{
+    return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan;
+}
 
 // `locks_caret`: the caret stays at the end of the composition, so there are no segments for Ctrl+Backspace and Ctrl+Left/Right to edit.
-constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+constexpr bool LocksCaret(int scheme)
+{
+    return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan;
+}
 
-// `uses_chinese_punctuation`: punctuation goes through the Chinese table. Korean and Vietnamese write half-width ASCII marks whatever the Chinese punctuation switches say.
+// `uses_chinese_punctuation`: 标点走中文标点表。韩文、越南文和藏文不论中文标点开关怎样都写半角 ASCII 标点。
 constexpr bool UsesChinesePunctuation(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||
@@ -94,15 +101,17 @@ enum class InputMode : wchar_t
     Cantonese = L'3',
     Zhuyin = L'4',
     Vietnamese = L'5',
+    Tibetan = L'6',
 };
 
-// The language a mode writes. Japanese, Korean and Vietnamese are separate input languages; Cantonese and Zhuyin are Chinese schemes, so switching to them updates `last_chinese_scheme` like any other Chinese scheme.
+// 一个模式写的语言。日文、韩文、越南文和藏文各是独立的输入语言；粤拼和注音是中文方案，切到它们时和其他中文方案一样更新 `last_chinese_scheme`。
 enum class InputLanguage
 {
     Chinese,
     Japanese,
     Korean,
     Vietnamese,
+    Tibetan,
 };
 
 constexpr InputLanguage input_language(InputMode mode)
@@ -115,6 +124,8 @@ constexpr InputLanguage input_language(InputMode mode)
         return InputLanguage::Korean;
     case InputMode::Vietnamese:
         return InputLanguage::Vietnamese;
+    case InputMode::Tibetan:
+        return InputLanguage::Tibetan;
     case InputMode::Chinese:
     case InputMode::Cantonese:
     case InputMode::Zhuyin:
@@ -138,6 +149,8 @@ constexpr InputMode input_mode(int scheme)
         return InputMode::Zhuyin;
     case Vietnamese:
         return InputMode::Vietnamese;
+    case Tibetan:
+        return InputMode::Tibetan;
     default:
         return InputMode::Chinese;
     }
@@ -162,6 +175,8 @@ constexpr int scheme_from_name(std::string_view name)
         return Zhuyin;
     if (name == "vietnamese")
         return Vietnamese;
+    if (name == "tibetan")
+        return Tibetan;
     return -1;
 }
 
@@ -186,6 +201,8 @@ constexpr std::string_view scheme_name(int scheme)
         return "zhuyin";
     case Vietnamese:
         return "vietnamese";
+    case Tibetan:
+        return "tibetan";
     default:
         return {};
     }
@@ -205,7 +222,7 @@ constexpr bool scheme_installed(int scheme, LanguageDictionaryPresence installed
         return installed.cantonese;
     if (scheme == Zhuyin)
         return installed.zhuyin;
-    return scheme >= Quanpin && scheme <= Vietnamese;
+    return scheme >= Quanpin && scheme <= Tibetan;
 }
 
 // The scheme the Engine actually runs for a configured `scheme` and `last_chinese_scheme`, as host-api's `effective_scheme` decides it: a scheme that cannot run falls back to the last Chinese scheme when that one can, and to quanpin otherwise. The TIP has to key the scheme that runs, not the one the user picked before its dictionary was installed.
@@ -242,6 +259,8 @@ constexpr InputMode input_mode_from_code(wchar_t code)
         return InputMode::Zhuyin;
     case static_cast<wchar_t>(InputMode::Vietnamese):
         return InputMode::Vietnamese;
+    case static_cast<wchar_t>(InputMode::Tibetan):
+        return InputMode::Tibetan;
     default:
         return InputMode::Chinese;
     }
@@ -270,6 +289,8 @@ constexpr int mode_scheme(InputMode mode)
         return Zhuyin;
     case InputMode::Vietnamese:
         return Vietnamese;
+    case InputMode::Tibetan:
+        return Tibetan;
     case InputMode::Chinese:
         break;
     }

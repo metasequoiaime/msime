@@ -845,6 +845,7 @@ set(MSIME_NOTICE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/client-core/data/opencc/LICENSE")
 # `copyright` is the name Debian policy requires for the package license.
 set(MSIME_NOTICE_NAMES
@@ -858,6 +859,7 @@ set(MSIME_NOTICE_NAMES
   libhangul-hanja-BSD-3-Clause.txt
   rime-cantonese-CC-BY-4.0.txt
   libchewing-data-LGPL-2.1.txt
+  ewts-MIT.txt
   OpenCC-Apache-2.0.txt)
 # The handwriting model's LGPL-2.1 license travels with the model, so it is a notice only when the model is installed.
 if(MSIME_HANDWRITING_MODEL_DIR)

@@ -577,6 +577,7 @@ public:
     case msime::linux_host::InputModeIndicator::Cantonese: return "粤";
     case msime::linux_host::InputModeIndicator::Zhuyin: return "注";
     case msime::linux_host::InputModeIndicator::Vietnamese: return "越";
+    case msime::linux_host::InputModeIndicator::Tibetan: return "藏";
     case msime::linux_host::InputModeIndicator::English: return "英";
     case msime::linux_host::InputModeIndicator::CapsLock: return "⇪";
     }
@@ -620,8 +621,8 @@ public:
     return true;
   }
   // The schemes in the order of the view's scheme index, which is also the order the status action steps through them.
-  static constexpr std::array<const char *, 8> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean",
-                                                           "cantonese", "zhuyin", "vietnamese"};
+  static constexpr std::array<const char *, 9> kSchemes = {"quanpin", "shuangpin", "wubi", "japanese", "korean",
+                                                           "cantonese", "zhuyin", "vietnamese", "tibetan"};
   static_assert(kSchemes.size() == msime::linux_host::kInputSchemeIds.size());
   // Whether a scheme can run with the runtime options this context last read: Cantonese and Zhuyin need their language dictionary (core/InputSchemes.h).
   bool schemeAvailable(const char *id) const {
@@ -653,7 +654,7 @@ public:
     if (!session_ || restricted() || privateInput() || !schemeAvailable(next)) return false;
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
-    // The shared settings page and the IBus host both offer "中文" as a way back to the scheme the user last typed Chinese with. Nothing records it here, so switching to Japanese, Korean or Vietnamese from the status area left that choice with nothing but the quanpin fallback to return to.
+    // 共享设置页和 IBus 宿主都提供「中文」入口，回到用户最后用来打中文的方案。这里如果不记录它，从状态区切到日文、韩文、越南文或藏文后，这个选择就只剩全拼这个兜底可回。
     if (msime::linux_host::scheme::IsChinese(msime::linux_host::scheme_number(next)))
       saveStringPreference("last_chinese_scheme", next);
     saveStringPreference("scheme", next);
@@ -2844,21 +2845,22 @@ public:
   int typingScheme() const {
     return view_.value("dedicated_english", false) ? -1 : msime::linux_host::view_scheme(view_);
   }
-  // A Korean syllable, Zhuyin conversion or Vietnamese word is text the user already wrote: a key that leaves it writes it out rather than discarding it (`commits_on_blur`), and the caret stays at its end, so there are no segments to edit (`locks_caret`).
+  // 韩文音节、注音转换、越南文单词或藏文音节串是用户已经写下的文字：离开它的按键把它写出去而不是丢弃（`commits_on_blur`），光标停在末尾，所以没有可编辑的分段（`locks_caret`）。
   bool commitsOnBlur() const {
     const int scheme = typingScheme();
     return scheme >= 0 && msime::linux_host::scheme::CommitsOnBlur(scheme);
   }
-  // Korean and Vietnamese write half-width ASCII marks and are never widened (`widens_full_width`).
+  // 韩文、越南文和藏文写半角 ASCII 标点，从不变成全角（`widens_full_width`）。
   bool narrowScheme() const {
     const int scheme = typingScheme();
-    return scheme == msime::linux_host::scheme::Korean || scheme == msime::linux_host::scheme::Vietnamese;
+    return scheme == msime::linux_host::scheme::Korean || scheme == msime::linux_host::scheme::Vietnamese ||
+           scheme == msime::linux_host::scheme::Tibetan;
   }
-  // Korean, Zhuyin and Vietnamese take their punctuation from the Engine without the host's paired and smart helpers (`host_smart_punctuation`). Japanese keeps them, as it always has on this host.
+  // 韩文、注音、越南文和藏文的标点取自 Engine，不用宿主的成对标点和智能标点辅助（`host_smart_punctuation`）。日文保留这些辅助，本宿主一直如此。
   bool withoutHostPunctuation() const {
     const int scheme = typingScheme();
     return scheme == msime::linux_host::scheme::Korean || scheme == msime::linux_host::scheme::Zhuyin ||
-           scheme == msime::linux_host::scheme::Vietnamese;
+           scheme == msime::linux_host::scheme::Vietnamese || scheme == msime::linux_host::scheme::Tibetan;
   }
   void forgetSmartPunctuationRepeat() {
     last_smart_punctuation_ = 0;
@@ -2869,7 +2871,7 @@ public:
   // Chinese one after all. Returns true when it replaced the mark, in which case
   // the key is consumed and never reaches Engine.
   bool repeatSmartPunctuationToChinese(char ascii) {
-    // Korean and Vietnamese punctuation is always ASCII, so ".." stays ".."; Zhuyin takes its marks from the Engine alone.
+    // 韩文、越南文和藏文的标点总是 ASCII，所以 ".." 仍是 ".."；注音的标点只取自 Engine。
     if (withoutHostPunctuation() || !chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
         last_smart_punctuation_ != ascii ||
         last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
@@ -3146,7 +3148,7 @@ public:
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     return apply(msime_client_reset_cache(session_));
   }
-  // The traditional-output conversion is for simplified Chinese text only (`script_conversion_applies`): Japanese (kana and the kanji the Engine chose) and Korean (Hangul and the Hanja the user picks) pass through as they are, Cantonese and Zhuyin are written in traditional characters already, and Vietnamese is not Chinese. The candidate rows, the commit and the status action all ask this one gate, so a row never shows a character other than the one it commits (s2t would draw the Hanja 后 as 後).
+  // 繁体输出转换只用于简体中文（`script_conversion_applies`）：日文（假名和 Engine 选的汉字）与韩文（谚文和用户选的汉字）原样通过，粤拼和注音本来就写繁体字，越南文和藏文不是中文。候选行、上屏和状态区动作都问这同一道关口，所以候选行显示的字永远就是它上屏的字（s2t 会把汉字 后 画成 後）。
   bool scriptConversionApplies() const {
     return msime::linux_host::scheme::ScriptConversionApplies(view_.value("scheme", 0));
   }
@@ -3743,6 +3745,7 @@ public:
     case 5: return "输入方案：粤拼";
     case 6: return "输入方案：注音";
     case 7: return "输入方案：越南文";
+    case 8: return "输入方案：藏文";
     default: return "输入方案：全拼";
     }
   }
@@ -5464,6 +5467,7 @@ public:
              {&scheme_cantonese_action_, "msime-scheme-cantonese"},
              {&scheme_zhuyin_action_, "msime-scheme-zhuyin"},
              {&scheme_vietnamese_action_, "msime-scheme-vietnamese"},
+             {&scheme_tibetan_action_, "msime-scheme-tibetan"},
              {&input_group_action_, "msime-group-input"},
              {&input_group_separator_, "msime-group-input-separator"},
              {&punctuation_group_action_, "msime-group-punctuation"},
@@ -5535,7 +5539,7 @@ public:
           auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
           auto *state = ic->propertyFor(&factory_);
           if (!state->session_) return;
-          // Leaving the client commits an open Korean syllable, Zhuyin conversion or Vietnamese word. Fcitx5 commits a client preedit on focus out itself (or the client does, with ClientUnfocusCommit), so only a composition drawn in the panel, for a client without preedit support, is committed here.
+          // 离开客户端时上屏打开的韩文音节、注音转换、越南文单词或藏文音节串。失焦时 Fcitx5 会自己上屏客户端预编辑（或由客户端用 ClientUnfocusCommit 上屏），所以这里只上屏画在面板里的组字，即不支持预编辑的客户端的组字。
           if (state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
             if (!ic->capabilityFlags().test(fcitx::CapabilityFlag::Preedit)) {
               try { state->apply(msime_client_focus(state->session_, false)); } catch (...) {}
@@ -5777,7 +5781,7 @@ public:
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
-    // Switching to another input method ends an open Korean syllable, Zhuyin conversion or Vietnamese word as text, since it is already what the user wrote. Losing the focus needs nothing here: Fcitx5 commits the client preedit itself then (see focus_watch_).
+    // 切换到别的输入法时，把打开的韩文音节、注音转换、越南文单词或藏文音节串作为文字结束，因为它已经是用户写下的内容。失焦不需要在这里处理：那时 Fcitx5 会自己上屏客户端预编辑（见 focus_watch_）。
     if (event.type() == fcitx::EventType::InputContextSwitchInputMethod && state->session_ &&
         state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty()) {
       try { state->command(MSIME_FINISH_COMPOSITION); } catch (...) {}
@@ -5798,7 +5802,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     state->backspace_hold_.reset();
     state->toggle_chord_held_ = FcitxKey_None;
-    // An open Korean syllable, Zhuyin conversion or Vietnamese word drawn in the panel, for a client without preedit support, exists nowhere but here, so a reset writes it out instead of dropping text the user already typed (see focus_watch_ for the same rule on focus out).
+    // 为不支持预编辑的客户端画在面板里的韩文音节、注音转换、越南文单词或藏文音节串只存在于这里，所以重置时把它写出去，而不是丢掉用户已经打的字（失焦时的同一规则见 focus_watch_）。
     const bool koreanPanelSyllable =
         state->session_ && state->commitsOnBlur() && !state->view_.value("editing_text", std::string{}).empty() &&
         !event.inputContext()->capabilityFlags().test(fcitx::CapabilityFlag::Preedit);
@@ -5895,6 +5899,7 @@ public:
   FcitxSchemeItemAction scheme_cantonese_action_{&factory_, 5, "粤拼"};
   FcitxSchemeItemAction scheme_zhuyin_action_{&factory_, 6, "注音"};
   FcitxSchemeItemAction scheme_vietnamese_action_{&factory_, 7, "越南文"};
+  FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};
   // The entries scheme_menu_ holds, in menu order, and whether Cantonese and Zhuyin were among them when it was last built.
   std::vector<fcitx::Action *> scheme_menu_entries_;
   std::optional<std::pair<bool, bool>> scheme_menu_languages_;
@@ -6139,7 +6144,7 @@ void FcitxState::render() {
     else
       ic_.inputPanel().setPreedit(preedit);
   } else if (style != "empty" || alwaysInline) {
-    // A Korean syllable, Zhuyin conversion or Vietnamese word is text the user is writing, so it is drawn inline whatever the preedit style: until a list opens there is no candidate window to show it in (core/InputSchemeTraits.h, AlwaysInlinePreedit).
+    // 韩文音节、注音转换、越南文单词或藏文音节串是用户正在写的文字，所以不论预编辑样式如何都内嵌显示：列表打开之前没有候选窗可以显示它（core/InputSchemeTraits.h 的 AlwaysInlinePreedit）。
     auto reading = style == "pinyin" || alwaysInline ? view_.value("preedit", editing) : editing;
     // A Japanese composition is かな, not the letters that produced it; see
     // ../src/core/PhrasePreedit.h for the one case that keeps the letters.
@@ -6707,7 +6712,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return false;
   }
-  // Keep Ctrl-only segment editing consistent with IBus and the Windows composition editor. The shared runtime resolves the actual segment boundaries and falls back safely for local modes. A Korean syllable, Zhuyin conversion or Vietnamese word has no segments, so there the chord finishes it below and stays the application's shortcut.
+  // 只按 Ctrl 的分段编辑与 IBus 和 Windows 组字编辑器保持一致。实际的分段边界由共享运行时决定，局部模式下也能安全退回。韩文音节、注音转换、越南文单词和藏文音节串没有分段，所以这些组合键在下面结束组字，并仍然作为应用的快捷键。
   if (ctrl && !alt && !shift && composing && !commitsOnBlur()) {
     if (sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
     if (sym == FcitxKey_Left || sym == FcitxKey_KP_Left)
@@ -6718,11 +6723,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                       fcitx::KeyState::Mod5})) {
-    // A Korean syllable, Zhuyin conversion or Vietnamese word is already text, so a shortcut finishes it rather than throwing it away.
+    // 韩文音节、注音转换、越南文单词或藏文音节串已经是文字，所以快捷键结束它而不是丢弃它。
     if (composing) command(commitsOnBlur() ? MSIME_FINISH_COMPOSITION : MSIME_CANCEL);
     return false;
   }
-  // CapsLock uppercase letters belong to the editor when a new composition has not started, matching the Windows and IBus host routers. Korean letters are jamo whatever CapsLock says, and a Vietnamese word starts in capitals, so both still compose.
+  // 还没开始新组字时，CapsLock 打出的大写字母属于编辑器，与 Windows 和 IBus 宿主的按键路由一致。韩文按键不论 CapsLock 如何都是谚文字母，越南文单词可以以大写开头，藏文威利转写的大写字母是另一个字母，所以这三个方案仍然组字。
   if (!(typingScheme() >= 0 && msime::linux_host::scheme::CapsLockBypassExempt(typingScheme())) &&
       states.test(fcitx::KeyState::CapsLock) && !shift &&
       sym >= FcitxKey_A && sym <= FcitxKey_Z &&
@@ -6752,7 +6757,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // With its Hanja list open a Korean syllable has candidates, and the candidate block below takes the keys as it does for any list; so does a Zhuyin conversion with its list open.
   const bool koreanHanjaList = msime::linux_host::korean_hanja_list_open(view_);
   const bool openedList = msime::linux_host::opened_candidate_list(view_);
-  // Otherwise a Korean syllable has no candidates. The keys that end it send it to the application as a commit and then do their own work there (the transition is unhandled), as in every Korean input method; Escape discards it and Backspace takes back one jamo. Every other key falls through: a letter composes, a digit or a mark ends the syllable through the runtime, and anything else finishes it at the end of this function. A Zhuyin conversion with its list closed and a Vietnamese word end the same way.
+  // 除此之外韩文音节没有候选。结束它的按键把它作为上屏交给应用，再在应用里做自己的事（转换结果为未处理），和所有韩文输入法一样；Esc 丢弃它，Backspace 退回一个字母。其他按键继续往下走：字母组字，数字或标点经运行时结束音节，其余按键在本函数末尾结束它。列表未打开的注音转换和越南文单词也这样结束。藏文音节串同样走这里，只是 Engine 吞掉结束它的空格和回车（空格带音节点上屏，回车只上屏藏文），转换结果为已处理，按键不再交给应用。
   if (composing && commitsOnBlur() && !openedList) {
     switch (sym) {
     case FcitxKey_Escape: return command(MSIME_CANCEL);
@@ -6921,7 +6926,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
     const bool asciiPunctuation =
         std::ispunct(static_cast<unsigned char>(text[0])) != 0 &&
-        // An apostrophe in an active spelling is an Engine input character for emoji/kaomoji and Japanese modes, matching the IBus router. In Korean, Zhuyin and Vietnamese it is a mark that follows the open composition like any other.
+        // 正在拼写时，撇号在表情、颜文字和日文模式里是 Engine 的输入字符，与 IBus 路由一致。在韩文、注音和越南文里它和别的标点一样跟在打开的组字后面。藏文的撇号列在 spelling_symbols 里，在前面已经作为字符交给 Engine。
         !(text[0] == '\'' && composing && !commitsOnBlur());
     const bool japaneseLongVowel = view_.value("scheme", 0u) == 3 && !shift &&
                                    (text[0] == '-' || text[0] == '=');
@@ -6930,7 +6935,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (asciiPunctuation) {
       if (repeatSmartPunctuationToChinese(text[0]))
         return true;
-      // Korean and Vietnamese punctuation is plain ASCII and Zhuyin's comes from the Engine alone, so none of them is completed into a pair.
+      // 韩文、越南文和藏文的标点是普通 ASCII，注音的标点只取自 Engine，所以都不补全成对标点。
       if (!keypad && !withoutHostPunctuation()) {
         if (const auto paired = pairedPunctuation(text[0], composing)) return *paired;
       }
@@ -6988,14 +6993,15 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   if (scheme_menu_languages_ == languages) return;
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
   scheme_menu_entries_.clear();
-  scheme_menu_entries_.reserve(8);
+  scheme_menu_entries_.reserve(9);
   scheme_menu_entries_.insert(
       scheme_menu_entries_.end(),
       {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_});
   if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
   if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
   scheme_menu_entries_.insert(scheme_menu_entries_.end(),
-                              {&scheme_japanese_action_, &scheme_korean_action_, &scheme_vietnamese_action_});
+                              {&scheme_japanese_action_, &scheme_korean_action_, &scheme_vietnamese_action_,
+                               &scheme_tibetan_action_});
   for (auto *entry : scheme_menu_entries_) scheme_menu_.addAction(entry);
   scheme_menu_languages_ = languages;
   if (ic) ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);

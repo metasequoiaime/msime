@@ -32,7 +32,7 @@ struct HelpcodeSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Text("全拼或双拼组字时，先点 Shift 再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、九宫格、日语、韩语、粤拼、注音、越南语和快捷模式不使用辅助码。")
+        Text("全拼或双拼组字时，先点 Shift 再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、九宫格、日语、韩语、粤拼、注音、越南语、藏文和快捷模式不使用辅助码。")
           .font(.footnote).foregroundStyle(.secondary)
       }
       ForEach(Self.schemes) { scheme in

@@ -376,7 +376,7 @@ if (-not $Light) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# The Cantonese and Zhuyin dictionaries (scripts/fetch_language_dictionaries.py into target/language-dictionaries, pinned by resources/language-dictionaries.lock.json), installed beside resources like the glosses: host-api finds language-dictionaries there and records it in the runtime options. Optional; without a dictionary its scheme is shown as unavailable and falls back to the last Chinese scheme, and Vietnamese needs no data. Each dictionary ships only with its licence text, which must travel with the data. Set MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 to fail a package that does not carry both.
+# 粤拼和注音词库（scripts/fetch_language_dictionaries.py 下载到 target/language-dictionaries，版本由 resources/language-dictionaries.lock.json 固定），和译文一样装在 resources 旁边：host-api 在那里找到 language-dictionaries 并写进运行时配置。可选；缺少词库时对应方案显示为不可用并退回上次的中文方案，越南文和藏文不需要数据。每个词库只随它的授权文本一起分发，授权文本必须跟着数据走。设置 MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 时，没有同时带上两个词库的包会失败。
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'
 if (Test-Path -LiteralPath $languagesTarget) {

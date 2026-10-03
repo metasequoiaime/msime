@@ -1,5 +1,6 @@
 import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
+import { SettingsManagerBlock } from "../settings-manager-block";
 import type { LocalDictionaryKind, LocalDictionaryFormat } from "../../index";
 import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
 import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
@@ -100,7 +101,7 @@ export function DictionarySettingsPage() {
               label="查询"
             />
           </TextInputRow>
-          <div className={settings.managerBlock}>
+          <SettingsManagerBlock>
             {dictionaryPendingCount > 0 && (
               <SettingsInputDescription role="status">
                 {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
@@ -170,7 +171,7 @@ export function DictionarySettingsPage() {
                 label="新增词条"
               />
             </SettingsManagerActions>
-          </div>
+          </SettingsManagerBlock>
         </GroupList>
       )}
       {client.dictionary && (
@@ -187,7 +188,7 @@ export function DictionarySettingsPage() {
           >
             <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
           </SelectRow>
-          <div className={settings.managerBlock}>
+          <SettingsManagerBlock>
             <SettingsManagerActions>
               <label className="secondary">
                 导入
@@ -219,7 +220,7 @@ export function DictionarySettingsPage() {
                 label="导出全部"
               />
             </SettingsManagerActions>
-          </div>
+          </SettingsManagerBlock>
           {client.dictionary.importPersonal && (
             <PersonalDictionaryImportCard
               embedded

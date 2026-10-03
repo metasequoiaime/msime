@@ -12,17 +12,18 @@ constexpr int Korean = 4;
 constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
+constexpr int Tibetan = 8;
 
 // ---- Host-only traits ----
 
 // The letter the Engine receives takes its case from Shift alone, so Caps Lock does not change it (Dubeolsik binds jamo by case; see KoreanKeyLetter).
 constexpr bool FoldsLetterCase(int scheme) { return scheme == Korean; }
 
-// A Caps Lock uppercase letter that would start a composition is not handed back to the application: the scheme composes it (Korean folds it, Vietnamese keeps it uppercase).
-constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// 大写锁定下会开始组字的大写字母不交还给应用：方案自己组它（韩文折成小写，越南文保留大写，藏文的威利转写区分大小写，大写字母本身就是拼写）。
+constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
-// Letters build the written text directly (a Hangul syllable, a Vietnamese word) rather than a reading converted through candidates, so there is no word to take a character from.
-constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// 字母直接拼出要写的文字（一个韩文音节、一个越南文词、一串藏文音节），而不是经候选转换的读音，所以没有可以取字的词。
+constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
 // Candidates appear only in a list the user opens with MSIME_OPEN_CANDIDATE_LIST (the Korean Hanja list, the Zhuyin list).
 constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || scheme == Zhuyin; }
@@ -32,13 +33,13 @@ constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme
 
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
-// `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
-constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+// `commits_on_blur`: 离开组字（失去焦点、切换方案或模式、把导航键交给应用）时把组字写出去，而不是丢弃。
+constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
-// `locks_caret`: the caret stays at the end of the composition, so there are no segments for Ctrl+Backspace and Ctrl+Left/Right to edit.
-constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+// `locks_caret`: 光标固定在组字末尾，没有可供 Ctrl+Backspace 和 Ctrl+Left/Right 编辑的分段。
+constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
-// `uses_chinese_punctuation`: punctuation goes through the Chinese table. Korean and Vietnamese write half-width ASCII marks whatever the Chinese punctuation switches say.
+// `uses_chinese_punctuation`: 标点走中文标点表。韩文、越南文和藏文不论中文标点开关怎么设都写半角 ASCII 标点。
 constexpr bool UsesChinesePunctuation(int scheme)
 {
     return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese ||

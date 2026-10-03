@@ -85,6 +85,11 @@ targets:
         buildPhase: resources
       - path: ../../resources/licenses/libchewing-data-LGPL-2.1.txt
         buildPhase: resources
+      # 同一个 Engine 的越南文和藏文方案编入了 vi crate（MIT）和 ewts crate（MIT OR Apache-2.0，按 MIT 使用），它们的许可证全文随每个 Engine 构建分发。
+      - path: ../../resources/licenses/vi-MIT.txt
+        buildPhase: resources
+      - path: ../../resources/licenses/ewts-MIT.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

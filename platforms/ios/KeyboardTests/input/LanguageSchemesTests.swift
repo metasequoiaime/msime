@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 
-/// Cantonese, Zhuyin and Vietnamese: which of them the keyboard offers, how they reach the shared preferences, the Dachen keys, and the in-place compositions as the keyboard sees them through the bridge.
+/// 粤拼、注音、越南语和藏文：键盘提供其中哪些、它们怎样写进共享偏好、大千键位，以及键盘经桥接层看到的就地组字。
 @MainActor
 final class LanguageSchemesTests: XCTestCase {
   private var state: URL!
@@ -35,7 +35,7 @@ final class LanguageSchemesTests: XCTestCase {
     defer { defaults.set(previous, forKey: InputSchemePreference.enabledSchemesKey) }
     defaults.removeObject(forKey: InputSchemePreference.enabledSchemesKey)
     let enabled = InputSchemePreference.enabledSchemes
-    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese].contains($0) })
+    XCTAssertEqual(enabled, ChineseInputScheme.allCases.filter { ![.cantonese, .zhuyin, .vietnamese, .tibetan].contains($0) })
   }
 
   func testAMissingDictionaryHidesOnlyItsScheme() {
@@ -47,6 +47,8 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: enabled, installed: []), [.quanpin, .vietnamese],
                    "Vietnamese needs no data")
     XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: [.cantonese], installed: []), [.quanpin])
+    XCTAssertEqual(InputSchemePreference.offeredSchemes(enabled: [.quanpin, .tibetan], installed: []), [.quanpin, .tibetan],
+                   "藏文不需要词库")
   }
 
   func testInstalledSchemesAreReadFromTheDictionaryFiles() throws {
@@ -70,7 +72,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testCantoneseAndZhuyinAreChineseSchemesAndVietnameseIsNot() {
     let enabled = ChineseInputScheme.allCases
-    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false)] {
+    for (scheme, engine, remembered) in [(ChineseInputScheme.cantonese, "cantonese", true), (.zhuyin, "zhuyin", true), (.vietnamese, "vietnamese", false), (.tibetan, "tibetan", false)] {
       var document: [String: Any] = ["last_chinese_scheme": "wubi"]
       MetasequoiaInputSessionBridge.schemeMapping(scheme, enabledSchemes: enabled)?(&document)
       XCTAssertEqual(document["scheme"] as? String, engine)
@@ -89,8 +91,16 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertFalse(ChineseInputScheme.zhuyin.writesAsciiPunctuation)
     XCTAssertTrue(ChineseInputScheme.vietnamese.composesInPlace)
     XCTAssertTrue(ChineseInputScheme.vietnamese.writesAsciiPunctuation)
+    XCTAssertTrue(ChineseInputScheme.tibetan.composesInPlace)
+    XCTAssertTrue(ChineseInputScheme.tibetan.writesAsciiPunctuation)
+    XCTAssertTrue(ChineseInputScheme.tibetan.typesCasedLetters)
+    XCTAssertFalse(ChineseInputScheme.tibetan.writesChinese)
+    XCTAssertFalse(ChineseInputScheme.tibetan.hasSpellingCaret)
+    XCTAssertFalse(ChineseInputScheme.tibetan.needsLanguageDictionary)
+    XCTAssertTrue(ChineseInputScheme.optInSchemes.contains(.tibetan))
+    XCTAssertEqual(ChineseInputScheme.allCases.filter(\.typesCasedLetters), [.vietnamese, .tibetan])
     XCTAssertFalse(ChineseInputScheme.japanese.writesAsciiPunctuation, "Japanese keeps its own marks")
-    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese].contains(scheme) {
+    for scheme in ChineseInputScheme.allCases where ![.cantonese, .zhuyin, .vietnamese, .tibetan].contains(scheme) {
       XCTAssertFalse(scheme.needsLanguageDictionary, scheme.rawValue)
       XCTAssertEqual(scheme.composesInPlace, scheme.isKorean, scheme.rawValue)
       XCTAssertEqual(scheme.hasSpellingCaret, scheme.writesChinese, scheme.rawValue)
@@ -100,6 +110,17 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(KeyboardViewController.languageKeyTitle(.vietnamese), "越")
     XCTAssertEqual(KeyboardViewController.languageKeyTitle(.quanpin), "中")
     XCTAssertEqual(KeyboardViewController.languageKeyValue(.vietnamese), "越南语输入")
+    XCTAssertEqual(KeyboardViewController.languageKeyTitle(.tibetan), "藏")
+    XCTAssertEqual(KeyboardViewController.languageKeyValue(.tibetan), "藏文输入")
+    XCTAssertEqual(ChineseInputScheme.tibetan.title, "藏文 26 键")
+    XCTAssertEqual(ChineseInputScheme.tibetan.sharedIdentifier, "tibetan")
+    XCTAssertEqual(TypingSource.tibetan.rawValue, "tibetan")
+    XCTAssertEqual(TypingSource.tibetan.title, "藏文")
+    XCTAssertEqual(KeyboardViewController.tibetanSpellingSymbols, ["'", "+", "-", ".", "/"])
+    // 藏文的符号页把 `=` 键换成叠写用的 `+`，其他键和其他方案不变。
+    XCTAssertEqual(KeyboardViewController.symbolRowKey("=", tibetan: true), "+")
+    XCTAssertEqual(KeyboardViewController.symbolRowKey("=", tibetan: false), "=")
+    XCTAssertEqual(KeyboardViewController.symbolRowKey("_", tibetan: true), "_")
     XCTAssertEqual(TypingSource.cantonese.rawValue, "cantonese")
     XCTAssertEqual(TypingSource.zhuyin.rawValue, "zhuyin")
     XCTAssertEqual(TypingSource.vietnamese.rawValue, "vietnamese")
@@ -108,7 +129,7 @@ final class LanguageSchemesTests: XCTestCase {
   // MARK: - Boundaries
 
   func testZhuyinAndVietnameseCommitAtEveryBoundary() {
-    for scheme in [ChineseInputScheme.zhuyin, .vietnamese] {
+    for scheme in [ChineseInputScheme.zhuyin, .vietnamese, .tibetan] {
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: scheme, boundary: .returnKey), .none)
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .returnKey), .commitRaw)
       XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: scheme, boundary: .modeSwitch), .finishComposition)
@@ -217,5 +238,57 @@ final class LanguageSchemesTests: XCTestCase {
     let committed = bridge.commitRaw()
     XCTAssertFalse(committed.isHandled, "Return still inserts its newline after the word")
     XCTAssertEqual(committed.commitText, "chào")
+  }
+
+  func testTibetanComposesWylieAndCommitsWithTshegOrShad() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switchToTibetan()
+    let composing = type("bkra", into: bridge)
+    XCTAssertTrue(composing.isHandled)
+    XCTAssertNil(composing.commitText)
+    XCTAssertEqual(composing.preedit, "བཀྲ")
+    XCTAssertTrue(composing.candidates.isEmpty)
+    // 空格（MSIME_COMMIT_CANDIDATE）上屏藏文并加音节点，以已处理返回，键盘不再插入空格。
+    let tsheg = bridge.commitCandidate()
+    XCTAssertTrue(tsheg.isHandled)
+    XCTAssertEqual(tsheg.commitText, "བཀྲ་")
+    _ = type("shis", into: bridge)
+    let shad = bridge.handleCharacter("/")
+    XCTAssertTrue(shad.isHandled)
+    XCTAssertEqual(shad.commitText, "ཤིས།")
+    let idleShad = bridge.handleCharacter("/")
+    XCTAssertTrue(idleShad.isHandled, "没有组字时斜杠单独输入垂符")
+    XCTAssertEqual(idleShad.commitText, "།")
+  }
+
+  func testTibetanReturnCommitsWithoutTshegAndUppercaseIsSpelling() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switchToTibetan()
+    // 威利转写区分大小写：`Ta` 是反写的 ཊ，不是 ཏ。
+    XCTAssertTrue(bridge.handleCharacter("T", shifted: true).isHandled)
+    XCTAssertEqual(type("a", into: bridge).preedit, "ཊ")
+    let committed = bridge.commitRaw()
+    XCTAssertTrue(committed.isHandled, "回车只确认藏文，不换行")
+    XCTAssertEqual(committed.commitText, "ཊ")
+    // `'` 在没有组字时也能开头（achung），`+` 叠写。
+    XCTAssertEqual(type("'od", into: bridge).preedit, "འོད")
+    XCTAssertEqual(bridge.commitRaw().commitText, "འོད")
+    XCTAssertEqual(type("pad+ma", into: bridge).preedit, "པདྨ")
+    XCTAssertEqual(bridge.commitRaw().commitText, "པདྨ")
+  }
+
+  func testTibetanFirstCancelRestoresTheWylie() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    _ = bridge.switchToTibetan()
+    _ = type("bkra", into: bridge)
+    XCTAssertEqual(bridge.cancel().preedit, "bkra")
+    XCTAssertEqual(bridge.cancel().preedit, "")
+  }
+
+  func testTibetanNeverReplacesTheRememberedChineseScheme() {
+    var document: [String: Any] = ["last_chinese_scheme": "shuangpin"]
+    MetasequoiaInputSessionBridge.schemeMapping(.tibetan, enabledSchemes: [.quanpin, .tibetan])?(&document)
+    XCTAssertEqual(document["scheme"] as? String, "tibetan")
+    XCTAssertEqual(document["last_chinese_scheme"] as? String, "shuangpin")
   }
 }

@@ -64,6 +64,7 @@ int main() {
         {K::Item, C::SelectCantonese},
         {K::Item, C::SelectZhuyin},
         {K::Item, C::SelectVietnamese},
+        {K::Item, C::SelectTibetan},
         {K::Separator, C::OpenSettings},
         {K::Tool, C::ToggleFloatingToolbar},
         {K::Tool, C::OpenEmojiPanel},
@@ -90,9 +91,10 @@ int main() {
     require(items[10].label == "全拼" && items[11].label == "双拼（小鹤）" &&
             items[12].label == "五笔 86" && items[13].label == "日文" &&
             items[14].label == "韩文" && items[15].label == "粤拼" &&
-            items[16].label == "注音" && items[17].label == "越南文");
-    require(items[25].label == "主题" && items[26].label == "词库…" &&
-            items[27].label == "设置…" && items[28].label == "关于水杉输入法");
+            items[16].label == "注音" && items[17].label == "越南文" &&
+            items[18].label == "藏文");
+    require(items[26].label == "主题" && items[27].label == "词库…" &&
+            items[28].label == "设置…" && items[29].label == "关于水杉输入法");
   }
 
   // Hints: the configured CN/EN key, the TIP's own shortcuts and the theme name.
@@ -128,7 +130,7 @@ int main() {
           !checked(items, TrayMenuCommand::SelectKorean));
   // Exactly one scheme is marked, whichever it is.
   for (const char *scheme : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin",
-                             "vietnamese"}) {
+                             "vietnamese", "tibetan"}) {
     auto next = state;
     next.scheme = scheme;
     const auto rows = tray_menu_items(all, next);
@@ -137,7 +139,8 @@ int main() {
          {TrayMenuCommand::SelectQuanpin, TrayMenuCommand::SelectShuangpin,
           TrayMenuCommand::SelectWubi, TrayMenuCommand::SelectJapanese,
           TrayMenuCommand::SelectKorean, TrayMenuCommand::SelectCantonese,
-          TrayMenuCommand::SelectZhuyin, TrayMenuCommand::SelectVietnamese})
+          TrayMenuCommand::SelectZhuyin, TrayMenuCommand::SelectVietnamese,
+          TrayMenuCommand::SelectTibetan})
       marked += checked(rows, command) ? 1 : 0;
     require(marked == 1);
   }
@@ -164,6 +167,12 @@ int main() {
     auto rows = tray_menu_items(all, vietnamese);
     require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "越南文");
     require(checked(rows, TrayMenuCommand::SelectVietnamese));
+    // 藏文同样是独立的语言，语言行显示「藏文」。
+    auto tibetan = state;
+    tibetan.scheme = "tibetan";
+    rows = tray_menu_items(all, tibetan);
+    require(rows[find(rows, TrayMenuCommand::SelectChinese)].label == "藏文");
+    require(checked(rows, TrayMenuCommand::SelectTibetan));
     for (const char *chinese : {"cantonese", "zhuyin"}) {
       auto next = state;
       next.scheme = chinese;
@@ -253,10 +262,11 @@ int main() {
         TrayMenuCommand::OpenTheme, TrayMenuCommand::OpenDictionary,
         TrayMenuCommand::OpenSettings, TrayMenuCommand::OpenAbout})
     require(!available(limited, command));
-  // Cantonese and Zhuyin need their dictionary beside the resources; without it the Engine would run another scheme, so the row is disabled. Vietnamese needs no data.
+  // 粤拼和注音需要资源旁边的词库，缺少时引擎会运行别的方案，所以这一行禁用。越南文和藏文不需要数据。
   require(!available(limited, TrayMenuCommand::SelectCantonese) &&
           !available(limited, TrayMenuCommand::SelectZhuyin) &&
-          available(limited, TrayMenuCommand::SelectVietnamese));
+          available(limited, TrayMenuCommand::SelectVietnamese) &&
+          available(limited, TrayMenuCommand::SelectTibetan));
   {
     auto cantonese_only = server_only;
     cantonese_only.cantonese = true;
@@ -280,11 +290,11 @@ int main() {
   require(near(geometry.size.width, 260.0));
   const double expected_height =
       metrics.padding * 2.0 + metrics.header_height +
-      metrics.separator_height * 5.0 + metrics.row_height * 17.0 +
+      metrics.separator_height * 5.0 + metrics.row_height * 18.0 +
       metrics.label_height + metrics.tool_height;
   require(near(geometry.size.height, expected_height));
   require(near(tray_menu_size(items, metrics).height, expected_height));
-  // Eight schemes make the design's card taller than a 1080p work area at 150% scaling; fitted to it, the command rows shorten and nothing is clipped. A card that fits keeps the design's metrics.
+  // 九个方案让设计尺寸的卡片高过 150% 缩放下 1080p 的工作区；按工作区适配后命令行变矮，什么都不被裁掉。放得下的卡片保持设计尺寸。
   {
     const double work = 1040.0 / 1.5;
     require(geometry.size.height > work);
@@ -418,7 +428,7 @@ int main() {
     selected.scheme = scheme;
     require(checked(tray_menu_items(all, selected), row.command));
   }
-  require(scheme_rows == 8);
+  require(scheme_rows == 9);
   require(!tray_menu_scheme(TrayMenuCommand::SelectChinese));
   require(!tray_menu_scheme(TrayMenuCommand::OpenSettings));
 }

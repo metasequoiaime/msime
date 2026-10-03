@@ -120,6 +120,20 @@ public final class AccountSessionRoutingSmoke {
         };
         new BackendAccount(signOutStore, requester, () -> TOKEN).signOut();
         check(signOutTouches.get() == 0, "a non-owning process never signs out through its local store");
+
+        BackendAccount.SessionStore failingStore = new BackendAccount.SessionStore() {
+            @Override public String load() { return TOKEN_SESSION; }
+            @Override public void save(String value) { throw new AssertionError("no save on sign-out"); }
+            @Override public void clear() throws Exception { throw new java.io.IOException("synthetic failure"); }
+        };
+        boolean clearFailed = false;
+        try {
+            new BackendAccount(failingStore, requester).signOut();
+        } catch (IllegalStateException expected) {
+            clearFailed = true;
+        }
+        check(clearFailed, "sign-out must report a failed persistent clear");
+        check(TOKEN_SESSION.equals(failingStore.load()), "a failed clear leaves the stored session present");
         System.out.println("Android account session routing: single refreshing process passed");
     }
 

@@ -56,6 +56,7 @@ shell_surface_request(TrayMenuCommand command) {
   case TrayMenuCommand::SelectCantonese:
   case TrayMenuCommand::SelectZhuyin:
   case TrayMenuCommand::SelectVietnamese:
+  case TrayMenuCommand::SelectTibetan:
     break;
   }
   return std::nullopt;

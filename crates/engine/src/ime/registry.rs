@@ -168,8 +168,11 @@ impl ProviderRegistry {
             }
             SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Cantonese => return self.cantonese_candidates(request),
-            // Vietnamese composes its text in the preedit and has no candidates; the Zhuyin list comes from its editor.
-            SchemeType::Korean | SchemeType::Zhuyin | SchemeType::Vietnamese => return Vec::new(),
+            // 越南文和藏文在组字里直接拼出文字，没有候选；注音的列表来自它的编辑器。
+            SchemeType::Korean
+            | SchemeType::Zhuyin
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => return Vec::new(),
         };
         for item in &mut candidates {
             item.scheme = request.scheme;
@@ -177,7 +180,7 @@ impl ProviderRegistry {
         candidates
     }
 
-    /// Wubi, Japanese, Korean, Cantonese, Zhuyin and Vietnamese never answer a lookup (wubi_candidate_provider.h:19-22; the Japanese one read the dropped `japanese_lexicon`).
+    /// 五笔、日文、韩文、粤拼、注音、越南文和藏文从不回答查找（wubi_candidate_provider.h:19-22；日文那个读的是已删除的 `japanese_lexicon`）。
     pub fn find_candidate(&self, scheme: SchemeType, key: &str, value: &str) -> Option<WordItem> {
         match scheme {
             SchemeType::Quanpin => self.quanpin.as_ref()?.find_candidate(key, value),
@@ -187,7 +190,8 @@ impl ProviderRegistry {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => None,
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => None,
         }
     }
 
@@ -209,7 +213,8 @@ impl ProviderRegistry {
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => {}
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => {}
         }
     }
 
@@ -236,11 +241,12 @@ impl ProviderRegistry {
                 }
                 _ => false,
             },
-            // Korean, Cantonese, Zhuyin and Vietnamese take no online rows.
+            // 韩文、粤拼、注音、越南文和藏文不接收在线候选。
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => false,
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => false,
         }
     }
 
@@ -264,7 +270,8 @@ impl ProviderRegistry {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => false,
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => false,
         }
     }
 

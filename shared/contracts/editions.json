@@ -11,7 +11,7 @@
     {
       "id": "full",
       "display_name": { "zh-Hans": "水杉输入法", "en": "MSIME" },
-      "input_schemes": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"],
+      "input_schemes": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"],
       "default_scheme": "quanpin",
       "preference_defaults": {},
       "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },

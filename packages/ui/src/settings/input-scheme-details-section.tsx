@@ -4,6 +4,7 @@ import {
   cantoneseInputSchemeOptions,
   japaneseInputSchemeOptions,
   koreanInputSchemeOptions,
+  tibetanInputSchemeOptions,
   vietnameseInputMethodOptions,
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
@@ -58,6 +59,8 @@ const cantoneseDescription = "按不带声调的粤拼输入，用 ' 分隔音�
 const zhuyinDescription =
   "按大千键位输入注音符号，空格为一声，6 3 4 7 为二、三、四声和轻声，候选为繁体字词";
 const vietnameseDescription = "Telex 用字母、VNI 用数字标注声调和变音，Esc 恢复原始按键";
+const tibetanDescription =
+  "按 EWTS 威利转写输入，区分大小写；空格加音节点 ་ 上屏，/ 加垂符 ། 上屏，回车只上屏藏文，Esc 恢复原始按键";
 const toneStyleDescription = "新式把声调标在主元音上（hoà），旧式按传统位置标注（hòa）";
 
 /** Shared scheme-specific controls for desktop input settings. */
@@ -75,14 +78,15 @@ export function InputSchemeDetailsSection({
   vietnamese,
   onVietnameseChange,
 }: InputSchemeDetailsSectionProps) {
-  // 双拼方案 and 五笔方案 only concern the pinyin and Wubi schemes; Cantonese and Zhuyin have rows of their own.
+  // 双拼方案和五笔方案只涉及拼音和五笔；粤拼、注音、越南文和藏文各有自己的行。
   const hideChineseSchemeOptions =
     hasTouchKeyboardSchemes ||
     scheme === "japanese" ||
     scheme === "korean" ||
     scheme === "cantonese" ||
     scheme === "zhuyin" ||
-    scheme === "vietnamese";
+    scheme === "vietnamese" ||
+    scheme === "tibetan";
   const inputMethod = vietnamese?.input_method ?? "telex";
   const toneStyle = vietnamese?.tone_style ?? "modern";
   const changeVietnamese = (patch: VietnamesePreferences) =>
@@ -165,6 +169,14 @@ export function InputSchemeDetailsSection({
         options={vietnameseToneStyleOptions}
         value={toneStyle}
         onChange={(tone_style) => changeVietnamese({ tone_style })}
+      />
+      <SegmentedRow
+        title="藏文方案"
+        description={tibetanDescription}
+        hidden={hasTouchKeyboardSchemes || scheme !== "tibetan"}
+        options={tibetanInputSchemeOptions}
+        value="ewts"
+        onChange={() => {}}
       />
     </>
   );

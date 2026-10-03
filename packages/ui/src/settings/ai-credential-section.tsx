@@ -1,7 +1,7 @@
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { CredentialActions } from "./credential-actions";
 import { SecretSettingField } from "./secret-setting-field";
-import * as settings from "./settings-style";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 export interface AiCredentialStored {
   endpoint: string;
@@ -38,7 +38,7 @@ export function AiCredentialSection({
 }: AiCredentialSectionProps) {
   const matchesStored = stored?.endpoint === endpoint && stored.model === model;
   return (
-    <div className={settings.managerBlock} role="group" aria-label="AI 凭据">
+    <SettingsManagerBlock role="group" aria-label="AI 凭据">
       <SecretSettingField
         label="API Token"
         inputLabel="AI API Token"
@@ -63,6 +63,6 @@ export function AiCredentialSection({
         onSave={onSave}
         onClear={onClear}
       />
-    </div>
+    </SettingsManagerBlock>
   );
 }

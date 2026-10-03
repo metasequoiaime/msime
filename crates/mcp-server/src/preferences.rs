@@ -24,9 +24,10 @@ pub enum Scheme {
     Cantonese,
     Zhuyin,
     Vietnamese,
+    Tibetan,
 }
 
-/// The schemes an agent may switch to. Japanese, Korean, Cantonese, Zhuyin and Vietnamese are left to the user: Japanese, Cantonese and Zhuyin need their own dictionary, which a host may not have, and every one of them needs a way back that the agent cannot see.
+/// 代理可以切换到的方案。日文、韩文、粤拼、注音、越南文和藏文留给用户自己切换：日文、粤拼和注音需要各自的词库，宿主不一定装了；而且这几个方案都需要一条代理看不到的退路。
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(rename_all = "snake_case")]
@@ -91,6 +92,7 @@ impl From<InputScheme> for Scheme {
             InputScheme::Cantonese => Self::Cantonese,
             InputScheme::Zhuyin => Self::Zhuyin,
             InputScheme::Vietnamese => Self::Vietnamese,
+            InputScheme::Tibetan => Self::Tibetan,
         }
     }
 }
@@ -542,6 +544,7 @@ mod tests {
             InputScheme::Cantonese,
             InputScheme::Zhuyin,
             InputScheme::Vietnamese,
+            InputScheme::Tibetan,
         ] {
             same(json!(Scheme::from(scheme)), json!(scheme));
         }

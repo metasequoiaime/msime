@@ -32,6 +32,9 @@ export const vietnameseInputMethodOptions = [
   label: string;
 }[];
 
+/** 藏文只有 EWTS（扩展威利转写）一种输入法，选择器只作说明。 */
+export const tibetanInputSchemeOptions = [{ value: "ewts", label: "威利转写" }] as const;
+
 export const vietnameseToneStyleOptions = [
   { value: "modern", label: "新式 hoà" },
   { value: "classic", label: "旧式 hòa" },
@@ -40,8 +43,8 @@ export const vietnameseToneStyleOptions = [
   label: string;
 }[];
 
-/** The input modes that are not Chinese: selecting one remembers the Chinese scheme in `last_chinese_scheme`, and 中文 returns to it. */
-export const nonChineseSchemes = ["japanese", "korean", "vietnamese"] as const;
+/** 不是中文的输入模式：选中其中一个时把中文方案记进 `last_chinese_scheme`，点「中文」回到它。 */
+export const nonChineseSchemes = ["japanese", "korean", "vietnamese", "tibetan"] as const;
 
 export function isChineseScheme(scheme: InputScheme): scheme is ChineseScheme {
   return !(nonChineseSchemes as readonly InputScheme[]).includes(scheme);
@@ -61,6 +64,7 @@ const knownInputSchemes: readonly InputScheme[] = [
   "cantonese",
   "zhuyin",
   "vietnamese",
+  "tibetan",
 ];
 
 /** The schemes the host offers, or `baseInputSchemes` without a host. A value the page has no label for is dropped rather than shown as an unlabelled option. */

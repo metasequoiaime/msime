@@ -24,6 +24,7 @@ use crate::punctuation::PunctuationPolicy;
 use crate::quanpin::QuanpinEngine;
 use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinProfile;
+use crate::tibetan::{SHAD, TSHEG};
 use crate::types::{
     CandidateSource, Command, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     KeyResult, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
@@ -235,6 +236,9 @@ impl InputSession {
         }
         if self.is_vietnamese() {
             return self.handle_vietnamese_character(value);
+        }
+        if self.is_tibetan() {
+            return self.handle_tibetan_character(value);
         }
         if self.is_zhuyin() {
             return self.handle_zhuyin_character(value);
@@ -454,6 +458,99 @@ impl InputSession {
         }
     }
 
+    /// 藏文按键：威利能拼写的字母和当前状态的拼写符号（威利读不了的字母见 `commit_unspelled_tibetan_letter`）（`'` 随时，`+` `.` `-` 在组字时）进入威利原文，都算已处理。空格带音节点、`/` 带垂符上屏音节串（以 ང 结尾时垂符前补音节点），并且已处理；没有组字时 `/` 单独输出垂符，其他按键交给宿主。有组字时标点保持未处理且不碰组字，因为标点路由会先上屏音节串再输出标点；其他按键上屏音节串并保持未处理，由宿主在上屏后插入该键。
+    fn handle_tibetan_character(&mut self, value: u8) -> KeyResult {
+        if value == b'/' {
+            return self.end_tibetan_syllables(SHAD, value);
+        }
+        if value == b' ' && self.has_composition() {
+            return self.end_tibetan_syllables(TSHEG, value);
+        }
+        if value.is_ascii_alphabetic() && !self.engine.tibetan_claims_letter(value) {
+            return self.commit_unspelled_tibetan_letter(value);
+        }
+        let spells = self.engine.tibetan_claims_letter(value)
+            || self
+                .engine
+                .tibetan_spelling_symbols()
+                .as_bytes()
+                .contains(&value);
+        if !spells {
+            if !self.has_composition() {
+                self.reset_commit_context();
+                return KeyResult::unhandled();
+            }
+            if value.is_ascii_punctuation() {
+                return KeyResult::unhandled();
+            }
+            return self.commit_tibetan_composition(false);
+        }
+        // 新音节串前的长时间停顿通常意味着用户换到了别的输入框或应用。
+        if !self.has_composition()
+            && self.chain.previous.is_some()
+            && self.chain.paused(self.steady_now())
+        {
+            self.chain.reset();
+        }
+        let key = if value.is_ascii_alphabetic() {
+            SchemeKey::Letter(value)
+        } else {
+            SchemeKey::Symbol(value)
+        };
+        self.engine.handle_key(key);
+        self.update_mixed_candidates();
+        self.online_requests.invalidate();
+        KeyResult::handled()
+    }
+
+    /// 威利读不了的字母（大写锁定或误按 Shift 打出的 `B` `O`，以及 `q` `x`）不进原文：先上屏转换出的藏文（如果有组字），再把这个字母原样跟在后面，按键已处理。由会话自己写出字母，宿主不需要区分哪些字母被接收，拉丁字母也不会混进转换结果。不学习任何东西。
+    fn commit_unspelled_tibetan_letter(&mut self, letter: u8) -> KeyResult {
+        let mut text = if self.has_composition() {
+            self.preedit()
+        } else {
+            String::new()
+        };
+        text.push(char::from(letter));
+        self.reset_composition();
+        self.chain.reset();
+        KeyResult::committed(text)
+    }
+
+    /// 空格（`mark` 为音节点）或 `/`（`mark` 为垂符）结束藏文音节串：转换出的藏文连同 `mark` 一起上屏，按键已处理；没有组字时只上屏 `mark`。Esc 锁定原文后组字只是拉丁字母：空格只上屏原文并交回宿主插入空格，`/` 上屏原文加 `/`。不学习任何东西。
+    fn end_tibetan_syllables(&mut self, mark: char, key: u8) -> KeyResult {
+        if self.engine.tibetan_raw_locked() {
+            if key == b' ' {
+                return self.commit_tibetan_composition(false);
+            }
+            let mut text = self.preedit();
+            text.push(char::from(key));
+            self.reset_composition();
+            self.chain.reset();
+            return KeyResult::committed(text);
+        }
+        let mut text = self.preedit();
+        // 藏文正字法在以 ང 结尾的音节和垂符之间保留音节点（ང་།）。
+        if mark == SHAD && text.ends_with('\u{0F44}') {
+            text.push(TSHEG);
+        }
+        text.push(mark);
+        self.reset_composition();
+        self.chain.reset();
+        KeyResult::committed(text)
+    }
+
+    /// 藏文音节串按显示上屏，不附加音节点或垂符。`handled` 为 false 时结束它的按键（光标键、Tab、数字）在上屏后仍由宿主处理；回车为 true，只确认组字。不学习任何东西。
+    fn commit_tibetan_composition(&mut self, handled: bool) -> KeyResult {
+        let text = self.preedit();
+        self.reset_composition();
+        self.chain.reset();
+        KeyResult {
+            handled,
+            commit: Some(text),
+            diagnostic: None,
+        }
+    }
+
     /// Zhuyin keys go to the bopomofo editor, which claims its phonetic keys, the tone keys while composing and the Shift punctuation keys; a claimed key is handled and carries whatever it committed (the Shift marks, an auto-shift). An unclaimed key leaves the editor alone when nothing is composing, when it is a selection key (a digit 1-9 or Space) with the list open, so the runtime's page selection picks the row, and when it is punctuation, because the punctuation route commits the conversion ahead of the mark; any other unclaimed key commits the conversion and stays unhandled, so the host inserts the key after the commit.
     fn handle_zhuyin_character(&mut self, value: u8) -> KeyResult {
         // A long pause before a new composition usually means the user moved to another field or application.
@@ -588,6 +685,24 @@ impl InputSession {
                 | Command::MoveEnd
                 | Command::DeleteForward => return self.commit_vietnamese_composition(),
                 Command::Cancel if self.engine.restore_vietnamese_raw() => {
+                    self.update_mixed_candidates();
+                    return KeyResult::handled();
+                }
+                _ => {}
+            }
+        }
+        // 藏文音节串内部没有光标，也没有列表：CommitCandidate（空格）带音节点上屏，CommitRaw（回车）只上屏藏文并吞掉按键，其余提交和光标命令按显示上屏并把按键交回宿主。第一次 Cancel 把显示切回威利原文，第二次走共用路径丢弃组字。Backspace 经共用路径删一个原文按键。
+        if self.tibetan_rules_apply() {
+            match command {
+                Command::CommitCandidate => return self.end_tibetan_syllables(TSHEG, b' '),
+                Command::CommitRaw => return self.commit_tibetan_composition(true),
+                Command::CommitReading
+                | Command::MoveLeft
+                | Command::MoveRight
+                | Command::MoveHome
+                | Command::MoveEnd
+                | Command::DeleteForward => return self.commit_tibetan_composition(false),
+                Command::Cancel if self.engine.restore_tibetan_raw() => {
                     self.update_mixed_candidates();
                     return KeyResult::handled();
                 }
@@ -731,6 +846,16 @@ impl InputSession {
         {
             return self.handle_character(value, false);
         }
+        // 藏文的拼写符号和 `/` 是输入，不是结束组字的标点：`/` 由 `handle_character` 变成垂符。
+        if self.tibetan_rules_apply()
+            && self
+                .engine
+                .tibetan_spelling_symbols()
+                .as_bytes()
+                .contains(&value)
+        {
+            return self.handle_character(value, false);
+        }
         // A scheme without Chinese punctuation (Korean) writes half-width ASCII punctuation whatever the Chinese punctuation switches say. With a syllable open the mark follows it in one commit; with nothing open the host inserts the key itself.
         if !self.engine.current_scheme_type().uses_chinese_punctuation()
             && !self.dedicated_english
@@ -833,6 +958,9 @@ impl InputSession {
         }
         if self.vietnamese_rules_apply() {
             return self.engine.vietnamese_spelling_symbols().to_owned();
+        }
+        if self.tibetan_rules_apply() {
+            return self.engine.tibetan_spelling_symbols().to_owned();
         }
         if self.zhuyin_rules_apply() {
             return self.engine.zhuyin_spelling_symbols().to_owned();
@@ -1119,6 +1247,15 @@ impl InputSession {
         self.is_vietnamese() && self.local_mode == LocalInputMode::None && !self.dedicated_english
     }
 
+    pub(super) fn is_tibetan(&self) -> bool {
+        self.engine.current_scheme_type() == SchemeType::Tibetan
+    }
+
+    /// 藏文方案自己的规则生效：专用英文和本地模式在其中仍按各自的规则。
+    pub(super) fn tibetan_rules_apply(&self) -> bool {
+        self.is_tibetan() && self.local_mode == LocalInputMode::None && !self.dedicated_english
+    }
+
     pub(super) fn is_cantonese(&self) -> bool {
         self.engine.current_scheme_type() == SchemeType::Cantonese
     }
@@ -1156,7 +1293,8 @@ impl InputSession {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => false,
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => false,
         }
     }
 

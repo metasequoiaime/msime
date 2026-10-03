@@ -90,6 +90,7 @@ test("shows only the Korean scheme details in Korean mode", () => {
 test.each([
   ["cantonese", "粤拼方案", "粤拼"],
   ["zhuyin", "注音键盘", "大千"],
+  ["tibetan", "藏文方案", "威利转写"],
 ] as const)(
   "%s shows its read-only scheme row and no pinyin or Wubi rows",
   (scheme, title, label) => {
@@ -150,6 +151,20 @@ test("Vietnamese controls show the document's options", () => {
   );
   expect((screen.getByRole("radio", { name: "VNI" }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("radio", { name: "旧式 hòa" }) as HTMLInputElement).checked).toBe(true);
+});
+
+test("Tibetan describes its syllable keys and shows no Vietnamese rows", () => {
+  render(
+    <InputSchemeDetailsSection
+      scheme="tibetan"
+      shuangpinProfile="xiaohe"
+      macos={false}
+      hasTouchKeyboardSchemes={false}
+      onShuangpinProfileChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(/空格加音节点 ་ 上屏/)).toBeTruthy();
+  expect(screen.queryByRole("radiogroup", { name: "声调位置" })).toBeNull();
 });
 
 test("changes the Wubi profile between 86 and 98 under Wubi", () => {

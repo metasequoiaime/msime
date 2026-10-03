@@ -80,6 +80,8 @@ export enum HardwareKeyAction {
   COMMIT_THEN_RELEASE,
   /** Korean: list the Hanja of the composing syllable, or close the open list (MSIME_CONVERT_HANJA). */
   CONVERT_HANJA,
+  /** 藏文：把 `character` 交给引擎，引擎没处理时在上屏内容之后插入它（空格结束音节串时由引擎补音节点；Esc 锁定原文后引擎只上屏原文，空格照常输入）。 */
+  PRESS_THEN_TYPE,
 }
 
 export interface HardwareKeyDecision {
@@ -277,7 +279,7 @@ export class HardwareKeyRouter {
    * @param chinesePunctuationInEnglish whether punctuation is still the keyboard's in English mode, which the Windows host does when `punctuation_lock` is Chinese (`ResolvePunctuationOpen`)
    * @param korean whether letters go to the Korean Hangul automaton, which routes on rules of its own; see routeKorean
    * @param hanjaList whether the scheme's openable candidate list is open: the composing Korean syllable's Hanja, or the Zhuyin list
-   * @param scheme the Engine scheme number whose own key rules are in force, or -1 while English or a local mode takes the keys; Zhuyin and Vietnamese route on rules of their own, see routeZhuyin and routeKorean
+   * @param scheme 当前按自身按键规则处理的引擎方案编号；英文或本地模式接管按键时为 -1。注音、越南语和藏文各有自己的路由规则，见 routeZhuyin 和 routeKorean
    */
   static route(
     key: HardwareKey,
@@ -309,7 +311,7 @@ export class HardwareKeyRouter {
     // resolves nothing, which is why the chord matches on the code, but candidate selection reads
     // the character and a keypad digit does not always carry one.
     key = HardwareKeyRouter.normalizeNumpad(key);
-    if (korean || scheme === SchemeTraits.VIETNAMESE) {
+    if (korean || scheme === SchemeTraits.VIETNAMESE || scheme === SchemeTraits.TIBETAN) {
       return HardwareKeyRouter.routeKorean(
         key,
         composing,
@@ -318,6 +320,7 @@ export class HardwareKeyRouter {
         navigation,
         spelling,
         korean,
+        scheme === SchemeTraits.TIBETAN,
       );
     }
     if (scheme === SchemeTraits.ZHUYIN) {
@@ -580,6 +583,8 @@ export class HardwareKeyRouter {
    *
    * Vietnamese takes the same path with `korean` false: a word composes from its letters in the case they were typed, VNI's mark digits spell while a word is composing (the Engine lists them as spelling symbols), punctuation is ASCII, and every other key ends the word the way it ends a syllable. It has no list, so the Hanja key is not claimed.
    *
+   * 藏文同样走这条路径（`korean` 为 false，`tibetan` 为 true），威利转写的字母按输入时的大小写进入组字。与越南语不同的有三处：引擎列出的拼写符号在没有组字时也是输入（`'` 开头 achung 音节，`/` 单独上屏垂符），所以先于「没有组字就交给应用」判断；组字时空格作为字符交给引擎，由引擎上屏藏文加音节点（Esc 锁定原文后引擎只上屏原文、不处理空格，空格再由键盘插入）；回车发 MSIME_COMMIT_RAW，只上屏藏文、不换行，由引擎吞掉（msime_client.h）。
+   *
    * Letters always compose, in the case the caller normalized them to (Shift gives ㄲ ㄸ ㅃ ㅆ ㅉ ㅒ ㅖ). With nothing composed every other key is the application's, punctuation included: Korean writes it as half-width ASCII, so the application typing the key is exactly right, and fullwidth does not apply. With a syllable open, Backspace takes one jamo back and Escape discards the syllable; a punctuation mark goes through the Engine, which commits the syllable and the mark as one; Space and the other printable keys commit the syllable and are typed after it by the keyboard, so their order against the commit is not left to the editor; and Return, the caret keys, Delete, Tab and the page keys, with or without a modifier, commit the syllable and then do their own work in the application. Any other chord, and a modifier on its own, leaves the syllable open, as it does for every other scheme.
    *
    * The Hanja key (a Korean keyboard's own, or F9 as on the Linux and Android hosts) lists the composing syllable's Hanja and closes the list again; see routeHanjaList for the keys that reach the list while it is open. With nothing composed the Hanja key is the application's like every other key.
@@ -592,12 +597,17 @@ export class HardwareKeyRouter {
     navigation: HardwareNavigationPreferences,
     spelling: HardwareSpelling = PLAIN_SPELLING,
     korean: boolean = true,
+    tibetan: boolean = false,
   ): HardwareKeyDecision {
     const character: number = key.unicodeChar;
     const modified: boolean = key.ctrlKey || key.altKey || key.logoKey;
     const letter: boolean =
       (character >= 0x61 && character <= 0x7a) || (character >= 0x41 && character <= 0x5a);
     if (!modified && letter) {
+      return decision(HardwareKeyAction.COMPOSE, character);
+    }
+    // 藏文空闲时的拼写符号（`'` 和 `/`）也交给引擎，否则 achung 开头的音节打不出来，`/` 也会变成 ASCII 斜杠。
+    if (tibetan && !modified && HardwareKeyRouter.spells(spelling, character)) {
       return decision(HardwareKeyAction.COMPOSE, character);
     }
     if (!composing) {
@@ -626,6 +636,13 @@ export class HardwareKeyRouter {
       }
     }
     if (!modified) {
+      // 藏文组字时空格由引擎上屏藏文加音节点，回车只上屏藏文，两者都由引擎吞掉，不再交给应用。
+      if (tibetan && key.keyCode === KEYCODE_SPACE) {
+        return decision(HardwareKeyAction.PRESS_THEN_TYPE, 0x20);
+      }
+      if (tibetan && (key.keyCode === KEYCODE_ENTER || key.keyCode === KEYCODE_NUMPAD_ENTER)) {
+        return decision(HardwareKeyAction.COMMIT_RAW);
+      }
       if (key.keyCode === KEYCODE_DEL) {
         return decision(HardwareKeyAction.BACKSPACE);
       }

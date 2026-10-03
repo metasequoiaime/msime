@@ -82,7 +82,7 @@ test("full keeps every scheme, the input modes, helper codes and 临时日语", 
   expect(screen.getByText("此平台暂不支持粤拼、注音")).toBeTruthy();
   expect(
     screen.getByText(
-      "切换中文、日文、韩文或越南文输入，并保留各模式上次选择的方案；此平台暂不支持越南文",
+      "切换中文、日文、韩文、越南文或藏文输入，并保留各模式上次选择的方案；此平台暂不支持越南文、藏文",
     ),
   ).toBeTruthy();
   expect(screen.getByRole("region", { name: "辅助码" })).toBeTruthy();
@@ -96,7 +96,18 @@ test("the wubi edition offers no other scheme and always shows the Wubi settings
   await openInputPage(wubiHost, { scheme: "quanpin", last_chinese_scheme: "quanpin" });
 
   // 本版本没有的方案直接不列出，也不说「此平台暂不支持」；只剩一个方案，方案选择和输入模式都不显示。
-  for (const name of ["全拼", "双拼", "五笔", "粤拼", "注音", "中文", "日文", "韩文", "越南文"]) {
+  for (const name of [
+    "全拼",
+    "双拼",
+    "五笔",
+    "粤拼",
+    "注音",
+    "中文",
+    "日文",
+    "韩文",
+    "越南文",
+    "藏文",
+  ]) {
     expect(screen.queryByRole("radio", { name })).toBeNull();
   }
   expect(screen.queryByText(/此平台暂不支持/)).toBeNull();

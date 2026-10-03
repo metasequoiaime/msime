@@ -231,6 +231,7 @@ public final class TypingStatisticsModel {
         slices.add(new Slice("japanese", "日语模式", values.getOrDefault("japanese", 0L)));
         slices.add(new Slice("korean", "韩语模式", values.getOrDefault("korean", 0L)));
         slices.add(new Slice("vietnamese", "越南语模式", values.getOrDefault("vietnamese", 0L)));
+        slices.add(new Slice("tibetan", "藏文模式", values.getOrDefault("tibetan", 0L)));
         slices.add(new Slice("english", "英文模式", values.getOrDefault("english", 0L)));
         slices.add(new Slice("handwriting", "手写输入", values.getOrDefault("handwriting", 0L)));
         slices.add(new Slice("local", "本地输入", values.getOrDefault("local", 0L)));
@@ -302,6 +303,7 @@ public final class TypingStatisticsModel {
         titles.put("cantonese", "粤拼");
         titles.put("zhuyin", "注音");
         titles.put("vietnamese", "越南语");
+        titles.put("tibetan", "藏文");
         titles.put("handwriting", "手写");
         titles.put("english", "英文键盘");
         titles.put("local", "本地输入");

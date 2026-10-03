@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityErrorAlert } from "./community-error-alert";
+import { CommunityPageShell } from "./community-page-shell";
 import * as style from "./community-style";
 
 export interface CommunityDetailFrameProps {
@@ -24,12 +25,12 @@ export function CommunityDetailFrame({
   children,
 }: CommunityDetailFrameProps) {
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunityBackButton disabled={backDisabled} onClick={onBack} ariaLabel={backAriaLabel} />
       {error && (
         <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
       )}
       <section className={`section ${style.detail}`}>{children}</section>
-    </div>
+    </CommunityPageShell>
   );
 }

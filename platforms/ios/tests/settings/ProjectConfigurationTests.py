@@ -117,6 +117,17 @@ class ProjectConfigurationTests(unittest.TestCase):
             self.assertIn("buildPhase: resources", blocks[0])
             self.assertIn(holder, (IOS_ROOT / path).read_text())
 
+    def test_app_ships_the_licences_of_the_vietnamese_and_tibetan_crates(self):
+        # 链接进 App 和键盘扩展的 Engine 编入了越南文方案的 vi crate 和藏文方案的 ewts crate，二者都按 MIT 使用。
+        project = (IOS_ROOT / "project.yml").read_text()
+        app = dict(target_blocks(project))["MSIMEApp"]
+        for licence, holder in (("vi-MIT.txt", "Hung Nguyen"), ("ewts-MIT.txt", "Maxim Zommer")):
+            path = f"../../resources/licenses/{licence}"
+            blocks = source_path_blocks(app, path)
+            self.assertEqual(len(blocks), 1)
+            self.assertIn("buildPhase: resources", blocks[0])
+            self.assertIn(holder, (IOS_ROOT / path).read_text())
+
     def test_app_and_keyboard_share_the_declared_app_group(self):
         expected = "group.app.msime.ios"
         app = (IOS_ROOT / "App/Resources/MSIMEApp.entitlements").read_text()

@@ -1,6 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { GroupList, Row } from "../core/platform-controls";
 import {
@@ -181,7 +182,7 @@ export function ClipboardHistorySection({
           />
         )}
         {((!ios && client?.sync) || (client && entries.length > 0)) && (
-          <div className={settings.managerBlock}>
+          <SettingsManagerBlock>
             <SettingsManagerActions>
               {!ios && client?.sync && (
                 <ActionButton
@@ -216,7 +217,7 @@ export function ClipboardHistorySection({
                 />
               )}
             </SettingsManagerActions>
-          </div>
+          </SettingsManagerBlock>
         )}
       </GroupList>
       {historyEnabled && client?.list && (

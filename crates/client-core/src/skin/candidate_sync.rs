@@ -43,6 +43,27 @@ fn lock_runs() -> MutexGuard<'static, ()> {
 pub trait CandidateSkinSyncRemote {
     /// The signed-in user's id, or `None` when signed out.
     fn user_id(&self) -> Result<Option<String>, AccountError>;
+    /// The generation of the signed-in session, when the remote can bind a run to one.
+    fn session_generation(&self) -> Result<Option<u64>, AccountError> {
+        Ok(None)
+    }
+    /// Hold the account generation stable while applying a local side effect.
+    fn with_session_generation<T, F>(
+        &self,
+        _generation: u64,
+        _user_id: &str,
+        operation: F,
+    ) -> Result<T, AccountError>
+    where
+        F: FnOnce() -> Result<T, AccountError>,
+    {
+        if self.user_id()?.as_deref() != Some(_user_id)
+            || self.session_generation()? != Some(_generation)
+        {
+            return Err(AccountError::Cancelled);
+        }
+        operation()
+    }
     fn sync_list(&self) -> Result<Vec<CandidateSkinSyncEntry>, AccountError>;
     fn detail(&self, id: Uuid) -> Result<CandidateSkinItem, AccountError>;
     fn publish(
@@ -75,6 +96,22 @@ where
 {
     fn user_id(&self) -> Result<Option<String>, AccountError> {
         BackendCandidateSkinCommunityService::user_id(self)
+    }
+    fn session_generation(&self) -> Result<Option<u64>, AccountError> {
+        BackendCandidateSkinCommunityService::session_generation(self)
+    }
+    fn with_session_generation<T, F>(
+        &self,
+        generation: u64,
+        user_id: &str,
+        operation: F,
+    ) -> Result<T, AccountError>
+    where
+        F: FnOnce() -> Result<T, AccountError>,
+    {
+        BackendCandidateSkinCommunityService::with_session_generation(
+            self, generation, user_id, operation,
+        )
     }
     fn sync_list(&self) -> Result<Vec<CandidateSkinSyncEntry>, AccountError> {
         BackendCandidateSkinCommunityService::sync_list(self)
@@ -115,6 +152,40 @@ where
     fn unpublish(&self, id: Uuid) -> Result<(), AccountError> {
         BackendCandidateSkinCommunityService::unpublish(self, id)
     }
+}
+
+fn ensure_session<R: CandidateSkinSyncRemote>(
+    remote: &R,
+    user_id: &str,
+    generation: Option<u64>,
+) -> Result<(), AccountError> {
+    let Some(expected_generation) = generation else {
+        return Ok(());
+    };
+    let current_user = remote.user_id()?.ok_or(AccountError::Cancelled)?;
+    let current_generation = remote
+        .session_generation()?
+        .ok_or(AccountError::Cancelled)?;
+    if current_user != user_id || current_generation != expected_generation {
+        return Err(AccountError::Cancelled);
+    }
+    Ok(())
+}
+
+fn with_session_effect<R, T, F>(
+    remote: &R,
+    user_id: &str,
+    generation: Option<u64>,
+    operation: F,
+) -> Result<T, AccountError>
+where
+    R: CandidateSkinSyncRemote,
+    F: FnOnce() -> Result<T, AccountError>,
+{
+    let Some(generation) = generation else {
+        return operation();
+    };
+    remote.with_session_generation(generation, user_id, operation)
 }
 
 /// A package the run left as it was, and why: a `candidate_skin_*` rule code for a package the sharing rules refuse, or an `account_*` code for a request that failed.
@@ -234,12 +305,16 @@ fn local_packages(root: &Path) -> std::io::Result<BTreeSet<String>> {
 }
 
 /// Record that `package_id` was just installed from the gallery publication `publication`. A later run leaves the package alone unless that publication is one of the user's own, and compares it afresh if it is, since the install replaced whatever was synced before.
-pub fn record_install(state_path: &Path, package_id: &str, publication: Uuid) {
+pub fn record_install(
+    state_path: &Path,
+    package_id: &str,
+    publication: Uuid,
+) -> Result<(), &'static str> {
     let _run = lock_runs();
     let mut state = load_state(state_path);
     state.packages.remove(package_id);
     state.installed.insert(package_id.to_owned(), publication);
-    let _ = save_state(state_path, &state);
+    save_state(state_path, &state)
 }
 
 /// Take the publication `publication` out of the library and forget the row it was synced with. The local folder is then uploaded again as a new private package by the next run rather than deleted to match. Both happen under the run lock: a run that listed the library between the two would find the row gone while its state still named it, and delete the local folder.
@@ -254,7 +329,7 @@ pub fn unpublish(
     state
         .packages
         .retain(|_, synced| synced.cloud_id != publication);
-    let _ = save_state(state_path, &state);
+    save_state(state_path, &state).map_err(|_| AccountError::Storage)?;
     Ok(())
 }
 
@@ -301,23 +376,31 @@ pub fn publish(
         .ok_or(CandidateSkinPublishError::Account(
             AccountError::Unauthorized,
         ))?;
+    let generation = remote
+        .session_generation()
+        .map_err(CandidateSkinPublishError::Account)?;
+    ensure_session(remote, &user, generation).map_err(CandidateSkinPublishError::Account)?;
     let mut state = load_state(state_path);
     if state.user_id != user {
-        state.user_id = user;
+        state.user_id = user.clone();
         state.packages.clear();
     }
     // A package sync has not recorded yet may still have a row, from another device or a run that has not finished; updating that row keeps the library at one row per package.
     let existing = match state.packages.get(package_id) {
         Some(synced) => Some(synced.cloud_id),
-        None => match remote.sync_list() {
-            Ok(rows) => rows
-                .into_iter()
-                .find(|row| row.package_id == package_id)
-                .map(|row| row.id),
-            // A server that predates the library has no listing, and every package there is a new publication.
-            Err(AccountError::NotFound) => None,
-            Err(error) => return Err(CandidateSkinPublishError::Account(error)),
-        },
+        None => {
+            ensure_session(remote, &user, generation)
+                .map_err(CandidateSkinPublishError::Account)?;
+            match remote.sync_list() {
+                Ok(rows) => rows
+                    .into_iter()
+                    .find(|row| row.package_id == package_id)
+                    .map(|row| row.id),
+                // A server that predates the library has no listing, and every package there is a new publication.
+                Err(AccountError::NotFound) => None,
+                Err(error) => return Err(CandidateSkinPublishError::Account(error)),
+            }
+        }
     };
     let item = match existing {
         Some(id) => match update_in_place(
@@ -328,6 +411,8 @@ pub fn publish(
             &packed,
             visibility,
             category,
+            &user,
+            generation,
         ) {
             Err(AccountError::NotFound) => None,
             result => Some(result.map_err(CandidateSkinPublishError::Account)?),
@@ -336,30 +421,42 @@ pub fn publish(
     };
     let item = match item {
         Some(item) => item,
-        None => remote
-            .publish(&CandidateSkinPublishRequest::new(
-                publication,
-                name,
-                description,
-                packed,
-                visibility,
-                category,
-            ))
-            .map_err(CandidateSkinPublishError::Account)?,
+        None => {
+            ensure_session(remote, &user, generation)
+                .map_err(CandidateSkinPublishError::Account)?;
+            let item = remote
+                .publish(&CandidateSkinPublishRequest::new(
+                    publication,
+                    name,
+                    description,
+                    packed,
+                    visibility,
+                    category,
+                ))
+                .map_err(CandidateSkinPublishError::Account)?;
+            ensure_session(remote, &user, generation)
+                .map_err(CandidateSkinPublishError::Account)?;
+            item
+        }
     };
-    state.installed.remove(package_id);
-    state.packages.insert(
-        package_id.to_owned(),
-        SyncedPackage {
-            cloud_id: item.id,
-            cloud_digest,
-            local_digest,
-        },
-    );
-    let _ = save_state(state_path, &state);
+    with_session_effect(remote, &user, generation, || {
+        state.installed.remove(package_id);
+        state.packages.insert(
+            package_id.to_owned(),
+            SyncedPackage {
+                cloud_id: item.id,
+                cloud_digest,
+                local_digest,
+            },
+        );
+        let _ = save_state(state_path, &state);
+        Ok(())
+    })
+    .map_err(CandidateSkinPublishError::Account)?;
     Ok(item)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_in_place(
     remote: &impl CandidateSkinSyncRemote,
     id: Uuid,
@@ -368,8 +465,11 @@ fn update_in_place(
     packed: &PackedSkin,
     visibility: CandidateSkinVisibility,
     category: Option<CandidateSkinCategory>,
+    user_id: &str,
+    generation: Option<u64>,
 ) -> Result<CandidateSkinItem, AccountError> {
     // A private package may carry no license, so the content goes up before the row is made public, and the server's license check sees the new content.
+    ensure_session(remote, user_id, generation)?;
     let item = remote.replace(
         id,
         &CandidateSkinReplaceRequest {
@@ -379,14 +479,21 @@ fn update_in_place(
             files: packed.files.clone(),
         },
     )?;
+    ensure_session(remote, user_id, generation)?;
     let item = if item.visibility == visibility {
         item
     } else {
+        ensure_session(remote, user_id, generation)?;
         remote.set_visibility(id, visibility)?
     };
     // 分类不在替换请求里，同步按私有方式存入库中的行由这次发布补上分类。
     match category {
-        Some(category) if item.category != Some(category) => remote.set_category(id, category),
+        Some(category) if item.category != Some(category) => {
+            ensure_session(remote, user_id, generation)?;
+            let item = remote.set_category(id, category)?;
+            ensure_session(remote, user_id, generation)?;
+            Ok(item)
+        }
         _ => Ok(item),
     }
 }
@@ -404,9 +511,10 @@ pub fn sync_candidate_skins(
         return Err(AccountError::Storage);
     }
     let user = remote.user_id()?.ok_or(AccountError::Unauthorized)?;
+    let generation = remote.session_generation()?;
     let mut state = load_state(state_path);
     if state.user_id != user {
-        state.user_id = user;
+        state.user_id = user.clone();
         state.packages.clear();
     }
     let rows = remote.sync_list()?;
@@ -432,14 +540,20 @@ pub fn sync_candidate_skins(
         root,
         state_path,
         remote,
+        user_id: user,
+        generation,
         state,
         owned,
         report: CandidateSkinSyncReport::default(),
     };
+    run.ensure_session()?;
     for id in &ids {
         run.package(id, local.contains(id), newest.get(id))?;
     }
-    let _ = save_state(state_path, &run.state);
+    run.with_local_effect(|run| {
+        let _ = save_state(run.state_path, &run.state);
+        Ok(())
+    })?;
     Ok(run.report)
 }
 
@@ -447,6 +561,8 @@ struct Run<'a, R: CandidateSkinSyncRemote> {
     root: &'a Path,
     state_path: &'a Path,
     remote: &'a R,
+    user_id: String,
+    generation: Option<u64>,
     state: SyncState,
     /// Every row the user owns, so a gallery install can be told apart from someone else's.
     owned: BTreeSet<Uuid>,
@@ -468,6 +584,19 @@ enum Request {
 }
 
 impl<R: CandidateSkinSyncRemote> Run<'_, R> {
+    fn ensure_session(&self) -> Result<(), AccountError> {
+        ensure_session(self.remote, &self.user_id, self.generation)
+    }
+
+    fn with_local_effect<T, F>(&mut self, operation: F) -> Result<T, AccountError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, AccountError>,
+    {
+        let remote = self.remote;
+        let user_id = self.user_id.clone();
+        with_session_effect(remote, &user_id, self.generation, || operation(self))
+    }
+
     fn skip(&mut self, package_id: &str, code: &'static str) {
         self.report.skipped.push(CandidateSkinSyncSkip {
             package_id: package_id.to_owned(),
@@ -509,6 +638,19 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         cloud_id: Uuid,
         cloud_digest: String,
         local_digest: String,
+    ) -> Result<(), AccountError> {
+        self.with_local_effect(|run| {
+            run.record_unchecked(package_id, cloud_id, cloud_digest, local_digest);
+            Ok(())
+        })
+    }
+
+    fn record_unchecked(
+        &mut self,
+        package_id: &str,
+        cloud_id: Uuid,
+        cloud_digest: String,
+        local_digest: String,
     ) {
         self.state.packages.insert(
             package_id.to_owned(),
@@ -527,6 +669,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         present: bool,
         cloud: Option<&CandidateSkinSyncEntry>,
     ) -> Result<(), AccountError> {
+        self.ensure_session()?;
         if !present {
             self.state.installed.remove(id);
         }
@@ -569,8 +712,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
             (Some(local), None, None) => self.create(id, local),
             (Some(local), None, Some(saved)) => {
                 if local.digest == saved.local_digest {
-                    self.delete_local(id);
-                    Ok(())
+                    self.delete_local(id)
                 } else {
                     self.create(id, local)
                 }
@@ -633,7 +775,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         };
         match self.remote.publish(&request) {
             Ok(item) => {
-                self.record(id, item.id, cloud_digest, digest);
+                self.record(id, item.id, cloud_digest, digest)?;
                 self.report.uploaded.push(id.to_owned());
                 Ok(())
             }
@@ -659,7 +801,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
             &local.packed.files,
         ) {
             Ok(digest) if digest == row.request_sha256 => {
-                self.record(id, row.id, digest, local.digest);
+                self.record(id, row.id, digest, local.digest)?;
                 Ok(())
             }
             Ok(_) => self.put(id, local, row, item),
@@ -723,7 +865,7 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
         };
         match self.remote.replace(row.id, &request) {
             Ok(_) => {
-                self.record(id, row.id, cloud_digest, local.digest);
+                self.record(id, row.id, cloud_digest, local.digest)?;
                 self.report.uploaded.push(id.to_owned());
                 Ok(())
             }
@@ -741,54 +883,64 @@ impl<R: CandidateSkinSyncRemote> Run<'_, R> {
             return Ok(());
         }
         // The server re-encodes images, so the local digest is taken from the bytes actually installed.
-        let installed = candidate_community::install(self.root, &package, true)
-            .and_then(|_| content_digest(&package.manifest, &package.files));
-        match installed {
-            Ok(local_digest) => {
-                self.state.installed.remove(id);
-                self.record(id, row.id, row.request_sha256.clone(), local_digest);
-                self.report.downloaded.push(id.to_owned());
+        let installed = self.with_local_effect(|run| {
+            match candidate_community::install(run.root, &package, true)
+                .and_then(|_| content_digest(&package.manifest, &package.files))
+            {
+                Ok(local_digest) => {
+                    run.state.installed.remove(id);
+                    run.record_unchecked(id, row.id, row.request_sha256.clone(), local_digest);
+                    run.report.downloaded.push(id.to_owned());
+                    Ok(())
+                }
+                Err(code) => {
+                    run.skip(id, code);
+                    Ok(())
+                }
             }
-            Err(code) => self.skip(id, code),
-        }
+        });
+        installed?;
         Ok(())
     }
 
     /// Remove a local package whose library row is gone. It is first renamed out of the catalog's sight, so a failure part-way never leaves a half-deleted skin listed.
-    fn delete_local(&mut self, id: &str) {
-        let removed = {
-            let _writes = super::folder_import::lock_skin_root();
-            let aside = self.root.join(format!(".removed-{id}"));
-            let _ = remove_entry(&aside);
-            if fs::rename(self.root.join(id), &aside).is_err() {
-                false
-            } else {
-                match remove_entry(&aside) {
-                    Ok(()) => true,
-                    Err(_) => {
-                        let _ = fs::rename(&aside, self.root.join(id));
-                        false
+    fn delete_local(&mut self, id: &str) -> Result<(), AccountError> {
+        self.with_local_effect(|run| {
+            let removed = {
+                let _writes = super::folder_import::lock_skin_root();
+                let aside = run.root.join(format!(".removed-{id}"));
+                let _ = remove_entry(&aside);
+                if fs::rename(run.root.join(id), &aside).is_err() {
+                    false
+                } else {
+                    match remove_entry(&aside) {
+                        Ok(()) => true,
+                        Err(_) => {
+                            let _ = fs::rename(&aside, run.root.join(id));
+                            false
+                        }
                     }
                 }
+            };
+            if removed {
+                run.state.packages.remove(id);
+                let _ = save_state(run.state_path, &run.state);
+                run.report.deleted_local.push(id.to_owned());
+            } else {
+                run.skip(id, STORAGE);
             }
-        };
-        if removed {
-            self.state.packages.remove(id);
-            let _ = save_state(self.state_path, &self.state);
-            self.report.deleted_local.push(id.to_owned());
-        } else {
-            self.skip(id, STORAGE);
-        }
+            Ok(())
+        })
     }
 
     fn delete_cloud(&mut self, id: &str, row: &CandidateSkinSyncEntry) -> Result<(), AccountError> {
         match self.remote.unpublish(row.id) {
-            Ok(()) | Err(AccountError::NotFound) => {
-                self.state.packages.remove(id);
-                let _ = save_state(self.state_path, &self.state);
-                self.report.deleted_cloud.push(id.to_owned());
+            Ok(()) | Err(AccountError::NotFound) => self.with_local_effect(|run| {
+                run.state.packages.remove(id);
+                let _ = save_state(run.state_path, &run.state);
+                run.report.deleted_cloud.push(id.to_owned());
                 Ok(())
-            }
+            }),
             Err(error) => self.fail(id, error, Request::Other),
         }
     }

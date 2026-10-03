@@ -39,7 +39,7 @@ enum ToolbarButton {
 // rather than a guessed state, which would tell the user the wrong thing.
 // Extra state the language button reflects beyond Chinese/English.
 //
-// The shipped toolbar renders these distinct things there: 'A' while Caps Lock is on, 日 in Japanese input mode, 한 in Korean input mode, 粤 in Cantonese, 注 in Zhuyin, 越 in Vietnamese, and 中/英 otherwise. Showing 中 while Caps Lock is on tells the user the wrong thing about what the next key will do.
+// 出厂工具栏在这里显示这些不同的状态：Caps Lock 开着时是 'A'，日文模式是 日，韩文模式是 한，粤拼是 粤，注音是 注，越南文是 越，藏文是 藏，其余是 中/英。 Showing 中 while Caps Lock is on tells the user the wrong thing about what the next key will do.
 struct ToolbarLanguageState {
   bool caps_lock = false;
   // The configured scheme's family, as the TIP is told it.
@@ -76,6 +76,8 @@ inline ToolbarIcon toolbar_icon(int button, std::optional<bool> state,
       return {0, L"注"};
     case scheme::InputMode::Vietnamese:
       return {0, L"越"};
+    case scheme::InputMode::Tibetan:
+      return {0, L"藏"};
     case scheme::InputMode::Chinese:
       break;
     }

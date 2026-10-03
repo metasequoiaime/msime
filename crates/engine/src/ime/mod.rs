@@ -302,6 +302,36 @@ impl ImeSession {
         }
     }
 
+    /// 藏文音节串的第一次 Esc：显示切换为威利原文。其他方案、没有组字或原文已在显示时返回 false，由调用方取消组字。
+    pub fn restore_tibetan_raw(&mut self) -> bool {
+        let Scheme::Tibetan(tibetan) = &mut self.scheme else {
+            return false;
+        };
+        if !tibetan.restore_raw() {
+            return false;
+        }
+        self.refresh_candidates();
+        true
+    }
+
+    /// 藏文组字已被 Esc 锁定为原文：此时它只是拉丁字母，结束键不再附加音节点或垂符。其他方案为 false。
+    pub fn tibetan_raw_locked(&self) -> bool {
+        matches!(&self.scheme, Scheme::Tibetan(tibetan) if tibetan.raw_locked())
+    }
+
+    /// 藏文当前状态下这个字母是否进入威利原文（威利读不了的字母不接收，由会话原样写出）；其他方案为 false。
+    pub fn tibetan_claims_letter(&self, letter: u8) -> bool {
+        matches!(&self.scheme, Scheme::Tibetan(tibetan) if tibetan.claims_letter(letter))
+    }
+
+    /// 藏文当前状态下要作为字符交给会话的非字母键（拼写符号和 `/`）；其他方案为空。
+    pub fn tibetan_spelling_symbols(&self) -> &'static str {
+        match &self.scheme {
+            Scheme::Tibetan(tibetan) => tibetan.spelling_symbols(),
+            _ => "",
+        }
+    }
+
     /// Takes the letters a selected Cantonese row covers out of the composition and answers what is left; returns whether letters are left composing.
     pub fn select_cantonese(&mut self, item: &WordItem) -> bool {
         let composing = self.scheme.select_cantonese(item);

@@ -62,6 +62,11 @@ public final class KeyboardLayout {
         return layer == Layer.SYMBOLS ? SYMBOL_ROWS : LETTER_ROWS;
     }
 
+    /** 符号页按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）照常作为字符交给 Engine；符号面板会先上屏组字，不能用来叠写。其他方案原样发出。 */
+    public static String symbolRowKey(String key, boolean tibetan) {
+        return tibetan && "=".equals(key) ? "+" : key;
+    }
+
     /** The rows a surface draws: the Dachen letter layer has four rows of its own, every other surface the shared ones. */
     public static List<List<String>> rows(Layer layer, int touchLayout) {
         if (layer == Layer.LETTERS && touchLayout == ZHUYIN_LAYOUT) return ZhuyinKeyboardLayout.rows();

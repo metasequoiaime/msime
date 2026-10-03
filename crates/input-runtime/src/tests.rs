@@ -5107,6 +5107,186 @@ fn vietnamese_uppercase_comes_through() {
     assert_eq!(space.commit.as_deref(), Some("Việt"));
 }
 
+const TIBETAN_SCHEME: u8 = 8;
+
+/// 藏文方案上已获得焦点的真实 Engine。
+fn tibetan_runtime(directory: &std::path::Path) -> Runtime {
+    let mut options = real_engine_options(directory);
+    options.scheme = TIBETAN_SCHEME;
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+}
+
+/// 把 `keys` 当作普通字符逐个输入，大写字母不带 Shift（威利转写的大写是拼写），每个键都只组字、不上屏。
+fn compose_tibetan(runtime: &mut Runtime, keys: &str) -> Transition {
+    let mut last = None;
+    for value in keys.bytes() {
+        let transition = runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+        assert!(
+            transition.handled && transition.commit.is_none(),
+            "{keys}: {}",
+            value as char
+        );
+        last = Some(transition);
+    }
+    last.unwrap()
+}
+
+/// 威利原文组字时显示转换后的藏文、没有候选；空格键上屏藏文加音节点并吞掉空格，`/` 上屏藏文加垂符，空闲时 `/` 单独上屏垂符。方案不是中文：不做繁简转换，宿主也没有智能标点可用。
+#[test]
+fn a_tibetan_syllable_commits_with_its_tsheg_and_shad() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = tibetan_runtime(directory.path());
+    assert!(!runtime.punctuation_host_context_available(false));
+    assert_eq!(runtime.view().spelling_symbols, "'/");
+
+    let typed = compose_tibetan(&mut runtime, "bkra");
+    assert_eq!(typed.view.scheme, TIBETAN_SCHEME);
+    assert_eq!(typed.view.editing_text, "བཀྲ");
+    assert!(typed.view.candidates.is_empty());
+    assert!(!typed.view.candidate_list_open);
+    assert!(!typed.view.chinese_text);
+    assert!(!typed.view.script_conversion);
+    assert_eq!(typed.view.spelling_symbols, "'+-./");
+    assert!(runtime.online_query().unwrap().is_none());
+
+    // 空格键（宿主的确认命令）上屏音节和音节点，空格本身被吞掉。
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("བཀྲ་"));
+    let context = space.commit_context.unwrap();
+    assert_eq!(context.scheme, TIBETAN_SCHEME);
+    assert!(!context.script_conversion);
+    assert_eq!(space.view.editing_text, "");
+
+    // 作为字符送来的空格也一样。
+    compose_tibetan(&mut runtime, "bkra");
+    let space = character(&mut runtime, b' ');
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("བཀྲ་"));
+
+    // 无论宿主走字符、标点还是 ASCII 标点路由，`/` 都交给 Engine 上屏垂符。
+    compose_tibetan(&mut runtime, "shis");
+    let shad = character(&mut runtime, b'/');
+    assert!(shad.handled);
+    assert_eq!(shad.commit.as_deref(), Some("ཤིས།"));
+    compose_tibetan(&mut runtime, "shis");
+    let shad = runtime.dispatch(Action::Punctuation(b'/')).unwrap();
+    assert_eq!(shad.commit.as_deref(), Some("ཤིས།"));
+    compose_tibetan(&mut runtime, "shis");
+    let shad = runtime.dispatch(Action::PunctuationAscii(b'/')).unwrap();
+    assert_eq!(shad.commit.as_deref(), Some("ཤིས།"));
+    for action in [
+        Action::Character {
+            value: b'/',
+            shift: false,
+        },
+        Action::Punctuation(b'/'),
+        Action::PunctuationAscii(b'/'),
+    ] {
+        let alone = runtime.dispatch(action).unwrap();
+        assert!(alone.handled);
+        assert_eq!(alone.commit.as_deref(), Some("།"));
+        assert_eq!(alone.view.local_mode, "none");
+    }
+
+    // 其他标点先上屏藏文，再跟半角标点；空闲时交回宿主。
+    compose_tibetan(&mut runtime, "ka");
+    let comma = runtime.dispatch(Action::Punctuation(b',')).unwrap();
+    assert_eq!(comma.commit.as_deref(), Some("ཀ,"));
+    let idle = runtime.dispatch(Action::Punctuation(b',')).unwrap();
+    assert!(!idle.handled && idle.commit.is_none());
+
+    // 回车只上屏藏文，不加音节点。
+    compose_tibetan(&mut runtime, "ka");
+    let enter = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert!(enter.handled);
+    assert_eq!(enter.commit.as_deref(), Some("ཀ"));
+}
+
+/// 拼写符号在组字时是输入：`+` 叠写、`.` 消歧、`'` 小阿、`-` 分隔都进入原文；大写字母不论 Caps Lock 还是 Shift 都是拼写。
+#[test]
+fn tibetan_spelling_symbols_and_capitals_compose() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = tibetan_runtime(directory.path());
+
+    let stacked = compose_tibetan(&mut runtime, "pad+ma");
+    assert_eq!(stacked.view.editing_text, "པདྨ");
+    runtime.dispatch(Action::SelectHighlighted).unwrap();
+
+    let disambiguated = compose_tibetan(&mut runtime, "g.yag");
+    assert_eq!(disambiguated.view.editing_text, "གཡག");
+    runtime.dispatch(Action::SelectHighlighted).unwrap();
+
+    // 空闲时 `'` 也是拼写符号，用来打以小阿开头的音节。
+    let achung = compose_tibetan(&mut runtime, "'od");
+    assert_eq!(achung.view.editing_text, "འོད");
+    runtime.dispatch(Action::SelectHighlighted).unwrap();
+
+    let retroflex = compose_tibetan(&mut runtime, "Ta");
+    assert_eq!(retroflex.view.editing_text, "ཊ");
+    runtime.dispatch(Action::SelectHighlighted).unwrap();
+    let shifted = runtime
+        .dispatch(Action::Character {
+            value: b'D',
+            shift: true,
+        })
+        .unwrap();
+    assert!(shifted.handled && shifted.commit.is_none());
+    let vowel = compose_tibetan(&mut runtime, "a");
+    assert_eq!(vowel.view.editing_text, "ཌ");
+
+    // 数字结束组字并交回宿主，不转成藏文数字。
+    let digit = character(&mut runtime, b'1');
+    assert!(!digit.handled);
+    assert_eq!(digit.commit.as_deref(), Some("ཌ"));
+    let idle = character(&mut runtime, b'1');
+    assert!(!idle.handled && idle.commit.is_none());
+}
+
+/// 退格删一个威利原文按键；离开客户端时按显示上屏；第一次 Esc 显示回原文并继续组字，第二次丢弃组字。
+#[test]
+fn tibetan_backspace_blur_and_escape() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = tibetan_runtime(directory.path());
+
+    compose_tibetan(&mut runtime, "sangs");
+    let backspace = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(backspace.handled && backspace.commit.is_none());
+    assert_eq!(backspace.view.editing_text, "སང");
+
+    let left = runtime.focus(false).unwrap();
+    assert_eq!(left.commit.as_deref(), Some("སང"));
+    assert_eq!(left.view.editing_text, "");
+    runtime.focus(true).unwrap();
+
+    // 接入新客户端时丢弃上一个客户端里没打完的音节。
+    compose_tibetan(&mut runtime, "bkra");
+    let attached = runtime.focus(true).unwrap();
+    assert!(attached.commit.is_none());
+    assert_eq!(attached.view.editing_text, "");
+
+    compose_tibetan(&mut runtime, "bkra");
+    let restored = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(restored.handled && restored.commit.is_none());
+    assert_eq!(restored.view.editing_text, "bkra");
+    let cancelled = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(cancelled.handled && cancelled.commit.is_none());
+    assert_eq!(cancelled.view.editing_text, "");
+    assert_eq!(runtime.view().editing_text, "");
+}
+
 const CANTONESE_SCHEME: u8 = 5;
 
 /// A `cantonese.db` with a few Jyutping rows, written with the shipped schema.

@@ -168,6 +168,7 @@ impl Edition {
             TouchKeyboardScheme::Cantonese => InputScheme::Cantonese,
             TouchKeyboardScheme::Zhuyin => InputScheme::Zhuyin,
             TouchKeyboardScheme::Vietnamese => InputScheme::Vietnamese,
+            TouchKeyboardScheme::Tibetan => InputScheme::Tibetan,
         };
         self.offers(input)
     }

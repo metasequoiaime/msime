@@ -1245,9 +1245,16 @@ export {
   type CommunityGalleryLoadMoreProps,
 } from "./community/community-gallery-load-more";
 export {
+  CommunityGalleryGrid,
+  type CommunityGalleryGridProps,
+} from "./community/community-gallery-grid";
+export { CommunityPageShell, type CommunityPageShellProps } from "./community/community-page-shell";
+export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,
 } from "./community/community-card-author";
+export { CommunityMetrics, type CommunityMetricsProps } from "./community/community-metrics";
+export { CommunityCard, type CommunityCardProps } from "./community/community-card";
 export {
   CommunitySkinPublicationFields,
   type CommunitySkinPublicationFieldsProps,
@@ -1268,6 +1275,23 @@ export {
   SettingsManagerActions,
   type SettingsManagerActionsProps,
 } from "./settings/settings-manager-actions";
+export {
+  SettingsManagerBlock,
+  type SettingsManagerBlockProps,
+} from "./settings/settings-manager-block";
+export {
+  SettingsPreviewBlock,
+  type SettingsPreviewBlockProps,
+} from "./settings/settings-preview-block";
+export { SettingsServiceRow, type SettingsServiceRowProps } from "./settings/settings-service-row";
+export { SettingsPhraseForm, type SettingsPhraseFormProps } from "./settings/settings-phrase-form";
+export {
+  SettingsShortcutKey,
+  type SettingsShortcutKeyProps,
+} from "./settings/settings-shortcut-key";
+export { SkinCardHeader, type SkinCardHeaderProps } from "./skin/skin-card-header";
+export { SkinPreviewStage, type SkinPreviewStageProps } from "./skin/skin-preview-stage";
+export { SkinPreviewSurface, type SkinPreviewSurfaceProps } from "./skin/skin-preview-surface";
 export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
@@ -1490,8 +1514,9 @@ export type InputScheme =
   | "korean"
   | "cantonese"
   | "zhuyin"
-  | "vietnamese";
-/** Mirrors `client-core::preferences::ChineseScheme`: the schemes a Japanese, Korean or Vietnamese selection returns to. */
+  | "vietnamese"
+  | "tibetan";
+/** 对应 `client-core::preferences::ChineseScheme`：选日文、韩文、越南文或藏文后要回到的中文方案。 */
 export type ChineseScheme = "quanpin" | "shuangpin" | "wubi" | "cantonese" | "zhuyin";
 /** Mirrors `client-core::preferences::VietnamesePreferences`. Absent from a document left at its defaults: Telex with modern tone placement. */
 export type VietnamesePreferences = {

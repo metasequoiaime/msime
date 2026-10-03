@@ -73,7 +73,11 @@ final class KeyboardCloudClipboard {
     if case .disabled = state { return true }
     return false
   }
-  var canUpload: Bool { active && signedIn && !isDisabled && !uploading }
+  var canUpload: Bool {
+    guard active && signedIn && !uploading && fieldAllowsCloud() else { return false }
+    if case .loaded = state { return true }
+    return false
+  }
   var message: String {
     switch state {
     case .needsFullAccess: return Self.needsFullAccessMessage

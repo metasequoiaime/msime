@@ -37,9 +37,10 @@ const inputModeLabels: Record<InputMode, string> = {
   japanese: "日文",
   korean: "韩文",
   vietnamese: "越南文",
+  tibetan: "藏文",
 };
 
-/** 把模式名连成「中文、日文、韩文或越南文」。 */
+/** 把模式名连成「中文、日文、韩文、越南文或藏文」。 */
 function joinModes(modes: readonly InputMode[]): string {
   const labels = modes.map((mode) => inputModeLabels[mode]);
   return labels.length > 1
@@ -47,7 +48,7 @@ function joinModes(modes: readonly InputMode[]): string {
     : (labels[0] ?? "");
 }
 
-/** Chinese/Japanese/Korean/Vietnamese input mode selector with remembered Chinese scheme: the first row of the 方案 group. */
+/** 中文、日文、韩文、越南文、藏文输入模式选择器，记住上次的中文方案：「方案」分组的第一行。 */
 export function InputModeSection({
   scheme,
   lastChineseScheme,

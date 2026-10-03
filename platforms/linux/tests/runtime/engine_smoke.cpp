@@ -3876,7 +3876,7 @@ int main(int argc, char **argv) {
     }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
-    // Zhuyin and Vietnamese, each on an engine of its own so nothing above depends on what they leave behind. The injected options are the authority, so a scheme picked from the menu takes effect at once rather than through the store.
+    // 注音、越南文和藏文跑在单独的引擎上，上面的用例不受它们留下的状态影响。注入的选项是权威来源，所以从菜单选的方案立即生效，而不是经由偏好存储。
     {
       const auto dictionaries = root / "language-dictionaries";
       std::filesystem::create_directory(dictionaries);
@@ -3995,6 +3995,84 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(key('a') && seen.preedit == "a" && seen.committed == before,
               "The Vietnamese word survived the focus change");
+      invoke("Reset");
+      // 藏文：威利原文在 COMMIT 模式下内嵌显示为转换后的藏文，从不打开列表。空格带音节点上屏、斜杠带垂符上屏，两者都被吞掉；回车只上屏藏文，同样被吞掉。
+      require(offered("Scheme/Tibetan"), "The scheme menu did not offer Tibetan");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Tibetan", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Tibetan") && !checked("Scheme/Vietnamese") &&
+                                      !checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Tibetan");
+      before = seen.committed;
+      require(!key('1') && seen.committed == before, "An idle digit was not left to the application in Tibetan");
+      for (char c : std::string("bkra"))
+        require(key(c), "A Wylie letter was not consumed");
+      require(seen.preedit == "བཀྲ" && seen.preedit_visible && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT &&
+                  seen.committed == before,
+              "Wylie did not compose བཀྲ inline");
+      settle_lookup();
+      require(!seen.lookup_visible, "Tibetan opened a candidate list");
+      require(key(IBUS_space) && seen.committed == before + "བཀྲ་" && !seen.preedit_visible,
+              "Space did not commit the Tibetan syllable with a tsheg and keep the key");
+      for (char c : std::string("shis"))
+        require(key(c), "A Wylie letter was not consumed");
+      require(key(IBUS_slash) && seen.committed == before + "བཀྲ་ཤིས།" && !seen.preedit_visible,
+              "The slash did not commit the Tibetan syllable with a shad");
+      require(key(IBUS_slash) && seen.committed == before + "བཀྲ་ཤིས།།", "An idle slash did not write a shad");
+      // 撇号在空闲时也是拼写（achung 开头的音节），加号是叠写；带 Shift 或 CapsLock 的大写字母是另一个字母，不交给应用。
+      before = seen.committed;
+      require(key(IBUS_apostrophe) && key('o') && key('d') && seen.preedit == "འོད" && seen.committed == before,
+              "An apostrophe did not start an achung syllable");
+      require(key(IBUS_Return) && seen.committed == before + "འོད" && !seen.preedit_visible,
+              "Return did not commit the Tibetan syllable without a tsheg and keep the key");
+      before = seen.committed;
+      require(key('p') && key('a') && key('d') && key(IBUS_plus, IBUS_SHIFT_MASK) && key('m') && key('a') &&
+                  seen.preedit == "པདྨ" && seen.committed == before,
+              "The plus did not stack the Wylie letters");
+      require(key(IBUS_Return) && seen.committed == before + "པདྨ", "Return did not commit the stacked syllable");
+      before = seen.committed;
+      require(key('T', IBUS_SHIFT_MASK) && key('a') && seen.preedit == "ཊ" && seen.committed == before,
+              "Shift did not type the uppercase Wylie letter");
+      require(key(IBUS_Return) && seen.committed == before + "ཊ", "Return did not commit the retroflex letter");
+      before = seen.committed;
+      require(key('D', IBUS_LOCK_MASK) && key('a', IBUS_LOCK_MASK) && seen.preedit == "ཌ" && seen.committed == before,
+              "Caps Lock did not start a Tibetan syllable with the uppercase Wylie letter");
+      require(key(IBUS_Return) && seen.committed == before + "ཌ", "Return did not commit the Caps Lock syllable");
+      // 第一次 Esc 把显示退回威利原文，Backspace 删一个原文按键，第二次 Esc 丢弃组字。
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ" && key(IBUS_Escape) && seen.preedit == "ka" &&
+                  seen.committed == before,
+              "Escape did not restore the raw Wylie");
+      require(key(IBUS_Escape) && !seen.preedit_visible && seen.committed == before,
+              "A second Escape did not discard the Tibetan composition");
+      require(key('k') && key('a') && key(IBUS_BackSpace) && seen.preedit == "ཀ" && seen.committed == before,
+              "Backspace did not take back one Wylie key");
+      require(key(IBUS_Escape) && key(IBUS_Escape) && !seen.preedit_visible, "The Tibetan composition was not discarded");
+      // 其他标点跟在藏文后面写成 ASCII，全角输出打开时也一样；空闲的标点和空格都交给应用，不变全角。
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_CHECKED));
+      require(wait_until([&] { return seen.character_width; }), "Fullwidth output was not turned on");
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ", "Wylie did not compose before the comma");
+      key(IBUS_comma);
+      require(seen.committed == before + "ཀ," && !seen.preedit_visible,
+              "The comma after a Tibetan syllable was not committed as ASCII with it");
+      require(!key(IBUS_comma) && !key(IBUS_space) && seen.committed == before + "ཀ,",
+              "An idle Tibetan comma or space was widened or kept from the application");
+      invoke("PropertyActivate", g_variant_new("(su)", "CharacterMode", PROP_STATE_UNCHECKED));
+      require(wait_until([&] { return !seen.character_width; }), "Fullwidth output was not turned off");
+      // 导航键先把藏文按显示写出去（不带音节点），再交给应用。
+      before = seen.committed;
+      require(key('k') && key('a') && !key(IBUS_Left) && seen.committed == before + "ཀ" && !seen.preedit_visible,
+              "Left did not write the Tibetan syllable out without a tsheg and reach the application");
+      // 离开输入框时组字以 COMMIT 模式交给客户端，宿主自己不上屏，下一个输入框从空开始。
+      before = seen.committed;
+      require(key('k') && key('a') && seen.preedit == "ཀ" && seen.preedit_mode == IBUS_ENGINE_PREEDIT_COMMIT,
+              "Tibetan syllable for the focus change");
+      invoke("FocusOut");
+      require(wait_until([&] { return !seen.preedit_visible; }) && seen.committed == before,
+              "Focus out did not leave the Tibetan syllable to IBus");
+      invoke("FocusIn");
+      require(key('g') && key('a') && seen.preedit == "ག" && seen.committed == before,
+              "The Tibetan syllable survived the focus change");
       invoke("Reset");
     }
     finish();

@@ -1152,7 +1152,7 @@ void CMetasequoiaIME::_RequestLocalSessionReset(_In_opt_ ITfContext *preferredCo
     {
         _KEYSTROKE_STATE keyState = {};
         keyState.Category = CATEGORY_COMPOSING;
-        // A Korean syllable, a Zhuyin conversion or a Vietnamese word is text the user already wrote (scheme::CommitsOnBlur), so leaving the context commits it where every other composition is discarded.
+        // 韩文音节、注音转换、越南文词和藏文音节串是用户已经写下的文字（scheme::CommitsOnBlur），所以离开上下文时上屏它们，其他组字则被丢弃。
         keyState.Function =
             msime::windows::scheme::CommitsOnBlur(Global::InputModeScheme.load(std::memory_order_relaxed))
                 ? FUNCTION_COMMIT_SYLLABLE
@@ -2445,7 +2445,7 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
                                ? static_cast<int>(result.view.scheme)
                                : -1;
                 };
-                // A scheme switch discards the Engine's composition, but a Korean syllable, a Zhuyin conversion or a Vietnamese word is already on screen as text (scheme::CommitsOnBlur). Commit what the composition shows once the switch has happened, or the next key would replace it.
+                // 切换方案会丢弃引擎的组字，但韩文音节、注音转换、越南文词和藏文音节串已经作为文字显示在屏幕上（scheme::CommitsOnBlur）。切换完成后上屏组字显示的内容，否则下一个键会替换掉它。
                 const int composingScheme = pIME->_IsComposing() && pIME->_pContext ? hostScheme() : -1;
                 std::string ignored, error;
                 (void)host->reload_preferences(msime::tsf::default_state_directory(), &ignored, &error);

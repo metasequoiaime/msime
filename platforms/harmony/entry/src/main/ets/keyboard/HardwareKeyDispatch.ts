@@ -45,6 +45,8 @@ export interface HardwareKeyTarget {
   commitJapanese(): boolean;
   /** Finish the composition and type `character` after it. */
   commitThenType(character: number): void;
+  /** 把 `character` 交给引擎；引擎没处理时在它上屏的内容之后插入这个键本身（藏文的空格）。 */
+  pressThenType(character: number): void;
   /** Finish the composition so its text is in the editor before the key that ended it reaches the application. */
   finishBeforeKey(): void;
   /** List the Hanja of the composing Korean syllable, or close the open list; false when the Engine declined, as it does for a lone jamo. */
@@ -152,6 +154,9 @@ export class HardwareKeyDispatch {
         break;
       case HardwareKeyAction.COMMIT_THEN_TYPE:
         target.commitThenType(decision.character);
+        break;
+      case HardwareKeyAction.PRESS_THEN_TYPE:
+        target.pressThenType(decision.character);
         break;
       case HardwareKeyAction.COMMIT_THEN_RELEASE:
         target.finishBeforeKey();

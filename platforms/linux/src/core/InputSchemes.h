@@ -14,8 +14,8 @@
 namespace msime::linux_host {
 
 // Every preferences scheme id in Engine order: the index is the number a view reports as `scheme`.
-inline constexpr std::array<std::string_view, 8> kInputSchemeIds = {
-    "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"};
+inline constexpr std::array<std::string_view, 9> kInputSchemeIds = {
+    "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"};
 
 // The Engine number of a preferences scheme id, or -1 for an id this host does not know.
 inline int scheme_number(std::string_view id) {

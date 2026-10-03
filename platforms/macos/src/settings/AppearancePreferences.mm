@@ -1201,8 +1201,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"scheme"] = self.inputScheme;
-    // Leaving for Japanese, Korean or Vietnamese has to leave a way back. `last_chinese_scheme` is what every other host writes when the scheme changes - Fcitx5, IBus, iOS and HarmonyOS all do - and what the shared settings page reads to put the user back on 五笔 rather than 全拼. This window sets the scheme itself, those three included, so without this the field keeps whatever a different surface wrote and the way back points at the wrong scheme. While one of them is active the scheme it was entered from is written too, once one is known, since the input menu's 中 entry leaves them the same way.
-    if (![@[@"japanese", @"korean", @"vietnamese"] containsObject:self.inputScheme] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
+    // 切到日文、韩文、越南文或藏文时要留一条回去的路。`last_chinese_scheme` 是其他宿主在方案变化时都会写的字段——Fcitx5、IBus、iOS 和 HarmonyOS 都写——共享设置页也靠它把用户送回五笔而不是全拼。这个窗口自己也会设置方案，包括这四个，所以不写的话这个字段会停在别的界面写下的值，回去的路就指错了方案。在这四个方案之一生效期间，只要知道是从哪个方案进来的，也照样写进去，因为输入菜单的 中 也是这样离开它们的。
+    if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme] || _lastChineseScheme) merged[@"last_chinese_scheme"] = self.lastChineseScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     merged[@"wubi_profile"] = self.wubiProfile;
@@ -1419,7 +1419,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.candidate_page_shortcut"] = @([self storedPageShortcutForCurrentBindings]);
     NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
     NSUInteger schemeIndex = [schemes indexOfObject:self.inputScheme];
-    // The fixed Apple cloud contract names only quanpin, shuangpin and wubi. Keep its historical quanpin fallback instead of serializing NSNotFound when a shared Tauri snapshot currently uses any other Engine scheme (japanese, korean, cantonese, zhuyin, vietnamese).
+    // 固定的 Apple 云端契约只认 quanpin、shuangpin 和 wubi。共享的 Tauri 快照正在用其他引擎方案（japanese、korean、cantonese、zhuyin、vietnamese、tibetan）时，保留它历来的全拼回退，而不是把 NSNotFound 序列化出去。
     snapshot[@"platform.macos.input_scheme"] = @(schemeIndex == NSNotFound ? 0 : schemeIndex);
     snapshot[@"platform.macos.quanpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"quanpin"][@"schema"]]);
     snapshot[@"platform.macos.shuangpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"shuangpin"][@"schema"]]);
@@ -1679,10 +1679,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
 - (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [MSIMEInputSchemeNames() containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![MSIMEInputSchemeNames() containsObject:value]) value = @"quanpin"; if (![@[@"japanese", @"korean", @"vietnamese"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+- (void)setInputScheme:(NSString *)value { if (![MSIMEInputSchemeNames() containsObject:value]) value = @"quanpin"; if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)lastChineseScheme {
     NSString *scheme = self.inputScheme;
-    if (![@[@"japanese", @"korean", @"vietnamese"] containsObject:scheme]) return scheme;
+    if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme]) return scheme;
     return _lastChineseScheme ?: @"quanpin";
 }
 - (NSString *)lastSyncedInputScheme { return [_defaults stringForKey:LastSyncedSchemeKey]; }
@@ -2785,7 +2785,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _wubiCard.hidden = storedScheme != 2;
     // 拼音匹配 is on another page than the scheme that decides whether it does anything, so the card says which scheme is selected rather than leaving a disabled group with no cause in sight.
     const BOOL pinyinMatching = storedScheme <= 2;
-    NSString *schemeName = pinyinMatching ? nil : @[@"日语", @"韩语", @"粤拼", @"注音", @"越南语"][storedScheme - 3];
+    NSString *schemeName = pinyinMatching ? nil : @[@"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文"][storedScheme - 3];
     _pinyinMatchingSchemeLabel.stringValue = pinyinMatching ? @"" : [NSString stringWithFormat:@"当前方案为%@，模糊音与全拼纠错只作用于拼音查询，在%@下不生效。", schemeName, schemeName];
     _pinyinMatchingSchemeLabel.hidden = pinyinMatching;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
@@ -3329,7 +3329,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     // The scheme is one choice, so it reads as radios with each scheme's own popup trailing it,
     // disabled until that scheme is selected. The stored value stays the same scheme string.
     // In MSIMEInputSchemeNames order, which is also each radio's tag. Cantonese and Zhuyin need their dictionary installed beside the resources; without it the radio is disabled and says why, since the Engine would fall back to another scheme.
-    NSArray<NSString *> *schemeTitles = @[@"全拼输入", @"双拼输入", @"五笔输入", @"日语输入", @"韩语输入", @"粤拼输入", @"注音输入", @"越南语输入"];
+    NSArray<NSString *> *schemeTitles = @[@"全拼输入", @"双拼输入", @"五笔输入", @"日语输入", @"韩语输入", @"粤拼输入", @"注音输入", @"越南语输入", @"藏文输入"];
     NSDictionary *hostOptions = MSIMELoadRuntimeOptions();
     NSMutableArray<NSButton *> *schemeButtons = [NSMutableArray array];
     NSMutableArray<NSView *> *schemeRows = [NSMutableArray arrayWithObjects:MSIMECardHeader(@"输入方式"), MSIMECardSeparator(), nil];

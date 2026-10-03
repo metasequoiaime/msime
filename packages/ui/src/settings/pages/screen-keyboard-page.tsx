@@ -8,6 +8,7 @@ import { TouchKeyboardGeometrySection } from "../touch-keyboard-geometry-section
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { OpenPanelRow } from "../open-panel-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SettingsPreviewBlock } from "../settings-preview-block";
 
 /** The 屏幕键盘 page of the settings form. */
 export function ScreenKeyboardSettingsPage() {
@@ -51,8 +52,7 @@ export function ScreenKeyboardSettingsPage() {
             className={`secondary ${settings.openButton}`}
           />
         )}
-        <div className={settings.groupPreview} aria-label="屏幕键盘预览">
-          <div className={settings.panelPreviewLabel}>预览</div>
+        <SettingsPreviewBlock aria-label="屏幕键盘预览">
           <div
             aria-label="拖动预览调整键盘间距"
             onPointerDown={beginTouchGeometryDrag}
@@ -70,7 +70,7 @@ export function ScreenKeyboardSettingsPage() {
               heightAdjustment={touchKeyboardHeightAdjustment}
             />
           </div>
-        </div>
+        </SettingsPreviewBlock>
       </GroupList>
       <TouchKeyboardGeometrySection
         heightAdjustment={touchKeyboardHeightAdjustment}

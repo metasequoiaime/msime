@@ -93,6 +93,7 @@ test("the helper exposes the complete stable scheme order", () => {
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "tibetan",
   ]);
   // 高情商回复是键盘工具栏上的工具，不再是输入方案。
   expect(allTouchKeyboardSchemes as string[]).not.toContain("thoughtful_reply");
@@ -147,7 +148,7 @@ test("switching from Japanese to Korean keeps the remembered Chinese scheme", ()
   expect(next.last_chinese_scheme).toBe("shuangpin");
 });
 
-test.each(["cantonese", "zhuyin", "vietnamese"] as const)(
+test.each(["cantonese", "zhuyin", "vietnamese", "tibetan"] as const)(
   "%s, which has no touch keyboard, maps to the remembered Chinese touch scheme",
   (scheme) => {
     const untouched = { ...preferences, scheme, touch_keyboard_schemes: undefined };
@@ -177,13 +178,14 @@ test("selecting Japanese from Vietnamese keeps the remembered Chinese scheme", (
   expect(next.last_chinese_scheme).toBe("cantonese");
 });
 
-test("Cantonese, Zhuyin and Vietnamese are appended after Korean and are opt-in", () => {
-  expect(allTouchKeyboardSchemes).toHaveLength(14);
+test("Cantonese, Zhuyin, Vietnamese and Tibetan are appended after Korean and are opt-in", () => {
+  expect(allTouchKeyboardSchemes).toHaveLength(15);
   expect(allTouchKeyboardSchemes.slice(10)).toEqual([
     "korean",
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "tibetan",
   ]);
   expect(defaultTouchKeyboardSchemes).toEqual(allTouchKeyboardSchemes.slice(0, 11));
 });
@@ -233,7 +235,20 @@ test("selecting Vietnamese remembers the Chinese scheme and uses the 26-key layo
   expect(next.touch_keyboard_schemes?.selected).toBe("vietnamese");
 });
 
-test.each(["cantonese", "zhuyin", "vietnamese"] as const)(
+test("selecting Tibetan from Vietnamese keeps the remembered Chinese scheme on the 26-key layout", () => {
+  const next = selectHomeTouchKeyboardScheme(
+    { ...preferences, scheme: "vietnamese", last_chinese_scheme: "wubi" },
+    "tibetan",
+  );
+
+  expect(next.scheme).toBe("tibetan");
+  expect(next.last_chinese_scheme).toBe("wubi");
+  expect(next.touch_keyboard_layout).toBe("twenty_six_key");
+  expect(next.touch_keyboard_schemes?.selected).toBe("tibetan");
+  expect(touchKeyboardSchemeTitle(next)).toBe("藏文 26 键");
+});
+
+test.each(["cantonese", "zhuyin", "vietnamese", "tibetan"] as const)(
   "%s infers its own touch scheme once that is enabled",
   (scheme) => {
     expect(

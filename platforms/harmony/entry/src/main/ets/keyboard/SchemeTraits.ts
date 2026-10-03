@@ -14,6 +14,7 @@ export class SchemeTraits {
   static readonly CANTONESE: number = 5;
   static readonly ZHUYIN: number = 6;
   static readonly VIETNAMESE: number = 7;
+  static readonly TIBETAN: number = 8;
 
   /** The Engine's wire names, indexed by scheme number. */
   static readonly NAMES: string[] = [
@@ -25,6 +26,7 @@ export class SchemeTraits {
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "tibetan",
   ];
 
   /** The scheme number for a wire name, or -1 for a name no build knows, which every predicate answers false for. */
@@ -48,7 +50,7 @@ export class SchemeTraits {
     return [SchemeTraits.QUANPIN, SchemeTraits.SHUANGPIN, SchemeTraits.WUBI].includes(scheme);
   }
 
-  /** Punctuation goes through the Chinese table; Korean and Vietnamese write ASCII marks. */
+  /** 标点走中文标点表；韩语、越南语和藏文写 ASCII 标点。 */
   static usesChinesePunctuation(scheme: number): boolean {
     return [
       SchemeTraits.QUANPIN,
@@ -89,7 +91,12 @@ export class SchemeTraits {
 
   /** Leaving the field or the scheme commits the composition instead of discarding it. */
   static commitsOnBlur(scheme: number): boolean {
-    return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN, SchemeTraits.VIETNAMESE].includes(scheme);
+    return [
+      SchemeTraits.KOREAN,
+      SchemeTraits.ZHUYIN,
+      SchemeTraits.VIETNAMESE,
+      SchemeTraits.TIBETAN,
+    ].includes(scheme);
   }
 
   /** Candidates appear only in a list the user opens and can close again: the Korean Hanja list, the Zhuyin list. */
@@ -97,13 +104,23 @@ export class SchemeTraits {
     return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN].includes(scheme);
   }
 
-  /** The first Cancel keeps the composition (closing the list, or taking a Vietnamese word back to its keys); a second discards it. */
+  /** 第一次取消保留组字（关闭候选列表，或把越南语单词、藏文音节退回成原始按键），第二次才丢弃。 */
   static cancelKeepsComposition(scheme: number): boolean {
-    return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN, SchemeTraits.VIETNAMESE].includes(scheme);
+    return [
+      SchemeTraits.KOREAN,
+      SchemeTraits.ZHUYIN,
+      SchemeTraits.VIETNAMESE,
+      SchemeTraits.TIBETAN,
+    ].includes(scheme);
   }
 
   /** The caret stays at the end of the composition. */
   static locksCaret(scheme: number): boolean {
-    return [SchemeTraits.KOREAN, SchemeTraits.ZHUYIN, SchemeTraits.VIETNAMESE].includes(scheme);
+    return [
+      SchemeTraits.KOREAN,
+      SchemeTraits.ZHUYIN,
+      SchemeTraits.VIETNAMESE,
+      SchemeTraits.TIBETAN,
+    ].includes(scheme);
   }
 }

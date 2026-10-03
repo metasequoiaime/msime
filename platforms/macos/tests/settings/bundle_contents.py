@@ -178,6 +178,9 @@ def main() -> int:
     # Vietnamese links the MIT-licensed vi crate, whose copyright and permission notice has to travel with the binary.
     if not (contents / "Resources" / "Licenses" / "vi-MIT.txt").is_file():
         failures.append("Contents/Resources/Licenses/vi-MIT.txt is missing; the vi crate Vietnamese mode links ships without its licence")
+    # 藏文方案链接 MIT 许可的 ewts crate，它的版权和许可声明必须随二进制一起发布。
+    if not (contents / "Resources" / "Licenses" / "ewts-MIT.txt").is_file():
+        failures.append("Contents/Resources/Licenses/ewts-MIT.txt is missing; the ewts crate Tibetan mode links ships without its licence")
 
     if failures:
         for failure in failures:

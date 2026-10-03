@@ -45,6 +45,8 @@ export interface ToolbarState {
   readonly korean: boolean;
   /** Vietnamese is a language of its own too; Cantonese and Zhuyin are Chinese and wear 中 as Shuangpin and Wubi do. */
   readonly vietnamese?: boolean;
+  /** 藏文同样是独立的语言，显示「藏」。 */
+  readonly tibetan?: boolean;
   /** Hardware Caps Lock takes precedence over the language face on desktop keyboards. */
   readonly capsLock: boolean;
   readonly chinesePunctuation: boolean;
@@ -73,6 +75,7 @@ export class FloatingToolbarLayout {
       japanese: false,
       korean: false,
       vietnamese: false,
+      tibetan: false,
       capsLock: false,
       chinesePunctuation: true,
       fullWidth: false,
@@ -150,7 +153,9 @@ export class FloatingToolbarLayout {
                   ? "한"
                   : state.vietnamese === true
                     ? "越"
-                    : "中";
+                    : state.tibetan === true
+                      ? "藏"
+                      : "中";
       case ToolbarButton.PUNCTUATION:
         return state.chinesePunctuation ? "。" : ".";
       case ToolbarButton.FULL_WIDTH:

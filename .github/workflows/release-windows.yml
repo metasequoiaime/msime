@@ -165,6 +165,9 @@ jobs:
       - name: Publish independent Windows release
         if: inputs.publish
         shell: bash
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease); gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" --title "Windows ${VERSION}" --generate-notes "${flags[@]}"
+          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          start=$(git tag --list 'windows-v*' --sort=-v:refname | head -1)
+          python3 scripts/generate-release-notes.py --platform windows --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" --title "Windows ${VERSION}" --notes-file release-notes.md "${flags[@]}"

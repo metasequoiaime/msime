@@ -2288,6 +2288,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       japanese: !this.englishMode && this.schemeName === 'japanese',
       korean: !this.englishMode && this.schemeName === 'korean',
       vietnamese: !this.englishMode && this.schemeName === 'vietnamese',
+      tibetan: !this.englishMode && this.schemeName === 'tibetan',
       capsLock: this.capsLock,
       // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written.
       chinesePunctuation: this.chinesePunctuation && !this.writesAsciiPunctuation(),
@@ -3304,6 +3305,23 @@ export class KeyboardSession implements HardwareKeyTarget {
    */
   commitThenType(ascii: number): void {
     this.commitThenInsert(String.fromCharCode(ascii));
+  }
+
+  /**
+   * 藏文的空格：先把键交给引擎，有组字时引擎上屏藏文加音节点并吞掉这个键；引擎没处理时（没有组字，或 Esc 锁定原文后只上屏原文），由键盘在上屏内容之后插入这个键本身，和硬件键盘把未处理的键交回应用的效果一致。
+   */
+  pressThenType(ascii: number): void {
+    if (!this.composes() || this.handle === 0) {
+      this.press(ascii, false);
+      return;
+    }
+    this.clearSmartPunctuationRepeat();
+    this.tapFeedback();
+    const handled: boolean = this.apply(client.character(this.handle, ascii, false));
+    if (handled || this.inputClient === undefined) return;
+    const text: string = String.fromCharCode(ascii);
+    this.insertEditorText(text);
+    this.recordTypingStatistics(text, this.typingSource());
   }
 
   /** `commitThenType` for text the keyboard chose rather than a key's own character: a Zhuyin symbol-layer mark whose ASCII key the Dachen editor would take as a phonetic or tone key. */

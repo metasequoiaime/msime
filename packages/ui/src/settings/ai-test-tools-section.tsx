@@ -1,7 +1,7 @@
 import { GroupList } from "../core/platform-controls";
 import { SettingsTextareaField } from "./settings-textarea-field";
-import * as settings from "./settings-style";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { ActionButton } from "./action-button";
 
 export function AiTestToolsSection({
@@ -34,7 +34,7 @@ export function AiTestToolsSection({
   );
   return (
     <GroupList title="测试工具">
-      <div className={settings.managerBlock}>
+      <SettingsManagerBlock>
         <SettingsTextareaField
           label="AI 润色测试"
           description="仅在点击发送时请求当前配置；测试文字不会写入日志。"
@@ -51,7 +51,7 @@ export function AiTestToolsSection({
           />
         </SettingsManagerActions>
         {result}
-      </div>
+      </SettingsManagerBlock>
     </GroupList>
   );
 }

@@ -31,7 +31,7 @@ pub(crate) fn local_account_preferences(
         return Err(AccountError::Storage);
     }
     let mut settings = BTreeMap::new();
-    // The cloud `input.schema` cannot carry Cantonese, Zhuyin or Vietnamese (an older device would refuse the whole document), so those leave the scheme and the nine-key switch out and the cloud keeps what it has.
+    // 云端的 `input.schema` 装不下粤拼、注音、越南文和藏文（旧设备会拒收整份文档），所以这几个方案不写方案和九键开关，云端保留原有的值。
     let scheme = match native.input_scheme.as_str() {
         "quanpin" | "handwriting" => Some(("quanpin", None, false)),
         "nineKey" => Some(("quanpin", None, true)),
@@ -43,7 +43,7 @@ pub(crate) fn local_account_preferences(
         "japanese" => Some(("japanese", None, false)),
         "japaneseNineKey" => Some(("japanese", None, true)),
         "korean" => Some(("korean", None, false)),
-        "cantonese" | "zhuyin" | "vietnamese" => None,
+        "cantonese" | "zhuyin" | "vietnamese" | "tibetan" => None,
         _ => return Err(AccountError::Storage),
     };
     if let Some((schema, profile, _)) = scheme {
@@ -387,11 +387,12 @@ fn touch_scheme(value: &str) -> Result<TouchKeyboardScheme, AccountError> {
         "cantonese" => Ok(TouchKeyboardScheme::Cantonese),
         "zhuyin" => Ok(TouchKeyboardScheme::Zhuyin),
         "vietnamese" => Ok(TouchKeyboardScheme::Vietnamese),
+        "tibetan" => Ok(TouchKeyboardScheme::Tibetan),
         _ => Err(AccountError::Invalid),
     }
 }
 
-/// Keep the Chinese scheme a Japanese or Korean selection returns to; switching away from Japanese, Korean or Vietnamese keeps the one already remembered.
+/// 记住选日文或韩文后要回到的中文方案；从日文、韩文、越南文或藏文切走时保留已经记住的那个。
 fn remember_chinese_scheme(preferences: &mut Preferences) {
     let chinese = match preferences.scheme {
         InputScheme::Quanpin => ChineseScheme::Quanpin,
@@ -399,7 +400,10 @@ fn remember_chinese_scheme(preferences: &mut Preferences) {
         InputScheme::Wubi => ChineseScheme::Wubi,
         InputScheme::Cantonese => ChineseScheme::Cantonese,
         InputScheme::Zhuyin => ChineseScheme::Zhuyin,
-        InputScheme::Japanese | InputScheme::Korean | InputScheme::Vietnamese => return,
+        InputScheme::Japanese
+        | InputScheme::Korean
+        | InputScheme::Vietnamese
+        | InputScheme::Tibetan => return,
     };
     preferences.last_chinese_scheme = Some(chinese);
 }
@@ -449,6 +453,11 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
         TouchKeyboardScheme::Vietnamese => {
             remember_chinese_scheme(preferences);
             preferences.scheme = InputScheme::Vietnamese;
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
+        }
+        TouchKeyboardScheme::Tibetan => {
+            remember_chinese_scheme(preferences);
+            preferences.scheme = InputScheme::Tibetan;
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
         TouchKeyboardScheme::Cantonese => {
@@ -517,6 +526,7 @@ mod tests {
             (InputScheme::Cantonese, Some(ChineseScheme::Cantonese)),
             (InputScheme::Zhuyin, Some(ChineseScheme::Zhuyin)),
             (InputScheme::Vietnamese, Some(ChineseScheme::Wubi)),
+            (InputScheme::Tibetan, Some(ChineseScheme::Wubi)),
         ] {
             let mut preferences = Preferences {
                 scheme,
@@ -530,7 +540,7 @@ mod tests {
 
     #[test]
     fn upload_leaves_out_the_schemes_the_cloud_cannot_carry() {
-        for scheme in ["cantonese", "zhuyin", "vietnamese"] {
+        for scheme in ["cantonese", "zhuyin", "vietnamese", "tibetan"] {
             let mut native = native();
             native.input_scheme = scheme.into();
             let settings =
@@ -566,6 +576,12 @@ mod tests {
                 "vietnamese",
                 TouchKeyboardScheme::Vietnamese,
                 InputScheme::Vietnamese,
+                ChineseScheme::Wubi,
+            ),
+            (
+                "tibetan",
+                TouchKeyboardScheme::Tibetan,
+                InputScheme::Tibetan,
                 ChineseScheme::Wubi,
             ),
         ] {
@@ -809,7 +825,7 @@ mod tests {
 
     #[test]
     fn an_unknown_cloud_scheme_keeps_the_local_one_and_the_rest_applies() {
-        for unknown in ["cantonese", "zhuyin", "vietnamese", "esperanto"] {
+        for unknown in ["cantonese", "zhuyin", "vietnamese", "tibetan", "esperanto"] {
             let cloud = AccountPreferences {
                 revision: 11,
                 settings: BTreeMap::from([

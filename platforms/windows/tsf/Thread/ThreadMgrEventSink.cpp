@@ -23,7 +23,7 @@ void CMetasequoiaIME::_SyncHostContextFocus(_In_opt_ ITfContext *context)
             return true;
         });
         if (!success) context = nullptr;
-        // A focus change finishes a Korean syllable, a Zhuyin conversion or a Vietnamese word in the host instead of discarding it (scheme::CommitsOnBlur). It is already on screen as the composition, so end that composition where it is, or the next key would replace it.
+        // 焦点变化时，宿主会结束韩文音节、注音转换、越南文词或藏文音节串而不是丢弃它（scheme::CommitsOnBlur）。它已经作为组字显示在屏幕上，所以就地结束这个组字，否则下一个键会替换掉它。
         if (koreanFinished && _IsComposing() && _pContext)
         {
             _KEYSTROKE_STATE keyState = {};

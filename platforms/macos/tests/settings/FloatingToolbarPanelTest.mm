@@ -461,7 +461,7 @@ int main() {
           traditionalChineseOutputEnabled:NO];
         assert([inputMode.title isEqualToString:@"五"] && [inputMode.toolTip isEqualToString:@"五笔 86 · 切换到英文输入"]);
         // The opt-in schemes carry their input menu badges too.
-        for (NSArray<NSString *> *entry in @[@[@"cantonese", @"粤拼", @"粤"], @[@"zhuyin", @"注音", @"注"], @[@"vietnamese", @"越南语", @"越"]]) {
+        for (NSArray<NSString *> *entry in @[@[@"cantonese", @"粤拼", @"粤"], @[@"zhuyin", @"注音", @"注"], @[@"vietnamese", @"越南语", @"越"], @[@"tibetan", @"藏文", @"ཀ"]]) {
             [panel updateEnglishInputMode:NO
                      englishCandidateMode:NO
                                    scheme:entry[0]

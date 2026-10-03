@@ -643,7 +643,7 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     }
 }
 
-/// 交给 Engine 的 `enabled_schemes`：本版本提供的方案，版本带临时日文时再加上它要切到的日文方案。full 提供全部八个方案，得到的就是 [`SchemeSet::ALL`]，Engine 照旧构造全部 provider。
+/// 交给 Engine 的 `enabled_schemes`：本版本提供的方案，版本带临时日文时再加上它要切到的日文方案。full 提供全部方案，得到的就是 [`SchemeSet::ALL`]，Engine 照旧构造全部 provider。
 fn engine_schemes(edition: &Edition) -> SchemeSet {
     let offered = offered_input_schemes(edition)
         .into_iter()
@@ -666,6 +666,7 @@ fn scheme_code(scheme: InputScheme) -> u8 {
         InputScheme::Cantonese => 5,
         InputScheme::Zhuyin => 6,
         InputScheme::Vietnamese => 7,
+        InputScheme::Tibetan => 8,
     }
 }
 

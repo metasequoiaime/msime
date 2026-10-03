@@ -1104,7 +1104,7 @@ STDAPI CMetasequoiaIME::OnCompositionTerminated(TfEditCookie ecWrite, _In_ ITfCo
         _compositionEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
 
-    // An application that ends a Korean, Zhuyin or Vietnamese composition keeps its text in the document (scheme::AlwaysInlinePreedit draws it there whatever the preedit preference). The host session has to let go of it as well, or the next key would build on that text and commit it a second time. An ending this TIP made itself has already settled the host, which may by then hold the next composition.
+    // 应用结束韩文、注音、越南文或藏文的组字时，文字留在文档里（scheme::AlwaysInlinePreedit 不论预编辑偏好如何都把它画在那里）。宿主会话也必须放开它，否则下一个键会在这段文字上继续组字，再上屏一次。TIP 自己结束的组字已经处理过宿主，那时宿主可能已经在组下一段。
     if (!_terminatingOwnComposition &&
         msime::windows::scheme::AlwaysInlinePreedit(Global::InputModeScheme.load(std::memory_order_relaxed)))
     {

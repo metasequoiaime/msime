@@ -81,6 +81,7 @@ tray_menu_mode_command(TrayMenuCommand command, std::optional<bool> chinese,
   case TrayMenuCommand::SelectCantonese:
   case TrayMenuCommand::SelectZhuyin:
   case TrayMenuCommand::SelectVietnamese:
+  case TrayMenuCommand::SelectTibetan:
   case TrayMenuCommand::OpenTheme:
   case TrayMenuCommand::OpenDictionary:
     break;

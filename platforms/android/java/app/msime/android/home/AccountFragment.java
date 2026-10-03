@@ -108,7 +108,10 @@ public final class AccountFragment extends HomeTabFragment {
         HostTask.run(this, context -> {
             new BackendAccount(context).signOut();
             return "";
-        }, ignored -> render());
+        }, result -> {
+            if (result == null) note("退出账号失败，请重试");
+            else render();
+        });
     }
 
     private void note(String message) {

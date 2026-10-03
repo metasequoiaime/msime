@@ -1705,8 +1705,8 @@ group("enabled schemes keep the fixed order and never resolve to nothing", () =>
   );
   check(
     KeyboardScheme.enabledFromPreferenceIds(null) === KeyboardScheme.DEFAULT_ENABLED &&
-      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 3,
-    "a null list means every scheme but the three the user turns on",
+      KeyboardScheme.DEFAULT_ENABLED.length === KeyboardScheme.SCHEMES.length - 4,
+    "a null list means every scheme but the four the user turns on",
   );
 });
 
@@ -4845,8 +4845,7 @@ group("a capture device shows the most specific name it has", () => {
     "an implausibly long name is bounded rather than rendered whole",
   );
   check(
-    VoiceCaptureDevicePolicy.label("x".repeat(126) + "😀tail", "", 8) ===
-      "x".repeat(126) + "…",
+    VoiceCaptureDevicePolicy.label("x".repeat(126) + "😀tail", "", 8) === "x".repeat(126) + "…",
     "a bounded device name does not leave a lone surrogate",
   );
 });
@@ -5774,6 +5773,7 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
       return false;
     },
     commitThenType: (character: number) => log.push(`commitThenType ${character}`),
+    pressThenType: (character: number) => log.push(`pressThenType ${character}`),
     finishBeforeKey: () => log.push("finishBeforeKey"),
     convertHanja: () => {
       log.push("convertHanja");
@@ -5867,6 +5867,10 @@ group("every routed hardware key reaches the method that means it", () => {
   check(
     dispatched(HardwareKeyAction.COMMIT_THEN_TYPE, 0x30)[0] === "commitThenType 48",
     "a key the composition cannot use finishes it and carries its character",
+  );
+  check(
+    dispatched(HardwareKeyAction.PRESS_THEN_TYPE, 0x20)[0] === "pressThenType 32",
+    "藏文空格先交给引擎，并带上这个键本身，供引擎不处理时输入",
   );
 });
 
@@ -7335,26 +7339,33 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
 
 group("account session generation changes on same-user re-login", () => {
   let stored: string | null = null;
-  const session = (access: string, refresh: string) => JSON.stringify({
-    access_token: access.repeat(64),
-    refresh_token: refresh.repeat(64),
-    token_type: "Bearer",
-    expires_in: 3600,
-    user: { id: "same-user", display_name: "Test", created_at: "2026-01-01" },
-  });
+  const session = (access: string, refresh: string) =>
+    JSON.stringify({
+      access_token: access.repeat(64),
+      refresh_token: refresh.repeat(64),
+      token_type: "Bearer",
+      expires_in: 3600,
+      user: { id: "same-user", display_name: "Test", created_at: "2026-01-01" },
+    });
   const bridge = new AccountCloudBridge(
     {
-      request: async (_method, path) => path === "/v1/auth/login"
-        ? { status: 200, body: session("a", "b") }
-        : { status: 200, body: "{}" },
+      request: async (_method, path) =>
+        path === "/v1/auth/login"
+          ? { status: 200, body: session("a", "b") }
+          : { status: 200, body: "{}" },
     },
     {
       load: () => stored,
-      save: (value) => { stored = value; },
-      clear: () => { stored = null; },
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
     },
   );
-  void bridge.handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
     .then(async (first) => {
       check(JSON.parse(first).ok === true, "the first login succeeds");
       const firstGeneration = bridge.sessionGeneration();
@@ -8778,7 +8789,7 @@ group("applying writes only what the schema declares", () => {
   check(refusedValue, "a declared key carrying a value this host has no meaning for is refused");
 
   // The one exception is the scheme: a newer device may name one this host does not offer, and refusing would stop every other setting from syncing.
-  for (const unknown of ["cantonese", "zhuyin", "vietnamese", "esperanto"]) {
+  for (const unknown of ["cantonese", "zhuyin", "vietnamese", "tibetan", "esperanto"]) {
     const kept = applyAccountPreferences(
       { ...local, scheme: "wubi" },
       {
@@ -11212,8 +11223,8 @@ group("Korean draws the syllable, not the key letters behind it", () => {
 
 group("the Korean scheme is one more card, and remembers the Chinese scheme it replaced", () => {
   check(
-    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 14,
-    "appended after the first ten, as the shared fourteen-entry picker has it",
+    KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN && KeyboardScheme.SCHEMES.length === 15,
+    "appended after the first ten, as the shared fifteen-entry picker has it",
   );
   check(
     KeyboardScheme.fromPreferenceId("korean") === KeyboardScheme.KOREAN,
@@ -11383,7 +11394,7 @@ group("账号同步用 input.wubi_schema 携带五笔版本", () => {
 });
 
 group("account sync leaves the scheme out for Cantonese, Zhuyin and Vietnamese", () => {
-  for (const scheme of ["cantonese", "zhuyin", "vietnamese"]) {
+  for (const scheme of ["cantonese", "zhuyin", "vietnamese", "tibetan"]) {
     const values = localAccountPreferences({ scheme }, syncFeedback);
     check(!("input.schema" in values), `${scheme} never uploads an input schema`);
     const merged = mergeAccountPreferences(
@@ -13146,14 +13157,14 @@ group("a picked pack is copied for import only within client-core's bounds", () 
 
 group("the scheme traits answer as the Engine's SchemeType predicates", () => {
   check(
-    SchemeTraits.NAMES.length === 8 &&
+    SchemeTraits.NAMES.length === 9 &&
       SchemeTraits.fromName("cantonese") === SchemeTraits.CANTONESE &&
       SchemeTraits.fromName("zhuyin") === SchemeTraits.ZHUYIN &&
       SchemeTraits.fromName("vietnamese") === SchemeTraits.VIETNAMESE &&
       SchemeTraits.fromName("nope") === -1,
     "the wire names index the scheme numbers, and an unknown name is -1",
   );
-  for (const unknown of [-1, 8, 99]) {
+  for (const unknown of [-1, 9, 99]) {
     check(
       !SchemeTraits.isChinese(unknown) &&
         !SchemeTraits.usesChinesePunctuation(unknown) &&
@@ -13233,7 +13244,7 @@ group(
   "Cantonese, Zhuyin and Vietnamese are three more cards, Cantonese and Zhuyin needing a dictionary",
   () => {
     check(
-      KeyboardScheme.SCHEMES.length === 14 &&
+      KeyboardScheme.SCHEMES.length === 15 &&
         KeyboardScheme.SCHEMES[10] === KeyboardScheme.KOREAN &&
         KeyboardScheme.SCHEMES[11] === KeyboardScheme.CANTONESE &&
         KeyboardScheme.SCHEMES[12] === KeyboardScheme.ZHUYIN &&
@@ -13569,6 +13580,269 @@ group("a hardware keyboard on Zhuyin and Vietnamese composes what the Engine spe
     vietnamese(key({ keyCode: 2098, unicodeChar: 0 }), true).action !==
       HardwareKeyAction.CONVERT_HANJA,
     "Vietnamese has no list for the Hanja key to open",
+  );
+});
+
+group("藏文是第九个方案：按 EWTS 威利转写组字，不是中文方案", () => {
+  check(
+    SchemeTraits.TIBETAN === 8 &&
+      SchemeTraits.NAMES[8] === "tibetan" &&
+      SchemeTraits.fromName("tibetan") === SchemeTraits.TIBETAN,
+    "藏文的引擎编号是 8，线上名字是 tibetan",
+  );
+  check(
+    !SchemeTraits.isChinese(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.scriptConversionApplies(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.usesChinesePunctuation(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.widensFullWidth(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.hostSmartPunctuation(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.learnsIntoMainDictionary(SchemeTraits.TIBETAN),
+    "藏文不是中文：不做简繁转换，标点是半角 ASCII，不学进主词库",
+  );
+  check(
+    SchemeTraits.commitsOnBlur(SchemeTraits.TIBETAN) &&
+      SchemeTraits.cancelKeepsComposition(SchemeTraits.TIBETAN) &&
+      SchemeTraits.locksCaret(SchemeTraits.TIBETAN) &&
+      !SchemeTraits.hasOpenableCandidateList(SchemeTraits.TIBETAN),
+    "与越南语一样：失焦提交、第一次取消保留组字、光标在末尾、没有可打开的列表",
+  );
+  check(
+    SchemeCompositionPolicy.selectedRulesScheme("tibetan", false, "none") ===
+      SchemeTraits.TIBETAN &&
+      SchemeCompositionPolicy.selectedRulesScheme("tibetan", true, "none") === -1 &&
+      SchemeCompositionPolicy.reading(SchemeTraits.TIBETAN, "བཀྲ", "བཀྲ") === "བཀྲ" &&
+      SchemeCompositionPolicy.caret(SchemeTraits.TIBETAN, 9, "བཀྲ") === 3,
+    "组字行画引擎写出的藏文，光标在末尾；英文模式下藏文规则不生效",
+  );
+  check(
+    CompositionBoundaryPolicy.action(
+      true,
+      false,
+      CompositionBoundary.MODE_SWITCH,
+      SchemeTraits.commitsOnBlur(SchemeTraits.TIBETAN),
+    ) === CompositionBoundaryAction.FINISH_COMPOSITION,
+    "切换方案时提交藏文，而不是威利原文",
+  );
+  check(
+    KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
+      KeyboardScheme.TIBETAN.preferenceId === "tibetan" &&
+      KeyboardScheme.TIBETAN.engineScheme === "tibetan" &&
+      KeyboardScheme.TIBETAN.touchKeyboardLayout === "twenty_six_key" &&
+      KeyboardScheme.title(KeyboardScheme.TIBETAN, null) === "藏文 26 键",
+    "「藏文 26 键」接在越南语之后，用 26 键键面",
+  );
+  check(
+    !KeyboardScheme.DEFAULT_ENABLED.includes(KeyboardScheme.TIBETAN) &&
+      KeyboardScheme.enabledFromPreferenceIds(["tibetan", "quanpin"])
+        .map((scheme: SchemeDefinition): string => scheme.preferenceId)
+        .join() === "quanpin,tibetan",
+    "默认不启用，用户打开后按固定顺序出现",
+  );
+  check(
+    KeyboardScheme.languageDictionary("tibetan") === null &&
+      KeyboardScheme.withInstalledDictionaries([KeyboardScheme.TIBETAN], () => false)[0] ===
+        KeyboardScheme.TIBETAN,
+    "藏文不需要词库，所以不会因为缺词库被隐藏",
+  );
+  check(
+    KeyboardScheme.fromPreferences("tibetan", null, "twenty_six_key") === KeyboardScheme.TIBETAN &&
+      KeyboardScheme.engineSchemeName(8) === "tibetan",
+    "偏好和引擎编号都解析到藏文卡",
+  );
+  check(
+    KeyboardScheme.symbolRowKey("=", true) === "+" &&
+      KeyboardScheme.symbolRowKey("=", false) === "=" &&
+      KeyboardScheme.symbolRowKey("_", true) === "_",
+    "藏文的符号层把 `=` 换成叠写用的 `+`，其他键和其他方案不变",
+  );
+  const tibetan: PreferenceMapping = KeyboardScheme.mapping(KeyboardScheme.TIBETAN, "wubi", null);
+  check(
+    tibetan.scheme === "tibetan" && tibetan.lastChineseScheme === "wubi",
+    "藏文保留原来的中文方案，「中文」回到它",
+  );
+  check(
+    TypingStatisticsPolicy.source("tibetan", "xiaohe", false, false, "none") === "tibetan" &&
+      TypingStatisticsPolicy.source("tibetan", "xiaohe", true, false, "none") === "english",
+    "打字统计记在 tibetan 名下，英文模式下仍记英文",
+  );
+  check(
+    !ChineseOutputPolicy.applies(false, 8, "none") &&
+      !CandidateManagementAction.candidateActionsAvailable("tibetan", 0),
+    "简繁转换不作用于藏文，候选也没有词库操作",
+  );
+  check(
+    FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+      ...FloatingToolbarLayout.idleState(),
+      tibetan: true,
+    }) === "藏" &&
+      FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+        ...FloatingToolbarLayout.idleState(),
+        tibetan: true,
+        english: true,
+      }) === "英",
+    "快捷栏写「藏」，英文模式优先",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION &&
+      ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
+    "触屏回车走共享规则：组字时只提交藏文、不换行，没有组字时交给编辑框",
+  );
+});
+
+group("硬件键盘上的藏文按引擎的拼写符号组字", () => {
+  const key = (over: Record<string, unknown> = {}): HardwareKey => ({
+    keyCode: 2029,
+    unicodeChar: 0x6b,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  const spelling = (symbols: string): HardwareSpelling => ({
+    ...PLAIN_SPELLING,
+    spellingSymbols: symbols,
+  });
+  const IDLE: HardwareSpelling = spelling("'/");
+  const COMPOSING: HardwareSpelling = spelling("'+-./");
+  const tibetan = (
+    hardware: HardwareKey,
+    composing: boolean,
+    symbols: HardwareSpelling,
+  ): HardwareKeyDecision =>
+    HardwareKeyRouter.route(
+      hardware,
+      composing,
+      true,
+      true,
+      undefined,
+      false,
+      false,
+      "disabled",
+      false,
+      symbols,
+      false,
+      false,
+      false,
+      false,
+      SchemeTraits.TIBETAN,
+    );
+  const capital: HardwareKeyDecision = tibetan(
+    key({ keyCode: 2036, unicodeChar: 0x54, shiftKey: true }),
+    false,
+    IDLE,
+  );
+  check(
+    capital.action === HardwareKeyAction.COMPOSE && capital.character === 0x54,
+    "大写字母是威利转写里的另一个字母，按原样组字",
+  );
+  const achung: HardwareKeyDecision = tibetan(
+    key({ keyCode: 2063, unicodeChar: 0x27 }),
+    false,
+    IDLE,
+  );
+  check(
+    achung.action === HardwareKeyAction.COMPOSE && achung.character === 0x27,
+    "空闲时 ' 开头 achung 音节",
+  );
+  check(
+    tibetan(key({ keyCode: 2064, unicodeChar: 0x2f }), false, IDLE).action ===
+      HardwareKeyAction.COMPOSE,
+    "空闲时 / 交给引擎单独上屏垂符",
+  );
+  check(
+    tibetan(key({ keyCode: 2064, unicodeChar: 0x2f, ctrlKey: true }), false, IDLE).action ===
+      HardwareKeyAction.RELEASE,
+    "带 Ctrl 的 / 仍是应用的快捷键",
+  );
+  check(
+    tibetan(key({ keyCode: 2058, unicodeChar: 0x2b, shiftKey: true }), false, IDLE).action ===
+      HardwareKeyAction.RELEASE &&
+      tibetan(key({ keyCode: 2006, unicodeChar: 0x36 }), false, IDLE).action ===
+        HardwareKeyAction.RELEASE &&
+      tibetan(key({ keyCode: 2050, unicodeChar: 0x20 }), false, IDLE).action ===
+        HardwareKeyAction.RELEASE &&
+      tibetan(key({ keyCode: 2054, unicodeChar: 0 }), false, IDLE).action ===
+        HardwareKeyAction.RELEASE,
+    "空闲时其余键（+、数字、空格、回车）交还应用",
+  );
+  for (const [code, mark] of [
+    [2058, 0x2b],
+    [2044, 0x2e],
+    [2063, 0x27],
+    [2057, 0x2d],
+    [2064, 0x2f],
+  ]) {
+    const decision: HardwareKeyDecision = tibetan(
+      key({ keyCode: code, unicodeChar: mark, shiftKey: mark === 0x2b }),
+      true,
+      COMPOSING,
+    );
+    check(
+      decision.action === HardwareKeyAction.COMPOSE && decision.character === mark,
+      `组字时 ${String.fromCharCode(mark)} 是拼写符号，交给引擎`,
+    );
+  }
+  const space: HardwareKeyDecision = tibetan(
+    key({ keyCode: 2050, unicodeChar: 0x20 }),
+    true,
+    COMPOSING,
+  );
+  check(
+    space.action === HardwareKeyAction.PRESS_THEN_TYPE && space.character === 0x20,
+    "组字时空格交给引擎上屏藏文加音节点",
+  );
+  check(
+    tibetan(key({ keyCode: 2054, unicodeChar: 0 }), true, COMPOSING).action ===
+      HardwareKeyAction.COMMIT_RAW &&
+      tibetan(key({ keyCode: 2119, unicodeChar: 0 }), true, COMPOSING).action ===
+        HardwareKeyAction.COMMIT_RAW,
+    "组字时回车只上屏藏文，不再交给应用换行",
+  );
+  check(
+    tibetan(key({ keyCode: 2055, unicodeChar: 0 }), true, COMPOSING).action ===
+      HardwareKeyAction.BACKSPACE &&
+      tibetan(key({ keyCode: 2070, unicodeChar: 0 }), true, COMPOSING).action ===
+        HardwareKeyAction.CANCEL,
+    "退格删一个原文按键，Esc 交给引擎的两段式取消",
+  );
+  check(
+    tibetan(key({ keyCode: 2043, unicodeChar: 0x2c }), true, COMPOSING).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "其他标点连音节串一起提交",
+  );
+  check(
+    tibetan(key({ keyCode: 2006, unicodeChar: 0x36 }), true, COMPOSING).action ===
+      HardwareKeyAction.COMMIT_THEN_TYPE,
+    "数字先提交音节串，再原样输入",
+  );
+  check(
+    tibetan(key({ keyCode: 2014, unicodeChar: 0 }), true, COMPOSING).action ===
+      HardwareKeyAction.COMMIT_THEN_RELEASE &&
+      tibetan(key({ keyCode: 2098, unicodeChar: 0 }), true, COMPOSING).action !==
+        HardwareKeyAction.CONVERT_HANJA,
+    "方向键先提交再移动光标；藏文没有汉字键要打开的列表",
+  );
+  const vietnameseSpace: HardwareKeyDecision = HardwareKeyRouter.route(
+    key({ keyCode: 2050, unicodeChar: 0x20 }),
+    true,
+    true,
+    true,
+    undefined,
+    false,
+    false,
+    "disabled",
+    false,
+    PLAIN_SPELLING,
+    false,
+    false,
+    false,
+    false,
+    SchemeTraits.VIETNAMESE,
+  );
+  check(
+    vietnameseSpace.action === HardwareKeyAction.COMMIT_THEN_TYPE,
+    "越南语的空格仍是先提交再输入空格",
   );
 });
 

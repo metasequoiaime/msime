@@ -16,7 +16,7 @@ pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
 }
 
 impl InputSession {
-    /// Dedicated preedit; `"R" + cased raw` in temporary Japanese; the local preedit; the displayed word in Vietnamese; the letters spaced at syllable boundaries in Cantonese; else the cased raw input.
+    /// 专用英文的预编辑；临时日文是 `"R"` 加带大小写的原文；本地模式的预编辑；越南文和藏文是显示出来的文字；粤拼是按音节加空格的字母；其余是带大小写的原文。
     pub(super) fn editing_text(&self) -> String {
         if self.dedicated_english {
             return self.dedicated_english_preedit.clone();
@@ -27,6 +27,8 @@ impl InputSession {
             }
             // A Vietnamese word is edited as the text it shows, not as its keystrokes.
             LocalInputMode::None if self.is_vietnamese() => self.engine.preedit().to_owned(),
+            // 藏文音节串同样按显示出来的藏文编辑，而不是按威利按键。
+            LocalInputMode::None if self.is_tibetan() => self.engine.preedit().to_owned(),
             // Jyutping is edited as the syllables it shows (`nei hou`); an edit drops the spaces again, because the scheme keeps only letters and `'`.
             LocalInputMode::None if self.is_cantonese() => {
                 self.engine.request().normalized_segmentation.clone()
@@ -211,7 +213,8 @@ impl InputSession {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => Vec::new(),
+            | SchemeType::Vietnamese
+            | SchemeType::Tibetan => Vec::new(),
         }
     }
 

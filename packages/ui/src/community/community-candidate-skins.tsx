@@ -25,12 +25,16 @@ import {
 } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
+import { CommunityMetrics } from "./community-metrics";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
 import { ActionButton } from "../core/action-button";
 import {
@@ -210,12 +214,7 @@ function CommunityCandidateSkinCard({
   open: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看候选窗口皮肤 ${skin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看候选窗口皮肤 ${skin.name}`} onClick={open}>
       <CandidateSkinPreviewImage
         id={skin.id}
         name={skin.name}
@@ -238,7 +237,7 @@ function CommunityCandidateSkinCard({
       {skin.license.assets.trim() && (
         <span className={style.cardAuthor}>素材授权 {skin.license.assets.trim()}</span>
       )}
-    </button>
+    </CommunityCard>
   );
 }
 
@@ -448,7 +447,7 @@ export function CommunityCandidateSkinsPage({
           ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
           description={selected.description}
         />
-        {license && <p className={style.metrics}>{license}</p>}
+        {license && <CommunityMetrics>{license}</CommunityMetrics>}
         <CommunityDetailStatus
           downloads={selected.downloads}
           ratingCount={selected.rating_count}
@@ -525,7 +524,7 @@ export function CommunityCandidateSkinsPage({
   }
 
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label="搜索候选窗口皮肤"
         value={search}
@@ -572,7 +571,7 @@ export function CommunityCandidateSkinsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {skins.map((skin) => (
           <CommunityCandidateSkinCard
             key={skin.id}
@@ -581,7 +580,7 @@ export function CommunityCandidateSkinsPage({
             open={() => open(skin)}
           />
         ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}
@@ -599,6 +598,6 @@ export function CommunityCandidateSkinsPage({
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }

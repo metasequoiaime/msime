@@ -24,6 +24,7 @@ foreach ($notice in @(
     @('resources/licenses/rime-cantonese-CC-BY-4.0.txt', 'Jyutping syllables and words of the Cantonese scheme in the host library, rime/rime-cantonese @ 259f0e48bba840c3a2e0d117539e96937f3d89bc, CC BY 4.0'),
     @('resources/licenses/libchewing-data-LGPL-2.1.txt', 'Bopomofo syllables and words of the Zhuyin scheme in the host library, chewing/libchewing-data @ c44e81aef24b06f1509f19e1be54c99812d0c43f, LGPL-2.1-or-later'),
     @('resources/licenses/vi-MIT.txt', 'vi crate behind the Vietnamese scheme in the host library, ZeroX-DG/vi-rs 0.8.0, MIT'),
+    @('resources/licenses/ewts-MIT.txt', 'ewts crate behind the Tibetan scheme in the host library, emgyrz/ewts-rs 0.1.3, MIT OR Apache-2.0 used under MIT'),
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
     @('crates/client-core/data/opencc/LICENSE', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'))) {
     $relative = $notice[0]

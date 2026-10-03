@@ -51,6 +51,9 @@ public final class CloudClipboardPanelPolicySmoke {
         check(!CloudClipboardPanelPolicy.canUpload(false, Status.READY, "synthetic note"), "a sensitive field cannot upload");
         check(!CloudClipboardPanelPolicy.canUpload(true, Status.READY, "x".repeat(4_001)), "text over the service limit cannot upload");
         check(!CloudClipboardPanelPolicy.canUpload(true, Status.READY, "  "), "blank text cannot upload");
+        check(!CloudClipboardPanelPolicy.canMutate(false, false), "a failed reload cannot mutate stale cloud rows");
+        check(!CloudClipboardPanelPolicy.canMutate(true, true), "a busy cloud action cannot overlap another mutation");
+        check(CloudClipboardPanelPolicy.canMutate(true, false), "a loaded idle cloud page may mutate");
 
         check(CloudClipboardPanelPolicy.message(Status.SIGNED_OUT, 0).equals("登录水杉账号后可在设备间同步剪贴板"), "the shared signed-out wording is used");
         check(CloudClipboardPanelPolicy.message(Status.DISABLED, 0).equals("云剪贴板未开启"), "the shared disabled wording is used");

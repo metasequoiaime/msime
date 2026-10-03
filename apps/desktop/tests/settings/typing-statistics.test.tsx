@@ -653,6 +653,31 @@ test("Cantonese and Zhuyin count as Chinese mode and Vietnamese has its own slic
   expect(screen.getByLabelText(/^越南语模式 4 字符/)).not.toBeNull();
 });
 
+test("Tibetan has its own scheme and mode slices and is not counted as Chinese", async () => {
+  const sources = { quanpin: 2, tibetan: 6 };
+  const statistics: TypingStatistics = {
+    enabled: true,
+    total: 8,
+    days: { [key(0)]: 8 },
+    detail: { characters: { han: 2, otherLetter: 4, punctuation: 2 }, sources },
+    dailyDetails: {
+      [key(0)]: { characters: { han: 2, otherLetter: 4, punctuation: 2 }, sources },
+    },
+  };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status(statistics)),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  fireEvent.click(await screen.findByRole("tab", { name: "方案" }));
+  expect(screen.getByLabelText(/^藏文 6 字符/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "模式" }));
+  expect(screen.getByLabelText(/^中文模式 2 字符/)).not.toBeNull();
+  expect(screen.getByLabelText(/^藏文模式 6 字符/)).not.toBeNull();
+});
+
 test("desktop statistics draw an ANSI key heatmap for the cumulative or selected-day scope", async () => {
   const statistics: TypingStatistics = {
     ...initialStatistics(),

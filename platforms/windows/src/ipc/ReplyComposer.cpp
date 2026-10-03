@@ -47,7 +47,7 @@ EncodedReply uiless_composition(uint64_t request, const std::string &display,
     throw std::logic_error("Missing candidate highlight");
   return uiless_reply(request, display, candidates, highlighted);
 }
-// The reference's CandidateTextForOutput: the Japanese scheme's kana and kanji never go through the simplified-to-traditional table, whatever the character-set toggle says. Korean Hangul and Vietnamese are not Chinese text either, and Cantonese and Zhuyin are Traditional already (scheme::ScriptConversionApplies). The toggle itself is untouched, so leaving any of them restores traditional output.
+// 参考实现的 CandidateTextForOutput：不论简繁开关怎样，日文方案的假名和汉字都不经过简转繁表。韩文、越南文和藏文也不是中文文字，粤拼和注音本来就是繁体（scheme::ScriptConversionApplies）。开关本身不变，所以离开这些方案后繁体输出恢复。
 bool traditional_projection(const ServerSession &session) {
   if (!session.traditional_output())
     return false;
@@ -317,7 +317,7 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
   if (action.kind == KeyKind::LocalReset) {
-    // The first Escape on a Vietnamese word shows its raw keys again and the word keeps composing, so there is no cleared composition to report; the TIP stays composing with the same keys.
+    // 越南文词或藏文音节串上的第一次 Esc 重新显示原文并继续组字，所以没有被清空的组字要报告；TIP 带着同样的按键继续组字。
     const auto current = session.view();
     const bool restores_raw = packet.keycode == kVirtualKeyEscape && session.input_enabled() &&
                               scheme::CancelRestoresRaw(view_scheme(current)) &&
@@ -417,7 +417,13 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                 before.at("caret_position").get<size_t>(),
                 before.value("scheme", 0u) == 3u,
                 before.value("spelling_symbols", std::string{}));
-  if (kind == EditKind::None)
+  // 藏文组字时的空格是组字输入，不是选词：引擎把音节串连同音节点上屏，TIP 已经从自己的宿主会话写出同样的文字（host_composition_takes_key），所以它和注音的空格一样走编辑路径，这里只计数。
+  const bool tibetan_space = kind == EditKind::None && view_scheme(before) == scheme::Tibetan &&
+                             !before.value("dedicated_english", false) &&
+                             before.at("local_mode").get<std::string>() == "none" &&
+                             !before.at("editing_text").get<std::string>().empty() && packet.keycode == 0x20 &&
+                             PipeMetadata::key_modifiers(packet.modifiers_down) == 0;
+  if (kind == EditKind::None && !tibetan_space)
     return std::nullopt;
   auto result = session.key(packet, epoch);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
@@ -435,7 +441,7 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
       !result.transition.at("commit").is_null() &&
       !result.transition.at("commit_context").is_null() &&
       result.transition.at("commit_context").value("scheme", 255u) == 2u;
-  // A Korean letter that starts a new syllable carries the finished one as its commit, a Vietnamese key typed after a finished word commits it, and a Zhuyin syllable past the conversion's limit commits its first word. The TIP writes each of them from its own host session (scheme::AlwaysInlinePreedit), so here they are only counted.
+  // 开始新音节的韩文字母带着已完成的音节作为上屏，完成的越南文词之后打的键上屏它，超出转换长度的注音音节上屏第一个词，藏文的空格和 `/` 带音节点或垂符上屏整串音节，空闲的 `/` 直接上屏垂符。TIP 从自己的宿主会话写出这些文字（scheme::AlwaysInlinePreedit），所以这里只计数。
   const bool tip_commit =
       !result.transition.at("commit").is_null() &&
       scheme::AlwaysInlinePreedit(view_scheme(result.transition.at("view")));
@@ -598,7 +604,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   const auto view = session.view();
   if (!view.at("focused").get<bool>() || view.at("candidates").empty())
     return std::nullopt;
-  // The TIP never sends this for Korean, Zhuyin or Vietnamese: it composes them in its own host session, which a commit made here would leave behind. A Hanja row's translation is display only, like its 훈음, which never reaches the view's translation at all.
+  // TIP 从不为韩文、注音、越南文或藏文发送这个请求：它们在 TIP 自己的宿主会话里组字，这里做的上屏会让那个会话落后。汉字行的译文和它的 훈음 一样只用于显示，훈음 根本不会进入视图的译文。
   if (scheme::AlwaysInlinePreedit(view_scheme(view)))
     return std::nullopt;
   const auto generation = view.at("generation").get<uint64_t>();
@@ -772,7 +778,7 @@ std::optional<PendingReply> ReplyComposer::korean_syllable_end(
     return std::nullopt;
   }
   const auto current = session.view();
-  // Korean, Zhuyin and Vietnamese compose in the TIP's own host session and write the composition out when a key leaves it (scheme::CommitsOnBlur); an open Zhuyin list took its keys in korean_hanja already.
+  // 韩文、注音、越南文和藏文在 TIP 自己的宿主会话里组字，按键离开组字时把它写出来（scheme::CommitsOnBlur）；打开的注音列表已经在 korean_hanja 里接收了它的按键。藏文的回车也走这里：只上屏藏文，不加音节点。
   if (!scheme::CommitsOnBlur(view_scheme(current)) ||
       current.at("local_mode").get<std::string>() != "none" ||
       current.at("editing_text").get<std::string>().empty())

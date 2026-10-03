@@ -154,11 +154,10 @@ jobs:
       # than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent iOS release
         if: ${{ inputs.publish }}
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="ios-v${VERSION}"
-          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
           start=$(git tag --list 'ios-v*' --sort=-v:refname | head -1)
           flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$(git rev-parse HEAD)" --title "iOS ${VERSION}" --generate-notes "${flags[@]}"
+          python3 scripts/generate-release-notes.py --platform ios --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$(git rev-parse HEAD)" --title "iOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"

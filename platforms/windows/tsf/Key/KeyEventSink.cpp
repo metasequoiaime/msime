@@ -90,6 +90,13 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
     switch (keyState.Function)
     {
     case FUNCTION_INPUT:
+        // 藏文的空格和 `/` 不进入原文：组字时引擎把整串音节连同音节点或垂符上屏，空闲的 `/` 直接输出垂符，之后都没有组字。
+        if (Global::InputModeScheme.load(std::memory_order_relaxed) == msime::windows::scheme::Tibetan &&
+            (wch == L' ' || wch == L'/'))
+        {
+            clearComposition();
+            break;
+        }
         // A Korean letter, or a key Zhuyin spells with, closes the open list and keeps composing.
         shadow.koreanHanjaListOpen = false;
         if (shadow.inputLength == 0)
@@ -830,9 +837,9 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
     {
         return isTouchKeyboardSpecialKeys;
     }
-    // Korean and Vietnamese write half-width ASCII in either mode, so with the keyboard closed the punctuation and full-width switches have nothing to convert.
+    // 韩文、越南文和藏文在两种模式下都写半角 ASCII，所以键盘关闭时标点和全角开关没有东西可转换。
     const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
-    // Korean, Zhuyin and Vietnamese compose in the TIP's own host session (scheme::AlwaysInlinePreedit).
+    // 韩文、注音、越南文和藏文在 TIP 自己的宿主会话里组字（scheme::AlwaysInlinePreedit）。
     const bool hostComposed = msime::windows::scheme::AlwaysInlinePreedit(scheme);
     if (!isOpen && !msime::windows::scheme::UsesChinesePunctuation(scheme))
     {
@@ -1576,6 +1583,8 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
                                          : msime::tsf::kZhuyinComposingSymbols;
         else if (scheme == msime::windows::scheme::Vietnamese && composing)
             spellingSymbols = msime::tsf::kVietnameseVniDigits;
+        else if (scheme == msime::windows::scheme::Tibetan)
+            spellingSymbols = composing ? msime::tsf::kTibetanComposingSymbols : msime::tsf::kTibetanIdleSymbols;
         // Keys queued ahead may also open or close the list, so the list is read from the projection, which carries it forward from the host session's. With the list projected closed every key keeps the action it has without one, which is what commits a composition ended by an arrow so a Backspace queued after it still reaches the application; with it projected open the list's keys become FUNCTION_KOREAN_HANJA_KEY, which decides against the host session when it runs, as the Server does against its own.
         switch (msime::tsf::host_composed_key_action(scheme, *classifiedCode, *classifiedWch, composing, listOpen,
                                                      spellingSymbols))

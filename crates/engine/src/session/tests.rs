@@ -2993,6 +2993,179 @@ fn vietnamese_option_change_keeps_the_raw_key_display() {
     assert!(session.snapshot().preedit.is_empty());
 }
 
+// ---- 藏文 ----
+
+fn tibetan_session(fixture: &Fixture) -> Session {
+    fixture.session_with(|options| options.scheme = SchemeType::Tibetan)
+}
+
+#[test]
+fn tibetan_space_slash_and_enter_end_the_syllables() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    let mut text = String::new();
+    type_text(&mut session, "bkra");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "བཀྲ");
+    assert_eq!(snapshot.editing_text, "བཀྲ");
+    assert!(snapshot.candidates.is_empty());
+    let space = session.character(b' ', false);
+    assert!(space.handled);
+    text.push_str(space.commit.as_deref().unwrap());
+    type_text(&mut session, "shis");
+    let slash = session.character(b'/', false);
+    assert!(slash.handled);
+    text.push_str(slash.commit.as_deref().unwrap());
+    assert_eq!(text, "བཀྲ་ཤིས།");
+
+    // 空格走 CommitCandidate 时同样带音节点；回车只上屏藏文，并吞掉按键。
+    type_text(&mut session, "sangs");
+    let space = session.command(Command::CommitCandidate);
+    assert!(space.handled);
+    assert_eq!(space.commit.as_deref(), Some("སངས་"));
+    type_text(&mut session, "rgyas");
+    let enter = session.command(Command::CommitRaw);
+    assert!(enter.handled);
+    assert_eq!(enter.commit.as_deref(), Some("རྒྱས"));
+
+    // 没有组字时 `/` 单独输出垂符，空格和数字交给宿主。
+    let slash = session.character(b'/', false);
+    assert!(slash.handled);
+    assert_eq!(slash.commit.as_deref(), Some("།"));
+    let space = session.character(b' ', false);
+    assert!(!space.handled && space.commit.is_none());
+    let digit = session.character(b'1', false);
+    assert!(!digit.handled && digit.commit.is_none());
+}
+
+#[test]
+fn tibetan_uppercase_letters_and_wylie_symbols_spell() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    assert_eq!(session.snapshot().spelling_symbols, "'/");
+    assert!(session.character(b'T', true).handled);
+    assert_eq!(session.snapshot().spelling_symbols, "'+-./");
+    type_text(&mut session, "a");
+    assert_eq!(session.snapshot().preedit, "ཊ");
+    session.command(Command::Backspace);
+    session.command(Command::Backspace);
+    assert!(session.snapshot().preedit.is_empty());
+
+    // 以 achung 起头的音节：空闲时 `'` 也是拼写。
+    type_text(&mut session, "'od");
+    assert_eq!(session.snapshot().preedit, "འོད");
+    session.command(Command::Cancel);
+    session.command(Command::Cancel);
+
+    // 宿主把拼写符号当标点送来时仍然拼写。
+    type_text(&mut session, "pad");
+    assert!(session.punctuation(b'+').handled);
+    type_text(&mut session, "ma");
+    assert_eq!(session.snapshot().preedit, "པདྨ");
+    type_text(&mut session, "sh");
+    session.command(Command::Backspace);
+    session.command(Command::Backspace);
+    assert_eq!(session.snapshot().preedit, "པདྨ");
+    assert_eq!(session.punctuation(b'/').commit.as_deref(), Some("པདྨ།"));
+    assert_eq!(session.punctuation(b'/').commit.as_deref(), Some("།"));
+}
+
+#[test]
+fn tibetan_other_keys_commit_without_a_tsheg() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    type_text(&mut session, "ka");
+    // 其他标点由标点路由在藏文后面跟上半角标点。
+    assert!(!session.character(b',', false).handled);
+    let comma = session.punctuation(b',');
+    assert!(comma.handled);
+    assert_eq!(comma.commit.as_deref(), Some("ཀ,"));
+    // 数字和光标键上屏藏文，按键交回宿主。
+    type_text(&mut session, "kha");
+    let digit = session.character(b'2', false);
+    assert!(!digit.handled);
+    assert_eq!(digit.commit.as_deref(), Some("ཁ"));
+    type_text(&mut session, "ga");
+    let left = session.command(Command::MoveLeft);
+    assert!(!left.handled);
+    assert_eq!(left.commit.as_deref(), Some("ག"));
+    // 失焦或切换方案经 `finish` 按显示上屏。
+    type_text(&mut session, "nga");
+    assert_eq!(session.finish(0).commit.as_deref(), Some("ང"));
+}
+
+#[test]
+fn tibetan_shad_after_nga_keeps_the_tsheg() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    type_text(&mut session, "dang");
+    assert_eq!(
+        session.character(b'/', false).commit.as_deref(),
+        Some("དང་།")
+    );
+    type_text(&mut session, "nga");
+    assert_eq!(session.punctuation(b'/').commit.as_deref(), Some("ང་།"));
+    // 不以 ང 结尾的音节直接接垂符。
+    type_text(&mut session, "ngo");
+    assert_eq!(session.character(b'/', false).commit.as_deref(), Some("ངོ།"));
+}
+
+#[test]
+fn tibetan_letters_wylie_cannot_spell_are_written_as_typed() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    // 大写锁定下的 `BOD`：`B` `O` 原样上屏、不进原文，`D` 是威利的反写辅音，藏文上屏里没有拉丁字母。
+    let b = session.character(b'B', true);
+    assert!(b.handled);
+    assert_eq!(b.commit.as_deref(), Some("B"));
+    assert_eq!(session.character(b'O', true).commit.as_deref(), Some("O"));
+    assert!(session.snapshot().preedit.is_empty());
+    assert!(session.character(b'D', true).handled);
+    assert_eq!(session.character(b' ', false).commit.as_deref(), Some("ཌ་"));
+    // 有组字时，威利读不了的字母先上屏藏文，再原样跟在后面。
+    type_text(&mut session, "ka");
+    let q = session.character(b'q', false);
+    assert!(q.handled);
+    assert_eq!(q.commit.as_deref(), Some("ཀq"));
+    assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn tibetan_first_esc_shows_the_wylie_and_the_second_cancels() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    type_text(&mut session, "bod");
+    assert!(session.command(Command::Cancel).handled);
+    assert_eq!(session.snapshot().preedit, "bod");
+    // 锁定原文后组字只是拉丁字母：空格只上屏原文，把空格交回宿主。
+    let space = session.character(b' ', false);
+    assert!(!space.handled);
+    assert_eq!(space.commit.as_deref(), Some("bod"));
+    type_text(&mut session, "bod");
+    session.command(Command::Cancel);
+    assert_eq!(
+        session.character(b'/', false).commit.as_deref(),
+        Some("bod/")
+    );
+    type_text(&mut session, "bod");
+    session.command(Command::Cancel);
+    let cancelled = session.command(Command::Cancel);
+    assert!(cancelled.handled && cancelled.commit.is_none());
+    assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn tibetan_dedicated_english_keeps_its_own_rules() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = tibetan_session(&fixture);
+    session.set_dedicated_english(true);
+    type_text(&mut session, "bod");
+    assert_eq!(session.snapshot().preedit, "bod");
+    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(session.command(Command::Cancel).handled);
+    assert!(session.snapshot().preedit.is_empty());
+}
+
 /// A `cantonese.db` with the rows the Cantonese session tests read, written with the shipped schema.
 fn cantonese_dictionary(directory: &Path) -> PathBuf {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};

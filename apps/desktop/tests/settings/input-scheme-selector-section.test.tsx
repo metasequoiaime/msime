@@ -30,6 +30,7 @@ const allSchemes = [
   "cantonese",
   "zhuyin",
   "vietnamese",
+  "tibetan",
 ] as const;
 
 test("offers 粤拼 and 注音 where the host supports them", () => {

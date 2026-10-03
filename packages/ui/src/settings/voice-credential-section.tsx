@@ -6,7 +6,7 @@ import { EndpointSettingField } from "./endpoint-setting-field";
 import { PasswordSettingField } from "./password-setting-field";
 import { SettingField } from "./setting-field";
 import { SettingSectionTitle } from "./setting-section-title";
-import * as settings from "./settings-style";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 export type VoiceCredentialSectionKind = "asr" | "polish";
 
@@ -90,7 +90,7 @@ export function VoiceCredentialSection({
   const streamEndpoint = endpoint.trim() || findDoubaoStreamEndpoint("async")?.endpoint || "";
 
   return (
-    <div className={settings.managerBlock} role="group" aria-label={`语音${name}凭据`}>
+    <SettingsManagerBlock role="group" aria-label={`语音${name}凭据`}>
       <SettingSectionTitle
         as="div"
         title={`${name}凭据`}
@@ -162,6 +162,6 @@ export function VoiceCredentialSection({
         }
         onClear={onClear}
       />
-    </div>
+    </SettingsManagerBlock>
   );
 }

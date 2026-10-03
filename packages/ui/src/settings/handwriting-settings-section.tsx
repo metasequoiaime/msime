@@ -5,6 +5,7 @@ import { handwritingPrivacyText } from "./handwriting-platform-notice";
 import * as settings from "./settings-style";
 import { OpenPanelRow } from "./open-panel-row";
 import { ActionRow } from "./action-row";
+import { SettingsPreviewBlock } from "./settings-preview-block";
 
 /** 「手写输入」页每个平台一组：在键盘类宿主上是开启手写的方法、系统设置按钮、隐私说明和 SDK 的隐私行；在会打开自己面板的桌面宿主上是启动按钮和预览。 */
 export function HandwritingSettingsSection({
@@ -85,8 +86,7 @@ export function HandwritingSettingsSection({
         action={onOpenHandwriting}
         className={`secondary ${settings.openButton}`}
       />
-      <div className={settings.groupPreview} aria-label="手写识别板预览">
-        <div className={settings.panelPreviewLabel}>预览</div>
+      <SettingsPreviewBlock aria-label="手写识别板预览">
         <div className={surface.mock}>
           <div className={surface.mockCanvas}>
             <span className={surface.mockStroke}>水</span>
@@ -98,7 +98,7 @@ export function HandwritingSettingsSection({
             <span>未</span>
           </div>
         </div>
-      </div>
+      </SettingsPreviewBlock>
     </GroupList>
   );
 }

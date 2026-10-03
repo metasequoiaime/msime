@@ -28,6 +28,7 @@ mod quanpin;
 mod session;
 mod shuangpin;
 mod text;
+mod tibetan;
 mod types;
 mod user_dictionary;
 pub mod vietnamese;

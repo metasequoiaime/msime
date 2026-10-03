@@ -1093,7 +1093,7 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-/// The account value for a scheme, or none for a scheme the account schema does not name yet. Cantonese, Zhuyin and Vietnamese are left out rather than mapped to a neighbour, so the account keeps the scheme it last recorded instead of being overwritten with one the user did not choose.
+/// 方案在账号里的取值；账号 schema 还没有收录的方案为空。粤拼、注音、越南文和藏文不写，而不是映射到相近的方案，这样账号保留上次记录的方案，不会被改成用户没选过的方案。
 fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
     match scheme {
         InputScheme::Quanpin => Some("quanpin"),
@@ -1101,7 +1101,10 @@ fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
         InputScheme::Wubi => Some("wubi"),
         InputScheme::Japanese => Some("japanese"),
         InputScheme::Korean => Some("korean"),
-        InputScheme::Cantonese | InputScheme::Zhuyin | InputScheme::Vietnamese => None,
+        InputScheme::Cantonese
+        | InputScheme::Zhuyin
+        | InputScheme::Vietnamese
+        | InputScheme::Tibetan => None,
     }
 }
 
@@ -1797,6 +1800,7 @@ mod tests {
             (InputScheme::Cantonese, None),
             (InputScheme::Zhuyin, None),
             (InputScheme::Vietnamese, None),
+            (InputScheme::Tibetan, None),
         ] {
             assert_eq!(account_input_schema(scheme), schema, "{scheme:?}");
         }
@@ -1811,7 +1815,7 @@ mod tests {
                 value_type: "string".into(),
             },
         );
-        for unknown in ["cantonese", "zhuyin", "vietnamese", "esperanto"] {
+        for unknown in ["cantonese", "zhuyin", "vietnamese", "tibetan", "esperanto"] {
             let mut values = frequency_account_preferences(&FrequencyPreferences {
                 mode: FrequencyMode::Linear,
                 trigger_count: 7,

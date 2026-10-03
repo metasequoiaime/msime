@@ -27,11 +27,12 @@ public final class QuickPunctuationPolicy {
 
     private QuickPunctuationPolicy() {}
 
-    /** Returns display faces and the ASCII input each entry sends to Engine. Korean and Vietnamese punctuation is half-width ASCII. */
+    /** 返回每一项的显示字面和它发送给 Engine 的 ASCII 输入。韩语、越南语和藏文的标点是半角 ASCII。 */
     public static List<Entry> entries(boolean dedicatedEnglish, int scheme, String localMode) {
         if (dedicatedEnglish || !"none".equals(localMode)
                 || scheme == InputSchemeTraits.KOREAN
-                || scheme == InputSchemeTraits.VIETNAMESE) return ASCII;
+                || scheme == InputSchemeTraits.VIETNAMESE
+                || scheme == InputSchemeTraits.TIBETAN) return ASCII;
         if (scheme == InputSchemeTraits.JAPANESE) return JAPANESE;
         return scheme == InputSchemeTraits.ZHUYIN ? ZHUYIN : CHINESE;
     }

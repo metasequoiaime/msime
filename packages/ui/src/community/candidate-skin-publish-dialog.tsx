@@ -15,6 +15,7 @@ import {
   runCommunityPublishAction,
 } from "./community-helpers";
 import * as style from "./community-style";
+import { CommunityMetrics } from "./community-metrics";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
@@ -404,9 +405,9 @@ export function CandidateSkinPublishDialog({
       {packError && licenseless && (
         <fieldset className={style.field} disabled={writingLicense}>
           <legend>素材授权</legend>
-          <p className={style.metrics}>
+          <CommunityMetrics>
             公开发布需要注明别人可以怎样使用皮肤里的图片，选择后会写入 skin.toml。
-          </p>
+          </CommunityMetrics>
           {assetLicenses.map((item) => (
             <label key={item.value}>
               <input
@@ -437,14 +438,12 @@ export function CandidateSkinPublishDialog({
             />
           )}
           {licenseChoice === "other" && customLicense.trim() !== "" && !licenseValid && (
-            <p className={style.metrics} role="alert">
-              授权说明太长，请控制在 40 个汉字以内。
-            </p>
+            <CommunityMetrics role="alert">授权说明太长，请控制在 40 个汉字以内。</CommunityMetrics>
           )}
           {licenseFailed && (
-            <p className={style.metrics} role="alert">
+            <CommunityMetrics role="alert">
               写入授权失败，请重试，或在 skin.toml 的 [license] 中自己填写 assets。
-            </p>
+            </CommunityMetrics>
           )}
         </fieldset>
       )}
@@ -465,12 +464,12 @@ export function CandidateSkinPublishDialog({
       )}
       {pack && (
         <>
-          <p className={style.metrics}>
+          <CommunityMetrics>
             {pack.fileCount} 个文件 · {candidateSkinMegabytes(pack.size)} / {packageLimit}
-          </p>
-          <p className={style.metrics} aria-label="皮肤授权">
+          </CommunityMetrics>
+          <CommunityMetrics aria-label="皮肤授权">
             {communityLicenseLine(pack.license)}
-          </p>
+          </CommunityMetrics>
           <CommunitySkinPublicationFields
             name={name}
             description={description}

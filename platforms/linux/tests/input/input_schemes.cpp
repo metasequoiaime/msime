@@ -18,14 +18,24 @@ int main() {
   assert(scheme_number("cantonese") == scheme::Cantonese);
   assert(scheme_number("zhuyin") == scheme::Zhuyin);
   assert(scheme_number("vietnamese") == scheme::Vietnamese);
+  assert(scheme_number("tibetan") == scheme::Tibetan);
+  assert(scheme::Tibetan == 8);
   assert(scheme_number("pinyin") == -1);
   assert(scheme_number("") == -1);
 
-  // Vietnamese is a non-Chinese input language like Japanese and Korean; Cantonese and Zhuyin are Chinese schemes.
+  // 越南文和藏文与日文、韩文一样是非中文输入语言；粤拼和注音是中文方案。
   for (int number : {0, 1, 2, 5, 6})
     assert(scheme::IsChinese(number));
-  for (int number : {3, 4, 7, 8, -1})
+  for (int number : {3, 4, 7, 8, 9, -1})
     assert(!scheme::IsChinese(number));
+  // 藏文的宿主特性和越南文相同：字母直接组成文字，CapsLock 的大写字母照样组字，离开时上屏，光标锁在末尾，不转繁体，不用中文标点，不变全角，没有宿主的智能标点，也没有要打开的候选列表。
+  static_assert(scheme::LetterComposition(scheme::Tibetan) && scheme::CapsLockBypassExempt(scheme::Tibetan) &&
+                scheme::AlwaysInlinePreedit(scheme::Tibetan) && scheme::CommitsOnBlur(scheme::Tibetan) &&
+                scheme::LocksCaret(scheme::Tibetan));
+  static_assert(!scheme::FoldsLetterCase(scheme::Tibetan) && !scheme::OpensCandidateList(scheme::Tibetan) &&
+                !scheme::ScriptConversionApplies(scheme::Tibetan) && !scheme::LearnsIntoMainDictionary(scheme::Tibetan) &&
+                !scheme::OpensLocalModes(scheme::Tibetan) && !scheme::UsesChinesePunctuation(scheme::Tibetan) &&
+                !scheme::HostSmartPunctuation(scheme::Tibetan) && !scheme::WidensFullWidth(scheme::Tibetan));
 
   // Only Korean and Zhuyin keep their candidates in a list the user opens.
   const Json zhuyin = {{"scheme", 6}, {"editing_text", "ㄋㄧˇ"}, {"candidates", Json::array()}};
@@ -47,6 +57,8 @@ int main() {
   assert(!opened_candidate_list(quanpin));
   const Json vietnamese = {{"scheme", 7}, {"editing_text", "viet"}};
   assert(!candidate_list_composition(vietnamese));
+  const Json tibetan = {{"scheme", 8}, {"editing_text", "བཀྲ"}};
+  assert(!candidate_list_composition(tibetan));
   // A local mode keeps its own rules in every scheme.
   Json zhuyin_mode = zhuyin;
   zhuyin_mode["local_mode"] = "expression";
@@ -61,7 +73,7 @@ int main() {
   const Json options = {{"language_dictionaries", directory.string()}};
   const auto empty = language_dictionary_availability(options);
   const auto no_directory = language_dictionary_availability(Json::object());
-  for (const char *id : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "vietnamese"}) {
+  for (const char *id : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "vietnamese", "tibetan"}) {
     assert(input_scheme_available(id, empty));
     assert(input_scheme_available(id, no_directory));
   }
@@ -78,6 +90,8 @@ int main() {
   assert(effective_input_scheme("zhuyin", "vietnamese", empty) == "quanpin");
   assert(effective_input_scheme("unknown", "shuangpin", empty) == "shuangpin");
   assert(effective_input_scheme("vietnamese", "wubi", empty) == "vietnamese");
+  assert(effective_input_scheme("tibetan", "wubi", empty) == "tibetan");
+  assert(effective_input_scheme("zhuyin", "tibetan", empty) == "quanpin");
   assert(effective_input_scheme("korean", "wubi", no_directory) == "korean");
 
   // A directory with the dictionary name is not a dictionary.

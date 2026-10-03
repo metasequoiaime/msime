@@ -2,7 +2,7 @@ import {
   CredentialStatusMessage,
   type CredentialStatusMessageValue,
 } from "./credential-status-message";
-import * as settings from "./settings-style";
+import { SettingsServiceRow } from "./settings-service-row";
 import { ActionButton } from "./action-button";
 
 export interface CredentialActionsProps {
@@ -28,7 +28,7 @@ export function CredentialActions({
   onClear,
 }: CredentialActionsProps) {
   return (
-    <div className={settings.serviceRow}>
+    <SettingsServiceRow>
       <div>
         <ActionButton
           action={onSave}
@@ -46,6 +46,6 @@ export function CredentialActions({
         )}
         <CredentialStatusMessage message={message} />
       </div>
-    </div>
+    </SettingsServiceRow>
   );
 }

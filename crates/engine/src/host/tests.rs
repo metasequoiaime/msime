@@ -1053,6 +1053,27 @@ fn cantonese_is_unavailable_without_its_dictionary() {
 }
 
 #[test]
+fn scheme_eight_is_tibetan_and_needs_no_dictionary() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = 8;
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"bod");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "བོད");
+    assert_eq!(snapshot.scheme, 8);
+    let space = session.command(Command::CommitCandidate).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit, "བོད་");
+    value.scheme = 9;
+    let error = Session::new(&value).err().expect("scheme nine");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::UNSUPPORTED_INPUT_SCHEME
+    );
+}
+
+#[test]
 fn zhuyin_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());

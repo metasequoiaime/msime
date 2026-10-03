@@ -43,6 +43,7 @@ TISInputSourceRef appParentSource = reinterpret_cast<TISInputSourceRef>(0x109);
 TISInputSourceRef cantoneseModeSource = reinterpret_cast<TISInputSourceRef>(0x10a);
 TISInputSourceRef zhuyinModeSource = reinterpret_cast<TISInputSourceRef>(0x10b);
 TISInputSourceRef vietnameseModeSource = reinterpret_cast<TISInputSourceRef>(0x10c);
+TISInputSourceRef tibetanModeSource = reinterpret_cast<TISInputSourceRef>(0x10d);
 std::vector<TISInputSourceRef> alreadyEnabledSources;
 std::vector<TISInputSourceRef> disabledSources;
 NSString *listedSourceIdentifier = nil;
@@ -97,6 +98,7 @@ void *GetInputSourceProperty(TISInputSourceRef inputSource, CFStringRef property
     if (inputSource == cantoneseModeSource) return (__bridge void *)MSIMECantoneseInputModeID;
     if (inputSource == zhuyinModeSource) return (__bridge void *)MSIMEZhuyinInputModeID;
     if (inputSource == vietnameseModeSource) return (__bridge void *)MSIMEVietnameseInputModeID;
+    if (inputSource == tibetanModeSource) return (__bridge void *)MSIMETibetanInputModeID;
     CFStringRef identifier = inputSource == parentSource        ? CFSTR("com.houko.inputmethod.MetasequoiaIME")
                              : inputSource == englishModeSource ? CFSTR("com.houko.inputmethod.MetasequoiaIME.Roman")
                                                                 : CFSTR("com.houko.inputmethod.MetasequoiaIME.Hans");
@@ -235,9 +237,9 @@ int main()
         CFRelease(sourceList);
         sourceList = nullptr;
 
-        // Registration leaves the Cantonese, Zhuyin and Vietnamese modes off: they are opt-in, turned on when the user picks their scheme, and an install must not add three input menu entries nobody asked for. Listed first, none of them becomes the primary mode either.
-        const void *optInSources[] = {cantoneseModeSource, hansModeSource, zhuyinModeSource, wubiModeSource, vietnameseModeSource};
-        sourceList = CFArrayCreate(nullptr, optInSources, 5, nullptr);
+        // 登记时粤拼、注音、越南文和藏文四个模式保持关闭：它们按需启用，用户选中对应方案时才打开，安装不能给输入菜单平白加上没人要的四项。排在最前面的也不会因此成为主模式。
+        const void *optInSources[] = {cantoneseModeSource, hansModeSource, zhuyinModeSource, wubiModeSource, vietnameseModeSource, tibetanModeSource};
+        sourceList = CFArrayCreate(nullptr, optInSources, 6, nullptr);
         enabledSources.clear();
         require(MSIMERegisterAndEnableInputSources(bundleURL, @"app.msime.inputmethod.MetasequoiaIME", CaptureRegistration,
                                                          CopyInputSources, GetInputSourceProperty,
@@ -307,16 +309,16 @@ int main()
                 "A missing disabler did not leave just the seeded record.");
 
         // The opt-in modes are recorded without being enabled, so neither this launch nor any later one turns them on. One the system enabled by itself despite tsInputModeDefaultStateKey is turned off once, when it is first recorded.
-        const void *optInInstalledSources[] = {appParentSource, hansModeSource, cantoneseModeSource, zhuyinModeSource, vietnameseModeSource};
-        sourceList = CFArrayCreate(nullptr, optInInstalledSources, 5, nullptr);
-        alreadyEnabledSources = {appParentSource, hansModeSource, zhuyinModeSource};
+        const void *optInInstalledSources[] = {appParentSource, hansModeSource, cantoneseModeSource, zhuyinModeSource, vietnameseModeSource, tibetanModeSource};
+        sourceList = CFArrayCreate(nullptr, optInInstalledSources, 6, nullptr);
+        alreadyEnabledSources = {appParentSource, hansModeSource, zhuyinModeSource, tibetanModeSource};
         enabledSources.clear();
         disabledSources.clear();
         offered = MSIMEEnableNewInputModes(appBundle, @[MSIMEChineseInputModeID], CopyInputSources, GetInputSourceProperty, EnableInputSource, DisableInputSource);
         require(enabledSources.empty(), "An opt-in mode was enabled by an update.");
-        require(disabledSources.size() == 1 && disabledSources[0] == zhuyinModeSource,
+        require(disabledSources.size() == 2 && disabledSources[0] == zhuyinModeSource && disabledSources[1] == tibetanModeSource,
                 "An opt-in mode the system enabled by itself was not turned off, or one already off was disabled.");
-        require([offered isEqualToArray:@[MSIMEChineseInputModeID, MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID]],
+        require([offered isEqualToArray:@[MSIMEChineseInputModeID, MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID, MSIMETibetanInputModeID]],
                 "The opt-in modes were not recorded.");
         // Once recorded, an opt-in mode the user turned on by picking its scheme is left on.
         alreadyEnabledSources = {appParentSource, hansModeSource, cantoneseModeSource, zhuyinModeSource};

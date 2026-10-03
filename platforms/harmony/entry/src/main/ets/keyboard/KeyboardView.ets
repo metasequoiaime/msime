@@ -803,8 +803,8 @@ struct KeyboardView {
     if (this.koreanFace()) {
       return DubeolsikLayout.jamo(letter, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
-    if (this.vietnameseFace()) {
-      // A Vietnamese letter goes in the case Shift gives, so its cap shows that case, as in English.
+    if (this.vietnameseFace() || this.tibetanFace()) {
+      // 越南语和藏文（威利转写区分大小写）的字母按 Shift 给出的大小写输入，所以键面显示那个大小写，和英文一样。
       return LetterKeyFacePolicy.face(letter, false, false, this.caseMode !== LetterCaseMode.LOWERCASE);
     }
     return LetterKeyFacePolicy.face(letter, !this.english, this.localMode !== 'none',
@@ -846,6 +846,12 @@ struct KeyboardView {
   private vietnameseFace(): boolean {
     return SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english,
       this.localMode) === SchemeTraits.VIETNAMESE;
+  }
+
+  /** 字母是否交给藏文威利转写组字（区分大小写），和 `koreanFace` 一样读键盘自己的方案。 */
+  private tibetanFace(): boolean {
+    return SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english,
+      this.localMode) === SchemeTraits.TIBETAN;
   }
 
   /** Whether the Engine last reported a Zhuyin composition under the Zhuyin rules, as opposed to the face the keyboard draws before it has. */
@@ -931,8 +937,8 @@ struct KeyboardView {
       }
       return;
     }
-    if (this.vietnameseFace()) {
-      // The Vietnamese composer keeps each letter's case in the word, so Shift is sent as the capital itself rather than as helpcode.
+    if (this.vietnameseFace() || this.tibetanFace()) {
+      // 越南语组字和藏文威利转写都保留每个字母的大小写，所以 Shift 直接发大写字母本身，而不是当作辅助码。
       const automatic: boolean = this.letterCase.isAutomatic();
       const held: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
       KeyboardSession.shared.press(
@@ -1699,6 +1705,11 @@ struct KeyboardView {
       KeyboardSession.shared.commitThenType(0x20);
       return;
     }
+    if (this.tibetanFace()) {
+      // 藏文空格由引擎结束音节串并补上音节点；没有组字时引擎不处理，键盘照常输入空格。
+      KeyboardSession.shared.pressThenType(0x20);
+      return;
+    }
     if (this.japanese && this.editing.length > 0
         && KeyboardSession.shared.convertJapanese()) {
       return;
@@ -1778,13 +1789,14 @@ struct KeyboardView {
   /** A symbol wears the face of what it will insert, which in Chinese is not the ASCII on the cap. */
   private symbolFace(symbol: string): string {
     const chinese: string | undefined = CHINESE_SYMBOL_FACES.get(symbol);
-    // Korean and Vietnamese punctuation is the ASCII on the cap.
-    return !this.english && !this.koreanFace() && !this.vietnameseFace() && chinese !== undefined
+    // 韩语、越南语和藏文的标点就是键帽上的 ASCII。
+    return !this.english && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace()
+      && chinese !== undefined
       ? chinese : symbol;
   }
 
   /**
-   * What a symbol-layer key does. A digit ends an open Korean syllable and is then typed after it, which the punctuation route cannot do: it takes marks only. A Vietnamese digit does the same unless it is a VNI tone digit over a composing word, which marks the word. A Zhuyin digit or mark whose key is a Dachen phonetic or tone key is typed by the keyboard, since the Engine would compose it.
+   * 符号层按键的行为。数字结束正在组的韩语音节，然后输入在它后面，标点路由做不到这一点，因为它只接受标点。越南语数字也是这样，除非它是组字中单词的 VNI 声调数字，那时它给单词加符号。藏文数字同样先上屏音节串再输入数字本身；藏文的拼写符号（`'` `+` `.` `-` `/`）走标点路由，由运行时按 spelling_symbols 交给引擎，其中 `+` 来自藏文方案下第三排替换 `=` 的键（KeyboardScheme.symbolRowKey）。注音的数字或标点如果是大千的注音键或声调键，由键盘自己输入，因为引擎会把它组进注音。
    */
   private tapSymbol(symbol: string): void {
     KeyboardSession.shared.recordKey(KeyIdPolicy.character(symbol));
@@ -1795,6 +1807,10 @@ struct KeyboardView {
     }
     if (this.zhuyinFace() && ZhuyinLayout.claimsSymbol(symbol)) {
       this.typeZhuyinMark(symbol);
+      return;
+    }
+    if (this.tibetanFace() && character >= 0x30 && character <= 0x39) {
+      KeyboardSession.shared.commitThenType(character);
       return;
     }
     if (this.vietnameseFace() && character >= 0x30 && character <= 0x39) {
@@ -1974,7 +1990,8 @@ struct KeyboardView {
       face: this.letterFace(letter),
       // Ported with the face policy and, until now, computed for nobody: the view attached no
       // accessibility text at all, so every key on this keyboard was silent to a screen reader.
-      label: LetterKeyFacePolicy.accessibilityLabel(letter, !this.english && !this.vietnameseFace(),
+      label: LetterKeyFacePolicy.accessibilityLabel(letter,
+        !this.english && !this.vietnameseFace() && !this.tibetanFace(),
         this.localMode !== 'none', this.caseMode !== LetterCaseMode.LOWERCASE),
       hint: this.letterHint(letter),
       size: KeyboardMetrics.KEY_FONT_SIZE,
@@ -2955,7 +2972,7 @@ struct KeyboardView {
       } else {
         Column() {
           this.fixedKey({
-            face: this.koreanFace() || this.vietnameseFace() ? ',' : '，',
+            face: this.koreanFace() || this.vietnameseFace() || this.tibetanFace() ? ',' : '，',
             label: KeyAccessibilityPolicy.punctuation(),
             size: KeyboardMetrics.KEY_FONT_SIZE,
             emphasized: false,
@@ -2983,7 +3000,8 @@ struct KeyboardView {
       this.fixedKey({
         // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
         // says nothing about which one is running.
-        face: this.english ? 'En' : (this.koreanFace() ? '한' : (this.vietnameseFace() ? '越' : '中')),
+        face: this.english ? 'En' : (this.koreanFace() ? '한'
+          : (this.vietnameseFace() ? '越' : (this.tibetanFace() ? '藏' : '中'))),
         // Never the mode it is in: a label reading 中 would be the character, not the action.
         label: KeyAccessibilityPolicy.language(),
         size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
@@ -6097,8 +6115,8 @@ struct KeyboardView {
           ForEach(this.symbols ? SYMBOL_ROWS[1] : LETTER_ROWS[1], (key: string) => {
             this.flexibleKey(this.symbols ? this.symbolKey(key) : this.letterKey(key));
           }, (key: string) => key + this.faceKey())
-          if (!this.symbols && !this.koreanFace() && !this.vietnameseFace()) {
-            // Microsoft shuangpin spells ing with a semicolon, so the key has to be reachable from the letter rows rather than buried behind the symbol layout. Dubeolsik has no jamo there and Vietnamese no letter, so Korean and Vietnamese draw the row as nine keys.
+          if (!this.symbols && !this.koreanFace() && !this.vietnameseFace() && !this.tibetanFace()) {
+            // 微软双拼用分号拼 ing，所以这个键要能在字母行里直接按到，而不是藏在符号层后面。两笔式在那里没有字母，越南语和威利转写也不用它，所以韩语、越南语和藏文把这一行画成九个键。
             this.flexibleKey(this.letterKey(';'));
           }
         }
@@ -6122,7 +6140,9 @@ struct KeyboardView {
             });
           }
           ForEach(this.symbols ? SYMBOL_ROWS[2] : LETTER_ROWS[2], (key: string) => {
-            this.flexibleKey(this.symbols ? this.symbolKey(key) : this.letterKey(key));
+            this.flexibleKey(this.symbols
+              ? this.symbolKey(KeyboardScheme.symbolRowKey(key, this.tibetanFace()))
+              : this.letterKey(key));
           }, (key: string) => key + this.faceKey())
           this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP);
         }

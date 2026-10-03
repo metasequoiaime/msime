@@ -66,6 +66,17 @@ int main() {
   const Json vietnamese = {{"scheme", 7}, {"local_mode", "none"}, {"spelling_symbols", "0123456789"}};
   assert(engine_spelling(vietnamese, U'6'));
   assert(spelling_digits(vietnamese));
+  // 藏文威利转写：空闲时撇号（achung 开头的音节）和斜杠（单独输出垂符）是拼写，组字时再加上叠写加号、消歧句点和连字符；数字和空格不是拼写，交给宿主自己的规则。
+  const Json tibetan_idle = {{"scheme", 8}, {"local_mode", "none"}, {"spelling_symbols", "'/"}};
+  assert(engine_spelling(tibetan_idle, U'\''));
+  assert(engine_spelling(tibetan_idle, U'/'));
+  assert(!engine_spelling(tibetan_idle, U'+'));
+  const Json tibetan_composing = {{"scheme", 8}, {"local_mode", "none"}, {"spelling_symbols", "'+-./"}};
+  for (char32_t symbol : {U'\'', U'+', U'-', U'.', U'/'})
+    assert(engine_spelling(tibetan_composing, symbol));
+  assert(!engine_spelling(tibetan_composing, U','));
+  assert(!spelling_digits(tibetan_composing));
+  assert(!spelling_space(tibetan_composing));
   // Quanpin's idle mode-entry keys stay on the punctuation route, and the dedicated English mode keeps no scheme rules.
   assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"spelling_symbols", "/@"}}, U'/'));
   assert(!engine_spelling(Json{{"scheme", 6}, {"dedicated_english", true}, {"spelling_symbols", "1"}}, U'1'));

@@ -11,17 +11,18 @@ constexpr int Korean = 4;
 constexpr int Cantonese = 5;
 constexpr int Zhuyin = 6;
 constexpr int Vietnamese = 7;
+constexpr int Tibetan = 8;
 
 // ---- Host-only traits ----
 
 // The letter the Engine receives takes its case from Shift alone, so Caps Lock does not change it (Dubeolsik binds jamo by case).
 constexpr bool FoldsLetterCase(int scheme) { return scheme == Korean; }
 
-// A Caps Lock uppercase letter that would start a composition is not handed back to the application: the scheme composes it (Korean folds it, Vietnamese keeps it uppercase).
-constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// Caps Lock 打开时本该开始组字的大写字母不交还给应用，而是由方案自己组字：韩文把它折回小写，越南文保留大写，藏文威利转写区分大小写，大写字母本身就是另一个字母。
+constexpr bool CapsLockBypassExempt(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
-// Letters build the written text directly (a Hangul syllable, a Vietnamese word) rather than a reading converted through candidates: any key the scheme does not spell with writes the composition out first, and there is no word to take a character from.
-constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese; }
+// 字母直接组成要写出的文字（一个谚文音节、一个越南文单词、一串藏文音节），而不是经候选转换的读音：方案不拿来拼写的按键会先把组字写出去，也没有可以从中取字的词。
+constexpr bool LetterComposition(int scheme) { return scheme == Korean || scheme == Vietnamese || scheme == Tibetan; }
 
 // Candidates appear only in a list the user opens with MSIME_OPEN_CANDIDATE_LIST (the Korean Hanja list, the Zhuyin list).
 constexpr bool OpensCandidateList(int scheme) { return scheme == Korean || scheme == Zhuyin; }
@@ -34,7 +35,7 @@ constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme
 // `is_chinese`: a Chinese scheme, the one a switch to a non-Chinese scheme remembers as `last_chinese_scheme`.
 constexpr bool IsChinese(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin; }
 
-// `script_conversion_applies`: the traditional-output conversion rewrites this scheme's text. Cantonese and Zhuyin are written in traditional characters already, and kana, Hangul and Vietnamese are not Chinese text.
+// `script_conversion_applies`：繁体输出转换会改写这个方案的文字。粤拼和注音本来就写繁体字，假名、谚文、越南文和藏文都不是中文。
 constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // `learns_into_main_dictionary`: a candidate may be removed from, or pinned in, the user dictionary of the main Chinese lexicon.
@@ -44,12 +45,12 @@ constexpr bool LearnsIntoMainDictionary(int scheme) { return scheme == Quanpin |
 constexpr bool OpensLocalModes(int scheme) { return scheme == Quanpin || scheme == Shuangpin; }
 
 // `commits_on_blur`: leaving the composition (focus loss, a scheme or mode switch, a navigation key handed to the application) writes it out instead of discarding it.
-constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+constexpr bool CommitsOnBlur(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
 // `locks_caret`: the caret stays at the end of the composition, so there are no segments for Ctrl+Backspace and Ctrl+Left/Right to edit.
-constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese; }
+constexpr bool LocksCaret(int scheme) { return scheme == Korean || scheme == Zhuyin || scheme == Vietnamese || scheme == Tibetan; }
 
-// `uses_chinese_punctuation`: punctuation goes through the Chinese table. Korean and Vietnamese write half-width ASCII marks whatever the Chinese punctuation switches say.
+// `uses_chinese_punctuation`：标点走中文标点表。韩文、越南文和藏文不论中文标点开关怎么设都写半角 ASCII 标点。
 constexpr bool UsesChinesePunctuation(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Japanese || scheme == Cantonese || scheme == Zhuyin; }
 
 // `host_smart_punctuation`: the reversible smart punctuation gestures (space-to-ASCII, repeat-to-Chinese) and the paired-mark helpers may run.

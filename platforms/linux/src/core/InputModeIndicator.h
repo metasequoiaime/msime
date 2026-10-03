@@ -5,7 +5,7 @@
 namespace msime::linux_host {
 
 // What the panel shows for the input method, following the Windows language bar (LanguageBar.cpp): CapsLock outranks everything, because letters then reach the editor as capitals whichever mode is on; every scheme other than the three Chinese ones of the base set is shown only while conversion is on, since direct input with it selected is plain English typing. Each host draws these with its own symbols.
-enum class InputModeIndicator { Chinese, English, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, CapsLock };
+enum class InputModeIndicator { Chinese, English, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Tibetan, CapsLock };
 
 // `scheme` is the preferences scheme id the Engine runs ("quanpin", "japanese", "korean", ...; see effective_input_scheme); Cantonese and Zhuyin, though Chinese, are shown as themselves, and every other id is one of the Chinese schemes of the base set.
 inline InputModeIndicator input_mode_indicator(bool input_enabled, std::string_view scheme,
@@ -17,6 +17,7 @@ inline InputModeIndicator input_mode_indicator(bool input_enabled, std::string_v
   if (scheme == "cantonese") return InputModeIndicator::Cantonese;
   if (scheme == "zhuyin") return InputModeIndicator::Zhuyin;
   if (scheme == "vietnamese") return InputModeIndicator::Vietnamese;
+  if (scheme == "tibetan") return InputModeIndicator::Tibetan;
   return InputModeIndicator::Chinese;
 }
 

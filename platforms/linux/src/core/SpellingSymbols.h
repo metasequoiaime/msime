@@ -8,7 +8,7 @@
 
 namespace msime::linux_host {
 
-// The Engine lists in View.spelling_symbols the non-letter characters it takes as input in its current state: the operators and digits of the expression mode, the digits of the unicode mode, with nothing composed the keys that open a mode ("/" and "@"), and the keys a scheme spells with (the Zhuyin keyboard's digits and marks, Cantonese's syllable apostrophe, Vietnamese's VNI tone digits). Shared by the IBus and Fcitx5 hosts, so neither keeps its own list of which mode spells with what; a host that did would drift the first time the Engine adds a mode.
+// Engine 在 View.spelling_symbols 里列出当前状态下它当作输入的非字母字符：表达式模式的运算符和数字、Unicode 模式的数字、没有组字时打开模式的按键（"/" 和 "@"），以及方案拼写用的按键（注音键盘的数字和符号、粤拼的音节分隔撇号、越南文 VNI 的声调数字、藏文威利转写的撇号、叠写加号、消歧句点、连字符和上屏垂符的斜杠）。IBus 和 Fcitx5 宿主共用它，因此两边都不必各自维护哪个模式拼写什么的列表；自己维护的列表会在 Engine 第一次新增模式时就跑偏。
 inline bool spelling_symbol(const nlohmann::json &view, char32_t character) {
   if (!view.is_object() || character < 0x21 || character > 0x7e) return false;
   const auto symbols = view.find("spelling_symbols");

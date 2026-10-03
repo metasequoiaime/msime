@@ -2,10 +2,10 @@ import Foundation
 
 enum ChineseInputScheme: String, CaseIterable {
   // 「高情商回复」已改为工具栏入口，不再是方案。旧版存下的 `thoughtfulReply`（App Group）或 `thoughtful_reply`（共享文档）在这里认不出来，与其他未知值一样走 `InputSchemePreference` 的回退：已选的落到全拼 26 键或第一个可用方案，启用列表里直接忽略。
-  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese
+  case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japaneseNineKey, japanese, korean, handwriting, cantonese, zhuyin, vietnamese, tibetan
 
-  /// The schemes a fresh install leaves off until the user enables them, as the settings host does (`optInSchemes` in MobilePlatformPlugin).
-  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese]
+  /// 全新安装默认不打开、要用户自己启用的方案，与设置宿主一致（MobilePlatformPlugin 里的 `optInSchemes`）。
+  static let optInSchemes: [ChineseInputScheme] = [.cantonese, .zhuyin, .vietnamese, .tibetan]
 
   var isJapanese: Bool { self == .japanese || self == .japaneseNineKey }
 
@@ -21,17 +21,23 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Vietnamese Telex or VNI on the 26 letter keys: the Engine composes the word in place and offers no candidates.
   var isVietnamese: Bool { self == .vietnamese }
 
-  /// Whether the scheme takes the Mandarin feature set: traditional output conversion, candidate glosses, the local input modes and the candidate menu. Japanese, Korean and Vietnamese write their own scripts, and Cantonese and Zhuyin write Traditional Chinese straight from their own dictionaries without any of these.
-  var writesChinese: Bool { !isJapanese && !isKorean && !isCantonese && !isZhuyin && !isVietnamese }
+  /// 26 个字母键上的藏文 EWTS（扩展威利转写）：组字是当前音节的威利原文，Engine 就地显示转出的藏文，不给候选。威利转写区分大小写，大写字母是拼写的一部分。
+  var isTibetan: Bool { self == .tibetan }
 
-  /// Whether the scheme writes half-width ASCII punctuation, as Korean and Vietnamese do; every other scheme offers Chinese or Japanese marks.
-  var writesAsciiPunctuation: Bool { isKorean || isVietnamese }
+  /// 方案是否使用普通话那一套功能：繁体输出转换、候选释义、本地输入模式和候选菜单。日语、韩语、越南语和藏文写的是各自的文字，粤拼和注音直接从各自的词库写出繁体中文，这些功能都不用。
+  var writesChinese: Bool { !isJapanese && !isKorean && !isCantonese && !isZhuyin && !isVietnamese && !isTibetan }
+
+  /// 方案是否写半角 ASCII 标点，韩语、越南语和藏文是这样；其他方案给出中文或日文标点。
+  var writesAsciiPunctuation: Bool { isKorean || isVietnamese || isTibetan }
 
   /// Whether the composition is a letter spelling with a caret the user can move: the Mandarin schemes and Cantonese. A Japanese reading converts as a whole, and the in-place schemes have no caret inside what they compose.
   var hasSpellingCaret: Bool { writesChinese || isCantonese }
 
-  /// Whether what the Engine composes is already the text: a Korean syllable, a Zhuyin conversion or a Vietnamese word. It is marked inline whatever the preedit setting says, and leaving the scheme or the composition commits it rather than throwing it away.
-  var composesInPlace: Bool { isKorean || isZhuyin || isVietnamese }
+  /// Engine 组出来的是否已经就是正文：韩语音节、注音转换结果、越南语单词或藏文音节。无论预编辑设置如何都写在输入框里，离开方案或结束组字时上屏而不是丢掉。
+  var composesInPlace: Bool { isKorean || isZhuyin || isVietnamese || isTibetan }
+
+  /// 字母键是否按 Shift 和大写锁定给出的大小写直接交给 Engine，而不是把 Shift 当成切到英文：越南语的大写就是大写字母，藏文威利转写的大写字母（T D N Sh A I U M H 等）是不同的拼写。
+  var typesCasedLetters: Bool { isVietnamese || isTibetan }
 
   /// Whether the scheme reads a dictionary that ships apart from the resource set, and so is offered only where it is installed.
   var needsLanguageDictionary: Bool { isCantonese || isZhuyin }
@@ -65,6 +71,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .cantonese: "cantonese"
     case .zhuyin: "zhuyin"
     case .vietnamese: "vietnamese"
+    case .tibetan: "tibetan"
     }
   }
   static func scheme(sharedIdentifier value: String) -> ChineseInputScheme? {
@@ -86,6 +93,7 @@ enum ChineseInputScheme: String, CaseIterable {
     case .cantonese: "粤拼 26 键"
     case .zhuyin: "大千注音"
     case .vietnamese: "越南语 26 键"
+    case .tibetan: "藏文 26 键"
     }
   }
 }

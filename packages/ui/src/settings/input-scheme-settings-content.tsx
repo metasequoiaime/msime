@@ -94,13 +94,16 @@ export function InputSchemeSettingsContent({
       : "quanpin";
   // 只有五笔一个方案的版本始终显示五笔的设置。
   const wubiEdition = singleEditionScheme(edition) === "wubi";
-  // The Cantonese, Zhuyin and Vietnamese touch keyboards type their own input scheme, so they are offered only where the host offers that scheme (Cantonese and Zhuyin also need their installed dictionary).
+  // 粤拼、注音、越南语和藏文的触屏键盘输入各自的方案，所以只在宿主提供该方案时出现（粤拼和注音还需要装好词库）。
   // 五笔键盘只有一个，标题跟随当前的五笔版本。
   // 不是 full 的版本还要去掉本版本没有的方案对应的键盘；手写不属于任何方案，每个版本都保留。
   const touchOptions = touchKeyboardSchemeOptions
     .filter(
       ([scheme]) =>
-        (scheme !== "cantonese" && scheme !== "zhuyin" && scheme !== "vietnamese") ||
+        (scheme !== "cantonese" &&
+          scheme !== "zhuyin" &&
+          scheme !== "vietnamese" &&
+          scheme !== "tibetan") ||
         inputSchemes.includes(scheme),
     )
     .filter(([scheme]) => {

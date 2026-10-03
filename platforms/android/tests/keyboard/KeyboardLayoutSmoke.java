@@ -28,6 +28,10 @@ public final class KeyboardLayoutSmoke {
         check(symbols.get(0).equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
         check(symbols.get(1).contains("\""));
         check(symbols.get(2).equals(List.of("(", ")", "[", "]", "<", ">", "\\", "-", "_", "=")));
+        // 藏文的符号页把 `=` 换成叠写用的 `+`，其他键和其他方案不变。
+        check(KeyboardLayout.symbolRowKey("=", true).equals("+"));
+        check(KeyboardLayout.symbolRowKey("=", false).equals("="));
+        check(KeyboardLayout.symbolRowKey("_", true).equals("_"));
 
         check(KeyboardLayout.resolveTouchLayout(false, false, 0, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
@@ -61,6 +65,9 @@ public final class KeyboardLayoutSmoke {
         check(KeyboardLayout.resolveTouchLayout(false, false, 5, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        // 藏文同样用 26 个 QWERTY 键并保留字母大小写（威利转写区分大小写）。
+        check(KeyboardLayout.resolveTouchLayout(false, false, 8, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         List<List<String>> dachen = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS, KeyboardLayout.ZHUYIN_LAYOUT);
         check(dachen.size() == 4 && dachen.get(0).size() == 11 && "1".equals(dachen.get(0).get(0))

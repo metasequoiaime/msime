@@ -1719,7 +1719,7 @@ impl<E: InputEngine> Runtime<E> {
         Ok(self.transition(result))
     }
 
-    /// Throw the composition away. Cancel is the user's Escape, and in some schemes the first one keeps the composition: with an openable candidate list open (the Korean Hanja list) it only closes the list, and a Vietnamese word goes back to its raw keys. A second Cancel then takes the composition too.
+    /// 丢弃组字。Cancel 对应用户按 Esc，有些方案里第一次 Cancel 会保留组字：开着可打开的候选列表（韩文汉字列表）时只关闭列表，越南文单词和藏文音节则退回原始按键。这时再发一次 Cancel 才把组字也丢掉。
     fn discard_composition(&mut self) -> Result<EngineResult, RuntimeError> {
         let result = self.engine.command(Command::Cancel)?;
         if scheme_type(self.cached.scheme).is_some_and(SchemeType::cancel_keeps_composition)

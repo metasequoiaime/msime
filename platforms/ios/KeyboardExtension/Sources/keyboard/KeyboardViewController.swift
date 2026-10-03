@@ -141,6 +141,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var zhuyinRowViews: [UIView] = []
   // Symbol keys show the punctuation they actually emit in Chinese mode.
   private var symbolKeyFaces: [(key: UIButton, ascii: String, chinese: String)] = []
+  /// 符号页第三排的 `=` 键：藏文方案下换成威利叠写用的 `+`（见 `symbolRowKey`）。
+  private weak var tibetanPlusKey: UIButton?
   private var layoutToggleButton: UIButton?
   private weak var shiftButton: UIButton?
   private weak var enterButton: UIButton?
@@ -183,7 +185,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var zhuyinListOpen: Bool { typesZhuyin && hasComposition && !visibleCandidates.isEmpty }
   /// Whether the letter keys feed the Vietnamese word: Shift and Caps Lock give capitals, as in English, instead of switching to English.
   private var typesVietnamese: Bool { isChineseMode && inputScheme.isVietnamese && !isInLocalMode }
-  /// Whether the open composition is already the text being written (a Korean syllable, a Zhuyin conversion, a Vietnamese word), so Return confirms nothing but commits it, except while a list is open to choose from.
+  /// 字母键是否在拼藏文威利转写：Shift 和大写锁定给出大写字母，大写字母是另一种拼写（T D N Sh A I U M H 等），不是切到英文。
+  private var typesTibetan: Bool { isChineseMode && inputScheme.isTibetan && !isInLocalMode }
+  /// 字母键是否按 Shift 给出的大小写交给 Engine（越南语和藏文），而不是把 Shift 当成切到英文。
+  private var typesCasedLetters: Bool { isChineseMode && inputScheme.typesCasedLetters && !isInLocalMode }
+  /// 正在组的内容是否已经就是正文（韩语音节、注音转换结果、越南语单词、藏文音节），因此回车不是确认而是直接上屏，除非有可选的列表打开着。
   private var composesInPlace: Bool { isChineseMode && inputScheme.composesInPlace && !isInLocalMode }
   private var nineKeyRows: [UIView] = []
   private var actionRow: UIStackView!
@@ -391,6 +397,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// 藏文威利转写里属于拼写的符号，与 Engine 组字时报告的 `spelling_symbols`（`'+-./`）一致：这些键先作为字符交给会话，而不是走标点路由。不是 private：方案测试会固定它。
+  static let tibetanSpellingSymbols: Set<String> = ["'", "+", "-", ".", "/"]
+
+  /// 符号页按键实际发出的字符：藏文方案下 `=` 键发 `+`，让组字中的叠写（如 `pad+ma`）经 `handleSymbol` 交给 Engine；符号面板会先上屏组字，不能用来叠写。其他方案原样发出。不是 private：方案测试会固定它。
+  static func symbolRowKey(_ symbol: String, tibetan: Bool) -> String {
+    tibetan && symbol == "=" ? "+" : symbol
+  }
+
   /// What a Zhuyin symbol-panel key writes: the Chinese mark for an ASCII mark that has one while Chinese punctuation is on, else the key itself. Not private: the scheme tests pin it.
   static func zhuyinSymbolText(_ symbol: String, chinesePunctuation: Bool) -> String {
     chinesePunctuation ? chineseSymbolFaces[symbol] ?? symbol : symbol
@@ -581,7 +595,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     render(session.finishComposition())
   }
 
-  /// MSIME_CANCEL for a composition the keyboard abandons. For an in-place scheme the first cancel may only step back (msime_client.h): it closes a Korean Hanja list or a Zhuyin list, and it restores the raw keys of a Vietnamese word. A second cancel then drops what is left, which would otherwise stay composing in the Engine after the host took it as typed text.
+  /// 键盘放弃组字时发 MSIME_CANCEL。就地组字的方案第一次取消可能只退一步（msime_client.h）：关闭韩语汉字列表或注音列表，或把越南语单词、藏文音节退回原始按键（藏文是威利原文）。第二次取消再丢掉剩下的内容，否则 Engine 里会一直留着组字，而宿主已经把它当作输入的文字。
   private func discardComposition() -> MetasequoiaInputSnapshot {
     let inPlace = composesInPlace
     let snapshot = session.cancel()
@@ -1574,12 +1588,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let row = makeRow()
     for symbol in symbols {
       let key = makeKey(title: symbol, accessibilityLabel: "符号 \(symbol)") { [weak self] in
-          self?.countKeyPress(TypingKeyID.character(symbol))
-          self?.handleSymbol(symbol)
+          guard let self else { return }
+          let sent = Self.symbolRowKey(symbol, tibetan: typesTibetan)
+          countKeyPress(TypingKeyID.character(sent))
+          handleSymbol(sent)
         }
       (key as? KeyboardKeyButton)?.showsPressPreview = true
       if let chinese = Self.chineseSymbolFaces[symbol] {
         symbolKeyFaces.append((key, symbol, chinese))
+      }
+      if Self.symbolRowKey(symbol, tibetan: true) != symbol {
+        tibetanPlusKey = key
       }
       row.addArrangedSubview(key)
     }
@@ -1746,8 +1765,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         return
       }
-      // Vietnamese takes the letter in the case Shift or Caps Lock gives it, as English does; the Engine keeps that case through the tone and vowel marks.
-      if typesVietnamese, let letter = character.first, letter.isLetter {
+      // 越南语和藏文按 Shift 或大写锁定给出的大小写取字母，与英文一样：越南语的 Engine 在声调和元音符号里保留这个大小写，藏文威利转写的大写字母本身就是另一个字母（如 `T` 是 ཊ、`A` 是长元音）。
+      if typesCasedLetters, let letter = character.first, letter.isLetter {
         let shifted = letterCaseState != .lowercase
         render(session.handleCharacter(shifted ? character.uppercased() : character, shifted: shifted))
         if letterCaseState == .shifted {
@@ -1863,8 +1882,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Korean and Vietnamese digits go to the session as characters. With the Hanja list open a digit 1-9 chooses from its page and comes back handled with the Hanja as the commit; a VNI digit marks the open Vietnamese word; otherwise the digit ends the open syllable or word, which comes back as the commit of an unhandled key, and is then typed after it.
-    if typesKorean || typesVietnamese, symbol.count == 1, symbol >= "0", symbol <= "9" {
+    // 韩语、越南语和藏文的数字作为字符交给会话。汉字列表打开时数字 1-9 从当前页选字，以已处理返回并把汉字作为上屏；VNI 数字给正在拼的越南语单词加符号；其余情况下数字结束正在拼的音节或单词，以未处理按键的上屏返回，随后再把数字打进去。藏文的数字保持原样，不转成藏文数字。
+    if typesKorean || typesCasedLetters, symbol.count == 1, symbol >= "0", symbol <= "9" {
       let snapshot = session.handleCharacter(symbol)
       render(snapshot)
       if !snapshot.isHandled { insertDirectText(symbol) }
@@ -1887,6 +1906,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
+    // 藏文威利转写的 `'`（achung）、`+`（叠写）、`.`（消歧）、`-` 和 `/`（垂符）作为字符交给会话：Engine 在它们属于拼写时收进原文，`/` 上屏「藏文+།」或单独一个「།」。Engine 不收的（例如没有组字时的 `+`）以未处理返回、不带上屏，再按下面的标点路由照常写出 ASCII 标点。
+    if typesTibetan, Self.tibetanSpellingSymbols.contains(symbol) {
+      let spellingSnapshot = session.handleCharacter(symbol)
+      if spellingSnapshot.isHandled {
+        render(spellingSnapshot)
+        return
+      }
+    }
+
     if symbol == "'" {
       let separatorSnapshot = session.handleCharacter(symbol)
       if separatorSnapshot.isHandled {
@@ -1896,7 +1924,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
 
     guard let punctuation = KeyboardPunctuationContext.engineInput(
-      for: symbol, japanese: inputScheme.isJapanese, asciiMarks: typesKorean || typesVietnamese) else {
+      for: symbol, japanese: inputScheme.isJapanese, asciiMarks: typesKorean || typesCasedLetters) else {
       render(session.finishComposition())
       insertDirectText(symbol)
       return
@@ -2059,8 +2087,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func toggleLetterCase() {
-    // Korean Shift is the layout's own shift: it picks ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ rather than switching to English. Vietnamese Shift gives capitals, as in English.
-    if isChineseMode && !helpcodeCompositionEligible && !typesKorean && !typesVietnamese {
+    // 韩语的 Shift 是布局自己的 Shift：选出 ㅃ ㅉ ㄸ ㄲ ㅆ ㅒ ㅖ，而不是切到英文。越南语和藏文的 Shift 与英文一样给出大写字母。
+    if isChineseMode && !helpcodeCompositionEligible && !typesKorean && !typesCasedLetters {
       toggleInputMode()
       letterCaseState = .lowercase
     }
@@ -2081,7 +2109,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateAutomaticCapitalization() {
-    // Vietnamese is written in Latin letters, so its words take the field's automatic capitals as English words do.
+    // 越南语用拉丁字母书写，所以单词与英文一样跟随输入框的自动大写。藏文不跟随：威利转写的大写字母是另一种拼写，自动大写会把句首的 `ka` 变成 `Ka`。
     guard !isChineseMode || typesVietnamese else {
       isAutomaticShift = false
       updateLetterCaseControls()
@@ -2120,15 +2148,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // 拼音和罗马字的键面用大写，切到英文才回小写。键面大小写通常只是外观；组合中的
     // Shift 通过无障碍标签显示辅码状态，并把下一字母作为大写辅码交给 Engine。
     // 本地模式除外：那里敲入的就是键面上的字面字符，保持小写才不会误导用户。
-    let vietnamese = typesVietnamese
-    let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode || vietnamese)
+    let casedLetters = typesCasedLetters
+    let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode || casedLetters)
     // Read once, not once per key. `isInLocalMode` looks like a property and is a full C ABI
     // round trip: it serialises the whole view - preedit, every candidate, its codes and glosses -
     // to JSON in Rust and parses it back in Swift. Asking for it inside the loop below made that
     // happen twenty-seven times for every keystroke.
     let inLocalMode = isInLocalMode
-    // Vietnamese keys show the case they type, as English keys do.
-    let usesUppercase = (isChineseMode && !inLocalMode && !vietnamese) || shifted
+    // 越南语和藏文的键面与英文一样显示实际要打的大小写。
+    let usesUppercase = (isChineseMode && !inLocalMode && !casedLetters) || shifted
     let korean = typesKorean
     let koreanShifted = korean && letterCaseState != .lowercase
     for (button, lowercase, hintLabel) in letterButtons {
@@ -2169,7 +2197,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .lowercase:
       configuration.image = UIImage(systemName: "shift")
       configuration.background.backgroundColor = KeyboardTheme.current.functionKeyBackground
-      button.accessibilityLabel = korean ? "双辅音" : isChineseMode && !vietnamese ? "切换到英文大写" : "大写"
+      button.accessibilityLabel = korean ? "双辅音" : isChineseMode && !casedLetters ? "切换到英文大写" : "大写"
       button.accessibilityValue = "关闭"
     case .shifted:
       configuration.image = UIImage(systemName: "shift.fill")
@@ -2217,6 +2245,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .cantonese: return "粤"
     case .zhuyin: return "注"
     case .vietnamese: return "越"
+    case .tibetan: return "藏"
     default: return "中"
     }
   }
@@ -2229,6 +2258,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .cantonese: return "粤语输入"
     case .zhuyin: return "注音输入"
     case .vietnamese: return "越南语输入"
+    case .tibetan: return "藏文输入"
     default: return "中文输入"
     }
   }
@@ -2279,7 +2309,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
-    // Return commits what is being composed rather than doing the field's action, so it says so. A Korean syllable or a Vietnamese word is already text: Return commits it and still does the field's action, so the key keeps the field's name, unless the syllable's Hanja list is open, where Return only chooses a Hanja. A Zhuyin conversion is committed by Return alone, as on the Dachen keyboards, so there it confirms.
+    // 回车上屏正在组的内容而不是执行输入框的动作，所以键面要写明。韩语音节和越南语单词已经是正文：回车上屏它们后仍执行输入框的动作，所以键面保留输入框给的名字，除非音节的汉字列表打开着，那时回车只选汉字。注音转换结果只由回车上屏，与大千键盘一样，所以那里显示确认。藏文也一样：回车只上屏转出的藏文、不加音节点，运行时以已处理返回，不换行，所以显示确认。
     let confirms = hasComposition && (!returnKeepsFieldAction || koreanHanjaListOpen)
     let shownTitle = !confirms ? title : inputScheme.isJapanese ? "確定" : "确认"
     if var configuration = japaneseReturnButton?.configuration {
@@ -2437,6 +2467,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .cantonese: session.switchToCantonese()
     case .zhuyin: session.switchToZhuyin()
     case .vietnamese: session.switchToVietnamese()
+    case .tibetan: session.switchToTibetan()
     case .handwriting: session.switch(toShuangpin: false)
     case .quanpin: session.switch(toShuangpin: usesShuangpin)
     case .shuangpin: session.switch(toShuangpinProfile: "xiaohe")
@@ -3105,6 +3136,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       face.key.configuration?.title = title
       face.key.accessibilityLabel = "符号 \(title)"
     }
+    // 藏文方案下 `=` 键显示它实际发出的 `+`。
+    if let key = tibetanPlusKey {
+      let title = Self.symbolRowKey("=", tibetan: typesTibetan)
+      if key.configuration?.title != title {
+        key.configuration?.title = title
+        key.accessibilityLabel = "符号 \(title)"
+      }
+    }
   }
 
   private func updateKeyboardLayout() {
@@ -3448,7 +3487,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     let snapshot = endComposition(at: .returnKey)
-    // An unhandled Return can still carry a commit: the Korean syllable or Vietnamese word it ended. That goes in first and the newline after it. A Hanja chosen from the open list, or a Zhuyin conversion, comes back handled, with no newline.
+    // 未处理的回车仍可能带着上屏内容：它结束的韩语音节或越南语单词。先写入上屏内容，再换行。从打开的列表里选的汉字、注音转换结果和藏文音节以已处理返回，不换行。
     render(snapshot)
     if !snapshot.isHandled {
       pairedPunctuation.clear()
@@ -3499,9 +3538,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     recordTypingStatistics(text, source: source ?? typingSource)
   }
 
-  /// Korean and Vietnamese write half-width ASCII whatever the width switch says, as the runtime does for what they commit.
+  /// 韩语、越南语和藏文不论全角开关如何都写半角 ASCII，与运行时对它们上屏内容的处理一致。
   private func insertDirectText(_ text: String, source: TypingSource? = nil) {
-    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput && !typesKorean && !typesVietnamese), source: source)
+    insertOwnText(FullWidthInputPolicy.output(text, enabled: fullWidthInput && !typesKorean && !typesCasedLetters), source: source)
   }
 
   /// The runtime converts what it commits and the keyboard converts what it inserts itself, so both are told together.

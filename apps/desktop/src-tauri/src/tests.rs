@@ -257,6 +257,7 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
             InputScheme::Japanese,
             InputScheme::Korean,
             InputScheme::Vietnamese,
+            InputScheme::Tibetan,
         ];
         assert_eq!(offered(None), without_both, "{platform:?}");
         assert_eq!(
@@ -308,6 +309,7 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
     assert!(schemes.contains(&InputScheme::Cantonese));
     assert!(!schemes.contains(&InputScheme::Zhuyin));
     assert!(schemes.contains(&InputScheme::Vietnamese));
+    assert!(schemes.contains(&InputScheme::Tibetan));
     // A relative resources directory is not trusted to locate the installed dictionaries.
     let relative = offered(&serde_json::json!({ "resources": "resources" }));
     assert!(!relative.contains(&InputScheme::Cantonese));

@@ -28,7 +28,7 @@ pub struct EngineOptions {
     pub user_data: String,
     pub cache: String,
     pub dictionaries: String,
-    /// 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese, 4 Korean, 5 Cantonese, 6 Zhuyin, 7 Vietnamese.
+    /// 0 全拼，1 双拼，2 五笔，3 日文，4 韩文，5 粤拼，6 注音，7 越南文，8 藏文。
     pub scheme: u8,
     /// 会话允许运行的方案，`prepare_options` 填 [`SchemeSet::ALL`]。宿主按产品版本收窄它：`scheme` 不在其中时建会话失败（`INPUT_SCHEME_NOT_ENABLED`），不在其中的方案不构造 provider。
     pub enabled_schemes: SchemeSet,
