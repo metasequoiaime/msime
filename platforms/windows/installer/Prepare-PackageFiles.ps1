@@ -376,7 +376,7 @@ if (-not $Light) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# The Cantonese and Zhuyin dictionaries (scripts/fetch_language_dictionaries.py into target/language-dictionaries, pinned by resources/language-dictionaries.lock.json), installed beside resources like the glosses: host-api finds language-dictionaries there and records it in the runtime options. Optional; without a dictionary its scheme is shown as unavailable and falls back to the last Chinese scheme, and Vietnamese needs no data. Each dictionary ships only with its licence text, which must travel with the data. Set MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 to fail a package that does not carry both.
+# The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py into target/language-dictionaries, pinned by resources/language-dictionaries.lock.json), installed beside resources like the glosses: host-api finds language-dictionaries there and records it in the runtime options. Optional; without a dictionary its scheme is shown as unavailable and falls back to the last Chinese scheme, and Vietnamese needs no data. Each dictionary ships only with its licence text, which must travel with the data. Set MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 to fail a package that does not carry all three.
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'
 if (Test-Path -LiteralPath $languagesTarget) {
@@ -384,7 +384,7 @@ if (Test-Path -LiteralPath $languagesTarget) {
 }
 if (-not $Light) {
     $stagedLanguages = @()
-    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'))) {
+    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'), @('stroke.db', 'rime_stroke_LICENSE.txt'))) {
         $database = Join-Path $languagesSource $pair[0]
         $license = Join-Path $languagesSource $pair[1]
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { continue }
@@ -399,10 +399,10 @@ if (-not $Light) {
     if ($stagedLanguages.Count -gt 0) {
         Write-Host "语言词库已装入（$($stagedLanguages -join ', ')）：$languagesTarget"
     } else {
-        Write-Host "未找到语言词库（$languagesSource），粤拼和注音保持不可用"
+        Write-Host "未找到语言词库（$languagesSource），粤拼、注音和笔画保持不可用"
     }
-    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1' -and $stagedLanguages.Count -ne 2) {
-        throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesSource 中的 cantonese.db 和 zhuyin.db 没有全部装入"
+    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1' -and $stagedLanguages.Count -ne 3) {
+        throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesSource 中的 cantonese.db、zhuyin.db 和 stroke.db 没有全部装入"
     }
 }
 # Both package modes replace Server output. Copy model resources afterwards,
