@@ -553,7 +553,8 @@ fn version(options: &EngineOptions) -> Result<String, &'static str> {
 
 fn activation_receipt(options: &EngineOptions) -> Result<Option<String>, &'static str> {
     let path = Path::new(&options.user_data).join(ACTIVATION_RECEIPT_NAME);
-    let file = match std::fs::File::open(path) {
+    reject_symlinked_snapshot_path(&path).map_err(|_| "snapshot activation receipt unavailable")?;
+    let file = match std::fs::File::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("snapshot activation receipt unavailable"),
