@@ -3184,13 +3184,14 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(preedit_menu, item);
   }
   ibus_property_set_sub_props(preedit_property, preedit_menu);
+  // 双拼原始预编辑和五笔剩余编码只在各自的方案下生效，本版本没有那个方案就隐藏。
   auto shuangpin_preedit_property = ibus_property_new(
       "ShuangpinPreedit", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("双拼原始预编辑"), "",
       ibus_text_new_from_static_string("双拼输入时显示原始双拼编码"),
       s.focused && !s.blocked && s.input_enabled && active_scheme == "shuangpin" &&
           !menu_save_pending,
-      TRUE, s.shuangpin_preedit_uses_raw ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
+      msime::linux_host::edition_offers_scheme("shuangpin"), s.shuangpin_preedit_uses_raw ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED,
       nullptr);
   auto wubi_code_hint_property = ibus_property_new(
       "WubiCodeHint", PROP_TYPE_TOGGLE,
@@ -3198,7 +3199,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("在五笔候选后显示尚未输入的编码"),
       s.focused && !s.blocked && s.input_enabled && active_scheme == "wubi" &&
           !menu_save_pending,
-      TRUE, s.wubi_code_hint ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
+      msime::linux_host::edition_offers_scheme("wubi"), s.wubi_code_hint ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
   auto theme_property = ibus_property_new(
       "CandidateTheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选明暗"), "",
@@ -3232,44 +3233,39 @@ void publish_mode(IBusEngine *engine, bool registration) {
         !menu_save_pending, TRUE,
         global_theme == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   ibus_property_set_sub_props(global_theme_property, global_theme_menu);
+  // 输入语言（日文、韩文、越南文、藏文）只列本版本提供的；一个都没有时（五笔版、拼音版）也不列「中文」和分隔线，菜单里只剩中文方案。
+  const std::tuple<const char *, const char *, const char *, const char *, bool> scheme_languages[] = {
+      {"japanese", "Scheme/Japanese", "日文", "使用日语罗马字方案", japanese_scheme},
+      {"korean", "Scheme/Korean", "韩文", "使用韩语两套式方案", korean_scheme},
+      {"vietnamese", "Scheme/Vietnamese", "越南文", "使用越南语输入方案", vietnamese_scheme},
+      {"tibetan", "Scheme/Tibetan", "藏文", "使用藏文威利转写方案", tibetan_scheme}};
+  bool scheme_languages_offered = false;
+  for (const auto &language : scheme_languages)
+    scheme_languages_offered = scheme_languages_offered || msime::linux_host::edition_offers_scheme(std::get<0>(language));
   auto scheme = ibus_property_new(
       "Scheme", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("输入方案"), "",
-      ibus_text_new_from_static_string("选择中文、日文、韩文、越南文或藏文输入方案"),
+      ibus_text_new_from_static_string(scheme_languages_offered ? "选择中文、日文、韩文、越南文或藏文输入方案"
+                                                                : "选择中文输入方案"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto scheme_menu = ibus_prop_list_new();
-  auto chinese = ibus_property_new(
-      "Scheme/Chinese", PROP_TYPE_RADIO,
-      ibus_text_new_from_static_string("中文"), "",
-      ibus_text_new_from_static_string("使用当前中文方案"), !menu_save_pending, TRUE,
-      chinese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto japanese = ibus_property_new(
-      "Scheme/Japanese", PROP_TYPE_RADIO,
-      ibus_text_new_from_static_string("日文"), "",
-      ibus_text_new_from_static_string("使用日语罗马字方案"), !menu_save_pending, TRUE,
-      japanese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto korean = ibus_property_new(
-      "Scheme/Korean", PROP_TYPE_RADIO,
-      ibus_text_new_from_static_string("韩文"), "",
-      ibus_text_new_from_static_string("使用韩语两套式方案"), !menu_save_pending, TRUE,
-      korean_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto vietnamese = ibus_property_new(
-      "Scheme/Vietnamese", PROP_TYPE_RADIO,
-      ibus_text_new_from_static_string("越南文"), "",
-      ibus_text_new_from_static_string("使用越南语输入方案"), !menu_save_pending, TRUE,
-      vietnamese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  auto tibetan = ibus_property_new(
-      "Scheme/Tibetan", PROP_TYPE_RADIO,
-      ibus_text_new_from_static_string("藏文"), "",
-      ibus_text_new_from_static_string("使用藏文威利转写方案"), !menu_save_pending, TRUE,
-      tibetan_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-  ibus_prop_list_append(scheme_menu, chinese);
-  ibus_prop_list_append(scheme_menu, japanese);
-  ibus_prop_list_append(scheme_menu, korean);
-  ibus_prop_list_append(scheme_menu, vietnamese);
-  ibus_prop_list_append(scheme_menu, tibetan);
-  // The input languages and the Chinese schemes are two radio groups; without the rule ibus-ui-gtk3 joins them and marks only one of the two checked entries.
-  ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
+  if (scheme_languages_offered) {
+    ibus_prop_list_append(scheme_menu, ibus_property_new(
+        "Scheme/Chinese", PROP_TYPE_RADIO,
+        ibus_text_new_from_static_string("中文"), "",
+        ibus_text_new_from_static_string("使用当前中文方案"), !menu_save_pending, TRUE,
+        chinese_scheme ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+    for (const auto &[value, name, label, tooltip, checked] : scheme_languages) {
+      if (!msime::linux_host::edition_offers_scheme(value)) continue;
+      ibus_prop_list_append(scheme_menu, ibus_property_new(
+          name, PROP_TYPE_RADIO,
+          ibus_text_new_from_static_string(label), "",
+          ibus_text_new_from_static_string(tooltip), !menu_save_pending, TRUE,
+          checked ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
+    }
+    // The input languages and the Chinese schemes are two radio groups; without the rule ibus-ui-gtk3 joins them and marks only one of the two checked entries.
+    ibus_prop_list_append(scheme_menu, menu_separator("Scheme/Separator"));
+  }
   // Cantonese and Zhuyin are offered only when their dictionary is installed: host-api would fall back from either without it.
   // 五笔一项跟随存储的码表版本显示「86 五笔」或「98 五笔」。
   const char *wubi_label = msime::linux_host::wubi_scheme_label(
@@ -3289,11 +3285,13 @@ void publish_mode(IBusEngine *engine, bool registration) {
     ibus_prop_list_append(scheme_menu, item);
   }
   ibus_property_set_sub_props(scheme, scheme_menu);
+  // 不带双拼的版本（五笔版）隐藏双拼键位方案。
   auto profile = ibus_property_new(
       "ShuangpinProfile", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("双拼方案"), "",
       ibus_text_new_from_static_string("选择双拼键位方案"),
-      s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
+      s.focused && !s.blocked && !menu_save_pending,
+      msime::linux_host::edition_offers_scheme("shuangpin"), PROP_STATE_UNCHECKED, nullptr);
   auto profile_menu = ibus_prop_list_new();
   const auto configured_profile = s.shuangpin_profile_override.value_or(
       configured.at("preferences").value("shuangpin_profile", "xiaohe"));

@@ -5318,7 +5318,9 @@ public:
     fcitx_key_presses_shutting_down = false;
     refreshOptions();
     refreshTypingStatistics();
-    instance->inputContextManager().registerProperty("msimeState", &factory_);
+    // 输入上下文属性名在整个 fcitx5 进程里唯一：两个版本的插件同时加载时，后注册的同名属性会失败、factory_ 拿不到槽位，第一次 propertyFor 就越界。名字随插件名，full 仍是 msimeState。
+    if (!instance->inputContextManager().registerProperty(MSIME_EDITION_FCITX5_ADDON "State", &factory_))
+      throw std::runtime_error("Fcitx5 input context property " MSIME_EDITION_FCITX5_ADDON "State is already registered");
     english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-input-mode", &instance->userInterfaceManager());
     scheme_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-scheme", &instance->userInterfaceManager());
@@ -5492,6 +5494,8 @@ public:
              &local_expression_action_, &local_command_action_, &local_mention_action_}) {
       // 不带临时日文的版本（五笔版）不列这个本地模式：宿主库在这些版本里总是把它关掉，列出来也打不开。
       if (!MSIME_EDITION_TEMPORARY_JAPANESE && action == &local_temporary_japanese_action_) continue;
+      // 不带双拼的版本（五笔版）不列双拼键位方案。
+      if (action == &shuangpin_profile_action_ && !msime::linux_host::edition_offers_scheme("shuangpin")) continue;
       input_group_menu_.addAction(action);
     }
     punctuation_group_action_.setMenu(&punctuation_group_menu_);
@@ -5504,8 +5508,12 @@ public:
     for (auto *action : std::initializer_list<fcitx::Action *>{
              &candidate_layout_action_, &candidate_page_size_action_, &candidate_theme_action_,
              &shuangpin_preedit_action_, &wubi_code_hint_action_, &candidate_group_separator_, &learning_action_,
-             &frequency_action_, &frequency_trigger_action_, &frequency_step_action_})
+             &frequency_action_, &frequency_trigger_action_, &frequency_step_action_}) {
+      // 双拼原始预编辑只在双拼下生效、五笔剩余编码只在五笔下生效，本版本没有那个方案就不列。
+      if (action == &shuangpin_preedit_action_ && !msime::linux_host::edition_offers_scheme("shuangpin")) continue;
+      if (action == &wubi_code_hint_action_ && !msime::linux_host::edition_offers_scheme("wubi")) continue;
       candidate_group_menu_.addAction(action);
+    }
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
     emoji_menu_.addAction(&emoji_item2_);
@@ -7001,14 +7009,18 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
   scheme_menu_entries_.clear();
   scheme_menu_entries_.reserve(9);
-  scheme_menu_entries_.insert(
-      scheme_menu_entries_.end(),
-      {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_});
-  if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
-  if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
-  scheme_menu_entries_.insert(scheme_menu_entries_.end(),
-                              {&scheme_japanese_action_, &scheme_korean_action_, &scheme_vietnamese_action_,
-                               &scheme_tibetan_action_});
+  // 只列本版本提供的方案（版本表的 input_schemes）：不提供的方案选了也会被 selectScheme 拒绝。粤拼与注音另外要有词库，cantonese 与 zhuyin 已经算上了版本。
+  for (const auto &[id, action] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
+           {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
+           {"wubi", &scheme_wubi_action_}, {"cantonese", &scheme_cantonese_action_},
+           {"zhuyin", &scheme_zhuyin_action_}, {"japanese", &scheme_japanese_action_},
+           {"korean", &scheme_korean_action_}, {"vietnamese", &scheme_vietnamese_action_},
+           {"tibetan", &scheme_tibetan_action_}}) {
+    const bool offered = id == "cantonese" ? cantonese
+                         : id == "zhuyin"  ? zhuyin
+                                           : msime::linux_host::edition_offers_scheme(id);
+    if (offered) scheme_menu_entries_.push_back(action);
+  }
   for (auto *entry : scheme_menu_entries_) scheme_menu_.addAction(entry);
   scheme_menu_languages_ = languages;
   if (ic) ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);

@@ -64,4 +64,12 @@ docker run --rm --init \
       echo "$shared" >&2
       exit 1
     fi
+    # 五笔版的 Fcitx5 插件要按本版本的文件名找宿主库，不能是 full 的 libmsime_host_api.so：同一个 fcitx5 进程按这个名字复用已经加载的库，两个版本会共用先加载的那一份。
+    plugin=$(find /build/stage-wubi -name libmsime-wubi-fcitx5.so -print -quit)
+    needed=$(readelf -d "$plugin" | grep NEEDED)
+    if ! grep -q "\[libmsime_host_api_wubi\.so\]" <<<"$needed" || grep -q "\[libmsime_host_api\.so\]" <<<"$needed"; then
+      echo "the wubi Fcitx5 plugin does not link its own host library:" >&2
+      echo "$needed" >&2
+      exit 1
+    fi
   '

@@ -110,6 +110,7 @@ set(MSIME_ENGINE_RESOURCES "" CACHE PATH "Trusted packaged Engine desktop resour
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
+msime_edition_host_library(MSIME_HOST_LIBRARY)
 add_library(msime-ibus-host STATIC
   src/core/ClientEngine.cpp src/system/DiagnosticLog.cpp src/system/ChineseTextConversion.cpp src/overlay/WaveOverlayIbusSurface.cpp
   src/overlay/WaveOverlaySurfaceFactory.cpp)

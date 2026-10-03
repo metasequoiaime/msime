@@ -38,6 +38,12 @@ string(JSON msime_edition_language_dictionaries LENGTH "${msime_editions_json}"
        editions ${msime_edition_index_found} language_dictionaries)
 # 每用户目录名，也是前缀下 share、lib、doc 和 /etc 里的子目录名；full 是 msime-client。
 set(MSIME_CLIENT_DIRECTORY "${MSIME_EDITION_CLIENT_DIRECTORY}")
+# 装进前缀的 Host API 库的名字（lib<stem>.so）。Cargo 产出的库没有 SONAME，CMake 于是用 -l<stem> 链接，插件和程序的 DT_NEEDED 就是这个文件名。同一个 fcitx5 进程按 DT_NEEDED 的名字认已经加载过的库，两个版本同名时后加载的插件会用上先加载的那个版本的库，所以除 full 以外的版本都换一个名字。
+if(MSIME_EDITION STREQUAL "full")
+  set(MSIME_HOST_LIBRARY_STEM "msime_host_api")
+else()
+  set(MSIME_HOST_LIBRARY_STEM "msime_host_api_${MSIME_EDITION}")
+endif()
 if(MSIME_EDITION STREQUAL "full")
   set(MSIME_EDITION_IS_FULL ON)
   set(MSIME_EDITION_RESOURCE_LOCK "${CMAKE_CURRENT_LIST_DIR}/../../../resources/desktop-dictionary.lock.json")
@@ -81,5 +87,15 @@ function(msime_edition_source variable relative)
   if(NOT result EQUAL 0)
     message(FATAL_ERROR "Cannot render ${relative} for edition ${MSIME_EDITION}")
   endif()
+  set(${variable} "${output}" PARENT_SCOPE)
+endfunction()
+
+# 把 <variable> 指向的 Cargo 产出的 Host API 库换成本版本的文件名：full 原样不动，其他版本在配置阶段复制一份 lib<stem>.so 到构建目录，之后的链接与安装都用这份。库重新编译后，configure_file 让下一次构建先重新配置、再复制一遍。
+function(msime_edition_host_library variable)
+  set(output "${CMAKE_BINARY_DIR}/edition/host/lib${MSIME_HOST_LIBRARY_STEM}.so")
+  if(MSIME_EDITION_IS_FULL OR "${${variable}}" STREQUAL output)
+    return()
+  endif()
+  configure_file("${${variable}}" "${output}" COPYONLY)
   set(${variable} "${output}" PARENT_SCOPE)
 endfunction()

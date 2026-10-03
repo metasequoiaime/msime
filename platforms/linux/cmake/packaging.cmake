@@ -60,7 +60,7 @@ endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
 # The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
-set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
+set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
 %global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$")
 # Directories the base system owns. An RPM that lists them conflicts with the filesystem package and with the desktop, IBus, Fcitx5 and systemd packages that own them.
 list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION

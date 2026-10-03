@@ -25,6 +25,7 @@ set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../../target/debug/libmsi
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
+msime_edition_host_library(MSIME_HOST_LIBRARY)
 # 装在自己前缀下的版本把插件装进 fcitx5 自己的插件目录（Fcitx5Core.pc 的 libdir 下），fcitx5 只从那里加载；其余情况与今天相同，跟着前缀走。
 if(MSIME_EDITION_SYSTEM_PATHS)
   pkg_get_variable(MSIME_FCITX5_SYSTEM_LIBDIR Fcitx5Core libdir)

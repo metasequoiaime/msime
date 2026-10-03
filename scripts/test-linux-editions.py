@@ -7,6 +7,8 @@
 - CMake 交给 `msime_edition_source` 改写的每个文件都有改写规则，否则非 full 的版本在配置阶段才失败；
 - 每个版本都能改写全部有规则的文件：规则全部命中，改写后不留下 full 的目录名、包名、单元名、命令名、显示名、Fcitx5 插件名或主题名（`edition_linux.py check`）；
 - 两个版本的 Fcitx5 插件被同一个 fcitx5 进程加载时，动作名（`MSIME_EDITION_FCITX5_ADDON "-<名字>"` 展开后）两两不撞：fcitx5 的动作名在整个进程里唯一，撞名的那个注册不上，菜单里就少了它；
+- 输入上下文属性名（`registerProperty`）同样随插件名、两两不撞，full 仍是 `msimeState`：属性名也在整个进程里唯一，后注册的那个拿不到槽位，第一次 `propertyFor` 就越界、带着整个 fcitx5 崩掉；
+- 每个版本装的 Host API 库文件名（`cmake/Edition.cmake` 的 `MSIME_HOST_LIBRARY_STEM`）两两不同，full 仍是 `libmsime_host_api.so`：库没有 SONAME，插件的 DT_NEEDED 就是这个文件名，同名时同一个 fcitx5 进程里后加载的插件会复用先加载的那个版本的库；
 - C++ 源码不再自己写 full 的每用户目录、IBus 引擎名和设置命令，CMake 不再自己写 `msime-client` 子目录，否则那一处在其他版本里仍指向 full。
 """
 
@@ -29,6 +31,7 @@ CPP_FORBIDDEN = [
     (re.compile(r'"msime-linux"'), "the IBus engine name"),
     (re.compile(r'"msime-linux-(setup|settings)"'), "a user command"),
     (re.compile(r'registerAction\("msime-'), "a Fcitx5 action name"),
+    (re.compile(r'registerProperty\("'), "the Fcitx5 input context property name"),
     (re.compile(r'kFcitxCandidateTheme = "msime"'), "the Fcitx5 theme name"),
 ]
 CMAKE_FILES = [LINUX / "CMakeLists.txt", LINUX / "fcitx5/CMakeLists.txt", LINUX / "cmake/packaging.cmake"]
@@ -70,6 +73,32 @@ def main() -> int:
                 errors.append(f"Fcitx5 action {name!r} of edition {entry['id']} is also edition {seen[name]}'s; two editions loaded into one fcitx5 would collide")
             seen[name] = entry["id"]
 
+    engine_text = FCITX_ENGINE.read_text(encoding="utf-8")
+    properties = re.findall(r'registerProperty\(MSIME_EDITION_FCITX5_ADDON "([A-Za-z]+)"', engine_text)
+    if len(properties) != engine_text.count("registerProperty("):
+        errors.append(f"{FCITX_ENGINE.relative_to(ROOT)} registers an input context property not named through MSIME_EDITION_FCITX5_ADDON; update this check")
+    owners: dict[str, str] = {}
+    for entry in editions:
+        addon = entry["platforms"]["linux"]["fcitx5_addon"]
+        for suffix in properties:
+            name = f"{addon}{suffix}"
+            if entry["id"] == "full" and name != "msimeState":
+                errors.append(f"full's Fcitx5 input context property is {name!r}, not msimeState")
+            if name in owners:
+                errors.append(f"Fcitx5 input context property {name!r} of edition {entry['id']} is also edition {owners[name]}'s")
+            owners[name] = entry["id"]
+
+    # 宿主库文件名：Edition.cmake 用 full 的名字，其他版本在后面加 _<id>。这里按同样的规则展开，并确认 Edition.cmake 仍是这条规则。
+    edition_cmake = (LINUX / "cmake/Edition.cmake").read_text(encoding="utf-8")
+    if 'set(MSIME_HOST_LIBRARY_STEM "msime_host_api")' not in edition_cmake or 'set(MSIME_HOST_LIBRARY_STEM "msime_host_api_${MSIME_EDITION}")' not in edition_cmake:
+        errors.append("cmake/Edition.cmake no longer names the host library msime_host_api (full) / msime_host_api_<id>; update this check")
+    libraries: dict[str, str] = {}
+    for entry in editions:
+        library = "libmsime_host_api.so" if entry["id"] == "full" else f"libmsime_host_api_{entry['id']}.so"
+        if library in libraries:
+            errors.append(f"host library {library} of edition {entry['id']} is also edition {libraries[library]}'s")
+        libraries[library] = entry["id"]
+
     # CMake 里每个 msime_edition_source 的文件都要有规则。路径里的 ${变量} 来自同一个文件的 foreach：脚本按 foreach 列出的名字展开，其余按通配展开到实际存在的文件。
     rules = set(generator.RULES)
     for path in [LINUX / "CMakeLists.txt", LINUX / "fcitx5/CMakeLists.txt"]:
@@ -104,7 +133,7 @@ def main() -> int:
         for error in errors:
             print(f"FAIL: {error}")
         return 1
-    print(f"linux editions: LinuxEdition.h is current, {len(editions)} editions render every script and data file, {len(suffixes)} Fcitx5 actions stay distinct across editions, and no host source spells the full identifiers itself")
+    print(f"linux editions: LinuxEdition.h is current, {len(editions)} editions render every script and data file, {len(suffixes)} Fcitx5 actions, the input context property and the host library stay distinct across editions, and no host source spells the full identifiers itself")
     return 0
 
 
