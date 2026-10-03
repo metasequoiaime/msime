@@ -6477,6 +6477,13 @@ static void TestAccountGlossWaitsForDictionary() {
     assert(controller.accountFetches.count == 2 && ([controller.accountFetches[1] isEqual:@[@[@"再见", @"你好"], @"en", @"ja", @2]]));
     // The account's English reply for the word the English dictionary answered is not saved to the learned glossary, where it would override the packaged gloss; only the word the dictionary missed is marked to save.
     assert([[NSSet setWithArray:[[controller valueForKey:@"accountEnglishQueries"] allKeys]] isEqual:[NSSet setWithObject:@"再见"]]);
+    // 账号回复的日文行要和词典的英文行并到同一个候选下。以前按词去重，词典已经列出了 你好，账号那条就被丢掉，于是只显示英文释义。
+    session.delivered = nil;
+    [controller accountCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive"
+        object:nil userInfo:@{@"generation":@2, @"target":@"ja", @"translations":@{@"你好":@"こんにちは"}}]];
+    NSDictionary *greeting = nil;
+    for (NSDictionary *entry in session.delivered) if ([entry[@"text"] isEqual:@"你好"]) greeting = entry;
+    assert([greeting[@"translation"] isEqual:@"hello\nこんにちは"]);
     // Once the Japanese dictionary answers it too, it is left out, while a word that dictionary answered only in Japanese goes out for its English row.
     session.generation++; session.offlineGlossLanguages = @[@"ja"];
     session.page = @[@{@"text":@"你好", @"source":@0}, @{@"text":@"测试", @"source":@0}];

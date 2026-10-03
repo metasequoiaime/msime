@@ -114,8 +114,16 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                     if (isFinishing() || isDestroyed()) return;
                     models.clear();
                     models.addAll(loaded);
-                    load.setText("模型 " + models.get(0).id());
-                    send.setEnabled(false);
+                    load.setEnabled(true);
+                    if (models.isEmpty()) {
+                        load.setText("重新加载 AI");
+                        send.setEnabled(false);
+                    } else {
+                        load.setText("模型 " + models.get(0).id());
+                        // The draft may have been typed while the catalogue was loading. Refresh
+                        // the action state here instead of waiting for another edit notification.
+                        send.setEnabled(field.length() > 0);
+                    }
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {

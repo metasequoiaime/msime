@@ -1055,6 +1055,7 @@ export {
   SettingsTextareaField,
   type SettingsTextareaFieldProps,
 } from "./settings/settings-textarea-field";
+export { SettingsInputField, type SettingsInputFieldProps } from "./settings/settings-input-field";
 export { ModelSelect, type ModelSelectProps } from "./settings/model-select";
 export {
   AiCredentialSection,

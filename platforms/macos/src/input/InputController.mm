@@ -1905,7 +1905,8 @@ static NSImage *MSIMECandidateLogoImage() {
         (void)stop;
         for (NSString *target in byTarget) fill(text, target, byTarget[target]);
     }];
-    if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
+    const BOOL account = _accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]];
+    if (account) {
         NSArray *accountTargets = _accountGlossRequest[@"target_languages"];
         for (NSDictionary *entry in _accountGlossResults) {
             if (![entry[@"translation"] isKindOfClass:NSString.class]) continue;
@@ -1917,12 +1918,13 @@ static NSImage *MSIMECandidateLogoImage() {
     for (NSDictionary *candidate in onDevice[@"candidates"])
         for (NSString *target in onDevice[@"target_languages"])
             fill(candidate[@"text"], target, [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEOnDeviceGlossIdentity(target, candidate[@"text"])]);
-    // Without a target dictionary the page order comes from the English answers and the on-device request, which between them cover every candidate that can carry a gloss here.
+    // 没有目标语言词典时，页面顺序取自英文释义、系统翻译请求和水杉账号的回复，三者合起来覆盖了这里所有能带释义的候选。
     NSMutableArray *texts = [NSMutableArray array];
     for (NSDictionary *candidate in targetGloss ? _targetGlossRequest[@"candidates"] : @[]) [texts addObject:candidate[@"text"]];
     for (NSDictionary *entry in english) if (![texts containsObject:entry[@"text"]]) [texts addObject:entry[@"text"]];
     for (NSDictionary *candidate in onDevice[@"candidates"]) if (![texts containsObject:candidate[@"text"]]) [texts addObject:candidate[@"text"]];
-    NSArray *targets = (targetGloss ? _targetGlossRequest : onDevice)[@"target_languages"];
+    if (account) for (NSDictionary *entry in _accountGlossResults) if (![texts containsObject:entry[@"text"]]) [texts addObject:entry[@"text"]];
+    NSArray *targets = (targetGloss ? _targetGlossRequest : onDevice ?: (account ? _accountGlossRequest : nil))[@"target_languages"];
     NSMutableArray *results = [NSMutableArray array];
     for (NSString *text in texts) {
         NSString *translation = MSIMEJoinedTranslations(values[text], targets);
@@ -1947,11 +1949,13 @@ static NSImage *MSIMECandidateLogoImage() {
         ? _targetGlossResults : nil;
     NSDictionary *onDevice = _onDeviceGlossRequest && [_onDeviceGlossRequest isEqual:[self currentOnDeviceGlossRequest]]
         ? _onDeviceGlossRequest : nil;
+    BOOL accountCurrent = _accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]];
     if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
-    else if (targetGloss || onDevice)
+    // 水杉账号一次回复所有目标语言，所以同一个词的英文词典释义必须按语言逐行合并，不能代替整条结果：它排在前面时，曾经把账号回复的第二语言那一行整个挡掉。
+    else if (targetGloss || onDevice || (glossCurrent && accountCurrent))
         [results addObjectsFromArray:[self offlineGlossResults:targetGloss english:glossCurrent ? _glossResults : nil onDevice:onDevice]];
     else if (glossCurrent) [results addObjectsFromArray:_glossResults];
-    if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
+    if (accountCurrent) {
         NSMutableSet *existing = [NSMutableSet setWithArray:[results valueForKey:@"text"] ?: @[]];
         for (NSDictionary *entry in _accountGlossResults) {
             NSString *text = entry[@"text"];
