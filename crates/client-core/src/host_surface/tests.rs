@@ -340,7 +340,7 @@ fn capabilities_round_trip_and_reject_unknown_keys() {
 }
 
 #[test]
-fn every_host_offers_cantonese_zhuyin_and_vietnamese() {
+fn every_host_offers_cantonese_zhuyin_vietnamese_and_stroke() {
     use crate::preferences::InputScheme;
     for platform in [
         HostPlatform::Macos,
@@ -351,11 +351,12 @@ fn every_host_offers_cantonese_zhuyin_and_vietnamese() {
         HostPlatform::Harmony,
     ] {
         let schemes = HostCapabilities::for_platform(platform).input_schemes;
-        assert_eq!(schemes.len(), 8, "{platform:?}");
+        assert_eq!(schemes.len(), 9, "{platform:?}");
         for scheme in [
             InputScheme::Cantonese,
             InputScheme::Zhuyin,
             InputScheme::Vietnamese,
+            InputScheme::Stroke,
         ] {
             assert!(schemes.contains(&scheme), "{platform:?} {scheme:?}");
         }
@@ -364,7 +365,7 @@ fn every_host_offers_cantonese_zhuyin_and_vietnamese() {
 
 #[test]
 fn a_build_compiles_the_schemes_its_platform_offers() {
-    // Every target compiles all eight.
+    // Every target compiles all nine.
     let platform = if cfg!(target_os = "macos") {
         HostPlatform::Macos
     } else if cfg!(target_os = "android") {

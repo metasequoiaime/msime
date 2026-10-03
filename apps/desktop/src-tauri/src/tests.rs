@@ -226,7 +226,7 @@ fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() 
 }
 
 #[test]
-fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
+fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
     use msime_client_core::preferences::InputScheme;
     let root = tempfile::tempdir().unwrap();
@@ -241,9 +241,11 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
         HostPlatform::Android,
         HostPlatform::Ios,
     ] {
-        let cantonese = directory.join("cantonese.db");
-        if cantonese.exists() {
-            std::fs::remove_file(&cantonese).unwrap();
+        for name in ["cantonese.db", "stroke.db"] {
+            let dictionary = directory.join(name);
+            if dictionary.exists() {
+                std::fs::remove_file(&dictionary).unwrap();
+            }
         }
         let offered = |host_options: Option<&serde_json::Value>| {
             let mut capabilities = HostCapabilities::for_platform(platform);
@@ -277,6 +279,10 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
         with_zhuyin.insert(5, InputScheme::Zhuyin);
         assert_eq!(offered(Some(&named)), with_zhuyin, "{platform:?}");
         std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+        let mut without_stroke = HostCapabilities::for_platform(platform).input_schemes;
+        without_stroke.retain(|scheme| *scheme != InputScheme::Stroke);
+        assert_eq!(offered(Some(&named)), without_stroke, "{platform:?}");
+        std::fs::write(directory.join("stroke.db"), b"sqlite").unwrap();
         assert_eq!(
             offered(Some(&named)),
             HostCapabilities::for_platform(platform).input_schemes,
@@ -289,6 +295,7 @@ fn cantonese_and_zhuyin_are_offered_only_with_their_installed_dictionary() {
     super::drop_uninstalled_language_schemes(&mut capabilities, Some(&resources_only), false);
     assert!(!capabilities.input_schemes.contains(&InputScheme::Cantonese));
     assert!(!capabilities.input_schemes.contains(&InputScheme::Zhuyin));
+    assert!(!capabilities.input_schemes.contains(&InputScheme::Stroke));
 }
 
 #[test]
@@ -307,7 +314,11 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
     let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
     assert!(schemes.contains(&InputScheme::Cantonese));
     assert!(!schemes.contains(&InputScheme::Zhuyin));
+    assert!(!schemes.contains(&InputScheme::Stroke));
     assert!(schemes.contains(&InputScheme::Vietnamese));
+    std::fs::write(directory.join("stroke.db"), b"sqlite").unwrap();
+    let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
+    assert!(schemes.contains(&InputScheme::Stroke));
     // A relative resources directory is not trusted to locate the installed dictionaries.
     let relative = offered(&serde_json::json!({ "resources": "resources" }));
     assert!(!relative.contains(&InputScheme::Cantonese));
@@ -319,6 +330,7 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
         "language_dictionaries": elsewhere,
     }));
     assert!(!named.contains(&InputScheme::Cantonese));
+    assert!(!named.contains(&InputScheme::Stroke));
 }
 
 #[test]

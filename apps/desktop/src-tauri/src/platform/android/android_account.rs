@@ -1090,7 +1090,7 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-/// The account value for a scheme, or none for a scheme the account schema does not name yet. Cantonese, Zhuyin and Vietnamese are left out rather than mapped to a neighbour, so the account keeps the scheme it last recorded instead of being overwritten with one the user did not choose.
+/// The account value for a scheme, or none for a scheme the account schema does not name yet. Cantonese, Zhuyin, Vietnamese and Stroke are left out rather than mapped to a neighbour, so the account keeps the scheme it last recorded instead of being overwritten with one the user did not choose.
 fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
     match scheme {
         InputScheme::Quanpin => Some("quanpin"),
@@ -1098,7 +1098,10 @@ fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
         InputScheme::Wubi => Some("wubi"),
         InputScheme::Japanese => Some("japanese"),
         InputScheme::Korean => Some("korean"),
-        InputScheme::Cantonese | InputScheme::Zhuyin | InputScheme::Vietnamese => None,
+        InputScheme::Cantonese
+        | InputScheme::Zhuyin
+        | InputScheme::Vietnamese
+        | InputScheme::Stroke => None,
     }
 }
 
@@ -1326,7 +1329,7 @@ fn apply_input_scheme(
 ) -> Result<(), AccountError> {
     if let Some(value) = string_setting(values, "input.schema")? {
         if supports_schema_field(schema, "input.schema", "string")? {
-            // A scheme this host does not offer (a newer device's Cantonese, Zhuyin or Vietnamese) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
+            // A scheme this host does not offer (a newer device's Cantonese, Zhuyin, Vietnamese or Stroke) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
             preferences.scheme = match value.as_str() {
                 "quanpin" => InputScheme::Quanpin,
                 "shuangpin" => InputScheme::Shuangpin,
@@ -1783,6 +1786,7 @@ mod tests {
             (InputScheme::Cantonese, None),
             (InputScheme::Zhuyin, None),
             (InputScheme::Vietnamese, None),
+            (InputScheme::Stroke, None),
         ] {
             assert_eq!(account_input_schema(scheme), schema, "{scheme:?}");
         }
@@ -1797,7 +1801,7 @@ mod tests {
                 value_type: "string".into(),
             },
         );
-        for unknown in ["cantonese", "zhuyin", "vietnamese", "esperanto"] {
+        for unknown in ["cantonese", "zhuyin", "vietnamese", "stroke", "esperanto"] {
             let mut values = frequency_account_preferences(&FrequencyPreferences {
                 mode: FrequencyMode::Linear,
                 trigger_count: 7,

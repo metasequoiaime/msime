@@ -33,6 +33,8 @@ pub enum InputScheme {
     Zhuyin,
     /// Vietnamese through Telex or VNI, set in `vietnamese`. The Engine ordinal is 7.
     Vietnamese,
+    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `stroke.db`。A Chinese scheme. The Engine ordinal is 8.
+    Stroke,
 }
 
 /// Presentation layout for touch keyboard hosts. Desktop hosts preserve but ignore it.
@@ -354,11 +356,13 @@ pub enum TouchKeyboardScheme {
     Zhuyin,
     /// 越南语 26 键: Vietnamese on the Latin 26-key letters, composed by the method in `Preferences::vietnamese` (`InputScheme::Vietnamese`).
     Vietnamese,
+    /// 笔画: the five-stroke keypad (横竖撇点折 plus a wildcard), each key sending its stroke letter h s p n z or x (`InputScheme::Stroke`). Hosts draw it whichever of the 26-key and nine-key layouts is chosen.
+    Stroke,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -373,9 +377,10 @@ impl TouchKeyboardScheme {
         Self::Cantonese,
         Self::Zhuyin,
         Self::Vietnamese,
+        Self::Stroke,
     ];
 
-    /// The schemes a keyboard shows before the user picks any: all but Cantonese, Zhuyin and Vietnamese, which the user turns on, as on macOS where their input modes start disabled. A document without `touch_keyboard_schemes` therefore keeps the keyboard it always had.
+    /// The schemes a keyboard shows before the user picks any: all but Cantonese, Zhuyin, Vietnamese and Stroke, which the user turns on, as on macOS where their input modes start disabled. A document without `touch_keyboard_schemes` therefore keeps the keyboard it always had.
     pub const DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,
@@ -521,6 +526,7 @@ pub enum ChineseScheme {
     Wubi,
     Cantonese,
     Zhuyin,
+    Stroke,
 }
 
 impl From<ChineseScheme> for InputScheme {
@@ -531,6 +537,7 @@ impl From<ChineseScheme> for InputScheme {
             ChineseScheme::Wubi => Self::Wubi,
             ChineseScheme::Cantonese => Self::Cantonese,
             ChineseScheme::Zhuyin => Self::Zhuyin,
+            ChineseScheme::Stroke => Self::Stroke,
         }
     }
 }

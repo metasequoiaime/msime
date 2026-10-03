@@ -291,12 +291,12 @@ pub struct HostCapabilities {
     /// Why the desktop's candidate panel on this machine ignores the candidate font, colour and skin settings, when the running Linux host has found that it does. Filled in at runtime from what the host reports, the way `os_version` is; absent when the panel honours them or nothing has been reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
-    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese or Zhuyin dictionary is not installed.
+    /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese, Zhuyin or Stroke dictionary is not installed.
     pub input_schemes: Vec<InputScheme>,
 }
 
-/// The base schemes plus Cantonese, Zhuyin and Vietnamese, which every host offers.
-const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
+/// The base schemes plus Cantonese, Zhuyin, Vietnamese and Stroke, which every host offers.
+const ALL_INPUT_SCHEMES: [InputScheme; 9] = [
     InputScheme::Quanpin,
     InputScheme::Shuangpin,
     InputScheme::Wubi,
@@ -305,9 +305,10 @@ const ALL_INPUT_SCHEMES: [InputScheme; 8] = [
     InputScheme::Cantonese,
     InputScheme::Zhuyin,
     InputScheme::Vietnamese,
+    InputScheme::Stroke,
 ];
 
-/// The schemes this build hands to its Engine: all eight on every host, since each one routes the Cantonese, Zhuyin and Vietnamese keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese and Zhuyin still fall back when their dictionary is not installed.
+/// The schemes this build hands to its Engine: all nine on every host, since each one routes the Cantonese, Zhuyin, Vietnamese and Stroke keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese, Zhuyin and Stroke still fall back when their dictionary is not installed.
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
     &ALL_INPUT_SCHEMES
 }
@@ -561,7 +562,7 @@ impl HostCapabilities {
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
             candidate_panel_limit: None,
-            // Every host routes the Cantonese, Zhuyin and Vietnamese keys and ships their dictionaries.
+            // Every host routes the Cantonese, Zhuyin, Vietnamese and Stroke keys and ships their dictionaries.
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
         }
     }

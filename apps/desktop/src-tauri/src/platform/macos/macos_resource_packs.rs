@@ -85,7 +85,7 @@ pub(crate) fn resource_pack_cancel(
     Ok(installs.cancel(&install_key(pack)))
 }
 
-/// 已保存的方案需要的资源包：当前方案是日文时要日文词典；当前方案或上次使用的中文方案是粤拼/注音时要语言词库。手写不对应方案，临时日语也不触发下载。
+/// 已保存的方案需要的资源包：当前方案是日文时要日文词典；当前方案或上次使用的中文方案是粤拼/注音/笔画时要语言词库。手写不对应方案，临时日语也不触发下载。
 fn needed_packs(
     scheme: InputScheme,
     last_chinese_scheme: Option<ChineseScheme>,
@@ -94,8 +94,12 @@ fn needed_packs(
     if scheme == InputScheme::Japanese {
         needed.push(ResourcePack::Japanese);
     }
-    let language =
-        |scheme: InputScheme| matches!(scheme, InputScheme::Cantonese | InputScheme::Zhuyin);
+    let language = |scheme: InputScheme| {
+        matches!(
+            scheme,
+            InputScheme::Cantonese | InputScheme::Zhuyin | InputScheme::Stroke
+        )
+    };
     if language(scheme) || last_chinese_scheme.is_some_and(|last| language(last.into())) {
         needed.push(ResourcePack::LanguageDictionaries);
     }
@@ -174,6 +178,15 @@ mod tests {
         assert_eq!(both.capacity(), 2);
         assert_eq!(
             needed_packs(Scheme::Quanpin, Some(Last::Zhuyin)),
+            [ResourcePack::LanguageDictionaries]
+        );
+        // 笔画也读语言词库里的 stroke.db。
+        assert_eq!(
+            needed_packs(Scheme::Stroke, None),
+            [ResourcePack::LanguageDictionaries]
+        );
+        assert_eq!(
+            needed_packs(Scheme::Korean, Some(Last::Stroke)),
             [ResourcePack::LanguageDictionaries]
         );
     }

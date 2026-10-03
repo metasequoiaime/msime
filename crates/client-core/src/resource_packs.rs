@@ -56,7 +56,7 @@ impl ResourcePack {
     pub fn schemes(self) -> &'static [&'static str] {
         match self {
             ResourcePack::Japanese => &["japanese"],
-            ResourcePack::LanguageDictionaries => &["cantonese", "zhuyin"],
+            ResourcePack::LanguageDictionaries => &["cantonese", "zhuyin", "stroke"],
             ResourcePack::Handwriting => &[],
         }
     }
@@ -387,7 +387,7 @@ mod tests {
         assert!(statuses
             .iter()
             .all(|status| status.state == PackState::Missing));
-        assert_eq!(statuses[1].schemes, ["cantonese", "zhuyin"]);
+        assert_eq!(statuses[1].schemes, ["cantonese", "zhuyin", "stroke"]);
         assert_eq!(statuses[2].size, ResourcePack::Handwriting.size());
 
         let directory = publish_fake(state.path(), ResourcePack::Handwriting);

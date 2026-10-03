@@ -522,7 +522,7 @@ impl HostSession {
         Ok(())
     }
 
-    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼和注音的资源包：只做几次 stat。路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine，重建时日文临时模式的开关按新路径重新判断。
+    /// 输入框获得焦点时，看设置应用是否在会话打开后装好（或移除）了日文、粤拼、注音和笔画的资源包：只做几次 stat。路径有变就记下，等输入空闲时由 `apply_pending` 重建 Engine，重建时日文临时模式的开关按新路径重新判断。
     ///
     /// 资源包目录只在校验完、整体原子发布之后才出现，所以这里看到的文件都是完整的。
     fn refresh_resource_packs(&mut self) {
@@ -533,15 +533,18 @@ impl HostSession {
         );
         let cantonese = path_text(dictionaries.cantonese);
         let zhuyin = path_text(dictionaries.zhuyin);
+        let stroke = path_text(dictionaries.stroke);
         let japanese = path_text(japanese_dictionary(state_root));
         if cantonese == self.options.cantonese_dictionary
             && zhuyin == self.options.zhuyin_dictionary
+            && stroke == self.options.stroke_dictionary
             && japanese == self.options.japanese_dictionary
         {
             return;
         }
         self.options.cantonese_dictionary = cantonese;
         self.options.zhuyin_dictionary = zhuyin;
+        self.options.stroke_dictionary = stroke;
         self.options.japanese_dictionary = japanese;
         self.resources_pending = true;
     }
@@ -648,6 +651,7 @@ fn scheme_code(scheme: InputScheme) -> u8 {
         InputScheme::Cantonese => 5,
         InputScheme::Zhuyin => 6,
         InputScheme::Vietnamese => 7,
+        InputScheme::Stroke => 8,
     }
 }
 
@@ -665,11 +669,12 @@ fn vietnamese_tone_style_code(vietnamese: VietnamesePreferences) -> u8 {
     }
 }
 
-/// The Cantonese and Zhuyin dictionaries a host has installed. Each is its own artifact rather than part of the shared resource set, so either may be missing.
+/// The Cantonese, Zhuyin and Stroke dictionaries a host has installed. Each is its own artifact rather than part of the shared resource set, so any of them may be missing.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LanguageDictionaries {
     pub(crate) cantonese: Option<std::path::PathBuf>,
     pub(crate) zhuyin: Option<std::path::PathBuf>,
+    pub(crate) stroke: Option<std::path::PathBuf>,
 }
 
 impl LanguageDictionaries {
@@ -689,10 +694,11 @@ impl LanguageDictionaries {
         LanguageDictionaries {
             cantonese: find("cantonese.db"),
             zhuyin: find("zhuyin.db"),
+            stroke: find("stroke.db"),
         }
     }
 
-    /// `cantonese.db` and `zhuyin.db` in `directory`, each when it is a file.
+    /// `cantonese.db`, `zhuyin.db` and `stroke.db` in `directory`, each when it is a file.
     fn in_directory(directory: &std::path::Path) -> Self {
         let present = |name: &str| {
             let path = directory.join(name);
@@ -701,6 +707,7 @@ impl LanguageDictionaries {
         LanguageDictionaries {
             cantonese: present("cantonese.db"),
             zhuyin: present("zhuyin.db"),
+            stroke: present("stroke.db"),
         }
     }
 
@@ -710,18 +717,20 @@ impl LanguageDictionaries {
         LanguageDictionaries {
             cantonese: named(&options.cantonese_dictionary),
             zhuyin: named(&options.zhuyin_dictionary),
+            stroke: named(&options.stroke_dictionary),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.cantonese.is_none() && self.zhuyin.is_none()
+        self.cantonese.is_none() && self.zhuyin.is_none() && self.stroke.is_none()
     }
 
-    /// Whether `scheme` can run with these dictionaries: Cantonese and Zhuyin need their own, every other scheme reads only the shared resources.
+    /// Whether `scheme` can run with these dictionaries: Cantonese, Zhuyin and Stroke need their own, every other scheme reads only the shared resources.
     fn serve(&self, scheme: InputScheme) -> bool {
         match scheme {
             InputScheme::Cantonese => self.cantonese.is_some(),
             InputScheme::Zhuyin => self.zhuyin.is_some(),
+            InputScheme::Stroke => self.stroke.is_some(),
             _ => true,
         }
     }
@@ -745,7 +754,7 @@ fn absolute_state_root(preferences_directory: Option<&str>) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
-/// The scheme to hand the Engine for `preferences`, and why it is not the preferred one when it is not. A scheme this build does not offer, or Cantonese or Zhuyin without its dictionary, falls back to the last Chinese scheme when that one can run and to 全拼 otherwise, so a document written on another host never leaves this one without a working scheme. The preferences themselves are left alone: once the dictionary is installed, the next session runs the scheme the user chose.
+/// The scheme to hand the Engine for `preferences`, and why it is not the preferred one when it is not. A scheme this build does not offer, or Cantonese, Zhuyin or Stroke without its dictionary, falls back to the last Chinese scheme when that one can run and to 全拼 otherwise, so a document written on another host never leaves this one without a working scheme. The preferences themselves are left alone: once the dictionary is installed, the next session runs the scheme the user chose.
 pub(crate) fn effective_scheme(
     preferences: &Preferences,
     supported: &[InputScheme],
@@ -841,7 +850,7 @@ struct HostOptions {
     /// Absolute path to the bundle's built-in sound packs (`resources/sound-packs` in the repository), for a host whose bundle does not put them in `sound-packs` beside `resources`, the directory used when this is absent. Installed packs, command tables and the `@` name list are read from `plugins` under `preferences_directory`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sound_packs: Option<String>,
-    /// Absolute path to the directory holding `cantonese.db` and `zhuyin.db`, for a host that installs either. Absent, or a directory missing one of them, means that scheme falls back as `effective_scheme` describes.
+    /// Absolute path to the directory holding `cantonese.db`, `zhuyin.db` and `stroke.db`, for a host that installs any of them. Absent, or a directory missing one of them, means that scheme falls back as `effective_scheme` describes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language_dictionaries: Option<String>,
 }
@@ -919,6 +928,7 @@ impl HostOptions {
             vietnamese_tone_style: vietnamese_tone_style_code(self.preferences.vietnamese),
             cantonese_dictionary: path_text(dictionaries.cantonese),
             zhuyin_dictionary: path_text(dictionaries.zhuyin),
+            stroke_dictionary: path_text(dictionaries.stroke),
             japanese_dictionary: path_text(japanese),
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
@@ -971,7 +981,7 @@ pub(crate) fn offline_glosses_beside(
     path.is_file().then_some(path)
 }
 
-/// The Cantonese and Zhuyin dictionaries installed beside a resource bundle: `language-dictionaries/cantonese.db` and `language-dictionaries/zhuyin.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
+/// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/cantonese.db`, `language-dictionaries/zhuyin.db` and `language-dictionaries/stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
 pub(crate) fn language_dictionaries_beside(resources: &std::path::Path) -> LanguageDictionaries {
     language_dictionaries_directory(resources)
         .map(|directory| LanguageDictionaries::in_directory(&directory))
@@ -1228,7 +1238,7 @@ pub fn refresh_host_options(path: &std::path::Path) -> Result<bool, Box<dyn std:
 
 /// 给自带一份已校验资源的宿主用的 [`refresh_host_options`]（macOS 设置应用 bundle 里的 `EngineResources` 就是这样一份）：记录的资源目录与编译进来的词库锁不符（[`DictionaryOutdated`]）时，改用 `bundled` 准备新代次，此后 `resources` 指向它。
 ///
-/// 记录的资源目录不一定是安装包会替换的那一个。手工暂存到 Application Support 的目录、在输入法「准备词库」里选的目录，都停在暂存时的代次上，之后每次升级都以 [`DictionaryOutdated`] 失败，用户既拿不到新词库，也拿不到安装包放在自带资源旁的粤语与注音词库。记录的目录仍是当前代次，或者失败是别的原因时，处理与 [`refresh_host_options`] 完全相同；这里同样不碰 `language_dictionaries`。
+/// 记录的资源目录不一定是安装包会替换的那一个。手工暂存到 Application Support 的目录、在输入法「准备词库」里选的目录，都停在暂存时的代次上，之后每次升级都以 [`DictionaryOutdated`] 失败，用户既拿不到新词库，也拿不到安装包放在自带资源旁的粤语、注音与笔画词库。记录的目录仍是当前代次，或者失败是别的原因时，处理与 [`refresh_host_options`] 完全相同；这里同样不碰 `language_dictionaries`。
 pub fn refresh_host_options_from(
     path: &std::path::Path,
     bundled: &std::path::Path,
@@ -1236,7 +1246,7 @@ pub fn refresh_host_options_from(
     refresh_options_file(path, false, Some(bundled))
 }
 
-/// 在 [`refresh_host_options`] 之外，不论代次是否变化，都让 `language_dictionaries` 跟上资源目录旁实际安装的粤语与注音词库；两项都不需要改时只读一次文件。代次准备失败也不会挡住这一项：仍按记录的资源目录更新这个键，然后再返回准备失败的错误，`resources` 与 `dictionaries` 保持原样。
+/// 在 [`refresh_host_options`] 之外，不论代次是否变化，都让 `language_dictionaries` 跟上资源目录旁实际安装的粤语、注音与笔画词库；两项都不需要改时只读一次文件。代次准备失败也不会挡住这一项：仍按记录的资源目录更新这个键，然后再返回准备失败的错误，`resources` 与 `dictionaries` 保持原样。
 ///
 /// 只有输入法进程自己在启动时、任何会话读取这份文件之前调用它。每个输入法会话都会重读这份文件，而 `HostOptions` 拒绝未知键，往一个仍被旧版输入法读取的文件里加键会让它再也开不了会话。设置应用升级后旧版输入法可能还在运行，所以设置应用自己的刷新是 [`refresh_host_options`]；运行这段代码的输入法认识它写入的键。
 pub fn refresh_host_options_with_language_dictionaries(
@@ -1394,7 +1404,7 @@ fn refreshed_layout(
 
 /// `document` with `language_dictionaries` naming what is installed beside its resources, or `None` when it already does or is not in the prepared layout.
 ///
-/// The Cantonese and Zhuyin dictionaries arrive with a package, not with a dictionary generation, so options published by an older package are brought up to what is installed even when the generation is current, and lose the key once the dictionaries are gone. Only the directory `prepare_host_configuration` records is kept in step; a document naming another directory that still exists keeps it.
+/// The Cantonese, Zhuyin and Stroke dictionaries arrive with a package, not with a dictionary generation, so options published by an older package are brought up to what is installed even when the generation is current, and lose the key once the dictionaries are gone. Only the directory `prepare_host_configuration` records is kept in step; a document naming another directory that still exists keeps it.
 fn with_installed_language_dictionaries(
     document: &Value,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {

@@ -338,6 +338,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     };
     registry().lock().unwrap().insert(
@@ -431,6 +432,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
@@ -663,6 +665,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
         sentence_association: msime_engine::host::SentenceAssociationOptions {
             word_lattice: true,
