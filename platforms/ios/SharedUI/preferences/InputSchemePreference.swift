@@ -45,6 +45,27 @@ enum ChineseInputScheme: String, CaseIterable {
   /// Whether a held backspace and a quick space-bar flick edit the spelling a syllable at a time. Only a lettered pinyin spelling has syllables to step over: a nine-key digit run is still ambiguous, and a wubi code is not made of syllables, so those keep a hold that clears the composition.
   var editsBySyllable: Bool { self == .quanpin || shuangpinProfile != nil }
 
+  /// 这个入口背后的输入方案，即版本表和共享偏好 `scheme` 里的方案名。手写的识别由平台识别器完成，不属于任何一个方案，这里的 `quanpin` 只用来归类；它写进偏好的方案见 `MetasequoiaInputSessionBridge.schemeMapping`。
+  var engineScheme: String {
+    switch self {
+    case .quanpin, .nineKey, .handwriting: "quanpin"
+    case .shuangpin, .ziranma, .microsoft, .shoudao: "shuangpin"
+    case .wubi: "wubi"
+    case .japanese, .japaneseNineKey: "japanese"
+    case .korean: "korean"
+    case .cantonese: "cantonese"
+    case .zhuyin: "zhuyin"
+    case .vietnamese: "vietnamese"
+    case .tibetan: "tibetan"
+    }
+  }
+
+  /// 本版本是否提供这个入口：入口背后的方案在本版本里时提供，手写在每个版本都有。与 client-core 的 `Edition::offers_touch_scheme` 一致。
+  var isOfferedByEdition: Bool { self == .handwriting || MSIMEAppEdition.offers(engineScheme) }
+
+  /// 偏好里的方案本版本没有、或一个入口都没剩下时退回的入口：本版本默认方案的 26 键入口。full 是全拼 26 键，与引入版本之前相同。
+  static var editionFallback: ChineseInputScheme { ChineseInputScheme(rawValue: MSIMEAppEdition.defaultScheme) ?? .quanpin }
+
   var shuangpinProfile: String? {
     switch self {
     case .shuangpin: "xiaohe"
@@ -148,15 +169,16 @@ enum InputSchemePreference {
 
   static var enabledSchemes: [ChineseInputScheme] {
     get {
+      // 本版本不提供的入口（比如 full 那边存下的拼音落到五笔版）不算启用，一个都不剩时退回本版本的默认入口。
       guard let stored = defaults.stringArray(forKey: enabledSchemesKey) else {
-        return ChineseInputScheme.allCases.filter { !ChineseInputScheme.optInSchemes.contains($0) }
+        return ChineseInputScheme.allCases.filter { !ChineseInputScheme.optInSchemes.contains($0) && $0.isOfferedByEdition }
       }
-      let enabled = ChineseInputScheme.allCases.filter { stored.contains($0.rawValue) }
-      return enabled.isEmpty ? [.quanpin] : enabled
+      let enabled = ChineseInputScheme.allCases.filter { stored.contains($0.rawValue) && $0.isOfferedByEdition }
+      return enabled.isEmpty ? [.editionFallback] : enabled
     }
     set {
-      let ordered = ChineseInputScheme.allCases.filter { newValue.contains($0) }
-      let enabled = ordered.isEmpty ? [.quanpin] : ordered
+      let ordered = ChineseInputScheme.allCases.filter { newValue.contains($0) && $0.isOfferedByEdition }
+      let enabled = ordered.isEmpty ? [.editionFallback] : ordered
       defaults.set(enabled.map(\.rawValue), forKey: enabledSchemesKey)
       scheme = scheme
     }
@@ -171,7 +193,7 @@ enum InputSchemePreference {
   static func offeredSchemes(enabled: [ChineseInputScheme], installed: Set<ChineseInputScheme>?) -> [ChineseInputScheme] {
     guard let installed else { return enabled }
     let offered = enabled.filter { !$0.needsLanguageDictionary || installed.contains($0) }
-    return offered.isEmpty ? [.quanpin] : offered
+    return offered.isEmpty ? [.editionFallback] : offered
   }
 
   /// The language dictionary directory host-api reads: `language-dictionaries/` beside the bundle's EngineResources, or nil for a bundle without EngineResources. Only the keyboard extension and its test host carry them; the App bundle runs no Engine.
@@ -197,7 +219,7 @@ enum InputSchemePreference {
     get {
       let defaults = UserDefaults(suiteName: appGroupIdentifier) ?? .standard
       let offered = offeredSchemes
-      let stored = defaults.string(forKey: schemeKey).flatMap(ChineseInputScheme.init(rawValue:)) ?? .quanpin
+      let stored = defaults.string(forKey: schemeKey).flatMap(ChineseInputScheme.init(rawValue:)) ?? .editionFallback
       return offered.contains(stored) ? stored : offered[0]
     }
     set {
@@ -219,5 +241,5 @@ enum InputSchemePreference {
     return true
   }
 
-  static let appGroupIdentifier = "group.app.msime.ios"
+  static let appGroupIdentifier = MSIMEAppEdition.appGroupIdentifier
 }

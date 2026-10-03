@@ -44,7 +44,7 @@ final class DictionarySnapshotQueue: @unchecked Sendable {
   }
   private let directory: URL?
   private static let processLock = NSLock()
-  init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {
+  init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)) {
     self.directory = directory?.appendingPathComponent("DictionarySnapshots", isDirectory: true)
   }
   private static func digest(_ value: String) -> Bool {

@@ -53,7 +53,7 @@ protocol BackendSessionStorage: Sendable {
 struct BackendKeychain: BackendSessionStorage {
   /// On iOS the session lives in the App Group's keychain access group, which the app and the keyboard extension both already hold as an entitlement, so the keyboard can reach the signed-in account (cloud clipboard) without the token ever being written to a file. Other platforms keep the item in the process's default access group.
   #if os(iOS)
-  static let defaultAccessGroup: String? = "group.app.msime.ios"
+  static let defaultAccessGroup: String? = MSIMEAppEdition.appGroupIdentifier
   #else
   static let defaultAccessGroup: String? = nil
   #endif
@@ -201,7 +201,7 @@ struct BackendFileRefreshLock: BackendRefreshLock {
   /// iOS: the App Group container, opened by both the app and the keyboard extension.
   static var appGroup: BackendFileRefreshLock {
     BackendFileRefreshLock(url: FileManager.default
-      .containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")?
+      .containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)?
       .appendingPathComponent("backend-account-refresh.lock", isDirectory: false))
   }
 

@@ -66,3 +66,37 @@ struct IOSPreferencePlan {
     customSkinJSON = try string("platform.ios.custom_keyboard_skin")
   }
 }
+
+/// 按产品版本过滤账号设置，规则与 client-core 的 `filter_uploaded_account_settings` 和 `filter_downloaded_account_settings`（crates/client-core/src/edition.rs）相同，Tauri 公共组件的 iOS 工程走的就是那两个函数。`offered` 是本版本提供的方案（版本表里的方案名，见 `MSIMEAppEdition.inputSchemes`），nil 表示 full：提供全部方案，什么也不去掉。
+extension IOSPreferencePlan {
+  /// 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值留给 `init` 按原来的规则处理。
+  static let accountSchemes: Set<String> = ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"]
+
+  /// 上传前过滤本机整理出的账号设置：
+  /// - 只有一个方案的版本不上传 `input.schema` 和随它的 iOS 九键开关、Android 触屏布局，否则会把 full 等其他版本记在账号里的方案盖掉；
+  /// - 有多个方案的版本只上传本版本提供的方案；
+  /// - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
+  static func filterUploaded(_ settings: inout [String: BackendPreferenceValue], offered: [String]?) {
+    dropUnsyncedScheme(&settings, offered: offered)
+    guard let offered else { return }
+    if !offered.contains("shuangpin") { settings.removeValue(forKey: "input.shuangpin_schema") }
+    if !offered.contains("wubi") { settings.removeValue(forKey: "input.wubi_schema") }
+  }
+
+  /// 应用前过滤从账号下载的设置：只有一个方案的版本忽略 `input.schema` 和随它的九键开关、触屏布局；有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，其余设置照常应用。
+  static func filterDownloaded(_ settings: inout [String: BackendPreferenceValue], offered: [String]?) {
+    dropUnsyncedScheme(&settings, offered: offered)
+  }
+
+  private static func dropUnsyncedScheme(_ settings: inout [String: BackendPreferenceValue], offered: [String]?) {
+    guard let offered else { return }
+    var keeps = offered.count > 1
+    if keeps, case .string(let scheme)? = settings["input.schema"], accountSchemes.contains(scheme) {
+      keeps = offered.contains(scheme)
+    }
+    guard !keeps else { return }
+    for key in ["input.schema", "platform.ios.nine_key", "platform.android.keyboard_layout"] {
+      settings.removeValue(forKey: key)
+    }
+  }
+}

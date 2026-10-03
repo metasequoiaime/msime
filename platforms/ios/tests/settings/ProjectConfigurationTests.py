@@ -138,6 +138,21 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEApp.entitlements", project)
         self.assertIn("CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements", project)
 
+    def test_app_group_identifier_is_written_once(self):
+        # App Group 标识只写在 MSIMEAppEdition 一处，其他 Swift 代码都引用它；漏掉的那一处会因为 `?? .standard` 悄悄读写另一份数据，其他版本也会读到 full 的数据。测试和 Tauri 公共组件（只有 full）不在检查范围内。
+        literal = '"group.app.msime.ios"'
+        repo = IOS_ROOT.parents[1]
+        owner = repo / "shared/backend/account/BackendAccountClient.swift"
+        self.assertIn(f"static let fullAppGroupIdentifier = {literal}", owner.read_text())
+        roots = [IOS_ROOT / "App", IOS_ROOT / "KeyboardExtension", IOS_ROOT / "SharedUI", repo / "shared/backend"]
+        offenders = [
+            str(path.relative_to(repo))
+            for root in roots
+            for path in sorted(root.rglob("*.swift"))
+            if path != owner and "Tests" not in path.relative_to(repo).parts and literal in path.read_text()
+        ]
+        self.assertEqual(offenders, [])
+
     def test_app_icon_assets_and_alternate_names_are_configured(self):
         project = (IOS_ROOT / "project.yml").read_text()
         self.assertIn("- path: App/Resources/Assets.xcassets", project)

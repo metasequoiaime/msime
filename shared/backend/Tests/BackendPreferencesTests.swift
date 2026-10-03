@@ -109,4 +109,89 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertNil(empty.customThemeBase)
     XCTAssertNil(empty.customSkinJSON)
   }
+
+  /// 版本表里一个版本在 Info.plist 里的样子：full 什么也不写，其他版本写版本 id、方案和默认方案。取自 shared/contracts/editions.json，测试跟着版本表走，不自己抄一份方案列表。
+  private func editionInfo(_ id: String) throws -> [String: Any] {
+    let table = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .appendingPathComponent("../../contracts/editions.json").standardizedFileURL
+    let document = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: table)) as? [String: Any])
+    let editions = try XCTUnwrap(document["editions"] as? [[String: Any]])
+    let edition = try XCTUnwrap(editions.first { $0["id"] as? String == id })
+    if id == "full" { return [:] }
+    return ["MSIMEEdition": id, "MSIMEInputSchemes": try XCTUnwrap(edition["input_schemes"] as? [String]),
+            "MSIMEDefaultScheme": try XCTUnwrap(edition["default_scheme"] as? String)]
+  }
+
+  func testFullKeepsTodaysAppGroupAndSchemes() throws {
+    let info = try editionInfo("full")
+    XCTAssertEqual(MSIMEAppEdition.identifier(in: info), "full")
+    XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier(in: info), "group.app.msime.ios")
+    XCTAssertNil(MSIMEAppEdition.inputSchemes(in: info))
+    XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: info), "quanpin")
+    // 测试进程不是 App bundle，读到的就是 full。
+    XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier, "group.app.msime.ios")
+    // 写明 full 的 Info.plist 和不写一样。
+    XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier(in: ["MSIMEEdition": "full", "MSIMEInputSchemes": ["wubi"]]), "group.app.msime.ios")
+    XCTAssertNil(MSIMEAppEdition.inputSchemes(in: ["MSIMEEdition": "full", "MSIMEInputSchemes": ["wubi"]]))
+  }
+
+  func testOtherEditionsGetTheirOwnAppGroupAndDefaultScheme() throws {
+    let wubi = try editionInfo("wubi")
+    let pinyin = try editionInfo("pinyin")
+    XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier(in: wubi), "group.app.msime.ios.wubi")
+    XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier(in: pinyin), "group.app.msime.ios.pinyin")
+    XCTAssertEqual(MSIMEAppEdition.inputSchemes(in: wubi), ["wubi"])
+    XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: wubi), "wubi")
+    XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: pinyin), "quanpin")
+    // 声明的默认方案不在方案里时退回第一个方案，回退到的方案一定能跑。
+    XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: ["MSIMEEdition": "wubi", "MSIMEInputSchemes": ["wubi"], "MSIMEDefaultScheme": "quanpin"]), "wubi")
+  }
+
+  func testAccountSchemeFollowsTheEditionInBothDirections() throws {
+    let local: [String: BackendPreferenceValue] = [
+      "input.schema": .string("quanpin"), "platform.ios.nine_key": .boolean(true),
+      "input.shuangpin_schema": .string("ziranma"), "input.wubi_schema": .string("wubi98"),
+      "input.character_set": .string("traditional")
+    ]
+    // full 提供全部方案，两个方向都什么也不去掉。
+    var full = local
+    IOSPreferencePlan.filterUploaded(&full, offered: MSIMEAppEdition.inputSchemes(in: try editionInfo("full")))
+    XCTAssertEqual(full, local)
+    IOSPreferencePlan.filterDownloaded(&full, offered: nil)
+    XCTAssertEqual(full, local)
+
+    // 五笔版只有一个方案：方案和随它的九键开关不上传也不应用，双拼方案不上传，五笔版本照常上传。
+    let wubi = MSIMEAppEdition.inputSchemes(in: try editionInfo("wubi"))
+    var uploaded = local
+    uploaded["input.schema"] = .string("wubi")
+    IOSPreferencePlan.filterUploaded(&uploaded, offered: wubi)
+    XCTAssertEqual(uploaded, ["input.wubi_schema": .string("wubi98"), "input.character_set": .string("traditional")])
+    var downloaded = local
+    IOSPreferencePlan.filterDownloaded(&downloaded, offered: wubi)
+    XCTAssertNil(downloaded["input.schema"])
+    XCTAssertNil(downloaded["platform.ios.nine_key"])
+    XCTAssertEqual(downloaded["input.shuangpin_schema"], .string("ziranma"))
+
+    // 拼音版：本版本的方案照常同步，账号里的五笔当作没有这一项，五笔版本不上传。
+    let pinyin = MSIMEAppEdition.inputSchemes(in: try editionInfo("pinyin"))
+    var pinyinUpload = local
+    IOSPreferencePlan.filterUploaded(&pinyinUpload, offered: pinyin)
+    XCTAssertEqual(pinyinUpload["input.schema"], .string("quanpin"))
+    XCTAssertEqual(pinyinUpload["platform.ios.nine_key"], .boolean(true))
+    XCTAssertNil(pinyinUpload["input.wubi_schema"])
+    var fromWubi = local
+    fromWubi["input.schema"] = .string("wubi")
+    IOSPreferencePlan.filterDownloaded(&fromWubi, offered: pinyin)
+    XCTAssertNil(fromWubi["input.schema"])
+    XCTAssertNil(fromWubi["platform.ios.nine_key"])
+    let plan = try IOSPreferencePlan(fromWubi, themes: themes)
+    XCTAssertNil(plan.scheme)
+    XCTAssertEqual(plan.traditional, true)
+    // 不认识的取值不归版本过滤管，仍由 IOSPreferencePlan 按原来的规则拒绝。
+    var unknown = local
+    unknown["input.schema"] = .string("klingon")
+    IOSPreferencePlan.filterDownloaded(&unknown, offered: pinyin)
+    XCTAssertEqual(unknown["input.schema"], .string("klingon"))
+    XCTAssertThrowsError(try IOSPreferencePlan(unknown, themes: themes))
+  }
 }

@@ -76,7 +76,8 @@ struct InputSettingsView: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())
         Section {
-          ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
+          // 只列本版本提供的入口；full 列出全部方案。
+          ForEach(ChineseInputScheme.allCases.filter(\.isOfferedByEdition), id: \.self) { scheme in
             HStack {
               Button {
                 schemeSaveFailed = !InputSchemePreference.save(scheme: scheme, enabled: enabledSchemes)

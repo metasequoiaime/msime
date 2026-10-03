@@ -29,7 +29,7 @@ final class VoiceTextHandoffStore: @unchecked Sendable {
   static let lifetime: TimeInterval = 600
 
   static var defaultDirectory: URL? {
-    let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
     #if DEBUG && targetEnvironment(simulator)
     let arguments = ProcessInfo.processInfo.arguments
     if let index = arguments.firstIndex(of: "-voiceHandoffTestID"), index + 1 < arguments.count,

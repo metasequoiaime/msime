@@ -49,7 +49,7 @@ enum CustomTranslations {
 
   /// The file under the keyboard's state root, `MSIME` in the App Group.
   static var defaultURL: URL? {
-    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
       .map { url(stateRoot: $0.appendingPathComponent("MSIME", isDirectory: true)) }
   }
 
