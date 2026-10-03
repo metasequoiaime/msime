@@ -21,6 +21,7 @@ pub mod language_dictionary;
 mod lattice;
 mod local;
 mod nine_key;
+pub mod ordering;
 mod paths;
 mod pinyin;
 mod punctuation;

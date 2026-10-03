@@ -2,6 +2,16 @@
 //! providers return asynchronously.
 
 use super::*;
+pub(crate) use msime_engine::ordering::apply_order;
+use msime_engine::ordering::{
+    ensure_engine_order, rerank_pick, rotate_to_front, runner_up_order, OrderRow,
+};
+// 排序决策搬进了 `msime_engine::ordering`；`tests.rs` 仍按原来的 crate 内名字引用这几项，这里为它们重新导出。
+#[cfg(test)]
+pub(crate) use msime_engine::ordering::{
+    reorders_candidates as runtime_reorders_candidates, rerank_context, LATTICE_SOURCE,
+    RERANK_CONTEXT_STEP,
+};
 use msime_engine::SchemeType;
 
 pub enum Action {
@@ -115,21 +125,12 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) settled_rerank_enabled: bool,
 }
 
-/// `CandidateSource::Generated`: a whole-sentence path the word lattice assembled. The one source
-/// whose members really are alternative readings of the same key.
-pub(crate) const LATTICE_SOURCE: u8 = 8;
-
 /// `SchemeType::Korean`: Hangul syllables that compose in the preedit, with no Chinese punctuation; the only candidates are the composing syllable's Hanja, in the Engine's table order, once the host asks for them.
 pub const KOREAN_SCHEME: u8 = SchemeType::Korean as u8;
 
 /// The traits of the scheme behind `scheme`, which the Engine reports as its `SchemeType` ordinal. Only the placeholder snapshot of a failed refresh carries an ordinal no scheme has; each caller decides what that placeholder means, the way the ordinal comparisons this replaces did.
 fn scheme_type(scheme: u8) -> Option<SchemeType> {
     SchemeType::from_u8(scheme)
-}
-
-/// Whether the runtime may reorder the scheme's candidate list (the sentence model and the runner-up demotion). A scheme whose selection goes straight to the document instead of being held as phrase progress (the Korean Hanja list) lists its table in frequency order, not readings of one sentence the model can compare, and that order is the one to keep.
-pub(crate) fn runtime_reorders_candidates(scheme: u8) -> bool {
-    scheme_type(scheme).is_none_or(SchemeType::holds_phrase_progress)
 }
 
 /// [`View::script_conversion`] for a scheme ordinal and local mode name.
@@ -156,68 +157,21 @@ pub(crate) fn move_to_back<T>(items: &mut [T], moved: &[bool]) {
     }
 }
 
-/// Apply a permutation in place. `order` maps each new seat to its old seat.
-///
-/// The order is built as a permutation of the candidate seats, so each cycle can be rotated with
-/// swaps. Keeping the operation in place matters here because the same order is applied to eight
-/// parallel arrays, several of which contain candidate strings.
-pub(crate) fn apply_order<T>(items: &mut [T], order: &[usize]) {
-    debug_assert_eq!(items.len(), order.len());
-    for start in 0..items.len() {
-        // Process each cycle only from its smallest member, without allocating a visited bitmap.
-        let mut current = order[start];
-        let mut smallest = start;
-        while current != start {
-            smallest = smallest.min(current);
-            current = order[current];
-        }
-        if smallest != start {
-            continue;
-        }
-        current = start;
-        while order[current] != start {
-            let next = order[current];
-            items.swap(current, next);
-            current = next;
-        }
-    }
-}
-
-/// Keep the Engine-index mapping empty while the cached candidates are still in Engine order.
-/// Reordering paths call this immediately before their first permutation, so ordinary keystrokes
-/// avoid rebuilding an identity vector on every snapshot.
-fn ensure_engine_order(engine_order: &mut Vec<usize>, count: usize) {
-    if engine_order.len() == count {
-        return;
-    }
-    engine_order.clear();
-    engine_order.extend(0..count);
-}
-
-fn rotate_to_front<T>(items: &mut [T], index: usize) {
-    items[..=index].rotate_right(1);
-}
-
-/// How far the context handed to a reranker moves at a time once it no longer fits the model.
-pub(crate) const RERANK_CONTEXT_STEP: usize = 16;
-
-/// The tail of the committed text a reranker should see, trimmed so the window holds still while a candidate grows.
-///
-/// The reranker keeps the model state for its prefix across keystrokes, keyed on the prefix tokens, and that cache is what keeps a keystroke inside a frame. It trims the context itself to leave room for the longest candidate, so left to do that, a context longer than the window slides by one character every time a candidate gains one — which is most keystrokes that complete a syllable. Every slide is a different prefix, so it reran the prefix and dropped every resume point with it, and a keystroke cost 20-45ms instead of about 1ms. Nothing showed it in a short test: the context only outgrows the window after a few sentences in one application, which is when "typing falls behind" was reported.
-///
-/// Trimming here, in steps, keeps the prefix identical until the longest candidate crosses a step, and the reranker then finds nothing further to trim because everything handed over already fits. A context that fits whole is handed over unchanged, so short contexts rank exactly as before.
-pub(crate) fn rerank_context(context: &str, window: usize, longest: usize) -> &str {
-    let room = window.saturating_sub(longest + 1);
-    let keep = room / RERANK_CONTEXT_STEP * RERANK_CONTEXT_STEP;
-    let count = context.chars().count();
-    if count <= room {
-        return context;
-    }
-    let skip = count - keep;
-    context
-        .char_indices()
-        .nth(skip)
-        .map_or("", |(start, _)| &context[start..])
+/// 排序决策读取的候选行，借用快照里的并行数组。调用方先确认各数组等长。
+fn order_rows(snapshot: &EngineSnapshot) -> Vec<OrderRow<'_>> {
+    snapshot
+        .candidates
+        .iter()
+        .zip(&snapshot.candidate_sources)
+        .zip(&snapshot.candidate_answers_key)
+        .zip(&snapshot.candidate_corrected)
+        .map(|(((text, &source), &answers_key), &corrected)| OrderRow {
+            text,
+            source,
+            answers_key,
+            corrected,
+        })
+        .collect()
 }
 
 impl Runtime<Session> {
@@ -1474,16 +1428,6 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     fn rerank(&mut self) -> bool {
-        // A Korean Hanja list is a table in frequency order for one syllable, not Chinese text the language model can read.
-        if !runtime_reorders_candidates(self.cached.scheme) {
-            return false;
-        }
-        // A Wubi list the table answered is ranked by the table: the Engine seats the Wubi rows first (`merge_pinyin_fallback`) and appends the mixed-in pinyin rows after them. Those pinyin rows are corrections of the same letters (dyn read as dun), so the corrected-key rule below would strip the exact code hit (态 on dyn) of its dictionary exemption and let the model promote a longer code's row (太快 on dynn) over it. Only a list the pinyin fallback answered alone is pinyin, and that one is reranked like pinyin.
-        if scheme_type(self.cached.scheme) == Some(SchemeType::Wubi)
-            && !self.cached.answered_by_pinyin_fallback
-        {
-            return false;
-        }
         let Some(reranker) = self.reranker.as_mut() else {
             return false;
         };
@@ -1499,34 +1443,15 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let mut texts = Vec::with_capacity(snapshot.candidates.len());
-        texts.extend(snapshot.candidates.iter().map(String::as_str));
-        // A dictionary hit earns the model's deference because it carries corpus frequency for the
-        // key the user typed. That premise fails the moment the engine offers a correction of that
-        // key: the frequency then belongs to the letters that arrived rather than to the word they
-        // were aiming at, and the list holds both readings. So the whole list loses the exemption,
-        // not the corrected rows — the row that would wrongly win is the uncorrected one.
-        //
-        // With correction off, or with nothing corrected, this is exactly the previous behaviour,
-        // which is what the 2052-case dictionary measurement was taken on.
-        let corrected_key = snapshot
-            .candidate_corrected
-            .iter()
-            .any(|&corrected| corrected);
-        // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
-        let longest = texts
-            .iter()
-            .zip(&snapshot.candidate_answers_key)
-            .filter(|(_, answers)| **answers)
-            .map(|(text, _)| text.chars().count())
-            .max()
-            .unwrap_or(0);
-        let context = rerank_context(&self.ai_context, reranker.model().context_length(), longest);
-        let Some(promote) = reranker.best_where(context, &texts, |index| CandidateFacts {
-            answers_key: snapshot.candidate_answers_key[index],
-            trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&snapshot.candidate_sources[index])
-                && !corrected_key,
-        }) else {
+        // 方案、五笔表码和上文窗口的判断都在 `rerank_pick` 里，这里只负责把八个并行数组同步旋转。
+        let rows = order_rows(snapshot);
+        let Some(promote) = rerank_pick(
+            reranker,
+            &self.ai_context,
+            snapshot.scheme,
+            snapshot.answered_by_pinyin_fallback,
+            &rows,
+        ) else {
             return false;
         };
         ensure_engine_order(&mut self.engine_order, count);
@@ -1544,24 +1469,8 @@ impl<E: InputEngine> Runtime<E> {
 
     /// Keep the leading sentence readings together near the top and move the rest of them behind the list.
     ///
-    /// The lattice searches several readings of the whole key so that something can choose between them. Leaving all of them at the front fills the candidate page with near-duplicate sentences and pushes the short candidates a user actually wants off it, which is why the search used to be pinned to a single path.
-    ///
-    /// For a sentence of three or more characters the first page keeps three readings, seated together right after the first one, and only the rest are moved back. One reading was too few once the Google fallback stopped holding a second sentence seat: on sentences-neutral-v1 top5 fell to 0.615 and on sentences-v2 to 0.269 with the correct sentence sitting at reading two or three, and keeping three lifts them to 0.839 and 0.763 while quanpin-words-v1 top5 moves only from 0.940 to 0.938. Shorter readings still keep one, because two-syllable keys are where the runner-ups (倪好, 你号, 你毫 after 你好) push dictionary words off the page, and keeping three there costs words top5 two points.
-    ///
-    /// They are moved rather than removed. Deleting them threw away the model's later choices, so a reading the model ranked fourth was unreachable even when it was right.
-    ///
-    /// Only lattice readings are touched. An earlier version of this keyed on "any source that is not a dictionary", which is wrong twice over: a source number says which code produced a candidate, not that two candidates are spellings of one answer, and most of the other sources are plural by design — English words, emoji, kaomoji, quick phrases and AI suggestions all arrive as lists, and that version silently dropped all but one of each.
+    /// 规则本身（保留几条整句读法、哪些算整句、为什么挪而不删）见 `msime_engine::ordering::runner_up_order`；这里只把它给出的排列同步应用到八个并行数组上。
     pub(crate) fn demote_runner_up_readings(&mut self) -> bool {
-        // The lattice runs from two syllables (a single syllable is never decoded), so a shorter candidate reached the list some other way and is not a reading of the same sentence. Japanese kana are the case that proves it: あ and ア are both Generated and both one character. Two rather than three because two-syllable keys are where the lattice's runner-up readings otherwise fill the first page ahead of dictionary words: on quanpin-words-v1 this moves two-syllable top5 from 0.883 to 0.924 with top1 unchanged.
-        const SENTENCE_SYLLABLES: usize = 2;
-        // From this many characters a reading is a sentence rather than a word, and the page keeps `SENTENCE_READINGS` of them.
-        const LONG_SENTENCE_CHARACTERS: usize = 3;
-        const SENTENCE_READINGS: usize = 3;
-
-        // Korean Hanja rows are not lattice readings, and their table order is the one to keep.
-        if !runtime_reorders_candidates(self.cached.scheme) {
-            return false;
-        }
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
         if count < 2
@@ -1574,46 +1483,9 @@ impl<E: InputEngine> Runtime<E> {
         {
             return false;
         }
-        let Some(width) = snapshot
-            .candidates
-            .iter()
-            .zip(&snapshot.candidate_sources)
-            .find(|(_, source)| **source == LATTICE_SOURCE)
-            .map(|(text, _)| text.chars().count())
-        else {
+        let Some(order) = runner_up_order(snapshot.scheme, &order_rows(snapshot)) else {
             return false;
         };
-        if width < SENTENCE_SYLLABLES {
-            return false;
-        }
-        let keep = if width >= LONG_SENTENCE_CHARACTERS {
-            SENTENCE_READINGS
-        } else {
-            1
-        };
-        // Every lattice reading of the full key, in list order. The first stays where it is, the next `keep - 1` are seated right behind it, and the rest go to the back in their existing order.
-        let readings: Vec<usize> = (0..count)
-            .filter(|&index| {
-                snapshot.candidate_sources[index] == LATTICE_SOURCE
-                    && snapshot.candidates[index].chars().count() == width
-            })
-            .collect();
-        let (kept, demoted) = readings.split_at(keep.min(readings.len()));
-        let mut order = Vec::with_capacity(count);
-        for index in 0..count {
-            if index != kept[0] && readings.contains(&index) {
-                continue;
-            }
-            order.push(index);
-            if index == kept[0] {
-                order.extend_from_slice(&kept[1..]);
-            }
-        }
-        order.extend_from_slice(demoted);
-        debug_assert_eq!(order.len(), count);
-        if order.iter().enumerate().all(|(seat, index)| seat == *index) {
-            return false;
-        }
         ensure_engine_order(&mut self.engine_order, count);
         let snapshot = &mut self.cached;
         apply_order(&mut snapshot.candidates, &order);
