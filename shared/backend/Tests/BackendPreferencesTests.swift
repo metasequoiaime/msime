@@ -67,7 +67,12 @@ final class BackendPreferencesTests: XCTestCase {
       ["input.schema": .string("shuangpin"), "input.shuangpin_schema": .string("unsupported")],
       ["input.schema": .string("wubi"), "input.wubi_schema": .string("wubi06")],
       ["platform.ios.sound_enabled": .string("true")],
-      ["platform.ios.haptic_strength": .string("unsafe")]
+      ["platform.ios.haptic_strength": .string("unsafe")],
+      // The cloud document carries no language scheme; the keyboards leave `input.schema` out for these instead (ChineseInputScheme.cloudSchema).
+      ["input.schema": .string("cantonese")],
+      ["input.schema": .string("zhuyin")],
+      ["input.schema": .string("vietnamese")],
+      ["input.schema": .string("stroke")]
     ] { XCTAssertThrowsError(try IOSPreferencePlan(settings, themes: themes)) }
     let japanese = try IOSPreferencePlan(["input.schema": .string("japanese"), "platform.ios.nine_key": .boolean(true)], themes: themes)
     XCTAssertEqual(japanese.scheme, "japaneseNineKey")
