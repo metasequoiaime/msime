@@ -12706,10 +12706,9 @@ group("URL mode and its trigger keys route through the symbols the Engine lists"
   check(touch(www, 0x2e) && !touch(www, 0x31), "touch . after www opens the URL; a digit there is not listed");
   check(!touch({ spellingSymbols: "/@" }, 0x2f), "idle / stays on the punctuation route");
   check(!touch({ ...url, englishCandidates: true }, 0x31), "the English candidate mode spells letters only");
-  // 有意的行为变化：组字中只列了撇号这类符号（粤拼 `cantonese::SPELLING_SYMBOLS_COMPOSING`、藏文 `tibetan::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。
+  // 有意的行为变化只有粤拼：组字中只列了撇号（`cantonese::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。藏文由 route() 交给 routeKorean，不经过这里。
   for (const [name, spelling] of [
     ["Cantonese", { editing: "nei", caret: 3, spellingSymbols: "'" }],
-    ["Tibetan", { editing: "bod", caret: 3, spellingSymbols: "'+-./" }],
   ] as [string, Partial<HardwareSpelling>][]) {
     const bang = route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, spelling);
     check(
@@ -14082,6 +14081,22 @@ group("a hardware keyboard on Zhuyin and Vietnamese composes what the Engine spe
     zhuyin(key({ unicodeChar: 0x21, shiftKey: true }), true, DACHEN).action ===
       HardwareKeyAction.PUNCTUATION,
     "Shift+1 is a mark, not a pick from a list that is not open",
+  );
+  // 注音选单打开时 Engine 只列出 `0`：Shift+1 的数字没被列出，仍是符号，不选词。
+  check(
+    zhuyin(key({ unicodeChar: 0x21, shiftKey: true }), true, LIST_OPEN, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Shift+1 is still a mark with the list open, since only 0 is listed",
+  );
+  // 注音没有音节撇号：组字中的 `'` 走标点路由，配对引号和编辑器上下文才会生效。
+  const apostrophe: HardwareKeyDecision = zhuyin(
+    key({ keyCode: 2063, unicodeChar: 0x27 }),
+    true,
+    { ...DACHEN, editing: "su3", caret: 3 },
+  );
+  check(
+    apostrophe.action === HardwareKeyAction.PUNCTUATION && apostrophe.character === 0x27,
+    "a ' while composing Zhuyin is punctuation, not a syllable separator",
   );
 
   const vietnamese = (

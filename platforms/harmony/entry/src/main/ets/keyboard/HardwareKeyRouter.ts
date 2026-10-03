@@ -440,6 +440,7 @@ export class HardwareKeyRouter {
       const spellingDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.spellingKey(
         key,
         spelling,
+        scheme === SchemeTraits.ZHUYIN,
       );
       if (spellingDecision !== undefined) {
         return spellingDecision;
@@ -751,6 +752,7 @@ export class HardwareKeyRouter {
   private static spellingKey(
     key: HardwareKey,
     spelling: HardwareSpelling,
+    zhuyin: boolean,
   ): HardwareKeyDecision | undefined {
     // An English word has no syllables, code points or shuangpin finals; the Engine takes letters only there, so these keys stay punctuation.
     if (spelling.englishCandidates) {
@@ -761,12 +763,12 @@ export class HardwareKeyRouter {
       if (HardwareKeyRouter.spells(spelling, key.unicodeChar)) {
         return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
       }
-      // 只有数字被列为拼写时 Shift+1..9 才改为选候选（数字键已被占用），与 Windows EditPolicy.h 一致；只列了 `.` 这类符号时 Shift+1 仍是它打出的 `!`。
+      // 只有这个键自己的数字被列为拼写时 Shift+1..9 才改为选候选（数字键已被占用），与 macOS 的 ShouldRouteSpellingShiftCandidateDigit 逐键判断一致；只列了 `.` 这类符号、或注音选单打开时只列了 `0`，Shift+1 仍是它打出的 `!`。
       if (
         key.shiftKey &&
         key.keyCode >= KEYCODE_1 &&
         key.keyCode <= KEYCODE_9 &&
-        /[0-9]/.test(spelling.spellingSymbols)
+        spelling.spellingSymbols.indexOf(String.fromCharCode(0x31 + key.keyCode - KEYCODE_1)) >= 0
       ) {
         return decision(HardwareKeyAction.SELECT, 0, key.keyCode - KEYCODE_1);
       }
@@ -778,8 +780,8 @@ export class HardwareKeyRouter {
       ) {
         return decision(HardwareKeyAction.COMPOSE, PLUS);
       }
-      // 本地模式的拼写完全由列出的符号决定。没有本地模式时列出的只是个别键（网址触发键、粤拼的 `'`），没被它们接住的键继续走下面的撇号分隔和微软双拼 `;`，否则组字原文恰好是 `www` 时 `xi'an` 式的撇号和双拼 `;` 会变成标点。
-      if (spelling.localMode !== "none") {
+      // 本地模式的拼写完全由列出的符号决定。没有本地模式时列出的只是个别键（网址触发键、粤拼的 `'`），没被它们接住的键继续走下面的撇号分隔和微软双拼 `;`，否则组字原文恰好是 `www` 时 `xi'an` 式的撇号和双拼 `;` 会变成标点。注音没有音节撇号，它的符号表就是全部拼写，没列出的 `'` 照旧走标点路由。
+      if (spelling.localMode !== "none" || zhuyin) {
         return undefined;
       }
     }
