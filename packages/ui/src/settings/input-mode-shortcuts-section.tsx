@@ -29,33 +29,46 @@ export interface InputModeShortcutsSectionProps {
   windows: boolean;
 }
 
-/** 「切换中英文」下拉框的选项：三种快捷键各占一项，另有「不使用」。 */
-type LanguageSwitchChoice = "shift" | "ctrl" | "ctrl_alt_space" | "none";
+/** 中英文切换快捷键各占一项；Ctrl+Space 只在 Linux 提供，另有「不使用」。 */
+type LanguageSwitchChoice = "shift" | "ctrl" | "ctrl_space" | "ctrl_alt_space" | "none";
 
 type LanguageSwitchBinding =
   | "switch_language_shift"
   | "switch_language_ctrl"
+  | "switch_language_ctrl_space"
   | "switch_language_ctrl_alt_space";
 
-/** 下拉框的顺序，也是同时开着多个时保留哪一个的优先级：Shift > Control > Control+Option+Space。 */
+/** 同时开着多个时按选项顺序显示第一项，不在打开页面时改写偏好。 */
 const languageSwitchBindings: [Exclude<LanguageSwitchChoice, "none">, LanguageSwitchBinding][] = [
   ["shift", "switch_language_shift"],
   ["ctrl", "switch_language_ctrl"],
+  ["ctrl_space", "switch_language_ctrl_space"],
   ["ctrl_alt_space", "switch_language_ctrl_alt_space"],
 ];
 
-/** 偏好里仍是三个独立的布尔值；同时开着多个时按优先级显示第一个，全关时是「不使用」。 */
-function languageSwitchChoice(keybindings: InputModeShortcutPreferences): LanguageSwitchChoice {
-  return languageSwitchBindings.find(([, binding]) => keybindings[binding])?.[0] ?? "none";
+/** Linux 旧配置缺少 Ctrl+Space 字段时仍默认开启；其余平台不读取这一项。 */
+function languageSwitchChoice(
+  keybindings: InputModeShortcutPreferences,
+  linux: boolean,
+): LanguageSwitchChoice {
+  return (
+    languageSwitchBindings.find(([, binding]) =>
+      binding === "switch_language_ctrl_space"
+        ? linux && (keybindings[binding] ?? true)
+        : keybindings[binding],
+    )?.[0] ?? "none"
+  );
 }
 
-/** 选中一项就把对应的布尔值设为真、另外两个设为假，一次写全三个；「不使用」三个都设为假。 */
+/** 用户选择时一次更新当前平台支持的所有切换键；「不使用」全部关闭。 */
 function languageSwitchPatch(
   choice: LanguageSwitchChoice,
+  linux: boolean,
 ): Pick<InputModeShortcutPreferences, LanguageSwitchBinding> {
   return {
     switch_language_shift: choice === "shift",
     switch_language_ctrl: choice === "ctrl",
+    ...(linux ? { switch_language_ctrl_space: choice === "ctrl_space" } : {}),
     switch_language_ctrl_alt_space: choice === "ctrl_alt_space",
   };
 }
@@ -76,13 +89,14 @@ export function InputModeShortcutsSection({
 }: InputModeShortcutsSectionProps) {
   if (!showModeSwitchShortcuts) return null;
 
-  // Named for the keys the user is actually looking at: macOS calls them Control and Option.
+  // 按宿主显示按键名称：macOS 使用 Control 和 Option。
   const languageSwitchOptions: [LanguageSwitchChoice, string][] = [
     ["shift", "Shift"],
     ["ctrl", macos ? "单击 Control" : "单击 Ctrl"],
     ["ctrl_alt_space", macos ? "Control+Option+Space" : "Ctrl+Alt+Space"],
     ["none", "不使用"],
   ];
+  if (linux) languageSwitchOptions.splice(2, 0, ["ctrl_space", "Ctrl+Space"]);
   const characterSetLabel = macos ? "Control+Shift+F 切换繁体输出" : "Ctrl+Shift+F 切换繁体输出";
 
   return (
@@ -91,12 +105,12 @@ export function InputModeShortcutsSection({
         <p className={settings.groupNote}>
           在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。
         </p>
-        {/* 同时开着多个的旧设置不在打开页面时改写：这个组件在页面隐藏时也挂着，偏好读完之前拿到的是默认值，而默认值本身就同时开着 Shift 和 Control+Option+Space，挂载时写回会让每个打开设置窗口的人都被静默改掉一项，还会和其他窗口、原生设置的写入互相覆盖。这里只按优先级显示一项，用户第一次在下拉框里选择时一次写全三个布尔值，多余的那几个随之关掉。 */}
+        {/* 各页始终挂载，挂载时写回会覆盖尚未读完的偏好及其他窗口的写入。这里只显示优先项，保留默认同时开启的 Shift、Control+Option+Space 和 Linux Ctrl+Space；用户选择时才一次更新全部支持的切换键。 */}
         <SelectRow
           title="切换中英文"
-          value={languageSwitchChoice(keybindings)}
+          value={languageSwitchChoice(keybindings, linux)}
           onChange={(event) =>
-            onChange(languageSwitchPatch(event.target.value as LanguageSwitchChoice))
+            onChange(languageSwitchPatch(event.target.value as LanguageSwitchChoice, linux))
           }
         >
           {languageSwitchOptions.map(([choice, label]) => (
@@ -106,12 +120,10 @@ export function InputModeShortcutsSection({
           ))}
         </SelectRow>
         {linux && (
-          <SwitchRow
-            title="Ctrl+Space 切换中英文"
-            description="关闭后水杉不处理此组合键；若 IBus 或 Fcitx5 配置了同名全局快捷键，需在框架设置中另行关闭。"
-            checked={keybindings.switch_language_ctrl_space ?? true}
-            onChange={(checked) => onChange({ switch_language_ctrl_space: checked })}
-          />
+          <p className={settings.groupNote}>
+            Ctrl+Space 未选用或关闭后水杉不处理此组合键；若 IBus 或 Fcitx5
+            配置了同名全局快捷键，需在框架设置中另行关闭。
+          </p>
         )}
         <SwitchRow
           title={characterSetLabel}

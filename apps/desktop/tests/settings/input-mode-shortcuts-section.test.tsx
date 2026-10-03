@@ -11,6 +11,7 @@ afterEach(() => {
 const keybindings = {
   switch_language_shift: true,
   switch_language_ctrl: false,
+  switch_language_ctrl_space: true,
   switch_language_ctrl_alt_space: true,
   toggle_character_set_ctrl_shift_f: true,
   toggle_fullwidth_option_shift_h: true,
@@ -39,6 +40,7 @@ const renderLanguageSwitch = (
   bindings: Partial<typeof keybindings>,
   onChange = vi.fn(),
   macos = false,
+  linux = false,
 ) => {
   render(
     <InputModeShortcutsSection
@@ -46,6 +48,7 @@ const renderLanguageSwitch = (
       onChange={onChange}
       showModeSwitchShortcuts
       macos={macos}
+      linux={linux}
       showFullwidthChord={false}
       windows={false}
     />,
@@ -63,6 +66,69 @@ test("the language switch is one dropdown in the agreed order", () => {
     "不使用",
   ]);
   expect(screen.queryByRole("switch", { name: /切换中英文/ })).toBeNull();
+});
+
+test("Linux includes Ctrl+Space in the dropdown instead of an independent switch", () => {
+  const onChange = vi.fn();
+  const select = renderLanguageSwitch({}, onChange, false, true);
+  expect(Array.from(select.options).map((option) => option.text)).toEqual([
+    "Shift",
+    "单击 Ctrl",
+    "Ctrl+Space",
+    "Ctrl+Alt+Space",
+    "不使用",
+  ]);
+  expect(select.value).toBe("shift");
+  expect(screen.queryByRole("switch", { name: "Ctrl+Space 切换中英文" })).toBeNull();
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test.each(["shift", "ctrl", "ctrl_space", "ctrl_alt_space", "none"])(
+  "Linux choosing %s writes all four booleans in one patch",
+  (choice) => {
+    const onChange = vi.fn();
+    const select = renderLanguageSwitch({}, onChange, false, true);
+    fireEvent.change(select, { target: { value: choice } });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({
+      switch_language_shift: choice === "shift",
+      switch_language_ctrl: choice === "ctrl",
+      switch_language_ctrl_space: choice === "ctrl_space",
+      switch_language_ctrl_alt_space: choice === "ctrl_alt_space",
+    });
+  },
+);
+
+test("Linux missing Ctrl+Space defaults on without rewriting preferences", () => {
+  const onChange = vi.fn();
+  const select = renderLanguageSwitch(
+    {
+      switch_language_shift: false,
+      switch_language_ctrl: false,
+      switch_language_ctrl_space: undefined,
+      switch_language_ctrl_alt_space: false,
+    },
+    onChange,
+    false,
+    true,
+  );
+  expect(select.value).toBe("ctrl_space");
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+test("Linux shows none when all four shortcuts are disabled", () => {
+  const select = renderLanguageSwitch(
+    {
+      switch_language_shift: false,
+      switch_language_ctrl: false,
+      switch_language_ctrl_space: false,
+      switch_language_ctrl_alt_space: false,
+    },
+    vi.fn(),
+    false,
+    true,
+  );
+  expect(select.value).toBe("none");
 });
 
 test("macOS names the language switch keys Control and Option", () => {

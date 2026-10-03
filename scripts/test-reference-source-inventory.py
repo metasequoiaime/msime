@@ -101,7 +101,11 @@ ANSWERED_BY: dict[str, str] = {
     # The reference's `VoiceInput::` free functions (toggle, start, stop, cancel, recording state) are the methods of this session object; the keyboard hook it refreshes is `VoiceHotkeyController`.
     "voice_input_service": "platforms/windows/src/voice/VoiceInputSession.h",
     "voice_input_overlay_utils": "platforms/windows/src/voice/WaveOverlayUtils.cpp",
-    "mvi_utils": "platforms/windows/src/voice/VoiceProviders.h",
+    # Provider defaults and request validation are shared by all native hosts; the extraction moved
+    # them out of the Windows directory, so the shared header answers both reference provider files.
+    "voice_providers": "shared/voice/VoiceProviders.h",
+    # Monitor selection and scale/placement moved into the Windows overlay utility.
+    "mvi_utils": "platforms/windows/src/voice/WaveOverlayUtils.h",
     # Sessions and the pipe. The reference's policy headers land on this repository's own
     # decomposition of the same protocol rather than one-for-one.
     "input_session": "platforms/windows/src/input/FocusedSession.h",
