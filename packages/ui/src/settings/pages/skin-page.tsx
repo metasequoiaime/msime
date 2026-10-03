@@ -14,6 +14,7 @@ import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinCardHeader } from "../../skin/skin-card-header";
 import { SkinPreviewStage } from "../../skin/skin-preview-stage";
+import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
 import {
   ExternalSkinCard,
   ExternalSkinDirectoryRow,
@@ -187,9 +188,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                     </>
                   }
                 />
-                <div
-                  className={settings.skinCardPreview}
-                  data-skin-preview=""
+                <SkinPreviewSurface
                   data-global-theme={id}
                   data-preview-theme={previewTheme}
                   style={
@@ -227,7 +226,7 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                       </SkinPreviewStage>
                     )
                   )}
-                </div>
+                </SkinPreviewSurface>
               </article>
             );
           })}

@@ -8,6 +8,7 @@ export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import { SkinCardHeader } from "./skin-card-header";
 import { SkinPreviewStage } from "./skin-preview-stage";
+import { SkinPreviewSurface } from "./skin-preview-surface";
 import * as settings from "../settings/settings-style";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
@@ -276,9 +277,8 @@ export function ExternalSkinCard({
           </>
         }
       />
-      <div
-        data-skin-preview=""
-        className={`${settings.skinCardPreview} ${scope}${theme === "light" ? " theme-light" : ""}`}
+      <SkinPreviewSurface
+        className={`${scope}${theme === "light" ? " theme-light" : ""}`}
         style={geometry}
         data-preview-theme={theme}
         data-decoration-align={skin.decorationAlign ?? "right"}
@@ -311,7 +311,7 @@ export function ExternalSkinCard({
             <SkinToolbarPreview />
           </SkinPreviewStage>
         )}
-      </div>
+      </SkinPreviewSurface>
       {paletteFailed && (
         <p role="status" className={note}>
           当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。

@@ -1,6 +1,7 @@
 import * as settings from "../settings-style";
 import { themeEntry, customCandidateStyle, themeCandidateStyle } from "../../theme/global-theme";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
+import { SkinPreviewSurface } from "../../skin/skin-preview-surface";
 import type { FloatingToolbarPreferences, HostCapabilities } from "../../index";
 import { useSettingsForm } from "../settings-form-context";
 import { Checks, GroupList, LinkRow } from "../../core/platform-controls";
@@ -84,9 +85,7 @@ export function FloatingToolbarSettingsPage() {
       {/* 预览放在页首：下面每一组改的都是它画出的内容。 */}
       <GroupList>
         <SettingsPreviewBlock aria-label="悬浮工具栏预览">
-          <div
-            className={settings.skinCardPreview}
-            data-skin-preview=""
+          <SkinPreviewSurface
             data-toolbar-preview=""
             data-global-theme={globalTheme}
             data-preview-theme={
@@ -104,7 +103,7 @@ export function FloatingToolbarSettingsPage() {
             }
           >
             <SkinToolbarPreview preferences={floatingToolbar} />
-          </div>
+          </SkinPreviewSurface>
         </SettingsPreviewBlock>
       </GroupList>
       <GroupList title="显示">

@@ -1285,6 +1285,7 @@ export {
 } from "./settings/settings-shortcut-key";
 export { SkinCardHeader, type SkinCardHeaderProps } from "./skin/skin-card-header";
 export { SkinPreviewStage, type SkinPreviewStageProps } from "./skin/skin-preview-stage";
+export { SkinPreviewSurface, type SkinPreviewSurfaceProps } from "./skin/skin-preview-surface";
 export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,

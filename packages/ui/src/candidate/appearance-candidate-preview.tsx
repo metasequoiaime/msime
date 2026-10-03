@@ -8,9 +8,9 @@ import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
-import * as settings from "../settings/settings-style";
 import { SettingsPreviewBlock } from "../settings/settings-preview-block";
 import { SkinPreviewStage } from "../skin/skin-preview-stage";
+import { SkinPreviewSurface } from "../skin/skin-preview-surface";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
   customCandidateStyle,
@@ -71,9 +71,8 @@ export function AppearanceCandidatePreview({
       label="预览：固定样例随当前设置草稿变化，不代表实际输入候选。"
     >
       {builtin ? (
-        <div
-          data-skin-preview=""
-          className={`${settings.skinCardPreview} appearance-candidate-preview`}
+        <SkinPreviewSurface
+          className="appearance-candidate-preview"
           data-global-theme={globalTheme}
           data-preview-theme={theme}
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
@@ -95,7 +94,7 @@ export function AppearanceCandidatePreview({
               helpcode={helpcode}
             />
           </SkinPreviewStage>
-        </div>
+        </SkinPreviewSurface>
       ) : (
         <ExternalAppearancePreview
           preferences={preferences}
