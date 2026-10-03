@@ -67,6 +67,12 @@ int main() {
                     [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
                     MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
                 "The wubi edition's Info.plist did not give the wubi identity.");
+        // 语音服务凭据和使用统计目录：full 沿用今天的名字，其他版本各有各的，语音服务名正是卸载时删掉的 `<bundle id>.voice`。
+        require([MSIMEVoiceProviderKeychainServiceIn(@{}) isEqualToString:@"app.msime.client.voice.providers"] &&
+                    [MSIMEVoiceProviderKeychainServiceIn(wubi) isEqualToString:[wubi[@"CFBundleIdentifier"] stringByAppendingString:@".voice"]] &&
+                    [MSIMEUsageReportingDirectoryNameIn(@{}) isEqualToString:@"MSIME/telemetry"] &&
+                    [MSIMEUsageReportingDirectoryNameIn(wubi) isEqualToString:@"MSIME/wubi/telemetry"],
+                "The voice provider keychain service or the usage reporting directory did not follow the edition.");
         // 卸载按 bundle 文件名找要移走的 bundle：五笔版只能是它自己的，名字缺了时宁可不卸载也不退回 full 的。
         NSMutableDictionary *named = [wubi mutableCopy];
         named[@"CFBundleExecutable"] = @"水杉五笔";
@@ -88,6 +94,15 @@ int main() {
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"shuangpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Shuangpin"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"wubi")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Wubi"],
                 "The shuangpin and wubi schemes do not map to the modes Info.plist.in declares.");
+        // 五笔版只声明 .Hans 和 .Roman，五笔的名字和图标在 .Hans 上：设置窗口检查菜单栏入口时不能去找一个不存在的 .Wubi，否则提示永远消不掉。full 每个方案仍是它自己的模式。
+        NSDictionary *wubiModes = @{@"MSIMEEdition": @"wubi", @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+        require(MSIMEInputModeDeclaredIn(@{}, MSIMETibetanInputModeID) && MSIMEInputModeDeclaredIn(wubiModes, MSIMEChineseInputModeID) &&
+                    !MSIMEInputModeDeclaredIn(wubiModes, MSIMEWubiInputModeID) && !MSIMEInputModeDeclaredIn(@{@"MSIMEEdition": @"wubi"}, MSIMEChineseInputModeID) &&
+                    [MSIMEInputModeIDForSchemeIn(wubiModes, @"wubi") isEqualToString:MSIMEChineseInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"wubi") isEqualToString:MSIMEWubiInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"shuangpin") isEqualToString:MSIMEShuangpinInputModeID],
+                "The settings window would look for a mode the edition does not declare.");
         require(MSIMEInputModeFor(NO, @"quanpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
                 "Quanpin or an unset scheme did not show 中.");
         require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English &&

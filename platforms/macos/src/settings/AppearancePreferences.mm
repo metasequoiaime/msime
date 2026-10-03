@@ -4818,7 +4818,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 // 当前方案在菜单栏的入口还没加入输入法列表时显示提示；没有探针（测试与其它链接了设置窗口的程序）时不显示。
 - (void)refreshInputModeHint {
     if (!_inputModeHintRow) return;
-    NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(NO, self.inputScheme));
+    NSString *mode = MSIMEInputModeIDForSchemeIn(MSIMEEditionInfo(), self.inputScheme);
     const BOOL missing = MSIMEInputModeEnabledProbe != nullptr && !MSIMEInputModeEnabledProbe(mode);
     _inputModeHintRow.hidden = !missing;
     if (!missing) return;

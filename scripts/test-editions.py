@@ -12,7 +12,7 @@
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
-- macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 也不能撞；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
+- macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
 不带参数运行时检查仓库里的文件；`--editions` 和 `--frozen` 可以换成别的文件，用来确认某种错误确实会被拦下。
@@ -37,6 +37,7 @@ LANGUAGE_LOCK = ROOT / "resources/language-dictionaries.lock.json"
 INFO_PLIST = ROOT / "platforms/macos/Info.plist.in"
 TAURI_CONF = ROOT / "apps/desktop/src-tauri/tauri.conf.json"
 TAURI_MACOS_CONF = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
+EDITION_IDENTITY = ROOT / "platforms/macos/src/core/EditionIdentity.h"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
@@ -57,6 +58,17 @@ FULL_MACOS = {
     "cask": "msime",
     "dmg_prefix": "msime-macos",
 }
+# macOS 上不写进版本表、由 EditionIdentity.h 从版本身份推出的标识：full 沿用今天的值，其他版本按下面的规则推出。
+FULL_VOICE_PROVIDER_SERVICE = "app.msime.client.voice.providers"
+FULL_USAGE_REPORTING_DIRECTORY = "MSIME/telemetry"
+
+
+def voice_provider_service(edition_id: str, section: dict) -> str:
+    return FULL_VOICE_PROVIDER_SERVICE if edition_id == FULL else section["input_method_bundle_id"] + ".voice"
+
+
+def usage_reporting_directory(edition_id: str) -> str:
+    return FULL_USAGE_REPORTING_DIRECTORY if edition_id == FULL else f"MSIME/{edition_id}/telemetry"
 
 
 def load_generator():
@@ -302,11 +314,27 @@ def check_macos(errors: list[str], editions: list[dict]) -> None:
             identifiers[folded] = f"{edition_id}.{key}"
     services: dict[str, str] = {}
     for edition_id, section in sections:
-        for service in [section["keychain_service"], section["keychain_service"] + ".refresh"]:
+        for service in [section["keychain_service"], section["keychain_service"] + ".refresh", voice_provider_service(edition_id, section)]:
             folded = service.casefold()
             if folded in services:
                 errors.append(f"edition {edition_id}: keychain service {service!r} is also used by edition {services[folded]}")
             services[folded] = edition_id
+    # 推出规则写在 EditionIdentity.h 里，这里的副本和它对不上时，上面的检查查的就不是装到机器上的那个名字。
+    identity = EDITION_IDENTITY.read_text(encoding="utf-8")
+    for fragment in [
+        f'MSIMEFullVoiceProviderKeychainService = @"{FULL_VOICE_PROVIDER_SERVICE}"',
+        f'MSIMEFullUsageReportingDirectoryName = @"{FULL_USAGE_REPORTING_DIRECTORY}"',
+        'stringByAppendingString:@".voice"',
+        '@"MSIME/%@/telemetry"',
+    ]:
+        if fragment not in identity:
+            errors.append(f"{EDITION_IDENTITY.relative_to(ROOT)} no longer contains {fragment!r}; update the derived identifiers in this script")
+    # 使用统计目录一个嵌在另一个里面时，删掉外层（卸载、清理）会连带删掉另一个版本的 install_id 和队列。
+    directories = [(edition_id, usage_reporting_directory(edition_id).casefold()) for edition_id, _ in sections]
+    for edition_id, directory in directories:
+        for other_id, other in directories:
+            if edition_id != other_id and (directory == other or directory.startswith(other + "/")):
+                errors.append(f"edition {edition_id}: usage reporting directory {directory!r} is inside edition {other_id}'s {other!r}")
 
 
 def check_frozen(errors: list[str], editions: list[dict], frozen: dict) -> None:

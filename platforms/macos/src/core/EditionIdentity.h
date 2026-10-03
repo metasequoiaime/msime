@@ -12,6 +12,8 @@ static NSString *const MSIMEFullInputMethodBundleIdentifier = @"app.msime.inputm
 static NSString *const MSIMEFullSettingsBundleIdentifier = @"app.msime.macos";
 static NSString *const MSIMEFullKeychainService = @"com.metasequoia.msime.account";
 static NSString *const MSIMEFullDefaultScheme = @"quanpin";
+static NSString *const MSIMEFullVoiceProviderKeychainService = @"app.msime.client.voice.providers";
+static NSString *const MSIMEFullUsageReportingDirectoryName = @"MSIME/telemetry";
 
 static inline NSDictionary *MSIMEEditionInfo(void) { return NSBundle.mainBundle.infoDictionary ?: @{}; }
 
@@ -58,6 +60,18 @@ static inline NSString *MSIMEKeychainServiceIn(NSDictionary *info) {
     return MSIMEEditionStringIn(info, @"MSIMEKeychainService") ?: MSIMEFullKeychainService;
 }
 
+// 语音服务凭据（识别和润色服务的 API key）在钥匙串里的服务名。full 沿用今天的名字；其他版本是输入法 bundle id 加 `.voice`，正是卸载「同时删除本机数据」时删掉的那个服务（crates/host-macos/native/uninstaller.mm），所以一个版本存的 key 不会出现在另一个版本里，卸载也只带走自己的。
+static inline NSString *MSIMEVoiceProviderKeychainServiceIn(NSDictionary *info) {
+    if (MSIMEEditionIsFullIn(info)) return MSIMEFullVoiceProviderKeychainService;
+    return [MSIMEInputMethodBundleIdentifierIn(info) stringByAppendingString:@".voice"];
+}
+
+// 使用统计（install_id、事件队列、每日活跃标记、崩溃记录）放在 Application Support 下的哪个相对目录。full 是今天的 MSIME/telemetry；其他版本是 MSIME/<版本 id>/telemetry，同时安装的版本各有各的 install_id 和队列，日活不会被另一个版本去重掉，崩溃记录也不会在另一个版本启动时报出去。
+static inline NSString *MSIMEUsageReportingDirectoryNameIn(NSDictionary *info) {
+    if (MSIMEEditionIsFullIn(info)) return MSIMEFullUsageReportingDirectoryName;
+    return [NSString stringWithFormat:@"MSIME/%@/telemetry", MSIMEEditionIdentifierIn(info)];
+}
+
 // 本版本提供的方案；nil 表示 full，即全部方案。
 static inline NSArray<NSString *> *MSIMEEditionInputSchemesIn(NSDictionary *info) {
     if (MSIMEEditionIsFullIn(info)) return nil;
@@ -94,6 +108,8 @@ static inline NSString *MSIMEEditionDisplayName(void) { return MSIMEEditionDispl
 static inline NSString *MSIMEInputMethodBundleName(void) { return MSIMEInputMethodBundleNameIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMESettingsBundleIdentifier(void) { return MSIMESettingsBundleIdentifierIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEKeychainService(void) { return MSIMEKeychainServiceIn(MSIMEEditionInfo()); }
+static inline NSString *MSIMEVoiceProviderKeychainService(void) { return MSIMEVoiceProviderKeychainServiceIn(MSIMEEditionInfo()); }
+static inline NSString *MSIMEUsageReportingDirectoryName(void) { return MSIMEUsageReportingDirectoryNameIn(MSIMEEditionInfo()); }
 static inline NSArray<NSString *> *MSIMEEditionInputSchemes(void) { return MSIMEEditionInputSchemesIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEEditionDefaultScheme(void) { return MSIMEEditionDefaultSchemeIn(MSIMEEditionInfo()); }
 static inline BOOL MSIMEEditionWubiMixedPinyinDefault(void) { return MSIMEEditionWubiMixedPinyinDefaultIn(MSIMEEditionInfo()); }

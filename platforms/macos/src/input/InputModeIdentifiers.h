@@ -120,6 +120,20 @@ static inline NSString *MSIMEInputModeID(MSIMEInputMode mode) {
     return MSIMEChineseInputModeID;
 }
 
+// 本版本的 bundle 是否声明了这个模式。full 声明全部十个；其他版本只声明 scripts/edition_bundle.py 的 mode_plan 给出的那几个，例如五笔版把五笔的名字和图标放在 .Hans 上，不声明 .Wubi。
+static inline BOOL MSIMEInputModeDeclaredIn(NSDictionary *info, NSString *identifier) {
+    if (MSIMEEditionIsFullIn(info)) return YES;
+    id component = info[@"ComponentInputModeDict"];
+    id modes = [component isKindOfClass:NSDictionary.class] ? component[@"tsInputModeListKey"] : nil;
+    return identifier && [modes isKindOfClass:NSDictionary.class] && modes[identifier] != nil;
+}
+
+// 菜单栏里代表这个方案的模式：方案自己的模式，本版本没有声明它时是 中（.Hans），与 MSIMESelectSystemInputMode 的回退一致。设置窗口的「菜单栏入口」检查的就是它。
+static inline NSString *MSIMEInputModeIDForSchemeIn(NSDictionary *info, NSString *scheme) {
+    NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(NO, scheme));
+    return MSIMEInputModeDeclaredIn(info, mode) ? mode : MSIMEChineseInputModeID;
+}
+
 // 一个模式在输入法菜单里的名字（与 InfoPlist.strings 一致），以及系统设置「添加」对话框把它归在哪个语言下（对应 Info.plist.in 的 TISIntendedLanguage）。macOS 27 不允许进程启用键盘输入模式，设置窗口靠这两项告诉用户去哪里自己添加；共享设置页 `macos-input-mode-entries-section.tsx` 里有同一张表。不是 full 的版本名字随版本而变，直接读 bundle 里 zh-Hans 的 InfoPlist.strings。
 static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
     if (!MSIMEEditionIsFull()) {
