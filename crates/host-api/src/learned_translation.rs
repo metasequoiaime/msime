@@ -26,7 +26,7 @@ fn reject_symlinked_path(path: &Path) -> Result<(), &'static str> {
                         let system_alias = path.is_absolute()
                             && !saw_real_component
                             && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                            && matches!(component, Component::Normal(_) if crate::is_trusted_system_alias(&current));
                         if index + 1 == components.len()
                             || saw_real_component
                             || saw_prefix_alias

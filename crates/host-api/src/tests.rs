@@ -9007,3 +9007,19 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     });
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_aliases_require_the_private_system_target() {
+    assert!(crate::trusted_system_alias_target(
+        std::path::Path::new("/tmp"),
+        std::path::Path::new("private/tmp")
+    ));
+    assert!(crate::trusted_system_alias_target(
+        std::path::Path::new("/var"),
+        std::path::Path::new("/private/var")
+    ));
+    assert!(!crate::trusted_system_alias_target(
+        std::path::Path::new("/tmp"),
+        std::path::Path::new("/Users/synthetic/outside")
+    ));
+}
