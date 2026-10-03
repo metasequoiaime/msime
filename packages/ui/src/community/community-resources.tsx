@@ -621,35 +621,32 @@ export function CommunityResourcesPage({
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CommunityResource | null>(null);
   const [editing, setEditing] = useState(false);
-  const generation = useRef(0);
+  const { mounted, clientGeneration } = useCommunityClientLifecycle(client, kind, scope);
   const activeSearch = useRef("");
   const load = async (append = false, query = activeSearch.current) => {
-    const current = ++generation.current;
+    const current = ++clientGeneration.current;
     setBusy(true);
     setError("");
     const offset = append ? items.length : 0;
     try {
       const page = await client.list(kind, scope, query, offset);
-      if (current !== generation.current) return;
+      if (!mounted.current || current !== clientGeneration.current) return;
       setItems((value) => (append ? appendUniqueById(value, page.items) : page.items));
       setMore(page.has_more);
       if (!append) activeSearch.current = query;
     } catch (loadError) {
-      if (current === generation.current) {
+      if (mounted.current && current === clientGeneration.current) {
         setError(resourceMessage(loadError));
         // The existing rows belong to the previous query or scope. Do not let
         // their continuation offset be used with the failed fresh request.
         if (!append) setMore(false);
       }
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (mounted.current && current === clientGeneration.current) setBusy(false);
     }
   };
   useEffect(() => {
     void load();
-    return () => {
-      generation.current += 1;
-    };
   }, [client, kind, scope]);
   const openDetail = (item: CommunityResource) => {
     if (mobile && typeof window !== "undefined") {
