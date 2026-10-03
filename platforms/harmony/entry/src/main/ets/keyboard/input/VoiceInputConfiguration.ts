@@ -110,4 +110,31 @@ export class VoiceInputConfigurationPolicy {
   static enabled(value: boolean | undefined): boolean {
     return value !== false;
   }
+
+  /** The short explanation shown in the keyboard's voice panel. Keep the privacy statement tied
+   * to the selected recognizer: the local model never uploads audio, while every cloud provider
+   * does. */
+  static description(config: VoiceInputConfiguration): string {
+    if (config.asr_provider === "local" && (config.asr_model_path ?? "").trim().length > 0) {
+      return "使用本机模型识别；原始音频不会离开设备。";
+    }
+    if (config.asr_provider === "doubao" && config.asr_token.trim().length > 0) {
+      return "使用豆包实时语音识别；原始音频会发送到豆包。";
+    }
+    const cloudProviders: Record<string, string> = {
+      openai: "OpenAI",
+      siliconflow: "SiliconFlow",
+      groq: "Groq",
+      everyapi: "EveryAPI",
+      mistral: "Mistral",
+    };
+    const provider: string | undefined = cloudProviders[config.asr_provider];
+    if (provider !== undefined) {
+      return `使用${provider}云端语音识别；原始音频会发送到配置的服务。`;
+    }
+    if (config.asr_provider === "system" || config.asr_provider.length === 0) {
+      return "使用 HarmonyOS 系统语音识别；输入法不会保存原始音频。";
+    }
+    return "当前语音服务不可用，请检查设置。";
+  }
 }

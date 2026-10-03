@@ -87,6 +87,7 @@ import {
 } from './input/HandwritingRecognitionQueue';
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
+import { VoiceInputConfigurationPolicy } from './input/VoiceInputConfiguration';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
@@ -4152,10 +4153,8 @@ struct KeyboardView {
   }
 
   private voiceDescription(): string {
-    const config = KeyboardSession.shared.voiceInputConfiguration();
-    return config.asr_provider === 'doubao' && config.asr_token.trim().length > 0
-      ? '使用豆包实时语音识别；原始音频只在本次识别期间发送。'
-      : '使用 HarmonyOS 系统语音识别；输入法不会保存原始音频。';
+    return VoiceInputConfigurationPolicy.description(
+      KeyboardSession.shared.voiceInputConfiguration());
   }
 
   @Builder

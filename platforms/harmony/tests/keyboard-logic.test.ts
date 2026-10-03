@@ -881,6 +881,44 @@ group("voice input preference gates every Harmony entry point", () => {
   check(VoiceInputConfigurationPolicy.enabled(true), "an explicit true enables voice input");
 });
 
+group("describes the configured voice provider accurately", () => {
+  check(
+    VoiceInputConfigurationPolicy.description({
+      ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+      asr_provider: "local",
+      asr_model_path: "/models/sense-voice",
+    }).includes("本机模型") &&
+      VoiceInputConfigurationPolicy.description({
+        ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+        asr_provider: "local",
+        asr_model_path: "/models/sense-voice",
+      }).includes("不会离开设备"),
+    "local voice describes device-only recognition",
+  );
+  check(
+    VoiceInputConfigurationPolicy.description({
+      ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+      asr_provider: "openai",
+      asr_endpoint: "https://api.openai.com/v1/audio/transcriptions",
+      asr_token: "synthetic-token",
+    }).includes("云端") &&
+      VoiceInputConfigurationPolicy.description({
+        ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+        asr_provider: "openai",
+        asr_endpoint: "https://api.openai.com/v1/audio/transcriptions",
+        asr_token: "synthetic-token",
+      }).includes("会发送到配置的服务"),
+    "cloud voice describes the configured service",
+  );
+  check(
+    VoiceInputConfigurationPolicy.description({
+      ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+      asr_provider: "system",
+    }).includes("HarmonyOS 系统"),
+    "system voice keeps the platform description",
+  );
+});
+
 group("keeps desktop-only chrome off touch devices", () => {
   check(KeyboardFormFactorPolicy.isDesktop("2in1"), "a 2-in-1 gets the desktop candidate window");
   check(!KeyboardFormFactorPolicy.isDesktop("phone"), "a phone keeps the touch keyboard");
