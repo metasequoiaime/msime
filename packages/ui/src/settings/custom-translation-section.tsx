@@ -1,10 +1,10 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
-import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { EndpointSettingRow } from "./endpoint-setting-row";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export interface CustomTranslationSectionProps {
   available: boolean;
@@ -27,7 +27,7 @@ export function CustomTranslationSection({
   children,
 }: CustomTranslationSectionProps) {
   return (
-    <div role="group" aria-label="自定义翻译服务" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="自定义翻译服务">
       <SettingsGroupNote>使用自建的兼容 DeepLX 的 HTTPS 服务。</SettingsGroupNote>
       <EndpointSettingRow
         title="翻译 Endpoint"
@@ -50,6 +50,6 @@ export function CustomTranslationSection({
         onChange={onApiKeyChange}
       />
       {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
-    </div>
+    </SettingsRowStack>
   );
 }

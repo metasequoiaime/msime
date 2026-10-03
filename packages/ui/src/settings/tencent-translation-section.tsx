@@ -1,10 +1,10 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsWarning } from "./settings-warning";
 import type { ReactNode } from "react";
-import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export interface TencentTranslationSectionProps {
   available: boolean;
@@ -33,7 +33,7 @@ export function TencentTranslationSection({
   children,
 }: TencentTranslationSectionProps) {
   return (
-    <div role="group" aria-label="腾讯云机器翻译" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="腾讯云机器翻译">
       <SettingsGroupNote>需要填入你自己的腾讯云 API 凭据。</SettingsGroupNote>
       <TextInputRow
         title="SecretId"
@@ -78,6 +78,6 @@ export function TencentTranslationSection({
           </SettingsWarning>
         </SettingsGroupBlock>
       )}
-    </div>
+    </SettingsRowStack>
   );
 }

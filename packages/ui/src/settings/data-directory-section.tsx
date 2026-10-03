@@ -1,5 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
 
@@ -30,7 +30,7 @@ export function DataDirectorySection({
 
   return (
     <GroupList title="数据目录">
-      <div className={settings.rowStack} role="group" aria-label="数据目录">
+      <SettingsRowStack role="group" aria-label="数据目录">
         <SettingsGroupNote>
           词库、学习记录、皮肤、剪贴板历史和设置共用此位置。可移动到其他磁盘。
           {linux &&
@@ -49,12 +49,8 @@ export function DataDirectorySection({
           ariaBusy={busy}
           label={busy ? "正在移动…" : "选择位置…"}
         />
-        {result && (
-          <SettingsGroupNote role="status">
-            {result}
-          </SettingsGroupNote>
-        )}
-      </div>
+        {result && <SettingsGroupNote role="status">{result}</SettingsGroupNote>}
+      </SettingsRowStack>
     </GroupList>
   );
 }

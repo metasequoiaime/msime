@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { GroupList, Row, Select } from "../core/platform-controls";
 import { EnglishSuggestionsSection } from "./english-suggestions-section";
 import { SwitchRow } from "./switch-row";
@@ -64,7 +64,7 @@ export function MobileKeyboardFeedbackSection({
 }: MobileKeyboardFeedbackSectionProps) {
   return (
     <GroupList title="按键反馈">
-      <div className={settings.rowStack} role="group" aria-label="按键反馈">
+      <SettingsRowStack role="group" aria-label="按键反馈">
         <SwitchRow
           title="按键音"
           description="按键音受系统静音设置控制"
@@ -103,7 +103,7 @@ export function MobileKeyboardFeedbackSection({
         {showEnglishSuggestions && (
           <MobileEnglishSuggestionsRow value={value} busy={busy} onChange={onChange} />
         )}
-      </div>
+      </SettingsRowStack>
     </GroupList>
   );
 }

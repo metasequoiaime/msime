@@ -1,9 +1,9 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import type { ReactNode } from "react";
-import * as settings from "./settings-style";
 import { SecretSettingRow } from "./secret-setting-row";
 import { TextInputRow } from "./text-input-row";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export interface NiuTransSectionProps {
   available: boolean;
@@ -24,7 +24,7 @@ export function NiuTransSection({
   children,
 }: NiuTransSectionProps) {
   return (
-    <div role="group" aria-label="小牛翻译（NiuTrans）" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="小牛翻译（NiuTrans）">
       <SettingsGroupNote>使用 App ID 和 API Key 为候选词提供逐条翻译。</SettingsGroupNote>
       <TextInputRow
         title="App ID"
@@ -41,6 +41,6 @@ export function NiuTransSection({
         onChange={onApiKeyChange}
       />
       {children && <SettingsGroupBlock>{children}</SettingsGroupBlock>}
-    </div>
+    </SettingsRowStack>
   );
 }

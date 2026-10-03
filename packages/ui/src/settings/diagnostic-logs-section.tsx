@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
 import { SwitchRow } from "./switch-row";
@@ -55,7 +55,7 @@ export function DiagnosticLogsSection({
 
   return (
     <GroupList title="诊断日志">
-      <div className={settings.rowStack} role="group" aria-label="诊断日志">
+      <SettingsRowStack role="group" aria-label="诊断日志">
         <SwitchRow
           title={title}
           description={description}
@@ -82,7 +82,7 @@ export function DiagnosticLogsSection({
             onChange={(tsf) => onChange({ tsf })}
           />
         )}
-      </div>
+      </SettingsRowStack>
     </GroupList>
   );
 }

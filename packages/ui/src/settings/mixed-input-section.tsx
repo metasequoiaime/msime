@@ -1,5 +1,5 @@
 import { SwitchRow } from "./switch-row";
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { SelectRow } from "./select-row";
 
 export type MixedInputPreferences = {
@@ -38,7 +38,7 @@ export interface MixedInputSectionProps {
 export function MixedInputSection({ preferences, onChange }: MixedInputSectionProps) {
   return (
     <>
-      <div role="group" aria-label="中英混输" className={settings.rowStack}>
+      <SettingsRowStack role="group" aria-label="中英混输">
         <SwitchRow
           title="中英混输"
           description="中文输入时在候选项中补充英文单词"
@@ -60,7 +60,7 @@ export function MixedInputSection({ preferences, onChange }: MixedInputSectionPr
             </option>
           ))}
         </SelectRow>
-      </div>
+      </SettingsRowStack>
       {supplementalOptions.map(([key, label, description]) => (
         <SwitchRow
           key={key}

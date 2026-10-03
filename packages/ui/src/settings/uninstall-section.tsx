@@ -1,4 +1,5 @@
 import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { GroupList } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 
@@ -29,7 +30,7 @@ export function UninstallSection({
   if (!uninstallInputSource) return null;
   return (
     <GroupList title="卸载">
-      <div className={settings.rowStack} role="group" aria-label="卸载">
+      <SettingsRowStack role="group" aria-label="卸载">
         <div
           className={`${settings.managerBlock} ${settings.serviceRow} ${settings.serviceRowDanger}`}
         >
@@ -82,7 +83,7 @@ export function UninstallSection({
             </div>
           )}
         </div>
-      </div>
+      </SettingsRowStack>
     </GroupList>
   );
 }

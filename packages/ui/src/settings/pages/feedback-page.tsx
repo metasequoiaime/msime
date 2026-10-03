@@ -1,4 +1,5 @@
 import { SettingsGroupNote } from "../settings-group-note";
+import { SettingsRowStack } from "../settings-row-stack";
 import { SettingsManagerNote } from "../settings-manager-note";
 import * as doc from "../document-style";
 import * as settings from "../settings-style";
@@ -54,7 +55,7 @@ export function FeedbackSettingsPage() {
         pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
       />
       <GroupList title="提交可复现的问题">
-        <div className={settings.rowStack} role="group" aria-label="问题报告">
+        <SettingsRowStack role="group" aria-label="问题报告">
           <SettingsGroupNote>报告只在你点击按钮时生成，不会读取或上传输入历史。</SettingsGroupNote>
           <FeedbackReportFields
             kind={feedbackKind}
@@ -91,7 +92,7 @@ export function FeedbackSettingsPage() {
               onClick={() => selectPage("developer")}
             />
           )}
-        </div>
+        </SettingsRowStack>
       </GroupList>
       <GroupList title="反馈与交流">
         <FeedbackChannels

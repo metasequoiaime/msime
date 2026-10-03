@@ -1,5 +1,5 @@
 import * as skin from "../keyboard/touch-skin-style";
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { SwitchRow } from "./switch-row";
@@ -21,7 +21,7 @@ export function TouchKeyboardSchemesSection({
   onToggle,
 }: TouchKeyboardSchemesSectionProps) {
   return (
-    <div role="group" aria-label="输入方案" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="输入方案">
       <Row
         title="输入方案"
         description="开启的方案会显示在键盘快捷切换中，至少保留一种。点击名称设为当前方案。"
@@ -54,6 +54,6 @@ export function TouchKeyboardSchemesSection({
           />
         );
       })}
-    </div>
+    </SettingsRowStack>
   );
 }
