@@ -202,6 +202,21 @@ export function candidateSkinMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Formats the optional license fields shown for candidate-skin packages. */
+export function communityLicenseLine(license: {
+  assets: string | null;
+  code: string | null;
+  source: string | null;
+}): string {
+  return [
+    license.assets?.trim() ? `素材授权 ${license.assets.trim()}` : "",
+    license.code?.trim() ? `代码授权 ${license.code.trim()}` : "",
+    license.source?.trim() ? `来源 ${license.source.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+}
+
 export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
 }

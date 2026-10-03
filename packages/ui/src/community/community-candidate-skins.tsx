@@ -4,7 +4,11 @@ import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { notifySkinCatalogChanged } from "../skin/skin-catalog-changes";
 import { CandidateSkinPublishDialog } from "./candidate-skin-publish-dialog";
-import { candidateSkinMessage, communityNeedsSignIn } from "./community-helpers";
+import {
+  candidateSkinMessage,
+  communityLicenseLine,
+  communityNeedsSignIn,
+} from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDetailStatus } from "./community-detail-status";
 import { CommunityDetailFrame } from "./community-detail-frame";
@@ -151,16 +155,6 @@ export interface CandidateSkinCommunityClient {
 }
 
 type PreviewLoader = (id: string) => Promise<string>;
-
-function licenseLine(license: CommunityCandidateSkinLicense): string {
-  return [
-    license.assets.trim() ? `素材授权 ${license.assets.trim()}` : "",
-    license.code.trim() ? `代码授权 ${license.code.trim()}` : "",
-    license.source.trim() ? `来源 ${license.source.trim()}` : "",
-  ]
-    .filter(Boolean)
-    .join(" / ");
-}
 
 /** The package's preview image, read only once its card or detail view is on the page. */
 function CandidateSkinPreviewImage({
@@ -426,7 +420,7 @@ export function CommunityCandidateSkinsPage({
   };
 
   if (selected) {
-    const license = licenseLine(selected.license);
+    const license = communityLicenseLine(selected.license);
     const selectedCategory = communitySkinCategoryLabel(selected.category);
     return (
       <CommunityDetailFrame

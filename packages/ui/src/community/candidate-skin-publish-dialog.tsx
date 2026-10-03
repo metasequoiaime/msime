@@ -11,6 +11,7 @@ import { renderSkinPreview } from "../skin/skin-preview-render";
 import {
   candidateSkinMegabytes,
   candidateSkinMessage,
+  communityLicenseLine,
   runCommunityPublishAction,
 } from "./community-helpers";
 import * as style from "./community-style";
@@ -42,14 +43,6 @@ const assetLicenses = [
   { value: "CC0-1.0", label: "CC0 1.0（放弃权利，任何人可随意使用）" },
 ] as const;
 const assetLicenseLimit = 120;
-
-function licenseLines(license: CandidateSkinPackPreview["license"]): string[] {
-  return [
-    license.assets?.trim() ? `素材授权 ${license.assets.trim()}` : "",
-    license.code?.trim() ? `代码授权 ${license.code.trim()}` : "",
-    license.source?.trim() ? `来源 ${license.source.trim()}` : "",
-  ].filter(Boolean);
-}
 
 /**
  * Publishes one of the user's installed candidate-window skin packages.
@@ -474,7 +467,7 @@ export function CandidateSkinPublishDialog({
             {pack.fileCount} 个文件 · {candidateSkinMegabytes(pack.size)} / {packageLimit}
           </p>
           <p className={style.metrics} aria-label="皮肤授权">
-            {licenseLines(pack.license).join(" / ")}
+            {communityLicenseLine(pack.license)}
           </p>
           <CommunitySkinPublicationFields
             name={name}
