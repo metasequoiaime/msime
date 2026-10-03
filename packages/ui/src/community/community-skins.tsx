@@ -8,6 +8,7 @@ import {
   communitySkinMessage,
   communitySkinPublishMessage,
   communityNeedsSignIn,
+  communityPublishLoginAction,
   runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
@@ -654,13 +655,7 @@ export function CommunitySkinsPage({
           library={localSkinLibrary}
           onClose={() => setPublishOpen(false)}
           onPublished={publishDone}
-          onLogin={
-            onLogin &&
-            (() => {
-              setPublishOpen(false);
-              onLogin();
-            })
-          }
+          onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
     </div>

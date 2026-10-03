@@ -221,6 +221,18 @@ export function communityNeedsSignIn(error: unknown): boolean {
   return errorCode(error) === "community_unauthorized";
 }
 
+/** Creates the shared publication-login action, closing the dialog before navigation. */
+export function communityPublishLoginAction(
+  onClose: () => void,
+  onLogin?: () => void,
+): (() => void) | undefined {
+  if (!onLogin) return undefined;
+  return () => {
+    onClose();
+    onLogin();
+  };
+}
+
 type CurrentGeneration = { current: number };
 type RunningAction = { current: boolean };
 

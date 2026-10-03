@@ -8,6 +8,7 @@ import {
   candidateSkinMessage,
   communityLicenseLine,
   communityNeedsSignIn,
+  communityPublishLoginAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDetailStatus } from "./community-detail-status";
@@ -594,13 +595,7 @@ export function CommunityCandidateSkinsPage({
           readImage={readSkinImage}
           onClose={() => setPublishOpen(false)}
           onPublished={publishDone}
-          onLogin={
-            onLogin &&
-            (() => {
-              setPublishOpen(false);
-              onLogin();
-            })
-          }
+          onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
     </div>

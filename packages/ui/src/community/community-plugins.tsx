@@ -15,6 +15,7 @@ import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
   communityPluginMessage,
+  communityPublishLoginAction,
   runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
@@ -466,13 +467,7 @@ export function CommunityPluginsPage({
           localPlugins={localPlugins}
           onClose={() => setPublishOpen(false)}
           onPublished={publishDone}
-          onLogin={
-            onLogin &&
-            (() => {
-              setPublishOpen(false);
-              onLogin();
-            })
-          }
+          onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
     </div>
