@@ -16,6 +16,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunityMetrics } from "./community-metrics";
+import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
 import { CommunityNotice } from "./community-notice";
@@ -383,7 +384,7 @@ export function CandidateSkinPublishDialog({
           {drawFailed && (
             <p>生成预览图失败，请重试，或自己在 skin.toml 中用 preview 指定一张图片。</p>
           )}
-          <div className={style.confirmationActions}>
+          <CommunityConfirmationActions>
             {openSkinDirectory && (
               <ActionButton
                 action={() => void openFolder()}
@@ -398,7 +399,7 @@ export function CandidateSkinPublishDialog({
               disabled={drawing}
               label={drawing ? "正在生成…" : "生成预览图"}
             />
-          </div>
+          </CommunityConfirmationActions>
           {openFailed && <p>无法打开皮肤目录，请重试。</p>}
         </div>
       )}
@@ -451,13 +452,13 @@ export function CandidateSkinPublishDialog({
         <div className={style.confirmation} role="alert">
           <p>{packError}</p>
           {openSkinDirectory && (
-            <div className={style.confirmationActions}>
+            <CommunityConfirmationActions>
               <ActionButton
                 action={() => void openFolder()}
                 className="secondary"
                 label="打开目录"
               />
-            </div>
+            </CommunityConfirmationActions>
           )}
           {openFailed && <p>无法打开皮肤目录，请重试。</p>}
         </div>

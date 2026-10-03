@@ -514,7 +514,6 @@ export function CommunityCandidateSkinsPage({
           onRequestUnpublish={() => setConfirmUnpublish(true)}
           onUnpublish={() => void unpublish()}
           onCancelUnpublish={() => setConfirmUnpublish(false)}
-          confirmationActionsClassName={style.confirmationActions}
         />
         {!selected.owned && client.report && (
           <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />

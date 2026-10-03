@@ -1253,6 +1253,10 @@ export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,
 } from "./community/community-card-author";
+export {
+  CommunityConfirmationActions,
+  type CommunityConfirmationActionsProps,
+} from "./community/community-confirmation-actions";
 export { CommunityMetrics, type CommunityMetricsProps } from "./community/community-metrics";
 export { CommunityCard, type CommunityCardProps } from "./community/community-card";
 export {

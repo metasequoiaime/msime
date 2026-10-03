@@ -365,7 +365,6 @@ export function CommunityPluginsPage({
             void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
           }
           onCancelUnpublish={() => setConfirmUnpublish(false)}
-          confirmationActionsClassName={style.confirmationActions}
           unpublishLabel="下架这个插件"
           unpublishConfirmLabel="确认下架插件"
         />

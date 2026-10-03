@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as style from "./community-style";
 import { CommunityTextareaField } from "./community-textarea-field";
+import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { ActionButton } from "../core/action-button";
 
 /** What a report names, as `POST /v1/community/reports` and client-core's `CommunityReportKind` spell it. */
@@ -100,7 +101,7 @@ export function CommunityReportSection({ actionBusy, onReport }: CommunityReport
         disabled={actionBusy}
         onChange={setDetail}
       />
-      <div className={style.confirmationActions}>
+      <CommunityConfirmationActions>
         <ActionButton
           action={() => {
             if (!reason) return;
@@ -114,7 +115,7 @@ export function CommunityReportSection({ actionBusy, onReport }: CommunityReport
           label="提交举报"
         />
         <ActionButton action={close} disabled={actionBusy} label="取消" />
-      </div>
+      </CommunityConfirmationActions>
     </div>
   );
 }
