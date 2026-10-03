@@ -58,6 +58,21 @@ int main() {
   assert(lines == 5);
   assert(contents.find(" [p" + std::to_string(getpid()) + ":t") != std::string::npos);
 
+  const auto outside = directory.parent_path() /
+                       (directory.filename().string() + "-outside");
+  std::filesystem::create_directory(outside);
+  const auto linked = directory / "linked-parent";
+  std::filesystem::create_directory_symlink(outside, linked);
+  msime_macos_diagnostic_configure(linked.string(), true);
+  assert(!msime_macos_diagnostic_enabled());
+  msime_macos_diagnostic_write("must_not_escape");
+  assert(!std::filesystem::exists(outside / "diagnostic.log"));
+  std::filesystem::remove(linked);
+  std::filesystem::remove_all(outside);
+
+  msime_macos_diagnostic_configure(directory.string(), true);
+  assert(msime_macos_diagnostic_enabled());
+
   msime_macos_diagnostic_configure(directory.string(), false);
   assert(!msime_macos_diagnostic_enabled());
   msime_macos_diagnostic_write("after_disable");
