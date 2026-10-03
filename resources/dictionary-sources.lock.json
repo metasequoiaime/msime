@@ -19,6 +19,10 @@
     "libchewing-data": {
       "repository": "https://github.com/chewing/libchewing-data.git",
       "commit": "c44e81aef24b06f1509f19e1be54c99812d0c43f"
+    },
+    "rime-stroke": {
+      "repository": "https://github.com/rime/rime-stroke.git",
+      "commit": "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48"
     }
   },
   "mozc": {
@@ -253,6 +257,12 @@
       "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/word.csv",
       "sha256": "da55b8e599c1389bc486453554f3410cf9c621d0ffff0ce38855698d26b3892a",
       "size": 399905
+    },
+    {
+      "path": "stroke/stroke.dict.yaml",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v1.2.0/stroke.dict.yaml",
+      "sha256": "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1094c786579a665791",
+      "size": 3396330
     }
   ]
 }
