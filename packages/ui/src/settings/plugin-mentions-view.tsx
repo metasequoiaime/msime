@@ -7,6 +7,7 @@ import { ActionButton } from "./action-button";
 import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsPhraseForm } from "./settings-phrase-form";
 import { SettingsManagerBlock } from "./settings-manager-block";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
@@ -75,7 +76,7 @@ export function PluginMentionsView({
             再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
           </SettingsManagerNote>
           {mentions.map((entry, index) => (
-            <div className={settings.phraseForm} key={index}>
+            <SettingsPhraseForm key={index}>
               <SettingsInputField
                 label="名字或地点"
                 ariaLabel="名字或地点"
@@ -100,7 +101,7 @@ export function PluginMentionsView({
                 ariaLabel={`删除第 ${index + 1} 行`}
                 label="删除"
               />
-            </div>
+            </SettingsPhraseForm>
           ))}
           {issue && dirty && (
             <p className={settings.settingsWarning} role="alert">

@@ -1277,6 +1277,7 @@ export {
   type SettingsPreviewBlockProps,
 } from "./settings/settings-preview-block";
 export { SettingsServiceRow, type SettingsServiceRowProps } from "./settings/settings-service-row";
+export { SettingsPhraseForm, type SettingsPhraseFormProps } from "./settings/settings-phrase-form";
 export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
