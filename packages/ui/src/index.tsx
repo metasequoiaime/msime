@@ -474,6 +474,8 @@ export {
   dailySpeeds,
   formatActiveTime,
   longestStreak,
+  statisticsOverviewMetrics,
+  statisticsOverviewDetails,
   usualHours,
   type ActivityMetrics,
   type DailyDetailRow,
@@ -481,6 +483,7 @@ export {
   type TypingStatistics,
   type TypingStatisticsClient,
   type TypingStatisticsStatus,
+  type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
 export {
   keyboardHeatmapLayout,

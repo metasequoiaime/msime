@@ -33,22 +33,26 @@ import {
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
+import {
+  StatisticsMetric,
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+} from "./typing-statistics-overview";
 export {
   addDays,
   currentStreak,
   formatActiveTime,
   longestStreak,
 } from "./typing-statistics-helpers";
+export {
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+  type StatisticsOverviewMetric,
+} from "./typing-statistics-overview";
 
 const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 // 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
 const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
-const metric = "flex min-w-0 flex-col gap-1 [&>span]:text-xs [&>span]:[color:var(--p-sub)]";
-const metricLine =
-  "flex min-w-0 flex-wrap items-baseline gap-x-1 [&>small]:text-xs [&>small]:[color:var(--p-sub)]";
-const metricValue =
-  "text-[22px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
-const metricNote = "text-xs [color:var(--p-sub)]";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 const overviewPollMs = 5_000;
@@ -1470,6 +1474,7 @@ export function TypingStatisticsPage({
   const keyScopeLabel = selectedLabel ?? "累计";
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
+  const overviewDetails = statisticsOverviewDetails(activity);
   // The reference line is the average of the window's recorded days, the same "日均" the rhythm card uses, so empty days do not drag it down.
   const trendRecorded = trendDays
     .map((day) => statistics.days[day.key] ?? 0)
@@ -1658,77 +1663,19 @@ export function TypingStatisticsPage({
       )}
       <section className="section m-0" aria-label="统计概览">
         <div className={metricGrid}>
-          <div className={metric}>
-            <span>今日输入</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日输入字符数">
-                {formatZhNumber(statistics.days[today.key] ?? 0)}
-              </strong>
-              <small>字符</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>{scopeTitle}</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="当前范围输入字符数">
-                {formatZhNumber(scopeTotal)}
-              </strong>
-              <small>字符</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span title="连续打字的时间">今日活跃</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日活跃时长">
-                {formatActiveTime(activity.todayActiveMs)}
-              </strong>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>今日速度</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日输入速度">
-                {formatZhNumber(Math.round(activity.todaySpeed))}
-              </strong>
-              <small>字 / 分钟</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>平均速度</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="平均输入速度">
-                {formatZhNumber(Math.round(activity.averageSpeed))}
-              </strong>
-              <small>字 / 分钟</small>
-            </div>
-            {activity.hasActivity && (
-              <small className={metricNote}>共 {formatActiveTime(activity.totalActiveMs)}</small>
-            )}
-          </div>
-          <div className={metric}>
-            <span>连续天数</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="连续输入天数">
-                {formatZhNumber(activity.currentStreak)}
-              </strong>
-              <small>天</small>
-            </div>
-            <small className={metricNote}>最长 {formatZhNumber(activity.longestStreak)} 天</small>
-          </div>
+          {statisticsOverviewMetrics({
+            statistics,
+            todayKey: today.key,
+            scopeTitle,
+            scopeTotal,
+            activity,
+          }).map((metric) => (
+            <StatisticsMetric key={metric.ariaLabel} metric={metric} />
+          ))}
         </div>
         <div className={`${axis} flex-wrap gap-x-4`}>
-          <span>
-            日均 {formatZhNumber(Math.round(activity.averagePerDay))} 字符 ·{" "}
-            {formatZhNumber(activity.recordedDays)} 天有记录
-          </span>
-          <span>
-            {activity.bestDay
-              ? `最多 ${dayLabel(activity.bestDay)}，${formatZhNumber(activity.bestDayCharacters)} 字符`
-              : "还没有记录"}
-            {activity.fastestDay
-              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${formatZhNumber(Math.round(activity.fastestSpeed))} 字 / 分钟`
-              : ""}
-          </span>
+          <span>{overviewDetails.summary}</span>
+          <span>{overviewDetails.best}</span>
         </div>
         <p className={footerNote}>
           {activity.hasActivity
