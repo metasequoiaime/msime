@@ -10,6 +10,7 @@ import { SkinCardHeader } from "./skin-card-header";
 import { SkinPreviewStage } from "./skin-preview-stage";
 import { SkinPreviewSurface } from "./skin-preview-surface";
 import * as settings from "../settings/settings-style";
+import { SettingsExternalMeta } from "../settings/settings-external-meta";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
@@ -245,9 +246,9 @@ export function ExternalSkinCard({
             : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`
         }
         details={
-          <span className={settings.externalMeta}>
+          <SettingsExternalMeta as="span">
             {[skin.id, skin.version && `v${skin.version}`, skin.author].filter(Boolean).join(" · ")}
-          </span>
+          </SettingsExternalMeta>
         }
         actions={
           <>
@@ -566,14 +567,14 @@ export function ExternalSkinDirectoryRow({
       {(skins.openFailed || skins.failed || !!skins.catalog?.issues.length) && (
         <SettingsGroupBlock>
           {skins.openFailed && (
-            <p role="alert" className={settings.externalMeta}>
+            <SettingsExternalMeta role="alert">
               {importsSkin ? "导入皮肤失败，请重试。" : "无法打开皮肤目录，请重试。"}
-            </p>
+            </SettingsExternalMeta>
           )}
           {skins.failed && (
-            <p role="alert" className={settings.externalMeta}>
+            <SettingsExternalMeta role="alert">
               读取皮肤目录失败，请重试。{skins.catalog && "仍显示上次扫描结果。"}
-            </p>
+            </SettingsExternalMeta>
           )}
           {!!skins.catalog?.issues.length && (
             <details className={settings.externalDiagnostics}>

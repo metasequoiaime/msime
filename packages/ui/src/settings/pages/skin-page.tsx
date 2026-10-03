@@ -39,6 +39,7 @@ import { SegmentedRow } from "../segmented-row";
 import { createSettingsDraftActions } from "../settings-draft-actions";
 import { ActionRow } from "../action-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SettingsExternalMeta } from "../settings-external-meta";
 
 const themeModeOptions = [
   { value: "system", label: "跟随系统" },
@@ -262,9 +263,9 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
           ))}
         </ThemeCarousel>
         {published && (
-          <p role="status" className={settings.externalMeta}>
+          <SettingsExternalMeta role="status">
             {published === "private" ? "已保存到你的皮肤库，仅自己可见。" : "已发布到社区。"}
-          </p>
+          </SettingsExternalMeta>
         )}
         <GroupList title="更多皮肤">
           <ExternalSkinDirectoryRow
