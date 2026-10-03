@@ -703,6 +703,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       if (!tencent.is_object() || !tencent.value("enabled", false))
         return std::nullopt;
       std::unordered_map<std::string, std::vector<nlohmann::json>> groups;
+      groups.reserve(pending.size());
       for (const auto &item : pending)
         groups[item.at("source_language").get<std::string>() + "\n" +
                item.at("target_language").get<std::string>()]
