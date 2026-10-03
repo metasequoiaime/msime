@@ -17,6 +17,7 @@ import { SettingsManagerBlock } from "./settings-manager-block";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
 import { SettingsErrorMessage } from "./settings-error-message";
+import { SettingsNotice } from "./settings-notice";
 
 export interface PersonalDictionaryImportClient {
   importPersonal?: (
@@ -180,11 +181,7 @@ export function PersonalDictionaryImportCard({
         </div>
       )}
       {error && <SettingsErrorMessage>{error}</SettingsErrorMessage>}
-      {notice && (
-        <p role="status" className="notice">
-          {notice}
-        </p>
-      )}
+      {notice && <SettingsNotice role="status">{notice}</SettingsNotice>}
       {entries && (
         <ActionButton
           action={() => void importEntries()}

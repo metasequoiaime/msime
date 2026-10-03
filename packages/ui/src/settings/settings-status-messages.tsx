@@ -1,6 +1,7 @@
 import { unreadablePreferencesMessage } from "./preferences-recovery-message";
 import { ActionButton } from "./action-button";
 import { SettingsErrorMessage } from "./settings-error-message";
+import { SettingsNotice } from "./settings-notice";
 
 export interface SettingsStatusMessagesProps {
   error: string;
@@ -40,7 +41,7 @@ export function SettingsStatusMessages({
         </SettingsErrorMessage>
       )}
       {notice && (
-        <p role="status" className="notice">
+        <SettingsNotice role="status">
           {notice}
           {recoveredBackup && openPreferencesDirectory && (
             <>
@@ -53,7 +54,7 @@ export function SettingsStatusMessages({
               />
             </>
           )}
-        </p>
+        </SettingsNotice>
       )}
     </>
   );

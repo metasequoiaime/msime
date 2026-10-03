@@ -9,6 +9,7 @@ import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
+import { SettingsNotice } from "./settings-notice";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -443,10 +444,10 @@ export function McpConnectSection({
                     后生效。
                   </SettingsManagerNote>
                   {outdated && (
-                    <p className="notice">
+                    <SettingsNotice>
                       下面的权限和 {clientNames[client.id]} 现在的配置不同，点「更新{" "}
                       {clientNames[client.id]}」写入。
-                    </p>
+                    </SettingsNotice>
                   )}
                   <SettingsManagerActions>
                     <ActionButton
@@ -498,7 +499,7 @@ export function McpConnectSection({
               </SettingsManagerNote>
             </>
           ) : (
-            <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
+            <SettingsNotice>输入法尚未完成初始化，完成设置向导后即可连接。</SettingsNotice>
           ))}
         {confirmation}
       </SettingsManagerBlock>

@@ -1309,6 +1309,7 @@ export {
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
+export { SettingsNotice, type SettingsNoticeProps } from "./settings/settings-notice";
 export {
   SettingsErrorMessage,
   type SettingsErrorMessageProps,
