@@ -47,4 +47,21 @@ docker run --rm --init \
       -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
     cmake --build /build/cmake
     ctest --test-dir /build/cmake --output-on-failure
+    # 不是 full 的版本只差 LinuxEdition.h 里的名字和按版本改写的脚本，但那条配置与编译路径（cmake/Edition.cmake、改写规则、系统目录下带版本名的文件）只有打包时才会走到。这里用五笔版按打包的前缀配置并编译一遍，不跑单测；再把它与 full 各自装进暂存目录，两边不能有同一个路径的文件，否则两个包装不到一起。
+    cmake -S platforms/linux -B /build/cmake-wubi -G Ninja \
+      -DMSIME_EDITION=wubi \
+      -DCMAKE_INSTALL_PREFIX=/opt/msime-linux-wubi \
+      -DBUILD_TESTING=OFF \
+      -DMSIME_ENABLE_FCITX5=ON \
+      -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so
+    cmake --build /build/cmake-wubi
+    rm -rf /build/stage-full /build/stage-wubi
+    DESTDIR=/build/stage-full cmake --install /build/cmake --prefix /usr >/dev/null
+    DESTDIR=/build/stage-wubi cmake --install /build/cmake-wubi >/dev/null
+    shared=$(comm -12 <(cd /build/stage-full && find . ! -type d | sort) <(cd /build/stage-wubi && find . ! -type d | sort))
+    if [ -n "$shared" ]; then
+      echo "full and wubi install the same paths:" >&2
+      echo "$shared" >&2
+      exit 1
+    fi
   '
