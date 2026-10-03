@@ -1088,6 +1088,17 @@ fn url_commits_stay_half_width_in_full_width_mode() {
     assert_eq!(committed["value"]["commit"], "www.a1/");
     assert_eq!(committed["value"]["commit_context"]["local_mode"], "url");
     assert_eq!(committed["value"]["view"]["local_mode"], "none");
+
+    // 结束网址的英文标点不属于网址，和普通组字后的同一个键一样转全角。
+    read(msime_client_set_chinese_punctuation(handle, false));
+    for character in b"www" {
+        read(msime_client_character(handle, *character, false));
+    }
+    read(msime_client_punctuation(handle, b'.'));
+    read(msime_client_character(handle, b'a', false));
+    let finished = read(msime_client_punctuation(handle, b'<'));
+    assert_eq!(finished["value"]["commit_context"]["local_mode"], "url");
+    assert_eq!(finished["value"]["commit"], "www.a\u{ff1c}");
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
