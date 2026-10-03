@@ -11,6 +11,7 @@ import {
   type PluginPackage,
 } from "../settings/plugins-section";
 import { packKindLabel } from "../settings/plugin-catalog-helpers";
+import { StatusMessage } from "../core/status-message";
 import {
   candidateSkinMegabytes,
   communityNeedsSignIn,
@@ -645,7 +646,7 @@ export function CommunityPluginPublishDialog({
       onLogin={onLogin}
       onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
     >
-      {optionsLoading && <p role="status">正在读取本地插件…</p>}
+      {optionsLoading && <StatusMessage role="status">正在读取本地插件…</StatusMessage>}
       {!optionsLoading && options.length === 0 && (
         <CommunityNotice>
           还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、短语表、辅助码表、单词本或符号集。
@@ -666,7 +667,7 @@ export function CommunityPluginPublishDialog({
           ))}
         </CommunitySelectField>
       )}
-      {packLoading && <p role="status">正在检查插件…</p>}
+      {packLoading && <StatusMessage role="status">正在检查插件…</StatusMessage>}
       {packError && (
         <div className={style.confirmation} role="alert">
           <p>{packError}</p>

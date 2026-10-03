@@ -16,6 +16,7 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunityMetrics } from "./community-metrics";
+import { StatusMessage } from "../core/status-message";
 import { CommunityConfirmationActions } from "./community-confirmation-actions";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
@@ -333,7 +334,7 @@ export function CandidateSkinPublishDialog({
       onLogin={onLogin}
       onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
     >
-      {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
+      {optionsLoading && <StatusMessage role="status">正在读取本地皮肤…</StatusMessage>}
       {!optionsLoading && options.length === 0 && (
         <CommunityNotice>
           还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「主题」的外部皮肤中刷新。
@@ -375,7 +376,7 @@ export function CandidateSkinPublishDialog({
           仅自己可见
         </label>
       </fieldset>
-      {packLoading && <p role="status">正在检查皮肤包…</p>}
+      {packLoading && <StatusMessage role="status">正在检查皮肤包…</StatusMessage>}
       {packError && previewless && readImage && (
         <div className={style.confirmation} role="alert">
           <p>
