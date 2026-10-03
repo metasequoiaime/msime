@@ -38,7 +38,7 @@ if (-not $script.Contains('function DataDirRejectionReason') -or
     -not $script.Contains('DataDirRejectionReason(GetDataDir')) {
     throw 'Installer does not validate the selected DataDir'
 }
-if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or
+if (-not $script.Contains("DataDirMarkerName = '{#MyEditionDataDirMarker}'") -or
     -not $script.Contains('function OwnsDataDir') -or
     -not $script.Contains('WriteDataDirMarker(GetDataDir')) {
     throw 'Installer does not protect user-owned data directories with a marker'

@@ -155,8 +155,9 @@ Root: HKLM; Subkey: "{#MyEditionRegistryKey}"; \
 
 [Code]
 const
-  DataDirMarkerName = '.metasequoiaime-data';
+  DataDirMarkerName = '{#MyEditionDataDirMarker}';
 #if !MyEditionIsFull
+  { 所有权标记的文件名按版本取（editions.iss，full 是 .metasequoiaime-data，本版本接上自己的名字后缀）。几个版本可以同时安装，full 的安装器只要看到 .metasequoiaime-data 就认目录归自己，所以本版本必须用别的文件名，full 才不会接管、清理或删除本版本的数据目录。 }
   { 本版本写进所有权标记的内容。标记里带着版本 id，OwnsDataDir 只认它，不认别的版本的标记。 }
   DataDirMarkerText = 'This directory is managed by Metasequoia IME (edition {#Edition}).';
 #endif

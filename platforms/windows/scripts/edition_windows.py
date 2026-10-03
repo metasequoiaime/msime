@@ -32,6 +32,8 @@ EDITIONS = ROOT / "shared/contracts/editions.json"
 HEADER = ROOT / "shared/contracts/msime_edition.h"
 INNO = ROOT / "platforms/windows/installer/editions.iss"
 FULL = "full"
+# 数据目录所有权标记的文件名前缀，后面接版本的名字后缀（full 是空串，所以 full 的标记仍是 `.metasequoiaime-data`）。几个版本的标记文件名各不相同：一个版本的安装器和 Server 看不到别的版本的标记，不会把别的版本的数据目录当成自己的去接管、清理或删除。
+DATA_DIR_MARKER_PREFIX = ".metasequoiaime-data"
 # 版本表 tsf_guids 的键到 TSF Globals.cpp 里的宏名后缀，顺序就是生成文件里的顺序。
 TSF_GUIDS = [
     "preserve_key_ime_mode",
@@ -105,6 +107,11 @@ def narrow(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
+def data_dir_marker(entry: dict) -> str:
+    """数据目录所有权标记的文件名。名字后缀在版本之间唯一（`scripts/test-editions.py` 检查），所以标记文件名也唯一。"""
+    return DATA_DIR_MARKER_PREFIX + entry["platforms"]["windows"]["name_suffix"]
+
+
 def macro_suffix(edition_id: str) -> str:
     return edition_id.upper()
 
@@ -152,10 +159,12 @@ def header_text(table: dict) -> str:
             ("MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE", wide(windows["data_dir_environment_variable"])),
             ("MSIME_EDITION_WATCHDOG_TASK", wide(windows["watchdog_task"])),
             ("MSIME_EDITION_HOST_DLL", wide(windows["host_dll"])),
+            ("MSIME_EDITION_DATA_DIR_MARKER", wide(data_dir_marker(entry))),
             ("MSIME_EDITION_DEFAULT_SCHEME", narrow(entry["default_scheme"])),
             ("MSIME_EDITION_DEFAULT_SCHEME_W", wide(entry["default_scheme"])),
             ("MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT", "1" if entry["preference_defaults"].get("wubi_mixed_pinyin", False) else "0"),
             ("MSIME_EDITION_INPUT_SCHEMES", ", ".join(narrow(scheme) for scheme in entry["input_schemes"])),
+            ("MSIME_EDITION_TEMPORARY_JAPANESE", "1" if entry["features"]["temporary_japanese"] else "0"),
         ]
         lines += [f"#define {name} {value}" for name, value in definitions]
     lines.append("#endif")
@@ -182,6 +191,7 @@ def inno_text(table: dict) -> str:
             ("MyEditionRegistryKey", windows["registry_key"]),
             ("MyEditionWatchdogTask", windows["watchdog_task"]),
             ("MyEditionInstallerBaseName", windows["installer_base_name"]),
+            ("MyEditionDataDirMarker", data_dir_marker(entry)),
         ]
         for name, value in definitions:
             if '"' in value:

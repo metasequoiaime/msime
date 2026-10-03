@@ -2915,6 +2915,11 @@ private:
     std::vector<Check> checks;
     checks.reserve(modes.size());
     for (const auto &[id, label, default_on] : modes) {
+      // 不带临时日语的版本（版本表 features.temporary_japanese，host-api 也始终把它关掉）不列出这个开关。
+      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
+        if (std::wstring_view(id) == L"temporary_japanese")
+          continue;
+      }
       const std::wstring key = std::wstring(L"local_modes.") + id;
       checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
                           change([&](PreferencesDocument &doc) {
@@ -2931,12 +2936,19 @@ private:
              L"quanpin.autocorrect_transposition", true);
     fuzzy_row(correction);
 
-    auto helpcode = add_group(page, L"辅助码");
-    helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
-    helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
-    shell_row(helpcode, 0xE8A7, L"辅助码插件",
-              L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
-              nav::shell_links::input);
+    // 辅助码只用于全拼和双拼：只列出本版本提供的那几个，一个都没有的版本（五笔版）不显示这一组。
+    const bool quanpin_helpcode = edition_offers_scheme(L"quanpin");
+    const bool shuangpin_helpcode = edition_offers_scheme(L"shuangpin");
+    if (quanpin_helpcode || shuangpin_helpcode) {
+      auto helpcode = add_group(page, L"辅助码");
+      if (quanpin_helpcode)
+        helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
+      if (shuangpin_helpcode)
+        helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
+      shell_row(helpcode, 0xE8A7, L"辅助码插件",
+                L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
+                nav::shell_links::input);
+    }
 
     auto frequency = add_group(page, L"拼音方案调频");
     select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",

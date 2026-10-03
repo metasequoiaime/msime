@@ -578,20 +578,20 @@ std::string production_preview_document(const std::string &runtime_document,
   }
   return document.dump();
 }
-// Server 单实例互斥量名的前缀，后面接版本后缀（full 是空串）。TIP 用同一个名字判断 Server 是否在运行（tsf/IME/MetasequoiaIME.cpp）。
-constexpr wchar_t server_instance_mutex_prefix[] = L"Local\\MetasequoiaImeServer_SingleInstance";
-// 另一个版本的 Server 是否在运行：看它的单实例互斥量在不在。拒绝访问也说明它在（uiAccess 可能让它处在不同的完整性级别）。
-bool other_edition_server_running() {
+// 本版本的 TIP 有没有活动的输入模式，用一个命名的手动重置事件告诉别的版本的 Server：有信号表示活动。名字后面接版本后缀（full 是空串）。只有生产 Server 发布它，预览实例不碰。
+constexpr wchar_t server_mode_active_event_prefix[] = L"Local\\MetasequoiaImeServer_ModeActive";
+// 另一个版本的 TIP 是否有活动的输入模式：看那个版本的 Server 发布的事件。那个版本没在运行时事件不存在，按不活动处理。
+bool other_edition_mode_active() {
   for (const wchar_t *suffix : {MSIME_EDITIONS_NAME_SUFFIXES}) {
     if (std::wstring_view(suffix) == MSIME_EDITION_NAME_SUFFIX)
       continue;
-    const std::wstring name = std::wstring(server_instance_mutex_prefix) + suffix;
-    if (HANDLE mutex = OpenMutexW(SYNCHRONIZE, FALSE, name.c_str())) {
-      CloseHandle(mutex);
-      return true;
+    const std::wstring name = std::wstring(server_mode_active_event_prefix) + suffix;
+    if (HANDLE event = OpenEventW(SYNCHRONIZE, FALSE, name.c_str())) {
+      const bool active = WaitForSingleObject(event, 0) == WAIT_OBJECT_0;
+      CloseHandle(event);
+      if (active)
+        return true;
     }
-    if (GetLastError() == ERROR_ACCESS_DENIED)
-      return true;
   }
   return false;
 }
@@ -603,14 +603,34 @@ public:
     if (!handle_)
       throw std::runtime_error("Server instance guard unavailable");
     already_running_ = GetLastError() == ERROR_ALREADY_EXISTS;
+    // 建不出来时别的版本只是看不到本版本的模式，维护快捷键在没有任何版本活动时照样有人处理，所以不算启动失败。
+    if (!already_running_)
+      mode_active_ = CreateEventW(nullptr, TRUE, FALSE,
+                                  (std::wstring(server_mode_active_event_prefix) + MSIME_EDITION_NAME_SUFFIX).c_str());
   }
   ~ProductionInstance() {
+    if (mode_active_) {
+      ResetEvent(mode_active_);
+      CloseHandle(mode_active_);
+    }
     if (handle_)
       CloseHandle(handle_);
   }
   bool already_running() const { return already_running_; }
+  // 主循环每一轮发布一次本版本的模式是否活动，只在变化时改事件。
+  void publish_mode_active(bool active) {
+    if (!mode_active_ || active == mode_active_published_)
+      return;
+    mode_active_published_ = active;
+    if (active)
+      SetEvent(mode_active_);
+    else
+      ResetEvent(mode_active_);
+  }
 private:
   HANDLE handle_ = nullptr;
+  HANDLE mode_active_ = nullptr;
+  bool mode_active_published_ = false;
   bool already_running_ = false;
 };
 // A Server that TSF revived after a crash (--production) has no Watchdog above it, so it starts the one packaged beside it, as the reference Server does. The Watchdog adopts this running Server instead of launching a second one, holds its own single-instance mutex, and exits on its own when the TIP profile is not enabled.
@@ -1504,9 +1524,9 @@ int wmain(int argc, wchar_t **argv) {
     // while another application has focus, so they sit on a low-level keyboard
     // hook rather than the TSF key sink.
     MaintenanceHotkeyController maintenance([&](MaintenanceHotkey hotkey) {
-      // 几个版本的 Server 同时运行时，各自的低级键盘钩子都会看到这个按键，先装的钩子排在后面。只有焦点上的 TIP 属于本版本时才处理，否则交给下一个钩子，让焦点所在版本的 Server 处理；没有别的版本在运行时照旧处理，与引入版本之前相同。
+      // 几个版本的 Server 同时运行时，各自的低级键盘钩子都会看到这个按键，后装的钩子先看到，处理了就吞掉。焦点上的 TIP 属于别的版本时交给下一个钩子，让那个版本的 Server 处理；没有任何版本的模式活动时（焦点在别的输入法上，或 TIP 会话在崩溃后断开，正是要用重启快捷键的时候）谁先看到谁处理，不能都放过。只装一个版本时与引入版本之前相同。
       if (hotkey.action != MaintenanceAction::DeleteCandidate &&
-          !server.mode_active() && other_edition_server_running())
+          !server.mode_active() && other_edition_mode_active())
         return false;
       switch (hotkey.action) {
       case MaintenanceAction::Restart:
@@ -1776,6 +1796,8 @@ int wmain(int argc, wchar_t **argv) {
                                 GetForegroundWindow() != tray_foreground))
           tray.hide();
       }
+      if (instance)
+        instance->publish_mode_active(server.mode_active());
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");

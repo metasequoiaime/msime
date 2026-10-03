@@ -42,10 +42,12 @@
 #define MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE L"METASEQUOIA_IME_DATA_DIR"
 #define MSIME_EDITION_WATCHDOG_TASK L"Metasequoia IME Watchdog"
 #define MSIME_EDITION_HOST_DLL L"msime_host_api.dll"
+#define MSIME_EDITION_DATA_DIR_MARKER L".metasequoiaime-data"
 #define MSIME_EDITION_DEFAULT_SCHEME "quanpin"
 #define MSIME_EDITION_DEFAULT_SCHEME_W L"quanpin"
 #define MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT 0
 #define MSIME_EDITION_INPUT_SCHEMES "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"
+#define MSIME_EDITION_TEMPORARY_JAPANESE 1
 #elif defined(MSIME_EDITION_PINYIN)
 #define MSIME_EDITION_ID "pinyin"
 #define MSIME_EDITION_IS_FULL 0
@@ -79,10 +81,12 @@
 #define MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE L"METASEQUOIA_IME_PINYIN_DATA_DIR"
 #define MSIME_EDITION_WATCHDOG_TASK L"Metasequoia IME Watchdog (Pinyin)"
 #define MSIME_EDITION_HOST_DLL L"msime_host_api_pinyin.dll"
+#define MSIME_EDITION_DATA_DIR_MARKER L".metasequoiaime-data.pinyin"
 #define MSIME_EDITION_DEFAULT_SCHEME "quanpin"
 #define MSIME_EDITION_DEFAULT_SCHEME_W L"quanpin"
 #define MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT 0
 #define MSIME_EDITION_INPUT_SCHEMES "quanpin", "shuangpin"
+#define MSIME_EDITION_TEMPORARY_JAPANESE 1
 #elif defined(MSIME_EDITION_WUBI)
 #define MSIME_EDITION_ID "wubi"
 #define MSIME_EDITION_IS_FULL 0
@@ -116,10 +120,12 @@
 #define MSIME_EDITION_DATA_DIR_ENVIRONMENT_VARIABLE L"METASEQUOIA_IME_WUBI_DATA_DIR"
 #define MSIME_EDITION_WATCHDOG_TASK L"Metasequoia IME Watchdog (Wubi)"
 #define MSIME_EDITION_HOST_DLL L"msime_host_api_wubi.dll"
+#define MSIME_EDITION_DATA_DIR_MARKER L".metasequoiaime-data.wubi"
 #define MSIME_EDITION_DEFAULT_SCHEME "wubi"
 #define MSIME_EDITION_DEFAULT_SCHEME_W L"wubi"
 #define MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT 1
 #define MSIME_EDITION_INPUT_SCHEMES "wubi"
+#define MSIME_EDITION_TEMPORARY_JAPANESE 0
 #endif
 
 // 全部有 Windows 段的版本的名字后缀，与本次构建选的是哪个版本无关：一个版本要知道别的版本的 Server 是否在运行（看它们的单实例互斥量）时用。

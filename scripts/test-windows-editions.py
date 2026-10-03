@@ -204,6 +204,10 @@ def check_installer(errors: list[str], editions: list[dict]) -> None:
                 # 一个版本的名字可能恰好是另一个版本名字的前缀（MetasequoiaIME 和 MetasequoiaIME-Wubi）；只看完整出现、又不属于本版本那一处的情况。
                 if text in output and text not in own.values() and not any(text in mine for mine in own.values()):
                     errors.append(f"msime_setup.iss for edition {edition_id}: contains edition {other['id']}'s {key} {text.strip()!r}")
+        # 所有权标记的文件名接版本的名字后缀：full 的安装器认 .metasequoiaime-data 这个文件名就当目录归自己，别的版本用同一个文件名就会被 full 接管、清理或删除。
+        marker = f"DataDirMarkerName = '.metasequoiaime-data{entry['platforms']['windows']['name_suffix']}';"
+        if marker not in output:
+            errors.append(f"msime_setup.iss for edition {edition_id}: the data-directory ownership marker is not named {marker!r}")
         if edition_id == FULL:
             continue
         if "taskkill.exe" in output:

@@ -13,7 +13,8 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 - `platforms/windows/scripts/edition_windows.py gen` 从版本表生成并提交 `shared/contracts/msime_edition.h`（C++ 读的宏）和 `installer/editions.iss`（Inno Setup 读的 `#define`）。构建必须定义且只定义一个 `MSIME_EDITION_<ID>`：CMake 由缓存变量 `MSIME_EDITION`（`Edition.cmake`，缺省 full）定义，WinUI 设置窗口工程由 `MsimeEdition` 属性定义；少了它头文件以 `#error` 停下，不会悄悄编成 full。
 - TSF DLL、Server、看门狗、prepare 工具和设置窗口在编译期绑定一个版本，所以每个版本各编一次：`Build-Client.ps1 -Edition <id>` 和 `build-cross.sh <arch> <id>` 的输出在 `target/windows-<id>`（full 仍是 `target/windows-full`）。host DLL 改成版本表里的名字（例如 `msime_host_api_wubi.dll`），再按原 DLL 的导出表生成同名导入库（MSVC 用 `lib /DEF`，MinGW 用 `dlltool`）：两个版本的 TIP 被同一个应用加载时，按导入表找 DLL 会拿到先加载的那一个。
 - `MSIME.exe` 和 `msime-mcp.exe` 所有版本共用一份构建，运行时读 Server 目录里的 `edition.json`（只有不是 full 的包才有，由 `Prepare-PackageFiles.ps1 -Edition` 写入）决定管道后缀、状态目录和 Tauri identifier。
-- Server 把版本 id 交给宿主库准备状态根，宿主库按版本选资源锁、收窄方案；托盘和设置窗口只列出本版本提供的方案。几个版本的 Server 同时运行时，维护快捷键只由焦点所在版本的 Server 处理。
+- Server 把版本 id 交给宿主库准备状态根，宿主库按版本选资源锁、收窄方案；托盘和设置窗口只列出本版本提供的方案和本版本带的快捷模式（五笔版没有临时日语，也没有全拼、双拼的辅助码）。几个版本的 Server 同时运行时，维护快捷键由焦点所在版本的 Server 处理（每个生产 Server 用命名事件 `MetasequoiaImeServer_ModeActive<后缀>` 发布本版本的模式是否活动）；没有任何版本的模式活动时，由先收到按键的 Server 处理，不会谁都不管。
+- 数据目录的所有权标记文件名也按版本取：full 是 `.metasequoiaime-data`，其他版本接上名字后缀（例如 `.metasequoiaime-data.wubi`）。full 的安装器只要看到 `.metasequoiaime-data` 就认目录归自己，文件名不同，它才不会接管、清理或删除别的版本的数据目录。
 - `scripts/test-editions.py` 检查版本表（GUID 两两不同、名字不撞、目录不嵌套），`scripts/test-windows-editions.py` 检查生成文件没有漂移、安装脚本按版本展开后互不越界，并且 Windows 源码不再自己写 full 的 CLSID 和注册表键。
 
 `src/` 按职责分目录，每个目录一句话说清它收什么：
