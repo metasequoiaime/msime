@@ -139,19 +139,7 @@ enum CustomSkinLibrary {
     return root.appendingPathComponent("CustomSkins", isDirectory: true).appendingPathComponent("library.json")
   }
   private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        if status.st_mode & S_IFMT == S_IFLNK { return true }
-      } else if errno != ENOENT {
-        return true
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { return false }
-      current = parent
-    }
+    SafePath.hasRefusedSymbolicLink(path)
   }
   static var designs: [SavedKeyboardSkin] { designs(in: nil) }
   static func designs(in directory: URL?) -> [SavedKeyboardSkin] {

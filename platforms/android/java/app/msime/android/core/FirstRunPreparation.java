@@ -35,7 +35,7 @@ public final class FirstRunPreparation {
 
     public static State state() { return state; }
 
-    /** Observes the current and subsequent states until {@link #stopObserving} is called with the same listener. Every surface that waits for the dictionary observes on its own: the onboarding opens over the keyboard tab, and both have to learn that preparation finished. */
+    /** 观察当前及之后的状态，直到用同一个 listener 调用 {@link #stopObserving}。每个等待词库的界面各自观察：引导页叠在键盘页签之上打开，两者都需要知道准备已经完成。 */
     public static void observe(Listener target) {
         LISTENERS.add(target);
         target.onPreparationState(state);

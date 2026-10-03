@@ -1199,8 +1199,7 @@ fn reject_symlinked_options_parent(path: &Path) -> std::io::Result<()> {
     while let Some(candidate) = current {
         match std::fs::symlink_metadata(candidate) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                #[cfg(target_os = "macos")]
-                if candidate == Path::new("/tmp") || candidate == Path::new("/var") {
+                if msime_path_trust::is_trusted_system_alias(candidate) {
                     current = candidate.parent();
                     continue;
                 }

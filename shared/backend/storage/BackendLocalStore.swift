@@ -18,23 +18,9 @@ struct BackendLocalStore: BackendSessionStorage {
   private var url: URL? { baseDirectory?.appendingPathComponent(fileName, isDirectory: false) }
   private var lockURL: URL? { baseDirectory?.appendingPathComponent("backend-local-store.lock", isDirectory: false) }
 
-  /// App Group paths are shared by the app and its keyboard extension. Do not
-  /// let a pre-existing symlink redirect either the store directory or a file
-  /// containing credentials outside that container.
+  /// App Group 路径由应用和键盘扩展共用。不能让事先存在的符号链接把存储目录或含凭据的文件重定向到容器之外。
   private func rejectSymlinkComponents(_ path: URL) throws {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        guard status.st_mode & S_IFMT != S_IFLNK else { throw BackendAccountClient.Failure(status: 0) }
-      } else if errno != ENOENT {
-        throw BackendAccountClient.Failure(status: 0)
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { break }
-      current = parent
-    }
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw BackendAccountClient.Failure(status: 0) }
   }
 
   private func withLock<T>(_ body: () throws -> T) throws -> T {

@@ -8,14 +8,10 @@ protocol BackendSessionAPI: Sendable {
 }
 extension BackendAccountClient: BackendSessionAPI {}
 
-// Check every existing directory component before an operation can create or
-// open a shared account file. `/var` and `/tmp` are system aliases on macOS;
-// other symlinks would let a user-data path escape its intended container.
+// 在任何操作创建或打开共享账号文件之前，检查每一级已存在的目录：除了 `SafePath` 放行的受信任系统别名外不能有符号链接，并且每一级已存在的路径都必须是目录。
 private func backendDirectoryPathIsSafe(_ url: URL) -> Bool {
-  guard url.isFileURL, url.path.hasPrefix("/") else { return false }
+  guard url.isFileURL, url.path.hasPrefix("/"), !SafePath.hasRefusedSymbolicLink(url) else { return false }
   var current = URL(fileURLWithPath: "/")
-  var sawPrefixAlias = false
-  var sawRealComponent = false
   for component in url.standardizedFileURL.pathComponents.dropFirst() {
     current.appendPathComponent(component, isDirectory: true)
     var info = stat()
@@ -23,15 +19,9 @@ private func backendDirectoryPathIsSafe(_ url: URL) -> Bool {
       if errno == ENOENT { continue }
       return false
     }
-    if (info.st_mode & S_IFMT) == S_IFLNK {
-      let systemAlias = !sawRealComponent && !sawPrefixAlias &&
-        (current.path == "/var" || current.path == "/tmp")
-      if !systemAlias { return false }
-      sawPrefixAlias = true
-    } else {
-      guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
-      sawRealComponent = true
-    }
+    // 走到这里还可能出现的链接，只有 `SafePath` 已经信任的系统别名。
+    let type = info.st_mode & S_IFMT
+    guard type == S_IFLNK || type == S_IFDIR else { return false }
   }
   return true
 }

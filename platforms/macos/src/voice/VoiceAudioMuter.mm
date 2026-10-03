@@ -1,5 +1,6 @@
 #import "VoiceAudioMuter.h"
 #import "../settings/RuntimeOptions.h"
+#include "../core/SystemPathAlias.h"
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -8,30 +9,7 @@
 
 static BOOL MSIMEVoiceSafeDirectoryPath(NSURL *url) {
     if (!url || !url.isFileURL) return NO;
-    const std::filesystem::path path(url.fileSystemRepresentation);
-    if (!path.is_absolute()) return NO;
-    auto current = path.root_path();
-    bool sawPrefixAlias = false;
-    bool sawRealComponent = false;
-    for (const auto &component : path.relative_path()) {
-        current /= component;
-        struct stat info = {};
-        if (lstat(current.c_str(), &info) != 0) {
-            if (errno == ENOENT) return YES;
-            return NO;
-        }
-        if (S_ISLNK(info.st_mode)) {
-            const bool systemAlias = !sawRealComponent && !sawPrefixAlias &&
-                                     (current == "/tmp" || current == "/var");
-            if (!systemAlias) return NO;
-            sawPrefixAlias = true;
-        } else if (!S_ISDIR(info.st_mode)) {
-            return NO;
-        } else {
-            sawRealComponent = true;
-        }
-    }
-    return YES;
+    return msime::mac::StoragePathIsSafe(url.fileSystemRepresentation, true);
 }
 // The default output can move mid-recording while the device it left is already gone and cannot be handed back yet, so one journal may owe restores to several devices.
 static const NSUInteger MSIMEVoiceOwnedDeviceLimit = 8;

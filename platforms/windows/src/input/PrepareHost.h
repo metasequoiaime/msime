@@ -5,6 +5,7 @@
 #include <fstream>
 #include <functional>
 #ifdef _WIN32
+#include "StateRootLease.h"
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -24,10 +25,7 @@ inline bool write_new_file(const std::filesystem::path &path,
                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
                               nullptr);
   if (handle == INVALID_HANDLE_VALUE) return false;
-  BY_HANDLE_FILE_INFORMATION info{};
-  bool ok = GetFileInformationByHandle(handle, &info) &&
-            !(info.dwFileAttributes &
-              (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
+  bool ok = handle_is_trusted_file(handle);
   std::size_t offset = 0;
   while (ok && offset < contents.size()) {
     // Parenthesized so windows.h's min/max macros cannot expand them; this header includes windows.h itself and some including targets do not define NOMINMAX.

@@ -2,7 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-/// Reject an existing symbolic link before a storage operation follows it. The system links every app's storage passes through are the ones `msime-path-trust` names.
+/// 在存储操作跟随已有的符号链接之前先拒绝它。每个应用的存储都会经过的系统链接，以 `msime-path-trust` 列出的为准。
 pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
     msime_path_trust::reject_symlinked_components(path)
 }

@@ -25,6 +25,7 @@ import {
   LocalAsrRequest,
   LocalModelPlan
 } from '../keyboard/input/LocalAsrPolicy';
+import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
 import { utf8Length } from '../keyboard/Utf8';
 
 /**
@@ -72,36 +73,37 @@ function readText(path: string): string {
   return fs.readTextSync(path);
 }
 
-function realDirectory(path: string): boolean {
+function lookup(path: string, follow: boolean): PathTrustStat | null {
   try {
-    const stat: fs.Stat = fs.lstatSync(path);
-    return !stat.isSymbolicLink() && stat.isDirectory();
+    const stat: fs.Stat = follow ? fs.statSync(path) : fs.lstatSync(path);
+    const found: PathTrustStat = {
+      isSymbolicLink: stat.isSymbolicLink(),
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      uid: stat.uid,
+      mode: stat.mode
+    };
+    return found;
   } catch (error) {
-    return false;
+    return null;
   }
 }
 
-/** Check every directory component without allowing lstat's final lookup to follow a parent link. */
+function lstatPath(path: string): PathTrustStat | null {
+  return lookup(path, false);
+}
+
+function statPath(path: string): PathTrustStat | null {
+  return lookup(path, true);
+}
+
+/** 从 `/` 起逐级检查，规则见 `LocalAsrPathTrust`（与 `crates/path-trust/src/lib.rs` 一致）：至多一个仅 root 可改的系统链接，最后一级不能是链接。 */
 function trustedDirectory(path: string): boolean {
-  if (!path.startsWith("/")) return false;
-  const parts: string[] = path.split("/").filter((part: string): boolean => part.length > 0);
-  let current: string = "";
-  for (const part of parts) {
-    current += `/${part}`;
-    if (!realDirectory(current)) return false;
-  }
-  return true;
+  return LocalAsrPathTrust.trusted(path, false, lstatPath, statPath);
 }
 
 function realFile(path: string): boolean {
-  const slash: number = path.lastIndexOf("/");
-  if (slash < 0 || !trustedDirectory(slash === 0 ? "/" : path.slice(0, slash))) return false;
-  try {
-    const stat: fs.Stat = fs.lstatSync(path);
-    return !stat.isSymbolicLink() && stat.isFile();
-  } catch (error) {
-    return false;
-  }
+  return LocalAsrPathTrust.trusted(path, true, lstatPath, statPath);
 }
 
 function readPlan(directory: string): LocalModelPlan {

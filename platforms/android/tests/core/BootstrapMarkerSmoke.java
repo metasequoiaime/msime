@@ -110,7 +110,7 @@ public final class BootstrapMarkerSmoke {
             Files.deleteIfExists(boundaryOutside.resolve("resources"));
             Files.deleteIfExists(boundaryOutside);
         }
-        // The system's own links (Android's /data/user/0 -> /data/data inside the app's mount namespace, macOS's /tmp and /var) are passed only with their exact target; a device refusing them never prepares its dictionary.
+        // 系统自己的链接（Android 应用 mount namespace 里的 `/data/user/0 -> /data/data`，macOS 的 `/tmp` 和 `/var`）只有目标完全一致时才放行；拒绝它们的设备永远准备不好词库。
         check(SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/data")));
         check(SafePaths.trustedSystemAliasTarget(Path.of("/var"), Path.of("private/var")));
         check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/local/tmp")));

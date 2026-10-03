@@ -65,19 +65,7 @@ enum CustomTranslations {
   }
 
   private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        if status.st_mode & S_IFMT == S_IFLNK { return true }
-      } else if errno != ENOENT {
-        return true
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { return false }
-      current = parent
-    }
+    SafePath.hasRefusedSymbolicLink(path)
   }
 
   /// The file as text without its BOM, or empty when there is none yet.

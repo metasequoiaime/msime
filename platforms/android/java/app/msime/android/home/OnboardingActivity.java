@@ -67,7 +67,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     private boolean signingIn;
     private OnBackPressedCallback back;
     private GestureDetector swipe;
-    /** On a first install the onboarding opens while the dictionary is still being prepared, and the preferences are unreadable until it is done; without asking again the scheme and gloss pages say 词库还在准备 for good. */
+    /** 首次安装时，引导页打开时词库还在准备，准备完成前读不到偏好设置；如果不在完成后重新读取，方案页和释义页会一直显示「词库还在准备」。 */
     private final FirstRunPreparation.Listener preparation = status -> {
         if (status == FirstRunPreparation.State.READY && preferences() == null && !isFinishing() && !isDestroyed()) reload();
     };

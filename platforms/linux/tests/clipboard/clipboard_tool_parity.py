@@ -74,6 +74,8 @@ class ClipboardTool(unittest.TestCase):
         outside.mkdir()
         linked = self.path.parent / "linked-state"
         linked.symlink_to(outside, target_is_directory=True)
+        # 以 root 身份运行时（Linux 容器里就是这样），root 自己不对外开放的目录里的链接会被当成受信任的系统链接（见 `src/core/SafePath.h`）；把目录改成其他人可写，这条链接就成了任何人都可能放进去的链接。
+        self.path.parent.chmod(0o777)
         linked_path = linked / "new-dir" / "history.json"
         result = subprocess.run([TOOL, str(linked_path), "add", "synthetic"],
                                 capture_output=True, timeout=3)

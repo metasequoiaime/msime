@@ -80,19 +80,7 @@ enum UsageReporting {
   }
 
   private static func rejectsSymlinkAncestors(_ path: URL) -> Bool {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { return false }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        if status.st_mode & S_IFMT == S_IFLNK { return true }
-      } else if errno != ENOENT {
-        return true
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { return false }
-      current = parent
-    }
+    SafePath.hasRefusedSymbolicLink(path)
   }
 
   /// A crash the system reported later (MetricKit), outside any session: written as a crash record under a fresh id, so the next keyboard start queues it as a crash event without counting a session_crash.

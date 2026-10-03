@@ -1,5 +1,7 @@
 #include "DiagnosticLog.h"
 
+#include "../core/SafePath.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
@@ -22,30 +24,10 @@ bool directory_is_safe(const std::filesystem::path &directory) noexcept {
   if (!directory.is_absolute())
     return false;
   try {
-    std::filesystem::path current = directory.root_path();
-    std::error_code error;
-    for (const auto &component : directory) {
-      if (component == directory.root_name() ||
-          component == directory.root_directory())
-        continue;
-      current /= component;
-      const auto status = std::filesystem::symlink_status(current, error);
-      if (!error) {
-        if (std::filesystem::is_symlink(status) ||
-            !std::filesystem::is_directory(status))
-          return false;
-        continue;
-      }
-      if (error == std::errc::no_such_file_or_directory) {
-        error.clear();
-        continue;
-      }
-      return false;
-    }
+    return msime::linux_host::storage_directory_path_is_safe(directory);
   } catch (...) {
     return false;
   }
-  return true;
 }
 
 class Log {

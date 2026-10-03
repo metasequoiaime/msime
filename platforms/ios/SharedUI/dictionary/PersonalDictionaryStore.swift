@@ -196,22 +196,9 @@ final class PersonalDictionaryStore: @unchecked Sendable {
     return encoder
   }
 
-  /// Shared App Group state must stay inside the container. Reject a
-  /// pre-existing symlink before any directory creation or file access.
+  /// 共享的 App Group 状态必须留在容器内。在创建任何目录或访问任何文件之前，先拒绝事先存在的符号链接。
   private func rejectSymlinkAncestors(_ path: URL) throws {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        guard status.st_mode & S_IFMT != S_IFLNK else { throw StoreError.unavailable }
-      } else if errno != ENOENT {
-        throw StoreError.unavailable
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { break }
-      current = parent
-    }
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw StoreError.unavailable }
   }
 
   init(directory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")) {

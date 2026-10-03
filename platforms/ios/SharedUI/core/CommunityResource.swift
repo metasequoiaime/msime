@@ -54,19 +54,7 @@ enum CommunityLibrary {
   private static let maximumJavaScriptInteger = 9_007_199_254_740_991
 
   private static func rejectSymlinkAncestors(_ path: URL) throws {
-    var current = path.standardizedFileURL
-    while true {
-      if current.path == "/" || current.path == "/var" || current.path == "/tmp" { break }
-      var status = stat()
-      if lstat(current.path, &status) == 0 {
-        guard status.st_mode & S_IFMT != S_IFLNK else { throw PersonalDictionaryStore.StoreError.unavailable }
-      } else if errno != ENOENT {
-        throw PersonalDictionaryStore.StoreError.unavailable
-      }
-      let parent = current.deletingLastPathComponent()
-      if parent == current { break }
-      current = parent
-    }
+    guard !SafePath.hasRefusedSymbolicLink(path) else { throw PersonalDictionaryStore.StoreError.unavailable }
   }
 
   private static func file(in directory: URL? = nil) -> URL? {

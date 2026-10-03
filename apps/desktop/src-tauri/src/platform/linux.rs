@@ -2,7 +2,7 @@
 
 use std::ffi::OsStr;
 use std::io::{self, Read};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub(crate) mod linux_account;
 pub(crate) mod linux_audio_devices;
@@ -24,48 +24,9 @@ pub(crate) fn read_bounded_file(path: &Path, max_bytes: u64) -> io::Result<Vec<u
     Ok(bytes)
 }
 
-/// Refuse storage paths that resolve through a symlinked ancestor. The only
-/// compatibility exception is an absolute macOS-style `/tmp` or `/var` alias;
-/// Linux normally has real directories there, but accepting the alias keeps
-/// profiles shared with macOS usable.
+/// 拒绝经过符号链接祖先目录解析的存储路径，`msime-path-trust` 信任的系统链接除外。
 pub(crate) fn reject_symlink_ancestors(path: &Path) -> io::Result<()> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => continue,
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match std::fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == OsStr::new("tmp") || *name == OsStr::new("var"));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                "storage path has a symbolic-link ancestor",
-                            ));
-                        }
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-    }
-    Ok(())
+    msime_path_trust::reject_symlinked_components(path)
 }
 
 pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {

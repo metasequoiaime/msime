@@ -549,6 +549,8 @@ int main() {
   const auto linked = root / "linked-theme-state";
   std::filesystem::create_directory(outside);
   std::filesystem::create_directory_symlink(outside, linked);
+  // 以 root 身份运行时（Linux 容器里就是这样），root 自己不对外开放的目录里的链接会被当成受信任的系统链接（见 `src/core/SafePath.h`）；把目录改成其他人可写，这条链接就成了任何人都可能放进去的链接。
+  std::filesystem::permissions(root, std::filesystem::perms::others_write, std::filesystem::perm_options::add);
   const auto linked_file = linked / "new-dir" / "theme.conf";
   assert(!host::write_fcitx_candidate_theme(linked_file, plain, false, std::nullopt));
   assert(!std::filesystem::exists(outside / "new-dir"));

@@ -9,6 +9,7 @@
 #include <vector>
 
 #ifdef _WIN32
+#include "StateRootLease.h"
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -27,11 +28,8 @@ inline bool read_audio_mute_state(const std::filesystem::path &path,
                               FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
                               nullptr);
   if (handle == INVALID_HANDLE_VALUE) return false;
-  BY_HANDLE_FILE_INFORMATION info{};
   LARGE_INTEGER size{};
-  bool ok = GetFileInformationByHandle(handle, &info) &&
-            !(info.dwFileAttributes &
-              (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) &&
+  bool ok = handle_is_trusted_file(handle) &&
             GetFileSizeEx(handle, &size) && size.QuadPart >= 0 &&
             static_cast<std::uint64_t>(size.QuadPart) <= kAudioMuteStateMaxBytes;
   if (ok) contents.resize(static_cast<std::size_t>(size.QuadPart));
@@ -89,10 +87,7 @@ inline bool write_audio_mute_state(const std::filesystem::path &path,
     remove_temporary();
     return false;
   }
-  BY_HANDLE_FILE_INFORMATION info{};
-  bool ok = GetFileInformationByHandle(handle, &info) &&
-            !(info.dwFileAttributes &
-              (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY));
+  bool ok = handle_is_trusted_file(handle);
   std::size_t offset = 0;
   while (ok && offset < contents.size()) {
     const DWORD chunk = static_cast<DWORD>(

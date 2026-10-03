@@ -9,7 +9,7 @@
 use std::ffi::OsStr;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,43 +26,7 @@ pub const BUSY: &str = "dictionary maintenance busy";
 const MAX_LEASE_BYTES: u64 = 4096;
 
 fn reject_symlinked_path_ancestors(path: &Path) -> std::io::Result<()> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => continue,
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match std::fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidInput,
-                                "dictionary lease path is a symbolic link",
-                            ));
-                        }
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-    }
-    Ok(())
+    msime_path_trust::reject_symlinked_components(path)
 }
 
 fn read_lease(path: &Path) -> Option<String> {

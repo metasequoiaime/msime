@@ -58,7 +58,7 @@ fn join(root: &Path, name: &str) -> PathBuf {
     root.join(name)
 }
 
-/// The system links a storage path may pass through are listed once, in `msime-path-trust`.
+/// 存储路径可以经过的系统链接只在 `msime-path-trust` 里列一次。
 pub(crate) use msime_path_trust::is_trusted_system_alias;
 
 /// `join` for a name that came from outside the crate: a `..` component is refused rather than allowed to escape the root (`runtime_paths.cpp:14-23`).

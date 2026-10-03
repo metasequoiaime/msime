@@ -13,30 +13,15 @@
 #include <system_error>
 #include <vector>
 
+#include "../core/SafePath.h"
+
 namespace msime::linux_host {
 
 inline bool clipboard_directory_is_safe(const std::filesystem::path &directory) {
   std::error_code error;
   const auto absolute = std::filesystem::absolute(directory, error).lexically_normal();
   if (error) return false;
-  auto current = absolute.root_path();
-  bool missing = false;
-  for (const auto &component : absolute.relative_path()) {
-    current /= component;
-    if (missing) continue;
-    const auto status = std::filesystem::symlink_status(current, error);
-    if (!error) {
-      if (std::filesystem::is_symlink(status)) {
-        // macOS 通过这两个受信任的别名暴露私有临时目录；路径中的其它符号链接都拒绝。
-        if (current != "/var" && current != "/tmp") return false;
-      } else if (!std::filesystem::is_directory(status)) return false;
-    } else {
-      if (error != std::errc::no_such_file_or_directory) return false;
-      error.clear();
-      missing = true;
-    }
-  }
-  return true;
+  return storage_directory_path_is_safe(absolute);
 }
 
 inline bool prepare_clipboard_directory(const std::filesystem::path &directory) {

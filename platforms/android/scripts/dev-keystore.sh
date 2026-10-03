@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints the path of the keystore every development Android build signs with, creating it the first time. It is the Android SDK's own debug keystore (alias androiddebugkey, passwords android), so all worktrees, and the Tauri and Android Studio debug builds, sign with one key and a package built in one worktree installs over one built in another. A key kept per worktree under target/ made the first build in every new worktree unable to update the installed package without uninstalling it, data and all.
+# 打印所有 Android 开发构建签名用的 keystore 路径，首次运行时创建它。这就是 Android SDK 自带的 debug keystore（别名 `androiddebugkey`，密码 `android`），因此所有 worktree 以及 Tauri 和 Android Studio 的 debug 构建都用同一把密钥签名，在一个 worktree 里构建的包可以直接覆盖安装另一个 worktree 构建的包。以前每个 worktree 在 `target/` 下各自保存一把密钥，结果每个新 worktree 的第一次构建都无法更新已安装的包，只能连同数据一起卸载。
 set -euo pipefail
 keystore="$HOME/.android/debug.keystore"
 if [[ ! -f "$keystore" ]]; then

@@ -18,6 +18,8 @@ add_test(NAME input-mode-hud-panel COMMAND input-mode-hud-panel-test)
 # The selected input mode (中, 英, 日 or 한) follows the controller's state; this checks the mapping to the plist's mode identifiers and that a switch made by either side is not echoed back by the other.
 add_executable(input-mode-identifiers-test tests/input/InputModeIdentifiersTest.mm)
 target_compile_options(input-mode-identifiers-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+# InputModeIdentifiers.h 经 src/core/SystemPathAlias.h 用到 std::filesystem，而这个目标定义在下面统一设置 C++17 之前，所以单独指定。
+set_target_properties(input-mode-identifiers-test PROPERTIES OBJCXX_STANDARD 17)
 target_link_libraries(input-mode-identifiers-test PRIVATE "-framework Foundation")
 add_test(NAME input-mode-identifiers COMMAND input-mode-identifiers-test)
 add_executable(desktop-input-interop-test tests/input/DesktopInputInteropTest.mm src/core/DesktopInputSession.mm)
@@ -496,6 +498,9 @@ add_executable(macos-diagnostic-log-test tests/core/DiagnosticLogTest.cpp src/co
 target_compile_options(macos-diagnostic-log-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(macos-diagnostic-log-test PRIVATE src)
 add_test(NAME macos-diagnostic-log COMMAND macos-diagnostic-log-test)
+add_executable(system-path-alias-test tests/core/SystemPathAliasTest.cpp)
+target_compile_options(system-path-alias-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+add_test(NAME system-path-alias COMMAND system-path-alias-test)
 add_executable(shared-voice-preferences-test tests/voice/SharedVoicePreferencesTest.mm)
 target_compile_options(shared-voice-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shared-voice-preferences-test PRIVATE "-framework Foundation")

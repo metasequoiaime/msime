@@ -61,9 +61,7 @@ void DiagnosticLog::append(std::string_view line) {
     if (file == INVALID_HANDLE_VALUE)
       return;
     const bool existed = GetLastError() == ERROR_ALREADY_EXISTS;
-    BY_HANDLE_FILE_INFORMATION info{};
-    if (!GetFileInformationByHandle(file, &info) ||
-        (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+    if (!handle_is_trusted_file(file)) {
       CloseHandle(file);
       return;
     }

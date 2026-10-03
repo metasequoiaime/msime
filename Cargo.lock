@@ -2768,6 +2768,7 @@ dependencies = [
  "msime-host-windows",
  "msime-input-runtime",
  "msime-ios-native-ffi",
+ "msime-path-trust",
  "msime-tauri-mobile-platform",
  "reqwest 0.12.28",
  "rustix",

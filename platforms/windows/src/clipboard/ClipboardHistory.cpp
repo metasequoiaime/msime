@@ -41,11 +41,7 @@ bool store_leaf_is_safe(const std::filesystem::path &store) {
     const auto error = GetLastError();
     return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
   }
-  BY_HANDLE_FILE_INFORMATION info{};
-  const bool safe = GetFileInformationByHandle(handle, &info) &&
-                    (info.dwFileAttributes &
-                     (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ==
-                        0;
+  const bool safe = handle_is_trusted_file(handle);
   CloseHandle(handle);
   return safe;
 #else
@@ -102,10 +98,7 @@ public:
       handle_ = nullptr;
       return;
     }
-    BY_HANDLE_FILE_INFORMATION info{};
-    if (!GetFileInformationByHandle(handle_, &info) ||
-        (info.dwFileAttributes &
-         (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))) {
+    if (!handle_is_trusted_file(handle_)) {
       CloseHandle(handle_);
       handle_ = nullptr;
       return;
@@ -150,11 +143,8 @@ std::vector<std::string> read_store(const std::filesystem::path &path) {
       nullptr);
   if (input == INVALID_HANDLE_VALUE)
     return {};
-  BY_HANDLE_FILE_INFORMATION info{};
   LARGE_INTEGER size{};
-  if (!GetFileInformationByHandle(input, &info) ||
-      (info.dwFileAttributes &
-       (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) ||
+  if (!handle_is_trusted_file(input) ||
       !GetFileSizeEx(input, &size) || size.QuadPart < 0 ||
       static_cast<ULONGLONG>(size.QuadPart) > max_store_bytes) {
     CloseHandle(input);

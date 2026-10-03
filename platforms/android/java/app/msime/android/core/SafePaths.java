@@ -6,9 +6,9 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 
 /**
- * The host's one symbolic-link check for storage paths, the Java side of crates/path-trust: a planted link must not redirect what the keyboard writes, but the links the system itself puts on the way to every app's storage have to be passed.
+ * 宿主对存储路径唯一的一处符号链接检查，是 {@code crates/path-trust} 的 Java 版本：被人放进去的链接不能把键盘的写入重定向到别处，但系统自己放在每个应用存储路径上的链接必须放行。
  *
- * <p>Android 11 and later isolate app data, and inside an app's mount namespace {@code /data/user/0} is a link to {@code /data/data}; {@code Context.getFilesDir()} of the primary user goes through it, and {@code adb shell} does not show it. macOS's {@code /tmp} and {@code /var} are links into {@code /private}, where the JVM smoke tests put their temporary directories. Each is trusted only with that exact target. Keep this list equal to {@code SYSTEM_ALIASES} in crates/path-trust/src/lib.rs.
+ * <p>Android 11 起隔离应用数据，在应用自己的 mount namespace 里 {@code /data/user/0} 是指向 {@code /data/data} 的链接；主用户的 {@code Context.getFilesDir()} 会经过它，而 {@code adb shell} 里看不到。macOS 的 {@code /tmp} 和 {@code /var} 是指向 {@code /private} 的链接，JVM 冒烟测试的临时目录就在那里。每条链接只有在目标完全一致时才受信任。这份清单必须与 {@code crates/path-trust/src/lib.rs} 里的 {@code SYSTEM_ALIASES} 保持一致。
  */
 public final class SafePaths {
     private static final String[][] SYSTEM_ALIASES = {
@@ -19,7 +19,7 @@ public final class SafePaths {
 
     private SafePaths() {}
 
-    /** Whether {@code path} is one of the system's links and {@code target}, as read from it, resolves to the one place that link is trusted to point. */
+    /** 判断 {@code path} 是否是系统链接之一，并且从它读出的 {@code target} 解析后正好是该链接唯一受信任的指向。 */
     static boolean trustedSystemAliasTarget(Path path, Path target) {
         for (String[] alias : SYSTEM_ALIASES) {
             if (!path.equals(Path.of(alias[0]))) continue;
@@ -37,7 +37,7 @@ public final class SafePaths {
         }
     }
 
-    /** Rejects a symbolic link at any level of {@code path}, the last level included, except at most one trusted system link above the last level. Missing levels are fine: the caller is about to create them. */
+    /** 拒绝 {@code path} 任何一级上的符号链接（包括最后一级），唯一的例外是最后一级之上至多一个受信任的系统链接。不存在的层级可以接受，调用方正要创建它们。 */
     public static void rejectSymlinkComponents(Path path) throws IOException {
         if (path == null) throw new IOException("path unavailable");
         Path absolute = path.toAbsolutePath().normalize();
@@ -55,7 +55,7 @@ public final class SafePaths {
         }
     }
 
-    /** Creates {@code directory} after checking that no link redirects it, and checks again once it exists. */
+    /** 先确认没有链接重定向 {@code directory} 再创建它，创建后再检查一次。 */
     public static void ensureDirectory(Path directory) throws IOException {
         rejectSymlinkComponents(directory);
         Path absolute = directory.toAbsolutePath().normalize();

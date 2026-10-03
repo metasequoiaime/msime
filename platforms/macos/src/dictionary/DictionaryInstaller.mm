@@ -1,24 +1,12 @@
 #import "DictionaryInstaller.h"
 #import <CommonCrypto/CommonDigest.h>
 #import <sqlite3.h>
-#include <sys/stat.h>
-#include <errno.h>
+#include "../core/SystemPathAlias.h"
 static NSString *const MSIMEInstallerError = @"app.msime.client.dictionary-installer";
 static BOOL Fail(NSError **e, NSString *s) { if (e) *e=[NSError errorWithDomain:MSIMEInstallerError code:1 userInfo:@{NSLocalizedDescriptionKey:s}]; return NO; }
+// 词典目录的任何一层（目录本身也算）都不能是符号链接，只有目标核对过的 `/var`、`/tmp` 系统别名可以在它上面经过一次。
 static BOOL RejectSymlinkAncestors(NSURL *url) {
-    NSString *current = url.URLByStandardizingPath.path;
-    while (YES) {
-        if ([current isEqual:@"/"] || [current isEqual:@"/var"] || [current isEqual:@"/tmp"]) return NO;
-        struct stat info;
-        if (lstat(current.fileSystemRepresentation, &info) == 0) {
-            if ((info.st_mode & S_IFMT) == S_IFLNK) return YES;
-        } else if (errno != ENOENT) {
-            return YES;
-        }
-        NSString *parent = [current stringByDeletingLastPathComponent];
-        if ([parent isEqual:current]) return NO;
-        current = parent;
-    }
+    return !msime::mac::StoragePathIsSafe(url.URLByStandardizingPath.path.fileSystemRepresentation, false);
 }
 BOOL MSIMEInstallDictionary(NSURL *source, NSURL *directory, NSString *expected, NSError **error) {
     if (!source.isFileURL || !directory.isFileURL || expected.length != CC_SHA256_DIGEST_LENGTH * 2) return Fail(error,@"词典参数无效");

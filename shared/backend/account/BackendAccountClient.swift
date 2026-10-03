@@ -300,3 +300,55 @@ struct BackendAccountClient: Sendable {
     return tokens
   }
 }
+
+/// 存储路径的符号链接策略，防止被人放进去的链接把客户端的写入重定向到别处。它是 `crates/path-trust/src/lib.rs` 中 `SYSTEM_ALIASES` 和 `reject_symlinked_components` 在 macOS 与 iOS 上的对应实现，必须与之保持一致：逐层检查路径时拒绝所有符号链接，只有至多一个受信任的系统别名例外，而且最后一级永远不能是链接。
+///
+/// 放在这个文件里，是因为它是 `shared/backend` 中唯一一个所有使用方（Swift package、所有 iOS target、macOS 的 CMake target 和 Tauri 的 Apple 工程）都会编译的源文件，这样 iOS `SharedUI` 的各个 store 和后端 store 可以共用它，而不必在每份构建清单里登记新文件。
+enum SafePath {
+  /// 存储路径可以经过的系统链接，以及每条链接唯一受信任的目标。macOS 和 iOS 上 `/tmp`、`/var` 是指向 `/private` 的链接，临时目录以及真机上的应用容器和 App Group 容器都在它们下面。必须与 `crates/path-trust/src/lib.rs` 里的 `SYSTEM_ALIASES` 保持一致。
+  static let systemAliases: [(alias: String, target: String)] = [("/tmp", "/private/tmp"), ("/var", "/private/var")]
+
+  /// 判断 `path` 是否是系统别名之一，并且从它读出的 `target`（可能是相对路径）相对链接所在目录按字面解析后，正好是该别名唯一受信任的指向。光凭名字不能证明链接归系统所有，所以目标也要核对。
+  static func isTrustedSystemAliasTarget(_ path: String, target: String) -> Bool {
+    guard let expected = systemAliases.first(where: { $0.alias == path })?.target else { return false }
+    let parent = (path as NSString).deletingLastPathComponent
+    let joined = target.hasPrefix("/") ? target : (parent.isEmpty ? "/" : parent) + "/" + target
+    return normalizedLexically(joined) == expected
+  }
+
+  /// 判断 `path` 是否是系统放置的符号链接：属于系统别名之一，且链接目标与预期一致。
+  static func isTrustedSystemAlias(_ path: String) -> Bool {
+    guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return false }
+    return isTrustedSystemAliasTarget(path, target: target)
+  }
+
+  /// 判断 `url` 本身或其上层是否有应拒绝的符号链接：任何一级上的链接（包括最后一级）都算，唯一的例外是最后一级之上至多一个受信任的系统别名。不存在的层级可以接受，调用方正要创建它；其它 `lstat` 失败一律视为拒绝。
+  static func hasRefusedSymbolicLink(_ url: URL) -> Bool {
+    let components = url.standardizedFileURL.pathComponents
+    guard components.first == "/" else { return true }
+    var current = ""
+    var sawSystemAlias = false
+    for (index, component) in components.enumerated().dropFirst() {
+      current += "/" + component
+      var status = stat()
+      if lstat(current, &status) != 0 {
+        if errno == ENOENT { continue }
+        return true
+      }
+      guard status.st_mode & S_IFMT == S_IFLNK else { continue }
+      if index == components.count - 1 || sawSystemAlias || !isTrustedSystemAlias(current) { return true }
+      sawSystemAlias = true
+    }
+    return false
+  }
+
+  private static func normalizedLexically(_ path: String) -> String {
+    var parts: [Substring] = []
+    for part in path.split(separator: "/") {
+      if part == "." { continue }
+      if part == ".." { _ = parts.popLast(); continue }
+      parts.append(part)
+    }
+    return "/" + parts.joined(separator: "/")
+  }
+}

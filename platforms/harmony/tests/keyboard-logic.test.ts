@@ -12,6 +12,10 @@ import {
   PcmFrameSlicer,
   SpeechSentenceAccumulator,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPolicy";
+import {
+  LocalAsrPathTrust,
+  PathTrustStat,
+} from "../entry/src/main/ets/keyboard/input/LocalAsrPathTrust";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -11765,6 +11769,68 @@ group("2in1 emoji panel tooltips read the way the Windows tooltips do", () => {
     EmojiPanelTooltipPolicy.displayName("arrow 「箭头」", "→") === "「箭头」",
     "CJK punctuation counts as Chinese, as IsCjk does",
   );
+});
+
+group("LocalAsrPathTrust", () => {
+  // 合成的文件系统：键是路径，值是 lstat 结果；链接另给出跟随后的结果。
+  const directory = (uid: number, mode: number): PathTrustStat => ({
+    isSymbolicLink: false, isDirectory: true, isFile: false, uid, mode,
+  });
+  const file: PathTrustStat = { isSymbolicLink: false, isDirectory: false, isFile: true, uid: 10001, mode: 0o600 };
+  const link = (uid: number): PathTrustStat => ({
+    isSymbolicLink: true, isDirectory: false, isFile: false, uid, mode: 0o777,
+  });
+  const run = (
+    entries: Record<string, PathTrustStat>,
+    links: Record<string, PathTrustStat>,
+    path: string,
+    leafIsFile: boolean,
+  ): boolean =>
+    LocalAsrPathTrust.trusted(
+      path,
+      leafIsFile,
+      (candidate) => entries[candidate] ?? null,
+      (candidate) => links[candidate] ?? entries[candidate] ?? null,
+    );
+  const plain: Record<string, PathTrustStat> = {
+    "/": directory(0, 0o755),
+    "/data": directory(0, 0o771),
+    "/data/models": directory(10001, 0o700),
+    "/data/models/m.onnx": file,
+  };
+  check(run(plain, {}, "/data/models", false), "a link-free directory is trusted");
+  check(run(plain, {}, "/data/models/m.onnx", true), "and a regular file in it");
+  check(!run(plain, {}, "/data/models", true), "a directory is not a file");
+  check(!run(plain, {}, "/data/models/missing", true), "a missing file is not trusted");
+  check(!run(plain, {}, "data/models", false), "a relative path is refused");
+
+  // `/etc` 式的系统链接：root 的链接，位于 root 的、组和其他用户不可写的目录。
+  const system: Record<string, PathTrustStat> = { ...plain, "/data": link(0) };
+  const followed: Record<string, PathTrustStat> = { "/data": directory(0, 0o771) };
+  check(run(system, followed, "/data/models/m.onnx", true), "one root-only link above the last level is trusted");
+  check(!run(system, followed, "/data", false), "but never as the last level");
+  check(!run({ ...system, "/data": link(10001) }, followed, "/data/models", false), "a link the user owns is refused");
+  check(
+    !run({ ...system, "/": directory(0, 0o1777) }, followed, "/data/models", false),
+    "a root link in a world-writable directory is refused",
+  );
+  check(
+    !run({ ...system, "/": directory(10001, 0o755) }, followed, "/data/models", false),
+    "a root link in a directory the user owns is refused",
+  );
+  check(!run(system, { "/data": file }, "/data/models", false), "a trusted link must still lead to a directory");
+  check(
+    !run(
+      { ...system, "/data/models": link(0) },
+      { ...followed, "/data/models": directory(0, 0o700) },
+      "/data/models/m.onnx",
+      true,
+    ),
+    "a second link is refused even when root-only",
+  );
+  check(!run({ ...plain, "/data/models/m.onnx": link(10001) }, {}, "/data/models/m.onnx", true), "a linked file is refused");
+  check(LocalAsrPathTrust.rootOnlyLink(link(0), directory(0, 0o755)), "root's link in root's closed directory");
+  check(!LocalAsrPathTrust.rootOnlyLink(link(0), null), "needs a readable parent");
 });
 
 group("LocalAsrPolicy", () => {

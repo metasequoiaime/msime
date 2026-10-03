@@ -1,4 +1,5 @@
 #include "DiagnosticLog.h"
+#include "SystemPathAlias.h"
 
 #include <algorithm>
 #include <atomic>
@@ -21,59 +22,12 @@ namespace {
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
 constexpr std::size_t kMaxEventBytes = 192;
 
-bool trustedSystemAlias(const std::filesystem::path &path) noexcept {
-  const auto expected = path == "/tmp"   ? std::filesystem::path("/private/tmp")
-                       : path == "/var" ? std::filesystem::path("/private/var")
-                                        : std::filesystem::path();
-  if (expected.empty())
-    return false;
-  std::error_code error;
-  const auto target = std::filesystem::read_symlink(path, error);
-  if (error)
-    return false;
-  return path.parent_path() == "/" && path.is_absolute() &&
-         std::filesystem::weakly_canonical(path.parent_path() / target, error) ==
-             expected && !error;
-}
-
 bool directoryIsSafe(const std::filesystem::path &directory) noexcept {
-  if (!directory.is_absolute())
-    return false;
   try {
-    std::filesystem::path current = directory.root_path();
-    bool sawPrefixAlias = false;
-    bool sawRealComponent = false;
-    std::error_code error;
-    for (const auto &component : directory) {
-      if (component == directory.root_name() ||
-          component == directory.root_directory())
-        continue;
-      current /= component;
-      const auto status = std::filesystem::symlink_status(current, error);
-      if (!error) {
-        if (std::filesystem::is_symlink(status)) {
-          if (!sawRealComponent && !sawPrefixAlias &&
-              trustedSystemAlias(current)) {
-            sawPrefixAlias = true;
-            continue;
-          }
-          return false;
-        }
-        if (!std::filesystem::is_directory(status))
-          return false;
-        sawRealComponent = true;
-        continue;
-      }
-      if (error == std::errc::no_such_file_or_directory) {
-        error.clear();
-        continue;
-      }
-      return false;
-    }
+    return msime::mac::StoragePathIsSafe(directory, true);
   } catch (...) {
     return false;
   }
-  return true;
 }
 
 // Mirrors Log::enabled_ for lock-free checks; configure() is the only writer.
