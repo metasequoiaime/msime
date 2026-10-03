@@ -1310,6 +1310,10 @@ export {
 } from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export {
+  SettingsErrorMessage,
+  type SettingsErrorMessageProps,
+} from "./settings/settings-error-message";
+export {
   SettingsManagerNote,
   type SettingsManagerNoteProps,
 } from "./settings/settings-manager-note";

@@ -19,6 +19,7 @@ import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SettingsErrorMessage } from "../settings-error-message";
 import { SettingsInputDescription } from "../settings-input-description";
 import { SettingsManagerActions } from "../settings-manager-actions";
 
@@ -108,9 +109,7 @@ export function DictionarySettingsPage() {
               </SettingsInputDescription>
             )}
             {dictionarySnapshotError && (
-              <p role="alert" className="error">
-                {dictionarySnapshotError}
-              </p>
+              <SettingsErrorMessage>{dictionarySnapshotError}</SettingsErrorMessage>
             )}
             <DictionaryFailuresNotice
               failures={dictionaryFailures}
@@ -120,11 +119,7 @@ export function DictionarySettingsPage() {
               onRetry={(requestId) => void retryDictionaryFailure(requestId)}
               onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
             />
-            {phraseError && (
-              <p role="alert" className="error">
-                {phraseError}
-              </p>
-            )}
+            {phraseError && <SettingsErrorMessage>{phraseError}</SettingsErrorMessage>}
             {phraseNotice && (
               <p role="status" className={settings.empty}>
                 {phraseNotice}

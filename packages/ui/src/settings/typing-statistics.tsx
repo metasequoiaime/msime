@@ -12,6 +12,7 @@ import { DONUT_OUTER, DONUT_THICKNESS, donutSegments } from "./typing-chart";
 import { SelectSettingField } from "./select-setting-field";
 import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
+import { SettingsErrorMessage } from "./settings-error-message";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -1442,9 +1443,7 @@ export function TypingStatisticsPage({
     return (
       <div className={page}>
         {error ? (
-          <p role="alert" className="error">
-            {error}
-          </p>
+          <SettingsErrorMessage>{error}</SettingsErrorMessage>
         ) : (
           <p role="status">正在读取打字统计…</p>
         )}
@@ -1596,11 +1595,7 @@ export function TypingStatisticsPage({
   return (
     <div className={page}>
       {confirmation}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <SettingsErrorMessage>{error}</SettingsErrorMessage>}
       {mobile && (
         <div className="-mb-1 flex min-h-0 justify-end">
           <details className="relative z-[3]">
