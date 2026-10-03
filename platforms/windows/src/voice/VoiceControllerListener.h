@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../shared/contracts/msime_edition.h"
 #include "VoiceControllerConnection.h"
 #include "VoiceControllerMailbox.h"
 #include <thread>
@@ -12,7 +13,7 @@ public:
   static std::unique_ptr<VoiceControllerListener>
   create(VoiceControllerMailbox &mailbox, DWORD &error,
          const std::wstring &name =
-             L"\\\\.\\pipe\\FanyImeVoiceControlNamedPipe") {
+             L"\\\\.\\pipe\\FanyImeVoiceControlNamedPipe" MSIME_EDITION_NAME_SUFFIX) {
     auto pipe = PipeListener::create(name, error);
     if (!pipe)
       return {};

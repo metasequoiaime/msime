@@ -4,10 +4,11 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
 namespace {
-constexpr wchar_t class_name[] = L"MSIME.Client.Preview.TrayMenu";
+constexpr wchar_t class_name[] = L"MSIME.Client.Preview.TrayMenu" MSIME_EDITION_NAME_SUFFIX;
 constexpr size_t no_row = static_cast<size_t>(-1);
 // Segoe Fluent Icons / MDL2 CheckMark, the mark native Windows menus draw.
 constexpr wchar_t check_mark_glyph = 0xE73E;

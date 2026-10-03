@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(MSIMEClientTsf LANGUAGES CXX)
+include("${CMAKE_CURRENT_SOURCE_DIR}/../Edition.cmake")
 enable_testing()
 add_subdirectory(tests/registration_profiles)
 add_subdirectory(tests/registration_categories)

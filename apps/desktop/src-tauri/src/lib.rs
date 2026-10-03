@@ -2711,10 +2711,16 @@ async fn restart_input_method() -> Result<(), HostActionError> {
 fn restart_input_method_blocking() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+        // 只重启本版本的 Server：管道名带本安装包所属版本的后缀（full 没有后缀）。
+        let pipe = msime_client_core::edition::Edition::of_windows_package()
+            .ok()
+            .and_then(msime_client_core::dictionary::quiesce::server::pipe_name)
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         let payload = windows_restart_payload();
         for attempt in 0..5 {
-            match fs::OpenOptions::new().write(true).open(PIPE_NAME) {
+            match fs::OpenOptions::new().write(true).open(&pipe) {
                 Ok(mut pipe) => {
                     return pipe.write_all(&payload).map_err(|_| HostActionError {
                         code: "unavailable",
@@ -4650,6 +4656,11 @@ pub fn run() {
         eprintln!("{message}");
         std::process::exit(1);
     }
+    #[cfg(target_os = "windows")]
+    if let Err(message) = platform::windows::check_windows_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
     #[cfg(target_os = "linux")]
     if std::env::args_os()
         .skip(1)
@@ -4661,6 +4672,12 @@ pub fn run() {
     let mut keyboard_launch_target = macos_keyboard::startup_panel(requested_surface_route())
         .and_then(|_| msime_host_macos::capture_launch_target());
     let context = tauri::generate_context!();
+    #[cfg(target_os = "windows")]
+    let context = {
+        let mut context = context;
+        platform::windows::apply_edition_to_config(context.config_mut());
+        context
+    };
     #[cfg(target_os = "macos")]
     let context = {
         let mut context = context;
@@ -4986,9 +5003,17 @@ pub fn run() {
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
                     }
+                    // 本安装包所属版本的状态目录名（full 是 MSIME-Client）；版本声明坏了的包不会走到这里（启动时就退出了）。
                     #[cfg(target_os = "windows")]
-                    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-                        candidates.push(PathBuf::from(local).join("MSIME-Client/runtime-options.json"));
+                    if let (Some(local), Ok(identity)) = (
+                        std::env::var_os("LOCALAPPDATA"),
+                        msime_client_core::edition::Edition::windows_package_identity(),
+                    ) {
+                        candidates.push(
+                            PathBuf::from(local)
+                                .join(&identity.state_directory)
+                                .join("runtime-options.json"),
+                        );
                     }
                     // Without any prepared file the Linux window opens on the first-run page, which prepares exactly the fixed user locator every Linux frontend reads.
                     #[cfg(target_os = "linux")]

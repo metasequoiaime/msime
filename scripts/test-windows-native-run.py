@@ -223,6 +223,8 @@ def include_flags() -> list[str]:
         directories += [path for path in sorted(tsf.iterdir()) if path.is_dir() and path.name != "tests"]
     flags = [f"-I{path}" for path in directories if path.exists()]
     flags += [f"-I{path}" for path in EXTRA_INCLUDES if pathlib.Path(path).exists()]
+    # shared/contracts/msime_edition.h 要求构建选定一个版本；Windows 的 CMake 缺省编 full，这里照做。
+    flags += ["-DMSIME_EDITION_FULL"]
     return flags
 
 

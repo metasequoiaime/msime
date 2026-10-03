@@ -41,18 +41,38 @@ int main() {
   constexpr LanguageDictionaryPresence none{};
   constexpr LanguageDictionaryPresence both{true, true};
   constexpr LanguageDictionaryPresence cantonese_only{true, false};
+  constexpr auto full = all_schemes();
   for (int scheme = Quanpin; scheme <= Tibetan; ++scheme)
-    assert(effective_scheme(names[scheme], "wubi", both) == scheme);
-  assert(effective_scheme("zhuyin", "shuangpin", none) == Shuangpin);
-  assert(effective_scheme("zhuyin", "cantonese", cantonese_only) == Cantonese);
-  assert(effective_scheme("zhuyin", "zhuyin", cantonese_only) == Quanpin);
-  assert(effective_scheme("cantonese", "", none) == Quanpin);
-  assert(effective_scheme("vietnamese", "zhuyin", none) == Vietnamese);
-  assert(effective_scheme("tibetan", "zhuyin", none) == Tibetan);
-  assert(effective_scheme("pinyin", "wubi", none) == Wubi);
-  assert(effective_scheme("japanese", "korean", none) == Japanese);
+    assert(effective_scheme(names[scheme], "wubi", both, full) == scheme);
+  assert(effective_scheme("zhuyin", "shuangpin", none, full) == Shuangpin);
+  assert(effective_scheme("zhuyin", "cantonese", cantonese_only, full) == Cantonese);
+  assert(effective_scheme("zhuyin", "zhuyin", cantonese_only, full) == Quanpin);
+  assert(effective_scheme("cantonese", "", none, full) == Quanpin);
+  assert(effective_scheme("vietnamese", "zhuyin", none, full) == Vietnamese);
+  assert(effective_scheme("tibetan", "zhuyin", none, full) == Tibetan);
+  assert(effective_scheme("pinyin", "wubi", none, full) == Wubi);
+  assert(effective_scheme("japanese", "korean", none, full) == Japanese);
   // A last_chinese_scheme that names a language is not a Chinese scheme to return to.
-  assert(effective_scheme("zhuyin", "japanese", none) == Quanpin);
+  assert(effective_scheme("zhuyin", "japanese", none, full) == Quanpin);
+
+  // 只提供五笔的版本：配置里写着它不提供的方案（比如从账号同步下来的全拼）时退回五笔，上次的中文方案也要是它提供的才算数。
+  OfferedSchemes wubi;
+  wubi.offered[Wubi] = true;
+  wubi.fallback = Wubi;
+  assert(effective_scheme("wubi", "quanpin", both, wubi) == Wubi);
+  assert(effective_scheme("quanpin", "quanpin", both, wubi) == Wubi);
+  assert(effective_scheme("japanese", "shuangpin", both, wubi) == Wubi);
+  // 拼音版：双拼可用，日文不在其中，回到上次的双拼。
+  OfferedSchemes pinyin;
+  pinyin.offered[Quanpin] = pinyin.offered[Shuangpin] = true;
+  assert(effective_scheme("japanese", "shuangpin", both, pinyin) == Shuangpin);
+  assert(effective_scheme("wubi", "wubi", both, pinyin) == Quanpin);
+  // 本次构建的版本提供它自己的默认方案，full 提供全部方案。
+  constexpr auto built = edition_schemes();
+  assert(built.offers(built.fallback));
+  if (MSIME_EDITION_IS_FULL)
+    for (int scheme = Quanpin; scheme <= Tibetan; ++scheme)
+      assert(built.offers(scheme) && built.fallback == Quanpin);
   assert(scheme_from_name("pinyin") == -1 && input_mode("pinyin") == InputMode::Chinese);
   assert(input_mode(-1) == InputMode::Chinese && input_mode(9) == InputMode::Chinese);
 

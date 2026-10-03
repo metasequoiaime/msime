@@ -11,18 +11,17 @@
 #include <vector>
 #include <windows.h>
 
+#include "../../../../shared/contracts/msime_edition.h"
+
 namespace {
 constexpr wchar_t server_file_name[] = L"MetasequoiaImeServer.exe";
-constexpr wchar_t watchdog_mutex[] = L"Local\\MSIMEClientWatchdog.SingleInstance";
+// 互斥量带版本后缀，CLSID、profile 和语言按版本取（shared/contracts/msime_edition.h，与 TSF 的 Globals.cpp 同源）：每个版本的看门狗只看护、只等待自己版本的 TIP 和 Server。
+constexpr wchar_t watchdog_mutex[] = L"Local\\MSIMEClientWatchdog.SingleInstance" MSIME_EDITION_NAME_SUFFIX;
 constexpr DWORD profile_ready_timeout_milliseconds = 30'000;
 constexpr DWORD profile_ready_retry_milliseconds = 1'000;
-// Kept in sync with platforms/windows/tsf/Global/Globals.cpp.
-constexpr CLSID client_clsid = {
-    0xe3062e9a, 0xd834, 0x4637, {0x89, 0x58, 0xed, 0x8c, 0xfa, 0x42, 0x7d, 0x01}};
-constexpr GUID client_profile = {
-    0x4d59b1b4, 0xd503, 0x44ae, {0x92, 0x59, 0xba, 0xd9, 0xbb, 0x27, 0x78, 0xab}};
-constexpr LANGID client_language =
-    MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
+constexpr CLSID client_clsid = MSIME_EDITION_CLSID;
+constexpr GUID client_profile = MSIME_EDITION_PROFILE_GUID;
+constexpr LANGID client_language = MSIME_EDITION_LANGID;
 
 struct Apartment {
   bool owned = false;

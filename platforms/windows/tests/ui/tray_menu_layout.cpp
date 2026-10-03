@@ -30,6 +30,9 @@ size_t find(const std::vector<TrayMenuItem> &items, TrayMenuCommand command) {
 }
 int main() {
   TrayMenuCapabilities all{true, true, true, true, true, true, true, true};
+  // full 的卡片：全部方案、产品名「水杉输入法」。写明而不是取本次构建的版本，这个测试在哪个版本的构建里都查同一张卡片。
+  all.schemes = scheme::all_schemes();
+  all.product_name = "水杉输入法";
   TrayMenuState state;
   state.chinese = true;
   state.fullwidth = false;
@@ -95,6 +98,31 @@ int main() {
             items[18].label == "藏文");
     require(items[26].label == "主题" && items[27].label == "词库…" &&
             items[28].label == "设置…" && items[29].label == "关于水杉输入法");
+  }
+
+  // 只提供五笔的版本：方案组只剩五笔一行，标题和「关于」用这个版本的名字。
+  {
+    auto wubi = all;
+    wubi.schemes = scheme::OfferedSchemes{};
+    wubi.schemes.offered[scheme::Wubi] = true;
+    wubi.schemes.fallback = scheme::Wubi;
+    wubi.product_name = "水杉五笔";
+    auto wubi_state = state;
+    wubi_state.scheme = "wubi";
+    const auto rows = tray_menu_items(wubi, wubi_state);
+    require(rows.size() == items.size() - 8);
+    require(rows[0].label == "水杉五笔" && rows.back().label == "关于水杉五笔");
+    require(rows[find(rows, TrayMenuCommand::SelectWubi)].checked);
+    for (auto command : {TrayMenuCommand::SelectQuanpin, TrayMenuCommand::SelectShuangpin,
+                         TrayMenuCommand::SelectJapanese, TrayMenuCommand::SelectTibetan}) {
+      bool present = true;
+      try {
+        find(rows, command);
+      } catch (const std::runtime_error &) {
+        present = false;
+      }
+      require(!present);
+    }
   }
 
   // Hints: the configured CN/EN key, the TIP's own shortcuts and the theme name.
@@ -253,6 +281,7 @@ int main() {
 
   // A host without a capability shows the row disabled rather than hiding it or accepting a click that would do nothing.
   TrayMenuCapabilities server_only;
+  server_only.schemes = scheme::all_schemes();
   const auto limited = tray_menu_items(server_only, state);
   require(limited.size() == items.size());
   require(available(limited, TrayMenuCommand::ToggleFloatingToolbar));

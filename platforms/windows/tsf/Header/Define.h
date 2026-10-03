@@ -1,10 +1,12 @@
 #pragma once
 #include "resource.h"
+#include "../../../../shared/contracts/msime_edition.h"
 
 #define IME_NAME L"MetasequoiaImeTsf"
 
 #define TEXTSERVICE_MODEL L"Apartment"
-#define TEXTSERVICE_LANGID MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED)
+// 本版本注册的语言（版本表 platforms.windows.langid）；中文版本都是简体中文 0x0804，即 MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED)。
+#define TEXTSERVICE_LANGID MSIME_EDITION_LANGID
 #define TEXTSERVICE_ICON_INDEX -IDIS_METASEQUOIAIME
 #define TEXTSERVICE_DIC L"MetasequoiaIMESimplifiedQuanPin.txt"
 #define TEXTSERVICE_DIC_DB L"cutted_flyciku_with_jp.db"

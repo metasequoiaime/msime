@@ -9,6 +9,7 @@
 #include "WindowShadow.h"
 #include <algorithm>
 #include <iterator>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
 namespace {
@@ -33,7 +34,7 @@ bool installed_font(const std::wstring &family) {
   ReleaseDC(nullptr, dc);
   return found;
 }
-constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates";
+constexpr wchar_t class_name[] = L"MSIME.Client.Preview.Candidates" MSIME_EDITION_NAME_SUFFIX;
 // The typing flash repaints at about 30 frames a second while it fades, then its timer is killed; the combo timer fires once, when the count it shows goes stale.
 constexpr UINT_PTR typing_flash_timer = 0x4501;
 constexpr UINT_PTR typing_combo_timer = 0x4502;
