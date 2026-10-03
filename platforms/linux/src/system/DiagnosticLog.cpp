@@ -18,20 +18,52 @@ namespace {
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
 constexpr std::size_t kMaxEventBytes = 192;
 
+bool directory_is_safe(const std::filesystem::path &directory) noexcept {
+  if (!directory.is_absolute())
+    return false;
+  try {
+    std::filesystem::path current = directory.root_path();
+    std::error_code error;
+    for (const auto &component : directory) {
+      if (component == directory.root_name() ||
+          component == directory.root_directory())
+        continue;
+      current /= component;
+      const auto status = std::filesystem::symlink_status(current, error);
+      if (!error) {
+        if (std::filesystem::is_symlink(status) ||
+            !std::filesystem::is_directory(status))
+          return false;
+        continue;
+      }
+      if (error == std::errc::no_such_file_or_directory) {
+        error.clear();
+        continue;
+      }
+      return false;
+    }
+  } catch (...) {
+    return false;
+  }
+  return true;
+}
+
 class Log {
 public:
   void configure(const std::string &directory, bool enabled) noexcept {
     std::lock_guard lock(mutex_);
-    enabled_ = enabled && !directory.empty() && directory.front() == '/' &&
-               directory.size() <= 4096;
+    const auto root = std::filesystem::path(directory);
+    enabled_ = enabled && !directory.empty() && directory.size() <= 4096 &&
+               directory_is_safe(root);
     path_.clear();
     if (enabled_)
-      path_ = (std::filesystem::path(directory) / "diagnostic.log").string();
+      path_ = (root / "diagnostic.log").string();
   }
 
   void write(std::string_view event) noexcept {
     std::lock_guard lock(mutex_);
-    if (!enabled_ || path_.empty())
+    if (!enabled_ || path_.empty() ||
+        !directory_is_safe(std::filesystem::path(path_).parent_path()))
       return;
     try {
       rotate_if_needed();

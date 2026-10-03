@@ -26,6 +26,17 @@ int main() {
          std::string::npos);
   assert(document.find("synthetic\nprivate") == std::string::npos);
 
+  const auto outside = directory.parent_path() /
+                       (directory.filename().string() + "-outside");
+  std::filesystem::create_directory(outside);
+  const auto linked = directory / "linked-parent";
+  std::filesystem::create_directory_symlink(outside, linked);
+  msime_linux_diagnostic_configure(linked.string(), true);
+  msime_linux_diagnostic_write("must_not_escape");
+  assert(!std::filesystem::exists(outside / "diagnostic.log"));
+  std::filesystem::remove(linked);
+  std::filesystem::remove_all(outside);
+
   msime_linux_diagnostic_configure(directory.string(), false);
   std::filesystem::remove_all(directory);
 }
