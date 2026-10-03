@@ -157,6 +157,8 @@ impl CandidateQueries {
             LocalInputMode::Mention => {
                 rows(query_mentions(code, &self.mentions, self.mention_places))
             }
+            // 网址模式不查任何候选，只留显示整段预编辑的兜底行。
+            LocalInputMode::Url => LocalQueryResult::default(),
         }
     }
 

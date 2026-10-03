@@ -1059,6 +1059,59 @@ fn tibetan_scheme_crosses_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+// 全角输出开着时，中文方案的上屏都转成全角，网址例外：上屏后 view 已回到 `none`，所以按上屏前的 `commit_context.local_mode` 豁免。
+#[test]
+fn url_commits_stay_half_width_in_full_width_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    read(msime_client_set_character_width(handle, true));
+
+    // 对照：同样的 ASCII 字母不在网址模式时照旧变成全角。
+    for character in b"abc" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let plain = read(msime_client_command(handle, 2));
+    assert_eq!(plain["value"]["commit"], "ａｂｃ");
+
+    for character in b"www" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let opened = read(msime_client_punctuation(handle, b'.'));
+    assert!(opened["value"]["commit"].is_null());
+    assert_eq!(opened["value"]["view"]["local_mode"], "url");
+    for character in b"a1" {
+        read(msime_client_character(handle, *character, false));
+    }
+    read(msime_client_punctuation(handle, b'/'));
+    let committed = read(msime_client_command(handle, 2));
+    assert_eq!(committed["value"]["commit"], "www.a1/");
+    assert_eq!(committed["value"]["commit_context"]["local_mode"], "url");
+    assert_eq!(committed["value"]["view"]["local_mode"], "none");
+
+    // 空格上屏同样保持半角，末尾不带空格。
+    for character in b"www" {
+        read(msime_client_character(handle, *character, false));
+    }
+    read(msime_client_punctuation(handle, b'.'));
+    read(msime_client_character(handle, b'a', false));
+    let spaced = read(msime_client_command(handle, 1));
+    assert_eq!(spaced["value"]["commit"], "www.a");
+    assert_eq!(spaced["value"]["commit_context"]["local_mode"], "url");
+
+    // 结束网址的英文标点不属于网址，和普通组字后的同一个键一样转全角。
+    read(msime_client_set_chinese_punctuation(handle, false));
+    for character in b"www" {
+        read(msime_client_character(handle, *character, false));
+    }
+    read(msime_client_punctuation(handle, b'.'));
+    read(msime_client_character(handle, b'a', false));
+    let finished = read(msime_client_punctuation(handle, b'<'));
+    assert_eq!(finished["value"]["commit_context"]["local_mode"], "url");
+    assert_eq!(finished["value"]["commit"], "www.a\u{ff1c}");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 #[test]
 fn korean_scheme_crosses_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
@@ -1463,6 +1516,39 @@ fn japanese_candidates_ask_for_no_translation() {
         );
         read(msime_client_destroy(handle));
     }
+}
+
+// 网址可能带着私密路径和参数，网址模式不向翻译服务要候选翻译。对照组是同一偏好下的 Unicode 候选，确认拦下它的是网址模式本身。
+#[test]
+fn url_candidates_ask_for_no_translation() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            candidate_translations: true,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    for byte in b"U4e2d" {
+        read(msime_client_character(
+            handle,
+            *byte,
+            byte.is_ascii_uppercase(),
+        ));
+    }
+    assert!(!read(msime_client_translation_query(handle))["value"].is_null());
+    read(msime_client_command(handle, 3));
+
+    for byte in b"www" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    read(msime_client_punctuation(handle, b'.'));
+    let view = read(msime_client_character(handle, b'a', false))["value"]["view"].clone();
+    assert_eq!(view["local_mode"], "url");
+    assert!(!view["candidates"].as_array().unwrap().is_empty());
+    assert!(read(msime_client_translation_query(handle))["value"].is_null());
+    read(msime_client_destroy(handle));
 }
 
 #[test]
