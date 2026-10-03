@@ -413,6 +413,10 @@ test("decorated previews preserve upstream geometry in both layouts without deco
   expect(candidateRow.querySelectorAll(":scope > [data-skin-stage] .containerParent")).toHaveLength(
     2,
   );
+  expect(candidateRow.querySelectorAll(":scope > [data-skin-stage]")).toHaveLength(2);
+  const toolbarStage = card.querySelector("[data-skin-preview] > [data-skin-stage]");
+  expect(toolbarStage).not.toBeNull();
+  expect(toolbarStage?.querySelector(".containerParent")).toBeNull();
 });
 
 test.each([

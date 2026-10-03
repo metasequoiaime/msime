@@ -305,12 +305,12 @@ export function ExternalSkinCard({
               onBackgroundError={background.onError}
             />
           </SkinPreviewStage>
-          {toolbarPreview && (
-            <SkinPreviewStage>
-              <SkinToolbarPreview />
-            </SkinPreviewStage>
-          )}
         </div>
+        {toolbarPreview && (
+          <SkinPreviewStage>
+            <SkinToolbarPreview />
+          </SkinPreviewStage>
+        )}
       </div>
       {paletteFailed && (
         <p role="status" className={note}>
