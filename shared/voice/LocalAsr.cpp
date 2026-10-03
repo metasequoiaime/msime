@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -254,6 +255,8 @@ bool model_directory_has_real_ancestors(const fs::path &directory) {
   if (!directory.is_absolute())
     return false;
   std::vector<fs::path> ancestors;
+  ancestors.reserve(
+      static_cast<std::size_t>(std::distance(directory.begin(), directory.end())));
   for (fs::path current = directory; !current.empty(); current = current.parent_path()) {
     ancestors.push_back(current);
     if (current.parent_path() == current)
