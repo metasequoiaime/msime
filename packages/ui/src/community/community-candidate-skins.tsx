@@ -26,6 +26,7 @@ import {
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
+import { CommunityMetrics } from "./community-metrics";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -446,7 +447,7 @@ export function CommunityCandidateSkinsPage({
           ownedLabel={selected.visibility === "private" ? "私有" : "我的作品"}
           description={selected.description}
         />
-        {license && <p className={style.metrics}>{license}</p>}
+        {license && <CommunityMetrics>{license}</CommunityMetrics>}
         <CommunityDetailStatus
           downloads={selected.downloads}
           ratingCount={selected.rating_count}

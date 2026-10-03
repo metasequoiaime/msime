@@ -1253,6 +1253,7 @@ export {
   CommunityCardAuthor,
   type CommunityCardAuthorProps,
 } from "./community/community-card-author";
+export { CommunityMetrics, type CommunityMetricsProps } from "./community/community-metrics";
 export { CommunityCard, type CommunityCardProps } from "./community/community-card";
 export {
   CommunitySkinPublicationFields,

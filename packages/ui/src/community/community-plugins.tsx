@@ -38,6 +38,7 @@ import {
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityCard } from "./community-card";
+import { CommunityMetrics } from "./community-metrics";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -310,7 +311,7 @@ export function CommunityPluginsPage({
           moderation={selected.moderation}
           description={selected.description}
         />
-        <p className={style.metrics}>
+        <CommunityMetrics>
           {[
             selected.plugin_id,
             selected.license && `授权 ${selected.license}`,
@@ -318,7 +319,7 @@ export function CommunityPluginsPage({
           ]
             .filter(Boolean)
             .join(" · ")}
-        </p>
+        </CommunityMetrics>
         <CommunityDetailStatus
           downloads={selected.downloads}
           ratingCount={selected.rating_count}
@@ -674,7 +675,7 @@ export function CommunityPluginPublishDialog({
       )}
       {pack && (
         <>
-          <p className={style.metrics}>
+          <CommunityMetrics>
             {[
               `v${pack.version}`,
               pack.license && `授权 ${pack.license}`,
@@ -683,7 +684,7 @@ export function CommunityPluginPublishDialog({
             ]
               .filter(Boolean)
               .join(" · ")}
-          </p>
+          </CommunityMetrics>
           <CommunityPublicationMetadataFields
             name={name}
             description={description}
