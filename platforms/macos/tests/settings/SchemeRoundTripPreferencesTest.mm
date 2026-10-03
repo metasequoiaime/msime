@@ -58,6 +58,14 @@ int main(void)
         preferences.inputScheme = @"zhuyin";
         assert([preferences.inputScheme isEqual:@"zhuyin"]);
         assert([preferences.lastChineseScheme isEqual:@"zhuyin"]);
+        // Stroke is a Chinese scheme as well: picking it makes it the way back, and a shared last_chinese_scheme naming it is kept.
+        preferences.inputScheme = @"stroke";
+        assert([preferences.inputScheme isEqual:@"stroke"]);
+        merged = [preferences sharedPreferencesByMerging:@{}];
+        assert([merged[@"scheme"] isEqual:@"stroke"] && [merged[@"last_chinese_scheme"] isEqual:@"stroke"]);
+        preferences.inputScheme = @"japanese";
+        merged = [preferences sharedPreferencesByMerging:@{@"last_chinese_scheme": @"quanpin"}];
+        assert([merged[@"last_chinese_scheme"] isEqual:@"stroke"] && [preferences.lastChineseScheme isEqual:@"stroke"]);
         preferences.inputScheme = @"quanpin";
 
         // removePersistentDomainForName: empties the domain and leaves the plist on disk, so every

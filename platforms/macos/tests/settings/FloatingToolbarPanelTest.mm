@@ -461,7 +461,7 @@ int main() {
           traditionalChineseOutputEnabled:NO];
         assert([inputMode.title isEqualToString:@"五"] && [inputMode.toolTip isEqualToString:@"五笔 86 · 切换到英文输入"]);
         // The opt-in schemes carry their input menu badges too.
-        for (NSArray<NSString *> *entry in @[@[@"cantonese", @"粤拼", @"粤"], @[@"zhuyin", @"注音", @"注"], @[@"vietnamese", @"越南语", @"越"]]) {
+        for (NSArray<NSString *> *entry in @[@[@"cantonese", @"粤拼", @"粤"], @[@"zhuyin", @"注音", @"注"], @[@"vietnamese", @"越南语", @"越"], @[@"stroke", @"笔画", @"笔"]]) {
             [panel updateEnglishInputMode:NO
                      englishCandidateMode:NO
                                    scheme:entry[0]
@@ -470,7 +470,7 @@ int main() {
                     chinesePunctuationEnabled:YES
                              fullWidthEnabled:NO
               traditionalChineseOutputEnabled:NO];
-            assert([inputMode.title isEqualToString:entry[2]]);
+            assert([inputMode.title isEqualToString:entry[2]] && [inputMode.toolTip hasPrefix:[entry[1] stringByAppendingString:@" · "]]);
         }
         [panel updateEnglishInputMode:NO
                  englishCandidateMode:NO

@@ -544,7 +544,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     self.contentView = _chrome;
 
     _inputModeButton = ToolbarButton(@"中", @"MetasequoiaFloatingToolbarInputMode", self, @selector(toggleInputMode:));
-    // 点开列出可用的输入方案。macOS 27 上粤、注这类菜单栏入口只能由用户自己去系统设置添加，有了它不加入口也能切换。
+    // 点开列出可用的输入方案。macOS 27 上粤、注、笔这类菜单栏入口只能由用户自己去系统设置添加，有了它不加入口也能切换。
     _inputSchemeButton = ToolbarButton(@"", @"MetasequoiaFloatingToolbarInputScheme", self, @selector(showInputSchemeMenu:));
     _inputSchemeButton.image = [NSImage imageWithSystemSymbolName:@"list.bullet" accessibilityDescription:@"输入方案"];
     _inputSchemeButton.accessibilityLabel = @"切换输入方案";
@@ -868,7 +868,7 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
     traditionalChineseOutputEnabled:(BOOL)traditionalChineseOutputEnabled
 {
     NSDictionary<NSString *, NSString *> *schemeBadges =
-        @{@"shuangpin": @"双", @"wubi": @"五", @"japanese": @"日", @"korean": @"한", @"cantonese": @"粤", @"zhuyin": @"注", @"vietnamese": @"越"};
+        @{@"shuangpin": @"双", @"wubi": @"五", @"japanese": @"日", @"korean": @"한", @"cantonese": @"粤", @"zhuyin": @"注", @"vietnamese": @"越", @"stroke": @"笔"};
     NSString *inputModeTitle = capsLock ? @"A" :
         (englishInputMode ? @"英" : (englishCandidateMode ? @"En" : (schemeBadges[scheme] ?: @"中")));
     _inputModeButton.title = inputModeTitle;

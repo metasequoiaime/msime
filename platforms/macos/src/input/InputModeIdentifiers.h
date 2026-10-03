@@ -2,7 +2,7 @@
 #import <Foundation/Foundation.h>
 #include "../core/SystemPathAlias.h"
 
-// Info.plist.in 声明的九个输入模式。每个模式的图标是铺满图块的一个大字：中、双、五、粤、注、日、한、越或英；选中的那条在输入菜单里打勾，并在输入源列表里列出名称。info-plist-names 对照 plist 检查这些字面量。
+// Info.plist.in 声明的十个输入模式。每个模式的图标是铺满图块的一个大字：中、双、五、粤、注、笔、日、한、越或英；选中的那条在输入菜单里打勾，并在输入源列表里列出名称。info-plist-names 对照 plist 检查这些字面量。
 static NSString *const MSIMEChineseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Hans";
 static NSString *const MSIMEShuangpinInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Shuangpin";
 static NSString *const MSIMEWubiInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Wubi";
@@ -12,19 +12,20 @@ static NSString *const MSIMEKoreanInputModeID = @"app.msime.inputmethod.Metasequ
 static NSString *const MSIMECantoneseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Cantonese";
 static NSString *const MSIMEZhuyinInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Zhuyin";
 static NSString *const MSIMEVietnameseInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Vietnamese";
+static NSString *const MSIMEStrokeInputModeID = @"app.msime.inputmethod.MetasequoiaIME.Stroke";
 
-// 等用户选中对应方案才打开的模式。安装和更新都不启用它们：登记时跳过，MSIMEEnableNewInputModes 只记录不启用，免得从没用过粤拼、注音或越南文的人输入菜单里平白多出三项。选中方案时请求启用对应模式（MSIMEOptInInputModeToEnable），切走方案也不关掉它。macOS 27 不允许进程启用键盘输入模式，这个请求在那里不生效，只能由用户在系统设置里添加，设置页的「菜单栏入口」告诉用户去哪里加。
+// 等用户选中对应方案才打开的模式。安装和更新都不启用它们：登记时跳过，MSIMEEnableNewInputModes 只记录不启用，免得从没用过粤拼、注音、笔画或越南文的人输入菜单里平白多出四项。选中方案时请求启用对应模式（MSIMEOptInInputModeToEnable），切走方案也不关掉它。macOS 27 不允许进程启用键盘输入模式，这个请求在那里不生效，只能由用户在系统设置里添加，设置页的「菜单栏入口」告诉用户去哪里加。
 static inline NSArray<NSString *> *MSIMEOptInInputModeIDs(void) {
-    return @[ MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID ];
+    return @[ MSIMECantoneseInputModeID, MSIMEZhuyinInputModeID, MSIMEVietnameseInputModeID, MSIMEStrokeInputModeID ];
 }
 
 static inline BOOL MSIMEIsOptInInputModeID(NSString *identifier) {
     return identifier != nil && [MSIMEOptInInputModeIDs() containsObject:identifier];
 }
 
-// Every scheme name in engine wire order (0-7): the index is the number the View reports as `scheme`.
+// Every scheme name in engine wire order (0-8): the index is the number the View reports as `scheme`.
 static inline NSArray<NSString *> *MSIMEInputSchemeNames(void) {
-    return @[ @"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese" ];
+    return @[ @"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"stroke" ];
 }
 
 // 路径上是否是指定类型的真实条目：attributesOfItemAtPath: 不跟随符号链接，符号链接本身的类型是 NSFileTypeSymbolicLink，因此会被拒绝，与 host-api 的 resource_packs::installed_file 一致。
@@ -38,9 +39,10 @@ static inline BOOL MSIMEPathAncestorsAreReal(NSString *path) {
     return msime::mac::StoragePathIsSafe(path.stringByStandardizingPath.fileSystemRepresentation, true);
 }
 
-// 某个方案此处能否真正运行。粤拼和注音需要各自的词典：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
+// 某个方案此处能否真正运行。粤拼、注音和笔画需要各自的词典（cantonese.db、zhuyin.db、stroke.db）：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
 static inline BOOL MSIMEInputSchemeAvailable(NSString *scheme, NSDictionary *hostOptions) {
-    NSString *file = [scheme isEqualToString:@"cantonese"] ? @"cantonese.db" : ([scheme isEqualToString:@"zhuyin"] ? @"zhuyin.db" : nil);
+    NSDictionary<NSString *, NSString *> *files = @{@"cantonese": @"cantonese.db", @"zhuyin": @"zhuyin.db", @"stroke": @"stroke.db"};
+    NSString *file = [scheme isKindOfClass:NSString.class] ? files[scheme] : nil;
     if (!file) return [MSIMEInputSchemeNames() containsObject:scheme];
     id stateRoot = hostOptions[@"preferences_directory"];
     if ([stateRoot isKindOfClass:NSString.class] && [stateRoot length] && [stateRoot isAbsolutePath]) {
@@ -63,7 +65,7 @@ static inline NSString *MSIMEEffectiveInputScheme(NSString *scheme, NSString *la
 }
 
 // The mode the menu bar shows. English is the controller passing keys through; the others follow the scheme behind it.
-enum class MSIMEInputMode { Chinese, Shuangpin, Wubi, English, Japanese, Korean, Cantonese, Zhuyin, Vietnamese };
+enum class MSIMEInputMode { Chinese, Shuangpin, Wubi, English, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Stroke };
 
 // English mode wins over the scheme: 英 is shown whenever the controller passes keys through, whatever scheme is behind it. Otherwise each scheme with a mode of its own shows that mode, and quanpin shows 中. A mode the system does not offer falls back to 中 in MSIMESelectSystemInputMode.
 static inline MSIMEInputMode MSIMEInputModeFor(BOOL english, NSString *scheme) {
@@ -75,6 +77,7 @@ static inline MSIMEInputMode MSIMEInputModeFor(BOOL english, NSString *scheme) {
     if ([scheme isEqualToString:@"cantonese"]) return MSIMEInputMode::Cantonese;
     if ([scheme isEqualToString:@"zhuyin"]) return MSIMEInputMode::Zhuyin;
     if ([scheme isEqualToString:@"vietnamese"]) return MSIMEInputMode::Vietnamese;
+    if ([scheme isEqualToString:@"stroke"]) return MSIMEInputMode::Stroke;
     return MSIMEInputMode::Chinese;
 }
 
@@ -88,6 +91,7 @@ static inline NSString *MSIMEInputModeID(MSIMEInputMode mode) {
     case MSIMEInputMode::Cantonese: return MSIMECantoneseInputModeID;
     case MSIMEInputMode::Zhuyin: return MSIMEZhuyinInputModeID;
     case MSIMEInputMode::Vietnamese: return MSIMEVietnameseInputModeID;
+    case MSIMEInputMode::Stroke: return MSIMEStrokeInputModeID;
     case MSIMEInputMode::Chinese: break;
     }
     return MSIMEChineseInputModeID;
@@ -100,7 +104,7 @@ static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
         MSIMEWubiInputModeID: @"水杉输入法 · 五", MSIMECantoneseInputModeID: @"水杉输入法 · 粤",
         MSIMEZhuyinInputModeID: @"水杉输入法 · 注", MSIMEJapaneseInputModeID: @"水杉输入法 · 日",
         MSIMEKoreanInputModeID: @"水杉输入法 · 韩", MSIMEVietnameseInputModeID: @"水杉输入法 · 越",
-        MSIMEEnglishInputModeID: @"水杉输入法 · 英",
+        MSIMEStrokeInputModeID: @"水杉输入法 · 笔画", MSIMEEnglishInputModeID: @"水杉输入法 · 英",
     };
     return identifier ? names[identifier] : nil;
 }
@@ -119,7 +123,7 @@ static inline BOOL MSIMEIsInputModeID(id value) {
             [value isEqualToString:MSIMEWubiInputModeID] || [value isEqualToString:MSIMEEnglishInputModeID] ||
             [value isEqualToString:MSIMEJapaneseInputModeID] || [value isEqualToString:MSIMEKoreanInputModeID] ||
             [value isEqualToString:MSIMECantoneseInputModeID] || [value isEqualToString:MSIMEZhuyinInputModeID] ||
-            [value isEqualToString:MSIMEVietnameseInputModeID]);
+            [value isEqualToString:MSIMEVietnameseInputModeID] || [value isEqualToString:MSIMEStrokeInputModeID]);
 }
 
 // The mode an identifier names. Anything that is not one of this bundle's modes reads as Chinese; callers check MSIMEIsInputModeID first when that matters.
@@ -132,6 +136,7 @@ static inline MSIMEInputMode MSIMEInputModeForID(NSString *identifier) {
     if ([identifier isEqualToString:MSIMECantoneseInputModeID]) return MSIMEInputMode::Cantonese;
     if ([identifier isEqualToString:MSIMEZhuyinInputModeID]) return MSIMEInputMode::Zhuyin;
     if ([identifier isEqualToString:MSIMEVietnameseInputModeID]) return MSIMEInputMode::Vietnamese;
+    if ([identifier isEqualToString:MSIMEStrokeInputModeID]) return MSIMEInputMode::Stroke;
     return MSIMEInputMode::Chinese;
 }
 
@@ -145,6 +150,7 @@ static inline NSString *MSIMESchemeForInputMode(MSIMEInputMode mode) {
     case MSIMEInputMode::Cantonese: return @"cantonese";
     case MSIMEInputMode::Zhuyin: return @"zhuyin";
     case MSIMEInputMode::Vietnamese: return @"vietnamese";
+    case MSIMEInputMode::Stroke: return @"stroke";
     case MSIMEInputMode::Chinese:
     case MSIMEInputMode::English: break;
     }
@@ -178,7 +184,7 @@ static inline BOOL MSIMEAdoptReportedInputMode(MSIMESystemInputModeState &state,
 // Whether the system offers a mode for selection. A mode the user removed in System Settings, or one an install from before the mode existed has not registered yet, cannot be selected, and asking for it would leave `current` naming a mode the menu bar does not show - the next report of the real one would then flip the controller's state back.
 using MSIMEInputModeAvailability = BOOL (*)(NSString *identifier);
 
-// The scheme a mode the user picked moves to, or nil to leave the scheme alone. 中 goes back to the Chinese scheme japanese, korean or vietnamese was entered from, or keeps the Chinese scheme already there - unless that scheme has a mode of its own the system offers: then 中 was picked over 双, 五, 粤 or 注 and means quanpin, and keeping the scheme would select that mode straight back.
+// The scheme a mode the user picked moves to, or nil to leave the scheme alone. 中 goes back to the Chinese scheme japanese, korean or vietnamese was entered from, or keeps the Chinese scheme already there - unless that scheme has a mode of its own the system offers: then 中 was picked over 双, 五, 粤, 注 or 笔 and means quanpin, and keeping the scheme would select that mode straight back.
 static inline NSString *MSIMESchemeForReportedInputMode(MSIMEInputMode mode, NSString *scheme, NSString *lastChineseScheme,
                                                         MSIMEInputModeAvailability available) {
     if (mode != MSIMEInputMode::Chinese) return MSIMESchemeForInputMode(mode);

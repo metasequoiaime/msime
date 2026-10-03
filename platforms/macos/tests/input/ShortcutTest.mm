@@ -1860,7 +1860,7 @@ static void TestSystemInputModeReport(MSIMEAppearancePreferences *appearance) {
 @implementation SchemeHostSession
 @end
 
-// Cantonese and Zhuyin are offered only where their dictionary is installed: the input menu leaves them out, its check falls on the scheme the Engine falls back to, and the settings radios are disabled. An opt-in mode is enabled when the scheme running moves to its scheme - in this process, while the input method was not running, or by the dictionary arriving after the scheme was picked - and never for the scheme the last sync already showed.
+// Cantonese, Zhuyin and Stroke are offered only where their dictionary is installed: the input menu leaves them out, its check falls on the scheme the Engine falls back to, and the settings radios are disabled. An opt-in mode is enabled when the scheme running moves to its scheme - in this process, while the input method was not running, or by the dictionary arriving after the scheme was picked - and never for the scheme the last sync already showed.
 static void TestOptInSchemeModes() {
     NSString *suite = [@"msime.opt-in-modes." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -1883,7 +1883,7 @@ static void TestOptInSchemeModes() {
     MSIMEInputController *controller = makeController(appearance, YES);
     id client = [controller valueForKey:@"activeClient"];
 
-    // With cantonese.db alone the menu lists exactly seven schemes, in the Engine's order, without 注音.
+    // With cantonese.db alone the menu lists exactly seven schemes, in the Engine's order, without 注音 or 笔画.
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
     NSMutableArray<NSString *> *listed = [NSMutableArray array];
     for (NSMenuItem *item in schemeItem.submenu.itemArray) [listed addObject:item.representedObject];
@@ -1955,7 +1955,23 @@ static void TestOptInSchemeModes() {
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
 
-    // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 is disabled and says why, and the rest are enabled.
+    // 笔画没有 stroke.db 时按全拼运行、不启用模式；词库到位后成为实际方案，启用「笔」，菜单最后一项是笔画并打勾。
+    [defaults setObject:@"stroke" forKey:@"MSIMEClientInputScheme"];
+    relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    next = makeController(relaunched, YES);
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
+    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"stroke.db"] atomically:YES]);
+    [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
+    assert(enabled.count == 7 && [enabled.lastObject isEqual:MSIMEStrokeInputModeID] && [relaunched.lastSyncedInputScheme isEqual:@"stroke"]);
+    schemeItem = [next.menu itemAtIndex:9];
+    assert(schemeItem.submenu.numberOfItems == 9 && [schemeItem.title isEqual:@"输入方案（笔画）"]);
+    NSMenuItem *strokeItem = [schemeItem.submenu itemAtIndex:8];
+    assert([strokeItem.representedObject isEqual:@"stroke"] && [strokeItem.title isEqual:@"笔画"] && strokeItem.state == NSControlStateValueOn);
+    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"stroke.db"] error:nil]);
+    [defaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
+
+    // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 and 笔画 are disabled and say why, and the rest are enabled.
     assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"zhuyin.db"] error:nil]);
     NSString *optionsPath = MSIMEDefaultRuntimeOptionsPath(NSFileManager.defaultManager);
     assert(![NSFileManager.defaultManager fileExistsAtPath:optionsPath]);
@@ -1963,9 +1979,9 @@ static void TestOptInSchemeModes() {
     assert([[NSJSONSerialization dataWithJSONObject:@{@"language_dictionaries": dictionaries} options:0 error:nil] writeToFile:optionsPath atomically:YES]);
     MSIMEAppearancePreferences *settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     NSArray<NSControl *> *radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    assert(radios.count == 8);
+    assert(radios.count == 9);
     for (NSControl *radio in radios) {
-        const BOOL missing = radio.tag == 6;
+        const BOOL missing = radio.tag == 6 || radio.tag == 8;
         assert(radio.enabled == !missing && (missing ? [radio.toolTip isEqual:@"未安装该方案的词库，暂不可用"] : radio.toolTip == nil));
     }
     // 选中粤拼而「粤」不在输入法列表里时，输入方式卡片说明去「粤语」下添加；没有探针时不显示，加进去之后也不显示。
@@ -1996,7 +2012,7 @@ static void TestOptInSchemeModes() {
     assert([NSFileManager.defaultManager removeItemAtPath:optionsPath error:nil]);
     settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6));
+    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6 && radio.tag != 8));
 
     [NSFileManager.defaultManager removeItemAtPath:dictionaries error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
@@ -2506,7 +2522,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     };
 
     // Ctrl+Backspace edits a segment only where the caret is not locked to the end of the composition; Zhuyin and Vietnamese finish the composition and leave the chord to the application, as Korean does.
-    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7]) {
+    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7, @8]) {
         const BOOL locked = scheme.intValue == 4 || scheme.intValue == 6 || scheme.intValue == 7;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
@@ -2515,7 +2531,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     }
 
     // Option+Return opens the candidate list of a scheme that has one to open (Korean, Zhuyin) and is swallowed while composing; elsewhere it finishes the composition and goes to the application as before.
-    for (NSNumber *scheme in @[@0, @3, @5, @7, @4, @6]) {
+    for (NSNumber *scheme in @[@0, @3, @5, @7, @8, @4, @6]) {
         const BOOL opens = scheme.intValue == 4 || scheme.intValue == 6;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
@@ -2534,7 +2550,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
-    for (NSNumber *scheme in @[@0, @5, @6, @4, @7]) {
+    for (NSNumber *scheme in @[@0, @5, @6, @8, @4, @7]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
                                @"candidates": @[]} forKey:@"view"];
@@ -2652,7 +2668,7 @@ static void TestSchemeKeyRouting() {
     send(view(@6, @"", zhuyinIdle, NO), key(125, down, arrowFlags), NO);
     assert(session.lastCommand != MSIME_OPEN_CANDIDATE_LIST);
     // Down in a scheme without a Down-opened list keeps its arrow meaning.
-    for (NSNumber *scheme in @[@0, @4, @5, @7]) {
+    for (NSNumber *scheme in @[@0, @4, @5, @7, @8]) {
         send(view(scheme, @"abc", @"", NO), key(125, down, arrowFlags), NO);
         assert(session.lastCommand == MSIME_NEXT_CANDIDATE);
     }
@@ -2666,6 +2682,26 @@ static void TestSchemeKeyRouting() {
     // Vietnamese keeps the letter's case while composing, with Shift or with Caps Lock.
     assert(send(view(@7, @"vie", @"", NO), key(9, @"V", NSEventModifierFlagShift), NO) && session.lastASCII == 'V' && session.lastShift);
     assert(send(view(@7, @"vie", @"", NO), key(9, @"V", NSEventModifierFlagCapsLock), NO) && session.lastASCII == 'V' && !session.lastShift);
+
+    // Stroke spells with the letters h s p n z and the wildcard x, so it publishes no spelling symbols: every stroke key reaches the Engine as a plain letter, idle or composing, and the Engine decides which of them start a composition.
+    const struct { unsigned short code; char letter; } strokeKeys[] = {{4, 'h'}, {1, 's'}, {35, 'p'}, {45, 'n'}, {6, 'z'}, {7, 'x'}};
+    for (const auto &stroke : strokeKeys) {
+        NSString *characters = [NSString stringWithFormat:@"%c", stroke.letter];
+        assert(send(view(@8, @"", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter && !session.lastShift);
+        assert(send(view(@8, @"hs", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter);
+    }
+    assert(session.punctuationASCIICalls == punctuationRoutes && session.enginePunctuationCalls == 0 && client.insertions.count == 0);
+    // With the stroke candidates up the physical digits still pick a row and Space still commits the highlighted one; strokes are never digits.
+    NSMutableDictionary *stroke = [view(@8, @"hs", @"", YES) mutableCopy];
+    stroke[@"candidate_list_open"] = @NO;
+    stroke[@"preedit"] = @"一丨";
+    stroke[@"reading"] = @"一丨";
+    [controller setValue:stroke forKey:@"view"];
+    panel.requestedVisible = YES;
+    asciiBefore = session.asciiCalls;
+    assert([controller handleEvent:key(18, @"1", 0) client:client] && session.asciiCalls == asciiBefore);
+    assert(!send(stroke, key(49, @" ", 0), YES) && session.lastCommand == MSIME_COMMIT_CANDIDATE);
+    assert(session.asciiCalls == asciiBefore);
 
     // Quanpin is unchanged: with the panel up a digit picks a row, `-` turns the page and Space commits the candidate.
     // An ordinary conversion's panel: candidates shown with no opened list, which would make the paging marks punctuation.

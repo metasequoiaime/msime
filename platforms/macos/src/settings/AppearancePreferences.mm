@@ -1419,7 +1419,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.candidate_page_shortcut"] = @([self storedPageShortcutForCurrentBindings]);
     NSArray *schemes = @[@"quanpin", @"shuangpin", @"wubi"];
     NSUInteger schemeIndex = [schemes indexOfObject:self.inputScheme];
-    // The fixed Apple cloud contract names only quanpin, shuangpin and wubi. Keep its historical quanpin fallback instead of serializing NSNotFound when a shared Tauri snapshot currently uses any other Engine scheme (japanese, korean, cantonese, zhuyin, vietnamese).
+    // The fixed Apple cloud contract names only quanpin, shuangpin and wubi. Keep its historical quanpin fallback instead of serializing NSNotFound when a shared Tauri snapshot currently uses any other Engine scheme (japanese, korean, cantonese, zhuyin, vietnamese, stroke).
     snapshot[@"platform.macos.input_scheme"] = @(schemeIndex == NSNotFound ? 0 : schemeIndex);
     snapshot[@"platform.macos.quanpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"quanpin"][@"schema"]]);
     snapshot[@"platform.macos.shuangpin_helpcode_schema"] = @([MSIMECloudHelpcodeSchemas() indexOfObject:[self helpcodeOptionsForScheme:@"shuangpin"][@"schema"]]);
@@ -1769,7 +1769,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id wubiProfile = preferences[@"wubi_profile"];
     if ([MSIMEInputSchemeNames() containsObject:scheme]) _sharedInputScheme = [scheme copy];
     id lastChinese = preferences[@"last_chinese_scheme"];
-    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin"] containsObject:lastChinese]) _lastChineseScheme = [lastChinese copy];
+    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin", @"stroke"] containsObject:lastChinese]) _lastChineseScheme = [lastChinese copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
@@ -2785,7 +2785,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _wubiCard.hidden = storedScheme != 2;
     // 拼音匹配 is on another page than the scheme that decides whether it does anything, so the card says which scheme is selected rather than leaving a disabled group with no cause in sight.
     const BOOL pinyinMatching = storedScheme <= 2;
-    NSString *schemeName = pinyinMatching ? nil : @[@"日语", @"韩语", @"粤拼", @"注音", @"越南语"][storedScheme - 3];
+    NSString *schemeName = pinyinMatching ? nil : @[@"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"笔画"][storedScheme - 3];
     _pinyinMatchingSchemeLabel.stringValue = pinyinMatching ? @"" : [NSString stringWithFormat:@"当前方案为%@，模糊音与全拼纠错只作用于拼音查询，在%@下不生效。", schemeName, schemeName];
     _pinyinMatchingSchemeLabel.hidden = pinyinMatching;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
@@ -3328,8 +3328,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 
     // The scheme is one choice, so it reads as radios with each scheme's own popup trailing it,
     // disabled until that scheme is selected. The stored value stays the same scheme string.
-    // In MSIMEInputSchemeNames order, which is also each radio's tag. Cantonese and Zhuyin need their dictionary installed beside the resources; without it the radio is disabled and says why, since the Engine would fall back to another scheme.
-    NSArray<NSString *> *schemeTitles = @[@"全拼输入", @"双拼输入", @"五笔输入", @"日语输入", @"韩语输入", @"粤拼输入", @"注音输入", @"越南语输入"];
+    // In MSIMEInputSchemeNames order, which is also each radio's tag. Cantonese, Zhuyin and Stroke need their dictionary installed beside the resources; without it the radio is disabled and says why, since the Engine would fall back to another scheme.
+    NSArray<NSString *> *schemeTitles = @[@"全拼输入", @"双拼输入", @"五笔输入", @"日语输入", @"韩语输入", @"粤拼输入", @"注音输入", @"越南语输入", @"笔画输入"];
     NSDictionary *hostOptions = MSIMELoadRuntimeOptions();
     NSMutableArray<NSButton *> *schemeButtons = [NSMutableArray array];
     NSMutableArray<NSView *> *schemeRows = [NSMutableArray arrayWithObjects:MSIMECardHeader(@"输入方式"), MSIMECardSeparator(), nil];
@@ -3355,7 +3355,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         if (index < (NSInteger)schemeTitles.count - 1) [schemeRows addObject:MSIMECardSeparator()];
     }
     _schemeButtons = schemeButtons;
-    // macOS 27 不允许进程启用键盘输入模式，选中粤拼、注音这类方案后菜单栏里不会自动出现对应入口；这一行说明它在系统设置「添加」对话框的哪个语言下。
+    // macOS 27 不允许进程启用键盘输入模式，选中粤拼、注音、笔画这类方案后菜单栏里不会自动出现对应入口；这一行说明它在系统设置「添加」对话框的哪个语言下。
     _inputModeHintLabel = MSIMEDetailLabel(@"");
     NSButton *inputModeHintButton = [NSButton buttonWithTitle:@"打开键盘设置" target:self action:@selector(openInputSourceSettings:)];
     inputModeHintButton.controlSize = NSControlSizeSmall;

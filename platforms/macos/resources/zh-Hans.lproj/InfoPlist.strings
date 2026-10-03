@@ -10,5 +10,6 @@
 "app.msime.inputmethod.MetasequoiaIME.Cantonese" = "水杉输入法 · 粤";
 "app.msime.inputmethod.MetasequoiaIME.Zhuyin" = "水杉输入法 · 注";
 "app.msime.inputmethod.MetasequoiaIME.Vietnamese" = "水杉输入法 · 越";
+"app.msime.inputmethod.MetasequoiaIME.Stroke" = "水杉输入法 · 笔画";
 "NSMicrophoneUsageDescription" = "仅在开始语音输入时录音，用于识别并输入您说出的文字。";
 "NSSpeechRecognitionUsageDescription" = "选择 macOS 系统识别时，把录音交给系统语音识别，用于转写您说出的文字。";

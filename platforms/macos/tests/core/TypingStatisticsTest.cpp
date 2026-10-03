@@ -31,11 +31,15 @@ int main() {
     assert(ResolveTypingSource(5, false, false, "none", "xiaohe") == TypingSource::Cantonese);
     assert(ResolveTypingSource(6, false, false, "none", "xiaohe") == TypingSource::Zhuyin);
     assert(ResolveTypingSource(7, false, false, "none", "xiaohe") == TypingSource::Vietnamese);
+    assert(ResolveTypingSource(8, false, false, "none", "xiaohe") == TypingSource::Stroke);
+    assert(ResolveTypingSource(9, false, false, "none", "xiaohe") == TypingSource::Unknown);
     assert(msime::mac::TypingSourceId(TypingSource::Cantonese) == "cantonese");
     assert(msime::mac::TypingSourceId(TypingSource::Zhuyin) == "zhuyin");
     assert(msime::mac::TypingSourceId(TypingSource::Vietnamese) == "vietnamese");
+    assert(msime::mac::TypingSourceId(TypingSource::Stroke) == "stroke");
     // A local mode still wins inside the new schemes, as it does inside the others.
     assert(ResolveTypingSource(7, false, false, "emoji", "xiaohe") == TypingSource::Local);
+    assert(ResolveTypingSource(8, false, false, "emoji", "xiaohe") == TypingSource::Local);
     assert(ResolveTypingSource(5, false, true, "none", "xiaohe") == TypingSource::English);
     assert(ResolveTypingSource(0, false, true, "none", "xiaohe") == TypingSource::English);
     assert(ResolveTypingSource(0, false, false, "temporary_japanese", "xiaohe") == TypingSource::Japanese);
@@ -71,15 +75,15 @@ int main() {
     // The id ResolveTypingSource gives Korean commits is one the shared store accepts.
     const auto korean = call(directory, "{\"operation\":\"record\",\"text\":\"한글\",\"source\":\"korean\",\"day\":\"2026-09-15\"}");
     assert(korean.find("\"recorded\":2") != std::string::npos);
-    // So are the ids it gives Cantonese, Zhuyin and Vietnamese commits.
-    for (const char *source : {"cantonese", "zhuyin", "vietnamese"}) {
+    // So are the ids it gives Cantonese, Zhuyin, Vietnamese and Stroke commits.
+    for (const char *source : {"cantonese", "zhuyin", "vietnamese", "stroke"}) {
         const std::string action = std::string("{\"operation\":\"record\",\"text\":\"字\",\"source\":\"") + source + "\",\"day\":\"2026-09-15\"}";
         const auto recorded = call(directory, action.c_str());
         assert(recorded.find("\"recorded\":1") != std::string::npos);
     }
     const auto loaded = call(directory, "{\"operation\":\"load\"}");
-    assert(loaded.find("\"total\":8") != std::string::npos);
-    for (const char *source : {"\"cantonese\":1", "\"zhuyin\":1", "\"vietnamese\":1"})
+    assert(loaded.find("\"total\":9") != std::string::npos);
+    for (const char *source : {"\"cantonese\":1", "\"zhuyin\":1", "\"vietnamese\":1", "\"stroke\":1"})
         assert(loaded.find(source) != std::string::npos);
     assert(loaded.find("合成🌲") == std::string::npos);
     std::filesystem::remove_all(directory);
