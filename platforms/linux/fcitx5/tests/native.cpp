@@ -2060,7 +2060,7 @@ int main(int argc, char **argv) {
               "Korean leaves the last Chinese scheme alone");
       require(state->modeIndicatorLabel() == "한", "the status area labels Korean input");
       // The 输入方案 menu picks a scheme directly and marks the one in use.
-      // Cantonese and Zhuyin are listed only with their dictionaries, which this fixture does not install.
+      // Cantonese, Zhuyin and Stroke are listed only with their dictionaries, which this fixture does not install.
       require(engine.scheme_menu_.actions().size() == 6, "scheme menu lists the six schemes that need no dictionary");
       require(engine.scheme_korean_action_.isChecked(&ic) && !engine.scheme_japanese_action_.isChecked(&ic) &&
                   !engine.scheme_quanpin_action_.isChecked(&ic),
@@ -2477,12 +2477,15 @@ int main(int argc, char **argv) {
                   state->modeIndicatorLabel() == "中",
               "a missing Zhuyin dictionary falls back to the last Chinese scheme");
       require(!offered(&engine.scheme_zhuyin_action_) && !offered(&engine.scheme_cantonese_action_) &&
-                  offered(&engine.scheme_quanpin_action_) && offered(&engine.scheme_vietnamese_action_),
+                  !offered(&engine.scheme_stroke_action_) && offered(&engine.scheme_quanpin_action_) &&
+                  offered(&engine.scheme_vietnamese_action_),
               "the scheme menu leaves out a scheme whose dictionary is missing");
       require(engine.scheme_quanpin_action_.isChecked(&ic) && !engine.scheme_zhuyin_action_.isChecked(&ic),
               "the scheme menu marks the fallback in use");
       require(!state->selectScheme("zhuyin") && state->view_.value("scheme", 9u) == 0,
               "Zhuyin cannot be selected without its dictionary");
+      require(!state->selectScheme("stroke") && state->view_.value("scheme", 9u) == 0,
+              "Stroke cannot be selected without its dictionary");
       const auto fixture =
           std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
       require(std::system(fixture.c_str()) == 0, "Zhuyin dictionary fixture written");
@@ -2565,6 +2568,61 @@ int main(int argc, char **argv) {
       engine.activate(entry, focus);
       require(press(FcitxKey_a) && preedit() == "a" && ic.committed == before + "Avivi",
               "the next field starts a new word");
+      // Stroke joins the menu once stroke.db is installed and the options are read again; it is a Chinese scheme, so choosing it records it as the last one.
+      const auto strokeFixture =
+          std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(strokeFixture.c_str()) == 0, "Stroke dictionary fixture written");
+      state->close();
+      state->clearPanel();
+      require(state->ensure() && offered(&engine.scheme_stroke_action_) && offered(&engine.scheme_zhuyin_action_) &&
+                  !engine.scheme_stroke_action_.isChecked(&ic),
+              "the scheme menu offers Stroke with its dictionary installed");
+      require(engine.scheme_menu_.actions().size() == 8, "the menu lists Zhuyin and Stroke beside the six base schemes");
+      engine.scheme_stroke_action_.activate(&ic);
+      require(state->effectiveScheme() == "stroke" && state->view_.value("scheme", 0u) == 8 &&
+                  engine.scheme_stroke_action_.isChecked(&ic) && state->modeIndicatorLabel() == "笔",
+              "the scheme menu selects Stroke");
+      {
+        const auto stored = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+        require(stored.at("preferences").value("last_chinese_scheme", std::string()) == "stroke",
+                "Stroke is recorded as the last Chinese scheme");
+      }
+      // Idle, only the five stroke letters start a composition: the wildcard x and any other letter are the application's.
+      before = ic.committed;
+      require(!press(FcitxKey_x) && !press(FcitxKey_a) && preedit().empty() && ic.committed == before,
+              "an idle Stroke wildcard or other letter is the application's");
+      // The raw preedit style draws the stroke glyphs from `reading`; editing_text keeps the letters.
+      require(press(FcitxKey_h) && preedit() == "一" && !candidates().empty() &&
+                  candidates().at(0).value("text", std::string()) == "一" &&
+                  state->view_.value("editing_text", std::string()) == "h",
+              "h composes the stroke 一");
+      require(press(FcitxKey_s) && preedit() == "一丨" && candidates().size() >= 3 &&
+                  candidates().at(0).value("text", std::string()) == "十" &&
+                  candidates().at(1).value("text", std::string()) == "木" &&
+                  candidates().at(2).value("text", std::string()) == "古",
+              "h s lists 十 exactly and then its completions");
+      require(press(FcitxKey_q) && preedit() == "一丨" && ic.committed == before,
+              "a letter that is no stroke is swallowed while composing");
+      require(press(FcitxKey_space) && ic.committed == before + "十" && preedit().empty(),
+              "Space commits the highlighted Stroke candidate");
+      before = ic.committed;
+      require(press(FcitxKey_h) && press(FcitxKey_x) && preedit() == "一＊" && candidates().size() >= 2 &&
+                  candidates().at(0).value("text", std::string()) == "十" &&
+                  candidates().at(1).value("text", std::string()) == "二",
+              "the wildcard x matches any one stroke");
+      require(press(FcitxKey_2) && ic.committed == before + "二" && preedit().empty(),
+              "a digit picks the Stroke candidate");
+      before = ic.committed;
+      require(press(FcitxKey_h) && press(FcitxKey_s) && press(FcitxKey_BackSpace) && preedit() == "一" &&
+                  ic.committed == before,
+              "Backspace removes the last stroke");
+      require(press(FcitxKey_s) && press(FcitxKey_Return) && ic.committed == before + "hs" && preedit().empty(),
+              "Return commits the typed stroke letters");
+      before = ic.committed;
+      require(press(FcitxKey_p) && press(FcitxKey_n) && preedit() == "丿丶" && press(FcitxKey_Escape) &&
+                  preedit().empty() && ic.committed == before,
+              "Escape clears the Stroke composition");
       state->close();
       state->clearPanel();
     }

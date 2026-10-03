@@ -3876,7 +3876,7 @@ int main(int argc, char **argv) {
     }
     invoke("Disable");
     require(!key('n'), "Disabled engine consumed input");
-    // Zhuyin and Vietnamese, each on an engine of its own so nothing above depends on what they leave behind. The injected options are the authority, so a scheme picked from the menu takes effect at once rather than through the store.
+    // Zhuyin, Vietnamese and Stroke, each on an engine of its own so nothing above depends on what they leave behind. The injected options are the authority, so a scheme picked from the menu takes effect at once rather than through the store.
     {
       const auto dictionaries = root / "language-dictionaries";
       std::filesystem::create_directory(dictionaries);
@@ -3903,8 +3903,8 @@ int main(int argc, char **argv) {
       // Zhuyin saved as the scheme while its dictionary is missing: host-api runs the last Chinese scheme instead, and the menu neither offers Zhuyin nor claims it is in use.
       restart();
       require(offered("Scheme/Quanpin") && offered("Scheme/Vietnamese") && !offered("Scheme/Zhuyin") &&
-                  !offered("Scheme/Cantonese"),
-              "The scheme menu offered Zhuyin without its dictionary");
+                  !offered("Scheme/Cantonese") && !offered("Scheme/Stroke"),
+              "The scheme menu offered Zhuyin or Stroke without its dictionary");
       require(checked("Scheme/Chinese") && checked("Scheme/Quanpin"),
               "The scheme menu did not mark the quanpin fallback of a missing Zhuyin dictionary");
       require(key('n') && seen.preedit == "n" && seen.lookup_visible && !seen.candidates.empty(),
@@ -3913,6 +3913,10 @@ int main(int argc, char **argv) {
       invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Zhuyin", PROP_STATE_CHECKED));
       require(key('n') && seen.preedit == "n" && seen.lookup_visible,
               "Zhuyin was selected without its dictionary");
+      invoke("Reset");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(key('n') && seen.preedit == "n" && seen.lookup_visible && !checked("Scheme/Stroke"),
+              "Stroke was selected without its dictionary");
       invoke("Reset");
       // With the dictionary installed the saved Zhuyin runs and is offered.
       const auto fixture = std::string("python3 '") + MSIME_ZHUYIN_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
@@ -3995,6 +3999,53 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(key('a') && seen.preedit == "a" && seen.committed == before,
               "The Vietnamese word survived the focus change");
+      invoke("Reset");
+      // Stroke: offered once stroke.db is installed and the options are read again, and chosen from the menu, which catches a Scheme/Stroke entry the PropertyActivate allowlist or the id mapping forgot.
+      const auto stroke_fixture =
+          std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
+      require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");
+      languages["preferences"]["scheme"] = "quanpin";
+      restart();
+      require(offered("Scheme/Stroke") && offered("Scheme/Zhuyin") && !checked("Scheme/Stroke") &&
+                  checked("Scheme/Quanpin"),
+              "The scheme menu did not offer Stroke with its dictionary installed");
+      invoke("PropertyActivate", g_variant_new("(su)", "Scheme/Stroke", PROP_STATE_CHECKED));
+      require(wait_until([&] { return checked("Scheme/Stroke") && checked("Scheme/Chinese"); }),
+              "The scheme menu did not select Stroke");
+      // Idle, only the five stroke letters start a composition: the wildcard x and any other letter go to the application.
+      before = seen.committed;
+      require(!key('x') && !seen.preedit_visible && !key('a') && !seen.preedit_visible && seen.committed == before,
+              "An idle Stroke wildcard or other letter was not left to the application");
+      // The raw preedit style draws the stroke glyphs the Engine puts in `reading` while editing_text stays the ASCII letters, so the printable-ASCII check of the raw style does not reject it.
+      require(key('h') && seen.preedit_visible && seen.preedit == "一" && seen.lookup_visible &&
+                  !seen.candidates.empty() && seen.candidates[0].rfind("一", 0) == 0,
+              "h did not compose the stroke 一");
+      require(key('s') && seen.preedit == "一丨" && seen.candidates.size() >= 3 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("木", 0) == 0 &&
+                  seen.candidates[2].rfind("古", 0) == 0,
+              "h s did not list 十 exactly and then its completions");
+      // Any other letter is swallowed while composing; the composition does not change.
+      require(key('q') && seen.preedit == "一丨" && seen.committed == before,
+              "A non-stroke letter changed the Stroke composition");
+      require(key(IBUS_space) && seen.committed == before + "十" && !seen.preedit_visible,
+              "Space did not commit the highlighted Stroke candidate");
+      // x is the wildcard while composing: h x lists the two-stroke codes before any longer one.
+      before = seen.committed;
+      require(key('h') && key('x') && seen.preedit == "一＊" && seen.candidates.size() >= 2 &&
+                  seen.candidates[0].rfind("十", 0) == 0 && seen.candidates[1].rfind("二", 0) == 0,
+              "The Stroke wildcard did not match any one stroke");
+      require(key('2') && seen.committed == before + "二" && !seen.preedit_visible,
+              "A digit did not pick the Stroke candidate");
+      // Backspace takes the last stroke off, Return writes the typed letters and Escape clears.
+      before = seen.committed;
+      require(key('h') && key('s') && key(IBUS_BackSpace) && seen.preedit == "一" && seen.committed == before,
+              "Backspace did not remove the last stroke");
+      require(key('s') && key(IBUS_Return) && seen.committed == before + "hs" && !seen.preedit_visible,
+              "Return did not commit the typed stroke letters");
+      before = seen.committed;
+      require(key('p') && key('n') && seen.preedit == "丿丶" && key(IBUS_Escape) && !seen.preedit_visible &&
+                  seen.committed == before,
+              "Escape did not clear the Stroke composition");
       invoke("Reset");
     }
     finish();
