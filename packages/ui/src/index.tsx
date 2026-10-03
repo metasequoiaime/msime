@@ -1273,6 +1273,10 @@ export {
   type SettingsManagerBlockProps,
 } from "./settings/settings-manager-block";
 export {
+  SettingsPreviewBlock,
+  type SettingsPreviewBlockProps,
+} from "./settings/settings-preview-block";
+export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";

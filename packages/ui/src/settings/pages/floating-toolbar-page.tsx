@@ -10,6 +10,7 @@ import { SelectRow } from "../select-row";
 import { SwitchRow } from "../switch-row";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsGroupBlock } from "../settings-group-block";
+import { SettingsPreviewBlock } from "../settings-preview-block";
 
 type FloatingToolbarOptionKey = keyof Pick<
   FloatingToolbarPreferences,
@@ -82,8 +83,7 @@ export function FloatingToolbarSettingsPage() {
     >
       {/* 预览放在页首：下面每一组改的都是它画出的内容。 */}
       <GroupList>
-        <div className={settings.groupPreview} aria-label="悬浮工具栏预览">
-          <div className={settings.panelPreviewLabel}>预览</div>
+        <SettingsPreviewBlock aria-label="悬浮工具栏预览">
           <div
             className={settings.skinCardPreview}
             data-skin-preview=""
@@ -105,7 +105,7 @@ export function FloatingToolbarSettingsPage() {
           >
             <SkinToolbarPreview preferences={floatingToolbar} />
           </div>
-        </div>
+        </SettingsPreviewBlock>
       </GroupList>
       <GroupList title="显示">
         <SwitchRow
