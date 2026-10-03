@@ -17,6 +17,21 @@ pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
     preedit
 }
 
+/// `after` 是 `before` 删掉一个字符的结果时返回被删掉的字符。网址只含 ASCII，按字节比较即可。
+fn url_removed_character(before: &str, after: &str) -> Option<char> {
+    if before.len() != after.len() + 1 {
+        return None;
+    }
+    let index = before
+        .bytes()
+        .zip(after.bytes())
+        .position(|(old, new)| old != new)
+        .unwrap_or(after.len());
+    let removed = before.as_bytes()[index];
+    let rebuilt = [&before.as_bytes()[..index], &before.as_bytes()[index + 1..]].concat();
+    (rebuilt == after.as_bytes()).then_some(removed as char)
+}
+
 impl InputSession {
     /// 专用英文的预编辑；临时日文是 `"R"` 加带大小写的原文；本地模式的预编辑；越南文和藏文是显示出来的文字；粤拼是按音节加空格的字母；其余是带大小写的原文，笔画里就是键入的 `hspnzx` 字母，与 reading 画出的笔画字形一一对应。
     pub(super) fn editing_text(&self) -> String {
@@ -176,6 +191,12 @@ impl InputSession {
             // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
             self.reset_composition();
             return KeyResult::handled();
+        } else if self.local_mode == LocalInputMode::Url
+            && url_removed_character(&self.local_preedit, text)
+                .is_some_and(|removed| self.url_reverts(text, removed))
+        {
+            // 光标处删掉一个字符与行末退格同一条规则：`www.` 左移后删掉 `.` 也退回组字。
+            self.restore_composition_from_url(text.to_owned());
         } else if self.local_mode != LocalInputMode::None
             && self.local_mode != LocalInputMode::TemporaryJapanese
         {

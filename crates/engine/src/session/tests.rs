@@ -4039,6 +4039,23 @@ fn url_wubi_backspace_never_clips_the_letters_and_undoes_the_s() {
 }
 
 #[test]
+fn url_caret_delete_of_the_trigger_restores_the_code() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "www");
+    type_url(&mut session, ".");
+    assert!(session.command(Command::MoveLeft).handled);
+    assert_eq!(session.snapshot().caret_position, 3);
+    // 光标处删掉触发键与行末退格同一条规则：退回组字，还能选回“众”。
+    assert!(session.command(Command::DeleteForward).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "www");
+    assert_eq!(snapshot.spelling_symbols, ".");
+    assert_eq!(words(&session), ["众"]);
+}
+
+#[test]
 fn url_backspace_keeps_the_mode_when_the_rest_is_not_lowercase_letters() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
@@ -4145,7 +4162,8 @@ fn url_caret_editing_reaches_the_first_character_and_an_empty_url_leaves_the_mod
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     type_text(&mut session, "www");
-    type_url(&mut session, ".a");
+    // 末尾用大写 `A`：删掉 `.` 后剩下的不全是小写字母，留在网址模式，才能删到空。
+    type_url(&mut session, ".A");
     session.command(Command::MoveHome);
     assert_eq!(session.snapshot().caret_position, 0);
     // 光标在中间时插入同样按网址规则：数字、符号接受，网址不收的键交还。
@@ -4153,13 +4171,13 @@ fn url_caret_editing_reaches_the_first_character_and_an_empty_url_leaves_the_mod
     assert!(session.character(b'\'', false).handled);
     assert!(session.character(b'\'', false).handled);
     assert!(!session.character(b'|', false).handled);
-    assert_eq!(session.snapshot().preedit, "1''www.a");
+    assert_eq!(session.snapshot().preedit, "1''www.A");
     session.command(Command::MoveHome);
     for _ in 0..7 {
         assert!(session.command(Command::DeleteForward).handled);
     }
     assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
-    assert_eq!(session.snapshot().preedit, "a");
+    assert_eq!(session.snapshot().preedit, "A");
     assert!(session.command(Command::DeleteForward).handled);
     let snapshot = session.snapshot();
     assert_eq!(snapshot.local_mode, LocalInputMode::None);
