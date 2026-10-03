@@ -4,6 +4,7 @@ import { SettingSectionTitle } from "./setting-section-title";
 import { type CredentialStatusMessageValue } from "./credential-status-message";
 import { PasswordSettingField } from "./password-setting-field";
 import { TextSettingField } from "./text-setting-field";
+import { SettingsInputDescription } from "./settings-input-description";
 
 export interface LinuxTencentCredentialStatus {
   tencent: { region: string } | null;
@@ -56,13 +57,13 @@ export function LinuxTencentCredentialsSection({
         description="由用户管理的 Linux provider 服务负责网络请求和凭据"
       />
       {!available ? (
-        <p className="input-setting-description">
+        <SettingsInputDescription>
           候选词翻译开启后，provider 从用户配置目录的 <code>tencent-provider.json</code>{" "}
           读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-        </p>
+        </SettingsInputDescription>
       ) : (
         <>
-          <p className="input-setting-description">{description}</p>
+          <SettingsInputDescription>{description}</SettingsInputDescription>
           <PasswordSettingField
             label="SecretId"
             inputLabel="腾讯云 SecretId"

@@ -1262,6 +1262,10 @@ export {
 } from "./community/community-publication-warning";
 export { CommunityNotice, type CommunityNoticeProps } from "./community/community-notice";
 export { SettingsGroupNote, type SettingsGroupNoteProps } from "./settings/settings-group-note";
+export {
+  SettingsInputDescription,
+  type SettingsInputDescriptionProps,
+} from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export {
   SettingsManagerNote,

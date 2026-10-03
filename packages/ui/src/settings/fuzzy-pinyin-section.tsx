@@ -4,6 +4,7 @@ import { SettingCheck } from "./setting-check";
 import { SettingSectionTitle } from "./setting-section-title";
 import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
+import { SettingsInputDescription } from "./settings-input-description";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -70,9 +71,9 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
         }}
       />
       <div className={settings.groupBlock} hidden={!preferences.enabled}>
-        <p className="input-setting-description">
+        <SettingsInputDescription>
           勾选容易混淆的读音后，会补充对应候选。关闭总开关会保留已选规则。
-        </p>
+        </SettingsInputDescription>
         {fuzzyPinyinGroups.map(([title, rules]) => (
           <div key={title} className="fuzzy-pinyin-group">
             <SettingSectionTitle as="div" title={title} />

@@ -18,6 +18,7 @@ import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
+import { SettingsInputDescription } from "../settings-input-description";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -100,9 +101,9 @@ export function DictionarySettingsPage() {
           </TextInputRow>
           <div className={settings.managerBlock}>
             {dictionaryPendingCount > 0 && (
-              <p className="input-setting-description" role="status">
+              <SettingsInputDescription role="status">
                 {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
-              </p>
+              </SettingsInputDescription>
             )}
             {dictionarySnapshotError && (
               <p role="alert" className="error">
