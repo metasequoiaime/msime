@@ -28,6 +28,7 @@ export const macosInputModeEntries: readonly ModeEntry[] = [
   { mode: "Wubi", name: "水杉输入法 · 五", scheme: "wubi", language: "简体中文" },
   { mode: "Cantonese", name: "水杉输入法 · 粤", scheme: "cantonese", language: "粤语" },
   { mode: "Zhuyin", name: "水杉输入法 · 注", scheme: "zhuyin", language: "繁体中文" },
+  { mode: "Stroke", name: "水杉输入法 · 笔画", scheme: "stroke", language: "简体中文" },
   { mode: "Japanese", name: "水杉输入法 · 日", scheme: "japanese", language: "日语" },
   { mode: "Korean", name: "水杉输入法 · 韩", scheme: "korean", language: "韩语" },
   { mode: "Vietnamese", name: "水杉输入法 · 越", scheme: "vietnamese", language: "越南语" },
@@ -85,7 +86,7 @@ export interface MacosInputModeEntriesSectionProps {
   client?: MacosInputModesClient;
   /** 当前（草稿里）的输入方案：它的入口还没加入时，这一行先说它。 */
   scheme: InputScheme;
-  /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音）不列出它的入口。 */
+  /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音、笔画）不列出它的入口。 */
   inputSchemes: readonly InputScheme[];
   onError: (message: string) => void;
 }
