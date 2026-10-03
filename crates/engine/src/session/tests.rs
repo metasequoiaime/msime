@@ -3534,6 +3534,27 @@ fn stroke_caret_edits_take_only_strokes() {
     assert_eq!(words(&session), ["土"]);
 }
 
+#[test]
+fn stroke_caret_insert_stops_at_the_stroke_limit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    let full = format!("{}z", "h".repeat(crate::stroke::MAX_STROKES - 1));
+    type_text(&mut session, &full);
+    assert_eq!(session.snapshot().editing_text, full);
+    assert!(session.command(Command::MoveHome).handled);
+    // 已满时在中间插入一笔被吞掉，不能挤掉末尾的「折」。
+    assert!(session.character(b's', false).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, full);
+    assert_eq!(snapshot.caret_position, 0);
+    // 删掉一笔后又能插入。
+    assert!(session.command(Command::DeleteForward).handled);
+    assert!(session.character(b's', false).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text.len(), crate::stroke::MAX_STROKES);
+    assert!(snapshot.editing_text.starts_with('s') && snapshot.editing_text.ends_with('z'));
+}
+
 /// A `zhuyin.db` with the rows the Zhuyin session tests read, written with the shipped schema.
 fn zhuyin_dictionary(directory: &Path) -> PathBuf {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
