@@ -41,7 +41,7 @@ public final class HostStore {
         return runtimeOption(context, "preferences_directory");
     }
 
-    /** The runtime options' `language_dictionaries` directory, the one the keyboard reads Cantonese and Zhuyin from, or an empty string when the configuration names none. */
+    /** The runtime options' `language_dictionaries` directory, the one the keyboard reads Cantonese, Zhuyin and Stroke from, or an empty string when the configuration names none. */
     public static String languageDictionaries(Context context) {
         return runtimeOption(context, "language_dictionaries");
     }

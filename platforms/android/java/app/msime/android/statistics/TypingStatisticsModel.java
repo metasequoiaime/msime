@@ -48,7 +48,7 @@ public final class TypingStatisticsModel {
     private static final Map<String, String> SOURCES = sources();
     private static final List<String> CHINESE_SOURCES = List.of(
         "quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi",
-        "cantonese", "zhuyin");
+        "cantonese", "zhuyin", "stroke");
 
     private final boolean enabled;
     private final long total;
@@ -302,6 +302,7 @@ public final class TypingStatisticsModel {
         titles.put("cantonese", "粤拼");
         titles.put("zhuyin", "注音");
         titles.put("vietnamese", "越南语");
+        titles.put("stroke", "笔画");
         titles.put("handwriting", "手写");
         titles.put("english", "英文键盘");
         titles.put("local", "本地输入");

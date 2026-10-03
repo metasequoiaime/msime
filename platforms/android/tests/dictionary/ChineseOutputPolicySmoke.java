@@ -10,12 +10,13 @@ public final class ChineseOutputPolicySmoke {
         check(!ChineseOutputPolicy.applies(false, 3, "none"));
         check(!ChineseOutputPolicy.applies(false, 4, "none"));
         check(!ChineseOutputPolicy.applies(false, 0, "temporary_japanese"));
-        // Cantonese and Zhuyin already write Traditional characters and Vietnamese is not Chinese; a scheme number this host does not know keeps the old answer.
+        // Cantonese and Zhuyin already write Traditional characters, Stroke commits the character it looked up, and Vietnamese is not Chinese; a scheme number this host does not know keeps the old answer.
         check(ChineseOutputPolicy.applies(false, 1, "none"));
         check(!ChineseOutputPolicy.applies(false, 5, "none"));
         check(!ChineseOutputPolicy.applies(false, 6, "none"));
         check(!ChineseOutputPolicy.applies(false, 7, "none"));
-        check(ChineseOutputPolicy.applies(false, 8, "none"));
+        check(!ChineseOutputPolicy.applies(false, 8, "none"));
+        check(ChineseOutputPolicy.applies(false, 9, "none"));
         check(ChineseOutputPolicy.applies(false, -1, "none"));
 
         // The shared tables are phrase-level, which is the reason this host stopped converting one

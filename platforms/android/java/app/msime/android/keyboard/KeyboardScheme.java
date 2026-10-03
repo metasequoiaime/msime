@@ -21,7 +21,9 @@ public enum KeyboardScheme {
     KOREAN("korean", "korean", null, "twenty_six_key", "韩语 26 键", "한", "26"),
     CANTONESE("cantonese", "cantonese", null, "twenty_six_key", "粤拼 26 键", "粤", "26"),
     ZHUYIN("zhuyin", "zhuyin", null, "twenty_six_key", "大千注音", "注", "大千"),
-    VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26");
+    VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26"),
+    // 笔画方案自己画五笔画键盘，偏好里的 26 键/9 键都显示它；与注音一样存 `twenty_six_key`，由宿主按方案号换面。
+    STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -76,19 +78,20 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** Cantonese, Zhuyin and Vietnamese start hidden and appear once the user turns them on, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` keeps them out of a document that never stored a list. */
+    /** Cantonese, Zhuyin, Vietnamese and Stroke start hidden and appear once the user turns them on, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` keeps them out of a document that never stored a list. */
     public boolean optIn() {
-        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE;
+        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE || this == STROKE;
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
     public String languageDictionary() {
         if (this == CANTONESE) return "cantonese.db";
         if (this == ZHUYIN) return "zhuyin.db";
+        if (this == STROKE) return "stroke.db";
         return null;
     }
 
-    /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory`: without its dictionary host-api falls back from Cantonese or Zhuyin, so offering the scheme would offer a keyboard that never takes effect. */
+    /** Whether this scheme can run with the HostOptions `language_dictionaries` directory `directory`: without its dictionary host-api falls back from Cantonese, Zhuyin or Stroke, so offering the scheme would offer a keyboard that never takes effect. */
     public boolean installed(String directory) {
         String dictionary = languageDictionary();
         if (dictionary == null) return true;
@@ -174,14 +177,14 @@ public enum KeyboardScheme {
         if (shuangpinProfile != null) profile = shuangpinProfile;
         String lastChinese = isChineseScheme(currentLastChineseScheme)
             ? currentLastChineseScheme : "quanpin";
-        // Japanese, Korean and Vietnamese keep the Chinese scheme to return to; none is one. Cantonese and Zhuyin are Chinese schemes and become it.
+        // Japanese, Korean and Vietnamese keep the Chinese scheme to return to; none is one. Cantonese, Zhuyin and Stroke are Chinese schemes and become it.
         if (isChineseScheme(engineScheme)) lastChinese = engineScheme;
         return new PreferenceMapping(engineScheme, lastChinese, profile, touchKeyboardLayout);
     }
 
     private static boolean isChineseScheme(String value) {
         return "quanpin".equals(value) || "shuangpin".equals(value) || "wubi".equals(value)
-            || "cantonese".equals(value) || "zhuyin".equals(value);
+            || "cantonese".equals(value) || "zhuyin".equals(value) || "stroke".equals(value);
     }
 
     private static String normalizedProfile(String value) {

@@ -9,7 +9,7 @@ public final class ChineseOutputPolicy {
 
     private ChineseOutputPolicy() {}
 
-    /** Only Quanpin, Shuangpin and Wubi commits are converted: Japanese, Korean and Vietnamese text is not Chinese, and Cantonese and Zhuyin already write Traditional characters. A scheme number this host does not know keeps the old answer and is converted. */
+    /** Only Quanpin, Shuangpin and Wubi commits are converted: Japanese, Korean and Vietnamese text is not Chinese, Cantonese and Zhuyin already write Traditional characters, and Stroke commits the very character its strokes looked up. A scheme number this host does not know keeps the old answer and is converted. */
     public static boolean applies(boolean dedicatedEnglish, int scheme, String localMode) {
         boolean schemeConverts = !InputSchemeTraits.known(scheme)
             || InputSchemeTraits.scriptConversionApplies(scheme);

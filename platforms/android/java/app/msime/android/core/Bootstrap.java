@@ -157,9 +157,9 @@ public final class Bootstrap {
     }
 
     /**
-     * The Cantonese and Zhuyin dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `cantonese.db` and `zhuyin.db` and names the directory in the runtime options.
+     * The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `cantonese.db`, `zhuyin.db` and `stroke.db` and names the directory in the runtime options.
      *
-     * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese and Zhuyin unavailable, never the keyboard without an Engine.
+     * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese, Zhuyin and Stroke unavailable, never the keyboard without an Engine.
      */
     private static void installLanguageDictionaries(Context context, File destination) {
         try {

@@ -22,14 +22,14 @@ public final class KeyboardSchemeSmoke {
     public static void main(String[] args) throws Exception {
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::title).toList().equals(List.of(
             "全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "韩语 26 键",
-            "粤拼 26 键", "大千注音", "越南语 26 键")));
+            "粤拼 26 键", "大千注音", "越南语 26 键", "笔画")));
         check(Arrays.stream(KeyboardScheme.values()).map(KeyboardScheme::preferenceId).toList().equals(List.of(
             "quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi",
             "japanese_nine_key", "japanese", "handwriting", "korean",
-            "cantonese", "zhuyin", "vietnamese")));
+            "cantonese", "zhuyin", "vietnamese", "stroke")));
         check(Arrays.stream(KeyboardScheme.values()).map(value -> value.glyph() + value.badge()).toList().equals(
             List.of("拼26", "拼9", "鹤双", "自双", "微双", "S双", "五86", "あ9", "あ26", "写手", "한26",
-                "粤26", "注大千", "越26")));
+                "粤26", "注大千", "越26", "笔5")));
         // 五笔只有一个方案入口，标题与角标跟随 `wubi_profile`；缺省和未知值按 86 版，其它方案不受影响。
         check(KeyboardScheme.normalizedWubiProfile("wubi98").equals("wubi98"));
         check(KeyboardScheme.normalizedWubiProfile("wubi86").equals("wubi86"));
@@ -100,17 +100,25 @@ public final class KeyboardSchemeSmoke {
         mapping(KeyboardScheme.VIETNAMESE, "wubi", "shoudao", "vietnamese", "wubi", "shoudao");
         mapping(KeyboardScheme.VIETNAMESE, "zhuyin", "xiaohe", "vietnamese", "zhuyin", "xiaohe");
         mapping(KeyboardScheme.JAPANESE, "cantonese", "xiaohe", "japanese", "cantonese", "xiaohe");
+        // Stroke is a Chinese scheme too: it becomes the one to return to, and a non-Chinese scheme keeps it.
+        mapping(KeyboardScheme.STROKE, "wubi", "shoudao", "stroke", "stroke", "shoudao");
+        mapping(KeyboardScheme.KOREAN, "stroke", "xiaohe", "korean", "stroke", "xiaohe");
+        check(KeyboardScheme.fromPreferences("stroke", "xiaohe", "twenty_six_key") == KeyboardScheme.STROKE);
+        check(KeyboardScheme.fromPreferences("stroke", "xiaohe", "nine_key") == KeyboardScheme.STROKE);
+        check(KeyboardScheme.fromPreferenceId("stroke") == KeyboardScheme.STROKE);
         check(KeyboardScheme.fromPreferences("cantonese", "xiaohe", "twenty_six_key") == KeyboardScheme.CANTONESE);
         check(KeyboardScheme.fromPreferences("zhuyin", "xiaohe", "nine_key") == KeyboardScheme.ZHUYIN);
         check(KeyboardScheme.fromPreferences("vietnamese", "xiaohe", "twenty_six_key") == KeyboardScheme.VIETNAMESE);
         check(KeyboardScheme.fromPreferenceId("zhuyin") == KeyboardScheme.ZHUYIN);
-        // Without a stored list the three newest schemes stay off; a stored list turns them on in the fixed order.
+        // Without a stored list the four newest schemes stay off; a stored list turns them on in the fixed order.
         List<KeyboardScheme> defaults = KeyboardScheme.enabledFromPreferenceIds(null);
         check(defaults.size() == 11 && !defaults.contains(KeyboardScheme.CANTONESE)
             && !defaults.contains(KeyboardScheme.ZHUYIN) && !defaults.contains(KeyboardScheme.VIETNAMESE)
-            && defaults.contains(KeyboardScheme.KOREAN));
+            && !defaults.contains(KeyboardScheme.STROKE) && defaults.contains(KeyboardScheme.KOREAN));
         check(Arrays.stream(KeyboardScheme.values()).filter(KeyboardScheme::optIn).toList().equals(List.of(
-            KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE)));
+            KeyboardScheme.CANTONESE, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.STROKE)));
+        check(KeyboardScheme.enabledFromPreferenceIds(List.of("stroke", "quanpin")).equals(List.of(
+            KeyboardScheme.QUANPIN, KeyboardScheme.STROKE)));
         List<KeyboardScheme> languages = KeyboardScheme.enabledFromPreferenceIds(List.of(
             "vietnamese", "zhuyin", "cantonese", "quanpin"));
         check(languages.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.CANTONESE,
@@ -118,6 +126,9 @@ public final class KeyboardSchemeSmoke {
         // A scheme is offered only when its dictionary is in the recorded directory; Vietnamese needs none.
         check(KeyboardScheme.CANTONESE.languageDictionary().equals("cantonese.db"));
         check(KeyboardScheme.ZHUYIN.languageDictionary().equals("zhuyin.db"));
+        check(KeyboardScheme.STROKE.languageDictionary().equals("stroke.db"));
+        check(!KeyboardScheme.STROKE.installed("") && !KeyboardScheme.STROKE.installed(null));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.STROKE), "").equals(List.of(KeyboardScheme.QUANPIN)));
         check(KeyboardScheme.VIETNAMESE.languageDictionary() == null && KeyboardScheme.QUANPIN.languageDictionary() == null);
         check(KeyboardScheme.VIETNAMESE.installed("") && KeyboardScheme.KOREAN.installed(null));
         check(!KeyboardScheme.CANTONESE.installed("") && !KeyboardScheme.ZHUYIN.installed(null));
@@ -128,13 +139,24 @@ public final class KeyboardSchemeSmoke {
         try {
             Files.write(directory.resolve("zhuyin.db"), new byte[] {1});
             String recorded = directory.toAbsolutePath().toString();
-            check(KeyboardScheme.ZHUYIN.installed(recorded) && !KeyboardScheme.CANTONESE.installed(recorded));
+            check(KeyboardScheme.ZHUYIN.installed(recorded) && !KeyboardScheme.CANTONESE.installed(recorded)
+                && !KeyboardScheme.STROKE.installed(recorded));
             check(!KeyboardScheme.ZHUYIN.installed("relative/" + directory.getFileName()));
             check(KeyboardScheme.installedOf(languages, recorded).equals(List.of(
                 KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE)));
             check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN, "cantonese",
                 KeyboardScheme.installedOf(languages, recorded)) == KeyboardScheme.QUANPIN);
+            // stroke.db alone makes Stroke available and nothing else.
+            Files.write(directory.resolve("stroke.db"), new byte[] {1});
+            check(KeyboardScheme.STROKE.installed(recorded) && !KeyboardScheme.STROKE.installed("relative/stroke"));
+            List<KeyboardScheme> withStroke = KeyboardScheme.enabledFromPreferenceIds(List.of(
+                "stroke", "cantonese", "quanpin"));
+            check(KeyboardScheme.installedOf(withStroke, recorded).equals(List.of(
+                KeyboardScheme.QUANPIN, KeyboardScheme.STROKE)));
+            check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN, "stroke",
+                KeyboardScheme.installedOf(withStroke, recorded)) == KeyboardScheme.STROKE);
         } finally {
+            Files.deleteIfExists(directory.resolve("stroke.db"));
             Files.deleteIfExists(directory.resolve("zhuyin.db"));
             Files.deleteIfExists(directory);
         }

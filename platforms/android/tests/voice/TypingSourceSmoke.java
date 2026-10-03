@@ -23,6 +23,9 @@ public final class TypingSourceSmoke {
         check(TypingSource.resolve(KeyboardScheme.VIETNAMESE, false, null) == TypingSource.VIETNAMESE
             && TypingSource.VIETNAMESE.id().equals("vietnamese"));
         check(TypingSource.resolve(KeyboardScheme.VIETNAMESE, true, null) == TypingSource.ENGLISH);
+        check(TypingSource.resolve(KeyboardScheme.STROKE, false, null) == TypingSource.STROKE
+            && TypingSource.STROKE.id().equals("stroke"));
+        check(TypingSource.resolve(KeyboardScheme.STROKE, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.HANDWRITING, false, null) == TypingSource.HANDWRITING);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, null) == TypingSource.ENGLISH);
         check(TypingSource.resolve(KeyboardScheme.QUANPIN, true, "emoji") == TypingSource.LOCAL);

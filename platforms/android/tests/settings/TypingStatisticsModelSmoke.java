@@ -55,7 +55,7 @@ public final class TypingStatisticsModelSmoke {
         check(TypingStatisticsModel.sum(kinds) == model.total(), "kinds sum to the total");
 
         List<Slice> schemes = model.slices(Section.SCHEME, null);
-        check(schemes.size() == 19 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
+        check(schemes.size() == 20 && "quanpin".equals(schemes.get(0).id()), "schemes are ordered");
         check("korean".equals(schemes.get(8).id()) && "韩语".equals(schemes.get(8).title())
             && schemes.get(8).count() == 10, "Korean is its own source, after Japanese");
         check(TypingStatisticsModel.sum(schemes) == model.total(), "schemes sum to the total");
@@ -68,14 +68,15 @@ public final class TypingStatisticsModelSmoke {
             "handwriting is its own mode rather than being dropped");
         check(TypingStatisticsModel.sum(modes) == model.total(), "modes sum to the total");
 
-        // Cantonese and Zhuyin are Chinese schemes and fold into 中文模式; Vietnamese is a language of its own.
-        TypingStatisticsModel languages = new TypingStatisticsModel(true, 60, "90d", Map.of(), Map.of(),
-            Map.of("cantonese", 10L, "zhuyin", 20L, "vietnamese", 30L), Map.of(), Map.of(), Map.of());
+        // Cantonese, Zhuyin and Stroke are Chinese schemes and fold into 中文模式; Vietnamese is a language of its own.
+        TypingStatisticsModel languages = new TypingStatisticsModel(true, 100, "90d", Map.of(), Map.of(),
+            Map.of("cantonese", 10L, "zhuyin", 20L, "vietnamese", 30L, "stroke", 40L), Map.of(), Map.of(), Map.of());
         List<Slice> languageSchemes = languages.slices(Section.SCHEME, null);
         check("粤拼".equals(title(languageSchemes, "cantonese")) && "注音".equals(title(languageSchemes, "zhuyin"))
-            && "越南语".equals(title(languageSchemes, "vietnamese")), "the new schemes carry their own titles");
+            && "越南语".equals(title(languageSchemes, "vietnamese")) && "笔画".equals(title(languageSchemes, "stroke")),
+            "the new schemes carry their own titles");
         List<Slice> languageModes = languages.slices(Section.MODE, null);
-        check(count(languageModes, "chinese") == 30 && count(languageModes, "vietnamese") == 30
+        check(count(languageModes, "chinese") == 70 && count(languageModes, "vietnamese") == 30
             && "越南语模式".equals(title(languageModes, "vietnamese")), "Vietnamese is its own mode rather than Chinese");
         check(TypingStatisticsModel.sum(languageModes) == languages.total(), "language modes sum to the total");
 
