@@ -211,6 +211,21 @@ def check_setup(harness: Harness) -> None:
     assert leftovers(state) == [], leftovers(state)
     assert (harness.staged(Path(options(state)["resources"])) / "b.db").read_bytes() == harness.current["b.db"]
 
+    # A replaced access lock must not redirect the update's exclusive lock to an
+    # unrelated file. The host and setup script share this lock, so accepting a
+    # symlink here would let a hostile state directory make the refresh wait on
+    # or lock an external inode.
+    state = harness.installed("state-linked-access-lock")
+    access_lock = state / "user/.msime-dictionary-access.lock"
+    outside_lock = harness.scratch / "outside-access.lock"
+    outside_lock.write_bytes(b"keep")
+    access_lock.symlink_to(outside_lock)
+    result = harness.run("--update", "--download", "--state", str(state))
+    assert result.returncode == 1, result
+    assert "切换词库失败" in result.stderr, result.stderr
+    assert outside_lock.read_bytes() == b"keep"
+    assert harness.prepare_calls() == []
+
     # Without --download an outdated dictionary is reported and left alone, and nothing switches.
     state = harness.installed("state-no-download")
     before = (state / "runtime-options.json").read_bytes()

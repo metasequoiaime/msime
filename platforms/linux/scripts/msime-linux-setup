@@ -362,7 +362,8 @@ def hosts_held_off(user_data: Path):
     try:
         publish()
         renewer.start()
-        descriptor = os.open(user_data / ACCESS_LOCK, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        descriptor = os.open(user_data / ACCESS_LOCK,
+                             os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
         deadline = time.monotonic() + QUIESCE_BUDGET
         while True:
             try:
