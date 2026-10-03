@@ -1283,6 +1283,7 @@ export {
   type SettingsShortcutKeyProps,
 } from "./settings/settings-shortcut-key";
 export { SkinCardHeader, type SkinCardHeaderProps } from "./skin/skin-card-header";
+export { SkinPreviewStage, type SkinPreviewStageProps } from "./skin/skin-preview-stage";
 export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,

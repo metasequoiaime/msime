@@ -10,6 +10,7 @@ import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 import * as settings from "../settings/settings-style";
 import { SettingsPreviewBlock } from "../settings/settings-preview-block";
+import { SkinPreviewStage } from "../skin/skin-preview-stage";
 import { defaultHelpcode } from "../settings/pages/helpcode-page";
 import {
   customCandidateStyle,
@@ -85,7 +86,7 @@ export function AppearanceCandidatePreview({
           }}
           aria-hidden="true"
         >
-          <div className={settings.skinPreviewStage} data-skin-stage="">
+          <SkinPreviewStage>
             <ReservedCandidatePreview
               reserve={reserve}
               orientation={preferences.candidate_layout ?? "vertical"}
@@ -93,7 +94,7 @@ export function AppearanceCandidatePreview({
               preedit={preferences.candidate_preedit_style !== "empty"}
               helpcode={helpcode}
             />
-          </div>
+          </SkinPreviewStage>
         </div>
       ) : (
         <ExternalAppearancePreview

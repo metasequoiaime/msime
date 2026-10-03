@@ -7,6 +7,7 @@ import { useSelectedBarPalette } from "./skin-palette";
 export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
 import { SkinCardHeader } from "./skin-card-header";
+import { SkinPreviewStage } from "./skin-preview-stage";
 import * as settings from "../settings/settings-style";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
@@ -284,7 +285,7 @@ export function ExternalSkinCard({
         aria-hidden="true"
       >
         <div className={settings.skinCandidateStages}>
-          <div className={settings.skinPreviewStage} data-skin-stage="">
+          <SkinPreviewStage>
             <SkinCandidatePreview
               orientation="horizontal"
               decorated={decorated}
@@ -293,8 +294,8 @@ export function ExternalSkinCard({
               background={background.drawn}
               onBackgroundError={background.onError}
             />
-          </div>
-          <div className={settings.skinPreviewStage} data-skin-stage="">
+          </SkinPreviewStage>
+          <SkinPreviewStage>
             <SkinCandidatePreview
               orientation="vertical"
               decorated={decorated}
@@ -303,13 +304,13 @@ export function ExternalSkinCard({
               background={background.drawn}
               onBackgroundError={background.onError}
             />
-          </div>
+          </SkinPreviewStage>
+          {toolbarPreview && (
+            <SkinPreviewStage>
+              <SkinToolbarPreview />
+            </SkinPreviewStage>
+          )}
         </div>
-        {toolbarPreview && (
-          <div className={settings.skinPreviewStage} data-skin-stage="">
-            <SkinToolbarPreview />
-          </div>
-        )}
       </div>
       {paletteFailed && (
         <p role="status" className={note}>

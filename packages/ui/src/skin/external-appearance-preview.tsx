@@ -24,6 +24,7 @@ import { candidateFamilyStyle } from "../candidate/candidate-font-family";
 import { candidateOpacityPercent, candidateWindowStyle } from "../candidate/candidate-window-style";
 import * as settings from "../settings/settings-style";
 import { ActionButton } from "../core/action-button";
+import { SkinPreviewStage } from "./skin-preview-stage";
 
 /** The host's own `resolve()` answer for `request`, when the host has a theme call; `undefined` until it arrives, when it fails, and for a request it was not asked for. */
 function useResolvedTheme(
@@ -117,7 +118,7 @@ function LoadedPreview({
         data-font-size={candidateFontSize(preferences.candidate_font_size)}
         aria-hidden="true"
       >
-        <div className={settings.skinPreviewStage} data-skin-stage="">
+        <SkinPreviewStage>
           <ReservedCandidatePreview
             reserve={reserve}
             orientation={layout}
@@ -130,7 +131,7 @@ function LoadedPreview({
             background={drawnBackground}
             onBackgroundError={background.onError}
           />
-        </div>
+        </SkinPreviewStage>
       </div>
       {paletteFailed && <p role="status">当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。</p>}
       {(image?.failed || decodeFailed || background.failed) && (

@@ -13,6 +13,7 @@ import {
 import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
 import { SkinCardHeader } from "../../skin/skin-card-header";
+import { SkinPreviewStage } from "../../skin/skin-preview-stage";
 import {
   ExternalSkinCard,
   ExternalSkinDirectoryRow,
@@ -202,28 +203,28 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
                   aria-hidden="true"
                 >
                   <div className={settings.skinCandidateStages}>
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
+                    <SkinPreviewStage>
                       <SkinCandidatePreview orientation="horizontal" />
-                    </div>
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
+                    </SkinPreviewStage>
+                    <SkinPreviewStage>
                       <SkinCandidatePreview orientation="vertical" />
-                    </div>
+                    </SkinPreviewStage>
                   </div>
                   {/* A touch host has no floating toolbar; the theme's other surface there is the keyboard, which the 键盘 page used to show a second set of these cards for. */}
                   {mobilePlatform ? (
-                    <div className={settings.skinPreviewStage} data-skin-stage="">
+                    <SkinPreviewStage>
                       <ScreenKeyboardPreview
                         theme={previewTheme}
                         skin={id === "custom" ? keyboardThemeId("custom", draft.custom_theme) : id}
                         customDesign={id === "custom" ? customTouchKeyboardSkin : undefined}
                         compact
                       />
-                    </div>
+                    </SkinPreviewStage>
                   ) : (
                     !linuxPlatform && (
-                      <div className={settings.skinPreviewStage} data-skin-stage="">
+                      <SkinPreviewStage>
                         <SkinToolbarPreview />
-                      </div>
+                      </SkinPreviewStage>
                     )
                   )}
                 </div>
