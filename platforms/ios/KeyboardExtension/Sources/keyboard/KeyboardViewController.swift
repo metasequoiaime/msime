@@ -1890,17 +1890,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Unicode mode reads a hexadecimal code point, so while it is open its digits are input rather
-    // than candidate numbers. Its letters already reach the session through handleCharacter.
-    if session.isInUnicodeMode, symbol.count == 1, symbol >= "0", symbol <= "9" {
-      render(session.handleCharacter(symbol))
-      return
-    }
-
     // Zhuyin spells with the digit row and with , . / ; -, so the symbol panel cannot hand its keys to the Engine: they would type ㄅ or ㄝ or pick a list row. The panel commits the conversion and types the mark itself, as the key draws it: the Chinese face for an ASCII mark that has one while Chinese punctuation is on, the ASCII mark otherwise.
     if typesZhuyin {
       render(session.finishComposition())
       insertDirectText(Self.zhuyinSymbolText(symbol, chinesePunctuation: zhuyinWritesChinesePunctuation))
+      return
+    }
+
+    // 组字中或本地模式里 Engine 列为拼写的符号是输入，要在数字选候选和标点路由之前作为字符交给会话：U 模式的十六进制数字、网址模式的数字和网址符号、`www` 之后的 `.`。注音在上面单独处理，面板上的键对它不是注音键。
+    if session.engineSpellsWhileComposing(symbol) {
+      render(session.handleCharacter(symbol))
       return
     }
 

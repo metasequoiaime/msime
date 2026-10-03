@@ -284,6 +284,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
   var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
 
+  /// 组字中或本地模式里，Engine 把这个单个 ASCII 符号列在 `spelling_symbols` 里时它是 Engine 的输入，要作为字符交给会话，而不是选候选或标点：网址模式的数字和网址符号、`www` 之后的 `.`、U 模式的十六进制数字。没有组字时列出的 `/` 和 `@` 不在此列。
+  func engineSpellsWhileComposing(_ symbol: String) -> Bool {
+    guard symbol.count == 1, let scalar = symbol.unicodeScalars.first,
+          scalar.value > 0x20, scalar.value < 0x7f,
+          let current = try? view() else { return false }
+    let mode = current["local_mode"] as? String ?? "none"
+    let editing = current["editing_text"] as? String ?? ""
+    let symbols = current["spelling_symbols"] as? String ?? ""
+    return (mode != "none" || !editing.isEmpty) && symbols.contains(symbol)
+  }
+
   /// Reload the canonical PreferencesStore written by the Tauri settings host.
   /// Disk and lock work stays off the keyboard thread; the accepted snapshot is
   /// applied on the session's owning (main) thread before the callback returns.

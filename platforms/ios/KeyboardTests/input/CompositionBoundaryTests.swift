@@ -28,6 +28,25 @@ final class CompositionBoundaryTests: XCTestCase {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .deactivate), .finishComposition)
   }
 
+  /// 网址模式里数字和网址符号是 Engine 的输入：符号面板据此把它们作为字符交给会话，而不是选候选或结束组字。
+  func testUrlModeDigitsAreEngineInputNotCandidatePicks() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    for letter in ["w", "w", "w"] { _ = bridge.handleCharacter(letter) }
+    XCTAssertTrue(bridge.engineSpellsWhileComposing("."), "the . after www opens the URL mode")
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("1"), "a digit still picks before the URL mode opens")
+    for symbol in [".", "1", "6", "3", ".", "c", "o", "m", ":", "8", "0"] {
+      if symbol.first!.isLetter {
+        _ = bridge.handleCharacter(symbol)
+      } else {
+        XCTAssertTrue(bridge.engineSpellsWhileComposing(symbol), symbol)
+        XCTAssertTrue(bridge.handleCharacter(symbol).isHandled, symbol)
+      }
+    }
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("<"), "< ends the URL")
+    XCTAssertEqual(bridge.commitRaw().commitText, "www.163.com:80")
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("/"), "with nothing composed / stays on the punctuation route")
+  }
+
   /// A Korean syllable is text already: Return commits it raw so the newline still follows, and every other boundary finishes it.
   func testKoreanCommitsTheSyllableAtEveryBoundary() {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .korean, boundary: .returnKey), .none)
