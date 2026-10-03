@@ -48,6 +48,9 @@ public final class NumberRowSelectionPolicySmoke {
             "where digits are spelled, a digit key printing an unlisted mark picks");
         check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, false, true, "none", ".", '1') == 0,
             "a digit still picks when only the URL trigger is listed");
+        // 注音选单打开时 Engine 只列出 `0`：Shift+1 的数字没被列出，仍打出全角符号，不选词（与 macOS 逐键判断一致）。
+        check(NumberRowSelectionPolicy.slotForKeyCode(KeyEvent.KEYCODE_1, true, true, "none", "0,./;-", '!') == -1,
+            "Zhuyin list open: Shift+1 types its mark");
 
         // 组字中或本地模式里列出的字符交给 Engine；没有组字时列出的 `/` `@` 不在此列。
         check(NumberRowSelectionPolicy.engineSpells("none", "www", ".", '.'), ". after www is input");

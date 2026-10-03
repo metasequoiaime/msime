@@ -36,7 +36,7 @@ public final class NumberRowSelectionPolicy {
     }
 
     /**
-     * The candidate slot this key picks, or {@link #NONE}. 与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 同一套规则：U 模式按键位，Shift+数字选词、裸数字是十六进制；其他状态下 Engine 列为拼写的字符是输入；Engine 把数字列为拼写时（V、网址模式），打出别的字符的数字键（Shift+1 的 `!` 没被列出时）带不带 Shift 都选词；其余状态裸数字选词。
+     * The candidate slot this key picks, or {@link #NONE}. 与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 同一套规则：U 模式按键位，Shift+数字选词、裸数字是十六进制；其他状态下 Engine 列为拼写的字符是输入；Engine 把这个键的数字列为拼写时（V、网址模式），打出别的字符的数字键（Shift+1 的 `!` 没被列出时）带不带 Shift 都选词；其余状态裸数字选词。
      *
      * @param localMode the active local input mode from the shared view, `none` when there is none
      * @param spellingSymbols View.spelling_symbols
@@ -52,7 +52,8 @@ public final class NumberRowSelectionPolicy {
         if (UNICODE_MODE.equals(localMode)) return shift ? slot : NONE;
         String symbols = spellingSymbols == null ? "" : spellingSymbols;
         if (unicode > 0x20 && unicode < 0x7f && symbols.indexOf((char) unicode) >= 0) return NONE;
-        if (symbols.matches("(?s).*[0-9].*")) return slot;
+        // 只看这个键自己的数字是否被列为拼写，与 macOS 的 ShouldRouteSpellingShiftCandidateDigit 一致：注音选单打开时只列出 `0`，Shift+1..9 仍打出全角符号。
+        if (symbols.indexOf((char) ('1' + slot)) >= 0) return slot;
         return shift ? NONE : slot;
     }
 }
