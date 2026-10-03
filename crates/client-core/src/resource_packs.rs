@@ -18,6 +18,9 @@ const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.l
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 
+/// 读语言词库包里 `<方案>.db` 的输入方案，即偏好里的方案名。
+const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ResourcePack {
@@ -52,11 +55,21 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
     }
 
-    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。
+    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `<方案>.db` 的方案：词库还没发布的方案（例如锁文件补上 `stroke.db` 之前的笔画）下载了也装不上，不能当作由这个包提供。
     pub fn schemes(self) -> &'static [&'static str] {
+        static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
             ResourcePack::Japanese => &["japanese"],
-            ResourcePack::LanguageDictionaries => &["cantonese", "zhuyin", "stroke"],
+            ResourcePack::LanguageDictionaries => LANGUAGE_SCHEMES.get_or_init(|| {
+                let pinned = &self.set().artifacts;
+                LANGUAGE_DICTIONARY_SCHEMES
+                    .into_iter()
+                    .filter(|scheme| {
+                        let file = format!("{scheme}.db");
+                        pinned.iter().any(|artifact| artifact.name == file)
+                    })
+                    .collect()
+            }),
             ResourcePack::Handwriting => &[],
         }
     }
@@ -259,6 +272,18 @@ mod tests {
     }
 
     #[test]
+    fn the_language_pack_offers_exactly_the_schemes_whose_dictionary_is_pinned() {
+        let pinned: Vec<&str> = ResourcePack::LanguageDictionaries
+            .set()
+            .artifacts
+            .iter()
+            .filter_map(|artifact| artifact.name.strip_suffix(".db"))
+            .collect();
+        assert_eq!(ResourcePack::LanguageDictionaries.schemes(), pinned);
+        assert!(pinned.contains(&"cantonese") && pinned.contains(&"zhuyin"));
+    }
+
+    #[test]
     fn the_japanese_pack_is_exactly_the_desktop_lock_subset() {
         let desktop: ResourceSet = serde_json::from_str(DESKTOP_LOCK).unwrap();
         let japanese = ResourcePack::Japanese.set();
@@ -387,7 +412,10 @@ mod tests {
         assert!(statuses
             .iter()
             .all(|status| status.state == PackState::Missing));
-        assert_eq!(statuses[1].schemes, ["cantonese", "zhuyin", "stroke"]);
+        assert_eq!(
+            statuses[1].schemes,
+            ResourcePack::LanguageDictionaries.schemes()
+        );
         assert_eq!(statuses[2].size, ResourcePack::Handwriting.size());
 
         let directory = publish_fake(state.path(), ResourcePack::Handwriting);

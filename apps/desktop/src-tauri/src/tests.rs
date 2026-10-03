@@ -300,6 +300,30 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
 }
 
 #[test]
+fn macos_offers_only_the_language_schemes_its_download_can_install() {
+    use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
+    use msime_client_core::preferences::InputScheme;
+    use msime_client_core::resource_packs::ResourcePack;
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    super::drop_unpinned_language_schemes(&mut capabilities);
+    let pinned = ResourcePack::LanguageDictionaries.schemes();
+    for (scheme, name) in [
+        (InputScheme::Cantonese, "cantonese"),
+        (InputScheme::Zhuyin, "zhuyin"),
+        (InputScheme::Stroke, "stroke"),
+    ] {
+        assert_eq!(
+            capabilities.input_schemes.contains(&scheme),
+            pinned.contains(&name),
+            "{name}"
+        );
+    }
+    // 其余方案不需要语言词库，不受影响。
+    assert!(capabilities.input_schemes.contains(&InputScheme::Quanpin));
+    assert!(capabilities.input_schemes.contains(&InputScheme::Tibetan));
+}
+
+#[test]
 fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_not_name() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
     use msime_client_core::preferences::InputScheme;

@@ -191,8 +191,10 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选。
-    if !cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
+    if cfg!(target_os = "macos") {
+        drop_unpinned_language_schemes(&mut capabilities);
+    } else {
         drop_uninstalled_language_schemes(
             &mut capabilities,
             host_options.as_ref(),
@@ -240,6 +242,22 @@ fn drop_uninstalled_language_schemes(
         directory
             .as_deref()
             .is_some_and(|directory| directory.join(dictionary).is_file())
+    });
+}
+
+/// macOS 按需下载语言词库包：包里没有某方案的词库（锁文件还没固定它）时，选了它 host-api 也只会退回别的方案，所以设置页不列出它。
+fn drop_unpinned_language_schemes(capabilities: &mut HostCapabilities) {
+    use msime_client_core::preferences::InputScheme;
+    use msime_client_core::resource_packs::ResourcePack;
+    let pinned = ResourcePack::LanguageDictionaries.schemes();
+    capabilities.input_schemes.retain(|scheme| {
+        let name = match scheme {
+            InputScheme::Cantonese => "cantonese",
+            InputScheme::Zhuyin => "zhuyin",
+            InputScheme::Stroke => "stroke",
+            _ => return true,
+        };
+        pinned.contains(&name)
     });
 }
 
