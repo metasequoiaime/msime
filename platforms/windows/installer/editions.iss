@@ -12,6 +12,8 @@
 #define MyEditionWatchdogTask "Metasequoia IME Watchdog"
 #define MyEditionInstallerBaseName "MetasequoiaIME_Setup"
 #define MyEditionDataDirMarker ".metasequoiaime-data"
+#define MyOtherEditionRegistryKeys "Software\Metasequoia\MetasequoiaIME-Pinyin|Software\Metasequoia\MetasequoiaIME-Wubi"
+#define MyOtherEditionInstallDirs "metasequoiaime-pinyin|metasequoiaime-wubi"
 #elif Edition == "pinyin"
 #define MyEditionIsFull 0
 #define MyEditionAppName "Metasequoia IME 水杉拼音"
@@ -22,6 +24,8 @@
 #define MyEditionWatchdogTask "Metasequoia IME Watchdog (Pinyin)"
 #define MyEditionInstallerBaseName "MetasequoiaIME-Pinyin_Setup"
 #define MyEditionDataDirMarker ".metasequoiaime-data.pinyin"
+#define MyOtherEditionRegistryKeys "Software\Metasequoia\MetasequoiaIME|Software\Metasequoia\MetasequoiaIME-Wubi"
+#define MyOtherEditionInstallDirs "metasequoiaime|metasequoiaime-wubi"
 #elif Edition == "wubi"
 #define MyEditionIsFull 0
 #define MyEditionAppName "Metasequoia IME 水杉五笔"
@@ -32,6 +36,8 @@
 #define MyEditionWatchdogTask "Metasequoia IME Watchdog (Wubi)"
 #define MyEditionInstallerBaseName "MetasequoiaIME-Wubi_Setup"
 #define MyEditionDataDirMarker ".metasequoiaime-data.wubi"
+#define MyOtherEditionRegistryKeys "Software\Metasequoia\MetasequoiaIME|Software\Metasequoia\MetasequoiaIME-Pinyin"
+#define MyOtherEditionInstallDirs "metasequoiaime|metasequoiaime-pinyin"
 #else
 #error Unknown edition; use /DEdition= one of full, pinyin, wubi
 #endif

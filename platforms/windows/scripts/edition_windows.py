@@ -180,6 +180,10 @@ def inno_text(table: dict) -> str:
     lines = ["#ifndef Edition", '#define Edition "full"', "#endif"]
     # 所有版本的标记文件名都以它开头。安装器拿它找目录里别的版本的标记：带着别的版本标记的目录，哪怕是本版本的默认数据目录，也不归本版本管。
     lines.append(f'#define MyDataDirMarkerPrefix "{DATA_DIR_MARKER_PREFIX}"')
+    for entry in editions:
+        for key in ("registry_key", "install_dir"):
+            if "|" in entry["platforms"]["windows"][key] or "'" in entry["platforms"]["windows"][key]:
+                raise SystemExit(f"edition {entry['id']}: {key} contains | or a single quote, which the installer's list of other editions cannot hold")
     for index, entry in enumerate(editions):
         windows = entry["platforms"]["windows"]
         lines.append(("#if" if index == 0 else "#elif") + f' Edition == "{entry["id"]}"')
@@ -194,6 +198,9 @@ def inno_text(table: dict) -> str:
             ("MyEditionWatchdogTask", windows["watchdog_task"]),
             ("MyEditionInstallerBaseName", windows["installer_base_name"]),
             ("MyEditionDataDirMarker", data_dir_marker(entry)),
+            # 别的版本的 HKLM 键和安装目录名（默认数据目录是 %LOCALAPPDATA% 下的同名目录），两个列表按同一顺序以 | 分隔。几个版本可以同时安装，安装器拿它们找出别的版本已登记或将来会用的数据目录：本版本的数据目录不能和它们互相嵌套，否则外层的版本卸载或更换数据目录时会递归删掉里层版本还在用的目录。
+            ("MyOtherEditionRegistryKeys", "|".join(other["platforms"]["windows"]["registry_key"] for other in editions if other is not entry)),
+            ("MyOtherEditionInstallDirs", "|".join(other["platforms"]["windows"]["install_dir"] for other in editions if other is not entry)),
         ]
         for name, value in definitions:
             if '"' in value:

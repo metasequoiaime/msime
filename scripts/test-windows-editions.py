@@ -4,7 +4,7 @@
 版本表 `shared/contracts/editions.json` 的 `platforms.windows` 段经 `platforms/windows/scripts/edition_windows.py gen` 变成两个提交进仓库的文件：C++ 读的 `shared/contracts/msime_edition.h` 和 Inno Setup 读的 `platforms/windows/installer/editions.iss`。这里检查：
 
 - 两个生成文件与版本表一致（等同于 `edition_windows.py gen --check`）；
-- `installer/msime_setup.iss` 用一个只覆盖本脚本用到的那部分 ISPP 语法的预处理器按每个版本展开：每个版本的结果里出现本版本的 AppId、CLSID、安装目录、注册表键和看门狗任务名，不出现任何别的版本的；所有版本（包括 full）都只结束可执行文件在本安装 server 目录里的进程，不按映像名结束（`taskkill /IM` 会停掉同时安装的其他版本）；所有版本的数据目录所有权都只认本版本的标记，目录里有别的版本的标记就不归它管，即使那是它的默认数据目录；不是 full 的版本的所有权标记还带着自己的版本 id；
+- `installer/msime_setup.iss` 用一个只覆盖本脚本用到的那部分 ISPP 语法的预处理器按每个版本展开：每个版本的结果里出现本版本的 AppId、CLSID、安装目录、注册表键和看门狗任务名，不出现任何别的版本的，唯一的例外是 OtherEditionDataDirs 里别的全部版本的注册表键和安装目录名（安装器拿它们找出别的版本的数据目录，本版本的数据目录不能和它们重叠或互相包含）；所有版本（包括 full）都只结束可执行文件在本安装 server 目录里的进程，不按映像名结束（`taskkill /IM` 会停掉同时安装的其他版本）；所有版本的数据目录所有权都只认本版本的标记，目录里有别的版本的标记就不归它管，即使那是它的默认数据目录；不是 full 的版本的所有权标记还带着自己的版本 id；
 - full 的展开结果里没有任何只属于其他版本的写法，full 的标识（AppId、CLSID、名称、路径、注册表键、看门狗任务名）一个不变。full 的展开与引入版本之前的脚本相比只有两处不同，都是为了几个版本同时安装时互不越界：结束进程从按映像名改为按本安装的 server 目录，数据目录所有权多了「目录里没有别的版本的标记」这一条件（full 的标记文件名和内容不变，以前的 full 写下的标记照样认）。除此之外是「把字面量换成值相同的宏」，这一点在引入时用同一个预处理器对照旧脚本核对过；之后对安装脚本的普通修改照常进行，这里不冻结它的内容；
 - Windows 原生代码和 Rust 侧不再自己写 full 的 CLSID、管道名和状态目录名：这些名字只能出现在生成的头文件、版本表和本检查允许的地方，否则某个版本会悄悄用上 full 的名字。
 
@@ -194,6 +194,16 @@ def check_installer(errors: list[str], editions: list[dict]) -> None:
         edition_id = entry["id"]
         output = outputs[edition_id]
         own = identifiers(entry["platforms"]["windows"])
+        # 别的版本的注册表键和安装目录名只能出现在 OtherEditionDataDirs 的名单里：安装器拿它找出别的版本的数据目录，拒绝和它们重叠或互相包含的数据目录，也不在卸载、换目录时删掉嵌在本版本目录里的它们。名单必须恰好是别的全部版本，按版本表的顺序。
+        others = [other["platforms"]["windows"] for other in editions if other["id"] != edition_id]
+        sibling_lines = [
+            "    RegistryKeys := '" + "|".join(other["registry_key"] for other in others) + "';\n",
+            "    InstallDirs := '" + "|".join(other["install_dir"] for other in others) + "';\n",
+        ]
+        for line in sibling_lines:
+            if output.count(line) != 1:
+                errors.append(f"msime_setup.iss for edition {edition_id}: OtherEditionDataDirs does not list exactly the other editions ({line.strip()!r})")
+            output = output.replace(line, "")
         for key, text in own.items():
             if text not in output:
                 errors.append(f"msime_setup.iss for edition {edition_id}: {key} {text.strip()!r} does not appear")

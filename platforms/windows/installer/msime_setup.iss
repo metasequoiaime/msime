@@ -183,6 +183,9 @@ var
   PreviousDataDir: String;
   { Set once MigrateUserDataDir has copied every user item out of a different previous directory; FinishDataDirMove only removes that directory when it is. }
   DataDirMigrated: Boolean;
+  { OtherEditionDataDirs 的缓存：安装和卸载期间别的版本的登记不会变。 }
+  OtherEditionDataDirList: TArrayOfString;
+  OtherEditionDataDirsLoaded: Boolean;
 
 { WebView2 Runtime 与 VC 运行库都不随包分发：前者有自己的 Evergreen 更新通道，
   后者是系统级共享组件，安装器不该替用户装。但缺了任何一个，输入法装完就是坏的，
@@ -474,6 +477,92 @@ begin
   SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
 end;
 
+{ 从以 | 分隔的列表 List 里取出第一项，并把它从 List 里去掉。 }
+function TakeListItem(var List: String): String;
+var
+  Separator: Integer;
+begin
+  Separator := Pos('|', List);
+  if Separator = 0 then
+  begin
+    Result := List;
+    List := '';
+  end
+  else
+  begin
+    Result := Copy(List, 1, Separator - 1);
+    List := Copy(List, Separator + 1, Length(List));
+  end;
+end;
+
+{ 别的版本的数据目录：每个版本的默认数据目录（%LOCALAPPDATA% 下与它的安装目录同名的目录，还没装的版本以后会落到这里），以及它在自己的 HKLM 键下登记的 DataDir。名单由 editions.iss 从版本表生成。几个版本可以同时安装，本版本的数据目录不能和这些目录重叠或互相包含：外层的版本卸载或更换数据目录时递归删除自己的目录，会把里层版本还在用的目录一起删掉；HasOtherEditionDataDirMarker 只看目录顶层，看不到嵌在子目录里的别的版本。 }
+function OtherEditionDataDirs: TArrayOfString;
+var
+  RegistryKeys: String;
+  InstallDirs: String;
+  RegistryKey: String;
+  Recorded: String;
+  Count: Integer;
+begin
+  if not OtherEditionDataDirsLoaded then
+  begin
+    RegistryKeys := '{#MyOtherEditionRegistryKeys}';
+    InstallDirs := '{#MyOtherEditionInstallDirs}';
+    Count := 0;
+    SetArrayLength(OtherEditionDataDirList, 0);
+    while InstallDirs <> '' do
+    begin
+      RegistryKey := TakeListItem(RegistryKeys);
+      SetArrayLength(OtherEditionDataDirList, Count + 2);
+      OtherEditionDataDirList[Count] :=
+        AddBackslash(ExpandConstant('{localappdata}')) + TakeListItem(InstallDirs);
+      Count := Count + 1;
+      Recorded := '';
+      if RegQueryStringValue(HKLM, RegistryKey, 'DataDir', Recorded) and
+        (Trim(Recorded) <> '') then
+      begin
+        OtherEditionDataDirList[Count] := RemoveBackslashUnlessRoot(Trim(Recorded));
+        Count := Count + 1;
+      end;
+      SetArrayLength(OtherEditionDataDirList, Count);
+    end;
+    OtherEditionDataDirsLoaded := True;
+  end;
+  Result := OtherEditionDataDirList;
+end;
+
+{ 落在 Directory 里面（或就是它）的另一个版本的数据目录；没有时返回空串。 }
+function OtherEditionDataDirWithin(const Directory: String): String;
+var
+  Dirs: TArrayOfString;
+  Index: Integer;
+begin
+  Result := '';
+  Dirs := OtherEditionDataDirs;
+  for Index := 0 to GetArrayLength(Dirs) - 1 do
+    if IsPathInside(Dirs[Index], Directory) then
+    begin
+      Result := Dirs[Index];
+      Exit;
+    end;
+end;
+
+{ 包含 Directory（或就是它）的另一个版本的数据目录；没有时返回空串。 }
+function OtherEditionDataDirAround(const Directory: String): String;
+var
+  Dirs: TArrayOfString;
+  Index: Integer;
+begin
+  Result := '';
+  Dirs := OtherEditionDataDirs;
+  for Index := 0 to GetArrayLength(Dirs) - 1 do
+    if IsPathInside(Directory, Dirs[Index]) then
+    begin
+      Result := Dirs[Index];
+      Exit;
+    end;
+end;
+
 { 返回空串表示目录可以安全交给输入法管理；否则返回面向用户的原因。
   卸载会递归删除带所有权标记的数据目录，因此不仅要拒绝系统目录本身，还要拒绝
   包含系统/用户关键目录的父级。未标记的非空目录也不能接管。}
@@ -485,6 +574,7 @@ var
   Index: Integer;
   ProbePath: String;
   WithSlash: String;
+  Overlap: String;
 begin
   Result := '';
   if (Length(Directory) < 4) or (Directory[2] <> ':') or
@@ -549,6 +639,18 @@ begin
         '卸载时可能连它一起删除。请另选一个专用目录。';
       Exit;
     end;
+  end;
+
+  { 空目录也要拒绝：它可能是别的版本以后要用的默认数据目录的上级，或者落在别的版本的数据目录里面。 }
+  Overlap := OtherEditionDataDirWithin(Directory);
+  if Overlap = '' then
+    Overlap := OtherEditionDataDirAround(Directory);
+  if Overlap <> '' then
+  begin
+    Result :=
+      '这个目录与水杉输入法另一个版本的数据目录（' + Overlap + '）重叠或互相包含。' +
+      '几个版本的数据目录必须彼此独立，否则卸载其中一个版本或更换它的数据目录时，会把另一个版本的数据一起删除。请另选一个目录。';
+    Exit;
   end;
 
   if not ForceDirectories(Directory) then
@@ -980,6 +1082,49 @@ begin
   end;
 end;
 
+{ 删除本版本不再使用的数据目录 Directory。Keep 是要留下的目录，可以为空（新的数据目录可能就在旧目录里面——来源安装包递归删除整个旧目录，把刚迁过去的数据一起删掉了）。Keep 或另一个版本的数据目录落在 Directory 里面时不能递归删除整个目录，只删顶层里不包含它们的条目；Directory 落在另一个版本的数据目录里面（或就是它）时什么都不删。 }
+procedure DeleteDataDir(const Directory, Keep: String);
+var
+  FindRec: TFindRec;
+  ItemPath: String;
+begin
+  if OtherEditionDataDirAround(Directory) <> '' then
+  begin
+    Log('Keeping ' + Directory + ': it lies inside another edition''s data directory ' + OtherEditionDataDirAround(Directory) + '.');
+    exit;
+  end;
+  if ((Keep = '') or (not IsPathInside(Keep, Directory))) and
+    (OtherEditionDataDirWithin(Directory) = '') then
+  begin
+    TryDeleteTree(Directory);
+    exit;
+  end;
+  Log('Removing the entries of ' + Directory + ' around the directories inside it that must stay.');
+  if FindFirst(AddBackslash(Directory) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          ItemPath := AddBackslash(Directory) + FindRec.Name;
+          if ((Keep = '') or (not IsPathInside(Keep, ItemPath))) and
+            (OtherEditionDataDirWithin(ItemPath) = '') then
+          begin
+            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+              TryDeleteTree(ItemPath)
+            else
+              DeleteFile(ItemPath);
+          end
+          else
+            Log('Keeping ' + ItemPath + '.');
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 { 迁移到新目录的条目：安装包条目由本次安装重新写入，所有权标记由 PrepareToInstall 另写，写入探针是 DataDirRejectionReason 的残留；runtime-options.json 记着旧目录的绝对路径，不带过去，Server 首次启动时会在新目录里重新生成（FirstRun.h）。}
 function IsMigratedDataItem(const FileName: String): Boolean;
 begin
@@ -1032,10 +1177,11 @@ begin
       repeat
         Source := AddBackslash(OldDir) + FindRec.Name;
         Destination := AddBackslash(NewDir) + FindRec.Name;
-        { 新目录就在这一项里面（新目录是旧目录的子目录）时跳过：它不是用户数据，不能复制进自己。}
+        { 新目录就在这一项里面（新目录是旧目录的子目录）时跳过：它不是用户数据，不能复制进自己。另一个版本的数据目录在这一项里面时也跳过：那是另一个版本的数据，不归本版本搬。}
         if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
           IsMigratedDataItem(FindRec.Name) and
-          (not IsPathInside(NewDir, Source)) then
+          (not IsPathInside(NewDir, Source)) and
+          (OtherEditionDataDirWithin(Source) = '') then
         begin
           { 目标恰好就是旧目录或它的上级（旧目录是新目录的子目录且同名），复制会写进源头自身。}
           if IsPathInside(OldDir, Destination) then
@@ -1065,13 +1211,11 @@ begin
   DataDirMigrated := True;
 end;
 
-{ 安装全部成功后才删除旧目录，而且只删带所有权标记（或默认位置）的目录。新目录在旧目录里面时不能递归删除整个旧目录——来源安装包就是这样把刚迁过去的数据一起删掉的——只删旧目录顶层除新目录所在那一项之外的条目。}
+{ 安装全部成功后才删除旧目录，而且只删带所有权标记（或默认位置）的目录；新目录和另一个版本的数据目录在旧目录里面时由 DeleteDataDir 留下。}
 procedure FinishDataDirMove;
 var
   OldDir: String;
   NewDir: String;
-  FindRec: TFindRec;
-  ItemPath: String;
 begin
   if not DataDirMigrated then
     exit;
@@ -1080,33 +1224,8 @@ begin
   if (CompareText(OldDir, NewDir) = 0) or (not DirExists(OldDir)) or
     (not OwnsDataDir(OldDir)) then
     exit;
-  if not IsPathInside(NewDir, OldDir) then
-  begin
-    Log('Removing the previous data directory after a successful move.');
-    TryDeleteTree(OldDir);
-    exit;
-  end;
-  Log('Removing the previous data directory''s entries around the new one inside it.');
-  if FindFirst(AddBackslash(OldDir) + '*', FindRec) then
-  begin
-    try
-      repeat
-        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
-        begin
-          ItemPath := AddBackslash(OldDir) + FindRec.Name;
-          if not IsPathInside(NewDir, ItemPath) then
-          begin
-            if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
-              TryDeleteTree(ItemPath)
-            else
-              DeleteFile(ItemPath);
-          end;
-        end;
-      until not FindNext(FindRec);
-    finally
-      FindClose(FindRec);
-    end;
-  end;
+  Log('Removing the previous data directory after a successful move.');
+  DeleteDataDir(OldDir, NewDir);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -1199,6 +1318,6 @@ begin
     TryDeleteTree(ExpandConstant('{commonpf64}\{#MyEditionInstallDir}'));
     { 用 InitializeUninstall 缓存的路径：此时注册表里的 DataDir 已被删除。}
     if OwnsDataDir(ResolvePreviousDataDir) then
-      TryDeleteTree(ResolvePreviousDataDir);
+      DeleteDataDir(ResolvePreviousDataDir, '');
   end;
 end;

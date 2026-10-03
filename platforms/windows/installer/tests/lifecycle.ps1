@@ -54,7 +54,7 @@ $postStart = $script.IndexOf('else if CurUninstallStep = usPostUninstall')
 if ($postStart -lt 0) { throw 'Missing installer block: usPostUninstall' }
 $post = $script.Substring($postStart)
 if (-not $post.Contains('if OwnsDataDir(ResolvePreviousDataDir) then') -or
-    -not $post.Contains('TryDeleteTree(ResolvePreviousDataDir)') -or $post.Contains('GetDataDir(')) {
+    -not $post.Contains("DeleteDataDir(ResolvePreviousDataDir, '')") -or $post.Contains('GetDataDir(')) {
     throw 'usPostUninstall does not remove the data directory captured at uninstall start'
 }
 if ($script -notmatch 'ValueName: "DataDir";[^\r\n]*Flags: uninsdeletevalue') {
@@ -66,6 +66,17 @@ if ($script -notmatch "DataDirMarkerPrefix = '\{#MyDataDirMarkerPrefix\}';" -or
     -not $script.Contains("FindFirst(AddBackslash(Directory) + DataDirMarkerPrefix + '*', FindRec)") -or
     ([regex]::Matches($owns, [regex]::Escape('(not HasOtherEditionDataDirMarker(Directory)) and'))).Count -ne 2) {
     throw 'An edition may own a data directory that carries another edition''s marker'
+}
+# The marker check only looks at a directory's top level. One edition's data directory can still sit inside another's, so the installer refuses a data directory that overlaps another edition's (registered or default), and removing a data directory leaves another edition's directory inside it alone.
+$validation = Get-Block 'function DataDirRejectionReason' 'procedure DataDirBrowseClick'
+$remove = Get-Block 'procedure DeleteDataDir' 'function IsMigratedDataItem'
+if (-not $validation.Contains('Overlap := OtherEditionDataDirWithin(Directory);') -or
+    -not $validation.Contains('Overlap := OtherEditionDataDirAround(Directory);') -or
+    -not $remove.Contains("if OtherEditionDataDirAround(Directory) <> '' then") -or
+    -not $remove.Contains("(OtherEditionDataDirWithin(ItemPath) = '')") -or
+    -not $script.Contains("RegistryKeys := '{#MyOtherEditionRegistryKeys}';") -or
+    -not $script.Contains("InstallDirs := '{#MyOtherEditionInstallDirs}';")) {
+    throw 'A data directory may overlap another edition''s, and removing it may delete the other edition''s data'
 }
 # A failed upgrade must not strip the marker that lets a retry or the uninstaller recognise the directory.
 $preserved = Get-Block 'function IsPreservedAppDataItem' 'function InitializeUninstall'

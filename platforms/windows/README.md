@@ -15,6 +15,7 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 - `MSIME.exe` 和 `msime-mcp.exe` 所有版本共用一份构建，运行时读 Server 目录里的 `edition.json`（只有不是 full 的包才有，由 `Prepare-PackageFiles.ps1 -Edition` 写入）决定管道后缀、状态目录和 Tauri identifier。
 - Server 把版本 id 交给宿主库准备状态根，宿主库按版本选资源锁、收窄方案；托盘和设置窗口只列出本版本提供的方案和本版本带的快捷模式（五笔版没有临时日语，也没有全拼、双拼的辅助码）。几个版本的 Server 同时运行时，维护快捷键由焦点所在版本的 Server 处理（每个生产 Server 用命名事件 `MetasequoiaImeServer_ModeActive<后缀>` 发布本版本的模式是否活动）；没有任何版本的模式活动时，由先收到按键的 Server 处理，不会谁都不管。
 - 数据目录的所有权标记文件名也按版本取：full 是 `.metasequoiaime-data`，其他版本接上名字后缀（例如 `.metasequoiaime-data.wubi`）。每个版本的安装器（包括 full）只认本版本的标记，目录里只要有别的版本的标记就不认，即使那是它自己的默认数据目录，所以不会接管、清理或删除别的版本的数据目录。full 的标记文件名和内容不变，以前的 full 写下的标记照样认。
+- 标记只看目录顶层，看不到嵌在子目录里的别的版本，所以安装器还按 `editions.iss` 里别的版本的注册表键和安装目录名（由 `edition_windows.py gen` 从版本表生成）找出别的版本的数据目录：它们登记的 `DataDir` 和默认目录 `%LOCALAPPDATA%\<安装目录>`。本版本的数据目录不能和这些目录重叠或互相包含，向导和 `/DATADIR` 都会拒绝；卸载和更换数据目录时，嵌在本版本目录里的别的版本的数据目录原样留下，迁移也不把它当作用户数据复制。
 - 升级和卸载前，每个版本的安装器（包括 full）只结束可执行文件在本安装 `server` 目录里的进程，不按映像名结束：几个版本的 Server、看门狗、设置窗口、`MSIME.exe` 和 `msime-mcp.exe` 同名，`taskkill /IM` 会把同时安装的其他版本一起停掉。已经发出去的旧版 full 仍按映像名结束进程，所以卸载旧版 full、或运行旧版 full 的安装包时，同时安装的其他版本的进程会被停一次；数据和安装不受影响，Server 在下次需要时由 TSF 重新拉起，看门狗在下次登录时由计划任务拉起。
 - `scripts/test-editions.py` 检查版本表（GUID 两两不同、名字不撞、目录不嵌套），`scripts/test-windows-editions.py` 检查生成文件没有漂移、安装脚本按版本展开后互不越界，并且 Windows 源码不再自己写 full 的 CLSID 和注册表键。
 
