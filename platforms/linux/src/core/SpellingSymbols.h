@@ -35,7 +35,7 @@ inline bool composing_spelling(const nlohmann::json &view, char32_t character) {
          !editing->get_ref<const std::string &>().empty() && spelling_symbol(view, character);
 }
 
-// A character the Engine spells with that the host sends to the Engine before any of its own key bindings can claim it: every symbol of a local mode (see local_mode_spelling), every symbol listed while a composition is open (see composing_spelling, the URL-mode entry keys), and every symbol listed in a scheme that opens no local modes, where the list is that scheme's own keys. A Zhuyin digit or "," is then a bopomofo key rather than a candidate shortcut, a page key or Chinese punctuation, and a Cantonese apostrophe separates syllables. Quanpin's and Shuangpin's idle mode-entry keys stay on the punctuation route, as local_mode_spelling explains.
+// Engine 拿来拼写、宿主要在自己的按键绑定之前交给 Engine 的字符：本地模式的全部符号（见 local_mode_spelling）、组字中列出的全部符号（见 composing_spelling，即打开网址模式的按键），以及不打开本地模式的方案列出的全部符号（那份列表就是该方案自己的按键）。这样注音的数字或 "," 是注音键而不是选候选、翻页键或中文标点，粤拼的撇号用来分隔音节。全拼和双拼空闲时打开模式的按键仍走标点路径，原因见 local_mode_spelling。
 inline bool engine_spelling(const nlohmann::json &view, char32_t character) {
   if (local_mode_spelling(view, character) || composing_spelling(view, character)) return true;
   const int scheme = scheme_rules(view);

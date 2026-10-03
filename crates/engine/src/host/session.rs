@@ -526,7 +526,7 @@ impl Session {
             };
             !segmentation.is_empty() && is_complete_pinyin_input(segmentation)
         };
-        // What the expression, command and mention modes hold is arithmetic, a trigger or a key, never a word the user spelled. 网址也不是英文单词，不进英文词库。
+        // 计算、指令和名单模式里是算式、触发词或键，网址也不是英文单词，都不是用户拼出的词，不进英文词库。
         let should_learn = !before.local_mode.generates_text()
             && before.local_mode != LocalInputMode::Url
             && (before.dedicated_english

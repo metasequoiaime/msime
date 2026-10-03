@@ -49,7 +49,7 @@ impl InputSession {
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let mut text = self.editing_text();
         let mut caret = self.caret_position();
-        // A local mode's prefix letter is a mode marker, not editable payload. 网址模式没有前缀字母，整段都能编辑。
+        // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
         let begin = usize::from(!matches!(
             self.local_mode,
             LocalInputMode::None | LocalInputMode::Url

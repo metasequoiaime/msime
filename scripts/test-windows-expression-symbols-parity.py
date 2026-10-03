@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the Windows TIP's copies of the V mode's and the URL mode's symbols, and of the URL triggers, equal to the Engine's.
+"""让 Windows TIP 里 V 模式符号、网址模式符号和网址触发词的拷贝与 Engine 保持一致。
 
 The Engine decides which keys the V (expression) mode spells, and publishes them in View.spelling_symbols; the Windows Server reads them from there. The TSF DLL cannot: it decides whether a key is composition input or a candidate selection before the Server has answered, so `platforms/windows/tsf/Global/LocalModeKeyPolicy.h` keeps its own copy. A symbol added on one side alone splits the two: the TIP would put an operator into its keystroke buffer that the Engine never saw, or send a digit as a selection the Engine expected as input, and the composition the user sees stops matching the one that commits.
 """
