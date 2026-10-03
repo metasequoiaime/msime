@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import * as settings from "../settings/settings-style";
+import { SettingsManagerBlock } from "../settings/settings-manager-block";
 import { SettingsManagerNote } from "../settings/settings-manager-note";
 import { rowTitle } from "../core/platform-controls-style";
 import { ActionButton } from "../core/action-button";
@@ -198,7 +198,7 @@ export function LocalModelManager({
 
   const models = list ? visibleLocalModels(list.models, mobile, modelPath) : [];
   return (
-    <div className={settings.managerBlock} role="group" aria-label="本地识别模型">
+    <SettingsManagerBlock role="group" aria-label="本地识别模型">
       <div>
         <span className={rowTitle} data-row-title="">
           本地识别模型
@@ -293,6 +293,6 @@ export function LocalModelManager({
         })}
       </ul>
       {notice && <p role="status">{notice}</p>}
-    </div>
+    </SettingsManagerBlock>
   );
 }

@@ -322,11 +322,19 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 触屏用普通 26 键，字母按实际大小写发出，Shift 只作用一次，不做自动大写；符号、逗号键与快捷标点都是半角 ASCII，第二排没有 `;` 键。组字行画 Engine 写出的带声调词。符号键面上的数字只在 VNI 且正在组字时作为声调键交给 Engine（Engine 此时把 `0123456789` 列为 `spelling_symbols`），否则先提交词再打数字；空格提交词并打出空格；回车先提交词，再照常换行或提交编辑框。失焦与切换方案提交当前词。硬件键盘走 `routeKorean` 的同一条路（不认汉字键）：字母总是组字，空闲时其余键交还应用，组字时 VNI 数字组字，标点连词一起提交，其他键先提交再交还应用。
 
+
+### 藏文（EWTS 威利转写）
+
+选择器在「越南语 26 键」之后再加一张「藏文 26 键」卡（`KeyboardScheme.TIBETAN`，偏好 id 与 Engine 方案名都是 `tibetan`，编号 8），和越南语一样默认不启用、不需要词库，由用户在设置页打开。藏文不是中文方案：选中时保留原来的 `last_chinese_scheme`，打字统计记在 `tibetan` 名下，不计入中文；不学进主词库，简繁转换、中文标点和全角都不作用于它。账号同步上传时和粤语、注音、越南语一样不写 `input.schema`。快捷栏和语言键显示「藏」。`SchemeTraits.TIBETAN` 的谓词与越南语相同：失焦与切换方案提交组字（`commits_on_blur`）、光标固定在末尾（`locks_caret`）、第一次取消保留组字（`cancel_keeps_composition`）。
+
+输入是在拉丁字母键盘上打 EWTS（扩展威利转写），由 Engine 转成藏文：组字保存当前音节串的威利原文，组字行画 Engine 写出的藏文（`preedit`），没有候选列表。威利转写区分大小写（`T D N Sh A I U M H` 等是不同的字母），所以触屏字母按 Shift 给出的大小写发出，硬件键盘的 Caps Lock 也当作大写，和越南语一样不做自动大写；第二排没有 `;` 键，符号键面、逗号键与快捷标点都是半角 ASCII。触屏空格交给 Engine：组字时上屏藏文加音节点（U+0F0B），没有组字时 Engine 不处理，键盘照常打出空格（`KeyboardSession.pressThenType`）；回车走共享规则，组字时提交藏文（不加音节点）并吞掉回车，没有组字时照常换行或提交编辑框。符号键面上的 `/` `'` `+` `.` `-` 走标点路线（`+` 是藏文方案下第三排替换 `=` 的键，`KeyboardScheme.symbolRowKey`；符号面板直接写入编辑框，不能用来叠写），运行时按 Engine 的 `spelling_symbols`（空闲时 `'/`，组字时 `'+-./`）把它们作为字符交给 Engine：`/` 组字时上屏藏文加垂符（U+0F0D），空闲时单独上屏垂符；其余是拼写符号。数字先提交音节串再打数字本身，不转成藏文数字。
+
+硬件键盘走 `routeKorean` 的同一条路（`tibetan` 为 true，不认汉字键）：字母总是组字；Engine 列出的拼写符号空闲时也组字（`'` 开头 achung 音节，`/` 单独上屏垂符），其余键空闲时交还应用；组字时空格经 `PRESS_THEN_TYPE` 交给 Engine 上屏藏文加音节点，回车发 `MSIME_COMMIT_RAW` 只上屏藏文，两者都不再交给应用；退格删一个原文按键，Esc 第一次退回威利原文、第二次丢弃；其他标点连音节串一起提交，数字、Tab、方向键等先提交再交还应用。
 以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
 
 ## 笔画
 
-选择器末尾在「越南语 26 键」之后再加一张卡「笔画」（`KeyboardScheme.STROKE`，Engine 方案名 `stroke`，编号 8，字形「笔」，角标「5」），默认不启用，需要 `stroke.db`（见上文「词库与暂存」），缺词库时和粤语、注音一样不出现。笔画是中文方案：选中时它自己就是 `last_chinese_scheme`，打字统计记在 `stroke` 名下；`SchemeTraits` 里它的谓词逐项照抄粤语（中文标点、智能标点、全角加宽成立，不学进主词库、不做简繁转换、失焦不提交、光标不锁定、没有可开关的候选列表），由 `scripts/test-scheme-traits-parity.py` 对照 Engine 检查。账号同步不上传它（`AccountPreferencePlan` 的 `LOCAL_ONLY_SCHEMES`），云端写来的 `stroke` 保留本机方案。
+选择器末尾在「藏文 26 键」之后再加一张卡「笔画」（`KeyboardScheme.STROKE`，Engine 方案名 `stroke`，编号 9，字形「笔」，角标「5」），默认不启用，需要 `stroke.db`（见上文「词库与暂存」），缺词库时和粤语、注音一样不出现。笔画是中文方案：选中时它自己就是 `last_chinese_scheme`，打字统计记在 `stroke` 名下；`SchemeTraits` 里它的谓词逐项照抄粤语（中文标点、智能标点、全角加宽成立，不学进主词库、不做简繁转换、失焦不提交、光标不锁定、没有可开关的候选列表），由 `scripts/test-scheme-traits-parity.py` 对照 Engine 检查。账号同步不上传它（`AccountPreferencePlan` 的 `LOCAL_ONLY_SCHEMES`），云端写来的 `stroke` 保留本机方案。
 
 触屏画 `input/StrokeLayout.ts` 描述的笔画键盘，套用九键的外框：左侧是九键的标点栏，中间两行三列 `一 横`、`丨 竖`、`丿 撇` / `丶 点`、`乛 折`、`＊ 通配`，右侧整列是删除键，底排与九键相同（「符」代替逗号）。卡片的布局仍记作 `twenty_six_key`，键面按方案选（与大千注音同理），所以不会打开九键拼音的数字解码；符号层沿用共用的字母面。点击发出字母 `h s p n z x`，Engine 负责组字与候选；空组合时 Engine 不接通配键，键盘也就不发送它。组字行和 2in1 的预览文本画 Engine 的 `preedit`，也就是笔画字形 一丨丿丶乛＊，不画键入的字母，光标沿用 Engine 的位置（字母与字形一一对应）。空格、退格和失焦沿用粤语的共享规则；回车不同：粤语有候选时回车上屏高亮候选，笔画的触屏回车与硬件回车、iOS、Android 一致，总是上屏键入的字母（`ReturnKeyAction` 的 `COMMIT_RAW`，即 MSIME_COMMIT_RAW），选字用空格。快捷栏的输入模式指示显示「笔」，触屏语言键仍显示「中」。
 

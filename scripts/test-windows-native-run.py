@@ -128,6 +128,16 @@ COMPANIONS: dict[str, tuple[list[str], bool]] = {
         ],
         True,
     ),
+    # 藏文方案的 Server 端，对真实 Engine 会话运行。
+    "input/tibetan_keys.cpp": (
+        [
+            "src/ipc/ReplyComposer.cpp",
+            "src/ipc/ReplyCodec.cpp",
+            "src/ipc/ServerSession.cpp",
+            "src/input/ChineseTextConversion.cpp",
+        ],
+        True,
+    ),
     # Book-title nesting paid back after the TSF auto-closes, against a real Engine session.
     "input/paired_punctuation_balance.cpp": (
         ["src/ipc/ServerSession.cpp", "src/ipc/ReplyCodec.cpp", "src/input/ChineseTextConversion.cpp"],

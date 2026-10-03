@@ -58,6 +58,7 @@ const allSchemes = [
   "cantonese",
   "zhuyin",
   "vietnamese",
+  "tibetan",
   "stroke",
 ] as const;
 
@@ -118,6 +119,34 @@ test("Stroke counts as 中文 and is remembered across a Japanese round trip", (
   );
   fireEvent.click(screen.getByLabelText("中文"));
   expect(onChange).toHaveBeenLastCalledWith({ scheme: "stroke" });
+});
+
+test("switching from Vietnamese to Tibetan keeps the remembered Chinese scheme", () => {
+  const onChange = vi.fn();
+  render(
+    <InputModeSection
+      scheme="vietnamese"
+      lastChineseScheme="wubi"
+      supportedSchemes={allSchemes}
+      onChange={onChange}
+    />,
+  );
+
+  expect((screen.getByLabelText("藏文") as HTMLInputElement).disabled).toBe(false);
+  fireEvent.click(screen.getByLabelText("藏文"));
+  expect(onChange).toHaveBeenCalledWith({ last_chinese_scheme: "wubi", scheme: "tibetan" });
+});
+
+test("a Tibetan document on a host without it shows the scheme host-api falls back to", () => {
+  const onChange = vi.fn();
+  render(<InputModeSection scheme="tibetan" lastChineseScheme="wubi" onChange={onChange} />);
+
+  const tibetan = screen.getByLabelText("藏文") as HTMLInputElement;
+  expect(tibetan.checked).toBe(true);
+  expect(tibetan.disabled).toBe(true);
+  expect(screen.getByText("此平台暂不支持藏文，已回退到五笔")).toBeTruthy();
+  fireEvent.click(screen.getByLabelText("中文"));
+  expect(onChange).toHaveBeenCalledWith({ scheme: "wubi" });
 });
 
 test("a host without Vietnamese shows 越南文 disabled with the reason", () => {

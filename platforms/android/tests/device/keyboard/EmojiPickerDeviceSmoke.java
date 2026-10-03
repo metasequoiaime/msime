@@ -117,9 +117,11 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             if (!equalsText("app.msime.android", node.getPackageName())
                     || node.getText() == null) return false;
             String text = node.getText().toString();
+            // 状态行形如「笑脸 · 116 个表情」，数量是「 个表情」前的最后一个词。
             int separator = text.indexOf(" 个表情");
             if (separator <= 0) return false;
-            try { return accepted.test(Integer.parseInt(text.substring(0, separator))); }
+            String count = text.substring(text.lastIndexOf(' ', separator - 1) + 1, separator);
+            try { return accepted.test(Integer.parseInt(count)); }
             catch (NumberFormatException ignored) { return false; }
         };
     }

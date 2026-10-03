@@ -130,7 +130,9 @@ impl InputSession {
             self.chain.reset();
             return KeyResult::committed(text);
         }
-        if self.korean_rules_apply() || self.vietnamese_rules_apply() {
+        // 藏文提交的是显示出来的藏文（不附加音节点），同样不学习。
+        if self.korean_rules_apply() || self.vietnamese_rules_apply() || self.tibetan_rules_apply()
+        {
             let text = selected.map_or_else(|| self.preedit(), |item| item.word);
             self.reset_composition();
             self.chain.reset();

@@ -1,6 +1,6 @@
 #!/usr/bin/env xcrun swift
 
-// 渲染输入菜单用的模板 TIFF：MSIMEClientInputMethodMenuIcon.tiff 是 bundle 自己引用的标志，取自 MSIMEClientInputMethodMenuIcon.svg 那条笔画；每个输入模式的图标则只有一个大字——中、双、五、粤、注、笔、日、한、越或英——铺满整个图块，不带标志。菜单栏和 Ctrl+空格 切换条按 16 点绘制这些图标，以前「标志加右下角角标」的画法里角标只剩几个像素，认不出是哪个模式；苹果自家和其他输入法的输入源都是一个大字，一眼就能分清，这里照同样的做法。
+// 渲染输入菜单用的模板 TIFF：MSIMEClientInputMethodMenuIcon.tiff 是 bundle 自己引用的标志，取自 MSIMEClientInputMethodMenuIcon.svg 那条笔画；每个输入模式的图标则只有一个大字——中、双、五、粤、注、日、한、越、ཀ、笔或英——铺满整个图块，不带标志。菜单栏和 Ctrl+空格 切换条按 16 点绘制这些图标，以前「标志加右下角角标」的画法里角标只剩几个像素，认不出是哪个模式；苹果自家和其他输入法的输入源都是一个大字，一眼就能分清，这里照同样的做法。
 //
 // The input menu draws this through HIToolbox rather than through NSImage, and that path reads the TIFF's
 // pages, not the DPI metadata of a single one: a lone 2x page is taken for a 32-point image, which the
@@ -80,10 +80,10 @@ func drawLogo(_ stroked: CGPath, in cg: CGContext, side: CGFloat) {
 let modeGlyphFraction: CGFloat = 15.0 / 16
 
 func modeFont(for character: String) -> CTFont {
-    // PingFang 随所有受支持的 macOS 提供，Hiragino Sans GB 是系统自己给简体中文用的后备字体；两者都没有韩文，한 取系统的韩文字体 Apple SD Gothic Neo，字重相同。取第一个包含全部字形的字体。字号无所谓，绘制时按墨迹框缩放。
+    // PingFang 随所有受支持的 macOS 提供，Hiragino Sans GB 是系统自己给简体中文用的后备字体；两者都没有韩文和藏文，한 取系统的韩文字体 Apple SD Gothic Neo，字重相同；ཀ 取系统自带的藏文字体 Kailasa 的粗体。取第一个包含全部字形的字体。字号无所谓，绘制时按墨迹框缩放。
     var unichars = Array(character.utf16)
     var glyphs = [CGGlyph](repeating: 0, count: unichars.count)
-    for name in ["PingFangSC-Semibold", "HiraginoSansGB-W6", "AppleSDGothicNeo-SemiBold"] {
+    for name in ["PingFangSC-Semibold", "HiraginoSansGB-W6", "AppleSDGothicNeo-SemiBold", "Kailasa-Bold"] {
         let font = CTFontCreateWithName(name as CFString, 100, nil)
         if (CTFontCopyPostScriptName(font) as String) == name,
            CTFontGetGlyphsForCharacters(font, &unichars, &glyphs, unichars.count) { return font }
@@ -99,7 +99,7 @@ func drawModeGlyph(_ character: String, in cg: CGContext, side: CGFloat) {
           let outline = CTFontCreatePathForGlyph(font, glyphs[0], nil) else {
         fatalError("\(character) has no outline in \(CTFontCopyPostScriptName(font))")
     }
-    // 按字形自身的墨迹框缩放并居中，而不是按字号和步进框：한 的墨迹在 Apple SD Gothic Neo 的字身里比汉字在 PingFang 里矮一截，按同一字号画会显得小一号；各自把墨迹框的长边撑到同一尺寸，九个字的视觉大小才一致，也都落在图块正中。
+    // 按字形自身的墨迹框缩放并居中，而不是按字号和步进框：한 的墨迹在 Apple SD Gothic Neo 的字身里比汉字在 PingFang 里矮一截，按同一字号画会显得小一号；各自把墨迹框的长边撑到同一尺寸，十个字的视觉大小才一致，也都落在图块正中。
     let bounds = outline.boundingBox
     let scale = side * modeGlyphFraction / max(bounds.width, bounds.height)
     var place = CGAffineTransform(translationX: side / 2, y: side / 2)
@@ -144,7 +144,7 @@ let logo = metasequoiaStroke()
 try writeIcon(named: "MSIMEClientInputMethodMenuIcon") { drawLogo(logo, in: $0, side: $1) }
 // 各输入模式的图标，Info.plist.in 里每个模式各引用一张。
 for (character, mode) in [("中", "Chinese"), ("双", "Shuangpin"), ("五", "Wubi"), ("粤", "Cantonese"),
-                          ("注", "Zhuyin"), ("笔", "Stroke"), ("日", "Japanese"), ("한", "Korean"),
-                          ("越", "Vietnamese"), ("英", "English")] {
+                          ("注", "Zhuyin"), ("日", "Japanese"), ("한", "Korean"), ("越", "Vietnamese"),
+                          ("ཀ", "Tibetan"), ("笔", "Stroke"), ("英", "English")] {
     try writeIcon(named: "MSIMEClientInputMethodMenuIcon\(mode)") { drawModeGlyph(character, in: $0, side: $1) }
 }

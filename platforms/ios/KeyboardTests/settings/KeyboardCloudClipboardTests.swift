@@ -147,6 +147,7 @@ final class KeyboardCloudClipboardTests: XCTestCase {
     failed.refresh()
     await settle(failed) { failed.message == BackendAccountClient.Failure(status: 503).localizedDescription }
     XCTAssertEqual(failed.message, "此服务暂不可用，请稍后再试。")
+    XCTAssertFalse(failed.canUpload, "a failed cloud fetch must not enable uploads")
 
     let expired = FakeCloudClipboard()
     expired.fail(with: BackendAccountClient.Failure(status: 401))

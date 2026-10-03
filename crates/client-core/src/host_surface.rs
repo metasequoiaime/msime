@@ -295,8 +295,8 @@ pub struct HostCapabilities {
     pub input_schemes: Vec<InputScheme>,
 }
 
-/// The base schemes plus Cantonese, Zhuyin, Vietnamese and Stroke, which every host offers.
-const ALL_INPUT_SCHEMES: [InputScheme; 9] = [
+/// 基础方案加上粤拼、注音、越南文、藏文和笔画，所有宿主都提供。
+const ALL_INPUT_SCHEMES: [InputScheme; 10] = [
     InputScheme::Quanpin,
     InputScheme::Shuangpin,
     InputScheme::Wubi,
@@ -305,10 +305,11 @@ const ALL_INPUT_SCHEMES: [InputScheme; 9] = [
     InputScheme::Cantonese,
     InputScheme::Zhuyin,
     InputScheme::Vietnamese,
+    InputScheme::Tibetan,
     InputScheme::Stroke,
 ];
 
-/// The schemes this build hands to its Engine: all nine on every host, since each one routes the Cantonese, Zhuyin, Vietnamese and Stroke keys and stages their dictionaries. host-api falls back from any other scheme a preferences document names, and Cantonese, Zhuyin and Stroke still fall back when their dictionary is not installed.
+/// 本构建交给 Engine 的方案：所有宿主都是全部十个，因为每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并放置粤拼、注音和笔画的词库（越南文和藏文不需要词库）。偏好文档里写的其他方案由 host-api 回退；粤拼、注音和笔画在词库没装时仍然回退。
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
     &ALL_INPUT_SCHEMES
 }
@@ -562,7 +563,7 @@ impl HostCapabilities {
             typing_effects: platform.is_desktop() || platform == HostPlatform::Harmony,
             os_version: None,
             candidate_panel_limit: None,
-            // Every host routes the Cantonese, Zhuyin, Vietnamese and Stroke keys and ships their dictionaries.
+            // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
         }
     }

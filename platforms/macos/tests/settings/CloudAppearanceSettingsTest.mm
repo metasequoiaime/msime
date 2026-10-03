@@ -34,7 +34,7 @@ int main() {
     assert(MSIMEValidateCloudAppearance(koreanNativeSnapshot));
 
     // The schemes added after the contract was fixed export the same quanpin fallback and still validate.
-    for (NSString *scheme in @[@"cantonese", @"zhuyin", @"vietnamese", @"stroke"]) {
+    for (NSString *scheme in @[@"cantonese", @"zhuyin", @"vietnamese", @"tibetan", @"stroke"]) {
         [defaults setObject:scheme forKey:@"MSIMEClientInputScheme"];
         NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
         assert([snapshot[@"platform.macos.input_scheme"] isEqual:@0]);

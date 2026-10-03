@@ -18,7 +18,7 @@ private enum IOSCloudSettings {
     if let design = document == nil ? CustomKeyboardSkinStore.stored : GlobalThemePreference.design(in: document) {
       settings["platform.ios.custom_keyboard_skin"] = .string(String(decoding: try JSONEncoder().encode(design), as: UTF8.self))
     }
-    // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
+    // A scheme the cloud cannot carry (Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke) leaves the account's scheme as it is: every other device would reject the whole document over an `input.schema` it does not know.
     if let name = scheme.cloudSchema {
       settings["input.schema"] = .string(name)
       settings["platform.ios.nine_key"] = .boolean(scheme == .nineKey || scheme == .japaneseNineKey)

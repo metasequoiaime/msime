@@ -5,7 +5,7 @@ Nothing fails when the key is missing. TISRegisterInputSource still returns noEr
 
 A rename is what produces that. The identifiers live in Info.plist.in and the names live in one .strings per language, with nothing connecting the two files, so changing the identifiers in the plist leaves the old keys behind as valid syntax attached to an input source that no longer exists.
 
-The bundle declares a Chinese, a Shuangpin, a Wubi, a Cantonese, a Zhuyin, a Stroke, a Japanese, a Korean, a Vietnamese and an English mode, so each appears as its own entry in the input menu and in System Settings. They must read differently in every language, or the list shows the same name twice and the user cannot tell which entry types Chinese.
+bundle 声明了中文、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏语、笔画和英文十一个模式，每个在输入菜单和系统设置里各占一条。它们在每种语言下都必须读起来不同，否则列表里会出现两个同名条目，用户分不清哪一条打中文。
 
 Hence both directions: every identifier the plist declares must be named in every language, and every identifier-shaped key in a .strings must name something the plist still declares. The plist's mode identifier and TISInputSourceID are checked against each other for the same reason - a mode whose identifier disagrees, or that is absent from the visible order, is registered and then never offered.
 

@@ -422,7 +422,12 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             .map(|(user_id, token, _)| (user_id, token))
     }
 
-    fn credentials_with_generation(
+    /// Returns credentials together with the session generation that authorized them.
+    ///
+    /// Hosts that perform a local write after reading account data use the generation to reject a
+    /// sign-out and re-login of the same user. The user id alone cannot distinguish those two
+    /// sessions.
+    pub fn credentials_with_generation(
         &self,
         rejected_token: Option<&str>,
         expected_user_id: Option<&str>,
@@ -450,6 +455,36 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             return Err(AccountError::Cancelled);
         }
         Ok((saved.tokens.user.id.clone(), token, state.generation))
+    }
+
+    /// Runs a local side effect while the account generation is held stable.
+    ///
+    /// The session mutex remains held for `operation`, so logout or a new login cannot invalidate
+    /// the check between validation and the host's write. The closure must not call this session
+    /// again; it is intended for platform preference stores and other local account state.
+    pub fn with_generation<T, F>(
+        &self,
+        generation: u64,
+        expected_user_id: Option<&str>,
+        operation: F,
+    ) -> Result<T, AccountError>
+    where
+        F: FnOnce() -> Result<T, AccountError>,
+    {
+        let mut state = self.lock()?;
+        self.load_locked(&mut state)?;
+        if state.generation != generation
+            || expected_user_id.is_some_and(|expected| {
+                state
+                    .saved
+                    .as_ref()
+                    .map(|saved| saved.tokens.user.id.as_str())
+                    != Some(expected)
+            })
+        {
+            return Err(AccountError::Cancelled);
+        }
+        operation()
     }
 
     pub fn profile(&self) -> Result<AccountProfile, AccountError> {
@@ -572,6 +607,50 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
         validate_account_preferences(preferences)?;
         let updated = self.authenticated(|api, token| api.put_preferences(preferences, token))?;
         validate_account_preferences(&updated)?;
+        Ok(updated)
+    }
+
+    /// Uploads preferences only for the generation that read them.
+    ///
+    /// A same-user re-login has a different generation even though its user id is unchanged. The
+    /// ordinary method is still correct for a fresh request, while this variant protects a
+    /// read/merge/write sequence owned by a settings page.
+    pub fn put_preferences_with_generation(
+        &self,
+        preferences: &AccountPreferences,
+        expected_generation: u64,
+        expected_user_id: &str,
+    ) -> Result<AccountPreferences, AccountError> {
+        validate_account_preferences(preferences)?;
+        let (user_id, token, generation) =
+            self.credentials_with_generation(None, Some(expected_user_id))?;
+        if generation != expected_generation || user_id != expected_user_id {
+            return Err(AccountError::Cancelled);
+        }
+        let updated = match self.api.put_preferences(preferences, &token) {
+            Err(AccountError::Unauthorized) => {
+                let (_, replacement, replacement_generation) =
+                    self.credentials_with_generation(Some(&token), Some(expected_user_id))?;
+                if replacement_generation != expected_generation {
+                    return Err(AccountError::Cancelled);
+                }
+                self.api.put_preferences(preferences, &replacement)?
+            }
+            result => result?,
+        };
+        validate_account_preferences(&updated)?;
+        let mut state = self.lock()?;
+        // 移动端会话文件与键盘进程共享，接受云端写入前重新读取，避免另一进程退出账号被本地缓存遮住。
+        self.load_locked(&mut state)?;
+        if state.generation != expected_generation
+            || state
+                .saved
+                .as_ref()
+                .map(|saved| saved.tokens.user.id.as_str())
+                != Some(expected_user_id)
+        {
+            return Err(AccountError::Cancelled);
+        }
         Ok(updated)
     }
 
@@ -777,10 +856,8 @@ impl<A: AccountApi, S: AccountSessionStorage> BackendAccountSession<A, S> {
             state.saved = None;
             state.loaded = true;
         }
-        // Under the refresh lock, so a refresh another process has in flight cannot write its tokens back after this clear. A lock that cannot be taken still clears: clearing can only sign out.
-        self.storage
-            .with_refresh_lock(|| self.storage.clear())
-            .or_else(|_| self.storage.clear())
+        // 必须在刷新锁内清理，避免另一个进程的刷新在退出后写回 token。拿不到锁时保持存储不变；无锁清理会与进行中的刷新竞争并恢复会话。
+        self.storage.with_refresh_lock(|| self.storage.clear())
     }
 
     fn update_user(&self, user: AccountUser, generation: u64) -> Result<(), AccountError> {

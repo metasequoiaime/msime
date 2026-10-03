@@ -1053,6 +1053,27 @@ fn cantonese_is_unavailable_without_its_dictionary() {
 }
 
 #[test]
+fn scheme_eight_is_tibetan_and_needs_no_dictionary() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = 8;
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"bod");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.preedit, "བོད");
+    assert_eq!(snapshot.scheme, 8);
+    let space = session.command(Command::CommitCandidate).unwrap();
+    assert!(space.handled);
+    assert_eq!(space.commit, "བོད་");
+    value.scheme = 10;
+    let error = Session::new(&value).err().expect("scheme ten");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::UNSUPPORTED_INPUT_SCHEME
+    );
+}
+
+#[test]
 fn zhuyin_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
@@ -1075,7 +1096,7 @@ fn zhuyin_is_unavailable_without_its_dictionary() {
 fn stroke_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
-    value.scheme = 8;
+    value.scheme = 9;
     let error = Session::new(&value).err().expect("no stroke.db");
     assert_eq!(
         error.to_string(),
@@ -1097,12 +1118,12 @@ fn stroke_snapshot_draws_glyphs_and_edits_letters() {
     let path = dir.path().join("stroke.db");
     crate::stroke::fixture::build(&path);
     let mut value = options(dir.path());
-    value.scheme = 8;
+    value.scheme = 9;
     value.stroke_dictionary = path.to_str().unwrap().to_owned();
     let mut session = Session::new(&value).unwrap();
     type_text(&mut session, b"hsx");
     let snapshot = session.snapshot().unwrap();
-    assert_eq!(snapshot.scheme, 8);
+    assert_eq!(snapshot.scheme, 9);
     assert_eq!(snapshot.preedit, "一丨＊");
     assert_eq!(snapshot.reading, "一丨＊");
     assert_eq!(snapshot.editing_text, "hsx");

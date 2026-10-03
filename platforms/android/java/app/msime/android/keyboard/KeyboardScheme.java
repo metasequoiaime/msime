@@ -22,6 +22,7 @@ public enum KeyboardScheme {
     CANTONESE("cantonese", "cantonese", null, "twenty_six_key", "粤拼 26 键", "粤", "26"),
     ZHUYIN("zhuyin", "zhuyin", null, "twenty_six_key", "大千注音", "注", "大千"),
     VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26"),
+    TIBETAN("tibetan", "tibetan", null, "twenty_six_key", "藏文 26 键", "藏", "26"),
     // 笔画方案自己画五笔画键盘，偏好里的 26 键/9 键都显示它；与注音一样存 `twenty_six_key`，由宿主按方案号换面。
     STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5");
 
@@ -78,9 +79,9 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** Cantonese, Zhuyin, Vietnamese and Stroke start hidden and appear once the user turns them on, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` keeps them out of a document that never stored a list. */
+    /** 粤拼、注音、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
     public boolean optIn() {
-        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE || this == STROKE;
+        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE || this == TIBETAN || this == STROKE;
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
@@ -177,7 +178,7 @@ public enum KeyboardScheme {
         if (shuangpinProfile != null) profile = shuangpinProfile;
         String lastChinese = isChineseScheme(currentLastChineseScheme)
             ? currentLastChineseScheme : "quanpin";
-        // Japanese, Korean and Vietnamese keep the Chinese scheme to return to; none is one. Cantonese, Zhuyin and Stroke are Chinese schemes and become it.
+        // 日语、韩语、越南语和藏文保留要切回的中文方案，它们自己都不是中文方案；粤拼、注音和笔画是中文方案，会成为要切回的那个。
         if (isChineseScheme(engineScheme)) lastChinese = engineScheme;
         return new PreferenceMapping(engineScheme, lastChinese, profile, touchKeyboardLayout);
     }

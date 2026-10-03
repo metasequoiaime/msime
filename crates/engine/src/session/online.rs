@@ -239,11 +239,12 @@ impl InputSession {
                     state.query_text = request.raw_input.clone();
                 }
             }
-            // Korean syllables and Vietnamese words are already the text: there is nothing for a cloud provider to convert. Cantonese, Zhuyin and Stroke are answered by their own dictionaries only.
+            // 韩文音节、越南文单词和藏文音节串本身就是文字，没有可交给云端转换的东西。粤拼、注音和笔画只由各自的词库回答。
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
             | SchemeType::Vietnamese
+            | SchemeType::Tibetan
             | SchemeType::Stroke => {}
             // Wubi codes are not spellings a cloud provider understands, and wubi providers cannot take dynamic rows.
             SchemeType::Wubi => state.cache_key = request.normalized_input.clone(),

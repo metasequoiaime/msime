@@ -24,9 +24,11 @@ public final class ChineseSymbolFacesSmoke {
             "Korean scheme uses half-width ASCII faces whatever the Chinese punctuation switch says");
         check(!ChineseSymbolFaces.shouldUseChineseFaces(false, 7, "none", true),
             "Vietnamese scheme uses half-width ASCII faces whatever the Chinese punctuation switch says");
+        check(!ChineseSymbolFaces.shouldUseChineseFaces(false, 8, "none", true),
+            "Tibetan scheme uses half-width ASCII faces whatever the Chinese punctuation switch says");
         check(ChineseSymbolFaces.shouldUseChineseFaces(false, 5, "none", true)
                 && ChineseSymbolFaces.shouldUseChineseFaces(false, 6, "none", true)
-                && ChineseSymbolFaces.shouldUseChineseFaces(false, 8, "none", true),
+                && ChineseSymbolFaces.shouldUseChineseFaces(false, 9, "none", true),
             "Cantonese, Zhuyin and Stroke use Chinese faces");
         check(!ChineseSymbolFaces.shouldUseChineseFaces(false, 0, "emoji", true),
             "local utility mode uses ASCII faces");

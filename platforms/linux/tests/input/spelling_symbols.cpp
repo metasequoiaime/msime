@@ -66,8 +66,19 @@ int main() {
   const Json vietnamese = {{"scheme", 7}, {"local_mode", "none"}, {"spelling_symbols", "0123456789"}};
   assert(engine_spelling(vietnamese, U'6'));
   assert(spelling_digits(vietnamese));
-  // Stroke spells with the letters h s p n z and the wildcard x alone, which go through the letter path: it lists no symbols, so while it composes the number row still picks candidates and punctuation stays punctuation.
-  const Json stroke = {{"scheme", 8}, {"local_mode", "none"}, {"editing_text", "hx"}, {"spelling_symbols", ""}};
+  // 藏文威利转写：空闲时撇号（achung 开头的音节）和斜杠（单独输出垂符）是拼写，组字时再加上叠写加号、消歧句点和连字符；数字和空格不是拼写，交给宿主自己的规则。
+  const Json tibetan_idle = {{"scheme", 8}, {"local_mode", "none"}, {"spelling_symbols", "'/"}};
+  assert(engine_spelling(tibetan_idle, U'\''));
+  assert(engine_spelling(tibetan_idle, U'/'));
+  assert(!engine_spelling(tibetan_idle, U'+'));
+  const Json tibetan_composing = {{"scheme", 8}, {"local_mode", "none"}, {"spelling_symbols", "'+-./"}};
+  for (char32_t symbol : {U'\'', U'+', U'-', U'.', U'/'})
+    assert(engine_spelling(tibetan_composing, symbol));
+  assert(!engine_spelling(tibetan_composing, U','));
+  assert(!spelling_digits(tibetan_composing));
+  assert(!spelling_space(tibetan_composing));
+  // 笔画只用字母 h s p n z 和通配符 x 拼写，它们走字母路径：方案不列任何拼写符号，所以组字时数字行仍然选词，标点仍然是标点。
+  const Json stroke = {{"scheme", 9}, {"local_mode", "none"}, {"editing_text", "hx"}, {"spelling_symbols", ""}};
   for (char32_t character : {U'1', U'0', U'\'', U',', U'x', U'*'})
     assert(!engine_spelling(stroke, character));
   assert(!spelling_digits(stroke));

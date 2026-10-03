@@ -1010,6 +1010,55 @@ fn japanese_commands_apply_to_the_twenty_six_key_scheme() {
     read(msime_client_destroy(handle));
 }
 
+// 藏文经过宿主边界：大写字母是拼写，组字时显示转换后的藏文，空格加音节点、`/` 加垂符上屏，回车不加音节点，拼写符号随组字状态变化。
+#[test]
+fn tibetan_scheme_crosses_the_host_boundary() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            scheme: InputScheme::Tibetan,
+            ..chinese_preferences()
+        },
+    );
+    read(msime_client_focus(handle, true));
+    let idle = read(msime_client_command(handle, 3));
+    assert_eq!(idle["value"]["view"]["spelling_symbols"], "'/");
+    let mut typed = Value::Null;
+    for character in b"bkra" {
+        typed = read(msime_client_character(handle, *character, false));
+        assert_eq!(typed["value"]["handled"], true);
+    }
+    let view = &typed["value"]["view"];
+    assert_eq!(view["scheme"], 8);
+    assert_eq!(view["preedit"], "བཀྲ");
+    assert_eq!(view["candidates"], json!([]));
+    assert_eq!(view["spelling_symbols"], "'+-./");
+    let space = read(msime_client_character(handle, b' ', false));
+    assert_eq!(space["value"]["handled"], true);
+    assert_eq!(space["value"]["commit"], "བཀྲ་");
+    assert_eq!(space["value"]["commit_context"]["scheme"], 8);
+
+    for character in b"shis" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let shad = read(msime_client_character(handle, b'/', false));
+    assert_eq!(shad["value"]["handled"], true);
+    assert_eq!(shad["value"]["commit"], "ཤིས།");
+    let alone = read(msime_client_character(handle, b'/', false));
+    assert_eq!(alone["value"]["handled"], true);
+    assert_eq!(alone["value"]["commit"], "།");
+
+    // 大写字母是拼写而不是 Shift 命令：`Ta` 是反写字母 ཊ。
+    read(msime_client_character(handle, b'T', true));
+    let retroflex = read(msime_client_character(handle, b'a', false));
+    assert_eq!(retroflex["value"]["view"]["preedit"], "ཊ");
+    let enter = read(msime_client_command(handle, 2));
+    assert_eq!(enter["value"]["handled"], true);
+    assert_eq!(enter["value"]["commit"], "ཊ");
+    read(msime_client_destroy(handle));
+}
+
 #[test]
 fn korean_scheme_crosses_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
@@ -1354,6 +1403,7 @@ fn the_repeat_gesture_arms_except_in_schemes_that_write_no_chinese_marks() {
         (InputScheme::Japanese, true),
         (InputScheme::Korean, false),
         (InputScheme::Vietnamese, false),
+        (InputScheme::Tibetan, false),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let handle = test_host_preferences(
@@ -1423,7 +1473,13 @@ fn the_c_header_aliases_the_candidate_list_command_and_extends_the_scheme_legend
     assert!(HEADER.contains("MSIME_OPEN_CANDIDATE_LIST = 16,"));
     // platforms/android/check-host.sh greps the Korean legend line, so it stays as it was.
     assert!(HEADER.contains("4 korean (preferences scheme \"korean\")"));
-    for legend in ["5 cantonese", "6 zhuyin", "7 vietnamese", "8 stroke"] {
+    for legend in [
+        "5 cantonese",
+        "6 zhuyin",
+        "7 vietnamese",
+        "8 tibetan",
+        "9 stroke",
+    ] {
         assert!(HEADER.contains(legend), "{legend} missing from the legend");
     }
 }
@@ -6101,7 +6157,7 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
     use msime_client_core::preferences::ChineseScheme;
     use InputScheme::*;
     let all = [
-        Quanpin, Shuangpin, Wubi, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Stroke,
+        Quanpin, Shuangpin, Wubi, Japanese, Korean, Cantonese, Zhuyin, Vietnamese, Tibetan, Stroke,
     ];
     let base = &all[..5];
     let none = LanguageDictionaries::default();
@@ -6127,6 +6183,7 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
         // A scheme that can run is kept.
         (Wubi, None, base, &none, Wubi, OFFERED),
         (Vietnamese, None, &all[..], &none, Vietnamese, OFFERED),
+        (Tibetan, None, &all[..], &none, Tibetan, OFFERED),
         (Cantonese, None, &all[..], &both, Cantonese, OFFERED),
         (
             Zhuyin,
@@ -6146,6 +6203,14 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
             NOT_OFFERED,
         ),
         (Vietnamese, None, base, &both, Quanpin, NOT_OFFERED),
+        (
+            Tibetan,
+            Some(ChineseScheme::Shuangpin),
+            base,
+            &both,
+            Shuangpin,
+            NOT_OFFERED,
+        ),
         (
             Wubi,
             Some(ChineseScheme::Wubi),
@@ -6359,6 +6424,7 @@ fn installed_language_dictionaries_enable_their_schemes() {
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 2);
     assert_eq!(engine_scheme(InputScheme::Stroke), 2);
     assert_eq!(engine_scheme(InputScheme::Vietnamese), 7);
+    assert_eq!(engine_scheme(InputScheme::Tibetan), 8);
 
     let beside = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&beside).expect("beside");
@@ -6372,9 +6438,10 @@ fn installed_language_dictionaries_enable_their_schemes() {
     assert_eq!(engine_scheme(InputScheme::Zhuyin), 6);
     assert_eq!(engine_scheme(InputScheme::Stroke), 2);
     assert_eq!(engine_scheme(InputScheme::Vietnamese), 7);
+    assert_eq!(engine_scheme(InputScheme::Tibetan), 8);
 
     std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
-    assert_eq!(engine_scheme(InputScheme::Stroke), 8);
+    assert_eq!(engine_scheme(InputScheme::Stroke), 9);
 }
 
 #[test]

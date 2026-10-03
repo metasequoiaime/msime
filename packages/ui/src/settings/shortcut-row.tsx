@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Row } from "../core/platform-controls";
-import * as settings from "./settings-style";
+import { SettingsShortcutKey } from "./settings-shortcut-key";
 
 export interface ShortcutRowProps {
   title: ReactNode;
@@ -12,7 +12,7 @@ export interface ShortcutRowProps {
 export function ShortcutRow({ title, description, chord }: ShortcutRowProps) {
   return (
     <Row title={title} description={description}>
-      <kbd className={settings.shortcutKey}>{chord}</kbd>
+      <SettingsShortcutKey>{chord}</SettingsShortcutKey>
     </Row>
   );
 }

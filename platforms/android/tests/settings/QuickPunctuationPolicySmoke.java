@@ -19,9 +19,11 @@ public final class QuickPunctuationPolicySmoke {
             "Korean quick punctuation uses half-width ASCII faces");
         var vietnamese = QuickPunctuationPolicy.entries(false, 7, "none");
         check(vietnamese.equals(korean), "Vietnamese quick punctuation is half-width ASCII, as Korean's is");
+        check(QuickPunctuationPolicy.entries(false, 8, "none").equals(korean),
+            "Tibetan quick punctuation is half-width ASCII, as Korean's is");
         check(QuickPunctuationPolicy.entries(false, 5, "none").equals(chinese),
             "Cantonese quick punctuation is the Chinese set");
-        check(QuickPunctuationPolicy.entries(false, 8, "none").equals(chinese),
+        check(QuickPunctuationPolicy.entries(false, 9, "none").equals(chinese),
             "Stroke quick punctuation is the Chinese set; its wildcard is the letter x, not a mark");
         var zhuyin = QuickPunctuationPolicy.entries(false, 6, "none");
         check(zhuyin.size() == 7 && zhuyin.get(0).face().equals("，") && zhuyin.get(0).input() == '<'
@@ -35,6 +37,6 @@ public final class QuickPunctuationPolicySmoke {
             "English mode uses ASCII faces");
         check(QuickPunctuationPolicy.entries(false, 0, "emoji").get(0).face().equals(","),
             "Local mode uses ASCII faces");
-        System.out.println("Android quick punctuation: Chinese, Japanese, Korean, Zhuyin, Vietnamese and ASCII modes passed");
+        System.out.println("Android quick punctuation: Chinese, Japanese, Korean, Zhuyin, Vietnamese, Tibetan and ASCII modes passed");
     }
 }

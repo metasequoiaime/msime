@@ -100,13 +100,12 @@ jobs:
         with: {path: dist, merge-multiple: true}
       # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent Linux release
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
           # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
-          # --generate-notes otherwise starts from whichever tag in the repository is newest, and the six platforms interleave prefixes, so a macOS release could be described by the diff since an ios-v tag. fetch-depth: 0 above is what makes this list complete.
           start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
           tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          [[ -n "$start" ]] && flags+=(--notes-start-tag "$start")
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --generate-notes "${flags[@]}"
+          python3 scripts/generate-release-notes.py --platform linux --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --notes-file release-notes.md "${flags[@]}"

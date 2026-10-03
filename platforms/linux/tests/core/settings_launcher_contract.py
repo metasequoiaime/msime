@@ -71,4 +71,16 @@ with tempfile.TemporaryDirectory() as scratch:
     usage = subprocess.run([str(script), "--help"], env=environment, check=True, capture_output=True, text=True).stdout
     assert "|help|feedback|" in usage
 
+    # 所有窗口入口默认禁用 WebKit 合成，不改变调用方的 GTK 后端；显式值仍可用于排查上游问题。
+    desktop_binary.write_text('#!/bin/sh\nprintf "%s\\n" "$WEBKIT_DISABLE_COMPOSITING_MODE" "$GDK_BACKEND" "$@"\n')
+    environment.pop("WEBKIT_DISABLE_COMPOSITING_MODE", None)
+    environment["GDK_BACKEND"] = "wayland"
+    for arguments in ([], ["--panel", "settings"], ["--panel", "voice"], ["--route=settings:about"]):
+        output = subprocess.run([str(script), *arguments], env=environment, check=True, capture_output=True, text=True).stdout
+        assert output.splitlines()[:2] == ["1", "wayland"], (arguments, output)
+    for value, expected in (("", "1"), ("0", "0"), ("1", "1")):
+        environment["WEBKIT_DISABLE_COMPOSITING_MODE"] = value
+        output = launched()
+        assert output.splitlines()[:2] == [expected, "wayland"], output
+
 print("settings launcher contract: ok")

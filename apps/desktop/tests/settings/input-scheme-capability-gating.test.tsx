@@ -41,7 +41,7 @@ function radio(name: string): HTMLInputElement {
   return screen.getByRole("radio", { name }) as HTMLInputElement;
 }
 
-test("a Windows capability shows 粤拼, 注音, 笔画 and 越南文 disabled", async () => {
+test("a Windows capability shows 粤拼, 注音, 笔画, 越南文 and 藏文 disabled", async () => {
   await openInputPage(
     testHost({
       platform: "windows",
@@ -53,6 +53,7 @@ test("a Windows capability shows 粤拼, 注音, 笔画 and 越南文 disabled",
   expect(radio("注音").disabled).toBe(true);
   expect(radio("笔画").disabled).toBe(true);
   expect(radio("越南文").disabled).toBe(true);
+  expect(radio("藏文").disabled).toBe(true);
   expect(radio("五笔").disabled).toBe(false);
   expect(screen.getByText("此平台暂不支持粤拼、注音、笔画")).toBeTruthy();
 });
@@ -70,6 +71,7 @@ test("a macOS capability offers every scheme", async () => {
         "cantonese",
         "zhuyin",
         "vietnamese",
+        "tibetan",
         "stroke",
       ],
     }),
@@ -83,6 +85,10 @@ test("a macOS capability offers every scheme", async () => {
   fireEvent.click(radio("越南文"));
   expect(radio("Telex").checked).toBe(true);
   expect(radio("新式 hoà").checked).toBe(true);
+  expect(radio("藏文").disabled).toBe(false);
+  fireEvent.click(radio("藏文"));
+  expect(radio("威利转写").checked).toBe(true);
+  expect(screen.queryByRole("radio", { name: "Telex" })).toBeNull();
 });
 
 test("a Cantonese document on a host without Cantonese names the fallback", async () => {

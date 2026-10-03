@@ -22,6 +22,13 @@ constexpr std::string_view idle = msime::tsf::kZhuyinIdleSymbols;
 constexpr std::string_view dachen = msime::tsf::kZhuyinComposingSymbols;
 constexpr std::string_view listOpen = msime::tsf::kZhuyinListOpenSymbols;
 constexpr std::string_view vni = msime::tsf::kVietnameseVniDigits;
+constexpr std::string_view tibetanIdle = msime::tsf::kTibetanIdleSymbols;
+constexpr std::string_view tibetanComposing = msime::tsf::kTibetanComposingSymbols;
+
+KoreanKeyAction tibetan(unsigned vk, wchar_t wch, bool composing) {
+    return host_composed_key_action(scheme::Tibetan, vk, wch, composing, false,
+                                    composing ? tibetanComposing : tibetanIdle);
+}
 
 KoreanKeyAction zhuyin(unsigned vk, wchar_t wch, bool composing, bool open = false) {
     return host_composed_key_action(scheme::Zhuyin, vk, wch, composing, open,
@@ -96,6 +103,36 @@ int main() {
     check(host_composed_key_action(scheme::Vietnamese, 0x08, L'\b', true, false, {}) == KoreanKeyAction::Default,
           "Backspace edits the word");
 
+    // 藏文：字母连同大小写组字；`'` 随时组字，`+` `.` `-` 只在组字时组字；`/` 随时送进宿主会话（组字时带垂符上屏，空闲时单独输出垂符）。
+    check(tibetan('B', L'b', false) == KoreanKeyAction::Compose, "a letter starts a Tibetan run");
+    check(tibetan('T', L'T', true) == KoreanKeyAction::Compose, "an uppercase Wylie letter composes");
+    check(tibetan(0xDE, L'\'', false) == KoreanKeyAction::Compose, "an idle apostrophe starts an achung syllable");
+    check(tibetan(0xBF, L'/', false) == KoreanKeyAction::Compose, "an idle slash reaches the host session for a shad");
+    check(tibetan(0xBF, L'/', true) == KoreanKeyAction::Compose, "a composing slash ends the run with a shad");
+    for (const auto &[vk, wch] : {std::pair<unsigned, wchar_t>{0xBB, L'+'}, {0xBE, L'.'}, {0xBD, L'-'}})
+        check(tibetan(vk, wch, true) == KoreanKeyAction::Compose, "a Wylie spelling symbol composes");
+    check(tibetan(0xBE, L'.', false) == KoreanKeyAction::Pass, "an idle period is the application's");
+    // 组字时空格送进宿主会话，由引擎带音节点上屏；空闲的空格属于应用。
+    check(tibetan(0x20, L' ', true) == KoreanKeyAction::Compose, "a composing Space ends the run with a tsheg");
+    check(tibetan(0x20, L' ', false) == KoreanKeyAction::Pass, "an idle Space is the application's");
+    // 回车只上屏藏文并吃掉按键；数字和其他标点结束组字并跟在后面；光标键上屏后交给应用。
+    check(tibetan(0x0D, L'\r', true) == KoreanKeyAction::CommitWithText, "Enter commits the run and is spent");
+    check(tibetan('1', L'1', true) == KoreanKeyAction::CommitWithText, "a digit ends the run and follows it");
+    check(tibetan('1', L'1', false) == KoreanKeyAction::Pass, "an idle digit is the application's");
+    check(tibetan(0xBC, L',', true) == KoreanKeyAction::CommitWithText, "a comma follows the run");
+    for (const unsigned vk : {0x09u, 0x25u, 0x27u, 0x26u, 0x28u, 0x24u, 0x23u, 0x21u, 0x22u, 0x2Eu})
+        check(tibetan(vk, vk == 0x09 ? L'\t' : L'\0', true) == KoreanKeyAction::CommitAndPass,
+              "a caret key commits the run and passes");
+    check(tibetan(0x08, L'\b', true) == KoreanKeyAction::Default, "Backspace edits the raw Wylie");
+    check(tibetan(0x1B, 0x1B, true) == KoreanKeyAction::Default, "Escape restores or cancels the run");
+    // 实时视图判断：藏文组字时空格算组字接收的键，空闲时不算；其他方案的空格只看视图的拼写符号。
+    using msime::tsf::host_composition_takes_key;
+    check(host_composition_takes_key(scheme::Tibetan, tibetanComposing, L' ', true), "the live view takes a composing Space");
+    check(!host_composition_takes_key(scheme::Tibetan, tibetanIdle, L' ', false), "the live view leaves an idle Space");
+    check(host_composition_takes_key(scheme::Tibetan, tibetanIdle, L'/', false), "the live view takes an idle slash");
+    check(!host_composition_takes_key(scheme::Tibetan, tibetanComposing, L',', true), "a comma ends the run");
+    check(!host_composition_takes_key(scheme::Vietnamese, {}, L' ', true), "a Vietnamese Space ends the word");
+
     // Every other scheme keeps the ordinary classification.
     check(host_composed_key_action(scheme::Cantonese, 'S', L's', false, false, {}) == KoreanKeyAction::Default,
           "Cantonese keys are ordinary");
@@ -118,6 +155,6 @@ int main() {
 
     if (failures)
         return EXIT_FAILURE;
-    std::puts("Host-composed keys: Zhuyin spells and opens its list, Vietnamese composes words, Korean is unchanged");
+    std::puts("Host-composed keys: Zhuyin spells and opens its list, Vietnamese and Tibetan compose in place, Korean is unchanged");
     return EXIT_SUCCESS;
 }

@@ -2745,11 +2745,12 @@ private:
     auto schemes = add_group(page, L"输入方案");
     // Cantonese, Zhuyin and Stroke need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
     add_row(schemes, 0xE765, L"输入方案",
-            L"全拼、双拼、五笔、粤拼、注音、笔画、日语、韩语或越南语。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
+            L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏文或笔画。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
         L"输入方案",
         {{L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
-         {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"}, {L"stroke", L"笔画"},
-         {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"}},
+         {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
+         {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
+         {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}},
         scheme, [this](std::wstring const &next) { select_scheme(next); }));
     if (scheme == L"shuangpin" || indexing_)
       select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
@@ -2762,6 +2763,11 @@ private:
       segment_row(schemes, 0xE8D2, L"声调位置", L"oa、oe、uy 中声调标在哪个元音上：新式 hoà，旧式 hòa",
                   L"vietnamese.tone_style", {{L"modern", L"新式"}, {L"classic", L"旧式"}}, L"modern");
     }
+    // 藏文只有威利转写一种输入法，没有可调的选项，这一行只说明按键。
+    if (scheme == L"tibetan" || indexing_)
+      add_row(schemes, 0xE8AB, L"藏文输入法",
+              L"威利转写（EWTS）：用拉丁字母拼写，区分大小写。空格上屏并加音节点 ་，/ 上屏并加垂符 །，回车只上屏藏文，Esc 先显示拉丁原文",
+              nullptr);
     if (scheme == L"wubi" || indexing_) {
       select_row(schemes, 0xE8AB, L"五笔方案", L"", L"wubi_profile",
                  {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
@@ -2919,13 +2925,13 @@ private:
                       L"frequency.linear_step", {1, 2, 3, 4, 5, 6}, 1, L"");
   }
 
-  // Choosing Japanese, Korean or Vietnamese remembers the Chinese scheme it replaces, so switching back returns to it; choosing a Chinese scheme (Cantonese, Zhuyin and Stroke included) makes it the one remembered. Moving between the three languages keeps the remembered scheme, since none is a Chinese scheme the store accepts there. The same rule as the tray (store_input_scheme in server_main.cpp).
+  // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
   void select_scheme(std::wstring const &next) {
     const auto current = document_.String(L"scheme", L"quanpin");
     if (current == next)
       return;
     const auto chinese = [](std::wstring const &value) {
-      return value != L"japanese" && value != L"korean" && value != L"vietnamese";
+      return value != L"japanese" && value != L"korean" && value != L"vietnamese" && value != L"tibetan";
     };
     change([&](PreferencesDocument &doc) {
       if (chinese(next))

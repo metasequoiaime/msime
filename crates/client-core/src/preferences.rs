@@ -33,7 +33,9 @@ pub enum InputScheme {
     Zhuyin,
     /// Vietnamese through Telex or VNI, set in `vietnamese`. The Engine ordinal is 7.
     Vietnamese,
-    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `stroke.db`。A Chinese scheme. The Engine ordinal is 8.
+    /// 藏文：在拉丁字母键盘上按 EWTS（扩展威利转写）输入，不用词库，也不是中文方案。Engine 序号为 8。
+    Tibetan,
+    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `stroke.db`。是中文方案。Engine 序号为 9。
     Stroke,
 }
 
@@ -356,13 +358,15 @@ pub enum TouchKeyboardScheme {
     Zhuyin,
     /// 越南语 26 键: Vietnamese on the Latin 26-key letters, composed by the method in `Preferences::vietnamese` (`InputScheme::Vietnamese`).
     Vietnamese,
-    /// 笔画: the five-stroke keypad (横竖撇点折 plus a wildcard), each key sending its stroke letter h s p n z or x (`InputScheme::Stroke`). Hosts draw it whichever of the 26-key and nine-key layouts is chosen.
+    /// 藏文 26 键：在拉丁 26 键字母上按 EWTS 威利转写输入藏文，字母区分大小写（`InputScheme::Tibetan`）。
+    Tibetan,
+    /// 笔画键盘：横竖撇点折加一个通配键，每个键发送对应的笔画字母 h s p n z 或 x（`InputScheme::Stroke`）。不论选的是 26 键还是九键布局，宿主都画这个笔画键盘。
     Stroke,
 }
 
 impl TouchKeyboardScheme {
     /// Every touch scheme in picker order. Schemes are appended, never reordered.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Quanpin,
         Self::NineKey,
         Self::Xiaohe,
@@ -377,10 +381,11 @@ impl TouchKeyboardScheme {
         Self::Cantonese,
         Self::Zhuyin,
         Self::Vietnamese,
+        Self::Tibetan,
         Self::Stroke,
     ];
 
-    /// The schemes a keyboard shows before the user picks any: all but Cantonese, Zhuyin, Vietnamese and Stroke, which the user turns on, as on macOS where their input modes start disabled. A document without `touch_keyboard_schemes` therefore keeps the keyboard it always had.
+    /// 用户还没挑选时键盘显示的方案：除粤拼、注音、越南文、藏文和笔画以外的全部，这五个由用户自己打开，和 macOS 上它们的输入模式默认停用一样。因此没有 `touch_keyboard_schemes` 的文档仍然保持原来的键盘。
     pub const DEFAULT_ENABLED: [Self; 11] = [
         Self::Quanpin,
         Self::NineKey,
@@ -727,7 +732,7 @@ pub struct Preferences {
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
-    /// Retained when the active scheme is Japanese, Korean or Vietnamese.
+    /// 当前方案是日文、韩文、越南文或藏文时保留，记住要回到的中文方案。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
     #[serde(default)]

@@ -18,17 +18,27 @@ int main() {
   assert(scheme_number("cantonese") == scheme::Cantonese);
   assert(scheme_number("zhuyin") == scheme::Zhuyin);
   assert(scheme_number("vietnamese") == scheme::Vietnamese);
+  assert(scheme_number("tibetan") == scheme::Tibetan);
+  assert(scheme::Tibetan == 8);
   assert(scheme_number("stroke") == scheme::Stroke);
-  assert(scheme::Stroke == 8);
+  assert(scheme::Stroke == 9);
   assert(scheme_number("pinyin") == -1);
   assert(scheme_number("") == -1);
 
-  // Vietnamese is a non-Chinese input language like Japanese and Korean; Cantonese, Zhuyin and Stroke are Chinese schemes.
-  for (int number : {0, 1, 2, 5, 6, 8})
+  // 越南文和藏文与日文、韩文一样是非中文输入语言；粤拼、注音和笔画是中文方案。
+  for (int number : {0, 1, 2, 5, 6, 9})
     assert(scheme::IsChinese(number));
-  for (int number : {3, 4, 7, 9, -1})
+  for (int number : {3, 4, 7, 8, 10, -1})
     assert(!scheme::IsChinese(number));
-  // Stroke copies Cantonese's traits: its candidates come from stroke.db as stored, nothing is learned, and its composition is neither kept on blur nor drawn inline whatever the preedit style.
+  // 藏文的宿主特性和越南文相同：字母直接组成文字，CapsLock 的大写字母照样组字，离开时上屏，光标锁在末尾，不转繁体，不用中文标点，不变全角，没有宿主的智能标点，也没有要打开的候选列表。
+  static_assert(scheme::LetterComposition(scheme::Tibetan) && scheme::CapsLockBypassExempt(scheme::Tibetan) &&
+                scheme::AlwaysInlinePreedit(scheme::Tibetan) && scheme::CommitsOnBlur(scheme::Tibetan) &&
+                scheme::LocksCaret(scheme::Tibetan));
+  static_assert(!scheme::FoldsLetterCase(scheme::Tibetan) && !scheme::OpensCandidateList(scheme::Tibetan) &&
+                !scheme::ScriptConversionApplies(scheme::Tibetan) && !scheme::LearnsIntoMainDictionary(scheme::Tibetan) &&
+                !scheme::OpensLocalModes(scheme::Tibetan) && !scheme::UsesChinesePunctuation(scheme::Tibetan) &&
+                !scheme::HostSmartPunctuation(scheme::Tibetan) && !scheme::WidensFullWidth(scheme::Tibetan));
+  // 笔画照抄粤拼的特性：候选按 stroke.db 里存的原样取用，不学习，组字离开时不上屏，也不因预编辑样式而强制内嵌显示。
   assert(!scheme::ScriptConversionApplies(scheme::Stroke));
   assert(!scheme::LearnsIntoMainDictionary(scheme::Stroke));
   assert(!scheme::OpensLocalModes(scheme::Stroke));
@@ -39,8 +49,8 @@ int main() {
   assert(scheme::WidensFullWidth(scheme::Stroke));
   assert(!scheme::OpensCandidateList(scheme::Stroke));
   assert(!scheme::AlwaysInlinePreedit(scheme::Stroke));
-  // A Stroke composition (ASCII letters in editing_text, the stroke glyphs in reading) is not a list composition.
-  const Json stroke = {{"scheme", 8}, {"editing_text", "hs"}, {"reading", "一丨"}, {"candidates", Json::array({Json{{"text", "十"}}})}};
+  // 笔画组字（editing_text 里是 ASCII 字母，reading 里是笔画字形）不是列表组字。
+  const Json stroke = {{"scheme", 9}, {"editing_text", "hs"}, {"reading", "一丨"}, {"candidates", Json::array({Json{{"text", "十"}}})}};
   assert(!candidate_list_composition(stroke));
   assert(!opened_candidate_list(stroke));
   assert(!zhuyin_list_down_key(stroke));
@@ -66,6 +76,8 @@ int main() {
   assert(!opened_candidate_list(quanpin));
   const Json vietnamese = {{"scheme", 7}, {"editing_text", "viet"}};
   assert(!candidate_list_composition(vietnamese));
+  const Json tibetan = {{"scheme", 8}, {"editing_text", "བཀྲ"}};
+  assert(!candidate_list_composition(tibetan));
   // A local mode keeps its own rules in every scheme.
   Json zhuyin_mode = zhuyin;
   zhuyin_mode["local_mode"] = "expression";
@@ -80,7 +92,7 @@ int main() {
   const Json options = {{"language_dictionaries", directory.string()}};
   const auto empty = language_dictionary_availability(options);
   const auto no_directory = language_dictionary_availability(Json::object());
-  for (const char *id : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "vietnamese"}) {
+  for (const char *id : {"quanpin", "shuangpin", "wubi", "japanese", "korean", "vietnamese", "tibetan"}) {
     assert(input_scheme_available(id, empty));
     assert(input_scheme_available(id, no_directory));
   }
@@ -99,6 +111,8 @@ int main() {
   assert(effective_input_scheme("zhuyin", "vietnamese", empty) == "quanpin");
   assert(effective_input_scheme("unknown", "shuangpin", empty) == "shuangpin");
   assert(effective_input_scheme("vietnamese", "wubi", empty) == "vietnamese");
+  assert(effective_input_scheme("tibetan", "wubi", empty) == "tibetan");
+  assert(effective_input_scheme("zhuyin", "tibetan", empty) == "quanpin");
   assert(effective_input_scheme("korean", "wubi", no_directory) == "korean");
   assert(effective_input_scheme("stroke", "wubi", empty) == "wubi");
   assert(effective_input_scheme("stroke", "stroke", empty) == "quanpin");

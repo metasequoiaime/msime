@@ -73,7 +73,7 @@ export function InputSchemeSettingsContent({
   };
   const schemePack = resourcePackForScheme(preferences.scheme);
   const chineseSchemes = isChineseScheme(preferences.scheme);
-  // The Cantonese, Zhuyin, Vietnamese and Stroke touch keyboards type their own input scheme, so they are offered only where the host offers that scheme (Cantonese, Zhuyin and Stroke also need their installed dictionary).
+  // 粤拼、注音、越南语、藏文和笔画的触屏键盘输入各自的方案，所以只在宿主提供该方案时出现（粤拼、注音和笔画还需要装好词库）。
   // 五笔键盘只有一个，标题跟随当前的五笔版本。
   const touchOptions = touchKeyboardSchemeOptions
     .filter(
@@ -81,6 +81,7 @@ export function InputSchemeSettingsContent({
         (scheme !== "cantonese" &&
           scheme !== "zhuyin" &&
           scheme !== "vietnamese" &&
+          scheme !== "tibetan" &&
           scheme !== "stroke") ||
         inputSchemes.includes(scheme),
     )

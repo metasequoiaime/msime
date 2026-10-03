@@ -1,4 +1,5 @@
 import android.view.KeyEvent;
+import app.msime.android.TibetanInputPolicy;
 import app.msime.android.VietnameseInputPolicy;
 import app.msime.android.ZhuyinInputPolicy;
 
@@ -51,6 +52,9 @@ public final class ZhuyinInputPolicySmoke {
         check(VietnameseInputPolicy.VIETNAMESE_SCHEME == 7, "the shared Engine ordinal for Vietnamese is 7");
         check(VietnameseInputPolicy.active(7, false) && !VietnameseInputPolicy.active(7, true)
             && !VietnameseInputPolicy.active(4, false), "only the Vietnamese scheme outside dedicated English composes Vietnamese");
-        System.out.println("Android Zhuyin and Vietnamese input policy: list, Down key, engine keys and activity passed");
+        check(TibetanInputPolicy.TIBETAN_SCHEME == 8, "the shared Engine ordinal for Tibetan is 8");
+        check(TibetanInputPolicy.active(8, false) && !TibetanInputPolicy.active(8, true)
+            && !TibetanInputPolicy.active(7, false), "only the Tibetan scheme outside dedicated English composes Tibetan");
+        System.out.println("Android Zhuyin, Vietnamese and Tibetan input policy: list, Down key, engine keys and activity passed");
     }
 }

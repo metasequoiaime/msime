@@ -12,6 +12,7 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
@@ -38,6 +39,8 @@ import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -113,12 +116,7 @@ export interface CommunityResourceClient {
 
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      onClick={open}
-      aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}
-    >
+    <CommunityCard onClick={open} aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}>
       <span className={style.resourceIcon} aria-hidden="true">
         {item.kind === "dictionary" ? "字" : "话"}
       </span>
@@ -135,7 +133,7 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
         {item.saves.toLocaleString("zh-CN")} 人收藏
       </span>
-    </button>
+    </CommunityCard>
   );
 }
 
@@ -694,7 +692,7 @@ export function CommunityResourcesPage({
       />
     );
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label={`搜索${resourceKindTitle(kind)}`}
         value={search}
@@ -732,11 +730,11 @@ export function CommunityResourcesPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {items.map((item) => (
           <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />
         ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={more}
         busy={busy}
@@ -754,7 +752,7 @@ export function CommunityResourcesPage({
           }}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }
 
@@ -790,7 +788,7 @@ export function CommunityHomePage({
 }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <div className={style.categoryTabs} role="tablist" aria-label="社区分类">
         <button
           type="button"
@@ -835,6 +833,6 @@ export function CommunityHomePage({
           mobile={mobile}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }

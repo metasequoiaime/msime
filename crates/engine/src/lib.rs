@@ -29,6 +29,7 @@ mod session;
 mod shuangpin;
 pub mod stroke;
 mod text;
+mod tibetan;
 mod types;
 mod user_dictionary;
 pub mod vietnamese;

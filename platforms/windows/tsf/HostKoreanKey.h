@@ -122,10 +122,22 @@ inline constexpr std::string_view kZhuyinComposingSymbols = "1234567890,./;- ";
 inline constexpr std::string_view kZhuyinListOpenSymbols = "0,./;-";
 // VNI's tone and mark digits, the Engine's VNI_DIGITS (crates/engine/src/vietnamese/scheme.rs). The TIP cannot tell VNI from Telex before a key runs, so a queued composing digit is taken as spelled and the live view decides when it runs.
 inline constexpr std::string_view kVietnameseVniDigits = "0123456789";
+// 藏文（威利转写）在空闲和组字时拼写用的非字母键，即引擎的 SPELLING_SYMBOLS_IDLE 和 SPELLING_SYMBOLS_COMPOSING（crates/engine/src/tibetan/scheme.rs）：`'` 随时可以开始 achung 音节，`+` `-` `.` 只在组字时属于拼写；`/` 从不进入原文，引擎把它变成垂符 U+0F0D 上屏，空闲时单独输出垂符。排队的按键看不到视图，所以延迟分类读这两组常量，按键执行时再由实时视图决定。
+inline constexpr std::string_view kTibetanIdleSymbols = "'/";
+inline constexpr std::string_view kTibetanComposingSymbols = "'+-./";
+
+// 组字是否接收这个键，而不是被它结束：视图的 `spelling_symbols` 里列出的键（spelled_key），以及藏文组字时的空格。藏文的空格把转换出的藏文连同音节点 U+0F0B 一起上屏，所以它要送进宿主会话，而不是像越南文那样结束组字后原样插入空格。
+constexpr bool host_composition_takes_key(int scheme, std::string_view spelling_symbols, wchar_t wch, bool composing) {
+    if (scheme == msime::windows::scheme::Tibetan && composing && wch == L' ')
+        return true;
+    return spelled_key(spelling_symbols, wch);
+}
 
 // What a key does while a scheme that composes in the TIP's own host session (scheme::AlwaysInlinePreedit) is active and the keyboard is open, in KoreanKeyAction's terms. Korean keeps korean_key_action. `spelling_symbols` is what the view publishes for the current state (spelled_key).
 //
 // Vietnamese is a word automaton like Korean's syllable: letters compose with their case, a VNI tone digit composes, and every other printable key ends the word and follows it half-width; with nothing composing such a key is the application's.
+//
+// 藏文按同样的方式组字，区别在于：字母连同大小写组字（威利转写区分大小写）；视图列出的拼写符号随时组字，所以空闲的 `'` 开始一个音节，空闲的 `/` 也送进宿主会话由引擎输出垂符；组字时的空格送进宿主会话，由引擎带音节点上屏；回车只上屏藏文并吃掉按键，和注音一样（CommitWithText，回车没有可跟在后面的字符）。其他可打印键结束组字并以半角跟在后面，光标和编辑键上屏后交给应用。
 //
 // Zhuyin (Dachen) spells with lowercase letters and the keys `spelling_symbols` names, from idle too. A letter typed with Shift or Caps Lock is not phonetic: it ends the conversion and follows it, as libchewing writes it. Down on a closed list opens the list (opens_candidate_list), whose keys then follow KoreanHanjaKey.h; Enter commits the conversion and is spent; any other printable key ends the conversion through the Chinese punctuation table (CommitWithText). Nothing composing, every key that is not spelled keeps the Chinese rules (Default), so Shift punctuation is the Chinese mark as in the other Chinese schemes.
 constexpr KoreanKeyAction host_composed_key_action(int scheme, uint32_t vk, wchar_t wch, bool composing, bool list_open,
@@ -134,6 +146,21 @@ constexpr KoreanKeyAction host_composed_key_action(int scheme, uint32_t vk, wcha
         return korean_key_action(vk, wch, composing, list_open);
     const bool letter = is_korean_letter_key(vk, wch);
     const bool spelled = !letter && spelled_key(spelling_symbols, wch);
+    if (scheme == msime::windows::scheme::Tibetan) {
+        if (letter || host_composition_takes_key(scheme, spelling_symbols, wch, composing))
+            return KoreanKeyAction::Compose;
+        if (!composing)
+            return is_korean_text_key(wch) ? KoreanKeyAction::Pass : KoreanKeyAction::Default;
+        if (vk == 0x0D)
+            return KoreanKeyAction::CommitWithText;
+        if (vk == 0x08 || vk == 0x1B)
+            return KoreanKeyAction::Default;
+        if (is_korean_text_key(wch))
+            return KoreanKeyAction::CommitWithText;
+        if (is_korean_caret_or_edit_key(vk))
+            return KoreanKeyAction::CommitAndPass;
+        return KoreanKeyAction::Default;
+    }
     if (scheme == msime::windows::scheme::Vietnamese) {
         if (letter || (composing && spelled))
             return KoreanKeyAction::Compose;

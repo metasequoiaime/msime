@@ -5,13 +5,13 @@ import { GroupList, MoreOptions, Row } from "../core/platform-controls";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import { ModelSelect } from "./model-select";
 import { SettingsTextareaField } from "./settings-textarea-field";
-import * as settings from "./settings-style";
 import { SwitchRow } from "./switch-row";
 import { SelectRow } from "./select-row";
 import { TextInputRow } from "./text-input-row";
 import { ActionRow } from "./action-row";
 import { SettingsPageFieldset } from "./settings-page-fieldset";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 export type AiProviderOption = { id: string; title: string };
 
@@ -181,7 +181,7 @@ export function AiSettingsPageSection({
         >
           <CustomPromptSlotOptions />
         </SelectRow>
-        <div className={settings.managerBlock}>
+        <SettingsManagerBlock>
           <SettingsTextareaField
             label={slot.label}
             description="发送给 AI 联想服务的额外提示词"
@@ -189,7 +189,7 @@ export function AiSettingsPageSection({
             value={slot.value}
             onChange={slot.onChange}
           />
-        </div>
+        </SettingsManagerBlock>
       </GroupList>
       {testTools}
       {trailing}

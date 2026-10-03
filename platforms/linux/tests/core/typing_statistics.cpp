@@ -350,10 +350,14 @@ int main() {
   assert(typing_source_id(TypingSource::Vietnamese) ==
          std::string_view("vietnamese"));
   assert(resolve_typing_source(8, false, false, "none", "xiaohe") ==
+         TypingSource::Tibetan);
+  assert(typing_source_id(TypingSource::Tibetan) ==
+         std::string_view("tibetan"));
+  assert(resolve_typing_source(9, false, false, "none", "xiaohe") ==
          TypingSource::Stroke);
   assert(typing_source_id(TypingSource::Stroke) ==
          std::string_view("stroke"));
-  assert(resolve_typing_source(9, false, false, "none", "xiaohe") ==
+  assert(resolve_typing_source(10, false, false, "none", "xiaohe") ==
          TypingSource::Unknown);
   assert(resolve_typing_source(0, false, true, "none", "xiaohe") ==
          TypingSource::English);

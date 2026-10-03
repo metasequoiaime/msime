@@ -93,6 +93,27 @@ fn cantonese_zhuyin_vietnamese_and_stroke_commits_count_under_their_own_sources(
     assert_eq!(value.detail.sources["stroke"], 1);
 }
 
+// 藏文按自己的来源计数，不算中文；藏文字母归为 otherLetter，音节点和垂符归为标点。
+#[test]
+fn tibetan_commits_count_under_their_own_source() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(directory.path());
+    store.set_enabled(true).unwrap();
+    let source: TypingSource = serde_json::from_str("\"tibetan\"").unwrap();
+    assert_eq!(source, TypingSource::Tibetan);
+    assert_eq!(
+        store
+            .record("བཀྲ་ཤིས།", source, "2026-10-03", Some(9))
+            .unwrap(),
+        6
+    );
+    let value = store.load().unwrap();
+    assert_eq!(value.detail.sources["tibetan"], 6);
+    assert_eq!(value.detail.characters["otherLetter"], 4);
+    assert_eq!(value.detail.characters["punctuation"], 2);
+    assert!(!value.detail.characters.contains_key("han"));
+}
+
 /// The document keeps sources as plain ids, so one written by a newer build with a scheme this build has no `TypingSource` for still loads, keeps that count, and goes on recording.
 #[test]
 fn a_document_naming_an_unknown_source_still_loads_and_records() {

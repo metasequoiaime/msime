@@ -49,11 +49,11 @@ public final class StrokeKeyboardLayoutSmoke {
 
         // The surface: the scheme forces it over the stored 26-key or nine-key layout, handwriting keeps its panel, dedicated English is the host's standard rows.
         check(KeyboardLayout.STROKE_LAYOUT == 6, "the stroke surface constant");
-        check(KeyboardLayout.resolveTouchLayout(false, false, 8, "twenty_six_key") == KeyboardLayout.STROKE_LAYOUT,
+        check(KeyboardLayout.resolveTouchLayout(false, false, 9, "twenty_six_key") == KeyboardLayout.STROKE_LAYOUT,
             "26-key preference shows the stroke keypad");
-        check(KeyboardLayout.resolveTouchLayout(false, true, 8, "nine_key") == KeyboardLayout.STROKE_LAYOUT,
+        check(KeyboardLayout.resolveTouchLayout(false, true, 9, "nine_key") == KeyboardLayout.STROKE_LAYOUT,
             "nine-key preference shows the stroke keypad");
-        check(KeyboardLayout.resolveTouchLayout(true, false, 8, "handwriting") == KeyboardLayout.HANDWRITING_LAYOUT,
+        check(KeyboardLayout.resolveTouchLayout(true, false, 9, "handwriting") == KeyboardLayout.HANDWRITING_LAYOUT,
             "handwriting preference shows handwriting");
         check(!KeyboardLayout.carriesLetterCase(KeyboardLayout.STROKE_LAYOUT), "strokes have no case");
         check(KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.STROKE_LAYOUT)

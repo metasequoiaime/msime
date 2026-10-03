@@ -2,7 +2,8 @@ package app.msime.android;
 
 /** Fixed Apple-style visual mapping for the Android shortcut strip. */
 public final class KeyboardShortcutIconPolicy {
-    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE }
+    /** `BOOKMARK` 不在快捷栏上，是回复面板里的模板入口，所以 {@link #forLabel} 不映射它。 */
+    public enum Icon { SETTINGS, REPLY, EMOJI, VOICE, SKIN, DISMISS, GLOBE, BOOKMARK }
 
     private KeyboardShortcutIconPolicy() {}
 

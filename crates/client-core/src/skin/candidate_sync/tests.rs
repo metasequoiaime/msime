@@ -43,6 +43,9 @@ struct Row {
 /// The user's library as the server keeps it. Downloads return every image with one byte appended, standing in for the server's re-encoding, so a downloaded package never has the uploaded bytes.
 struct Library {
     user: RefCell<Option<String>>,
+    generation: Cell<u64>,
+    relogin_after_list: Cell<bool>,
+    relogin_on_publish: Cell<bool>,
     rows: RefCell<BTreeMap<Uuid, Row>>,
     clock: Cell<u32>,
     calls: RefCell<Vec<String>>,
@@ -55,6 +58,9 @@ impl Library {
     fn new() -> Self {
         Self {
             user: RefCell::new(Some("user-1".into())),
+            generation: Cell::new(1),
+            relogin_after_list: Cell::new(false),
+            relogin_on_publish: Cell::new(false),
             rows: RefCell::new(BTreeMap::new()),
             clock: Cell::new(0),
             calls: RefCell::new(Vec::new()),
@@ -144,8 +150,14 @@ impl CandidateSkinSyncRemote for Library {
     fn user_id(&self) -> Result<Option<String>, AccountError> {
         Ok(self.user.borrow().clone())
     }
+    fn session_generation(&self) -> Result<Option<u64>, AccountError> {
+        Ok(self.user.borrow().as_ref().map(|_| self.generation.get()))
+    }
     fn sync_list(&self) -> Result<Vec<CandidateSkinSyncEntry>, AccountError> {
         self.log("list");
+        if self.relogin_after_list.replace(false) {
+            self.generation.set(self.generation.get() + 1);
+        }
         let mut rows: Vec<_> = self
             .rows
             .borrow()
@@ -199,6 +211,9 @@ impl CandidateSkinSyncRemote for Library {
                 category: request.category,
             },
         );
+        if self.relogin_on_publish.replace(false) {
+            self.generation.set(self.generation.get() + 1);
+        }
         self.item(request.id)
     }
     fn replace(
@@ -634,6 +649,33 @@ fn a_signed_out_run_is_refused_before_any_request() {
 }
 
 #[test]
+fn a_same_user_relogin_after_listing_cancels_the_sync() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.library.relogin_after_list.set(true);
+
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Cancelled)
+    );
+    assert!(fixture.library.rows.borrow().is_empty());
+    assert!(!fixture.state.exists());
+}
+
+#[test]
+fn a_same_user_relogin_after_upload_does_not_save_stale_sync_state() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.library.relogin_on_publish.set(true);
+
+    assert_eq!(
+        sync_candidate_skins(&fixture.root, &fixture.state, &fixture.library),
+        Err(AccountError::Cancelled)
+    );
+    assert!(!fixture.state.exists());
+}
+
+#[test]
 fn a_corrupt_state_file_reads_as_empty() {
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);
@@ -701,6 +743,29 @@ fn publishing_a_synced_package_updates_its_row_in_place() {
     .unwrap();
     assert_eq!(fixture.library.calls(), ["replace 公开樱花"]);
     assert_eq!(fixture.sync(), CandidateSkinSyncReport::default());
+}
+
+#[test]
+fn publishing_cancels_when_same_user_relogs_in_before_state_save() {
+    let fixture = Fixture::new();
+    write_skin(&fixture.root, "sakura", "樱花", 1);
+    fixture.library.relogin_on_publish.set(true);
+
+    assert_eq!(
+        publish(
+            &fixture.root,
+            &fixture.state,
+            &fixture.library,
+            "sakura",
+            Uuid::new_v4(),
+            "樱花".into(),
+            String::new(),
+            CandidateSkinVisibility::Private,
+            None,
+        ),
+        Err(CandidateSkinPublishError::Account(AccountError::Cancelled))
+    );
+    assert!(!fixture.state.exists());
 }
 
 #[test]

@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
   // h s p n z type the strokes: the preedit draws their glyphs, editing_text keeps the letters one per glyph, and the exact code ranks ahead of the longer codes it starts.
   {
     Fixture stroke(serialized);
-    assert(stroke.view().value("scheme", 0u) == 8u);
+    assert(stroke.view().value("scheme", 0u) == 9u);
     stroke.type("hs");
     assert(stroke.editing() == "hs" && stroke.preedit() == "一丨");
     assert(stroke.candidate(0) == "十" && stroke.candidate(1) == "土");
@@ -220,6 +220,6 @@ int main(int argc, char **argv) {
   }
 
   // Commits count under Stroke's own typing statistics source.
-  assert(resolve_typing_source(8, false, false, "none", "xiaohe") == TypingSource::Stroke);
+  assert(resolve_typing_source(9, false, false, "none", "xiaohe") == TypingSource::Stroke);
   return 0;
 }

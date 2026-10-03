@@ -32,7 +32,7 @@ inline constexpr unsigned candidate_scheme_korean = 4;
 // Cantonese, Zhuyin and Stroke candidates come from their own language dictionaries, which the Engine reads and never writes, so it refuses to pin, fix or remove them too (`is_editable_source` in crates/engine/src/session/input.rs).
 inline constexpr unsigned candidate_scheme_cantonese = 5;
 inline constexpr unsigned candidate_scheme_zhuyin = 6;
-inline constexpr unsigned candidate_scheme_stroke = 8;
+inline constexpr unsigned candidate_scheme_stroke = 9;
 
 inline bool candidate_actions_available(unsigned scheme, unsigned source) {
   if (scheme == candidate_scheme_japanese || scheme == candidate_scheme_korean ||

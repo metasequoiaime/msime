@@ -1,9 +1,11 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
+import { SettingsManagerActions } from "./settings-manager-actions";
 import { useId } from "react";
 import { GroupList } from "../core/platform-controls";
 import * as controls from "../core/platform-controls-style";
 import * as settings from "./settings-style";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { MAX_COMMAND_TABLES, type PluginPreferences } from "./plugin-preferences";
 import {
   kindLabels,
@@ -211,7 +213,7 @@ export function PluginListView({
                 只含音频、指令模板等数据，不含可执行内容，每个包须声明许可证
               </span>
             </span>
-            <span className={`${settings.managerActions} shrink-0`}>
+            <SettingsManagerActions as="span" className="shrink-0">
               <ActionButton
                 action={() => onImport("folder")}
                 disabled={working}
@@ -222,20 +224,20 @@ export function PluginListView({
                 disabled={working}
                 label="导入 .zip"
               />
-            </span>
+            </SettingsManagerActions>
           </div>
           {notice && <SettingsGroupNote role="status">{notice}</SettingsGroupNote>}
         </GroupList>
       )}
       {catalog.issues.length > 0 && (
         <GroupList title="无法载入的插件">
-          <div className={settings.managerBlock} role="list" aria-label="无法载入的插件">
+          <SettingsManagerBlock role="list" aria-label="无法载入的插件">
             {catalog.issues.map((issue) => (
               <SettingsManagerNote role="listitem" key={`${issue.kind}/${issue.folder}`}>
                 {kindLabels[issue.kind]} {issue.folder || "目录"} 无法载入：{issue.reason}
               </SettingsManagerNote>
             ))}
-          </div>
+          </SettingsManagerBlock>
         </GroupList>
       )}
     </>

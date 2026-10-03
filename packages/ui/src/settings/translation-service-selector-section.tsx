@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { SelectSettingField } from "./select-setting-field";
 import { SelectRow } from "./select-row";
 
@@ -35,7 +35,7 @@ export function TranslationServiceSelectorSection({
   onChange,
 }: TranslationServiceSelectorSectionProps) {
   return grouped ? (
-    <div role="group" aria-label="候选词翻译服务" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="候选词翻译服务">
       <SelectRow
         title="翻译服务"
         aria-label="候选词翻译服务"
@@ -45,7 +45,7 @@ export function TranslationServiceSelectorSection({
       >
         <TranslationServiceOptions showAccountProvider={showAccountProvider} />
       </SelectRow>
-    </div>
+    </SettingsRowStack>
   ) : (
     <div className="section" role="group" aria-label="候选词翻译服务">
       <SelectSettingField

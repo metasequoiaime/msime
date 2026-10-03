@@ -384,7 +384,7 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
     return false;
   }
 }
-// Select an input scheme through the revisioned store, keeping last_chinese_scheme the way the settings page does: a Chinese scheme (Cantonese, Zhuyin and Stroke included) is also the one Japanese, Korean and Vietnamese return to, and choosing one of those languages remembers the Chinese scheme it replaces. Moving between them keeps the remembered one, because none is a Chinese scheme the store would accept there.
+// 通过带版本的存储选择输入方案，并像设置页一样维护 last_chinese_scheme：中文方案（包括粤拼、注音和笔画）也是日文、韩文、越南文和藏文切回时回到的方案，选择这些语言之一时记住被替换的中文方案。在它们之间切换保留记住的方案，因为它们都不是存储会接受的中文方案。
 bool store_input_scheme(const std::filesystem::path &directory,
                         const std::string &scheme) {
   try {
@@ -407,7 +407,7 @@ bool store_input_scheme(const std::filesystem::path &directory,
             : std::string("quanpin");
     if (current == scheme)
       return true;
-    // Cantonese, Zhuyin and Stroke are Chinese schemes, remembered like the others; Japanese, Korean and Vietnamese are languages of their own (client-core's ChineseScheme).
+    // 粤拼、注音和笔画是中文方案，和其他中文方案一样被记住；日文、韩文、越南文和藏文各是独立的语言（client-core 的 ChineseScheme）。
     if (msime::windows::scheme::is_chinese_scheme_name(scheme))
       preferences["last_chinese_scheme"] = scheme;
     else if (msime::windows::scheme::is_chinese_scheme_name(current))
@@ -1667,7 +1667,7 @@ int wmain(int argc, wchar_t **argv) {
           follow_cursor->load(std::memory_order_acquire));
       candidates.set_effect_intensity(
           effect_intensity->load(std::memory_order_acquire));
-      // The language button shows 'A' while Caps Lock is on, 日 in Japanese mode, 한 in Korean mode, 粤, 注, 笔 or 越 in Cantonese, Zhuyin, Stroke or Vietnamese, and an underlined "En" in the Engine's own English mode, so it has to follow all of them. Showing 中 with Caps Lock on tells the user the wrong thing about what the next letter key will do.
+      // 语言按钮在 Caps Lock 开着时显示 'A'，日文模式显示 日，韩文模式显示 한，粤拼、注音、越南文、藏文、笔画分别显示 粤、注、越、藏、笔，引擎自己的英文模式显示带下划线的 "En"，所以它要跟随这些状态。Caps Lock 开着时显示 中 会让用户误判下一个字母键的作用。
       {
         ToolbarLanguageState language;
         language.caps_lock = caps_lock.load(std::memory_order_acquire);

@@ -2,10 +2,10 @@ import type { ConfirmRequest } from "../core/confirm";
 import { SwitchRow } from "./switch-row";
 import { SettingCheck } from "./setting-check";
 import { SettingSectionTitle } from "./setting-section-title";
-import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 import { SettingsInputDescription } from "./settings-input-description";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 
@@ -56,7 +56,7 @@ export interface FuzzyPinyinSectionProps {
 /** 有模糊音能力的宿主共用的模糊音设置：输入页「模糊音」组的内容。总开关关闭时收起规则列表和重置按钮，只留总开关；关闭总开关仍保留已选规则，重新打开后原样展开。 */
 export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPinyinSectionProps) {
   return (
-    <div role="group" aria-label="模糊音" className={settings.rowStack}>
+    <SettingsRowStack role="group" aria-label="模糊音">
       <SwitchRow
         title="启用模糊音"
         description="全拼、九键与双拼均支持；更改会在当前输入结束后生效"
@@ -119,6 +119,6 @@ export function FuzzyPinyinSection({ preferences, onChange, confirm }: FuzzyPiny
           label="重置模糊音配置"
         />
       </SettingsGroupBlock>
-    </div>
+    </SettingsRowStack>
   );
 }

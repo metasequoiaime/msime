@@ -266,10 +266,15 @@ pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
                 .get(&handle)
                 .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
             let smart = session.applied.smart_punctuation;
-            // The repeat gesture turns an ASCII mark into a Chinese one. Korean and Vietnamese write only ASCII marks and Zhuyin's punctuation keys spell bopomofo, so it never arms there; Japanese keeps arming as it always has.
+            // 重复按键手势把 ASCII 标点换成中文标点。韩文、越南文和藏文只写 ASCII 标点，注音的标点键用来拼注音符号，所以这几个方案里从不启用；日文照旧启用。
             let smart_scheme = !matches!(
                 SchemeType::from_u8(session.runtime.scheme()),
-                Some(SchemeType::Korean | SchemeType::Zhuyin | SchemeType::Vietnamese)
+                Some(
+                    SchemeType::Korean
+                        | SchemeType::Zhuyin
+                        | SchemeType::Vietnamese
+                        | SchemeType::Tibetan
+                )
             );
             let repeat = msime_client_core::punctuation::arm_repeat(
                 value.ascii,

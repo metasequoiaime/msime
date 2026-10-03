@@ -156,6 +156,16 @@ const VIETNAMESE: SchemeDefinition = {
   glyph: "越",
   badge: "26",
 };
+const TIBETAN: SchemeDefinition = {
+  id: "TIBETAN",
+  preferenceId: "tibetan",
+  engineScheme: "tibetan",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "藏文 26 键",
+  glyph: "藏",
+  badge: "26",
+};
 // 笔画：五个笔画键加通配键，键盘由 KeyboardView 按方案画成九键外框里的笔画面板，所以布局仍记作 twenty_six_key（与大千注音同理），不会触发九键拼音的数字串解码。
 const STROKE: SchemeDefinition = {
   id: "STROKE",
@@ -193,6 +203,7 @@ export class KeyboardScheme {
   static readonly CANTONESE: SchemeDefinition = CANTONESE;
   static readonly ZHUYIN: SchemeDefinition = ZHUYIN;
   static readonly VIETNAMESE: SchemeDefinition = VIETNAMESE;
+  static readonly TIBETAN: SchemeDefinition = TIBETAN;
   static readonly STROKE: SchemeDefinition = STROKE;
 
   /** Declaration order is the fixed order the pickers render. */
@@ -212,8 +223,14 @@ export class KeyboardScheme {
     CANTONESE,
     ZHUYIN,
     VIETNAMESE,
+    TIBETAN,
     STROKE,
   ];
+
+  /** 26 键符号层按键实际发出的字符：藏文方案下第三排的 `=` 换成威利叠写用的 `+`，让组字中的叠写（如 `pad+ma`）走标点路由交给引擎；符号面板直接写入编辑框，不能用来叠写。其他方案原样发出。 */
+  static symbolRowKey(symbol: string, tibetan: boolean): string {
+    return tibetan && symbol === "=" ? "+" : symbol;
+  }
 
   /** 偏好 `wubi_profile` 的两个取值：方案仍是 `wubi`，版本是旁边的独立字段，就像 `shuangpin_profile` 之于 `shuangpin`。 */
   static readonly WUBI_86: string = "wubi86";
@@ -246,12 +263,13 @@ export class KeyboardScheme {
     return scheme.badge;
   }
 
-  /** What a keyboard shows before the user picks any, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` has it: Cantonese, Zhuyin, Vietnamese and Stroke are turned on by the user, so a device without a stored list keeps the keyboard it always had. */
+  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。 */
   static readonly DEFAULT_ENABLED: SchemeDefinition[] = KeyboardScheme.SCHEMES.filter(
     (candidate: SchemeDefinition): boolean =>
       candidate !== CANTONESE &&
       candidate !== ZHUYIN &&
       candidate !== VIETNAMESE &&
+      candidate !== TIBETAN &&
       candidate !== STROKE,
   );
 
@@ -385,7 +403,7 @@ export class KeyboardScheme {
       KeyboardScheme.isChineseScheme(currentLastChineseScheme) && currentLastChineseScheme !== null
         ? currentLastChineseScheme
         : "quanpin";
-    // Japanese, Korean and Vietnamese replace the Chinese scheme without becoming one, so the one they replaced is what 中文 goes back to.
+    // 日语、韩语、越南语和藏文替换中文方案但本身不是中文方案，所以「中文」回到被它们替换掉的那个方案。
     if (KeyboardScheme.isChineseScheme(scheme.engineScheme)) {
       lastChinese = scheme.engineScheme;
     }
@@ -421,6 +439,8 @@ export class KeyboardScheme {
       case 7:
         return "vietnamese";
       case 8:
+        return "tibetan";
+      case 9:
         return "stroke";
       default:
         return "quanpin";

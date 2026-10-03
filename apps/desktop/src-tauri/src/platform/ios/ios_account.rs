@@ -632,6 +632,7 @@ pub async fn account_preferences_upload(
     let platform = state.platform.clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
         let schema = session.preference_schema()?;
         let cloud = session.preferences()?;
         let native = platform
@@ -650,7 +651,7 @@ pub async fn account_preferences_upload(
             return Err(AccountError::Unavailable);
         }
         let merged = merge_account_preferences(&cloud, &values, &schema)?;
-        session.put_preferences(&merged)
+        session.put_preferences_with_generation(&merged, generation, &user_id)
     })
     .await
     .map_err(|_| crate::CommandError {
@@ -671,25 +672,28 @@ pub async fn account_preferences_apply(
     let platform = state.platform.clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        session.credentials(None, Some(&user_id))?;
+        let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
         let plan = account_preferences::IosPreferencePlan::from_cloud(&preferences)?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
         let previous_native = platform
             .load_keyboard_preferences()
             .map_err(|_| AccountError::Storage)?;
         let requested = plan.requested_native(&previous_native)?;
-        let saved_native = platform
-            .save_keyboard_preferences(&requested)
-            .map_err(|_| AccountError::Storage)?;
-        let mut next = local.preferences.clone();
-        if let Err(error) = plan.apply_shared(&saved_native, &mut next) {
-            let _ = platform.save_keyboard_preferences(&previous_native);
-            return Err(error);
-        }
-        if store.save(local.revision, next).is_err() {
-            let _ = platform.save_keyboard_preferences(&previous_native);
-            return Err(AccountError::Storage);
-        }
+        session.with_generation(generation, Some(&user_id), || {
+            let saved_native = platform
+                .save_keyboard_preferences(&requested)
+                .map_err(|_| AccountError::Storage)?;
+            let mut next = local.preferences.clone();
+            if let Err(error) = plan.apply_shared(&saved_native, &mut next) {
+                let _ = platform.save_keyboard_preferences(&previous_native);
+                return Err(error);
+            }
+            if store.save(local.revision, next).is_err() {
+                let _ = platform.save_keyboard_preferences(&previous_native);
+                return Err(AccountError::Storage);
+            }
+            Ok::<(), AccountError>(())
+        })?;
         Ok::<(), AccountError>(())
     })
     .await
@@ -890,5 +894,18 @@ mod tests {
                 "revisionRequired":true
             })
         );
+    }
+
+    #[test]
+    fn preference_upload_is_fenced_by_the_session_generation() {
+        let source = include_str!("ios_account.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap();
+        assert!(source.contains(
+            "let (user_id, _, generation) = session.credentials_with_generation(None, None)?;"
+        ));
+        assert!(source
+            .contains("session.put_preferences_with_generation(&merged, generation, &user_id)"));
     }
 }

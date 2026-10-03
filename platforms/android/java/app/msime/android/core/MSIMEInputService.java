@@ -43,7 +43,6 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.ScrollView;
@@ -141,10 +140,9 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout moreToolsPanel;
     private boolean localInputToolsOpen;
     private LinearLayout emojiPanel;
-    private HorizontalScrollView emojiTabsScroll;
     private LinearLayout emojiTabs;
     private ScrollView emojiGridScroll;
-    private GridLayout emojiGrid;
+    private LinearLayout emojiGrid;
     private TextView emojiStatus;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
@@ -369,6 +367,17 @@ public final class MSIMEInputService extends InputMethodService {
     private Button replyPolishModeButton;
     private Button replySourceButton;
     private Button replyTemplateButton;
+    /** 回复面板里不随皮肤遍历自动上色的部件：分段控件、源文字卡片、行内「粘贴」、底部进度与「选风格」。 */
+    private LinearLayout replyHeader;
+    private LinearLayout replyModeControl;
+    private LinearLayout replySourceCard;
+    private LinearLayout replyBody;
+    private ScrollView replyScroll;
+    private Button replyPasteButton;
+    private android.widget.ProgressBar replyProgress;
+    private Button replyStyleResetButton;
+    /** 右侧操作列里当前的主操作（生成或换一句），用强调色画；忙碌时的「取消」不是主操作，为 null。 */
+    private Button replyPrimaryAction;
     private CommunityReplyLibrary communityReplyLibrary;
     private final ReplyKeyboardModel replyModel = new ReplyKeyboardModel();
     private AiPolishClient.Operation replyOperation;
@@ -416,6 +425,8 @@ public final class MSIMEInputService extends InputMethodService {
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
         new ThreadPoolExecutor.AbortPolicy());
     private final ExecutorService emojiWorker = Executors.newSingleThreadExecutor();
+    // 只在 `emojiWorker` 线程上使用；`hasGlyph` 会走系统字体回退链，能判断当前设备能否画出某个表情。
+    private final Paint emojiGlyphPaint = new Paint();
     private final ExecutorService cloudClipboardWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService candidateGlossWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
@@ -432,6 +443,9 @@ public final class MSIMEInputService extends InputMethodService {
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
     private final PreferencesReloader preferencesReloader = new PreferencesReloader(
         (task, delay) -> main.postDelayed(task, delay), preferencesWorker, NativeClient::loadPreferences);
+
+    /** 候选区标题行（品牌标记、预编辑、状态、页码、展开）的固定高度。 */
+    private static final int CANDIDATE_HEADER_HEIGHT_DP = 34;
 
     private record SchemeConfiguration(
         java.util.List<KeyboardScheme> enabled, java.util.List<KeyboardScheme> visible,
@@ -454,9 +468,9 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids);
-        // A selection whose dictionary is missing falls back like one the user turned off; host-api would fall back from it anyway.
+        // 切换器列出和设置 → 输入相同的方案：所有词典已安装的方案。Android 上没有启用开关，只按 `enabled` 过滤会让粤拼、注音、越南语这些默认不启用的方案在键盘上永远找不到。词典缺失的方案照旧不列，host-api 也会从它回退。
         java.util.List<KeyboardScheme> visible =
-            KeyboardScheme.installedOf(enabled, languageDictionaries);
+            KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries);
         String selected = shared == null || shared.isNull("selected")
             ? null : shared.optString("selected", null);
         return new SchemeConfiguration(enabled, visible,
@@ -1854,10 +1868,11 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** Cantonese, Zhuyin, Vietnamese and Stroke candidates carry no glosses of any kind (`shows_glosses`). The schemes before them keep the rules this host already had, which still gloss Japanese candidates in English. */
+    /** 粤拼、注音、越南语、藏文和笔画的候选不带任何释义（`shows_glosses`）。它们之前的方案沿用本宿主原有的规则，日语候选仍附英文释义。 */
     private static boolean schemeShowsGlosses(int scheme) {
         return scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
-            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.STROKE;
+            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
+            && scheme != InputSchemeTraits.STROKE;
     }
 
     private void scheduleCandidateTranslations() {
@@ -2210,13 +2225,18 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateCandidateViewportHeight() {
         if (candidateViewport == null) return;
-        android.view.ViewGroup.LayoutParams params = candidateViewport.getLayoutParams();
-        if (params == null) return;
         int height = pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP
             + CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()) * 16);
-        if (params.height == height) return;
+        // 空闲时的快捷栏和组词时的候选行占同一个位置，两者同高，打字时键盘才不会变高。
+        setFixedHeight(candidateViewport, height);
+        if (shortcutScroll != null) setFixedHeight(shortcutScroll, height);
+    }
+
+    private static void setFixedHeight(View view, int height) {
+        android.view.ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params == null || params.height == height) return;
         params.height = height;
-        candidateViewport.setLayoutParams(params);
+        view.setLayoutParams(params);
     }
 
     private void showDiagnostic(String value) {
@@ -2504,12 +2524,22 @@ public final class MSIMEInputService extends InputMethodService {
             && VietnameseInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
     }
 
-    /** Korean or Vietnamese: letters build the written text directly, so Shift is their case and the return key keeps its editor action. */
-    private boolean letterCompositionActive() {
-        return koreanSchemeActive() || vietnameseSchemeActive();
+    private boolean tibetanSchemeActive() {
+        return view != null
+            && TibetanInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
     }
 
-    /** Korean, Zhuyin or Vietnamese (`locks_caret`, `commits_on_blur`): the composition is text the user already wrote, with no caret inside it and no candidate list until one is opened. */
+    /** 越南语或藏文：字母按敲下的大小写写进组字，所以键面显示大小写，和英文键一样，而不是中文键盘的大写键面。 */
+    private boolean letterCaseSchemeActive() {
+        return vietnameseSchemeActive() || tibetanSchemeActive();
+    }
+
+    /** 韩语、越南语或藏文：字母直接拼成书写的文字，所以 Shift 是它们的大小写。韩语和越南语的回车上屏后还执行编辑器动作；藏文的回车只确认组字，见 `returnKeyConfirms`。 */
+    private boolean letterCompositionActive() {
+        return koreanSchemeActive() || letterCaseSchemeActive();
+    }
+
+    /** 韩语、注音、越南语或藏文（`locks_caret`、`commits_on_blur`）：组字是用户已经写下的文字，里面没有光标，打开列表之前也没有候选列表。 */
     private boolean writtenCompositionActive() {
         return view != null && !dedicatedEnglish
             && InputSchemeTraits.locksCaret(view.optInt("scheme", -1));
@@ -2626,7 +2656,7 @@ public final class MSIMEInputService extends InputMethodService {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
         String profile = view == null ? "" : view.optString("shuangpin_profile", "");
         String localMode = view == null ? "none" : view.optString("local_mode", "none");
-        boolean chineseMode = !dedicatedEnglish && !vietnameseSchemeActive();
+        boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean local = view != null && !"none".equals(localMode);
         boolean shifted = letterCase.usesUppercase();
         if (!profile.equals(shuangpinHintsProfile)) {
@@ -2658,7 +2688,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateAutomaticCapitalization() {
         if (!dedicatedEnglish) {
-            // On the Korean keycaps Shift is the double consonant the user chose, not capitalisation, and in Vietnamese it is the case of the next letter or a Caps Lock, so an editor update must not drop it.
+            // 韩语键面上 Shift 是用户选的双辅音而不是大写；越南语和藏文里它是下一个字母的大小写或 Caps Lock（威利转写区分大小写），所以编辑器的更新不能把它清掉。
             if (!letterCompositionActive()) letterCase.reset();
             return;
         }
@@ -2732,11 +2762,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * Whether the return key only confirms the composition. A Korean syllable is committed by Enter and the key still does its own work, so the key keeps its editor action there, unless the syllable's Hanja list is open: then Enter only chooses a Hanja. A Vietnamese word is the same: Enter writes it out and then does its editor action.
+     * 回车键是否只确认组字。韩语音节由回车上屏，按键随后照常执行自己的动作，所以那里保留编辑器动作，除非音节的汉字列表打开：这时回车只选汉字。越南语单词也一样：回车写出单词再执行编辑器动作。藏文不同：Engine 吞掉组字时的回车（handled），只上屏藏文、不加音节点，所以组字时回车键显示「确认」。
      */
     private boolean returnKeyConfirms() {
         return view != null && !view.optString("editing_text", "").isEmpty()
-            && (!letterCompositionActive() || koreanHanjaListOpen());
+            && (!letterCompositionActive() || koreanHanjaListOpen() || tibetanSchemeActive());
     }
 
     /** The return key's face: accent-filled 确认 while composing, the function tint otherwise. */
@@ -3000,7 +3030,7 @@ public final class MSIMEInputService extends InputMethodService {
         // Paging only means something while there is a candidate list. With nothing composed these
         // keys are the editor's: Tab moves focus, Page Down scrolls, and a comma is a comma.
         // Korean has no candidate list until its Hanja list opens: until then its punctuation follows the syllable, and Home/End end the syllable through HardwareKeyPolicy below and then move the caret. With the list open these keys page and move the highlight as for any list, except that the marks stay punctuation and Left/Right, which have no caret inside a syllable to move, move the highlight; Escape closes the list and keeps the syllable.
-        // Zhuyin and Vietnamese follow the same split: with no list open (Vietnamese never has one) these keys end the composition and do their own work, and an open Zhuyin list pages and moves its highlight like the Hanja list. Down opens a closed Zhuyin list, libchewing's key for it, whatever the arrow binding says, since with the list closed there is no highlight to move.
+        // 注音、越南语和藏文按同样的方式区分：没有打开列表时（越南语和藏文从来没有列表）这些键结束组字并执行自己的动作，打开的注音列表则像汉字列表一样翻页和移动高亮。不论方向键绑定是什么，↓ 都打开关闭着的注音列表（这是 libchewing 打开列表的键），因为列表关闭时没有高亮可以移动。
         boolean koreanHanjaList = koreanHanjaListOpen();
         boolean openedList = koreanHanjaList || zhuyinListOpen();
         if (ZhuyinInputPolicy.listDownKey(keyCode, event.isShiftPressed(), zhuyinOpensList(),
@@ -3087,14 +3117,14 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
                 && (newStart != composingEnd || newEnd != composingEnd)) {
             // Don't apply an empty composition over the editor's newly moved selection.
-            // A Korean syllable is already the final Hangul, marked inline; finishing the region below leaves it in the document, so it counts as typed. A Zhuyin conversion and a Vietnamese word are written text the same way (`commits_on_blur`).
+            // 韩语音节已经是最终的韩文并内联标记，下面结束组字区域后它留在文档里，所以算作已输入。注音转换、越南语单词和藏文音节同样是已书写的文字（`commits_on_blur`）；藏文记的是 `editing_text` 里转换后的藏文。
             if (koreanSchemeActive() || zhuyinSchemeActive())
                 recordTypingStatistics(view.optString("reading", ""), typingSource());
-            else if (vietnameseSchemeActive())
+            else if (letterCaseSchemeActive())
                 recordTypingStatistics(view.optString("editing_text", ""), typingSource());
             boolean keepsComposition = !koreanSchemeActive() && writtenCompositionActive();
             try {
-                // With a Korean Hanja list open the first cancel only closes the list (msime_client.h), so it takes a second to drop the syllable the editor now holds as typed text. Zhuyin's first cancel only closes its list and Vietnamese's only takes the word back to its keys, so whatever they leave composing takes one more.
+                // 韩语汉字列表打开时第一次取消只关闭列表（msime_client.h），要再取消一次才丢掉编辑器里已作为文字保留的音节。注音的第一次取消只关闭列表，越南语和藏文的只退回原始按键，所以它们留下的组字还要再取消一次。
                 JSONObject cancelled = null;
                 for (int cancels = KoreanInputPolicy.cancelsToDiscard(koreanHanjaListOpen()); cancels > 0; cancels--)
                     cancelled = value(NativeClient.command(session, 3));
@@ -3359,6 +3389,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applyKeyboardGeometry() {
+        applyReplyGeometry();
         if (keyRows == null) return;
         applyKeyboardGeometry(keyRows);
         applyKeyboardHeight(keyRows);
@@ -3409,10 +3440,9 @@ public final class MSIMEInputService extends InputMethodService {
     /** `target` is the surface's own skin: the emoji and handwriting panels carry their own theme. */
     private void styleButton(Button button, KeyboardKeyRole role, KeyboardSkin target) {
         boolean selected = button.isSelected();
-        // A selected control is the one thing that always wears the filled face: that is how the
-        // case key and the script toggle show they are on, whatever role they carry otherwise.
-        // 确认 and the function-panel tiles draw their own on state, so they keep their role.
-        KeyboardKeyRole face = selected && role != KeyboardKeyRole.RETURN
+        // 选中的控件一律换成实心强调色，大小写键和简繁开关就是这样表示「开着」的。确认键和功能面板磁贴自己画开启状态，保留原角色；工具栏图标按钮（如打开回复面板时的「回复」）也不铺实心块，而是在图标后垫一块柔和的强调色底，和磁贴的开启状态是同一种表达。
+        boolean toolbarGlyph = button instanceof KeyboardShortcutButton;
+        KeyboardKeyRole face = selected && !toolbarGlyph && role != KeyboardKeyRole.RETURN
             && role != KeyboardKeyRole.TILE ? KeyboardKeyRole.ACCENT : role;
         if (face == KeyboardKeyRole.PILL) {
             // The pill is a label on the strip rather than a key, so it keeps a plain rounded face even over a designed skin, inset so the 44dp target stays.
@@ -3428,8 +3458,12 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (!face.drawsCap()) {
             button.setBackground(null);
-            button.setTextColor(Color.parseColor(
-                face.usesAccentLabel() ? target.accent() : target.keyForeground()));
+            String label = face.usesAccentLabel() ? target.accent() : target.keyForeground();
+            if (button instanceof KeyboardShortcutButton shortcut) {
+                shortcut.setActiveFill(Color.parseColor(target.accentSoft()));
+                if (selected) label = target.accentText();
+            }
+            button.setTextColor(Color.parseColor(label));
             button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
             button.setElevation(0);
             return;
@@ -3594,8 +3628,13 @@ public final class MSIMEInputService extends InputMethodService {
         applySkinToView(keyboardRoot);
         // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their
         // own light/dark setting so only their faces change.
-        if (emojiPanel != null) applySkinToView(emojiPanel, emojiSkin);
+        if (emojiPanel != null) {
+            applySkinToView(emojiPanel, emojiSkin);
+            styleEmojiChrome();
+        }
         if (handwritingActive() && keyRows != null) applySkinToView(keyRows, handwritingSkin);
+        // 回复面板的分段控件、源文字卡片和操作列不按角色上色，上面那一遍把它们清成了无底色，这里补回来。
+        styleReplyKeyboard();
         applySidebarRail();
         if (preedit != null) {
             // Idle, this is the brand badge the shared design draws as an outlined pill; composing, it is the reading itself, set in the strip's typeface and its secondary colour above the candidates.
@@ -3714,7 +3753,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Width for the text this host commits itself, which never passes through the runtime. */
     private String fullWidthOutput(String text) {
-        // Korean and Vietnamese write half-width ASCII whatever the width setting says (`widens_full_width`), as the runtime does for their own commits.
+        // 韩语、越南语和藏文无论全角设置怎样都写半角 ASCII（`widens_full_width`），和 runtime 对它们自己的上屏一样。
         return FullWidthInputPolicy.output(text, fullWidthInput && !letterCompositionActive());
     }
 
@@ -3793,7 +3832,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean supportsLocalTools() {
         if (view == null) return false;
         int scheme = view.optInt("scheme", 0);
-        // Korean has no local modes: Shift+letter is a double consonant there. Nor do Cantonese, Zhuyin, Vietnamese and Stroke (`opens_local_modes`).
+        // 韩语没有本地模式：那里 Shift+字母是双辅音。粤拼、注音、越南语、藏文和笔画也没有（`opens_local_modes`）。
         return !dedicatedEnglish && scheme != 2 && scheme != 3
             && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.opensLocalModes(scheme));
@@ -3966,7 +4005,11 @@ public final class MSIMEInputService extends InputMethodService {
         renderEmojiStatus();
         emojiWorker.execute(() -> {
             EmojiCatalogModel.Page page = null;
-            try { page = decodeEmojiPage(NativeClient.emojiCatalog(query, resources), offset, category); }
+            try {
+                page = EmojiCatalogModel.renderable(decodeEmojiPage(
+                    NativeClient.emojiCatalog(query, resources), offset, category),
+                    emojiGlyphPaint::hasGlyph);
+            }
             catch (JSONException | RuntimeException | LinkageError ignored) {
                 // The UI reports a sanitized catalog error; never expose resource paths or rows.
             }
@@ -4002,51 +4045,88 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void renderEmojiStatus() {
         if (emojiStatus == null) return;
-        if (emojiLoading) emojiStatus.setText("正在加载表情…");
-        else if (emojiItems.isEmpty()) emojiStatus.setText("暂无表情");
-        else if (emojiComplete) emojiStatus.setText(emojiItems.size() + " 个表情");
-        else emojiStatus.setText(emojiItems.size() + " 个表情 · 继续滚动加载");
+        // 分类栏只剩图标，分类名改由这一行给出。
+        String title = emojiSelectedCategory == -1 ? EmojiCatalogModel.RECENTS.title()
+            : emojiSelectedCategory >= 0 && emojiSelectedCategory < EmojiCatalogModel.categories().size()
+            ? EmojiCatalogModel.categories().get(emojiSelectedCategory).title() : "表情";
+        if (emojiLoading && emojiItems.isEmpty()) emojiStatus.setText(title + " · 正在加载…");
+        else if (emojiItems.isEmpty()) emojiStatus.setText(title + " · 暂无表情");
+        else emojiStatus.setText(title + " · " + emojiItems.size() + " 个表情");
     }
 
     private void renderEmojiTabs() {
         if (emojiTabs == null) return;
         emojiTabs.removeAllViews();
-        if (!emojiRecents.isEmpty()) addEmojiTab("最近", -1);
+        if (!emojiRecents.isEmpty()) addEmojiTab(EmojiCatalogModel.RECENTS, -1);
         for (int index = 0; index < EmojiCatalogModel.categories().size(); index++)
-            addEmojiTab(EmojiCatalogModel.categories().get(index).title(), index);
+            addEmojiTab(EmojiCatalogModel.categories().get(index), index);
     }
 
-    private void addEmojiTab(String title, int category) {
-        Button tab = new Button(this);
+    private void addEmojiTab(EmojiCatalogModel.Category entry, int category) {
+        KeyboardPressButton tab = new KeyboardPressButton(this);
+        tab.setKeyboardRole(KeyboardKeyRole.PLAIN);
         tab.setAllCaps(false);
-        tab.setText(title);
-        tab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tab.setText(entry.icon());
+        tab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        tab.setPadding(0, 0, 0, 0);
+        tab.setMinWidth(0);
+        tab.setMinimumWidth(0);
+        tab.setMinHeight(0);
+        tab.setMinimumHeight(0);
         tab.setSelected(emojiSelectedCategory == category);
-        tab.setContentDescription("表情分类 " + title);
+        tab.setContentDescription("表情分类 " + entry.title());
         if (Build.VERSION.SDK_INT >= 30)
             tab.setStateDescription(tab.isSelected() ? "已选中" : "未选中");
-        styleButton(tab, true);
         tab.setOnClickListener(ignored -> {
             playFeedback(tab);
             selectEmojiCategory(category);
         });
-        emojiTabs.addView(tab, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, pixels(38)));
+        emojiTabs.addView(tab, new LinearLayout.LayoutParams(0, pixels(40), 1));
+    }
+
+    /** 共享换肤遍历之后再画分类栏和状态行：选中的分类是浅强调色圆角底，其余只是半透明图标，不再是一排实心按钮。 */
+    private void styleEmojiChrome() {
+        if (emojiTabs != null) {
+            for (int index = 0; index < emojiTabs.getChildCount(); index++) {
+                View tab = emojiTabs.getChildAt(index);
+                if (tab.isSelected()) {
+                    GradientDrawable face = new GradientDrawable();
+                    face.setColor(Color.parseColor(emojiSkin.accentSoft()));
+                    face.setCornerRadius(pixels(10));
+                    tab.setBackground(new InsetDrawable(face, pixels(2), pixels(3), pixels(2), pixels(3)));
+                    tab.setAlpha(1f);
+                } else {
+                    tab.setBackground(null);
+                    tab.setAlpha(.5f);
+                }
+                tab.setElevation(0);
+            }
+        }
+        if (emojiStatus != null) emojiStatus.setTextColor(fade(emojiSkin.keyForeground(), .55));
     }
 
     private void renderEmojiGrid() {
         if (emojiGrid == null) return;
         emojiGrid.removeAllViews();
+        // 每行固定八等分：不足一行时格子保持原宽，不会被拉满整行。
+        LinearLayout row = null;
         for (EmojiCatalogModel.Item item : emojiItems) {
+            if (row == null || row.getChildCount() == EmojiCatalogModel.COLUMNS) {
+                row = new LinearLayout(this);
+                row.setWeightSum(EmojiCatalogModel.COLUMNS);
+                emojiGrid.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, pixels(48)));
+            }
             Button cell = keyboardKey(item.text(), "表情 " + item.text(),
                 () -> insertEmoji(item.text()));
-            cell.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+            ((KeyboardPressButton) cell).setKeyboardRole(KeyboardKeyRole.PLAIN);
+            cell.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
             cell.setPadding(0, 0, 0, 0);
-            GridLayout.LayoutParams params = new GridLayout.LayoutParams(
-                GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f));
-            params.width = 0;
-            params.height = pixels(48);
-            emojiGrid.addView(cell, params);
+            cell.setMinWidth(0);
+            cell.setMinimumWidth(0);
+            cell.setMinHeight(0);
+            cell.setMinimumHeight(0);
+            row.addView(cell, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         }
         renderEmojiStatus();
         applySkin();
@@ -4144,6 +4224,16 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Keep the shared candidate/shortcut bar visible while the reply surface owns the key area. */
     private void setReplyKeyboardVisible(boolean visible) {
+        // 面板顶替按键区，就该和按键区一样高：键盘外层按内容定高，只靠权重占「剩下的空间」时，按键行一隐藏键盘就整体变矮，面板里的风格格子被压扁。打开前量一次按键区的实际高度给面板；还没布局过（高度为 0）时保留权重。
+        if (visible && replyKeyboard != null && keyRows != null && actionRow != null
+                && keyRows.getVisibility() == View.VISIBLE) {
+            int keyArea = actionRow.getBottom() - keyRows.getTop();
+            if (keyArea > 0 && replyKeyboard.getLayoutParams() instanceof LinearLayout.LayoutParams params) {
+                params.height = keyArea;
+                params.weight = 0;
+                replyKeyboard.setLayoutParams(params);
+            }
+        }
         if (replyKeyboard != null)
             replyKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (keyRows != null)
@@ -4518,8 +4608,18 @@ public final class MSIMEInputService extends InputMethodService {
         skinSaving = false;
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
-            applyPreferencesSnapshot(value(response));
-            showKeyboardSkinStatus("皮肤已切换");
+            JSONObject saved = value(response);
+            long currentRevision = preferencesSnapshot == null
+                ? -1 : preferencesSnapshot.optLong("revision", -1);
+            if (PreferencesSavePolicy.shouldApplyResponse(
+                    currentRevision, saved.getLong("revision"))) {
+                applyPreferencesSnapshot(saved);
+                showKeyboardSkinStatus("皮肤已切换");
+            } else {
+                // A preferences reload won the race while this save was in flight. Its newer
+                // snapshot is already applied; the stale save response must not roll it back.
+                showKeyboardSkinStatus("设置已更新");
+            }
         } catch (JSONException | LinkageError error) {
             JSONObject accepted = preferencesSnapshot == null ? null
                 : preferencesSnapshot.optJSONObject("preferences");
@@ -4615,6 +4715,13 @@ public final class MSIMEInputService extends InputMethodService {
         render();
     }
 
+    private static final String REPLY_SOURCE_PLACEHOLDER = "+ 粘贴 TA 的话帮你回";
+
+    /**
+     * 高情商回复面板，布局照 iOS 的 `ReplyKeyboardView`：分段控件与模板按钮一行，源文字卡片一行，左边风格九宫格或回复列表、右边 60dp 操作列，最底下一行状态。
+     *
+     * <p>间距取键盘自己的键距和行距，圆角和底色取当前皮肤的键帽，所以浅色、深色和自定义皮肤下都与键区一致。九宫格和回复卡片用 `KEY` 角色交给皮肤遍历上色；分段控件、源文字卡片、行内「粘贴」和操作列由 {@link #styleReplyKeyboard()} 在皮肤遍历之后单独上色。
+     */
     private LinearLayout createReplyKeyboard() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -4622,101 +4729,170 @@ public final class MSIMEInputService extends InputMethodService {
         root.setBackgroundColor(Color.parseColor(skin.background()));
         root.setContentDescription("高情商回复键盘");
 
-        LinearLayout header = new LinearLayout(this);
-        replyReplyModeButton = role(button(header, "帮你回", () -> {
-            replyModel.setMode(ReplyKeyboardModel.Mode.REPLY);
-            clearReplyRequestReferences();
-            renderReplyKeyboard();
-        }), KeyboardKeyRole.KEY);
-        replyReplyModeButton.setContentDescription("帮你回模式");
-        replyPolishModeButton = role(button(header, "帮润色", () -> {
-            replyModel.setMode(ReplyKeyboardModel.Mode.POLISH);
-            clearReplyRequestReferences();
-            renderReplyKeyboard();
-        }), KeyboardKeyRole.KEY);
-        replyPolishModeButton.setContentDescription("帮润色模式");
-        replyTemplateButton = role(button(header, "模板", this::showReplyTemplates),
-            KeyboardKeyRole.KEY);
+        replyHeader = new LinearLayout(this);
+        replyHeader.setGravity(Gravity.CENTER_VERTICAL);
+        replyModeControl = new LinearLayout(this);
+        replyModeControl.setPadding(pixels(2), pixels(2), pixels(2), pixels(2));
+        replyReplyModeButton = replySegment("帮你回", "帮你回模式", ReplyKeyboardModel.Mode.REPLY);
+        replyPolishModeButton = replySegment("帮润色", "帮润色模式", ReplyKeyboardModel.Mode.POLISH);
+        replyHeader.addView(replyModeControl, new LinearLayout.LayoutParams(
+            pixels(200), LinearLayout.LayoutParams.MATCH_PARENT));
+        replyHeader.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        replyTemplateButton = shortcutButton(replyHeader, "模板",
+            KeyboardShortcutIconPolicy.Icon.BOOKMARK, this::showReplyTemplates);
         replyTemplateButton.setContentDescription("回复模板");
-        View spacer = new View(this);
-        header.addView(spacer, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        root.addView(header, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(42)));
+        replyTemplateButton.setLayoutParams(new LinearLayout.LayoutParams(
+            pixels(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        root.addView(replyHeader, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(36)));
 
-        LinearLayout sourceRow = new LinearLayout(this);
-        replySourceButton = role(button(sourceRow, "+ 粘贴 TA 的话帮你回", this::pasteReplySource),
-            KeyboardKeyRole.KEY);
+        // 源文字和「粘贴」在同一张卡片里：点文字和点「粘贴」都是粘贴，与 iOS 相同。
+        replySourceCard = new LinearLayout(this);
+        replySourceCard.setGravity(Gravity.CENTER_VERTICAL);
+        replySourceCard.setPadding(pixels(10), 0, pixels(6), 0);
+        replySourceButton = role(button(replySourceCard, REPLY_SOURCE_PLACEHOLDER,
+            this::pasteReplySource), KeyboardKeyRole.PLAIN);
         replySourceButton.setSingleLine(true);
         replySourceButton.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        replySourceButton.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        replySourceButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         replySourceButton.setContentDescription("回复源文字");
-        Button paste = role(button(sourceRow, "粘贴", this::pasteReplySource),
-            KeyboardKeyRole.KEY);
-        paste.setContentDescription("粘贴回复源文字");
-        paste.setLayoutParams(new LinearLayout.LayoutParams(pixels(64),
-            LinearLayout.LayoutParams.MATCH_PARENT));
-        root.addView(sourceRow, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(44)));
+        compactReplyControl(replySourceButton, 0);
+        replySourceButton.setLayoutParams(new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        replyPasteButton = role(button(replySourceCard, "粘贴", this::pasteReplySource),
+            KeyboardKeyRole.PLAIN);
+        replyPasteButton.setContentDescription("粘贴回复源文字");
+        replyPasteButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        compactReplyControl(replyPasteButton, pixels(10));
+        LinearLayout.LayoutParams pasteParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT);
+        pasteParams.setMarginStart(pixels(6));
+        replyPasteButton.setLayoutParams(pasteParams);
+        root.addView(replySourceCard, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(38)));
 
-        LinearLayout body = new LinearLayout(this);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
+        replyBody = new LinearLayout(this);
+        replyScroll = new ScrollView(this);
+        replyScroll.setFillViewport(true);
+        replyScroll.setVerticalScrollBarEnabled(false);
         replyMain = new LinearLayout(this);
         replyMain.setOrientation(LinearLayout.VERTICAL);
         replyMain.setContentDescription("回复风格与候选");
-        scroll.addView(replyMain);
-        body.addView(scroll, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        replyScroll.addView(replyMain);
+        replyBody.addView(replyScroll, new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         replyActions = new LinearLayout(this);
         replyActions.setOrientation(LinearLayout.VERTICAL);
-        body.addView(replyActions, new LinearLayout.LayoutParams(pixels(68),
-            LinearLayout.LayoutParams.MATCH_PARENT));
-        root.addView(body, new LinearLayout.LayoutParams(
+        replyBody.addView(replyActions, new LinearLayout.LayoutParams(
+            pixels(60), LinearLayout.LayoutParams.MATCH_PARENT));
+        root.addView(replyBody, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
 
         LinearLayout footer = new LinearLayout(this);
+        footer.setGravity(Gravity.CENTER_VERTICAL);
+        replyProgress = new android.widget.ProgressBar(this, null,
+            android.R.attr.progressBarStyleSmall);
+        replyProgress.setIndeterminate(true);
+        replyProgress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+            pixels(12), pixels(12));
+        progressParams.setMarginEnd(pixels(4));
+        footer.addView(replyProgress, progressParams);
         replyStatus = new TextView(this);
         replyStatus.setSingleLine(true);
+        replyStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        replyStatus.setIncludeFontPadding(false);
         replyStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         replyStatus.setContentDescription("高情商回复键盘状态");
         footer.addView(replyStatus, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        Button styles = role(button(footer, "选风格", () -> {
+        // 「选风格」只在已有回复时出现，点它回到风格九宫格。
+        replyStyleResetButton = role(button(footer, "选风格", () -> {
             replyModel.chooseStyle();
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        }), KeyboardKeyRole.KEY);
-        styles.setContentDescription("重新选择回复风格");
+        }), KeyboardKeyRole.GLYPH);
+        replyStyleResetButton.setContentDescription("重新选择回复风格");
+        replyStyleResetButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        compactReplyControl(replyStyleResetButton, pixels(6));
+        replyStyleResetButton.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        replyStyleResetButton.setVisibility(View.GONE);
         root.addView(footer, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(36)));
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(18)));
         return root;
+    }
+
+    private Button replySegment(String label, String description, ReplyKeyboardModel.Mode mode) {
+        Button segment = role(button(replyModeControl, label, () -> {
+            replyModel.setMode(mode);
+            clearReplyRequestReferences();
+            renderReplyKeyboard();
+        }), KeyboardKeyRole.PLAIN);
+        segment.setContentDescription(description);
+        segment.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        compactReplyControl(segment, 0);
+        segment.setLayoutParams(new LinearLayout.LayoutParams(
+            0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        return segment;
+    }
+
+    /** 去掉 Button 自带的最小尺寸、内边距和按下抬升，让回复面板里的控件按自己给定的尺寸排布。 */
+    private static void compactReplyControl(Button button, int horizontalPadding) {
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(horizontalPadding, 0, horizontalPadding, 0);
+        button.setIncludeFontPadding(false);
+        button.setStateListAnimator(null);
+    }
+
+    private Button replyAction(String label, String description, Runnable action) {
+        Button button = role(button(replyActions, label, action), KeyboardKeyRole.PLAIN);
+        button.setContentDescription(description);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        compactReplyControl(button, 0);
+        button.setLayoutParams(new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        return button;
     }
 
     private void renderReplyKeyboard() {
         if (replyKeyboard == null || replyMain == null || replyActions == null) return;
         replyMain.removeAllViews();
         replyActions.removeAllViews();
-        replyReplyModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
-        replyPolishModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
-        // 键帽，不是两个常亮的实心块：选中哪个由 isSelected 决定，那才是这一对要表达的东西。
-        styleButton(replyReplyModeButton, KeyboardKeyRole.KEY, skin);
-        styleButton(replyPolishModeButton, KeyboardKeyRole.KEY, skin);
-        replyTemplateButton.setEnabled(!replyModel.busy());
+        boolean busy = replyModel.busy();
+        boolean hasReplies = !replyModel.replies().isEmpty();
+        selectReplySegment(replyReplyModeButton, replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
+        selectReplySegment(replyPolishModeButton, replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
+        replyTemplateButton.setEnabled(!busy);
         replySourceButton.setText(replyModel.source().isEmpty()
-            ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
-        if (replyModel.replies().isEmpty()) {
+            ? REPLY_SOURCE_PLACEHOLDER : replyModel.source());
+        if (!hasReplies) {
             for (int start = 0; start < ReplyKeyboardModel.STYLES.size(); start += 3) {
                 LinearLayout row = new LinearLayout(this);
                 for (int column = 0; column < 3; column++) {
-                    int index = start + column;
-                    ReplyKeyboardModel.Style style = ReplyKeyboardModel.STYLES.get(index);
-                    // 十二个风格是一组可选项，不是十二个强调动作。
+                    ReplyKeyboardModel.Style style = ReplyKeyboardModel.STYLES.get(start + column);
                     Button choice = role(button(row, style.emoji() + " " + style.label(),
                         () -> generateReply(style.label())), KeyboardKeyRole.KEY);
                     choice.setContentDescription("回复风格 " + style.label());
-                    choice.setEnabled(!replyModel.busy());
+                    choice.setEnabled(!busy);
+                    choice.setAlpha(busy ? .45f : 1f);
+                    choice.setMinWidth(0);
+                    choice.setMinimumWidth(0);
+                    choice.setMinHeight(0);
+                    choice.setMinimumHeight(0);
+                    choice.setPadding(pixels(4), 0, pixels(4), 0);
+                    choice.setMaxLines(1);
+                    choice.setAutoSizeTextTypeUniformWithConfiguration(
+                        10, 14, 1, TypedValue.COMPLEX_UNIT_SP);
+                    choice.setLayoutParams(new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
                 }
                 replyMain.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, pixels(52)));
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
             }
         } else {
             for (String reply : replyModel.replies()) {
@@ -4724,49 +4900,126 @@ public final class MSIMEInputService extends InputMethodService {
                     KeyboardKeyRole.KEY);
                 candidate.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
                 candidate.setContentDescription("回复候选，点按插入");
-                candidate.setMinHeight(pixels(48));
+                candidate.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                candidate.setMinWidth(0);
+                candidate.setMinimumWidth(0);
+                candidate.setMinHeight(0);
+                candidate.setMinimumHeight(0);
+                candidate.setPadding(pixels(10), pixels(10), pixels(10), pixels(10));
                 candidate.setLayoutParams(new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             }
         }
-        Button delete = role(button(replyActions, "⌫", () -> {
+        replyAction("⌫", "删除源文字", () -> {
             replyModel.deleteLastCodePoint();
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        }), KeyboardKeyRole.KEY);
-        delete.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        delete.setContentDescription("删除源文字");
-        Button clear = role(button(replyActions, "清空", () -> {
+        });
+        replyAction("清空", "清空源文字", () -> {
             replyModel.setSource("");
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        }), KeyboardKeyRole.KEY);
-        clear.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        clear.setContentDescription("清空源文字");
-        if (replyModel.busy()) {
-            Button cancel = role(button(replyActions, "取消", () -> {
+        });
+        if (busy) {
+            replyPrimaryAction = null;
+            replyAction("取消", "取消回复生成", () -> {
                 replyModel.cancel();
                 clearReplyRequestReferences();
                 renderReplyKeyboard();
-            }), KeyboardKeyRole.KEY);
-            cancel.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-            cancel.setContentDescription("取消回复生成");
-        } else if (replyModel.replies().isEmpty()) {
-            Button generate = button(replyActions, "生成", () -> generateReply(replyModel.style()));
-            generate.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-            generate.setContentDescription("生成回复");
+            });
+        } else if (!hasReplies) {
+            replyPrimaryAction = replyAction("生成", "生成回复",
+                () -> generateReply(replyModel.style()));
         } else {
-            Button regenerate = button(replyActions, "换一句", () -> generateReply(replyModel.style()));
-            regenerate.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-            regenerate.setContentDescription("换一句回复");
+            replyPrimaryAction = replyAction("换一句", "换一句回复",
+                () -> generateReply(replyModel.style()));
         }
         replyStatus.setText(replyModel.status());
+        replyProgress.setVisibility(busy ? View.VISIBLE : View.GONE);
+        replyStyleResetButton.setVisibility(hasReplies ? View.VISIBLE : View.GONE);
+        applyReplyGeometry();
         applySkinToView(replyKeyboard);
+        styleReplyKeyboard();
+    }
+
+    private static void selectReplySegment(Button segment, boolean selected) {
+        segment.setSelected(selected);
+        if (Build.VERSION.SDK_INT >= 30)
+            segment.setStateDescription(selected ? "已选中" : "未选中");
+    }
+
+    /** 回复面板的格间距：列间用键距、行间用行距，与键区同一组设置，改设置后随键区一起更新。 */
+    private void applyReplyGeometry() {
+        if (replyKeyboard == null || replyMain == null) return;
+        int keyGap = halfSpacingPixels(touchKeySpacingTenths) * 2;
+        int rowGap = halfSpacingPixels(touchRowSpacingTenths) * 2;
+        spaceReplyChildren(replyKeyboard, rowGap);
+        spaceReplyChildren(replyHeader, keyGap);
+        spaceReplyChildren(replyBody, keyGap);
+        spaceReplyChildren(replyActions, rowGap);
+        boolean grid = replyModel.replies().isEmpty();
+        // 九宫格行间用行距；回复卡片纵向排列，iOS 在这里用的是键距。
+        spaceReplyChildren(replyMain, grid ? rowGap : keyGap);
+        for (int index = 0; index < replyMain.getChildCount(); index++) {
+            if (replyMain.getChildAt(index) instanceof LinearLayout row)
+                spaceReplyChildren(row, keyGap);
+        }
+    }
+
+    private static void spaceReplyChildren(LinearLayout layout, int gap) {
+        GradientDrawable divider = new GradientDrawable();
+        divider.setColor(Color.TRANSPARENT);
+        divider.setSize(gap, gap);
+        layout.setDividerDrawable(divider);
+        layout.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
+    }
+
+    private static GradientDrawable replySurface(int color, float radius) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(radius);
+        return drawable;
+    }
+
+    /**
+     * 给皮肤遍历不负责的回复控件上色，必须在 `applySkinToView` 之后调用：那一遍会把 `PLAIN` 按钮的底色清空，把选中的按钮画成实心强调色。
+     *
+     * <p>分段控件照 iOS 的分段样式：整体一条半透明底，选中的一段铺键帽底色、字加粗。操作列的底色是键帽的 70%，主操作（生成、换一句）用强调色，好和删除、清空区分开。
+     */
+    private void styleReplyKeyboard() {
+        if (replyKeyboard == null || replyModeControl == null) return;
+        float radius = pixels(skin.cornerRadius());
+        int foreground = Color.parseColor(skin.keyForeground());
+        int accent = Color.parseColor(skin.accent());
+        int onAccent = Color.parseColor(skin.onAccent());
+        Typeface base = skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT;
+        replyModeControl.setBackground(replySurface(fade(skin.keyForeground(), .08), radius));
+        for (Button segment : new Button[] {replyReplyModeButton, replyPolishModeButton}) {
+            boolean selected = segment.isSelected();
+            segment.setBackground(selected ? replySurface(Color.parseColor(skin.keyBackground()),
+                Math.max(0, radius - pixels(2))) : null);
+            segment.setTextColor(foreground);
+            segment.setTypeface(Typeface.create(base, selected ? Typeface.BOLD : Typeface.NORMAL));
+            segment.setElevation(0);
+        }
+        replySourceCard.setBackground(replySurface(Color.parseColor(skin.keyBackground()), radius));
+        replySourceButton.setTextColor(replyModel.source().isEmpty()
+            ? fade(skin.keyForeground(), .55) : foreground);
+        replyPasteButton.setBackground(new InsetDrawable(replySurface(accent, radius),
+            0, pixels(6), 0, pixels(6)));
+        // setBackground 会把 InsetDrawable 的内边距（左右为 0）套到按钮上，冲掉前面设的左右留白，文字就贴着色块边缘；换完背景再设回来。
+        replyPasteButton.setPadding(pixels(12), 0, pixels(12), 0);
+        replyPasteButton.setTextColor(onAccent);
+        replyPasteButton.setElevation(0);
+        for (int index = 0; index < replyActions.getChildCount(); index++) {
+            if (!(replyActions.getChildAt(index) instanceof Button action)) continue;
+            boolean primary = action == replyPrimaryAction;
+            action.setBackground(replySurface(primary ? accent : fade(skin.keyBackground(), .7), radius));
+            action.setTextColor(primary ? onAccent : foreground);
+            action.setElevation(0);
+        }
+        replyStatus.setTextColor(fade(skin.keyForeground(), .7));
+        replyProgress.setIndeterminateTintList(ColorStateList.valueOf(accent));
     }
 
     private boolean voiceInsertionReady() {
@@ -5483,6 +5736,8 @@ public final class MSIMEInputService extends InputMethodService {
             for (KeyboardScheme candidate : enabledSchemes) {
                 enabled.put(candidate.preferenceId());
             }
+            // 切换器也列出未启用的方案，选中时把它加入启用列表；否则 `selected` 指向未启用的方案，下次读取会被回退掉。
+            if (!enabledSchemes.contains(scheme)) enabled.put(scheme.preferenceId());
             preferences.put("touch_keyboard_schemes", new JSONObject()
                 .put("enabled", enabled).put("selected", scheme.preferenceId()));
         } catch (JSONException | LinkageError error) {
@@ -6055,7 +6310,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean traditionalOutputToolAvailable() {
         int scheme = view == null ? -1 : view.optInt("scheme", -1);
-        // Cantonese and Zhuyin write Traditional characters already, Stroke candidates are the characters themselves, and Vietnamese is not Chinese (`script_conversion_applies`).
+        // 粤拼和注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
             && canSaveChineseOutput();
@@ -6185,10 +6440,11 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateManagementEnabled() {
         if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
         int scheme = view.optInt("scheme", 0);
-        // Cantonese, Zhuyin, Vietnamese and Stroke rows are not the pinyin user dictionary's to pin, delete or reorder.
+        // 粤拼、注音、越南语、藏文和笔画的候选不属于拼音用户词库，不能固定、删除或调整顺序。
         return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
-            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.STROKE;
+            && scheme != InputSchemeTraits.VIETNAMESE && scheme != InputSchemeTraits.TIBETAN
+            && scheme != InputSchemeTraits.STROKE;
     }
 
     private void editCandidate(JSONObject id, CandidateManagementAction action) {
@@ -7019,8 +7275,8 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardGeometry();
             return;
         }
-        // A Vietnamese letter is written in the case it is typed in, so its keys show that case as the English keys do rather than the caps of a Chinese keyboard.
-        boolean chineseMode = !dedicatedEnglish && !vietnameseSchemeActive();
+        // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面。
+        boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
         boolean localMode = view != null
             && !"none".equals(view.optString("local_mode", "none"));
         boolean shifted = letterCase.usesUppercase();
@@ -7038,7 +7294,11 @@ public final class MSIMEInputService extends InputMethodService {
                 rows.size(), rowIndex, true));
             keyRows.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-            for (String key : keys) {
+            boolean tibetanSymbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+                && tibetanSchemeActive();
+            for (String rowKey : keys) {
+                // 藏文的符号页把 `=` 换成叠写用的 `+`。
+                final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
                 final String input = key;
                 String face = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                     ? ChineseSymbolFaces.face(key, sendsChinesePunctuation())
@@ -7797,8 +8057,10 @@ public final class MSIMEInputService extends InputMethodService {
             playFeedback(hanjaButton);
             command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
         });
+        hanjaButton.setMinHeight(0);
+        hanjaButton.setMinimumHeight(0);
         candidateHeader.addView(hanjaButton, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         KeyboardPressButton expand = new KeyboardPressButton(this);
         expand.setKeyboardRole(KeyboardKeyRole.GLYPH);
         expandCandidates = expand;
@@ -7810,8 +8072,11 @@ public final class MSIMEInputService extends InputMethodService {
             playFeedback(expandCandidates);
             openCandidatePanel();
         });
+        expandCandidates.setMinHeight(0);
+        expandCandidates.setMinimumHeight(0);
+        expandCandidates.setPadding(pixels(10), 0, pixels(10), 0);
         candidateHeader.addView(expandCandidates, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         exitLocalModeButton = new KeyboardBorderlessButton(this);
         exitLocalModeButton.setAllCaps(false);
         exitLocalModeButton.setText("×");
@@ -7823,9 +8088,13 @@ public final class MSIMEInputService extends InputMethodService {
             playFeedback(exitLocalModeButton);
             command(3);
         });
+        exitLocalModeButton.setMinHeight(0);
+        exitLocalModeButton.setMinimumHeight(0);
         candidateHeader.addView(exitLocalModeButton, new LinearLayout.LayoutParams(
-            pixels(40), LinearLayout.LayoutParams.WRAP_CONTENT));
-        candidateRegion.addView(candidateHeader);
+            pixels(40), LinearLayout.LayoutParams.MATCH_PARENT));
+        // 标题行固定高度：空闲时只有一个小标签，组词时出现「展开」等按钮，按内容撑高会让键盘在打字时变高。
+        candidateRegion.addView(candidateHeader, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(CANDIDATE_HEADER_HEIGHT_DP)));
         diagnosticView = new TextView(this);
         diagnosticView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         diagnosticView.setContentDescription("输入提示");
@@ -7879,7 +8148,7 @@ public final class MSIMEInputService extends InputMethodService {
         // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
         LinearLayout controls = new LinearLayout(this);
         shiftButton = button(controls, "⇧", () -> {
-            // On the Korean keycaps Shift is the double consonant row, not the way into English, and in Vietnamese it is the letter case.
+            // 韩语键面上 Shift 是双辅音那一排，不是切到英文的入口；越南语和藏文里它是字母大小写。
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()
                     && !letterCompositionActive()) {
                 toggleInputLanguage();
@@ -8146,34 +8415,40 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout emojiHeader = new LinearLayout(this);
         emojiHeader.setGravity(Gravity.CENTER_VERTICAL);
         Button closeEmoji = button(emojiHeader, "‹", this::closeEmojiPicker);
+        ((KeyboardPressButton) closeEmoji).setKeyboardRole(KeyboardKeyRole.GLYPH);
+        closeEmoji.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        closeEmoji.setPadding(0, 0, 0, pixels(3));
+        closeEmoji.setMinHeight(0);
+        closeEmoji.setMinimumHeight(0);
         closeEmoji.setContentDescription("返回键盘");
-        closeEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(56), pixels(40)));
+        closeEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(48), pixels(40)));
         TextView emojiTitle = new TextView(this);
         emojiTitle.setText("表情");
-        emojiTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        emojiTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         emojiTitle.setGravity(Gravity.CENTER);
         emojiHeader.addView(emojiTitle, new LinearLayout.LayoutParams(0, pixels(40), 1));
         Button deleteEmoji = button(emojiHeader, "⌫", this::deleteFromEmojiPicker);
+        ((KeyboardPressButton) deleteEmoji).setKeyboardRole(KeyboardKeyRole.GLYPH);
+        deleteEmoji.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        deleteEmoji.setPadding(0, 0, 0, 0);
+        deleteEmoji.setMinHeight(0);
+        deleteEmoji.setMinimumHeight(0);
         deleteEmoji.setContentDescription("删除");
-        deleteEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(56), pixels(40)));
+        deleteEmoji.setLayoutParams(new LinearLayout.LayoutParams(pixels(48), pixels(40)));
         emojiPanel.addView(emojiHeader);
         emojiTabs = new LinearLayout(this);
         emojiTabs.setOrientation(LinearLayout.HORIZONTAL);
-        emojiTabsScroll = new HorizontalScrollView(this);
-        emojiTabsScroll.setHorizontalScrollBarEnabled(false);
-        emojiTabsScroll.setContentDescription("表情分类");
-        emojiTabsScroll.addView(emojiTabs);
-        emojiPanel.addView(emojiTabsScroll, new LinearLayout.LayoutParams(
+        emojiTabs.setContentDescription("表情分类");
+        emojiPanel.addView(emojiTabs, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(40)));
         emojiStatus = new TextView(this);
-        emojiStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        emojiStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         emojiStatus.setGravity(Gravity.CENTER_VERTICAL);
+        emojiStatus.setPadding(pixels(6), 0, pixels(6), 0);
         emojiPanel.addView(emojiStatus, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(20)));
-        emojiGrid = new GridLayout(this);
-        emojiGrid.setColumnCount(EmojiCatalogModel.COLUMNS);
-        emojiGrid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
-        emojiGrid.setUseDefaultMargins(false);
+            LinearLayout.LayoutParams.MATCH_PARENT, pixels(24)));
+        emojiGrid = new LinearLayout(this);
+        emojiGrid.setOrientation(LinearLayout.VERTICAL);
         emojiGridScroll = new ScrollView(this);
         emojiGridScroll.setFillViewport(false);
         emojiGridScroll.setVerticalScrollBarEnabled(false);
@@ -8350,6 +8625,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : selectedScheme == KeyboardScheme.CANTONESE ? InputSchemeTraits.CANTONESE
                     : selectedScheme == KeyboardScheme.ZHUYIN ? InputSchemeTraits.ZHUYIN
                     : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
+                    : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
                     : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
                 : view.optInt("scheme", -1);
             boolean japanese = scheme == 3;
@@ -8357,15 +8633,17 @@ public final class MSIMEInputService extends InputMethodService {
             boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
             boolean zhuyin = scheme == InputSchemeTraits.ZHUYIN;
             boolean vietnamese = scheme == InputSchemeTraits.VIETNAMESE;
+            boolean tibetan = scheme == InputSchemeTraits.TIBETAN;
             boolean stroke = scheme == InputSchemeTraits.STROKE;
             scriptShortcutButton.setEnabled(!japanese && !korean && !cantonese && !zhuyin
-                && !vietnamese && !stroke && canSaveChineseOutput());
+                && !vietnamese && !tibetan && !stroke && canSaveChineseOutput());
             String label = traditionalChineseOutput ? "切换到简体" : "切换到繁体";
             String outputState = japanese ? "日语不使用简繁转换"
                 : korean ? "韩语不使用简繁转换"
                 : cantonese ? "粤拼直接输出繁体"
                 : zhuyin ? "注音直接输出繁体"
                 : vietnamese ? "越南语不使用简繁转换"
+                : tibetan ? "藏文不使用简繁转换"
                 : stroke ? "笔画不使用简繁转换"
                 : traditionalOutputSaving ? "正在保存"
                 : traditionalChineseOutput ? "繁体" : "简体";
@@ -8393,6 +8671,7 @@ public final class MSIMEInputService extends InputMethodService {
             replyShortcutButton.setVisibility(View.VISIBLE);
             replyShortcutButton.setEnabled(replyOpen || aiPolishReady());
             replyShortcutButton.setSelected(replyOpen);
+            styleButton(replyShortcutButton, KeyboardKeyRole.GLYPH, skin);
             replyShortcutButton.setContentDescription(replyOpen ? "收起高情商回复" : "生成高情商回复");
         }
         if (microsoftFinalKey != null) {
@@ -8431,7 +8710,7 @@ public final class MSIMEInputService extends InputMethodService {
             String caseLabel = shiftLayout == KeyboardLayout.KOREAN_LAYOUT
                 ? KoreanKeyboardLayout.SHIFT_LABEL
                 : letterCase.accessibilityLabel(dedicatedEnglish || session == 0
-                    || vietnameseSchemeActive());
+                    || letterCaseSchemeActive());
             String caseValue = letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
                 ? caseLabel : caseLabel + "，" + caseValue);

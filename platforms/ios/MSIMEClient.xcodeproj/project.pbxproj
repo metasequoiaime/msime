@@ -164,6 +164,7 @@
 		3A188077796D37B89B3C44F2 /* BackendSnapshotClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A88CE15A172F9A54B2186B3 /* BackendSnapshotClient.swift */; };
 		3A4CBC1E20DE8F3AD8935DFB /* JapaneseNineKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A57ED3372EEA9F4E698D40 /* JapaneseNineKeyTests.swift */; };
 		3A79EACB3DB4B268EE7EEEAA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819E9E63CED73940E5658A40 /* AppDelegate.swift */; };
+		3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */ = {isa = PBXBuildFile; fileRef = F00250F90DDDC57808459590 /* vi-MIT.txt */; };
 		3AD48750066A32AC32133156 /* CandidatePalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0710E1673ED0BB707E0297B3 /* CandidatePalette.swift */; };
 		3AE8D5D8175EF88A6B3A1372 /* DictionaryLearningPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FFA351B25B4B763FC91766B /* DictionaryLearningPreference.swift */; };
 		3BC69FA421A9258B16BC95A2 /* SkinKeySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1253B506002669ABD2E8323B /* SkinKeySurfaceView.swift */; };
@@ -272,6 +273,7 @@
 		63552694152289CBFB25AEE7 /* CandidatePanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C7C92F9595C8AC39C9A03C /* CandidatePanelSnapshot.swift */; };
 		63D1F52ED890530466D31FF3 /* VoiceTextHandoffStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5447CB7E52E5F1AB20940B /* VoiceTextHandoffStore.swift */; };
 		63E36BCE8C622C99BE88D4D7 /* BackendSkinArtworkClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF86941283F4A5CBAE247399 /* BackendSkinArtworkClient.swift */; };
+		63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */ = {isa = PBXBuildFile; fileRef = 38746D5530F03A00DD492FC6 /* ewts-MIT.txt */; };
 		63FD89B15E0CD0FBF3D3A2C3 /* KeyboardMorePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58DD5E4F93A789A62BE1842D /* KeyboardMorePickerView.swift */; };
 		642CEBC89D66E1BC20B47758 /* SkinCommunityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2134ADB15FD507683C832FF /* SkinCommunityTests.swift */; };
 		642E36636235F24F5A0C98DC /* AICandidatePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 999B49E42E770ED3489631D8 /* AICandidatePreference.swift */; };
@@ -842,6 +844,7 @@
 		3659AD92E2586FD7A82083C7 /* KeyboardPreviewCanvas.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPreviewCanvas.swift; sourceTree = "<group>"; };
 		366D83CF1D514D43B8B93CAE /* KeystrokeLatencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeystrokeLatencyTests.swift; sourceTree = "<group>"; };
 		380144EA98A8648F53897AE8 /* AISkinServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinServiceTests.swift; sourceTree = "<group>"; };
+		38746D5530F03A00DD492FC6 /* ewts-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ewts-MIT.txt"; sourceTree = "<group>"; };
 		389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "rime-cantonese-CC-BY-4.0.txt"; sourceTree = "<group>"; };
 		391403CFE82802FB8570F86A /* MSIMEDoubaoTransport.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MSIMEDoubaoTransport.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		39A2E34AAE87C6EEC7120307 /* CommunityResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityResource.swift; sourceTree = "<group>"; };
@@ -1078,6 +1081,7 @@
 		EC8D760D00ADE2D08AE7A18B /* DictionarySnapshotWorkerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotWorkerTests.swift; sourceTree = "<group>"; };
 		EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "libchewing-data-LGPL-2.1.txt"; sourceTree = "<group>"; };
 		EF89633F65684DF20D58CF81 /* SettingsAutosaveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutosaveTests.swift; sourceTree = "<group>"; };
+		F00250F90DDDC57808459590 /* vi-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "vi-MIT.txt"; sourceTree = "<group>"; };
 		F0CE1B2A79B2393496CDEF85 /* GlobalTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalTheme.swift; sourceTree = "<group>"; };
 		F2134ADB15FD507683C832FF /* SkinCommunityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityTests.swift; sourceTree = "<group>"; };
 		F3223CD85934FCF0DF98B2D0 /* ClipboardHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryTests.swift; sourceTree = "<group>"; };
@@ -1386,10 +1390,12 @@
 		4F0AF611BB68015729427D50 /* licenses */ = {
 			isa = PBXGroup;
 			children = (
+				38746D5530F03A00DD492FC6 /* ewts-MIT.txt */,
 				EE141265C7F4C263DED2938C /* libchewing-data-LGPL-2.1.txt */,
 				8C92EC1BE74542186076DE51 /* libhangul-hanja-BSD-3-Clause.txt */,
 				389CD65F926C70D6B3121DC9 /* rime-cantonese-CC-BY-4.0.txt */,
 				CC9DA57D2C03A9393C8D3153 /* rime-stroke-LGPL-3.0.txt */,
+				F00250F90DDDC57808459590 /* vi-MIT.txt */,
 			);
 			name = licenses;
 			path = ../../resources/licenses;
@@ -2280,11 +2286,13 @@
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
 				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
 				1A95935E9AEDF63E93196350 /* dictionary-manifest.json in Resources */,
+				63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */,
 				A59935F2ECE3BD02A941814B /* libchewing-data-LGPL-2.1.txt in Resources */,
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,
 				DA879DA72CB6C59566EACBB0 /* onnxruntime-ThirdPartyNotices.txt in Resources */,
 				C4BF79380C22B73D93D47FB7 /* rime-cantonese-CC-BY-4.0.txt in Resources */,
 				6E25600C23681CEA72A9E093 /* rime-stroke-LGPL-3.0.txt in Resources */,
+				3A9DCFCB09183E115E3D3295 /* vi-MIT.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

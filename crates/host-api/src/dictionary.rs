@@ -1926,7 +1926,7 @@ pub fn import_dictionary_words(
     Ok(outcome)
 }
 
-/// The scheme a candidate lookup types in: the schemes whose candidates are rows of the shared dictionary a code looks up, engine scheme codes 0 to 2. Japanese and Korean are left out: Japanese candidates come through a kana reading, not a code, and Korean's only candidates are the Hanja of the syllable being composed, not rows a code looks up. Cantonese, Zhuyin and Stroke read their own language dictionaries, which only the hosts offering those schemes install, and Vietnamese has no candidates, so none of the four is offered here either.
+/// 候选查询所用的方案：候选来自共享词库、按编码查到的那些方案，即 engine 方案码 0 到 2。日文和韩文不在其中：日文候选经由假名读音而不是编码得到，韩文唯一的候选是正在组字的音节对应的汉字，也不是按编码查到的行。粤拼、注音和笔画读各自的语言词库，只有提供这些方案的宿主才会安装；越南文和藏文没有候选。所以这五个方案在这里也都不提供。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LookupScheme {
     Quanpin,

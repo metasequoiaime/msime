@@ -1665,6 +1665,32 @@ fn cantonese_zhuyin_and_vietnamese_schemes_round_trip_under_their_wire_names() {
     );
 }
 
+// 藏文以 `tibetan` 存盘并原样读回；它不是中文方案，切到藏文时保留记住的中文方案，`last_chinese_scheme` 也不接受它。
+#[test]
+fn tibetan_scheme_round_trips_and_keeps_the_last_chinese_scheme() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let saved = store
+        .save(
+            0,
+            Preferences {
+                scheme: InputScheme::Tibetan,
+                last_chinese_scheme: Some(ChineseScheme::Wubi),
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(store.load().unwrap(), saved);
+    let document = serde_json::to_value(&saved.preferences).unwrap();
+    assert_eq!(document["scheme"], "tibetan");
+    assert_eq!(document["last_chinese_scheme"], "wubi");
+    assert_eq!(
+        serde_json::from_value::<InputScheme>("tibetan".into()).unwrap(),
+        InputScheme::Tibetan
+    );
+    assert!(serde_json::from_value::<ChineseScheme>("tibetan".into()).is_err());
+}
+
 #[test]
 fn vietnamese_preferences_default_when_absent_and_round_trip() {
     let dir = tempfile::tempdir().unwrap();
@@ -1913,6 +1939,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
             TouchKeyboardScheme::Cantonese,
             TouchKeyboardScheme::Zhuyin,
             TouchKeyboardScheme::Vietnamese,
+            TouchKeyboardScheme::Tibetan,
             TouchKeyboardScheme::Stroke,
         ]
     );
@@ -1920,6 +1947,7 @@ fn cantonese_zhuyin_and_vietnamese_touch_schemes_are_appended_and_opt_in() {
         (TouchKeyboardScheme::Cantonese, "cantonese"),
         (TouchKeyboardScheme::Zhuyin, "zhuyin"),
         (TouchKeyboardScheme::Vietnamese, "vietnamese"),
+        (TouchKeyboardScheme::Tibetan, "tibetan"),
         (TouchKeyboardScheme::Stroke, "stroke"),
     ] {
         assert_eq!(serde_json::to_value(scheme).unwrap(), id);

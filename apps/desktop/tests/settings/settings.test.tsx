@@ -351,7 +351,7 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("switch", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
-test("touch hosts offering Cantonese, Zhuyin, Vietnamese and Stroke list their touch schemes last and off", async () => {
+test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke list their touch schemes last and off", async () => {
   const host = testHost({
     platform: "android",
     input_schemes: [
@@ -363,6 +363,7 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese and Stroke list their t
       "cantonese",
       "zhuyin",
       "vietnamese",
+      "tibetan",
       "stroke",
     ],
   });
@@ -377,9 +378,9 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese and Stroke list their t
     within(group)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键", "笔画"]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(15);
-  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键", "笔画"]) {
+  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]);
+  expect(within(group).getAllByRole("switch")).toHaveLength(16);
+  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]) {
     expect(
       (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
     ).toBe(false);
@@ -400,6 +401,8 @@ test("a touch host without the Cantonese dictionary does not list the Cantonese 
   expect(screen.queryByRole("switch", { name: "显示输入方案 粤拼 26 键" })).toBeNull();
   expect(screen.queryByRole("switch", { name: "显示输入方案 笔画" })).toBeNull();
   expect(screen.getByRole("switch", { name: "显示输入方案 大千注音" })).toBeTruthy();
+  // 宿主没有列出藏文时也不显示藏文触屏键盘。
+  expect(screen.queryByRole("switch", { name: "显示输入方案 藏文 26 键" })).toBeNull();
 });
 
 test("offline candidate gloss is host-enabled, defaults off and persists", async () => {

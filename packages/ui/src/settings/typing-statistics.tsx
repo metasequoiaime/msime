@@ -220,6 +220,7 @@ const sources = [
   ["cantonese", "粤拼"],
   ["zhuyin", "注音"],
   ["vietnamese", "越南语"],
+  ["tibetan", "藏文"],
   ["stroke", "笔画"],
   ["handwriting", "手写"],
   ["english", "英文键盘"],
@@ -252,6 +253,7 @@ const sourceSymbols: Record<string, string> = {
   cantonese: "粤",
   zhuyin: "注",
   vietnamese: "越",
+  tibetan: "藏",
   stroke: "笔",
   handwriting: "手",
   english: "A",
@@ -1525,6 +1527,14 @@ export function TypingStatisticsPage({
       // Every palette colour already names a slice here, so this one has its own, as 高情商回复 does.
       color: "#d0605e",
       symbol: "越",
+    },
+    {
+      id: "tibetan",
+      title: "藏文模式",
+      count: breakdown.sources.tibetan ?? 0,
+      // 调色板的颜色都已被这里的扇区占用，藏文和越南语一样用自己的颜色。
+      color: "#b8873a",
+      symbol: "藏",
     },
     {
       id: "english",

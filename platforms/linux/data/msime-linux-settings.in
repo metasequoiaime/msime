@@ -59,6 +59,8 @@ while [ -L "$launcher_path" ]; do
 done
 launcher_dir=$(CDPATH= cd -- "$(dirname -- "$launcher_path")" && pwd)
 export MSIME_CLIENT_HOST_OPTIONS=$config
+# 默认禁用 WebKit 合成，规避部分驱动的 GBM 分配失败与 Wayland 显式同步协议错误；保留显式覆盖以便排查。
+export WEBKIT_DISABLE_COMPOSITING_MODE=${WEBKIT_DISABLE_COMPOSITING_MODE:-1}
 if [ -n "$route" ]; then
   exec "$launcher_dir/msime-linux-desktop" "--route=$route" "$@"
 fi

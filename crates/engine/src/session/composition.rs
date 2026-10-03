@@ -484,6 +484,7 @@ impl InputSession {
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
             | SchemeType::Vietnamese
+            | SchemeType::Tibetan
             | SchemeType::Stroke => self.raw_with_cases().to_owned(),
             SchemeType::Shuangpin if self.shuangpin_preedit_uses_raw => {
                 with_trailing_separator(if request.raw_segmentation.is_empty() {
@@ -503,11 +504,12 @@ impl InputSession {
         match self.engine.current_scheme_type() {
             SchemeType::Wubi => request.valid,
             SchemeType::JapaneseRomaji => convert_romaji(&request.raw_input).complete,
-            // Hangul, Jyutping, bopomofo, Vietnamese and strokes are not pinyin.
+            // 韩文、粤拼、注音、越南文、藏文和笔画都不是拼音。
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
             | SchemeType::Vietnamese
+            | SchemeType::Tibetan
             | SchemeType::Stroke => false,
             SchemeType::Shuangpin => {
                 let profile = self.shuangpin_profile();
@@ -548,6 +550,7 @@ impl InputSession {
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
             | SchemeType::Vietnamese
+            | SchemeType::Tibetan
             | SchemeType::Stroke => false,
             SchemeType::Shuangpin => {
                 active_shuangpin_helpcode_length(request, self.shuangpin_profile()) > 0

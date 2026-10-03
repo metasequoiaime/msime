@@ -14,6 +14,8 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private final RectF bounds = new RectF();
+    private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private int activeFill = Color.TRANSPARENT;
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
@@ -35,11 +37,29 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
      */
     private static final float GLYPH_SCALE = 0.62f;
 
+    /** 选中时垫在图标后面的底块占触控区短边的比例。 */
+    private static final float ACTIVE_SCALE = 0.86f;
+
+    /** 选中状态的底色：工具栏按钮打开了它的面板时，图标后面垫这块柔和的强调色，而不是把整个按钮铺成实心色块。 */
+    public void setActiveFill(int color) {
+        if (activeFill == color) return;
+        activeFill = color;
+        invalidate();
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
         int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
         float size = Math.min(width, height) * GLYPH_SCALE;
         if (size <= 0) return;
+        if (isSelected() && Color.alpha(activeFill) > 0) {
+            float side = Math.min(width, height) * ACTIVE_SCALE;
+            float left = getPaddingLeft() + (width - side) / 2f;
+            float top = getPaddingTop() + (height - side) / 2f;
+            bounds.set(left, top, left + side, top + side);
+            fill.setColor(activeFill);
+            canvas.drawRoundRect(bounds, side * 0.25f, side * 0.25f, fill);
+        }
         int color = getCurrentTextColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         paint.setColor(color);
@@ -57,6 +77,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             case SKIN -> drawSkin(canvas);
             case DISMISS -> drawDismiss(canvas);
             case GLOBE -> drawGlobe(canvas);
+            case BOOKMARK -> drawBookmark(canvas);
         }
         canvas.restore();
     }
@@ -127,6 +148,18 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         canvas.drawOval(bounds, paint);
         canvas.drawLine(18f, 36f, 82f, 36f, paint);
         canvas.drawLine(18f, 64f, 82f, 64f, paint);
+    }
+
+    /** 回复面板的模板入口：一枚书签，对应 iOS 的 `bookmark` 符号。 */
+    private void drawBookmark(Canvas canvas) {
+        path.reset();
+        path.moveTo(28f, 14f);
+        path.lineTo(72f, 14f);
+        path.lineTo(72f, 86f);
+        path.lineTo(50f, 68f);
+        path.lineTo(28f, 86f);
+        path.close();
+        canvas.drawPath(path, paint);
     }
 
     private void drawDismiss(Canvas canvas) {

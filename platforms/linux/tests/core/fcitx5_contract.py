@@ -393,10 +393,19 @@ assert ibus_key.index(ibus_convert) < ibus_key.index("commits_on_blur && has_com
 assert "command(openedList ? MSIME_COMMIT_CANDIDATE : MSIME_COMMIT_RAW)" in fcitx_key
 ibus_return = ibus_key[ibus_key.index("case IBUS_Return:"):]
 assert ibus_return.index("if (opened_list) {") < ibus_return.index("command = MSIME_COMMIT_RAW;")
+# 两个宿主都提供藏文（Engine 方案 8），面板符号为「藏」。藏文和越南文一样离开组字时写出组字内容：IBus 的导航键必须发 MSIME_FINISH_COMPOSITION，若发 MSIME_COMMIT_CANDIDATE，Engine 会把它当作空格，多上屏一个音节点。
+assert '{&scheme_tibetan_action_, "msime-scheme-tibetan"}' in source
+assert 'FcitxSchemeItemAction scheme_tibetan_action_{&factory_, 8, "藏文"};' in source
+assert 'case 8: return "输入方案：藏文";' in source
+assert 'case msime::linux_host::InputModeIndicator::Tibetan: return "藏";' in source
+assert '"Scheme/Tibetan"' in ibus_source
+assert 'case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;' in ibus_source
+assert "korean_hanja_list || zhuyin_scheme || vietnamese_scheme || tibetan_scheme" in ibus_key
 
-# Stroke (scheme 8) is offered in both menus only with stroke.db: Fcitx5 registers its action and rebuilds the menu when stroke.db alone appears, and IBus lists Scheme/Stroke, lets PropertyActivate through for it and maps it to the "stroke" id. Missing either IBus half makes choosing 笔画 silently do nothing.
+# 两个宿主的菜单都只在有 stroke.db 时提供笔画（Engine 方案 9）：Fcitx5 注册它的动作，单独出现 stroke.db 时也重建菜单；IBus 列出 Scheme/Stroke，让 PropertyActivate 放行它并映射到 "stroke" id。IBus 缺任何一半，选笔画都会悄无声息地什么也不做。状态区的方案动作也要标出「输入方案：笔画」，否则会落到默认的全拼。
 assert '{&scheme_stroke_action_, "msime-scheme-stroke"}' in source
-assert 'FcitxSchemeItemAction scheme_stroke_action_{&factory_, 8, "笔画"};' in source
+assert 'FcitxSchemeItemAction scheme_stroke_action_{&factory_, 9, "笔画"};' in source
+assert 'case 9: return "输入方案：笔画";' in source
 assert 'schemeAvailable("stroke")' in source
 assert 'std::tuple{"stroke", "Scheme/Stroke", "笔画"}' in ibus_source
 assert 'property_name != "Scheme/Stroke"' in ibus_source

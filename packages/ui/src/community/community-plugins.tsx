@@ -37,6 +37,7 @@ import {
 } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -46,6 +47,8 @@ import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -139,12 +142,7 @@ function isCommunityKind(kind: PluginKind): kind is CommunityPluginKind {
 
 function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: () => void }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看插件 ${plugin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看插件 ${plugin.name}`} onClick={open}>
       <strong className={style.cardTitle}>{plugin.name}</strong>
       <CommunityCardAuthor
         prefix={kindLabels[plugin.kind]}
@@ -160,7 +158,7 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
         ratingCount={plugin.rating_count}
         ratingAverage={plugin.rating_average}
       />
-    </button>
+    </CommunityCard>
   );
 }
 
@@ -378,7 +376,7 @@ export function CommunityPluginsPage({
   }
 
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label="搜索插件"
         value={search}
@@ -451,11 +449,11 @@ export function CommunityPluginsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {plugins.map((plugin) => (
           <CommunityPluginCard key={plugin.id} plugin={plugin} open={() => open(plugin)} />
         ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}
@@ -471,7 +469,7 @@ export function CommunityPluginsPage({
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }
 

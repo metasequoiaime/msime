@@ -339,7 +339,8 @@ public final class BackendAccount {
                 sessions.clear();
             }
         } catch (Exception | LinkageError error) {
-            // 清不掉也不要抛：调用方要的是「退出」，而过期的令牌本来就用不了。
+            // 清除失败时会话仍可能有效，必须把失败交给界面，不能按退出成功处理。
+            throw new IllegalStateException("account sign-out unavailable");
         }
     }
 

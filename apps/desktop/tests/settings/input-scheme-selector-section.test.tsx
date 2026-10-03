@@ -30,6 +30,7 @@ const allSchemes = [
   "cantonese",
   "zhuyin",
   "vietnamese",
+  "tibetan",
   "stroke",
 ] as const;
 

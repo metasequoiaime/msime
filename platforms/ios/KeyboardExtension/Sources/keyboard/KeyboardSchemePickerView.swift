@@ -51,7 +51,7 @@ final class KeyboardSchemePickerView: UIView {
       let badge: String
       // 卡片全部走皮肤的强调色。此前每一族配一个系统色 —— 双拼蓝、五笔棕、日语粉、手写青、回复橙、英文靛 —— 理由是十二张卡片同色的话分辨要靠读字。
       //
-      // 但那些是系统色,不跟皮肤走:换成深色或任何一套自定义皮肤,它们和背景、按键、候选栏就不是一套配色了,那时它们不是在分组,只是六个闯进来的颜色。而字形本来就两两不同(拼26/拼9/鹤双/自双/微双/S双/五86/あ26/あ9/한26/粤26/注大千/越26/笔5/写手/聊AI/EN26),要读的那一眼无论如何都得读 —— 颜色没有给出图例,也就没有省掉这一眼。
+      // 但那些是系统色,不跟皮肤走:换成深色或任何一套自定义皮肤,它们和背景、按键、候选栏就不是一套配色了,那时它们不是在分组,只是六个闯进来的颜色。而字形本来就两两不同(拼26/拼9/鹤双/自双/微双/S双/五86/あ26/あ9/한26/粤26/注大千/越26/藏26/笔5/写手/聊AI/EN26),要读的那一眼无论如何都得读 —— 颜色没有给出图例,也就没有省掉这一眼。
       switch scheme {
       case .quanpin: glyph = "拼"; badge = "26"
       case .nineKey: glyph = "拼"; badge = "9"
@@ -66,6 +66,7 @@ final class KeyboardSchemePickerView: UIView {
       case .cantonese: glyph = "粤"; badge = "26"
       case .zhuyin: glyph = "注"; badge = "大千"
       case .vietnamese: glyph = "越"; badge = "26"
+      case .tibetan: glyph = "藏"; badge = "26"
       // 角标是五个笔画键，与 Android、鸿蒙的卡片一致。
       case .stroke: glyph = "笔"; badge = "5"
       case .handwriting: glyph = "写"; badge = "手"

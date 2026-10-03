@@ -56,6 +56,12 @@ OVERVIEWS = ("platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "plat
 # The vi crate behind Vietnamese mode is MIT. The macOS bundle and the Windows package, where Vietnamese ships and notices are listed by hand, carry its text explicitly.
 VI_LICENCE = "resources/licenses/vi-MIT.txt"
 VI_CHANNELS = ("platforms/macos/CMakeLists.txt", "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/macos/tests/settings/bundle_contents.py", "platforms/windows/Collect-Notices.ps1", "platforms/windows/tests/tools/collect_notices.ps1")
+# 移动端（Android、iOS、HarmonyOS）的 Engine 同样编入 vi 和 ewts，它们的打包脚本也要带上两份许可证全文。
+MOBILE_CRATE_CHANNELS = ("platforms/android/build-native.sh", "platforms/ios/project.yml", "platforms/ios/tests/settings/ProjectConfigurationTests.py", "platforms/harmony/stage-resources.sh")
+VI_CHANNELS = VI_CHANNELS + MOBILE_CRATE_CHANNELS
+# 藏文方案背后的 ewts crate 以 MIT OR Apache-2.0 发布，这里按 MIT 使用。和 vi 一样，由手工列出声明的 macOS 包、Windows 安装包和移动端打包脚本显式带上它的许可证全文。
+EWTS_LICENCE = "resources/licenses/ewts-MIT.txt"
+EWTS_CHANNELS = VI_CHANNELS + ("platforms/windows/Notices.md", "docs/third-party.md")
 failures = []
 
 
@@ -101,12 +107,17 @@ def main() -> int:
     for channel in VI_CHANNELS:
         live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
         check(any("vi-MIT.txt" in line for line in live), f"{channel} does not ship vi-MIT.txt")
+    ewts_licence = ROOT / EWTS_LICENCE
+    check(ewts_licence.is_file() and "Copyright (c) Maxim Zommer" in ewts_licence.read_text(encoding="utf-8"), f"{EWTS_LICENCE} is missing or lost the ewts copyright line")
+    for channel in EWTS_CHANNELS:
+        live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
+        check(any("ewts-MIT.txt" in line for line in live), f"{channel} does not ship ewts-MIT.txt")
 
     if failures:
         for failure in failures:
             print(f"FAIL: {failure}")
         return 1
-    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, vi in {len(VI_CHANNELS)} macOS and Windows channels")
+    print(f"language data notices: {len(LICENCES)} licences in {len(NOTICE_CHANNELS)} channels, vi in {len(VI_CHANNELS)} channels, ewts in {len(EWTS_CHANNELS)} channels")
     return 0
 
 

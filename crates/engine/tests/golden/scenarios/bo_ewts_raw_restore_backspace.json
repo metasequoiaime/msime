@@ -1,0 +1,80 @@
+{
+ "name": "bo_ewts_raw_restore_backspace",
+ "source": "crates/engine/src/tibetan (no C++ reference: the Tibetan scheme is Rust-only, so the expected file was recorded from this engine and checked by hand)",
+ "covers": [
+  "tibetan achung opens a syllable",
+  "tibetan keystroke backspace",
+  "tibetan raw restore",
+  "tibetan second esc cancels",
+  "tibetan idle digit",
+  "tibetan digit as a candidate key",
+  "tibetan slash through the punctuation route",
+  "tibetan caret key commits"
+ ],
+ "fixture": {},
+ "options": {
+  "scheme": "tibetan"
+ },
+ "steps": [
+  {
+   "op": "type",
+   "arg": "'od"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "command",
+   "arg": "Backspace"
+  },
+  {
+   "op": "type",
+   "arg": "bsgrubs"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "char",
+   "arg": " "
+  },
+  {
+   "op": "type",
+   "arg": "g.yag"
+  },
+  {
+   "op": "punctuation",
+   "arg": "/"
+  },
+  {
+   "op": "type",
+   "arg": "bod"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "command",
+   "arg": "Cancel"
+  },
+  {
+   "op": "char",
+   "arg": "1"
+  },
+  {
+   "op": "type",
+   "arg": "kA"
+  },
+  {
+   "op": "candidate_key",
+   "arg": "2"
+  },
+  {
+   "op": "command",
+   "arg": "MoveLeft"
+  }
+ ]
+}

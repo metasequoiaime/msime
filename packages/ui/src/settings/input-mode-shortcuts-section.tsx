@@ -1,5 +1,5 @@
 import { SettingsGroupNote } from "./settings-group-note";
-import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
 import { InputModeHudSection } from "./input-mode-hud-section";
 import { GroupList, Row } from "../core/platform-controls";
 import { SwitchRow } from "./switch-row";
@@ -102,7 +102,7 @@ export function InputModeShortcutsSection({
 
   return (
     <GroupList title="输入模式切换">
-      <div className={settings.rowStack} role="group" aria-label="输入模式切换快捷键">
+      <SettingsRowStack role="group" aria-label="输入模式切换快捷键">
         <SettingsGroupNote>
           在当前输入上下文中切换中英文模式；未选用或关闭的快捷键会交给应用处理。
         </SettingsGroupNote>
@@ -153,7 +153,7 @@ export function InputModeShortcutsSection({
             description="此处不控制。要修改或关闭，打开「设置 › 时间和语言 › 输入 › 高级键盘设置 › 输入语言热键」，选中「中文（简体）输入法 - 输入法 / 非输入法切换」，点「更改按键顺序」后关闭它或改成不常用的组合。不同 Windows 版本的名称可能略有差异；未立即生效时请重新登录或重启电脑。"
           />
         )}
-      </div>
+      </SettingsRowStack>
     </GroupList>
   );
 }

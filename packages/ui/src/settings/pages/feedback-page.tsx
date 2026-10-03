@@ -1,7 +1,8 @@
 import { SettingsGroupNote } from "../settings-group-note";
+import { SettingsRowStack } from "../settings-row-stack";
+import { SettingsManagerActions } from "../settings-manager-actions";
 import { SettingsManagerNote } from "../settings-manager-note";
 import * as doc from "../document-style";
-import * as settings from "../settings-style";
 import { useSettingsForm } from "../settings-form-context";
 import { GroupList, LinkRow, PageIntro } from "../../core/platform-controls";
 import { SubPageEntries } from "./sub-page-entries";
@@ -54,7 +55,7 @@ export function FeedbackSettingsPage() {
         pages={[{ id: "help", description: "安装、切换输入法与常见问题" }]}
       />
       <GroupList title="提交可复现的问题">
-        <div className={settings.rowStack} role="group" aria-label="问题报告">
+        <SettingsRowStack role="group" aria-label="问题报告">
           <SettingsGroupNote>报告只在你点击按钮时生成，不会读取或上传输入历史。</SettingsGroupNote>
           <FeedbackReportFields
             kind={feedbackKind}
@@ -66,7 +67,7 @@ export function FeedbackSettingsPage() {
               <strong>会一起附上的信息</strong>
               <span className="block break-anywhere">{supportDiagnostics}</span>
             </div>
-            <div className={settings.managerActions}>
+            <SettingsManagerActions>
               {client.copyText && (
                 <ActionButton
                   action={copyFeedbackReport}
@@ -76,7 +77,7 @@ export function FeedbackSettingsPage() {
               {client.openExternalUrl && (
                 <ActionButton action={submitFeedback} label="在 GitHub 提交" />
               )}
-            </div>
+            </SettingsManagerActions>
             <SettingsManagerNote>
               提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
             </SettingsManagerNote>
@@ -91,7 +92,7 @@ export function FeedbackSettingsPage() {
               onClick={() => selectPage("developer")}
             />
           )}
-        </div>
+        </SettingsRowStack>
       </GroupList>
       <GroupList title="反馈与交流">
         <FeedbackChannels

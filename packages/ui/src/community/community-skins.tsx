@@ -31,9 +31,12 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityGalleryGrid } from "./community-gallery-grid";
+import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
@@ -294,12 +297,7 @@ function CommunitySkinCard({
   open: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看皮肤 ${skin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看皮肤 ${skin.name}`} onClick={open}>
       <span className={style.cardStage}>
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} compact />
       </span>
@@ -315,7 +313,7 @@ function CommunitySkinCard({
         ratingCount={skin.rating_count}
         ratingAverage={skin.rating_average}
       />
-    </button>
+    </CommunityCard>
   );
 }
 
@@ -587,7 +585,7 @@ export function CommunitySkinsPage({
     );
 
   return (
-    <div className={style.page}>
+    <CommunityPageShell>
       <CommunitySearchForm
         label="搜索皮肤设计"
         value={search}
@@ -637,13 +635,13 @@ export function CommunitySkinsPage({
           ) : undefined
         }
       />
-      <div className={style.grid}>
+      <CommunityGalleryGrid>
         {skins
           .filter((skin) => !mineOnly || skin.owned)
           .map((skin) => (
             <CommunitySkinCard key={skin.id} skin={skin} theme={theme} open={() => open(skin)} />
           ))}
-      </div>
+      </CommunityGalleryGrid>
       <CommunityGalleryLoadMore
         hasMore={hasMore}
         busy={listBusy}
@@ -659,6 +657,6 @@ export function CommunitySkinsPage({
           onLogin={communityPublishLoginAction(() => setPublishOpen(false), onLogin)}
         />
       )}
-    </div>
+    </CommunityPageShell>
   );
 }

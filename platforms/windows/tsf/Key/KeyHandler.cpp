@@ -321,6 +321,7 @@ CMetasequoiaIME::HostComposedView CMetasequoiaIME::_ReadHostComposedView() const
     if (!host->view(&raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &current, &error))
         return result;
     result.listOpen = KoreanHanjaListOpen(current.view);
+    result.composing = !current.view.editing_text.empty();
     result.spellingSymbols = std::move(current.view.spelling_symbols);
     return result;
 }
@@ -543,7 +544,7 @@ bool CMetasequoiaIME::_CancelHostComposition()
     if (!host || !host->valid()) return true;
     std::string raw, error;
     if (!host->command(MSIME_CANCEL, &raw, &error)) return false;
-    // With a Korean Hanja or Zhuyin list open MSIME_CANCEL only closes the list and the composition stays (msime_client.h), and the first one on a Vietnamese word only shows its raw keys again, so a second one discards it.
+    // 韩文汉字列表或注音列表打开时，MSIME_CANCEL 只关闭列表、组字保留（msime_client.h）；越南文词和藏文音节串上的第一次 MSIME_CANCEL 只把原文重新显示出来，所以再发一次来丢弃它。
     msime::tsf::EngineResult result;
     if (msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) &&
         msime::windows::scheme::AlwaysInlinePreedit(static_cast<int>(result.view.scheme)) &&
@@ -554,7 +555,7 @@ bool CMetasequoiaIME::_CancelHostComposition()
 
 HRESULT CMetasequoiaIME::_HandleEscape(TfEditCookie ec, _In_ ITfContext *pContext)
 {
-    // A Vietnamese word shows its raw keys again on the first Escape and keeps composing; the next Escape discards it like every other composition.
+    // 越南文词和藏文音节串在第一次 Esc 时重新显示原文并继续组字；下一次 Esc 像其他组字一样丢弃它。
     auto *host = _pCompositionProcessorEngine ? _pCompositionProcessorEngine->GetHostEngineAdapter() : nullptr;
     std::string error;
     if (host && host->valid() && _IsComposing() && msime::tsf::RestoreHostRawOnEscape(*host, &error))
@@ -809,14 +810,15 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
     CCompositionProcessorEngine *pCompositionProcessorEngine = nullptr;
     pCompositionProcessorEngine = _pCompositionProcessorEngine;
 
-    // A Zhuyin or Vietnamese key classified as input behind the deferred-key barrier was judged from the static spelling rules (VNI's digits, Dachen's keys with the list projected closed). The live view decides: a key it does not spell ends the composition and follows it, as the Server's session takes the same key.
+    // 在延迟按键屏障后面被分类为输入的注音、越南文或藏文按键，是按静态拼写规则判断的（VNI 的数字、列表投影为关闭时的大千键、藏文的威利符号）。由实时视图决定：它不拼写的键结束组字并跟在后面，与 Server 会话处理同一个键的方式一致。藏文组字时的空格也算组字接收的键（host_composition_takes_key）。
     if (const int scheme = Global::InputModeScheme.load(std::memory_order_relaxed);
         scheme != msime::windows::scheme::Korean && msime::windows::scheme::AlwaysInlinePreedit(scheme) &&
         msime::tsf::is_korean_text_key(wch) && pCompositionProcessorEngine->GetHostEngineAdapter() &&
-        pCompositionProcessorEngine->GetHostEngineAdapter()->valid() &&
-        !msime::tsf::spelled_key(_ReadHostComposedView().spellingSymbols, wch))
+        pCompositionProcessorEngine->GetHostEngineAdapter()->valid())
     {
-        return _HandleSyllableCommit(ec, pContext, static_cast<UINT>(wch), wch);
+        const auto hostView = _ReadHostComposedView();
+        if (!msime::tsf::host_composition_takes_key(scheme, hostView.spellingSymbols, wch, hostView.composing))
+            return _HandleSyllableCommit(ec, pContext, static_cast<UINT>(wch), wch);
     }
 
     if ((_pCandidateListUIPresenter != nullptr) && (_candidateMode != CANDIDATE_INCREMENTAL))
@@ -889,6 +891,13 @@ HRESULT CMetasequoiaIME::_HandleCompositionInput(TfEditCookie ec, _In_ ITfContex
             workerResult = E_FAIL;
         else
         {
+            // Esc 锁定原文后，藏文组字时的空格只上屏原文并把空格交回宿主（未处理）。这个键已经被 TIP 吃掉，不会再到达应用，所以由 TIP 把空格写在原文后面。
+            if (scheme == msime::windows::scheme::Tibetan && result.has_commit && !result.handled &&
+                msime::tsf::is_host_text_key(wch))
+            {
+                result.commit.push_back(static_cast<char>(wch));
+                result.handled = true;
+            }
             const auto status = msime::tsf::ApplyHostCharacterResult(result, [&](const std::string &text) {
                 if (text.size() > static_cast<size_t>((std::numeric_limits<int>::max)())) return false;
                 const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),

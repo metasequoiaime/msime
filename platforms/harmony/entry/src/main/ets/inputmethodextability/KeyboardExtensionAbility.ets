@@ -623,11 +623,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     } else {
       this.heldKeys.release(event.key.code);
     }
-    // Korean reads a letter's case as the jamo (Shift+R is ㄲ), so only Shift decides it there: Caps Lock left on must not turn every ㄱ into ㄲ. Vietnamese writes letters in the case they were typed, so Caps Lock there means capitals, as it does in any editor.
+    // 韩语用字母大小写区分字母本身（Shift+R 是 ㄲ），所以只看 Shift：忘了关的 Caps Lock 不能把每个 ㄱ 都变成 ㄲ。越南语和藏文（威利转写区分大小写）按输入时的大小写写字母，所以 Caps Lock 在那里就是大写，和任何编辑器一样。
     const key: HardwareKey = HardwareKeyRouter.normalizeLetterCase({
       keyCode: event.key.code, unicodeChar: event.unicodeChar, ctrlKey: event.ctrlKey,
       altKey: event.altKey, logoKey: event.logoKey, shiftKey: event.shiftKey
-    }, event.capsLock && !session.isKorean() && session.rulesScheme() !== SchemeTraits.VIETNAMESE);
+    }, event.capsLock && !session.isKorean() && session.rulesScheme() !== SchemeTraits.VIETNAMESE
+      && session.rulesScheme() !== SchemeTraits.TIBETAN);
     session.setCapsLock(event.capsLock);
     const mode: ModeKey = {
       keyCode: event.key.code, down: event.action === KeyAction.DOWN, shiftKey: event.shiftKey,

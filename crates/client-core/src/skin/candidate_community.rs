@@ -567,6 +567,29 @@ where
     A: AccountApi + CandidateSkinCommunityApi,
     S: AccountSessionStorage,
 {
+    pub(crate) fn session_generation(&self) -> Result<Option<u64>, AccountError> {
+        if self.session.status()?.is_some() {
+            self.session
+                .credentials_with_generation(None, None)
+                .map(|(_, _, generation)| Some(generation))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) fn with_session_generation<T, F>(
+        &self,
+        generation: u64,
+        user_id: &str,
+        operation: F,
+    ) -> Result<T, AccountError>
+    where
+        F: FnOnce() -> Result<T, AccountError>,
+    {
+        self.session
+            .with_generation(generation, Some(user_id), operation)
+    }
+
     /// One page of published packages, newest first. `mine` lists only the signed-in user's own, and so requires a session. `category` 为 `Some` 时只列出该分类。
     pub fn list(
         &self,

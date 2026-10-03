@@ -10,6 +10,7 @@ import {
   nonChineseSchemes,
   strokeLayoutOptions,
   supportedInputSchemes,
+  tibetanInputSchemeOptions,
   vietnameseInputMethodOptions,
   vietnameseToneStyleOptions,
   zhuyinLayoutOptions,
@@ -38,10 +39,11 @@ test("shares the input scheme labels used by settings controls", () => {
     { value: "modern", label: "新式 hoà" },
     { value: "classic", label: "旧式 hòa" },
   ]);
+  expect(tibetanInputSchemeOptions).toEqual([{ value: "ewts", label: "威利转写" }]);
 });
 
-test("Cantonese, Zhuyin and Stroke are Chinese schemes and Vietnamese is a mode of its own", () => {
-  expect(nonChineseSchemes).toEqual(["japanese", "korean", "vietnamese"]);
+test("Cantonese, Zhuyin and Stroke are Chinese schemes and Vietnamese and Tibetan are modes of their own", () => {
+  expect(nonChineseSchemes).toEqual(["japanese", "korean", "vietnamese", "tibetan"]);
   const chinese = (
     [
       "quanpin",
@@ -52,6 +54,7 @@ test("Cantonese, Zhuyin and Stroke are Chinese schemes and Vietnamese is a mode 
       "cantonese",
       "zhuyin",
       "vietnamese",
+      "tibetan",
       "stroke",
     ] as const
   ).filter((scheme) => isChineseScheme(scheme));
@@ -65,9 +68,22 @@ test("without a host the five base schemes are offered", () => {
 test("input_schemes values the page has no label for are dropped", () => {
   const host = testHost({
     platform: "macos",
-    input_schemes: ["quanpin", "cantonese", "klingon" as InputScheme, "vietnamese", "stroke"],
+    input_schemes: [
+      "quanpin",
+      "cantonese",
+      "klingon" as InputScheme,
+      "vietnamese",
+      "tibetan",
+      "stroke",
+    ],
   });
-  expect(supportedInputSchemes(host)).toEqual(["quanpin", "cantonese", "vietnamese", "stroke"]);
+  expect(supportedInputSchemes(host)).toEqual([
+    "quanpin",
+    "cantonese",
+    "vietnamese",
+    "tibetan",
+    "stroke",
+  ]);
 });
 
 test("the fallback is the remembered Chinese scheme when offered, else 全拼", () => {

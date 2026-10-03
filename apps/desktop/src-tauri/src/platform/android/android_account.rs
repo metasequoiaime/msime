@@ -1090,7 +1090,7 @@ pub async fn app_icon_set(
     .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
-/// The account value for a scheme, or none for a scheme the account schema does not name yet. Cantonese, Zhuyin, Vietnamese and Stroke are left out rather than mapped to a neighbour, so the account keeps the scheme it last recorded instead of being overwritten with one the user did not choose.
+/// 方案在账号里的取值；账号 schema 还没有收录的方案为空。粤拼、注音、越南文、藏文和笔画不写，而不是映射到相近的方案，这样账号保留上次记录的方案，不会被改成用户没选过的方案。
 fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
     match scheme {
         InputScheme::Quanpin => Some("quanpin"),
@@ -1101,6 +1101,7 @@ fn account_input_schema(scheme: InputScheme) -> Option<&'static str> {
         InputScheme::Cantonese
         | InputScheme::Zhuyin
         | InputScheme::Vietnamese
+        | InputScheme::Tibetan
         | InputScheme::Stroke => None,
     }
 }
@@ -1567,6 +1568,7 @@ pub async fn account_preferences_upload(
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let (user_id, _, generation) = session.credentials_with_generation(None, None)?;
         let schema = session.preference_schema()?;
         let cloud = session.preferences()?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
@@ -1578,7 +1580,7 @@ pub async fn account_preferences_upload(
             return Err(AccountError::Unavailable);
         }
         let merged = merge_account_preferences(&cloud, &values, &schema)?;
-        session.put_preferences(&merged)
+        session.put_preferences_with_generation(&merged, generation, &user_id)
     })
     .await
     .map_err(|_| crate::CommandError {
@@ -1598,13 +1600,15 @@ pub async fn account_preferences_apply(
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        session.credentials(None, Some(&user_id))?;
+        let (_, _, generation) = session.credentials_with_generation(None, Some(&user_id))?;
         let schema = session.preference_schema()?;
         let local = store.load().map_err(|_| AccountError::Storage)?;
-        let next = apply_local_account_preferences(&local, &preferences, &schema, &feedback)?;
-        store
-            .save(local.revision, next)
-            .map_err(|_| AccountError::Storage)?;
+        session.with_generation(generation, Some(&user_id), || {
+            let next = apply_local_account_preferences(&local, &preferences, &schema, &feedback)?;
+            store
+                .save(local.revision, next)
+                .map_err(|_| AccountError::Storage)
+        })?;
         Ok::<(), AccountError>(())
     })
     .await
@@ -1786,6 +1790,7 @@ mod tests {
             (InputScheme::Cantonese, None),
             (InputScheme::Zhuyin, None),
             (InputScheme::Vietnamese, None),
+            (InputScheme::Tibetan, None),
             (InputScheme::Stroke, None),
         ] {
             assert_eq!(account_input_schema(scheme), schema, "{scheme:?}");
@@ -1801,7 +1806,14 @@ mod tests {
                 value_type: "string".into(),
             },
         );
-        for unknown in ["cantonese", "zhuyin", "vietnamese", "stroke", "esperanto"] {
+        for unknown in [
+            "cantonese",
+            "zhuyin",
+            "vietnamese",
+            "tibetan",
+            "stroke",
+            "esperanto",
+        ] {
             let mut values = frequency_account_preferences(&FrequencyPreferences {
                 mode: FrequencyMode::Linear,
                 trigger_count: 7,

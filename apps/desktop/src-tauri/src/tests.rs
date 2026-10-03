@@ -259,6 +259,7 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
             InputScheme::Japanese,
             InputScheme::Korean,
             InputScheme::Vietnamese,
+            InputScheme::Tibetan,
         ];
         assert_eq!(offered(None), without_both, "{platform:?}");
         assert_eq!(
@@ -316,6 +317,7 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
     assert!(!schemes.contains(&InputScheme::Zhuyin));
     assert!(!schemes.contains(&InputScheme::Stroke));
     assert!(schemes.contains(&InputScheme::Vietnamese));
+    assert!(schemes.contains(&InputScheme::Tibetan));
     std::fs::write(directory.join("stroke.db"), b"sqlite").unwrap();
     let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
     assert!(schemes.contains(&InputScheme::Stroke));

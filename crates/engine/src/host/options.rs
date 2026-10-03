@@ -28,7 +28,7 @@ pub struct EngineOptions {
     pub user_data: String,
     pub cache: String,
     pub dictionaries: String,
-    /// 0 quanpin, 1 shuangpin, 2 wubi, 3 Japanese, 4 Korean, 5 Cantonese, 6 Zhuyin, 7 Vietnamese, 8 Stroke.
+    /// 0 全拼，1 双拼，2 五笔，3 日文，4 韩文，5 粤拼，6 注音，7 越南文，8 藏文，9 笔画。
     pub scheme: u8,
     /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft.
     pub shuangpin_profile: u8,

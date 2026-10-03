@@ -24,8 +24,9 @@ enum class TrayMenuCommand {
   SelectKorean,
   SelectCantonese,
   SelectZhuyin,
-  SelectStroke,
   SelectVietnamese,
+  SelectTibetan,
+  SelectStroke,
   // Settings pages.
   OpenTheme,
   OpenDictionary,

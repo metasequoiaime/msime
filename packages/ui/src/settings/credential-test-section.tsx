@@ -1,4 +1,4 @@
-import * as settings from "./settings-style";
+import { SettingsServiceRow } from "./settings-service-row";
 import { ActionButton } from "./action-button";
 
 export interface CredentialTestState {
@@ -30,7 +30,7 @@ export function CredentialTestSection({
   const signature = JSON.stringify(config);
   const visible = state?.signature === signature;
   return (
-    <div className={settings.serviceRow}>
+    <SettingsServiceRow>
       <div>
         <ActionButton
           action={onTest}
@@ -42,6 +42,6 @@ export function CredentialTestSection({
           <span role={state.ok ? "status" : "alert"}>{state.message}</span>
         )}
       </div>
-    </div>
+    </SettingsServiceRow>
   );
 }

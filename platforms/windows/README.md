@@ -425,28 +425,29 @@ TSF 在收到 Server 回复之前就要决定一个键是组合输入还是选�
 
 未在真机核实：TIP 只注册在 zh-CN 配置下，韩国键盘的汉字键在这种情况下能否送到 0x19，以及右 Ctrl 在各种键盘驱动下是否作为右 Ctrl 而不是汉字键上报。
 
-### 粤拼、注音与越南语
+### 粤拼、注音、越南语与藏语
 
-这三个方案和全拼、双拼、五笔、日语、韩语一样在托盘菜单、工具栏和设置里可选，仍只注册一个 zh-CN TSF 配置，Watchdog 不变。按方案决定的行为集中在 `common/InputSchemeTraits.h`，Server 与 TIP 共用；其中镜像 Engine `SchemeType` 谓词的部分由 `scripts/test-scheme-traits-parity.py` 与 `crates/engine/src/types.rs` 核对。Server 经 InputModeChanged 把输入模式告诉 TIP，载荷是一个字符：`0` 中文（全拼、双拼、五笔）、`1` 日语、`2` 韩语、`3` 粤拼、`4` 注音、`5` 越南语、`6` 笔画（见下文）。旧版 TIP 只认 `1`、`2`，把新代码当作中文。粤拼和注音是中文方案，切换到它们会更新 `last_chinese_scheme`；越南语与日语、韩语一样是单独的语言，切过去时记住被替换的中文方案。
+这四个方案和全拼、双拼、五笔、日语、韩语一样在托盘菜单、工具栏和设置里可选，仍只注册一个 zh-CN TSF 配置，Watchdog 不变。按方案决定的行为集中在 `common/InputSchemeTraits.h`，Server 与 TIP 共用；其中镜像 Engine `SchemeType` 谓词的部分由 `scripts/test-scheme-traits-parity.py` 与 `crates/engine/src/types.rs` 核对。Server 经 InputModeChanged 把输入模式告诉 TIP，载荷是一个字符：`0` 中文（全拼、双拼、五笔）、`1` 日语、`2` 韩语、`3` 粤拼、`4` 注音、`5` 越南语、`6` 藏语、`7` 笔画（见下文）。旧版 TIP 只认 `1`、`2`，把新代码当作中文。粤拼和注音是中文方案，切换到它们会更新 `last_chinese_scheme`；越南语、藏语与日语、韩语一样是单独的语言，切过去时记住被替换的中文方案。
 
-粤拼（scheme 5）按中文方案走候选窗，标点、翻页和以词定字与全拼相同；它的词库本身是繁体，繁体输出开关不再转换。注音（scheme 6，只有大千键位）和越南语（scheme 7）像韩语一样由 TIP 在自己的 host session 里组字，组合始终内嵌显示在文档里，光标锁在组合末尾，失去焦点、切换方案或模式时提交而不是丢弃；Server 对这些键不回帧，只计入打字统计（`ReplyPath::SyllableCommit`）。TIP 的分类规则在 `tsf/HostKoreanKey.h` 的 `host_composed_key_action`，立即路径和排队路径共用：
+粤拼（scheme 5）按中文方案走候选窗，标点、翻页和以词定字与全拼相同；它的词库本身是繁体，繁体输出开关不再转换。注音（scheme 6，只有大千键位）、越南语（scheme 7）和藏语（scheme 8）像韩语一样由 TIP 在自己的 host session 里组字，组合始终内嵌显示在文档里，光标锁在组合末尾，失去焦点、切换方案或模式时提交而不是丢弃；Server 对这些键不回帧，只计入打字统计（`ReplyPath::SyllableCommit`）。TIP 的分类规则在 `tsf/HostKoreanKey.h` 的 `host_composed_key_action`，立即路径和排队路径共用：
 
 - 注音：小写字母和大千符号键拼注音；空组合时 `1`、`2`、`5`、`8`、`9`、`0`、`,`、`.`、`/`、`;`、`-` 起一个音节，组字中十个数字、这些标点和空格都参与拼写（空格是一声，或在音节完整时打开列表）。下方向键打开候选列表；列表打开时数字、空格、回车、方向键和翻页键属于列表，`0` 和标点仍在拼写，选字只固定一个读音、继续组字。回车提交，Tab、方向键、Home/End、PageUp/PageDown、Delete 提交后交给应用，Shift 标点经中文标点表随转换一起提交，Shift 加字母提交转换并跟上该字母。执行时以 View.spelling_symbols 为准再判断一次，排队时用相同的静态表推算。在候选窗口里点选注音候选会被拒绝，列表只用键盘操作。
 - 越南语：Telex 或 VNI（设置里选择），字母按原样大小写组字，Caps Lock 下的大写字母照样组字，与 macOS 一致；VNI 下组字中的数字是声调。没有候选列表。空格、数字（Telex）、标点提交单词并跟上该字符，标点是半角；方向键等提交后交给应用；Esc 丢弃整个单词。关闭中文时越南语与韩语一样直接输出半角 ASCII。
+- 藏语：威利转写（EWTS），没有可选项。字母按原样大小写组字（`T`、`D`、`N`、`Sh`、`A`、`I`、`U`、`M`、`H` 都是不同的字母），Caps Lock 下的大写字母照样送进宿主会话；威利读不了的字母（`A`、`D`、`H`、`I`、`M`、`N`、`R`、`S`、`T`、`U`、`W`、`X`、`Y` 以外的大写字母，以及小写 `q`、`x`）不进组合，引擎先上屏已有的藏文再原样写出该字母，拉丁字母不会混进转换结果；`'` 随时参与拼写（可以开头 achung 音节），`+`、`.`、`-` 在组字中参与拼写。组合里保存当前音节串的威利原文，内嵌显示的是转换出的藏文，没有候选列表。组字中空格上屏藏文并加音节点 `་`，`/` 上屏藏文并加垂符 `།`（以 ང 结尾时垂符前保留音节点，`ང་།`），空组合时 `/` 单独输出垂符；回车只上屏藏文，按键被吃掉；数字和其他标点上屏藏文并跟上该字符（半角，数字保持原样）；方向键等提交后交给应用。第一次 Esc 把组合切回拉丁原文并继续组字，第二次 Esc 丢弃；原文显示时空格上屏原文并跟上空格。排队时用引擎的静态拼写表（`kTibetanIdleSymbols`、`kTibetanComposingSymbols`）推算，执行时以 View.spelling_symbols 为准再判断一次。
 
-粤拼和注音需要安装包附带的词库：`Prepare-PackageFiles.ps1` 从 `target/language-dictionaries`（`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载）把 `cantonese.db`、`zhuyin.db` 连同各自的授权声明放进 `server_exe/language-dictionaries`，安装后位于 `server\language-dictionaries`，与 `server\resources` 同级，宿主库在那里找到它们并写进运行时配置。缺少某个词库时，托盘里对应的项不可选，已选的方案按宿主库的 `effective_scheme` 退回上次的中文方案（再不行就是全拼），TIP 和托盘都按实际运行的方案处理。越南语不需要数据。设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 时缺少任一词库会让打包失败。
+粤拼和注音需要安装包附带的词库：`Prepare-PackageFiles.ps1` 从 `target/language-dictionaries`（`scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载）把 `cantonese.db`、`zhuyin.db` 连同各自的授权声明放进 `server_exe/language-dictionaries`，安装后位于 `server\language-dictionaries`，与 `server\resources` 同级，宿主库在那里找到它们并写进运行时配置。缺少某个词库时，托盘里对应的项不可选，已选的方案按宿主库的 `effective_scheme` 退回上次的中文方案（再不行就是全拼），TIP 和托盘都按实际运行的方案处理。越南语和藏语不需要数据。设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 时缺少任一词库会让打包失败。
 
-未在真机核实：注音与越南语的 TIP 行为只在 macOS 上用交叉编译和单元测试验证过，没有在 Windows 上实际打字。语言栏图标没有新增，三个方案显示中文图标。
+未在真机核实：注音、越南语与藏语的 TIP 行为只在 macOS 上用交叉编译和单元测试验证过，没有在 Windows 上实际打字。语言栏图标没有新增，这几个方案显示中文图标。
 
 ### 笔画
 
-笔画（scheme 8）是中文方案，在托盘菜单「输入方案」里排在注音之后，设置页的分段控件里同样可选，工具栏语言按钮显示「笔」。它有自己的输入模式代码 `6`：它的 trait 与全拼不同（不做繁简转换、不显示译文），TIP 的按键分类也不同。Engine 谓词逐项照抄粤拼，所以它和粤拼一样走 Server 的候选窗，标点、翻页、数字选词与全拼相同，候选来自只读的 `stroke.db`，不提供置顶、固定和删除，繁体输出开关不再转换，打字统计记在 `stroke` 名下。
+笔画（scheme 9）是中文方案，在托盘菜单「输入方案」里排在藏文之后，设置页的分段控件里同样可选，工具栏语言按钮显示「笔」。它有自己的输入模式代码 `7`：它的 trait 与全拼不同（不做繁简转换、不显示译文），TIP 的按键分类也不同。Engine 谓词逐项照抄粤拼，所以它和粤拼一样走 Server 的候选窗，标点、翻页、数字选词与全拼相同，候选来自只读的 `stroke.db`，不提供置顶、固定和删除，繁体输出开关不再转换，打字统计记在 `stroke` 名下。
 
 键位：`h` 横、`s` 竖、`p` 撇、`n` 点、`z` 折，`x` 是匹配任意一笔的通配符。空组合时只有 `hspnz` 开始组合，`x`、其他字母和大写字母交给应用（`InputSchemeTraits.h` 的 `LetterPassesWhileIdle`，立即路径和排队路径共用）。Engine 自己的英文模式（Ctrl+Shift+E、工具栏或托盘的英文）例外：那时 TSF 仍报告中文，Engine 先于方案判断英文模式、组合每一个字母，所以 Server 用 Worker 帧 DedicatedEnglishChanged（29，载荷 `0`/`1`）把这个状态推给 TIP，打开时所有字母都交给 Engine，否则 "apple" 的 a 会直接进应用。这个状态随 Server 每 250 毫秒读一次焦点会话的英文模式推送，切换后的极短时间内 TIP 仍按旧状态分类。组合中 TIP 收下所有字母，Engine 在两边都吞掉笔画以外的字母，组合不变。数字 1-9 选词，空格提交高亮候选，回车提交键入的字母，Backspace 删最后一笔，Esc 清空。组合中的 `'` 不是音节分隔符（Engine 的 `accepts_apostrophe` 对笔画为假）：TIP 和 Server 都按 `ApostropheIsPunctuationWhileComposing` 把它当标点，和逗号一样先上屏高亮候选再上屏标点，与 Linux、macOS 一致。预编辑显示笔画字形 一丨丿丶乛＊：候选窗的预编辑行和 TIP 的内嵌组合都取 View 的 `preedit`（TIP 读自己 host session 的 View），`editing_text` 仍是 ASCII 字母，只用来对齐光标和校验回车提交的文本。
 
 词库：`Prepare-PackageFiles.ps1` 把 `stroke.db` 连同 `rime_stroke_LICENSE.txt` 与粤拼、注音词库一起放进 `server_exe/language-dictionaries`；Server、TIP（`FanyUtils.cpp` 的 `ReadConfiguredRunningScheme`）和托盘都按这个文件是否存在决定笔画能否运行，缺少时托盘里的「笔画」不可选，已选的笔画按 `effective_scheme` 退回上次的中文方案。`MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 要求 `resources/language-dictionaries.lock.json` 固定的每一份词库都在；锁固定 `stroke.db` 之前笔画词库存在就装入，缺少也不让打包失败。`tests/input/stroke_keys.cpp` 用入库的合成词库 `tests/input/fixtures/stroke.db` 对真实 Engine 会话跑这些键。
 
-未在真机核实：笔画的 TIP 行为和九个方案的设置页分段控件宽度只在 macOS 上用 MinGW 语法检查、本机运行的测试验证过，没有在 Windows 上实际打字或查看。
+未在真机核实：笔画的 TIP 行为和十个方案的设置页分段控件宽度只在 macOS 上用 MinGW 语法检查、本机运行的测试验证过，没有在 Windows 上实际打字或查看。
 
 ### 按键音、上屏音与背景音乐
 

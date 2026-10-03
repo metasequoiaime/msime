@@ -75,7 +75,7 @@ int main() {
     require(frame_text(frames[3]) == L"1"); // paired punctuation on
     require(frame_text(frames[4]) == L"1"); // Microsoft shuangpin on
 
-    // The input-mode frame names the scheme's family: "0" quanpin, shuangpin or wubi, "1" Japanese, "2" Korean, "3" Cantonese, "4" Zhuyin, "5" Vietnamese, "6" Stroke.
+    // 输入模式帧给出方案所属的族："0" 全拼、双拼或五笔，"1" 日文，"2" 韩文，"3" 粤拼，"4" 注音，"5" 越南文，"6" 藏文，"7" 笔画。
     require(frame_text(frames[5]) == L"0");
     const std::pair<msime::windows::scheme::InputMode, const wchar_t *> modes[] = {
         {msime::windows::scheme::InputMode::Japanese, L"1"},
@@ -83,7 +83,8 @@ int main() {
         {msime::windows::scheme::InputMode::Cantonese, L"3"},
         {msime::windows::scheme::InputMode::Zhuyin, L"4"},
         {msime::windows::scheme::InputMode::Vietnamese, L"5"},
-        {msime::windows::scheme::InputMode::Stroke, L"6"},
+        {msime::windows::scheme::InputMode::Tibetan, L"6"},
+        {msime::windows::scheme::InputMode::Stroke, L"7"},
         {msime::windows::scheme::InputMode::Chinese, L"0"}};
     for (const auto &[mode, code] : modes) {
       config.input_mode = mode;

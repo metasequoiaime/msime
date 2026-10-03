@@ -59,14 +59,19 @@ if rg -n -i '0xac00|44032|0x3131|12593' "$repo_root/platforms/android/java/app/m
   echo "Android must not compose Hangul syllables itself; the Engine owns the Korean automaton" >&2
   exit 1
 fi
-# Cantonese, Zhuyin, Vietnamese and Stroke are View.scheme 5, 6, 7 and 8 in the shared header; InputSchemeTraits names the same numbers, and every scheme gate in this host reads them from there.
-for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;' '8 stroke:STROKE = 8;'; do
+# 粤拼、注音、越南语、藏文和笔画是共享头文件里的 View.scheme 5、6、7、8、9；InputSchemeTraits 用同样的序号命名，本宿主每个按方案决定的判断都从那里读取。
+for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;' '8 tibetan:TIBETAN = 8;' '9 stroke:STROKE = 9;'; do
   if ! rg -qF "${pair%%:*}" "$repo_root/crates/host-api/include/msime_client.h" \
     || ! rg -qF "${pair#*:}" "$repo_root/platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"; then
     echo "Android InputSchemeTraits no longer matches the shared View.scheme ordinal ${pair%%:*}" >&2
     exit 1
   fi
 done
+# 藏文的 EWTS 转换同样是 Engine 的状态（ewts crate）。Android 只发送拉丁字母和拼写符号，宿主里出现藏文码位（Java 转义或字面字符）就意味着多了一张会和 Engine 走偏的转换表或音节点、垂符的自行插入。
+if rg -n -i '\\u0f[0-9a-f]{2}|[\x{0F00}-\x{0FFF}]' "$repo_root/platforms/android/java/app/msime/android"; then
+  echo "Android must not transliterate Wylie or insert tsheg and shad itself; the Engine owns the Tibetan converter" >&2
+  exit 1
+fi
 # The Zhuyin list opens with MSIME_OPEN_CANDIDATE_LIST, the Hanja command under its general name; the Android constant aliases the Korean one so the two cannot drift apart.
 if ! rg -q 'MSIME_OPEN_CANDIDATE_LIST = 16,' "$repo_root/crates/host-api/include/msime_client.h" \
   || ! rg -q 'OPEN_CANDIDATE_LIST_COMMAND = KoreanInputPolicy\.CONVERT_HANJA_COMMAND;' \
@@ -454,6 +459,7 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
+  "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
   "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
   "$repo_root/platforms/android/tests/core/BootstrapMarkerSmoke.java" \
   "$repo_root/platforms/android/tests/core/TelemetryHandlerSmoke.java" \
@@ -461,6 +467,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
   "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/PreferencesSavePolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/InputModeStoreSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/LetterKeyFacePolicySmoke.java" \
@@ -543,6 +550,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/SignInAttemptPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
@@ -561,6 +569,7 @@ java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
+java -cp "$output_dir" PreferencesSavePolicySmoke
 java -cp "$output_dir" app.msime.android.InputModeStoreSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" LetterKeyFacePolicySmoke
@@ -635,6 +644,7 @@ java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" HostOptionsPolicySmoke
 java -cp "$output_dir" AccountTokenPolicySmoke
+java -cp "$output_dir" SignInAttemptPolicySmoke
 java -cp "$output_dir" TypingStatisticsModelSmoke
 java -cp "$output_dir" KeyPressCountingSmoke
 java -cp "$output_dir" VocabularyReviewModelSmoke

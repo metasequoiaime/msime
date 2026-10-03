@@ -28,6 +28,10 @@ public final class KeyboardLayoutSmoke {
         check(symbols.get(0).equals(List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")));
         check(symbols.get(1).contains("\""));
         check(symbols.get(2).equals(List.of("(", ")", "[", "]", "<", ">", "\\", "-", "_", "=")));
+        // 藏文的符号页把 `=` 换成叠写用的 `+`，其他键和其他方案不变。
+        check(KeyboardLayout.symbolRowKey("=", true).equals("+"));
+        check(KeyboardLayout.symbolRowKey("=", false).equals("="));
+        check(KeyboardLayout.symbolRowKey("_", true).equals("_"));
 
         check(KeyboardLayout.resolveTouchLayout(false, false, 0, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
@@ -62,14 +66,17 @@ public final class KeyboardLayoutSmoke {
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
-        // Stroke draws its own keypad over a 26-key or nine-key preference and yields only to handwriting.
+        // 藏文同样用 26 个 QWERTY 键并保留字母大小写（威利转写区分大小写）。
         check(KeyboardLayout.resolveTouchLayout(false, false, 8, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        // 笔画不论偏好是 26 键还是九键都画自己的笔画键盘，只让位给手写。
+        check(KeyboardLayout.resolveTouchLayout(false, false, 9, "twenty_six_key")
             == KeyboardLayout.STROKE_LAYOUT);
-        check(KeyboardLayout.resolveTouchLayout(false, true, 8, "nine_key")
+        check(KeyboardLayout.resolveTouchLayout(false, true, 9, "nine_key")
             == KeyboardLayout.STROKE_LAYOUT);
-        check(KeyboardLayout.resolveTouchLayout(false, false, 8, "nine_key")
+        check(KeyboardLayout.resolveTouchLayout(false, false, 9, "nine_key")
             == KeyboardLayout.STROKE_LAYOUT);
-        check(KeyboardLayout.resolveTouchLayout(true, false, 8, "handwriting")
+        check(KeyboardLayout.resolveTouchLayout(true, false, 9, "handwriting")
             == KeyboardLayout.HANDWRITING_LAYOUT);
         check(!KeyboardLayout.carriesLetterCase(KeyboardLayout.STROKE_LAYOUT));
         check(KeyboardLayout.STROKE_LAYOUT != KeyboardLayout.ZHUYIN_LAYOUT

@@ -530,7 +530,7 @@ int main() {
         // 笔画走同一条 reading 路径：editing_text 是键入的 hspnzx 字母，reading 与 preedit 是笔画字形，两种内嵌样式都画字形，光标落在末尾。
         for (NSNumber *style in @[@(MSIMEInlinePreeditStylePinyin), @(MSIMEInlinePreeditStyleRaw)]) {
             MSIMEApplyTransitionWithPendingClosing(
-                @{@"view": @{@"scheme": @8, @"editing_text": @"hspx", @"preedit": @"一丨丿＊", @"reading": @"一丨丿＊", @"caret_position": @4}},
+                @{@"view": @{@"scheme": @9, @"editing_text": @"hspx", @"preedit": @"一丨丿＊", @"reading": @"一丨丿＊", @"caret_position": @4}},
                 client, (MSIMEInlinePreeditStyle)style.integerValue, nil);
             assert([client.markedString isEqual:@"一丨丿＊"] && client.selection.location == 4);
         }

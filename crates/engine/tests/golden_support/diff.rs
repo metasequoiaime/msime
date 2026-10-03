@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn every_expected_document_round_trips_without_a_diff() {
         let documents = expected_documents();
-        assert_eq!(documents.len(), 297);
+        assert_eq!(documents.len(), 299);
         for (name, document) in documents {
             let reparsed: Value = serde_json::from_str(&document.to_string()).unwrap();
             let diffs = diff_documents(&document, &reparsed, DiffOptions::default());

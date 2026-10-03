@@ -1883,11 +1883,11 @@ static void TestOptInSchemeModes() {
     MSIMEInputController *controller = makeController(appearance, YES);
     id client = [controller valueForKey:@"activeClient"];
 
-    // With cantonese.db alone the menu lists exactly seven schemes, in the Engine's order, without 注音 or 笔画.
+    // 只有 cantonese.db 时菜单按引擎顺序正好列出八个方案，没有注音或笔画。
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
     NSMutableArray<NSString *> *listed = [NSMutableArray array];
     for (NSMenuItem *item in schemeItem.submenu.itemArray) [listed addObject:item.representedObject];
-    assert(([listed isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"vietnamese"]]));
+    assert(([listed isEqualToArray:@[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"vietnamese", @"tibetan"]]));
 
     // 第一次同步落在全拼上只记录方案。
     assert(!appearance.lastSyncedInputScheme);
@@ -1911,7 +1911,7 @@ static void TestOptInSchemeModes() {
     [controller syncSystemInputModeForClient:client];
     assert(([enabled isEqualToArray:@[MSIMEVietnameseInputModeID, MSIMEZhuyinInputModeID]]));
     schemeItem = [controller.menu itemAtIndex:9];
-    assert(schemeItem.submenu.numberOfItems == 8 && [schemeItem.title isEqual:@"输入方案（注音）"]);
+    assert(schemeItem.submenu.numberOfItems == 9 && [schemeItem.title isEqual:@"输入方案（注音）"]);
 
     // A later process starting on the scheme the last sync showed enables nothing, so a mode removed from the input menu stays removed.
     MSIMEAppearancePreferences *relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
@@ -1965,8 +1965,8 @@ static void TestOptInSchemeModes() {
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 7 && [enabled.lastObject isEqual:MSIMEStrokeInputModeID] && [relaunched.lastSyncedInputScheme isEqual:@"stroke"]);
     schemeItem = [next.menu itemAtIndex:9];
-    assert(schemeItem.submenu.numberOfItems == 9 && [schemeItem.title isEqual:@"输入方案（笔画）"]);
-    NSMenuItem *strokeItem = [schemeItem.submenu itemAtIndex:8];
+    assert(schemeItem.submenu.numberOfItems == 10 && [schemeItem.title isEqual:@"输入方案（笔画）"]);
+    NSMenuItem *strokeItem = [schemeItem.submenu itemAtIndex:9];
     assert([strokeItem.representedObject isEqual:@"stroke"] && [strokeItem.title isEqual:@"笔画"] && strokeItem.state == NSControlStateValueOn);
     assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"stroke.db"] error:nil]);
     [defaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
@@ -1979,9 +1979,9 @@ static void TestOptInSchemeModes() {
     assert([[NSJSONSerialization dataWithJSONObject:@{@"language_dictionaries": dictionaries} options:0 error:nil] writeToFile:optionsPath atomically:YES]);
     MSIMEAppearancePreferences *settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     NSArray<NSControl *> *radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    assert(radios.count == 9);
+    assert(radios.count == 10);
     for (NSControl *radio in radios) {
-        const BOOL missing = radio.tag == 6 || radio.tag == 8;
+        const BOOL missing = radio.tag == 6 || radio.tag == 9;
         assert(radio.enabled == !missing && (missing ? [radio.toolTip isEqual:@"未安装该方案的词库，暂不可用"] : radio.toolTip == nil));
     }
     // 选中粤拼而「粤」不在输入法列表里时，输入方式卡片说明去「粤语」下添加；没有探针时不显示，加进去之后也不显示。
@@ -2012,7 +2012,29 @@ static void TestOptInSchemeModes() {
     assert([NSFileManager.defaultManager removeItemAtPath:optionsPath error:nil]);
     settings = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     radios = MSIMEFindPreferenceControls(settings.window.contentView, @selector(schemeRadioChanged:));
-    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6 && radio.tag != 8));
+    for (NSControl *radio in radios) assert(radio.enabled == (radio.tag != 5 && radio.tag != 6 && radio.tag != 9));
+
+    // 藏文和越南文一样按需启用，而且不需要词库：从菜单选中藏文时启用「藏」一次，再同步同一方案不重复。
+    NSString *tibetanSuite = [@"msime.opt-in-tibetan." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *tibetanDefaults = [[NSUserDefaults alloc] initWithSuiteName:tibetanSuite];
+    MSIMEAppearancePreferences *tibetanAppearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:tibetanDefaults];
+    tibetanAppearance.inputScheme = @"quanpin";
+    MSIMEInputController *tibetanController = makeController(tibetanAppearance, YES);
+    id tibetanClient = [tibetanController valueForKey:@"activeClient"];
+    [tibetanController syncSystemInputModeForClient:tibetanClient];
+    const NSUInteger enabledBefore = enabled.count;
+    NSMenuItem *tibetanSchemeItem = [tibetanController.menu itemAtIndex:9];
+    NSMenuItem *tibetanItem = nil;
+    for (NSMenuItem *item in tibetanSchemeItem.submenu.itemArray)
+        if ([item.representedObject isEqual:@"tibetan"]) tibetanItem = item;
+    assert(tibetanItem && [tibetanItem.title isEqual:@"藏文"] && tibetanSchemeItem.submenu.itemArray.lastObject == tibetanItem);
+    [NSApp sendAction:@selector(selectInputScheme:) to:tibetanController from:tibetanItem];
+    [tibetanController syncSystemInputModeForClient:tibetanClient];
+    [tibetanController syncSystemInputModeForClient:tibetanClient];
+    assert(enabled.count == enabledBefore + 1 && [enabled.lastObject isEqual:MSIMETibetanInputModeID]);
+    assert([tibetanAppearance.lastSyncedInputScheme isEqual:@"tibetan"] && [tibetanAppearance.lastChineseScheme isEqual:@"quanpin"]);
+    assert([[tibetanController.menu itemAtIndex:9].title isEqual:@"输入方案（藏文）"]);
+    MSIMERemoveTestPreferenceSuite(tibetanDefaults, tibetanSuite);
 
     [NSFileManager.defaultManager removeItemAtPath:dictionaries error:nil];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
@@ -2499,13 +2521,14 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     assert(!MSIMECandidateListOpen(@{@"scheme": @0, @"candidate_list_open": @NO, @"candidates": @[@{@"text": @"中"}]}));
     // Glosses: the three Chinese schemes that always had them, not temporary Japanese inside them, and none of the schemes after them. A view without a scheme is quanpin.
     for (NSNumber *scheme in @[@0, @1, @2, @4]) assert(MSIMEViewShowsGlosses(@{@"scheme": scheme}));
-    for (NSNumber *scheme in @[@3, @5, @6, @7, @99]) assert(!MSIMEViewShowsGlosses(@{@"scheme": scheme}));
+    for (NSNumber *scheme in @[@3, @5, @6, @7, @8, @9, @99]) assert(!MSIMEViewShowsGlosses(@{@"scheme": scheme}));
     assert(!MSIMEViewShowsGlosses(@{@"scheme": @0, @"local_mode": @"temporary_japanese"}));
     assert(MSIMEViewShowsGlosses(@{}));
     // Scheme traits hold only while the scheme's own rules do: dedicated English and the local modes keep theirs.
     assert(MSIMESchemeTrait(@{@"scheme": @6}, msime::mac::scheme::LocksCaret));
     assert(MSIMESchemeTrait(@{@"scheme": @7, @"local_mode": @"none"}, msime::mac::scheme::LocksCaret));
     assert(!MSIMESchemeTrait(@{@"scheme": @7, @"dedicated_english": @YES}, msime::mac::scheme::LocksCaret));
+    assert(MSIMESchemeTrait(@{@"scheme": @8, @"local_mode": @"none"}, msime::mac::scheme::LocksCaret));
     assert(!MSIMESchemeTrait(@{@"scheme": @6, @"local_mode": @"emoji"}, msime::mac::scheme::LocksCaret));
     assert(!MSIMESchemeTrait(nil, msime::mac::scheme::LocksCaret));
 
@@ -2521,9 +2544,9 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
                  @"candidates": @[]};
     };
 
-    // Ctrl+Backspace edits a segment only where the caret is not locked to the end of the composition; Zhuyin and Vietnamese finish the composition and leave the chord to the application, as Korean does.
-    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7, @8]) {
-        const BOOL locked = scheme.intValue == 4 || scheme.intValue == 6 || scheme.intValue == 7;
+    // 只有光标不锁在组字末尾时 Ctrl+Backspace 才编辑分段；注音、越南文和藏文与韩文一样结束组字，把这个组合键留给应用。
+    for (NSNumber *scheme in @[@0, @1, @2, @3, @5, @4, @6, @7, @8, @9]) {
+        const BOOL locked = scheme.intValue == 4 || scheme.intValue == 6 || scheme.intValue == 7 || scheme.intValue == 8;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
         assert([controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client] == !locked);
@@ -2531,7 +2554,7 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     }
 
     // Option+Return opens the candidate list of a scheme that has one to open (Korean, Zhuyin) and is swallowed while composing; elsewhere it finishes the composition and goes to the application as before.
-    for (NSNumber *scheme in @[@0, @3, @5, @7, @8, @4, @6]) {
+    for (NSNumber *scheme in @[@0, @3, @5, @7, @8, @9, @4, @6]) {
         const BOOL opens = scheme.intValue == 4 || scheme.intValue == 6;
         [controller setValue:composing(scheme) forKey:@"view"];
         session.lastCommand = UINT32_MAX;
@@ -2546,21 +2569,21 @@ static void TestSchemeTraitsFromView(MSIMEAppearancePreferences *appearance) {
     assert(![controller handleEvent:ModeKey(36, NSEventModifierFlagOption, NO) client:client]);
     assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
 
-    // A Caps Lock uppercase letter with nothing composing goes back to the application except where the scheme composes it: Korean folds it to the Shift-less jamo key, Vietnamese types the uppercase letter.
+    // 没有组字时，大写锁定下的大写字母交还给应用，除非方案自己组它：韩文折成不带 Shift 的字母键，越南文和藏文打出大写字母（威利转写里大写是另一个字母）。
     NSEvent *capsA = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCapsLock timestamp:0
                                   windowNumber:0 context:nil characters:@"A" charactersIgnoringModifiers:@"a" isARepeat:NO keyCode:0];
     session.nextTransition = @{@"handled": @YES, @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
-    for (NSNumber *scheme in @[@0, @5, @6, @8, @4, @7]) {
+    for (NSNumber *scheme in @[@0, @5, @6, @9, @4, @7, @8]) {
         const int value = scheme.intValue;
         [controller setValue:@{@"focused": @YES, @"scheme": scheme, @"local_mode": @"none", @"editing_text": @"", @"caret_position": @0,
                                @"candidates": @[]} forKey:@"view"];
         session.asciiCalls = 0;
         session.lastASCII = 0;
-        const BOOL composes = value == 4 || value == 7;
+        const BOOL composes = value == 4 || value == 7 || value == 8;
         assert([controller handleEvent:capsA client:client] == composes);
         assert(session.asciiCalls == (composes ? 1u : 0u));
         if (value == 4) assert(session.lastASCII == 'a');
-        if (value == 7) assert(session.lastASCII == 'A');
+        if (value == 7 || value == 8) assert(session.lastASCII == 'A');
     }
     session.nextTransition = nil;
 }
@@ -2668,7 +2691,7 @@ static void TestSchemeKeyRouting() {
     send(view(@6, @"", zhuyinIdle, NO), key(125, down, arrowFlags), NO);
     assert(session.lastCommand != MSIME_OPEN_CANDIDATE_LIST);
     // Down in a scheme without a Down-opened list keeps its arrow meaning.
-    for (NSNumber *scheme in @[@0, @4, @5, @7, @8]) {
+    for (NSNumber *scheme in @[@0, @4, @5, @7, @9]) {
         send(view(scheme, @"abc", @"", NO), key(125, down, arrowFlags), NO);
         assert(session.lastCommand == MSIME_NEXT_CANDIDATE);
     }
@@ -2683,16 +2706,38 @@ static void TestSchemeKeyRouting() {
     assert(send(view(@7, @"vie", @"", NO), key(9, @"V", NSEventModifierFlagShift), NO) && session.lastASCII == 'V' && session.lastShift);
     assert(send(view(@7, @"vie", @"", NO), key(9, @"V", NSEventModifierFlagCapsLock), NO) && session.lastASCII == 'V' && !session.lastShift);
 
+    // 藏文（威利转写）：空闲时 `'` 开始一个 achung 音节，`/` 由引擎单独写出垂符，都作为字符交给引擎，不走引号配对或标点路由。
+    NSString *const tibetanIdle = @"'/";
+    NSString *const tibetanComposing = @"'+-./";
+    assert(send(view(@8, @"", tibetanIdle, NO), key(39, @"'", 0), NO) && session.lastASCII == '\'');
+    assert(send(view(@8, @"", tibetanIdle, NO), key(44, @"/", 0), NO) && session.lastASCII == '/');
+    // 组字时叠加的 `+`、消歧的 `.`、`-`、`'` 和写垂符的 `/` 都是拼写，开着减号翻页也不翻页。
+    assert(send(view(@8, @"pad", tibetanComposing, NO), key(24, @"+", NSEventModifierFlagShift), NO) && session.lastASCII == '+');
+    assert(send(view(@8, @"g", tibetanComposing, NO), key(47, @".", 0), NO) && session.lastASCII == '.');
+    assert(send(view(@8, @"k", tibetanComposing, NO), key(27, @"-", 0), NO) && session.lastASCII == '-');
+    assert(session.lastCommand != MSIME_PREVIOUS_PAGE);
+    assert(send(view(@8, @"bsgra", tibetanComposing, NO), key(39, @"'", 0), NO) && session.lastASCII == '\'');
+    assert(send(view(@8, @"bkra shis", tibetanComposing, NO), key(44, @"/", 0), NO) && session.lastASCII == '/');
+    assert(session.punctuationASCIICalls == punctuationRoutes && session.enginePunctuationCalls == 0 && session.contextualPunctuationCalls == 0);
+    assert(client.insertions.count == 0 && client.committed == nil);
+    // 威利转写区分大小写：Shift 和大写锁定打出的大写字母都原样送进引擎。
+    assert(send(view(@8, @"", tibetanIdle, NO), key(17, @"T", NSEventModifierFlagShift), NO) && session.lastASCII == 'T' && session.lastShift);
+    assert(send(view(@8, @"k", tibetanComposing, NO), key(0, @"A", NSEventModifierFlagCapsLock), NO) && session.lastASCII == 'A' && !session.lastShift);
+    // 空格上屏藏文加音节点、回车只上屏藏文、Esc 先退回威利原文，都是引擎命令，不是字符。
+    assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(49, @" ", 0), NO) && session.lastCommand == MSIME_COMMIT_CANDIDATE && session.asciiCalls == asciiBefore);
+    assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(36, @"\r", 0), NO) && session.lastCommand == MSIME_COMMIT_RAW && session.asciiCalls == asciiBefore);
+    assert(handle(view(@8, @"bkra", tibetanComposing, NO), key(53, @"\x1b", 0), NO) && session.lastCommand == MSIME_CANCEL && session.asciiCalls == asciiBefore);
+
     // Stroke spells with the letters h s p n z and the wildcard x, so it publishes no spelling symbols: every stroke key reaches the Engine as a plain letter, idle or composing, and the Engine decides which of them start a composition.
     const struct { unsigned short code; char letter; } strokeKeys[] = {{4, 'h'}, {1, 's'}, {35, 'p'}, {45, 'n'}, {6, 'z'}, {7, 'x'}};
     for (const auto &stroke : strokeKeys) {
         NSString *characters = [NSString stringWithFormat:@"%c", stroke.letter];
-        assert(send(view(@8, @"", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter && !session.lastShift);
-        assert(send(view(@8, @"hs", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter);
+        assert(send(view(@9, @"", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter && !session.lastShift);
+        assert(send(view(@9, @"hs", @"", NO), key(stroke.code, characters, 0), NO) && session.lastASCII == stroke.letter);
     }
     assert(session.punctuationASCIICalls == punctuationRoutes && session.enginePunctuationCalls == 0 && client.insertions.count == 0);
     // With the stroke candidates up the physical digits still pick a row and Space still commits the highlighted one; strokes are never digits.
-    NSMutableDictionary *stroke = [view(@8, @"hs", @"", YES) mutableCopy];
+    NSMutableDictionary *stroke = [view(@9, @"hs", @"", YES) mutableCopy];
     stroke[@"candidate_list_open"] = @NO;
     stroke[@"preedit"] = @"一丨";
     stroke[@"reading"] = @"一丨";
@@ -4070,6 +4115,62 @@ static void TestRealSessionComposition() {
     [prefs applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
     assert([koreanSession closeWithError:&error] && !error);
 
+    // 藏文经真实引擎把威利转写（EWTS）组成藏文：组字区显示转换后的藏文，空格上屏时加音节点 ་，`/` 上屏时加垂符 །，回车只上屏藏文，三者都不再交给应用。
+    NSMutableDictionary *tibetanOptions = [options mutableCopy];
+    NSMutableDictionary *tibetanPreferences = [options[@"preferences"] mutableCopy];
+    tibetanPreferences[@"scheme"] = @"tibetan";
+    tibetanOptions[@"preferences"] = tibetanPreferences;
+    MSIMEClientSession *tibetanSession = [[MSIMEClientSession alloc] initWithOptions:tibetanOptions error:&error];
+    assert(tibetanSession && !error);
+    NSDictionary *tibetanView = [tibetanSession setFocused:YES error:&error][@"view"];
+    assert(tibetanView && !error && [tibetanView[@"scheme"] isEqual:@8]);
+    [controller setValue:tibetanSession forKey:@"session"];
+    [controller setValue:tibetanView forKey:@"view"];
+    // 与韩文一样没有候选窗，组字总是画在行内，即使预编辑显示偏好把它藏起来。
+    [prefs applySharedInputPreferences:@{@"tsf_preedit_style": @"empty"}];
+    [client.insertions removeAllObjects];
+    client.document = @"";
+    client.selection = NSMakeRange(0, 0);
+    NSEvent *tibetanSpace = chord(@" ", 49, 0);
+    NSEvent *tibetanSlash = chord(@"/", 44, 0);
+    void (^typeWylie)(NSArray *) = ^(NSArray *strokes) {
+        for (NSArray *stroke in strokes)
+            assert([controller handleEvent:chord(stroke[0], [stroke[1] unsignedShortValue], [stroke[2] unsignedIntegerValue]) client:client]);
+    };
+    typeWylie(@[@[@"b", @11, @0], @[@"k", @40, @0], @[@"r", @15, @0], @[@"a", @0, @0]]);
+    assert([client.marked isEqual:@"བཀྲ"] && client.insertions.count == 0 && !panel.isVisible);
+    assert([controller handleEvent:tibetanSpace client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"བཀྲ་"] && client.marked.length == 0);
+    typeWylie(@[@[@"s", @1, @0], @[@"h", @4, @0], @[@"i", @34, @0], @[@"s", @1, @0]]);
+    assert([client.marked isEqual:@"ཤིས"]);
+    assert([controller handleEvent:tibetanSlash client:client]);
+    assert(client.insertions.count == 2 && [client.insertions[1] isEqual:@"ཤིས།"] && client.marked.length == 0);
+    // 没有组字时 `/` 单独写出垂符，空格仍是应用的。
+    assert([controller handleEvent:tibetanSlash client:client]);
+    assert(client.insertions.count == 3 && [client.insertions[2] isEqual:@"།"]);
+    assert(![controller handleEvent:tibetanSpace client:client]);
+    assert(client.insertions.count == 3);
+    // 大写字母是另一个威利字母：Shift+T 是反写的 ཊ，不是临时英文或日文。叠加用的 `+` 也作为拼写送进引擎。
+    typeWylie(@[@[@"T", @17, @(NSEventModifierFlagShift)], @[@"a", @0, @0]]);
+    assert([client.marked isEqual:@"ཊ"]);
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 4 && [client.insertions[3] isEqual:@"ཊ"] && client.marked.length == 0);
+    typeWylie(@[@[@"p", @35, @0], @[@"a", @0, @0], @[@"d", @2, @0], @[@"+", @24, @(NSEventModifierFlagShift)], @[@"m", @46, @0], @[@"a", @0, @0]]);
+    assert([client.marked isEqual:@"པདྨ"] && client.insertions.count == 4);
+    // 退格删一个威利按键；第一次 Esc 把组字退回威利原文，第二次丢弃，什么都不上屏。
+    assert([controller handleEvent:backspace client:client]);
+    assert([client.marked isEqual:@"པདྨ"] && client.insertions.count == 4);
+    assert([controller handleEvent:escape client:client]);
+    assert([client.marked isEqual:@"pad+m"] && client.insertions.count == 4);
+    assert([controller handleEvent:escape client:client]);
+    assert(client.marked.length == 0 && client.insertions.count == 4);
+    // 离开客户端时把组字上屏，而不是丢掉。
+    typeWylie(@[@[@"k", @40, @0], @[@"a", @0, @0]]);
+    [controller apply:[tibetanSession setFocused:NO error:&error]];
+    assert(!error && client.insertions.count == 5 && [client.insertions[4] isEqual:@"ཀ"] && client.marked.length == 0);
+    [prefs applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
+    assert([tibetanSession closeWithError:&error] && !error);
+
     MSIMERemoveTestPreferenceSuite(defaults, suite);
     assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
 }
@@ -4612,10 +4713,10 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.inputScheme = @"quanpin";
     appearance.shuangpinProfile = @"ziranma";
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
-    // Cantonese and Zhuyin are listed only where their dictionary is installed, and the isolated home names none, so the other six are listed, in the Engine's order. TestOptInSchemeModes covers the dictionaries being there.
-    assert([schemeItem.title isEqual:@"输入方案（全拼）"] && schemeItem.submenu.numberOfItems == 6);
-    NSArray<NSString *> *schemeTitles = @[@"全拼", @"双拼（自然码）", @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语"];
-    NSArray<NSString *> *schemeIDs = @[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese"];
+    // 粤拼、注音和笔画只在装了词库时列出，隔离的 home 里三个词库都没有，所以按引擎顺序列出其余七个；笔画排在最后，下面的表不列它。词库在场的情形由 TestOptInSchemeModes 覆盖。
+    assert([schemeItem.title isEqual:@"输入方案（全拼）"] && schemeItem.submenu.numberOfItems == 7);
+    NSArray<NSString *> *schemeTitles = @[@"全拼", @"双拼（自然码）", @"五笔 86", @"日语", @"韩语", @"粤拼", @"注音", @"越南语", @"藏文"];
+    NSArray<NSString *> *schemeIDs = @[@"quanpin", @"shuangpin", @"wubi", @"japanese", @"korean", @"cantonese", @"zhuyin", @"vietnamese", @"tibetan"];
     NSUInteger expected = 0;
     for (NSInteger index = 0; index < schemeItem.submenu.numberOfItems; ++index) {
         NSMenuItem *item = [schemeItem.submenu itemAtIndex:index];

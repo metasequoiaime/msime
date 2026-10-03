@@ -158,6 +158,8 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-stroke-LGPL-3.0.txt" COPYONLY)
 # The vi crate the engine links for Vietnamese Telex and VNI; MIT requires its copyright and permission notice in every copy, and macOS is where the Vietnamese scheme ships.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/vi-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/vi-MIT.txt" COPYONLY)
+# 引擎为藏文方案链接的 ewts crate（EWTS 威利转写转藏文）；它以 MIT OR Apache-2.0 双许可发布，这里选 MIT，MIT 要求每份副本都带上版权和许可声明。
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/ewts-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/ewts-MIT.txt" COPYONLY)
 # symphonia and triple_buffer, which host-api links in for key sounds and music, and rink-core, which the engine links in for V-mode unit conversion, are MPL-2.0: the licence text ships with the binary, and THIRD_PARTY_NOTICES.txt says where their source is.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/MPL-2.0.txt" "${MSIME_LEGAL_DIRECTORY}/MPL-2.0.txt" COPYONLY)
 # The on-device speech runtime staged into Contents/Frameworks below. The upstream archive carries no license file, so the texts come from the copies the other desktops ship: sherpa-onnx's beside its vendored C header, ONNX Runtime's pinned under platforms/linux.
@@ -175,7 +177,7 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输�
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-# 输入菜单自己的图标，是模板 TIFF 而不是应用图标：bundle 的标志（切换 HUD 也显示它），以及十个输入模式各自的大字图标。标志为什么不能和应用图标是同一个文件，见 Info.plist.in 里 tsInputMethodIconFileKey 旁的注释。
+# 输入菜单自己的图标，是模板 TIFF 而不是应用图标：bundle 的标志（切换 HUD 也显示它），以及十一个输入模式各自的大字图标。标志为什么不能和应用图标是同一个文件，见 Info.plist.in 里 tsInputMethodIconFileKey 旁的注释。
 set(MSIME_MENU_ICON_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconChinese.tiff"
@@ -183,10 +185,11 @@ set(MSIME_MENU_ICON_RESOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconWubi.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconCantonese.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconZhuyin.tiff"
-  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconStroke.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconJapanese.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconKorean.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconVietnamese.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconTibetan.tiff"
+  "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconStroke.tiff"
   "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIconEnglish.tiff")
 target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_MENU_ICON_RESOURCES})
 set_source_files_properties(${MSIME_MENU_ICON_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)

@@ -52,12 +52,12 @@ int main() {
       REQUIRE(!candidate_actions_available(candidate_scheme_zhuyin, source));
       REQUIRE(!candidate_actions_available(candidate_scheme_stroke, source));
     }
-    static_assert(candidate_scheme_stroke == 8, "the Engine's SchemeType::Stroke");
+    static_assert(candidate_scheme_stroke == 9, "the Engine's SchemeType::Stroke");
 
     // Other schemes are not refused by accident of numbering.
     REQUIRE(candidate_actions_available(1, candidate_source_database));
     REQUIRE(candidate_actions_available(2, candidate_source_database));
-    REQUIRE(candidate_actions_available(9, candidate_source_database));
+    REQUIRE(candidate_actions_available(10, candidate_source_database));
 
     std::cout << "Windows candidate action availability checks passed\n";
     return 0;

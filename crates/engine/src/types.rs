@@ -74,8 +74,10 @@ pub enum SchemeType {
     Zhuyin = 6,
     /// Vietnamese through Telex or VNI: the keystrokes compose into one word in the preedit, which any key outside the spelling commits; there are no candidates.
     Vietnamese = 7,
+    /// 藏文，在拉丁键盘上按 EWTS（扩展威利转写）拼写：威利原文在组字里组成一个音节串，显示为转换出的藏文；空格带音节点上屏，`/` 带垂符上屏，回车只上屏藏文；没有候选。
+    Tibetan = 8,
     /// Stroke (笔画) read against `stroke.db`: the keys h s p n z type the five strokes 横竖撇点折 in writing order and x stands for any one stroke; the preedit draws the strokes, candidates are single characters whose stroke code starts with the typed strokes, and nothing is learned.
-    Stroke = 8,
+    Stroke = 9,
 }
 
 impl SchemeType {
@@ -89,7 +91,8 @@ impl SchemeType {
             5 => Self::Cantonese,
             6 => Self::Zhuyin,
             7 => Self::Vietnamese,
-            8 => Self::Stroke,
+            8 => Self::Tibetan,
+            9 => Self::Stroke,
             _ => return None,
         })
     }
@@ -105,6 +108,7 @@ impl SchemeType {
             Self::Cantonese => "cantonese",
             Self::Zhuyin => "zhuyin",
             Self::Vietnamese => "vietnamese",
+            Self::Tibetan => "tibetan",
             Self::Stroke => "stroke",
         }
     }
@@ -126,7 +130,7 @@ impl SchemeType {
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => true,
-            Self::JapaneseRomaji | Self::Korean | Self::Vietnamese => false,
+            Self::JapaneseRomaji | Self::Korean | Self::Vietnamese | Self::Tibetan => false,
         }
     }
 
@@ -138,7 +142,8 @@ impl SchemeType {
             | Self::Wubi
             | Self::JapaneseRomaji
             | Self::Korean
-            | Self::Vietnamese => false,
+            | Self::Vietnamese
+            | Self::Tibetan => false,
             Self::Cantonese | Self::Stroke | Self::Zhuyin => true,
         }
     }
@@ -150,6 +155,7 @@ impl SchemeType {
             Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -166,7 +172,7 @@ impl SchemeType {
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => true,
-            Self::Korean | Self::Vietnamese => false,
+            Self::Korean | Self::Vietnamese | Self::Tibetan => false,
         }
     }
 
@@ -174,7 +180,11 @@ impl SchemeType {
     pub const fn host_smart_punctuation(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese | Self::Stroke => true,
-            Self::JapaneseRomaji | Self::Korean | Self::Vietnamese | Self::Zhuyin => false,
+            Self::JapaneseRomaji
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Zhuyin => false,
         }
     }
 
@@ -188,7 +198,7 @@ impl SchemeType {
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => true,
-            Self::Korean | Self::Vietnamese => false,
+            Self::Korean | Self::Vietnamese | Self::Tibetan => false,
         }
     }
 
@@ -200,6 +210,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -214,6 +225,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -227,6 +239,7 @@ impl SchemeType {
             Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -241,6 +254,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -254,6 +268,7 @@ impl SchemeType {
             Self::Wubi
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -266,6 +281,7 @@ impl SchemeType {
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Korean => true,
             Self::JapaneseRomaji
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -275,7 +291,7 @@ impl SchemeType {
     /// Focus loss or a scheme switch commits the composition instead of discarding it.
     pub const fn commits_on_blur(self) -> bool {
         match self {
-            Self::Korean | Self::Vietnamese | Self::Zhuyin => true,
+            Self::Korean | Self::Vietnamese | Self::Tibetan | Self::Zhuyin => true,
             Self::Quanpin
             | Self::Shuangpin
             | Self::Wubi
@@ -289,9 +305,12 @@ impl SchemeType {
     pub const fn holds_phrase_progress(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::JapaneseRomaji => true,
-            Self::Korean | Self::Vietnamese | Self::Cantonese | Self::Stroke | Self::Zhuyin => {
-                false
-            }
+            Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
         }
     }
 
@@ -303,6 +322,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -313,9 +333,12 @@ impl SchemeType {
     pub const fn draws_reading(self) -> bool {
         match self {
             Self::JapaneseRomaji | Self::Korean | Self::Zhuyin | Self::Stroke => true,
-            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Vietnamese | Self::Cantonese => {
-                false
-            }
+            Self::Quanpin
+            | Self::Shuangpin
+            | Self::Wubi
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Cantonese => false,
         }
     }
 
@@ -328,15 +351,16 @@ impl SchemeType {
             | Self::Wubi
             | Self::JapaneseRomaji
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke => false,
         }
     }
 
-    /// The first Cancel keeps the composition: it closes the open candidate list, or takes a Vietnamese word back to its raw keys. A second Cancel then discards it.
+    /// 第一次 Cancel 保留组字：关闭打开的候选列表，或把越南文、藏文的组字切回按键原文。第二次 Cancel 才丢弃它。
     pub const fn cancel_keeps_composition(self) -> bool {
         match self {
-            Self::Korean | Self::Zhuyin | Self::Vietnamese => true,
+            Self::Korean | Self::Zhuyin | Self::Vietnamese | Self::Tibetan => true,
             Self::Quanpin
             | Self::Shuangpin
             | Self::Wubi
@@ -349,7 +373,7 @@ impl SchemeType {
     /// Selecting any of the scheme's candidates finishes the composition. Native wubi rows also finish, which is decided per row because a mixed wubi list holds pinyin rows too.
     pub const fn selection_completes(self) -> bool {
         match self {
-            Self::JapaneseRomaji | Self::Korean | Self::Vietnamese => true,
+            Self::JapaneseRomaji | Self::Korean | Self::Vietnamese | Self::Tibetan => true,
             Self::Quanpin
             | Self::Shuangpin
             | Self::Wubi
@@ -367,6 +391,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -377,14 +402,19 @@ impl SchemeType {
     pub const fn accepts_apostrophe(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::JapaneseRomaji | Self::Cantonese => true,
-            Self::Wubi | Self::Korean | Self::Vietnamese | Self::Zhuyin | Self::Stroke => false,
+            Self::Wubi
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Zhuyin
+            | Self::Stroke => false,
         }
     }
 
     /// The caret stays at the end of the composition.
     pub const fn locks_caret(self) -> bool {
         match self {
-            Self::Korean | Self::Vietnamese | Self::Zhuyin => true,
+            Self::Korean | Self::Vietnamese | Self::Tibetan | Self::Zhuyin => true,
             Self::Quanpin
             | Self::Shuangpin
             | Self::Wubi
@@ -402,6 +432,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -417,6 +448,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -432,6 +464,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -446,6 +479,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
+            | Self::Tibetan
             | Self::Cantonese
             | Self::Stroke
             | Self::Zhuyin => false,
@@ -711,7 +745,7 @@ pub enum Command {
     Backspace = 0,
     CommitCandidate = 1,
     CommitRaw = 2,
-    /// Discards the composition. In Vietnamese the first one shows the raw keystrokes instead of the transformed word, and the next one discards it.
+    /// 丢弃组字。越南文和藏文的第一次只把显示切回按键原文，下一次才丢弃。
     Cancel = 3,
     MoveLeft = 4,
     MoveRight = 5,
@@ -1315,6 +1349,14 @@ mod tests {
     }
 
     #[test]
+    fn tibetan_round_trips_through_code_eight() {
+        assert_eq!(SchemeType::Tibetan as u8, 8);
+        assert_eq!(SchemeType::from_u8(8), Some(SchemeType::Tibetan));
+        assert_eq!(SchemeType::Tibetan.name(), "tibetan");
+        assert!(!SchemeType::Tibetan.is_pinyin());
+    }
+
+    #[test]
     fn cantonese_round_trips_through_code_five() {
         assert_eq!(SchemeType::Cantonese as u8, 5);
         assert_eq!(SchemeType::from_u8(5), Some(SchemeType::Cantonese));
@@ -1331,12 +1373,12 @@ mod tests {
     }
 
     #[test]
-    fn stroke_round_trips_through_code_eight() {
-        assert_eq!(SchemeType::Stroke as u8, 8);
-        assert_eq!(SchemeType::from_u8(8), Some(SchemeType::Stroke));
+    fn stroke_round_trips_through_code_nine() {
+        assert_eq!(SchemeType::Stroke as u8, 9);
+        assert_eq!(SchemeType::from_u8(9), Some(SchemeType::Stroke));
         assert_eq!(SchemeType::Stroke.name(), "stroke");
         assert!(!SchemeType::Stroke.is_pinyin());
-        assert_eq!(SchemeType::from_u8(9), None);
+        assert_eq!(SchemeType::from_u8(10), None);
     }
 
     // 笔画逐项照抄粤拼的取值，只有两处不同：笔画没有音节，所以不接受 `'` 分隔；预编辑画的是笔画字形，所以和注音一样由 `reading` 带给宿主。
@@ -1562,10 +1604,9 @@ mod tests {
         }
     }
 
-    // Vietnamese composes one word in the preedit with no candidates and no learning: it commits on blur and keeps the caret at the end, and every Chinese trait is off.
+    // 越南文和藏文都在组字里拼出一个词（音节串），没有候选也不学习：失焦时上屏，光标停在末尾，第一次 Esc 显示原文，中文相关的特性全部关闭。
     #[test]
-    fn vietnamese_predicates() {
-        let scheme = SchemeType::Vietnamese;
+    fn vietnamese_and_tibetan_predicates() {
         let on: [Named; 4] = [
             (
                 "cancel_keeps_composition",
@@ -1623,11 +1664,13 @@ mod tests {
             ("nine_key", SchemeType::nine_key),
             ("helpcode", SchemeType::helpcode),
         ];
-        for (name, predicate) in on {
-            assert!(predicate(scheme), "{name}");
-        }
-        for (name, predicate) in off {
-            assert!(!predicate(scheme), "{name}");
+        for scheme in [SchemeType::Vietnamese, SchemeType::Tibetan] {
+            for (name, predicate) in on {
+                assert!(predicate(scheme), "{name} for {scheme:?}");
+            }
+            for (name, predicate) in off {
+                assert!(!predicate(scheme), "{name} for {scheme:?}");
+            }
         }
     }
 }

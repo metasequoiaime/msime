@@ -34,6 +34,7 @@ local.properties
 
 # Local editor and coding-agent state. Contributor machines differ; none of it
 # describes the project.
+tasks/
 .gitnexus
 .vscode/
 .idea/

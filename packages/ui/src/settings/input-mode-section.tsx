@@ -33,9 +33,10 @@ const inputModeLabels: Record<InputMode, string> = {
   japanese: "日文",
   korean: "韩文",
   vietnamese: "越南文",
+  tibetan: "藏文",
 };
 
-/** Chinese/Japanese/Korean/Vietnamese input mode selector with remembered Chinese scheme: the first row of the 方案 group. */
+/** 中文、日文、韩文、越南文、藏文输入模式选择器，记住上次的中文方案：「方案」分组的第一行。 */
 export function InputModeSection({
   scheme,
   lastChineseScheme,
@@ -50,7 +51,7 @@ export function InputModeSection({
     disabled: mode !== "chinese" && unsupported.includes(mode),
   }));
   const chineseFallback = fallbackChineseScheme(lastChineseScheme, supportedSchemes);
-  const base = "切换中文、日文、韩文或越南文输入，并保留各模式上次选择的方案";
+  const base = "切换中文、日文、韩文、越南文或藏文输入，并保留各模式上次选择的方案";
   // A document naming a mode this host does not offer runs host-api's fallback scheme, and the row says which.
   const description =
     !isChineseScheme(scheme) && unsupported.includes(scheme)

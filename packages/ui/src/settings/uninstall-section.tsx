@@ -1,4 +1,6 @@
 import * as settings from "./settings-style";
+import { SettingsRowStack } from "./settings-row-stack";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { GroupList } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 
@@ -29,10 +31,8 @@ export function UninstallSection({
   if (!uninstallInputSource) return null;
   return (
     <GroupList title="卸载">
-      <div className={settings.rowStack} role="group" aria-label="卸载">
-        <div
-          className={`${settings.managerBlock} ${settings.serviceRow} ${settings.serviceRowDanger}`}
-        >
+      <SettingsRowStack role="group" aria-label="卸载">
+        <SettingsManagerBlock className={`${settings.serviceRow} ${settings.serviceRowDanger}`}>
           <span>
             卸载水杉输入法
             <small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
@@ -81,8 +81,8 @@ export function UninstallSection({
               </div>
             </div>
           )}
-        </div>
-      </div>
+        </SettingsManagerBlock>
+      </SettingsRowStack>
     </GroupList>
   );
 }

@@ -65,7 +65,8 @@ struct EscapeHost {
     bool command(uint32_t command, std::string *raw, std::string *) {
         if (command != MSIME_CANCEL) std::abort();
         ++cancels;
-        if (scheme_number == scheme::Vietnamese && !shown.empty() && !raw_showing) {
+        if ((scheme_number == scheme::Vietnamese || scheme_number == scheme::Tibetan) && !shown.empty() &&
+            !raw_showing) {
             raw_showing = true;
             shown = keys;
         } else {
@@ -124,11 +125,11 @@ int main() {
         check(ended.commit == "你" && !ended.keyFollows && !ended.hostLetGo);
     }
 
-    // Korean and Vietnamese have no Chinese table: punctuation finishes the composition and follows it.
-    for (const int other : {scheme::Korean, scheme::Vietnamese}) {
+    // 韩文、越南文和藏文没有中文标点表：标点结束组字并跟在后面。
+    for (const int other : {scheme::Korean, scheme::Vietnamese, scheme::Tibetan}) {
         Host host;
         host.scheme_number = other;
-        host.converted = other == scheme::Korean ? "한" : "tiếng";
+        host.converted = other == scheme::Korean ? "한" : other == scheme::Vietnamese ? "tiếng" : "བཀྲ";
         const auto ended = EndHostComposition(host, other, L',', &error);
         check(ended.commit == host.converted && ended.keyFollows && !ended.hostLetGo);
         check(host.calls == std::vector<std::string>{"finish"});
@@ -153,6 +154,27 @@ int main() {
         check(host.shown.empty() && host.cancels == 2);
         // Nothing composing: nothing is sent.
         check(!msime::tsf::RestoreHostRawOnEscape(host, &error) && host.cancels == 2);
+    }
+
+    // 藏文 'bkra' 和 Esc：宿主会话显示威利原文 'bkra' 并继续组字；第二次 Esc 清空它。回车结束组字时只上屏藏文，后面不跟任何字符。
+    {
+        EscapeHost host;
+        host.scheme_number = scheme::Tibetan;
+        host.shown = "བཀྲ";
+        host.keys = "bkra";
+        check(msime::tsf::RestoreHostRawOnEscape(host, &error));
+        check(host.shown == "bkra" && host.cancels == 1);
+        check(!msime::tsf::RestoreHostRawOnEscape(host, &error));
+        check(host.shown.empty() && host.cancels == 2);
+    }
+    {
+        Host host;
+        host.scheme_number = scheme::Tibetan;
+        host.editing = "bkra";
+        host.converted = "བཀྲ";
+        const auto ended = EndHostComposition(host, scheme::Tibetan, L'\r', &error);
+        check(ended.commit == "བཀྲ" && !ended.keyFollows && !ended.hostLetGo);
+        check(host.calls == std::vector<std::string>{"finish"});
     }
 
     // Every other host-composed scheme discards on Escape as before, so the helper leaves its session alone.

@@ -1,7 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsGroupBlock } from "./settings-group-block";
+import { SettingsRowStack } from "./settings-row-stack";
 import * as doc from "./document-style";
-import * as settings from "./settings-style";
 import { ActionButton } from "../core/action-button";
 import { GroupList } from "../core/platform-controls";
 import { ActionRow } from "./action-row";
@@ -114,14 +114,14 @@ export function HelpSettingsPage({
         ))}
       {macos && onOpenDocumentation && (
         <GroupList>
-          <div className={settings.rowStack} role="group" aria-label="更多">
+          <SettingsRowStack role="group" aria-label="更多">
             <ActionRow
               title="更多"
               description="更完整的说明、词库来源和更新记录在官网上。"
               action={onOpenDocumentation}
               label="打开官网"
             />
-          </div>
+          </SettingsRowStack>
         </GroupList>
       )}
       {!macos && (

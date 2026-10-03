@@ -1,11 +1,12 @@
 import { SettingsGroupNote } from "../settings-group-note";
 import * as settings from "../settings-style";
+import { SettingsManagerBlock } from "../settings-manager-block";
 import type { LocalDictionaryKind, LocalDictionaryFormat } from "../../index";
 import { localDictionaryKinds } from "../../dictionary/dictionary-kinds";
 import { DICTIONARY_PAGE_SIZE } from "../../dictionary/dictionary-file";
 import { useSettingsForm } from "../settings-form-context";
 import { SubPageEntries } from "./sub-page-entries";
-import { GroupList, Row } from "../../core/platform-controls";
+import { GroupList } from "../../core/platform-controls";
 import { DictionaryManifestCard } from "../dictionary-manifest-card";
 import { PersonalDictionaryImportCard } from "../personal-dictionary-import-card";
 import { DictionaryEntries } from "../dictionary-entries";
@@ -19,6 +20,7 @@ import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
 import { SettingsPageFieldset } from "../settings-page-fieldset";
 import { SettingsInputDescription } from "../settings-input-description";
+import { SettingsManagerActions } from "../settings-manager-actions";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -99,7 +101,7 @@ export function DictionarySettingsPage() {
               label="查询"
             />
           </TextInputRow>
-          <div className={settings.managerBlock}>
+          <SettingsManagerBlock>
             {dictionaryPendingCount > 0 && (
               <SettingsInputDescription role="status">
                 {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
@@ -155,7 +157,7 @@ export function DictionarySettingsPage() {
               pageSize={DICTIONARY_PAGE_SIZE}
               onPageChange={turnPhrasePage}
             />
-            <div className={settings.managerActions}>
+            <SettingsManagerActions>
               <ActionButton
                 action={() =>
                   setPhraseForm({
@@ -168,8 +170,8 @@ export function DictionarySettingsPage() {
                 disabled={phraseBusy}
                 label="新增词条"
               />
-            </div>
-          </div>
+            </SettingsManagerActions>
+          </SettingsManagerBlock>
         </GroupList>
       )}
       {client.dictionary && (
@@ -186,8 +188,8 @@ export function DictionarySettingsPage() {
           >
             <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
           </SelectRow>
-          <div className={settings.managerBlock}>
-            <div className={settings.managerActions}>
+          <SettingsManagerBlock>
+            <SettingsManagerActions>
               <label className="secondary">
                 导入
                 <input
@@ -217,8 +219,8 @@ export function DictionarySettingsPage() {
                 disabled={phraseBusy}
                 label="导出全部"
               />
-            </div>
-          </div>
+            </SettingsManagerActions>
+          </SettingsManagerBlock>
           {client.dictionary.importPersonal && (
             <PersonalDictionaryImportCard
               embedded

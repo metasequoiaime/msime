@@ -35,6 +35,8 @@ export function schemeTitle(scheme: InputScheme): string {
       return "注音";
     case "vietnamese":
       return "越南语";
+    case "tibetan":
+      return "藏文";
     case "stroke":
       return "笔画";
     default: {

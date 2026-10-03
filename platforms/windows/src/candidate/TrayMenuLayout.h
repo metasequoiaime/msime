@@ -119,10 +119,12 @@ inline const char *tray_menu_scheme(TrayMenuCommand command) {
     return "cantonese";
   if (command == TrayMenuCommand::SelectZhuyin)
     return "zhuyin";
-  if (command == TrayMenuCommand::SelectStroke)
-    return "stroke";
   if (command == TrayMenuCommand::SelectVietnamese)
     return "vietnamese";
+  if (command == TrayMenuCommand::SelectTibetan)
+    return "tibetan";
+  if (command == TrayMenuCommand::SelectStroke)
+    return "stroke";
   return nullptr;
 }
 // Shortcuts the TIP binds itself (KeyEventSink.cpp and the preserved keys in CompositionProcessorEngine.cpp); they are fixed, unlike the CN/EN key.
@@ -132,7 +134,7 @@ inline std::vector<TrayMenuItem>
 tray_menu_items(const TrayMenuCapabilities &capabilities,
                 const TrayMenuState &state) {
   std::vector<TrayMenuItem> items;
-  items.reserve(30);
+  items.reserve(31);
   auto header = [&](std::string label) {
     TrayMenuItem item;
     item.kind = TrayMenuRowKind::Header;
@@ -180,17 +182,19 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
   const bool japanese = state.scheme == "japanese";
   const bool korean = state.scheme == "korean";
   const bool vietnamese = state.scheme == "vietnamese";
+  const bool tibetan = state.scheme == "tibetan";
   const bool language_known = state.chinese.has_value();
   // In the Engine's English mode the TIP may still report Chinese, and the toolbar shows English then too.
   const bool english =
       language_known && (!*state.chinese || state.dedicated_english);
   header("水杉输入法");
   separator();
-  // Japanese, Korean and Vietnamese are the non-English language of their schemes, as the toolbar's 日, 한 and 越 buttons show. Cantonese, Zhuyin and Stroke write Chinese.
+  // 日文、韩文、越南文和藏文是各自方案的非英文语言，和工具栏的 日、한、越、藏 按钮一致。粤拼、注音和笔画写的是中文。
   row(TrayMenuCommand::SelectChinese,
       japanese     ? "日文"
       : korean     ? "韩文"
       : vietnamese ? "越南文"
+      : tibetan    ? "藏文"
                    : "中文",
       language_known, language_known && !english, state.language_hint);
   row(TrayMenuCommand::SelectEnglish, "英文", language_known, english);
@@ -217,9 +221,10 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       state.scheme == "cantonese");
   row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin,
       state.scheme == "zhuyin");
+  row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
+  row(TrayMenuCommand::SelectTibetan, "藏文", true, tibetan);
   row(TrayMenuCommand::SelectStroke, "笔画", capabilities.stroke,
       state.scheme == "stroke");
-  row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
   separator();
   // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.
   tool(TrayMenuCommand::ToggleFloatingToolbar, "工具栏", 0xE7C4, L"栏",
@@ -346,7 +351,7 @@ inline TrayMenuGeometry tray_menu_geometry(const std::vector<TrayMenuItem> &item
   geometry.size.height = top + metrics.padding;
   return geometry;
 }
-// The metrics to draw `items` with inside `available_height` DIPs of work area: the design's own when they fit, otherwise command rows shortened as far as `compact_row_height`, so the eight schemes and the settings pages stay reachable on a 1080p screen at 150% without clipping the last rows.
+// 在 `available_height` DIP 的工作区内绘制 `items` 用的尺寸：放得下就用设计尺寸，否则把命令行最多缩到 `compact_row_height`，让十个方案和设置页在 1080p、150% 缩放的屏幕上都够得着，最后几行不被裁掉。
 inline constexpr double tray_menu_compact_row_height = 28.0;
 inline TrayMenuMetrics tray_menu_fitted_metrics(
     const std::vector<TrayMenuItem> &items, const TrayMenuMetrics &metrics,
