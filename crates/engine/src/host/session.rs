@@ -63,7 +63,7 @@ pub struct EngineSnapshot {
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub preedit: String,
-    /// The kana reading in Japanese, the composed Hangul in Korean, the converted text plus the pending bopomofo in Zhuyin, else empty.
+    /// The kana reading in Japanese, the composed Hangul in Korean, the converted text plus the pending bopomofo in Zhuyin, the stroke glyphs (一丨丿丶乛＊) in Stroke, else empty. In Stroke each glyph stands for one ASCII letter of `editing_text`, so `caret_position` also counts glyphs.
     pub reading: String,
     pub editing_text: String,
     pub caret_position: usize,

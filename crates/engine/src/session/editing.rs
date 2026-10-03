@@ -6,6 +6,7 @@ use crate::shuangpin::query::{
     detect_active_double_helpcode_length, segment_raw_boundaries,
     trim_trailing_letters_preserve_delimiters,
 };
+use crate::stroke;
 use crate::types::{Command, KeyResult, LocalInputMode, SchemeType, ShuangpinProfileKind};
 
 pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
@@ -16,7 +17,7 @@ pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
 }
 
 impl InputSession {
-    /// Dedicated preedit; `"R" + cased raw` in temporary Japanese; the local preedit; the displayed word in Vietnamese; the letters spaced at syllable boundaries in Cantonese; else the cased raw input.
+    /// Dedicated preedit; `"R" + cased raw` in temporary Japanese; the local preedit; the displayed word in Vietnamese; the letters spaced at syllable boundaries in Cantonese; else the cased raw input, which in Stroke is the typed `hspnzx` letters, one per glyph the reading draws.
     pub(super) fn editing_text(&self) -> String {
         if self.dedicated_english {
             return self.dedicated_english_preedit.clone();
@@ -90,6 +91,17 @@ impl InputSession {
                 }
                 LocalInputMode::QuickPhrase => accepted = lower,
                 LocalInputMode::DateTime => accepted = false,
+                // 笔画只接受笔画键；通配符不能插在最前面。组合中的其他字母被吞掉，与在末尾键入时一样。
+                LocalInputMode::None if self.stroke_rules_apply() => {
+                    if !stroke::is_key(value) || (value == stroke::WILDCARD && caret == 0) {
+                        return if value.is_ascii_alphabetic() {
+                            KeyResult::handled()
+                        } else {
+                            KeyResult::unhandled()
+                        };
+                    }
+                    accepted = true;
+                }
                 LocalInputMode::None => {
                     let scheme = self.scheme();
                     accepted = lower
@@ -205,13 +217,14 @@ impl InputSession {
             SchemeType::Quanpin => {
                 quanpin_raw_boundaries(raw_with_cases, &self.pinyin_segmentation_with_cases())
             }
-            // The Cantonese editing text is spaced, so raw offsets would not land on its syllables; the host edits it one character at a time.
+            // The Cantonese editing text is spaced, so raw offsets would not land on its syllables; the host edits it one character at a time. A stroke is one character, so Stroke has no units either.
             SchemeType::Wubi
             | SchemeType::JapaneseRomaji
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => Vec::new(),
+            | SchemeType::Vietnamese
+            | SchemeType::Stroke => Vec::new(),
         }
     }
 

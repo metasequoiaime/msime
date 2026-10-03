@@ -1,4 +1,4 @@
-//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `cantonese.db`, which is opened the first time the scheme is activated and then kept for the session. Zhuyin's editor reads `zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`.
+//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `cantonese.db`, which is opened the first time the scheme is activated and then kept for the session. Zhuyin's editor reads `zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
@@ -16,6 +16,7 @@ use crate::paths::RuntimePaths;
 use crate::quanpin::QuanpinEngine;
 use crate::shuangpin::profile::profile;
 use crate::shuangpin::ShuangpinEngine;
+use crate::stroke::StrokeScheme;
 use crate::types::{
     CandidateSource, QueryRequest, SchemeType, ShuangpinProfileKind, WordItem, WubiProfileKind,
 };
@@ -34,6 +35,10 @@ pub struct ProviderRegistry {
     zhuyin_path: PathBuf,
     /// `zhuyin.db` opened by `activate`; `None` before that and while the live Zhuyin scheme holds it.
     zhuyin: Option<LanguageDictionary>,
+    /// Where `stroke.db` is; empty when the host has none.
+    stroke_path: PathBuf,
+    /// `stroke.db` opened by `activate`; `None` before that.
+    stroke: Option<LanguageDictionary>,
 }
 
 impl ProviderRegistry {
@@ -43,6 +48,7 @@ impl ProviderRegistry {
         paths: &RuntimePaths,
         cantonese_path: PathBuf,
         zhuyin_path: PathBuf,
+        stroke_path: PathBuf,
         japanese_path: PathBuf,
     ) -> Self {
         let japanese_model = if japanese_path.as_os_str().is_empty() {
@@ -60,16 +66,21 @@ impl ProviderRegistry {
             cantonese: None,
             zhuyin_path,
             zhuyin: None,
+            stroke_path,
+            stroke: None,
         }
     }
 
-    /// Opens what `scheme` reads before it becomes active, once per session: `cantonese.db` for Cantonese and `zhuyin.db` for Zhuyin, failing as `language_dictionary::open_read_only` does when the file is missing or of an unknown version. Nothing for the other schemes. The caller does not activate Zhuyin while a Zhuyin scheme holds the connection, which would open the file again.
+    /// Opens what `scheme` reads before it becomes active, once per session: `cantonese.db` for Cantonese, `zhuyin.db` for Zhuyin and `stroke.db` for Stroke, failing as `language_dictionary::open_read_only` does when the file is missing or of an unknown version. Nothing for the other schemes. The caller does not activate Zhuyin while a Zhuyin scheme holds the connection, which would open the file again.
     pub fn activate(&mut self, scheme: SchemeType) -> Result<()> {
         if scheme == SchemeType::Cantonese && self.cantonese.is_none() {
             self.cantonese = Some(CantoneseDictionary::open(&self.cantonese_path)?);
         }
         if scheme == SchemeType::Zhuyin && self.zhuyin.is_none() {
             self.zhuyin = Some(language_dictionary::open_read_only(&self.zhuyin_path)?);
+        }
+        if scheme == SchemeType::Stroke && self.stroke.is_none() {
+            self.stroke = Some(language_dictionary::open_read_only(&self.stroke_path)?);
         }
         Ok(())
     }
@@ -118,6 +129,7 @@ impl ProviderRegistry {
             SchemeType::JapaneseRomaji => return self.japanese.query(request),
             SchemeType::Korean if request.korean_hanja => return hanja::candidates(request),
             SchemeType::Cantonese => return self.cantonese_candidates(request),
+            SchemeType::Stroke => return self.stroke_candidates(request),
             // Vietnamese composes its text in the preedit and has no candidates; the Zhuyin list comes from its editor.
             SchemeType::Korean | SchemeType::Zhuyin | SchemeType::Vietnamese => return Vec::new(),
         };
@@ -127,7 +139,7 @@ impl ProviderRegistry {
         candidates
     }
 
-    /// Wubi, Japanese, Korean, Cantonese, Zhuyin and Vietnamese never answer a lookup (wubi_candidate_provider.h:19-22; the Japanese one read the dropped `japanese_lexicon`).
+    /// Wubi, Japanese, Korean, Cantonese, Zhuyin, Vietnamese and Stroke never answer a lookup (wubi_candidate_provider.h:19-22; the Japanese one read the dropped `japanese_lexicon`).
     pub fn find_candidate(&self, scheme: SchemeType, key: &str, value: &str) -> Option<WordItem> {
         match scheme {
             SchemeType::Quanpin => self.quanpin.find_candidate(key, value),
@@ -137,7 +149,8 @@ impl ProviderRegistry {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => None,
+            | SchemeType::Vietnamese
+            | SchemeType::Stroke => None,
         }
     }
 
@@ -150,11 +163,12 @@ impl ProviderRegistry {
             }
             SchemeType::Wubi => self.wubi.reset_cache(),
             SchemeType::JapaneseRomaji => self.japanese.reset_cache(),
-            // `cantonese.db` is read-only and its rows are never rewritten, so there is no cache to drop.
+            // `cantonese.db` and `stroke.db` are read-only and their rows are never rewritten, so there is no cache to drop.
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => {}
+            | SchemeType::Vietnamese
+            | SchemeType::Stroke => {}
         }
     }
 
@@ -175,11 +189,12 @@ impl ProviderRegistry {
                     .cache_dynamic_candidate(&request.raw_input, word, source),
                 _ => false,
             },
-            // Korean, Cantonese, Zhuyin and Vietnamese take no online rows.
+            // Korean, Cantonese, Zhuyin, Vietnamese and Stroke take no online rows.
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => false,
+            | SchemeType::Vietnamese
+            | SchemeType::Stroke => false,
         }
     }
 
@@ -199,7 +214,8 @@ impl ProviderRegistry {
             | SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
-            | SchemeType::Vietnamese => false,
+            | SchemeType::Vietnamese
+            | SchemeType::Stroke => false,
         }
     }
 
@@ -225,6 +241,33 @@ impl ProviderRegistry {
                     candidate.key,
                 );
                 item.scheme = SchemeType::Cantonese;
+                item
+            })
+            .collect()
+    }
+
+    /// `stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。
+    fn stroke_candidates(&self, request: &QueryRequest) -> Vec<WordItem> {
+        let Some(dictionary) = &self.stroke else {
+            return Vec::new();
+        };
+        let mut scheme = StrokeScheme::new();
+        scheme.set_raw_input(&request.raw_input);
+        let Ok(candidates) = scheme.candidates(dictionary) else {
+            return Vec::new();
+        };
+        let input = scheme.input();
+        candidates
+            .into_iter()
+            .map(|candidate| {
+                let mut item = WordItem::new(
+                    input,
+                    candidate.text,
+                    candidate.weight,
+                    CandidateSource::Database,
+                    candidate.key,
+                );
+                item.scheme = SchemeType::Stroke;
                 item
             })
             .collect()

@@ -28,6 +28,8 @@ pub struct SessionOptions {
     pub cantonese_dictionary: PathBuf,
     /// Where `zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
+    /// Where `stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
+    pub stroke_dictionary: PathBuf,
     /// `dict_japanese.dat` 的位置；为空时读资源目录里的那份。文件缺失时日文只给假名行。
     pub japanese_dictionary: PathBuf,
     pub helpcode_schema: String,
@@ -74,6 +76,7 @@ impl SessionOptions {
             vietnamese_tone_style: VietnameseToneStyle::Modern,
             cantonese_dictionary: PathBuf::new(),
             zhuyin_dictionary: PathBuf::new(),
+            stroke_dictionary: PathBuf::new(),
             japanese_dictionary: PathBuf::new(),
             helpcode_schema: "lantian".to_owned(),
             helpcode_table: None,

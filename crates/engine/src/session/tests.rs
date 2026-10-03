@@ -3153,6 +3153,214 @@ fn cantonese_caret_edits_keep_the_shown_syllables() {
     assert_eq!(words(&session), ["我"]);
 }
 
+/// 合成的 `stroke.db`（`stroke::fixture`），用共享的 schema 写成。
+fn stroke_dictionary(directory: &Path) -> PathBuf {
+    let path = directory.join("stroke.db");
+    crate::stroke::fixture::build(&path);
+    path
+}
+
+fn stroke_session(fixture: &Fixture) -> Session {
+    fixture.session_with(|options| {
+        options.scheme = SchemeType::Stroke;
+        options.stroke_dictionary = stroke_dictionary(fixture.path());
+    })
+}
+
+#[test]
+fn stroke_without_its_dictionary_is_unavailable() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let error = Session::new({
+        let mut options = fixture.options();
+        options.scheme = SchemeType::Stroke;
+        options
+    })
+    .err()
+    .expect("no stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+
+    // 切换失败时方案和组合保持原样。
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    let error = session
+        .switch_scheme(SchemeType::Stroke)
+        .expect_err("no stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+    assert_eq!(session.snapshot().scheme, SchemeType::Quanpin);
+    assert_eq!(session.snapshot().preedit, "nihao");
+
+    // 文件在位时切换成功。
+    let mut session = fixture.session_with(|options| {
+        options.stroke_dictionary = stroke_dictionary(fixture.path());
+    });
+    type_text(&mut session, "nihao");
+    session.switch_scheme(SchemeType::Stroke).unwrap();
+    assert_eq!(session.snapshot().scheme, SchemeType::Stroke);
+    assert!(session.snapshot().preedit.is_empty());
+}
+
+#[test]
+fn stroke_keeps_its_dictionary_open_across_scheme_switches() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    session.switch_scheme(SchemeType::Quanpin).unwrap();
+    // 文件没了，但激活时打开的连接仍归这个会话。
+    std::fs::remove_file(fixture.path().join("stroke.db")).unwrap();
+    session.switch_scheme(SchemeType::Stroke).unwrap();
+    type_text(&mut session, "pn");
+    assert_eq!(words(&session), ["人"]);
+}
+
+#[test]
+fn stroke_composes_glyphs_from_its_keys() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    // 空组合时通配符、其他字母和大写字母都交还宿主。
+    for key in *b"xaH1 " {
+        assert!(!session.character(key, false).handled, "{}", key as char);
+        assert!(session.snapshot().preedit.is_empty());
+    }
+    assert_eq!(session.snapshot().spelling_symbols, "");
+
+    type_text(&mut session, "hs");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "一丨");
+    assert_eq!(snapshot.normalized_segmentation, "一丨");
+    assert_eq!(snapshot.editing_text, "hs");
+    assert_eq!(snapshot.caret_position, 2);
+    assert_eq!(snapshot.spelling_symbols, "");
+    assert_eq!(words(&session), ["十", "土"]);
+    assert!(session
+        .snapshot()
+        .candidates
+        .iter()
+        .all(|item| item.scheme == SchemeType::Stroke && item.pinyin == "hs"));
+
+    // 组合中其他字母被吞掉，组合不变；通配符追加一笔。
+    for key in *b"aqH" {
+        assert!(session.character(key, false).handled, "{}", key as char);
+        assert_eq!(session.snapshot().editing_text, "hs");
+    }
+    assert!(session.character(b'x', false).handled);
+    assert_eq!(session.snapshot().preedit, "一丨＊");
+    assert_eq!(words(&session), ["土"]);
+
+    // Backspace 删最后一笔，Esc 清空组合。
+    assert!(session.command(Command::Backspace).handled);
+    assert_eq!(session.snapshot().preedit, "一丨");
+    let result = session.command(Command::Cancel);
+    assert!(result.handled);
+    assert!(result.commit.is_none());
+    assert!(session.snapshot().preedit.is_empty());
+    assert!(session.snapshot().candidates.is_empty());
+}
+
+#[test]
+fn stroke_rows_are_never_learned_or_edited() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let stroke = stroke_dictionary(fixture.path());
+    let configure = |options: &mut SessionOptions| {
+        options.scheme = SchemeType::Stroke;
+        options.stroke_dictionary = stroke.clone();
+        options.learning = true;
+        options.personal_context = true;
+        options.frequency = FrequencyAdjustmentOptions {
+            mode: FrequencyAdjustmentMode::Promote,
+            trigger_count: 1,
+            linear_step: 1,
+        };
+    };
+    let mut session = fixture.session_with(configure);
+    let journal = table_counts(&fixture.journal());
+    let main = table_counts(&fixture.main_db());
+    let order = ["一", "大", "二", "十", "三", "王", "土", "干"];
+
+    type_text(&mut session, "h");
+    assert_eq!(words(&session), order);
+    // 置顶、删除、固定位置都会把这些行按笔画字母写进拼音用户词典。
+    assert!(!session.pin(1).handled);
+    assert!(!session.remove(0).handled);
+    assert!(!session.fix_position(1, 1).handled);
+    assert_eq!(words(&session), order);
+
+    // 选中任一字都结束整个组合。
+    let result = session.select(1);
+    assert_eq!(result.commit.as_deref(), Some("大"));
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "h");
+    assert_eq!(words(&session), order);
+    // Space 选高亮候选。
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("一")
+    );
+    // Enter 上屏键入的字母串，不是字形。
+    type_text(&mut session, "hsx");
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("hsx")
+    );
+    assert!(session.snapshot().preedit.is_empty());
+    // 没有候选时 Space 也上屏字母串。
+    type_text(&mut session, "zzzz");
+    assert!(words(&session).is_empty());
+    assert_eq!(
+        session.command(Command::CommitCandidate).commit.as_deref(),
+        Some("zzzz")
+    );
+    // 标点先上屏首选再跟标点。
+    type_text(&mut session, "pn");
+    assert_eq!(session.punctuation(b',').commit.as_deref(), Some("人，"));
+    // 数字键选词。
+    type_text(&mut session, "hs");
+    assert_eq!(session.candidate_key(b'2').commit.as_deref(), Some("土"));
+    drop(session);
+    crate::flush_personal_learning();
+
+    assert_eq!(table_counts(&fixture.journal()), journal);
+    assert_eq!(table_counts(&fixture.main_db()), main);
+    let mut session = fixture.session_with(configure);
+    type_text(&mut session, "h");
+    assert_eq!(words(&session), order);
+}
+
+#[test]
+fn stroke_caret_edits_take_only_strokes() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = stroke_session(&fixture);
+    type_text(&mut session, "hh");
+    assert!(session.segment_raw_boundaries().is_empty());
+    assert!(session.command(Command::MoveLeft).handled);
+    assert_eq!(session.snapshot().caret_position, 1);
+    // 光标处插入一笔。
+    assert!(session.character(b's', false).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.editing_text, "hsh");
+    assert_eq!(snapshot.preedit, "一丨一");
+    assert_eq!(snapshot.caret_position, 2);
+    // 其他字母被吞掉，组合不变。
+    assert!(session.character(b'a', false).handled);
+    assert_eq!(session.snapshot().editing_text, "hsh");
+    // 通配符不能插在最前面，插在中间可以。
+    assert!(session.command(Command::MoveHome).handled);
+    assert!(session.character(b'x', false).handled);
+    assert_eq!(session.snapshot().editing_text, "hsh");
+    assert!(session.command(Command::MoveRight).handled);
+    assert!(session.character(b'x', false).handled);
+    assert_eq!(session.snapshot().editing_text, "hxsh");
+    assert_eq!(session.snapshot().preedit, "一＊丨一");
+    // Backspace 删光标前的一笔。
+    assert!(session.command(Command::Backspace).handled);
+    assert_eq!(session.snapshot().editing_text, "hsh");
+    assert_eq!(words(&session), ["土"]);
+}
+
 /// A `zhuyin.db` with the rows the Zhuyin session tests read, written with the shipped schema.
 fn zhuyin_dictionary(directory: &Path) -> PathBuf {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};

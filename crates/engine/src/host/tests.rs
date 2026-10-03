@@ -66,6 +66,7 @@ fn options(root: &Path) -> EngineOptions {
         vietnamese_tone_style: 0,
         cantonese_dictionary: String::new(),
         zhuyin_dictionary: String::new(),
+        stroke_dictionary: String::new(),
         japanese_dictionary: String::new(),
     }
 }
@@ -1068,6 +1069,55 @@ fn zhuyin_is_unavailable_without_its_dictionary() {
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
     );
     assert!(!dir.path().join("missing.db").exists());
+}
+
+#[test]
+fn stroke_is_unavailable_without_its_dictionary() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = 8;
+    let error = Session::new(&value).err().expect("no stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+    value.stroke_dictionary = dir.path().join("missing.db").to_str().unwrap().to_owned();
+    let error = Session::new(&value).err().expect("missing stroke.db");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
+    );
+    assert!(!dir.path().join("missing.db").exists());
+}
+
+// 笔画的快照：`preedit` 与 `reading` 是笔画字形，`editing_text` 与光标是键入的 ASCII 字母；Enter 上屏字母串，两条 CommitRaw 都不学习。
+#[test]
+fn stroke_snapshot_draws_glyphs_and_edits_letters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stroke.db");
+    crate::stroke::fixture::build(&path);
+    let mut value = options(dir.path());
+    value.scheme = 8;
+    value.stroke_dictionary = path.to_str().unwrap().to_owned();
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"hsx");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.scheme, 8);
+    assert_eq!(snapshot.preedit, "一丨＊");
+    assert_eq!(snapshot.reading, "一丨＊");
+    assert_eq!(snapshot.editing_text, "hsx");
+    assert_eq!(snapshot.caret_position, 3);
+    assert!(snapshot.segment_raw_boundaries.is_empty());
+    assert!(!snapshot.candidate_list_open);
+    assert_eq!(snapshot.candidates, ["土"]);
+    assert_eq!(snapshot.candidate_codes, ["hsx"]);
+
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert_eq!((result.handled, result.commit.as_str()), (true, "hsx"));
+    type_text(&mut session, b"pn");
+    let result = session.command(Command::CommitRawWithoutLearning).unwrap();
+    assert_eq!((result.handled, result.commit.as_str()), (true, "pn"));
+    assert!(session.snapshot().unwrap().reading.is_empty());
 }
 
 #[test]

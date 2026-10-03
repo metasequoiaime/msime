@@ -71,13 +71,14 @@ pub struct ImeSession {
 }
 
 impl ImeSession {
-    /// ime_session.cpp:42-49. `cantonese_dictionary` and `zhuyin_dictionary` are where `cantonese.db` and `zhuyin.db` are, each read only when its scheme is activated; starting in Cantonese or Zhuyin fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。
+    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。
     pub fn new(
         scheme: SchemeType,
         profile: ShuangpinProfileKind,
         paths: &RuntimePaths,
         cantonese_dictionary: PathBuf,
         zhuyin_dictionary: PathBuf,
+        stroke_dictionary: PathBuf,
         japanese_dictionary: PathBuf,
     ) -> Result<Self> {
         let mut registry = ProviderRegistry::new(
@@ -85,6 +86,7 @@ impl ImeSession {
             paths,
             cantonese_dictionary,
             zhuyin_dictionary,
+            stroke_dictionary,
             japanese_dictionary,
         );
         registry.activate(scheme)?;
@@ -142,7 +144,7 @@ impl ImeSession {
         self.refresh_candidates();
     }
 
-    /// Opens what `scheme` reads (`cantonese.db` for Cantonese, `zhuyin.db` for Zhuyin) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `zhuyin.db`, so activating Zhuyin again opens nothing.
+    /// Opens what `scheme` reads (`cantonese.db` for Cantonese, `zhuyin.db` for Zhuyin, `stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `zhuyin.db`, so activating Zhuyin again opens nothing.
     pub fn activate(&mut self, scheme: SchemeType) -> Result<()> {
         if scheme == SchemeType::Zhuyin && self.scheme.as_zhuyin().is_some() {
             return Ok(());
@@ -150,7 +152,7 @@ impl ImeSession {
         self.registry.activate(scheme)
     }
 
-    /// A new scheme and an empty state. Cantonese and Zhuyin open their dictionary the first time they are activated and keep it for the session; when that fails (`LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`) the scheme is unavailable and the current scheme and its composition stay as they were.
+    /// A new scheme and an empty state. Cantonese, Zhuyin and Stroke open their dictionary the first time they are activated and keep it for the session; when that fails (`LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`) the scheme is unavailable and the current scheme and its composition stay as they were.
     pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
         self.activate(scheme)?;
         if let Some(zhuyin) = self

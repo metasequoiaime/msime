@@ -74,6 +74,8 @@ pub enum SchemeType {
     Zhuyin = 6,
     /// Vietnamese through Telex or VNI: the keystrokes compose into one word in the preedit, which any key outside the spelling commits; there are no candidates.
     Vietnamese = 7,
+    /// Stroke (笔画) read against `stroke.db`: the keys h s p n z type the five strokes 横竖撇点折 in writing order and x stands for any one stroke; the preedit draws the strokes, candidates are single characters whose stroke code starts with the typed strokes, and nothing is learned.
+    Stroke = 8,
 }
 
 impl SchemeType {
@@ -87,6 +89,7 @@ impl SchemeType {
             5 => Self::Cantonese,
             6 => Self::Zhuyin,
             7 => Self::Vietnamese,
+            8 => Self::Stroke,
             _ => return None,
         })
     }
@@ -102,6 +105,7 @@ impl SchemeType {
             Self::Cantonese => "cantonese",
             Self::Zhuyin => "zhuyin",
             Self::Vietnamese => "vietnamese",
+            Self::Stroke => "stroke",
         }
     }
 
@@ -116,7 +120,12 @@ impl SchemeType {
     /// A Chinese scheme: what 中文 returns to and what the Chinese statistics count.
     pub const fn is_chinese(self) -> bool {
         match self {
-            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese | Self::Zhuyin => true,
+            Self::Quanpin
+            | Self::Shuangpin
+            | Self::Wubi
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => true,
             Self::JapaneseRomaji | Self::Korean | Self::Vietnamese => false,
         }
     }
@@ -130,7 +139,7 @@ impl SchemeType {
             | Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese => false,
-            Self::Cantonese | Self::Zhuyin => true,
+            Self::Cantonese | Self::Stroke | Self::Zhuyin => true,
         }
     }
 
@@ -142,6 +151,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -154,6 +164,7 @@ impl SchemeType {
             | Self::Wubi
             | Self::JapaneseRomaji
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => true,
             Self::Korean | Self::Vietnamese => false,
         }
@@ -162,7 +173,7 @@ impl SchemeType {
     /// The host's smart punctuation (context-dependent marks) may run.
     pub const fn host_smart_punctuation(self) -> bool {
         match self {
-            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese => true,
+            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese | Self::Stroke => true,
             Self::JapaneseRomaji | Self::Korean | Self::Vietnamese | Self::Zhuyin => false,
         }
     }
@@ -175,6 +186,7 @@ impl SchemeType {
             | Self::Wubi
             | Self::JapaneseRomaji
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => true,
             Self::Korean | Self::Vietnamese => false,
         }
@@ -189,6 +201,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -202,6 +215,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -214,6 +228,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -227,6 +242,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -235,7 +251,12 @@ impl SchemeType {
     pub const fn cloud_eligible(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::JapaneseRomaji => true,
-            Self::Wubi | Self::Korean | Self::Vietnamese | Self::Cantonese | Self::Zhuyin => false,
+            Self::Wubi
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
         }
     }
 
@@ -243,7 +264,11 @@ impl SchemeType {
     pub const fn shows_glosses(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Korean => true,
-            Self::JapaneseRomaji | Self::Vietnamese | Self::Cantonese | Self::Zhuyin => false,
+            Self::JapaneseRomaji
+            | Self::Vietnamese
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
         }
     }
 
@@ -255,7 +280,8 @@ impl SchemeType {
             | Self::Shuangpin
             | Self::Wubi
             | Self::JapaneseRomaji
-            | Self::Cantonese => false,
+            | Self::Cantonese
+            | Self::Stroke => false,
         }
     }
 
@@ -263,7 +289,9 @@ impl SchemeType {
     pub const fn holds_phrase_progress(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::JapaneseRomaji => true,
-            Self::Korean | Self::Vietnamese | Self::Cantonese | Self::Zhuyin => false,
+            Self::Korean | Self::Vietnamese | Self::Cantonese | Self::Stroke | Self::Zhuyin => {
+                false
+            }
         }
     }
 
@@ -276,14 +304,15 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
 
-    /// The snapshot's `reading` carries the composed text (kana, Hangul) for the host to draw.
+    /// The snapshot's `reading` carries the composed text (kana, Hangul, the Zhuyin conversion, the Stroke glyphs 一丨丿丶乛) for the host to draw.
     pub const fn draws_reading(self) -> bool {
         match self {
-            Self::JapaneseRomaji | Self::Korean | Self::Zhuyin => true,
+            Self::JapaneseRomaji | Self::Korean | Self::Zhuyin | Self::Stroke => true,
             Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Vietnamese | Self::Cantonese => {
                 false
             }
@@ -299,7 +328,8 @@ impl SchemeType {
             | Self::Wubi
             | Self::JapaneseRomaji
             | Self::Vietnamese
-            | Self::Cantonese => false,
+            | Self::Cantonese
+            | Self::Stroke => false,
         }
     }
 
@@ -311,7 +341,8 @@ impl SchemeType {
             | Self::Shuangpin
             | Self::Wubi
             | Self::JapaneseRomaji
-            | Self::Cantonese => false,
+            | Self::Cantonese
+            | Self::Stroke => false,
         }
     }
 
@@ -319,7 +350,12 @@ impl SchemeType {
     pub const fn selection_completes(self) -> bool {
         match self {
             Self::JapaneseRomaji | Self::Korean | Self::Vietnamese => true,
-            Self::Quanpin | Self::Shuangpin | Self::Wubi | Self::Cantonese | Self::Zhuyin => false,
+            Self::Quanpin
+            | Self::Shuangpin
+            | Self::Wubi
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
         }
     }
 
@@ -332,6 +368,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -340,7 +377,7 @@ impl SchemeType {
     pub const fn accepts_apostrophe(self) -> bool {
         match self {
             Self::Quanpin | Self::Shuangpin | Self::JapaneseRomaji | Self::Cantonese => true,
-            Self::Wubi | Self::Korean | Self::Vietnamese | Self::Zhuyin => false,
+            Self::Wubi | Self::Korean | Self::Vietnamese | Self::Zhuyin | Self::Stroke => false,
         }
     }
 
@@ -352,7 +389,8 @@ impl SchemeType {
             | Self::Shuangpin
             | Self::Wubi
             | Self::JapaneseRomaji
-            | Self::Cantonese => false,
+            | Self::Cantonese
+            | Self::Stroke => false,
         }
     }
 
@@ -365,6 +403,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -379,6 +418,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -393,6 +433,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -406,6 +447,7 @@ impl SchemeType {
             | Self::Korean
             | Self::Vietnamese
             | Self::Cantonese
+            | Self::Stroke
             | Self::Zhuyin => false,
         }
     }
@@ -1286,7 +1328,100 @@ mod tests {
         assert_eq!(SchemeType::from_u8(6), Some(SchemeType::Zhuyin));
         assert_eq!(SchemeType::Zhuyin.name(), "zhuyin");
         assert!(!SchemeType::Zhuyin.is_pinyin());
-        assert_eq!(SchemeType::from_u8(8), None);
+    }
+
+    #[test]
+    fn stroke_round_trips_through_code_eight() {
+        assert_eq!(SchemeType::Stroke as u8, 8);
+        assert_eq!(SchemeType::from_u8(8), Some(SchemeType::Stroke));
+        assert_eq!(SchemeType::Stroke.name(), "stroke");
+        assert!(!SchemeType::Stroke.is_pinyin());
+        assert_eq!(SchemeType::from_u8(9), None);
+    }
+
+    // 笔画逐项照抄粤拼的取值，只有两处不同：笔画没有音节，所以不接受 `'` 分隔；预编辑画的是笔画字形，所以和注音一样由 `reading` 带给宿主。
+    #[test]
+    fn stroke_predicates() {
+        let scheme = SchemeType::Stroke;
+        let on: [Named; 6] = [
+            ("is_chinese", SchemeType::is_chinese),
+            (
+                "outputs_traditional_natively",
+                SchemeType::outputs_traditional_natively,
+            ),
+            (
+                "uses_chinese_punctuation",
+                SchemeType::uses_chinese_punctuation,
+            ),
+            ("host_smart_punctuation", SchemeType::host_smart_punctuation),
+            ("widens_full_width", SchemeType::widens_full_width),
+            ("draws_reading", SchemeType::draws_reading),
+        ];
+        let off: [Named; 20] = [
+            (
+                "cancel_keeps_composition",
+                SchemeType::cancel_keeps_composition,
+            ),
+            (
+                "script_conversion_applies",
+                SchemeType::script_conversion_applies,
+            ),
+            (
+                "allows_english_emoji_mixing",
+                SchemeType::allows_english_emoji_mixing,
+            ),
+            ("opens_local_modes", SchemeType::opens_local_modes),
+            (
+                "learns_into_main_dictionary",
+                SchemeType::learns_into_main_dictionary,
+            ),
+            ("learns_english_words", SchemeType::learns_english_words),
+            ("cloud_eligible", SchemeType::cloud_eligible),
+            ("shows_glosses", SchemeType::shows_glosses),
+            ("commits_on_blur", SchemeType::commits_on_blur),
+            ("holds_phrase_progress", SchemeType::holds_phrase_progress),
+            (
+                "reranks_with_sentence_model",
+                SchemeType::reranks_with_sentence_model,
+            ),
+            (
+                "has_openable_candidate_list",
+                SchemeType::has_openable_candidate_list,
+            ),
+            ("selection_completes", SchemeType::selection_completes),
+            (
+                "follows_pinyin_candidates",
+                SchemeType::follows_pinyin_candidates,
+            ),
+            ("accepts_apostrophe", SchemeType::accepts_apostrophe),
+            ("locks_caret", SchemeType::locks_caret),
+            ("supports_fuzzy", SchemeType::supports_fuzzy),
+            ("supports_autocorrect", SchemeType::supports_autocorrect),
+            ("nine_key", SchemeType::nine_key),
+            ("helpcode", SchemeType::helpcode),
+        ];
+        for (name, predicate) in on {
+            assert!(predicate(scheme), "{name}");
+        }
+        for (name, predicate) in off {
+            assert!(!predicate(scheme), "{name}");
+        }
+        // 除上面两处外，每个谓词都与粤拼相同。
+        for (name, predicate) in on.into_iter().chain(off) {
+            if name == "accepts_apostrophe" || name == "draws_reading" {
+                assert_ne!(
+                    predicate(scheme),
+                    predicate(SchemeType::Cantonese),
+                    "{name}"
+                );
+            } else {
+                assert_eq!(
+                    predicate(scheme),
+                    predicate(SchemeType::Cantonese),
+                    "{name}"
+                );
+            }
+        }
     }
 
     // Zhuyin is a Chinese scheme writing Traditional text, with only its Shift overlay as Chinese punctuation; its converted text is the reading the host draws, the caret stays at the end, candidates appear only in the list the user opens, the conversion commits on blur, and it learns nothing.

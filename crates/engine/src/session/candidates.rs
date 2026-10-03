@@ -160,6 +160,7 @@ impl InputSession {
                     | SchemeType::Korean
                     | SchemeType::Cantonese
                     | SchemeType::Zhuyin
+                    | SchemeType::Stroke
             );
         let include_missing = self.engine.request().raw_input.len() == 1;
         let keep_dynamic = self.has_active_helpcode();
