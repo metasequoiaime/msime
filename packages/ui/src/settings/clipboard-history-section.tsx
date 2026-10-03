@@ -1,6 +1,7 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as settings from "./settings-style";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { GroupList, Row } from "../core/platform-controls";
@@ -225,7 +226,7 @@ export function ClipboardHistorySection({
           {cloudNote && <SettingsGroupNote role="status">{cloudNote}</SettingsGroupNote>}
           <div className={settings.clipboardList} aria-label="剪贴板历史">
             {entries.length === 0 ? (
-              <p className={settings.clipboardEmpty}>暂无历史记录</p>
+              <SettingsEmptyMessage>暂无历史记录</SettingsEmptyMessage>
             ) : (
               entries.map((entry) => (
                 <div className={settings.clipboardRow} data-clipboard-entry-row="" key={entry.text}>
