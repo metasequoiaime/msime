@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as onboarding from "./onboarding-style";
 import { linuxSetupFailureMessage } from "./linux-setup-errors";
 import { ActionButton } from "../core/action-button";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export interface LinuxSetupStatus {
   prepared: boolean;
@@ -45,14 +46,8 @@ export function LinuxSetupPage({
   const [error, setError] = useState("");
   const [lines, setLines] = useState<LinuxSetupLine[]>([]);
   const log = useRef<HTMLPreElement>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const actionRunning = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
   const directory = status.stateDirectory ?? "~/.config/msime-client";
   const blocked = !status.setupAvailable
     ? linuxSetupFailureMessage({ code: "setup_unavailable" })
