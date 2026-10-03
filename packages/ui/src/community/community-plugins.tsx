@@ -300,84 +300,80 @@ export function CommunityPluginsPage({
         signInRequired={signInRequired}
         onLogin={onLogin}
       >
-        <section className={`section ${style.detail}`}>
-          <CommunityDetailHeader
-            title={selected.name}
-            note={[
-              kindLabels[selected.kind],
-              selected.author,
-              selected.version && `v${selected.version}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            owned={selected.owned}
-            moderation={selected.moderation}
-            description={selected.description}
-          />
-          <p className={style.metrics}>
-            {[
-              selected.plugin_id,
-              selected.license && `授权 ${selected.license}`,
-              candidateSkinMegabytes(selected.size),
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-          <CommunityDetailStatus
-            downloads={selected.downloads}
-            ratingCount={selected.rating_count}
-            ratingAverage={selected.rating_average}
-            myRating={selected.my_rating}
-            detailBusy={detailBusy}
-            actionNotice={actionNotice}
-            loadingText="正在读取插件详情…"
-          />
-          {installed ? (
-            <CommunityActionNotice>
-              已安装到插件目录，可在「我的插件」中选用。
-            </CommunityActionNotice>
-          ) : (
-            <CommunityInstallButton
-              actionBusy={actionBusy}
-              detailBusy={detailBusy}
-              confirmReplace={confirmReplace}
-              onInstall={() => void install(false)}
-            />
-          )}
-          {confirmReplace && (
-            <CommunityReplaceConfirmation
-              ariaLabel="确认替换插件"
-              message={
-                <>
-                  已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
-                  ”，安装会整体替换它。
-                </>
-              }
-              actionBusy={actionBusy}
-              onConfirm={() => void install(true)}
-              onCancel={() => setConfirmReplace(false)}
-            />
-          )}
-          <CommunityModerationSection
-            owned={selected.owned}
+        <CommunityDetailHeader
+          title={selected.name}
+          note={[
+            kindLabels[selected.kind],
+            selected.author,
+            selected.version && `v${selected.version}`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          owned={selected.owned}
+          moderation={selected.moderation}
+          description={selected.description}
+        />
+        <p className={style.metrics}>
+          {[
+            selected.plugin_id,
+            selected.license && `授权 ${selected.license}`,
+            candidateSkinMegabytes(selected.size),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+        <CommunityDetailStatus
+          downloads={selected.downloads}
+          ratingCount={selected.rating_count}
+          ratingAverage={selected.rating_average}
+          myRating={selected.my_rating}
+          detailBusy={detailBusy}
+          actionNotice={actionNotice}
+          loadingText="正在读取插件详情…"
+        />
+        {installed ? (
+          <CommunityActionNotice>已安装到插件目录，可在「我的插件」中选用。</CommunityActionNotice>
+        ) : (
+          <CommunityInstallButton
             actionBusy={actionBusy}
-            ratingDescription="我的评分（安装后可评，可重新选择）"
-            unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；已安装的插件会保留。确定下架“${selected.name}”吗？`}
-            confirmUnpublish={confirmUnpublish}
-            onRate={(stars) => void rateSelected(stars)}
-            onRequestUnpublish={() => setConfirmUnpublish(true)}
-            onUnpublish={() =>
-              void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
-            }
-            onCancelUnpublish={() => setConfirmUnpublish(false)}
-            confirmationActionsClassName={style.confirmationActions}
-            unpublishLabel="下架这个插件"
-            unpublishConfirmLabel="确认下架插件"
+            detailBusy={detailBusy}
+            confirmReplace={confirmReplace}
+            onInstall={() => void install(false)}
           />
-          {!selected.owned && client.report && (
-            <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
-          )}
-        </section>
+        )}
+        {confirmReplace && (
+          <CommunityReplaceConfirmation
+            ariaLabel="确认替换插件"
+            message={
+              <>
+                已安装同 id 的{kindLabels[selected.kind]}“{selected.plugin_id}
+                ”，安装会整体替换它。
+              </>
+            }
+            actionBusy={actionBusy}
+            onConfirm={() => void install(true)}
+            onCancel={() => setConfirmReplace(false)}
+          />
+        )}
+        <CommunityModerationSection
+          owned={selected.owned}
+          actionBusy={actionBusy}
+          ratingDescription="我的评分（安装后可评，可重新选择）"
+          unpublishMessage={`下架后其他用户无法再下载，下载数和评分会清空；已安装的插件会保留。确定下架“${selected.name}”吗？`}
+          confirmUnpublish={confirmUnpublish}
+          onRate={(stars) => void rateSelected(stars)}
+          onRequestUnpublish={() => setConfirmUnpublish(true)}
+          onUnpublish={() =>
+            void unpublishSelected("已下架这个插件；其他用户将无法再下载。已安装的插件会保留。")
+          }
+          onCancelUnpublish={() => setConfirmUnpublish(false)}
+          confirmationActionsClassName={style.confirmationActions}
+          unpublishLabel="下架这个插件"
+          unpublishConfirmLabel="确认下架插件"
+        />
+        {!selected.owned && client.report && (
+          <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
+        )}
       </CommunityDetailFrame>
     );
   }

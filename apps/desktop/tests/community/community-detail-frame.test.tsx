@@ -52,6 +52,7 @@ test("plugin gallery reuses the shared community detail frame", () => {
   expect(source).not.toContain(
     "<CommunityBackButton disabled={actionBusy} onClick={closeDetail} />",
   );
+  expect(source).not.toContain("<section className={`section ${style.detail}`}>");
 });
 
 test("resource gallery reuses the shared community detail frame", () => {
