@@ -5,6 +5,7 @@
 #include <mmdeviceapi.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <sstream>
@@ -166,6 +167,8 @@ void restore_from_disk() {
     return;
   std::istringstream input(contents);
   std::vector<std::wstring> ids;
+  ids.reserve(static_cast<std::size_t>(std::count(contents.begin(), contents.end(), '\n')) +
+              (!contents.empty() && contents.back() != '\n'));
   std::string line;
   while (std::getline(input, line)) {
     const size_t tab = line.find('\t');
