@@ -40,7 +40,12 @@ impl RuntimePaths {
             &self.cache,
             &self.dictionaries,
         ] {
-            if !root.is_absolute() {
+            // wasm32-unknown-unknown 上 std 的 `is_absolute` 恒为 false（它还要求路径前缀），所以那里以有根路径为绝对路径。
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            let absolute = root.has_root();
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            let absolute = root.is_absolute();
+            if !absolute {
                 return Err(EngineError::invalid(
                     diagnostics::RUNTIME_DIRECTORIES_MUST_BE_ABSOLUTE,
                 ));
