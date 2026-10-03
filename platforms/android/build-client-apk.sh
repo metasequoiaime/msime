@@ -88,9 +88,19 @@ if [ "${#staged_languages[@]}" -gt 0 ]; then
 else
   echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 3 ]; then
-  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db, zhuyin.db and stroke.db were not all packaged from $languages_source" >&2
-  exit 1
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet (stroke.db until a langdict release carries it) is packaged when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+  required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
+  if [ -z "$required_languages" ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2
+    exit 1
+  fi
+  for database in $required_languages; do
+    if [[ " ${staged_languages[*]:-} " != *" $database "* ]]; then
+      echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not packaged from $languages_source" >&2
+      exit 1
+    fi
+  done
 fi
 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_android_dir" \
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
@@ -102,7 +112,7 @@ output="$repo_root/target/android/msime-client.apk"
   --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"
 "$android_sdk/build-tools/35.0.0/apksigner" verify "$output"
 "$android_sdk/build-tools/35.0.0/zipalign" -c -P 16 4 "$output"
-# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than all three).
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).
 apk_entries=$(unzip -Z1 "$output")
 for pair in $language_pairs; do
   [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue

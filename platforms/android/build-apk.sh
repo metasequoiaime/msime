@@ -67,9 +67,19 @@ if [ "${#staged_languages[@]}" -gt 0 ]; then
 else
   echo "no language dictionaries at $languages_source; Cantonese, Zhuyin and Stroke stay unavailable"
 fi
-if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ] && [ "${#staged_languages[@]}" -ne 3 ]; then
-  echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but cantonese.db, zhuyin.db and stroke.db were not all packaged from $languages_source" >&2
-  exit 1
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet (stroke.db until a langdict release carries it) is packaged when present but cannot fail a release, and the lock bump that publishes it makes it required.
+if [ "${MSIME_REQUIRE_LANGUAGE_DICTIONARIES:-0}" = 1 ]; then
+  required_languages=$(python3 "$repo_root/scripts/fetch_language_dictionaries.py" --list-databases)
+  if [ -z "$required_languages" ]; then
+    echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but resources/language-dictionaries.lock.json pins no dictionary" >&2
+    exit 1
+  fi
+  for database in $required_languages; do
+    if [[ " ${staged_languages[*]:-} " != *" $database "* ]]; then
+      echo "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 but $database, pinned by resources/language-dictionaries.lock.json, was not packaged from $languages_source" >&2
+      exit 1
+    fi
+  done
 fi
 
 gradle_dir="$repo_root/platforms/android/gradle-app"
@@ -98,7 +108,7 @@ fi
   --out target/android/msime-client.apk "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" verify --verbose --print-certs target/android/msime-client.apk
 "$tools_dir/zipalign" -c -P 16 4 target/android/msime-client.apk
-# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than all three).
+# The package is only worth shipping if it carries each dictionary staged above, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).
 apk_entries=$(unzip -Z1 target/android/msime-client.apk)
 for pair in $language_pairs; do
   [ -f "$assets/language-dictionaries/${pair%%:*}" ] || continue

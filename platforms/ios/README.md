@@ -155,7 +155,7 @@ platforms/ios/stage-resources.sh "$resource_dir"
 
 第二个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/build_offline_glosses.py` 生成，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/ios/offline-glosses`，键盘扩展把它作为 EngineResources 的同级目录打包；候选释义语言选了已安装的语言时，该行不需要完全访问或网络即可显示。目录总会创建，没有词典时为空，只有英语走离线释义。
 
-第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，或由 `msime-dict-build languages` 生成）。其中的 `cantonese.db`、`zhuyin.db`、`stroke.db` 连同各自的许可证文本暂存到 `target/ios/language-dictionaries`，键盘扩展和测试宿主把它作为 EngineResources 的同级目录打包；数据库缺少许可证文本时脚本报错退出。目录总会创建，没有词库时为空，这时键盘不提供这三个方案。发版构建设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`，三个数据库没有都暂存就失败。`build-app.sh` 在暂存前先运行下载脚本；锁里还没有固定发布时它只打印一行跳过信息。
+第三个可选参数是粤语、注音与笔画的语言词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，或由 `msime-dict-build languages` 生成）。其中的 `cantonese.db`、`zhuyin.db`、`stroke.db` 连同各自的许可证文本暂存到 `target/ios/language-dictionaries`，键盘扩展和测试宿主把它作为 EngineResources 的同级目录打包；数据库缺少许可证文本时脚本报错退出。目录总会创建，没有词库时为空，这时键盘不提供这三个方案。发版构建设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1`，`resources/language-dictionaries.lock.json` 固定的数据库（`fetch_language_dictionaries.py --list-databases`）没有都暂存就失败；锁固定 `stroke.db` 之前笔画词库不在必需之列。`build-app.sh` 在暂存前先运行下载脚本；锁里还没有固定发布时它只打印一行跳过信息。
 
 只构建 Rust 宿主库时运行：
 

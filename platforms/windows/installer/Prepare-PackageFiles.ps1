@@ -376,7 +376,7 @@ if (-not $Light) {
         Write-Host "No offline glosses with their notice in $glossesSource; candidate glosses stay English only"
     }
 }
-# The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py into target/language-dictionaries, pinned by resources/language-dictionaries.lock.json), installed beside resources like the glosses: host-api finds language-dictionaries there and records it in the runtime options. Optional; without a dictionary its scheme is shown as unavailable and falls back to the last Chinese scheme, and Vietnamese needs no data. Each dictionary ships only with its licence text, which must travel with the data. Set MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 to fail a package that does not carry all three.
+# The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py into target/language-dictionaries, pinned by resources/language-dictionaries.lock.json), installed beside resources like the glosses: host-api finds language-dictionaries there and records it in the runtime options. Optional; without a dictionary its scheme is shown as unavailable and falls back to the last Chinese scheme, and Vietnamese needs no data. Each dictionary ships only with its licence text, which must travel with the data. Set MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1 to fail a package that does not carry every dictionary resources/language-dictionaries.lock.json pins.
 $languagesSource = Join-Path $RepoRoot 'target/language-dictionaries'
 $languagesTarget = Join-Path $targetServer 'language-dictionaries'
 if (Test-Path -LiteralPath $languagesTarget) {
@@ -401,8 +401,21 @@ if (-not $Light) {
     } else {
         Write-Host "未找到语言词库（$languagesSource），粤拼、注音和笔画保持不可用"
     }
-    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1' -and $stagedLanguages.Count -ne 3) {
-        throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesSource 中的 cantonese.db、zhuyin.db 和 stroke.db 没有全部装入"
+    # 发版要求的是 resources/language-dictionaries.lock.json 固定的每一份词库，而不是写死的清单：还没发布的词库（langdict release 带上 stroke.db 之前的笔画）存在时照常装入，但不会让发版失败；发布它的那次锁更新会让它变成必需。
+    if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1') {
+        $languagesLock = Join-Path $RepoRoot 'resources/language-dictionaries.lock.json'
+        if (-not (Test-Path -LiteralPath $languagesLock -PathType Leaf)) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 不存在"
+        }
+        $pinnedLanguages = @((Get-Content -LiteralPath $languagesLock -Raw -Encoding UTF8 | ConvertFrom-Json).artifacts | ForEach-Object { $_.name } | Where-Object { $_ -like '*.db' })
+        if ($pinnedLanguages.Count -eq 0) {
+            throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但 $languagesLock 没有固定任何词库"
+        }
+        foreach ($pinned in $pinnedLanguages) {
+            if ($stagedLanguages -notcontains $pinned) {
+                throw "MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1，但锁文件固定的 $pinned 没有从 $languagesSource 装入"
+            }
+        }
     }
 }
 # Both package modes replace Server output. Copy model resources afterwards,

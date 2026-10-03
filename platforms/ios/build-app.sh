@@ -47,7 +47,7 @@ xcodebuild "${build_container[@]}" \
   -derivedDataPath "$repo_root/target/ios/derived-$variant" \
   CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 
-# The keyboard extension is what loads the Cantonese, Zhuyin and Stroke dictionaries, so the built app is only worth shipping if the extension it embeds carries each one stage-resources.sh staged, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than all three).
+# The keyboard extension is what loads the Cantonese, Zhuyin and Stroke dictionaries, so the built app is only worth shipping if the extension it embeds carries each one stage-resources.sh staged, beside its licence (a release, MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1, has already refused to stage fewer than the lock pins).
 staged_languages="$repo_root/target/ios/language-dictionaries"
 keyboard_languages="$repo_root/target/ios/derived-$variant/Build/Products/Release-$sdk/MSIMEApp.app/PlugIns/MSIMEKeyboardExtension.appex/language-dictionaries"
 for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt; do
