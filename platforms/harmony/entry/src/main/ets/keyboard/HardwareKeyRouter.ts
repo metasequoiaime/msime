@@ -730,6 +730,14 @@ export class HardwareKeyRouter {
     return RELEASE;
   }
 
+  /** 触屏符号键是否作为字符交给 Engine：组字中或本地模式里 Engine 列为拼写的符号（网址模式的数字和网址符号、`www` 之后的 `.`、U/V 模式的数字）。标点入口 `msime_client_punctuation_with_context` 只收 ASCII 标点，数字走那条路会被拒绝而丢掉。没有组字时列出的 `/` 和 `@` 不在此列，照旧走标点路由。 */
+  static touchSpells(spelling: HardwareSpelling, character: number): boolean {
+    return (
+      (spelling.localMode !== "none" || spelling.editing.length > 0) &&
+      HardwareKeyRouter.spells(spelling, character)
+    );
+  }
+
   /** Whether the Engine takes `character` as input in this state. Never in the English candidate mode, which spells letters only. */
   private static spells(spelling: HardwareSpelling, character: number): boolean {
     return (

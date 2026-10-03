@@ -12698,6 +12698,14 @@ group("URL mode and its trigger keys route through the symbols the Engine lists"
     route({ keyCode: 2050, unicodeChar: 0x20 }, url).action === HardwareKeyAction.COMMIT,
     "Space takes the single row, the URL itself",
   );
+  // 触屏符号键：组字中列出的符号（含数字）走字符路由，空闲时列出的 `/` `@` 和没列出的符号照旧走标点路由。
+  const touch = (spelling: Partial<HardwareSpelling>, character: number) =>
+    HardwareKeyRouter.touchSpells({ ...PLAIN_SPELLING, ...spelling }, character);
+  check(touch(url, 0x31) && touch(url, 0x3d) && touch(url, 0x2e), "touch digits and = . are URL input");
+  check(!touch(url, 0x3c), "touch < ends the URL on the punctuation route");
+  check(touch(www, 0x2e) && !touch(www, 0x31), "touch . after www opens the URL; a digit there is not listed");
+  check(!touch({ spellingSymbols: "/@" }, 0x2f), "idle / stays on the punctuation route");
+  check(!touch({ ...url, englishCandidates: true }, 0x31), "the English candidate mode spells letters only");
   // 有意的行为变化：组字中只列了撇号这类符号（粤拼 `cantonese::SPELLING_SYMBOLS_COMPOSING`、藏文 `tibetan::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。
   for (const [name, spelling] of [
     ["Cantonese", { editing: "nei", caret: 3, spellingSymbols: "'" }],
