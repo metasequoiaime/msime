@@ -1545,8 +1545,9 @@ impl InputSession {
             self.update_dedicated_english_candidates();
             return KeyResult::handled();
         }
+        // 网址模式的退格与光标处删除共用一条路径（光标在行末）。
         if self.local_mode == LocalInputMode::Url {
-            return self.url_backspace();
+            return self.edit_at_caret(Command::Backspace);
         }
         if self.local_mode != LocalInputMode::None {
             // Backspacing the bare prefix letter leaves the mode.
@@ -1569,25 +1570,13 @@ impl InputSession {
         KeyResult::handled()
     }
 
-    /// 网址模式里删掉一个字符。删空就退出；满足 `url_reverts` 时退回组字。
-    fn url_backspace(&mut self) -> KeyResult {
-        let removed = self.local_preedit.pop();
-        if self.local_preedit.is_empty() {
-            self.reset_composition();
-            return KeyResult::handled();
-        }
-        if removed.is_some_and(|character| self.url_reverts(&self.local_preedit, character)) {
-            let letters = std::mem::take(&mut self.local_preedit);
-            self.restore_composition_from_url(letters);
-            return KeyResult::handled();
-        }
-        KeyResult::handled().with_diagnostic(self.update_local_candidates())
-    }
-
-    /// 网址模式删掉 `removed` 后剩下 `remaining` 时是否退回组字：删掉的是非字母、剩下的全是小写字母（`www.` 删掉 `.`），或五笔删掉进入网址模式的那个 `s`，误触发后还能选回原来的字（五笔 `www` 的“众”）。行末退格和光标处的删除走同一条规则。
+    /// 网址模式删掉 `removed` 后剩下 `remaining` 时是否退回组字：恰为进入网址模式的逆操作，即组字原文 `remaining` 按下 `removed` 正好会进入网址模式（`www.` 删掉 `.`、五笔 `https` 删掉 `s`），误触发后还能选回原来的字（五笔 `www` 的“众”）。`www.example` 删掉中间的 `.` 不满足，留在网址模式。退格和光标处的删除走同一条规则。
     pub(super) fn url_reverts(&self, remaining: &str, removed: char) -> bool {
-        (!removed.is_ascii_alphabetic() && remaining.bytes().all(|byte| byte.is_ascii_lowercase()))
-            || (self.scheme() == SchemeType::Wubi && url::wubi_reverts(remaining, removed))
+        let Ok(key) = u8::try_from(removed) else {
+            return false;
+        };
+        url::opens(remaining, key)
+            || (self.scheme() == SchemeType::Wubi && url::wubi_continues(remaining, key))
     }
 
     /// 把网址模式剩下的字母重新作为组字原文。方案装不下全部字母时留在网址模式。

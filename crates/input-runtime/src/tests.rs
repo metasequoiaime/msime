@@ -6170,7 +6170,7 @@ fn url_mode_opens_on_the_punctuation_route() {
     assert!(committed.view.editing_text.is_empty());
 }
 
-// 宿主把 `.` 当作字符送来（Character 路由）时同样进入网址模式。
+// 宿主把 `:` 当作字符送来（Character 路由）时同样进入网址模式。
 #[test]
 fn url_mode_opens_on_the_character_route() {
     let directory = tempfile::tempdir().unwrap();
@@ -6274,4 +6274,27 @@ fn url_backspace_past_the_trigger_returns_to_the_composition() {
     assert_eq!(back.view.local_mode, "none");
     assert_eq!(back.view.editing_text, "www");
     assert_eq!(back.view.spelling_symbols, ".");
+}
+
+// 空格上屏网址本身，不在末尾带空格；Esc 丢弃网址不上屏，回到没有本地模式的状态。
+#[test]
+fn url_space_commits_the_url_alone_and_escape_discards_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled, "{space:?}");
+    assert_eq!(space.commit.as_deref(), Some("www.a"));
+    assert_eq!(space.view.local_mode, "none");
+    assert!(space.view.editing_text.is_empty());
+
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    let escape = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(escape.commit.is_none(), "{escape:?}");
+    assert_eq!(escape.view.local_mode, "none");
+    assert!(escape.view.editing_text.is_empty());
 }

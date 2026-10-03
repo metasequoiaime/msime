@@ -17,21 +17,6 @@ pub(super) fn temporary_japanese_preedit(raw: &str) -> String {
     preedit
 }
 
-/// `after` 是 `before` 删掉一个字符的结果时返回被删掉的字符。网址只含 ASCII，按字节比较即可。
-fn url_removed_character(before: &str, after: &str) -> Option<char> {
-    if before.len() != after.len() + 1 {
-        return None;
-    }
-    let index = before
-        .bytes()
-        .zip(after.bytes())
-        .position(|(old, new)| old != new)
-        .unwrap_or(after.len());
-    let removed = before.as_bytes()[index];
-    let rebuilt = [&before.as_bytes()[..index], &before.as_bytes()[index + 1..]].concat();
-    (rebuilt == after.as_bytes()).then_some(removed as char)
-}
-
 impl InputSession {
     /// 专用英文的预编辑；临时日文是 `"R"` 加带大小写的原文；本地模式的预编辑；越南文和藏文是显示出来的文字；粤拼是按音节加空格的字母；其余是带大小写的原文，笔画里就是键入的 `hspnzx` 字母，与 reading 画出的笔画字形一一对应。
     pub(super) fn editing_text(&self) -> String {
@@ -79,15 +64,15 @@ impl InputSession {
                     return KeyResult::handled();
                 }
                 caret -= 1;
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             Command::DeleteForward => {
                 if caret == text.len() {
                     return KeyResult::handled();
                 }
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             _ => return KeyResult::unhandled(),
         }
@@ -95,6 +80,22 @@ impl InputSession {
         // Moving the caret changes which prefix is decoded.
         self.update_mixed_candidates();
         KeyResult::handled()
+    }
+
+    /// 从编辑文字里删掉 `removed` 后剩下 `text`。网址模式删空就退出；删掉的正是进入网址模式的那个键（`url_reverts`）时退回组字，否则与其他模式一样替换编辑文字。
+    fn delete_editing_character(&mut self, text: String, caret: usize, removed: char) -> KeyResult {
+        if self.local_mode == LocalInputMode::Url {
+            // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
+            if text.is_empty() {
+                self.reset_composition();
+                return KeyResult::handled();
+            }
+            if self.url_reverts(&text, removed) {
+                self.restore_composition_from_url(text);
+                return KeyResult::handled();
+            }
+        }
+        self.replace_editing_text(&text, caret)
     }
 
     /// input_session_editing.cpp:161-210.
@@ -162,7 +163,14 @@ impl InputSession {
                 }
                 // 与 `handle_local_character` 同一组规则。
                 LocalInputMode::Url => {
-                    accepted = url::accepts(value) && text.len() < url::INPUT_LIMIT;
+                    if !url::accepts(value) {
+                        return KeyResult::unhandled();
+                    }
+                    // 已到长度上限时吞掉按键，与行末键入一致；只有网址不收的键才交还 runtime。
+                    if text.len() >= url::INPUT_LIMIT {
+                        return KeyResult::handled();
+                    }
+                    accepted = true;
                 }
             }
         }
@@ -187,16 +195,6 @@ impl InputSession {
         if self.dedicated_english {
             self.dedicated_english_preedit = text.to_owned();
             self.update_dedicated_english_candidates();
-        } else if self.local_mode == LocalInputMode::Url && text.is_empty() {
-            // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
-            self.reset_composition();
-            return KeyResult::handled();
-        } else if self.local_mode == LocalInputMode::Url
-            && url_removed_character(&self.local_preedit, text)
-                .is_some_and(|removed| self.url_reverts(text, removed))
-        {
-            // 光标处删掉一个字符与行末退格同一条规则：`www.` 左移后删掉 `.` 也退回组字。
-            self.restore_composition_from_url(text.to_owned());
         } else if self.local_mode != LocalInputMode::None
             && self.local_mode != LocalInputMode::TemporaryJapanese
         {

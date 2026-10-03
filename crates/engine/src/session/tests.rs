@@ -4055,6 +4055,63 @@ fn url_caret_delete_of_the_trigger_restores_the_code() {
     assert_eq!(words(&session), ["众"]);
 }
 
+/// 五笔开混拼时码长不再限 4，`http` 加 `s` 仍直接进入网址模式；`https:` 删掉 `:` 能退回组字 `https`。
+#[test]
+fn url_wubi_mixed_pinyin_reverts_https_colon_to_the_composition() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "http");
+    assert!(session.character(b's', false).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https");
+    type_url(&mut session, ":");
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "https");
+    assert_eq!(snapshot.spelling_symbols, ":");
+}
+
+/// 退回组字只是进入的逆操作：删掉中间的 `.` 后剩下的 `wwwexample` 不是触发词，留在网址模式。
+#[test]
+fn url_deleting_a_middle_dot_keeps_the_mode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    type_url(&mut session, ".example");
+    for _ in 0.."example".len() {
+        assert!(session.command(Command::MoveLeft).handled);
+    }
+    assert_eq!(session.snapshot().caret_position, 4);
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "wwwexample");
+}
+
+/// 光标在中间且网址已到长度上限时，网址收的键被吞掉而不是交还宿主；网址不收的键照旧交还。
+#[test]
+fn url_caret_insert_at_the_limit_is_swallowed() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+    while session.snapshot().preedit.len() < crate::local::url::INPUT_LIMIT {
+        assert!(session.character(b'a', false).handled);
+    }
+    assert!(session.command(Command::MoveLeft).handled);
+    let before = session.snapshot().preedit;
+    let digit = session.character(b'1', false);
+    assert!(digit.handled && digit.commit.is_none(), "{digit:?}");
+    assert!(session.punctuation(b'/').handled);
+    assert_eq!(session.snapshot().preedit, before);
+    assert!(!session.character(b'|', false).handled);
+}
+
 #[test]
 fn url_backspace_keeps_the_mode_when_the_rest_is_not_lowercase_letters() {
     let fixture = Fixture::new(QUANPIN_FIXTURE);
@@ -4162,7 +4219,7 @@ fn url_caret_editing_reaches_the_first_character_and_an_empty_url_leaves_the_mod
     let fixture = Fixture::new(QUANPIN_FIXTURE);
     let mut session = fixture.session();
     type_text(&mut session, "www");
-    // 末尾用大写 `A`：删掉 `.` 后剩下的不全是小写字母，留在网址模式，才能删到空。
+    // 删掉 `.` 时剩下的不是触发词，留在网址模式，才能删到空。
     type_url(&mut session, ".A");
     session.command(Command::MoveHome);
     assert_eq!(session.snapshot().caret_position, 0);
