@@ -16,7 +16,7 @@ import * as settings from "./settings-style";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
-import { SettingsErrorMessage } from "./settings-error-message";
+import { ErrorAlert } from "../core/error-alert";
 import { SettingsNotice } from "./settings-notice";
 
 export interface PersonalDictionaryImportClient {
@@ -180,7 +180,7 @@ export function PersonalDictionaryImportCard({
           ))}
         </div>
       )}
-      {error && <SettingsErrorMessage>{error}</SettingsErrorMessage>}
+      {error && <ErrorAlert>{error}</ErrorAlert>}
       {notice && <SettingsNotice role="status">{notice}</SettingsNotice>}
       {entries && (
         <ActionButton

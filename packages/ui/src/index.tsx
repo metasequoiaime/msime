@@ -1312,10 +1312,6 @@ export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-
 export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
 export { SettingsNotice, type SettingsNoticeProps } from "./settings/settings-notice";
 export {
-  SettingsErrorMessage,
-  type SettingsErrorMessageProps,
-} from "./settings/settings-error-message";
-export {
   SettingsManagerNote,
   type SettingsManagerNoteProps,
 } from "./settings/settings-manager-note";
