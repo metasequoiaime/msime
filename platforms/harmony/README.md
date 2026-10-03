@@ -310,7 +310,7 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 ### 词库与暂存
 
-粤语和注音各需一份语言词库（`cantonese.db`、`zhuyin.db`，由 `scripts/fetch_language_dictionaries.py` 取回或 `msime-dict-build languages` 生成），越南语不需要。`stage-resources.sh` 的第三个参数（默认 `target/language-dictionaries`）指向这些文件，每份词库只在其许可证文本（`rime_cantonese_LICENSE.txt`、`libchewing_data_LICENSE.txt`）同在时才暂存到 `resfile/language-dictionaries/`，缺许可证直接失败；一份都没有时只打印提示，设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 则要求两份都在。键盘与设置页启动时用 `StagedResources.stageLanguageDictionaries` 把它们复制到 `files/language-dictionaries/`，与 `files/engine` 相邻，host-api 在那里找到并写进运行时选项；新包不带词库时删掉旧副本。词库缺失的方案不出现：设置页的 `hostCapabilities` 从 `input_schemes` 里去掉它（与桌面端 `drop_uninstalled_language_schemes` 一致），键盘的方案列表经 `KeyboardScheme.withInstalledDictionaries` 过滤，全部被过滤时回落到全拼。
+粤语、注音和笔画各需一份语言词库（`cantonese.db`、`zhuyin.db`、`stroke.db`，由 `scripts/fetch_language_dictionaries.py` 取回或 `msime-dict-build languages` 生成），越南语不需要。`stage-resources.sh` 的第三个参数（默认 `target/language-dictionaries`）指向这些文件，每份词库只在其许可证文本（`rime_cantonese_LICENSE.txt`、`libchewing_data_LICENSE.txt`、`rime_stroke_LICENSE.txt`）同在时才暂存到 `resfile/language-dictionaries/`，缺许可证直接失败；一份都没有时只打印提示，设 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 则要求三份都在（`resources/language-dictionaries.lock.json` 固定 `stroke.db` 之前，发版构建会因此失败）。键盘与设置页启动时用 `StagedResources.stageLanguageDictionaries` 把它们复制到 `files/language-dictionaries/`，与 `files/engine` 相邻，host-api 在那里找到并写进运行时选项；新包不带词库时删掉旧副本。词库缺失的方案不出现：设置页的 `hostCapabilities` 从 `input_schemes` 里去掉它（与桌面端 `drop_uninstalled_language_schemes` 一致），键盘的方案列表经 `KeyboardScheme.withInstalledDictionaries` 过滤，全部被过滤时回落到全拼。
 
 ### 注音（大千）
 
@@ -321,6 +321,16 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 ### 越南语（Telex / VNI）
 
 触屏用普通 26 键，字母按实际大小写发出，Shift 只作用一次，不做自动大写；符号、逗号键与快捷标点都是半角 ASCII，第二排没有 `;` 键。组字行画 Engine 写出的带声调词。符号键面上的数字只在 VNI 且正在组字时作为声调键交给 Engine（Engine 此时把 `0123456789` 列为 `spelling_symbols`），否则先提交词再打数字；空格提交词并打出空格；回车先提交词，再照常换行或提交编辑框。失焦与切换方案提交当前词。硬件键盘走 `routeKorean` 的同一条路（不认汉字键）：字母总是组字，空闲时其余键交还应用，组字时 VNI 数字组字，标点连词一起提交，其他键先提交再交还应用。
+
+以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
+
+## 笔画
+
+选择器末尾在「越南语 26 键」之后再加一张卡「笔画」（`KeyboardScheme.STROKE`，Engine 方案名 `stroke`，编号 8，字形「笔」，角标「5」），默认不启用，需要 `stroke.db`（见上文「词库与暂存」），缺词库时和粤语、注音一样不出现。笔画是中文方案：选中时它自己就是 `last_chinese_scheme`，打字统计记在 `stroke` 名下；`SchemeTraits` 里它的谓词逐项照抄粤语（中文标点、智能标点、全角加宽成立，不学进主词库、不做简繁转换、失焦不提交、光标不锁定、没有可开关的候选列表），由 `scripts/test-scheme-traits-parity.py` 对照 Engine 检查。账号同步不上传它（`AccountPreferencePlan` 的 `LOCAL_ONLY_SCHEMES`），云端写来的 `stroke` 保留本机方案。
+
+触屏画 `input/StrokeLayout.ts` 描述的笔画键盘，套用九键的外框：左侧是九键的标点栏，中间两行三列 `一 横`、`丨 竖`、`丿 撇` / `丶 点`、`乛 折`、`＊ 通配`，右侧整列是删除键，底排与九键相同（「符」代替逗号）。卡片的布局仍记作 `twenty_six_key`，键面按方案选（与大千注音同理），所以不会打开九键拼音的数字解码；符号层沿用共用的字母面。点击发出字母 `h s p n z x`，Engine 负责组字与候选；空组合时 Engine 不接通配键，键盘也就不发送它。组字行和 2in1 的预览文本画 Engine 的 `preedit`，也就是笔画字形 一丨丿丶乛＊，不画键入的字母，光标沿用 Engine 的位置（字母与字形一一对应）。回车、空格、退格和失焦沿用粤语的共享规则。快捷栏的输入模式指示显示「笔」，触屏语言键仍显示「中」。
+
+硬件键盘走中文的共享路线：字母交给 Engine，空组合时只有 `h s p n z` 开始组字，`x` 与其它字母由 Engine 交回应用照常输入（键盘不把这当作故障记日志）；组字中 `x` 追加通配，其它字母被吞掉；数字 1–9 选本页；`'` 不当音节分隔符（`HardwareKeyRouter.spellsWithoutSyllables`，与五笔相同）。
 
 以上由 `tests/run.sh` 的逻辑测试和 `hvigorw assembleHap` 的 ArkTS 编译覆盖，尚未在设备或模拟器上验证。
 
