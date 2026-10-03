@@ -535,6 +535,7 @@ export {
   AccountIdentityDetails,
   type AccountIdentityDetailsProps,
 } from "./account/account-identity-details";
+export { AccountInputField, type AccountInputFieldProps } from "./account/account-input-field";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
 export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {

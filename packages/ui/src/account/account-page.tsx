@@ -10,6 +10,7 @@ import { preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { AccountNicknameField } from "./account-nickname-field";
+import { AccountInputField } from "./account-input-field";
 import { AccountIdentityDetails } from "./account-identity-details";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
@@ -1265,23 +1266,20 @@ function AccountDetailsPage({
             </>
           ) : (
             <div className={account.signInBody}>
-              <label className={account.field}>
-                {channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
-                <input
-                  className={account.input}
-                  aria-label={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
-                  type={channel === "email" ? "email" : "tel"}
-                  autoComplete={channel === "email" ? "email" : "tel"}
-                  maxLength={320}
-                  value={target}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setTarget(event.target.value);
-                    setChallenge(null);
-                    setCode("");
-                  }}
-                />
-              </label>
+              <AccountInputField
+                label={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
+                ariaLabel={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
+                type={channel === "email" ? "email" : "tel"}
+                autoComplete={channel === "email" ? "email" : "tel"}
+                maxLength={320}
+                value={target}
+                disabled={busy}
+                onChange={(value) => {
+                  setTarget(value);
+                  setChallenge(null);
+                  setCode("");
+                }}
+              />
               <ActionButton
                 action={requestCode}
                 className={challenge ? account.provider : account.submit}
@@ -1290,21 +1288,16 @@ function AccountDetailsPage({
               />
               {challenge && (
                 <div className={account.code}>
-                  <label className={account.field}>
-                    6 位验证码
-                    <input
-                      className={account.input}
-                      aria-label="6 位验证码"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={code}
-                      disabled={busy}
-                      onChange={(event) =>
-                        setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
-                      }
-                    />
-                  </label>
+                  <AccountInputField
+                    label="6 位验证码"
+                    ariaLabel="6 位验证码"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={code}
+                    disabled={busy}
+                    onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+                  />
                   <ActionButton
                     action={signIn}
                     className={account.submit}
