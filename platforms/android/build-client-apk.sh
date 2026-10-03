@@ -94,11 +94,7 @@ ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" TAURI_ANDROID_DIR="$tauri_an
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected Tauri APK not produced" >&2; exit 1; }
-keystore="$repo_root/target/android/development.keystore"
-if [[ ! -f "$keystore" ]]; then
-  keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
-    -alias androiddebugkey -dname "CN=MSIME Development" -keyalg RSA -keysize 2048 -validity 3650
-fi
+keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
 output="$repo_root/target/android/msime-client.apk"
 "$android_sdk/build-tools/35.0.0/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
   --ks-pass pass:android --key-pass pass:android --out "$output" "$unsigned"

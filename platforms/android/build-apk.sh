@@ -80,11 +80,7 @@ ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --conso
 
 unsigned="$gradle_dir/app/build/outputs/apk/release/app-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
-keystore="$repo_root/target/android/development.keystore"
-if [[ ! -f "$keystore" ]]; then
-  keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
-    -alias androiddebugkey -dname "CN=MSIME Development" -keyalg RSA -keysize 2048 -validity 3650
-fi
+keystore=$(bash "$repo_root/platforms/android/scripts/dev-keystore.sh")
 "$tools_dir/zipalign" -P 16 4 "$unsigned" "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
   --ks-pass pass:android --key-pass pass:android \
