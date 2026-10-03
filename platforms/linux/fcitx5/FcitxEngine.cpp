@@ -108,14 +108,16 @@
 #define MSIME_FCITX_ACTIONS 1
 #endif
 
+#include "../src/core/LinuxEdition.h"
+
 #ifndef MSIME_SYSTEM_OPTIONS
-#define MSIME_SYSTEM_OPTIONS "/etc/msime-client/runtime-options.json"
+#define MSIME_SYSTEM_OPTIONS "/etc/" MSIME_EDITION_CLIENT_DIRECTORY "/runtime-options.json"
 #endif
 #ifndef MSIME_BINDIR
 #define MSIME_BINDIR "/usr/bin"
 #endif
 #ifndef MSIME_SOUND_PACKS
-#define MSIME_SOUND_PACKS "/usr/share/msime-client/sound-packs"
+#define MSIME_SOUND_PACKS "/usr/share/" MSIME_EDITION_CLIENT_DIRECTORY "/sound-packs"
 #endif
 
 extern char **environ;
@@ -364,7 +366,7 @@ std::string providerSocket(const Json &options, const char *option,
   }
   if (!value.empty()) return value;
   if (const auto *runtime = std::getenv("XDG_RUNTIME_DIR")) {
-    const auto candidate = std::filesystem::path(runtime) / "msime-client" / filename;
+    const auto candidate = std::filesystem::path(runtime) / MSIME_EDITION_CLIENT_DIRECTORY / filename;
     std::error_code error;
     if (std::filesystem::is_socket(candidate, error)) return candidate.string();
   }
@@ -390,7 +392,7 @@ std::string translationSocket(const Json &options) {
 bool launchDesktopPanel(const char *panel) {
   if (!panel || !*panel) return false;
   const char *command = std::getenv("MSIME_CLIENT_SETTINGS_COMMAND");
-  if (!command || !*command) command = "msime-linux-settings";
+  if (!command || !*command) command = MSIME_EDITION_SETTINGS_PROGRAM;
   // About, help, feedback and the local dictionary are settings sections, not desktop surfaces, so each travels as "settings:<category>" exactly as the IBus host sends it; the bare name is not a route head and the shared parser would reject it, leaving the window on its home page.
   const char *page = std::strcmp(panel, "about") == 0        ? "about"
                      : std::strcmp(panel, "help") == 0       ? "help"
@@ -4731,7 +4733,7 @@ public:
   explicit FcitxReloadServiceAction(fcitx::FactoryFor<FcitxState> *factory)
       : factory_(factory) {
     setShortText("重载输入法服务");
-    setLongText("重置水杉输入法：关闭所有输入会话并重新读取运行配置");
+    setLongText("重置" MSIME_EDITION_DISPLAY_NAME "：关闭所有输入会话并重新读取运行配置");
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
@@ -5360,13 +5362,15 @@ public:
     fcitx_key_presses_shutting_down = false;
     refreshOptions();
     refreshTypingStatistics();
-    instance->inputContextManager().registerProperty("msimeState", &factory_);
-    english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
-    input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
-    scheme_action_.registerAction("msime-scheme", &instance->userInterfaceManager());
-    shuangpin_profile_action_.registerAction("msime-shuangpin-profile", &instance->userInterfaceManager());
-    width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
-    nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
+    // 输入上下文属性名在整个 fcitx5 进程里唯一：两个版本的插件同时加载时，后注册的同名属性会失败、factory_ 拿不到槽位，第一次 propertyFor 就越界。名字随插件名，full 仍是 msimeState。
+    if (!instance->inputContextManager().registerProperty(MSIME_EDITION_FCITX5_ADDON "State", &factory_))
+      throw std::runtime_error("Fcitx5 input context property " MSIME_EDITION_FCITX5_ADDON "State is already registered");
+    english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-english-candidates", &instance->userInterfaceManager());
+    input_mode_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-input-mode", &instance->userInterfaceManager());
+    scheme_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-scheme", &instance->userInterfaceManager());
+    shuangpin_profile_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-shuangpin-profile", &instance->userInterfaceManager());
+    width_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-fullwidth", &instance->userInterfaceManager());
+    nine_key_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-nine-key", &instance->userInterfaceManager());
     nine_key_action_.setMenu(&nine_key_menu_);
     nine_key_menu_.addAction(&nine_key_spelling1_);
     nine_key_menu_.addAction(&nine_key_spelling2_);
@@ -5377,47 +5381,47 @@ public:
     nine_key_menu_.addAction(&nine_key_spelling7_);
     nine_key_menu_.addAction(&nine_key_spelling8_);
     nine_key_menu_.addAction(&nine_key_spelling9_);
-    helpcode_action_.registerAction("msime-helpcode", &instance->userInterfaceManager());
-    mixed_english_action_.registerAction("msime-mixed-english", &instance->userInterfaceManager());
-    mixed_emoji_action_.registerAction("msime-mixed-emoji", &instance->userInterfaceManager());
-    mixed_kaomoji_action_.registerAction("msime-mixed-kaomoji", &instance->userInterfaceManager());
-    local_unicode_action_.registerAction("msime-local-unicode", &instance->userInterfaceManager());
-    local_date_time_action_.registerAction("msime-local-date-time", &instance->userInterfaceManager());
-    local_quick_phrase_action_.registerAction("msime-local-quick-phrase", &instance->userInterfaceManager());
-    local_emoji_action_.registerAction("msime-local-emoji", &instance->userInterfaceManager());
-    local_kaomoji_action_.registerAction("msime-local-kaomoji", &instance->userInterfaceManager());
-    local_super_jianpin_action_.registerAction("msime-local-super-jianpin", &instance->userInterfaceManager());
-    local_temporary_english_action_.registerAction("msime-local-temporary-english", &instance->userInterfaceManager());
-    local_temporary_japanese_action_.registerAction("msime-local-temporary-japanese", &instance->userInterfaceManager());
-    local_expression_action_.registerAction("msime-local-expression", &instance->userInterfaceManager());
-    local_command_action_.registerAction("msime-local-command", &instance->userInterfaceManager());
-    local_mention_action_.registerAction("msime-local-mention", &instance->userInterfaceManager());
-    english_gloss_action_.registerAction("msime-english-gloss", &instance->userInterfaceManager());
-    word_character_action_.registerAction("msime-word-character", &instance->userInterfaceManager());
-    number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
-    shuangpin_preedit_action_.registerAction("msime-shuangpin-preedit", &instance->userInterfaceManager());
-    wubi_code_hint_action_.registerAction("msime-wubi-code-hint", &instance->userInterfaceManager());
-    helpcode_schema_action_.registerAction("msime-helpcode-schema", &instance->userInterfaceManager());
-    maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
-    clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
-    clipboard_history_action_.registerAction("msime-clipboard-history", &instance->userInterfaceManager());
-    cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
-    emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
-    emoji_search_action_.registerAction("msime-emoji-search", &instance->userInterfaceManager());
-    emoji_category_action_.registerAction("msime-emoji-category", &instance->userInterfaceManager());
-    emoji_group_action_.registerAction("msime-emoji-group", &instance->userInterfaceManager());
-    voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
-    voice_cancel_action_.registerAction("msime-voice-cancel", &instance->userInterfaceManager());
-    desktop_tools_action_.registerAction("msime-desktop-tools", &instance->userInterfaceManager());
-    toolbar_action_.registerAction("msime-toolbar", &instance->userInterfaceManager());
-    traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
-    chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
-    paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
-    smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
-    smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
-    candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
-    candidate_theme_action_.registerAction("msime-candidate-theme", &instance->userInterfaceManager());
-    global_theme_action_.registerAction("msime-global-theme", &instance->userInterfaceManager());
+    helpcode_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-helpcode", &instance->userInterfaceManager());
+    mixed_english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-english", &instance->userInterfaceManager());
+    mixed_emoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-emoji", &instance->userInterfaceManager());
+    mixed_kaomoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mixed-kaomoji", &instance->userInterfaceManager());
+    local_unicode_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-unicode", &instance->userInterfaceManager());
+    local_date_time_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-date-time", &instance->userInterfaceManager());
+    local_quick_phrase_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-quick-phrase", &instance->userInterfaceManager());
+    local_emoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-emoji", &instance->userInterfaceManager());
+    local_kaomoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-kaomoji", &instance->userInterfaceManager());
+    local_super_jianpin_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-super-jianpin", &instance->userInterfaceManager());
+    local_temporary_english_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-temporary-english", &instance->userInterfaceManager());
+    local_temporary_japanese_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-temporary-japanese", &instance->userInterfaceManager());
+    local_expression_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-expression", &instance->userInterfaceManager());
+    local_command_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-command", &instance->userInterfaceManager());
+    local_mention_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-local-mention", &instance->userInterfaceManager());
+    english_gloss_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-english-gloss", &instance->userInterfaceManager());
+    word_character_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-word-character", &instance->userInterfaceManager());
+    number_row_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-number-row", &instance->userInterfaceManager());
+    shuangpin_preedit_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-shuangpin-preedit", &instance->userInterfaceManager());
+    wubi_code_hint_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-wubi-code-hint", &instance->userInterfaceManager());
+    helpcode_schema_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-helpcode-schema", &instance->userInterfaceManager());
+    maintenance_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-tools", &instance->userInterfaceManager());
+    clipboard_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-clipboard", &instance->userInterfaceManager());
+    clipboard_history_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-clipboard-history", &instance->userInterfaceManager());
+    cloud_clipboard_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-cloud-clipboard", &instance->userInterfaceManager());
+    emoji_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-emoji", &instance->userInterfaceManager());
+    emoji_search_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-emoji-search", &instance->userInterfaceManager());
+    emoji_category_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-emoji-category", &instance->userInterfaceManager());
+    emoji_group_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-emoji-group", &instance->userInterfaceManager());
+    voice_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-voice", &instance->userInterfaceManager());
+    voice_cancel_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-voice-cancel", &instance->userInterfaceManager());
+    desktop_tools_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-desktop-tools", &instance->userInterfaceManager());
+    toolbar_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-toolbar", &instance->userInterfaceManager());
+    traditional_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-traditional", &instance->userInterfaceManager());
+    chinese_punctuation_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-chinese-punctuation", &instance->userInterfaceManager());
+    paired_punctuation_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-paired-punctuation", &instance->userInterfaceManager());
+    smart_punctuation_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-smart-punctuation", &instance->userInterfaceManager());
+    smart_punctuation_repeat_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-smart-punctuation-repeat", &instance->userInterfaceManager());
+    candidate_layout_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-layout", &instance->userInterfaceManager());
+    candidate_theme_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-theme", &instance->userInterfaceManager());
+    global_theme_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-global-theme", &instance->userInterfaceManager());
     global_theme_action_.setMenu(&global_theme_menu_);
     if (const auto themes = themeCatalog().find("themes"); themes != themeCatalog().end() && themes->is_array())
       for (const auto &theme : *themes) {
@@ -5427,10 +5431,10 @@ public:
         global_theme_items_.push_back(
             std::make_unique<FcitxGlobalThemeItemAction>(&factory_, id, theme.at("title").get<std::string>()));
         // Registered so the D-Bus menus (StatusNotifierItem, kimpanel), which address items by their registered id, can trigger them too.
-        global_theme_items_.back()->registerAction("msime-global-theme-" + id, &instance->userInterfaceManager());
+        global_theme_items_.back()->registerAction(MSIME_EDITION_FCITX5_ADDON "-global-theme-" + id, &instance->userInterfaceManager());
         global_theme_menu_.addAction(global_theme_items_.back().get());
       }
-    candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
+    candidate_page_size_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-page-size", &instance->userInterfaceManager());
     candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
     candidate_page_size_menu_.addAction(&candidate_page_size1_);
     candidate_page_size_menu_.addAction(&candidate_page_size2_);
@@ -5441,17 +5445,17 @@ public:
     candidate_page_size_menu_.addAction(&candidate_page_size7_);
     candidate_page_size_menu_.addAction(&candidate_page_size8_);
     candidate_page_size_menu_.addAction(&candidate_page_size9_);
-    learning_action_.registerAction("msime-learning", &instance->userInterfaceManager());
-    frequency_action_.registerAction("msime-frequency", &instance->userInterfaceManager());
-    frequency_trigger_action_.registerAction("msime-frequency-trigger", &instance->userInterfaceManager());
-    frequency_step_action_.registerAction("msime-frequency-step", &instance->userInterfaceManager());
-    mode_scope_action_.registerAction("msime-mode-scope", &instance->userInterfaceManager());
-    candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
-    sentence_translation_action_.registerAction("msime-translate-sentence", &instance->userInterfaceManager());
-    punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
-    translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
-    cloud_candidates_action_.registerAction("msime-cloud-candidates", &instance->userInterfaceManager());
-    ai_candidates_action_.registerAction("msime-ai-candidates", &instance->userInterfaceManager());
+    learning_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-learning", &instance->userInterfaceManager());
+    frequency_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-frequency", &instance->userInterfaceManager());
+    frequency_trigger_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-frequency-trigger", &instance->userInterfaceManager());
+    frequency_step_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-frequency-step", &instance->userInterfaceManager());
+    mode_scope_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-mode-scope", &instance->userInterfaceManager());
+    candidate_translation_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-candidate-translations", &instance->userInterfaceManager());
+    sentence_translation_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-translate-sentence", &instance->userInterfaceManager());
+    punctuation_lock_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-punctuation-lock", &instance->userInterfaceManager());
+    translation_language_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-translation-language", &instance->userInterfaceManager());
+    cloud_candidates_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-cloud-candidates", &instance->userInterfaceManager());
+    ai_candidates_action_.registerAction(MSIME_EDITION_FCITX5_ADDON "-ai-candidates", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -5487,38 +5491,38 @@ public:
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
     // The D-Bus menus (StatusNotifierItem, kimpanel) address entries by their registered name and skip an unregistered one, so every entry of the menus below is registered, separators included.
     for (auto [action, name] : std::initializer_list<std::pair<fcitx::Action *, const char *>>{
-             {&handwriting_action_, "msime-desktop-handwriting"},
-             {&keyboard_action_, "msime-desktop-keyboard"},
-             {&desktop_emoji_action_, "msime-desktop-emoji"},
-             {&desktop_clipboard_action_, "msime-desktop-clipboard"},
-             {&desktop_voice_action_, "msime-desktop-voice"},
-             {&cloud_dictionary_action_, "msime-desktop-cloud-dictionary"},
-             {&desktop_cloud_clipboard_action_, "msime-desktop-cloud-clipboard"},
-             {&help_action_, "msime-desktop-help"},
-             {&feedback_action_, "msime-desktop-feedback"},
-             {&reload_service_action_, "msime-reload-service"},
-             {&toolbar_enabled_action_, "msime-toolbar-enabled"},
-             {&voice_enabled_action_, "msime-voice-enabled"},
-             {&preference_save_retry_action_, "msime-preference-save-retry"},
-             {&dictionary_action_, "msime-dictionary"},
-             {&settings_action_, "msime-settings"},
-             {&about_action_, "msime-about"},
-             {&scheme_quanpin_action_, "msime-scheme-quanpin"},
-             {&scheme_shuangpin_action_, "msime-scheme-shuangpin"},
-             {&scheme_wubi_action_, "msime-scheme-wubi"},
-             {&scheme_japanese_action_, "msime-scheme-japanese"},
-             {&scheme_korean_action_, "msime-scheme-korean"},
-             {&scheme_cantonese_action_, "msime-scheme-cantonese"},
-             {&scheme_zhuyin_action_, "msime-scheme-zhuyin"},
-             {&scheme_stroke_action_, "msime-scheme-stroke"},
-             {&scheme_vietnamese_action_, "msime-scheme-vietnamese"},
-             {&scheme_tibetan_action_, "msime-scheme-tibetan"},
-             {&input_group_action_, "msime-group-input"},
-             {&input_group_separator_, "msime-group-input-separator"},
-             {&punctuation_group_action_, "msime-group-punctuation"},
-             {&punctuation_group_separator_, "msime-group-punctuation-separator"},
-             {&candidate_group_action_, "msime-group-candidate"},
-             {&candidate_group_separator_, "msime-group-candidate-separator"}})
+             {&handwriting_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-handwriting"},
+             {&keyboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-keyboard"},
+             {&desktop_emoji_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-emoji"},
+             {&desktop_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-clipboard"},
+             {&desktop_voice_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-voice"},
+             {&cloud_dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-dictionary"},
+             {&desktop_cloud_clipboard_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-cloud-clipboard"},
+             {&help_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-help"},
+             {&feedback_action_, MSIME_EDITION_FCITX5_ADDON "-desktop-feedback"},
+             {&reload_service_action_, MSIME_EDITION_FCITX5_ADDON "-reload-service"},
+             {&toolbar_enabled_action_, MSIME_EDITION_FCITX5_ADDON "-toolbar-enabled"},
+             {&voice_enabled_action_, MSIME_EDITION_FCITX5_ADDON "-voice-enabled"},
+             {&preference_save_retry_action_, MSIME_EDITION_FCITX5_ADDON "-preference-save-retry"},
+             {&dictionary_action_, MSIME_EDITION_FCITX5_ADDON "-dictionary"},
+             {&settings_action_, MSIME_EDITION_FCITX5_ADDON "-settings"},
+             {&about_action_, MSIME_EDITION_FCITX5_ADDON "-about"},
+             {&scheme_quanpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-quanpin"},
+             {&scheme_shuangpin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-shuangpin"},
+             {&scheme_wubi_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-wubi"},
+             {&scheme_japanese_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-japanese"},
+             {&scheme_korean_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-korean"},
+             {&scheme_cantonese_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-cantonese"},
+             {&scheme_zhuyin_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-zhuyin"},
+             {&scheme_stroke_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-stroke"},
+             {&scheme_vietnamese_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-vietnamese"},
+             {&scheme_tibetan_action_, MSIME_EDITION_FCITX5_ADDON "-scheme-tibetan"},
+             {&input_group_action_, MSIME_EDITION_FCITX5_ADDON "-group-input"},
+             {&input_group_separator_, MSIME_EDITION_FCITX5_ADDON "-group-input-separator"},
+             {&punctuation_group_action_, MSIME_EDITION_FCITX5_ADDON "-group-punctuation"},
+             {&punctuation_group_separator_, MSIME_EDITION_FCITX5_ADDON "-group-punctuation-separator"},
+             {&candidate_group_action_, MSIME_EDITION_FCITX5_ADDON "-group-candidate"},
+             {&candidate_group_separator_, MSIME_EDITION_FCITX5_ADDON "-group-candidate-separator"}})
       action->registerAction(name, &instance->userInterfaceManager());
     // 输入方案 lists the schemes rather than stepping through them on each click. Cantonese, Zhuyin and Stroke join it once a context has read runtime options naming their dictionaries (rebuildSchemeMenu).
     scheme_action_.setMenu(&scheme_menu_);
@@ -5532,8 +5536,13 @@ public:
              &mode_scope_action_, &clipboard_history_action_, &input_group_separator_, &local_unicode_action_,
              &local_date_time_action_, &local_quick_phrase_action_, &local_emoji_action_, &local_kaomoji_action_,
              &local_super_jianpin_action_, &local_temporary_english_action_, &local_temporary_japanese_action_,
-             &local_expression_action_, &local_command_action_, &local_mention_action_})
+             &local_expression_action_, &local_command_action_, &local_mention_action_}) {
+      // 不带临时日文的版本（五笔版）不列这个本地模式：宿主库在这些版本里总是把它关掉，列出来也打不开。
+      if (!MSIME_EDITION_TEMPORARY_JAPANESE && action == &local_temporary_japanese_action_) continue;
+      // 不带双拼的版本（五笔版）不列双拼键位方案。
+      if (action == &shuangpin_profile_action_ && !msime::linux_host::edition_offers_scheme("shuangpin")) continue;
       input_group_menu_.addAction(action);
+    }
     punctuation_group_action_.setMenu(&punctuation_group_menu_);
     for (auto *action : std::initializer_list<fcitx::Action *>{
              &paired_punctuation_action_, &smart_punctuation_action_, &smart_punctuation_repeat_action_,
@@ -5544,8 +5553,12 @@ public:
     for (auto *action : std::initializer_list<fcitx::Action *>{
              &candidate_layout_action_, &candidate_page_size_action_, &candidate_theme_action_,
              &shuangpin_preedit_action_, &wubi_code_hint_action_, &candidate_group_separator_, &learning_action_,
-             &frequency_action_, &frequency_trigger_action_, &frequency_step_action_})
+             &frequency_action_, &frequency_trigger_action_, &frequency_step_action_}) {
+      // 双拼原始预编辑只在双拼下生效、五笔剩余编码只在五笔下生效，本版本没有那个方案就不列。
+      if (action == &shuangpin_preedit_action_ && !msime::linux_host::edition_offers_scheme("shuangpin")) continue;
+      if (action == &wubi_code_hint_action_ && !msime::linux_host::edition_offers_scheme("wubi")) continue;
       candidate_group_menu_.addAction(action);
+    }
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
     emoji_menu_.addAction(&emoji_item2_);
@@ -5642,8 +5655,10 @@ public:
       if (!directory.empty() && directory.front() == '/') preferences = directory;
     } catch (...) {
     }
-    const auto root = msime::telemetry::default_directory();
+    auto root = msime::telemetry::default_directory();
     if (root.empty()) return;
+    // 与 IBus 宿主相同，使用统计目录按版本分开（LinuxEdition.h）：full 仍是 $XDG_STATE_HOME/msime，其他版本是同级的 msime-<id>。
+    root = root.parent_path() / MSIME_EDITION_TELEMETRY_DIRECTORY;
     msime::telemetry::install_crash_handlers();
     telemetry_job_ = detachedJob([host = msime::telemetry::Host{"linux", MSIME_LINUX_VERSION, root / "fcitx5", std::nullopt, preferences}] {
       msime::telemetry::begin(host);
@@ -5893,8 +5908,8 @@ public:
     msime_linux_diagnostic_write(current == ProgramFileState::Replaced ? "addon_replaced_notice" : "addon_removed_notice");
     const auto restart = msime::linux_host::fcitx5_restart_command();
     state.ic_.inputPanel().setAuxUp(fcitx::Text(current == ProgramFileState::Replaced
-        ? "水杉输入法已升级：执行 " + restart + " 或注销后重新登录即可使用新版本"
-        : "水杉输入法已卸载：执行 " + restart + " 或注销后重新登录即可完成卸载"));
+        ? MSIME_EDITION_DISPLAY_NAME "已升级：执行 " + restart + " 或注销后重新登录即可使用新版本"
+        : MSIME_EDITION_DISPLAY_NAME "已卸载：执行 " + restart + " 或注销后重新登录即可完成卸载"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   }
   // Keys still reach the application: the addon never filters an event it could not route, so the user can keep typing while the hint is up. Only activation may open the settings window; a key never does, because a window that appears mid-typing can take the keyboard focus and swallow what follows.
@@ -6079,7 +6094,7 @@ public:
   std::vector<fcitx::Action *> toolbar_entries_;
   bool toolbarEnabled(fcitx::InputContext *ic);
   void rebuildToolbarMenu(fcitx::InputContext *ic);
-  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于水杉输入法"};
+  FcitxDesktopPanelAction about_action_{&factory_, "about", "关于" MSIME_EDITION_DISPLAY_NAME};
   FcitxDesktopPanelAction help_action_{&factory_, "help", "帮助"};
   FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", "反馈"};
   FcitxToolbarEnabledAction toolbar_enabled_action_{&factory_};
@@ -7047,7 +7062,7 @@ void FcitxEngine::rebuildThemeMenu(fcitx::InputContext *ic) {
   for (const auto &[id, title] : packages) {
     global_theme_package_items_.push_back(std::make_unique<FcitxGlobalThemeItemAction>(&factory_, id, title));
     // Registered under their own prefix, so a package can never take a global theme's name, and reachable from the D-Bus menus like every other entry.
-    global_theme_package_items_.back()->registerAction("msime-global-theme-package-" + id,
+    global_theme_package_items_.back()->registerAction(MSIME_EDITION_FCITX5_ADDON "-global-theme-package-" + id,
                                                        &instance_->userInterfaceManager());
     global_theme_menu_.addAction(global_theme_package_items_.back().get());
   }
@@ -7062,15 +7077,19 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
   scheme_menu_entries_.clear();
   scheme_menu_entries_.reserve(10);
-  scheme_menu_entries_.insert(
-      scheme_menu_entries_.end(),
-      {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_});
-  if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
-  if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
-  if (stroke) scheme_menu_entries_.push_back(&scheme_stroke_action_);
-  scheme_menu_entries_.insert(scheme_menu_entries_.end(),
-                              {&scheme_japanese_action_, &scheme_korean_action_, &scheme_vietnamese_action_,
-                               &scheme_tibetan_action_});
+  // 只列本版本提供的方案（版本表的 input_schemes）：不提供的方案选了也会被 selectScheme 拒绝。粤拼、注音与笔画另外要有词库，cantonese、zhuyin 与 stroke 已经算上了版本。
+  for (const auto &[id, action] : std::initializer_list<std::pair<std::string_view, fcitx::Action *>>{
+           {"quanpin", &scheme_quanpin_action_}, {"shuangpin", &scheme_shuangpin_action_},
+           {"wubi", &scheme_wubi_action_}, {"cantonese", &scheme_cantonese_action_},
+           {"zhuyin", &scheme_zhuyin_action_}, {"stroke", &scheme_stroke_action_},
+           {"japanese", &scheme_japanese_action_}, {"korean", &scheme_korean_action_},
+           {"vietnamese", &scheme_vietnamese_action_}, {"tibetan", &scheme_tibetan_action_}}) {
+    const bool offered = id == "cantonese" ? cantonese
+                         : id == "zhuyin"  ? zhuyin
+                         : id == "stroke"  ? stroke
+                                           : msime::linux_host::edition_offers_scheme(id);
+    if (offered) scheme_menu_entries_.push_back(action);
+  }
   for (auto *entry : scheme_menu_entries_) scheme_menu_.addAction(entry);
   scheme_menu_languages_ = languages;
   if (ic) ic->updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);

@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/common" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
+include("${CMAKE_CURRENT_SOURCE_DIR}/Edition.cmake")
 # vcpkg-style dependency prefixes ship a Release variant under bin/ and a Debug
 # variant under debug/bin/ for each imported target. This Client builds with
 # --config RelWithDebInfo, which carries no imported configuration of its own, so

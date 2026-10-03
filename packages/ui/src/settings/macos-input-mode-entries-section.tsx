@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InputScheme } from "../index";
+import type { EditionInfo, InputScheme } from "../index";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "./action-button";
 
@@ -10,8 +10,6 @@ export interface MacosInputModesClient {
   /** 打开系统设置里添加输入法的那一页。 */
   openSettings(): Promise<void>;
 }
-
-const modePrefix = "app.msime.inputmethod.MetasequoiaIME.";
 
 /** 一个菜单栏入口：输入法菜单里显示的名字、它属于哪个方案（`null` 表示不随方案出现），以及系统设置「添加」对话框把它归在哪个语言下。 */
 interface ModeEntry {
@@ -35,6 +33,25 @@ export const macosInputModeEntries: readonly ModeEntry[] = [
   { mode: "Stroke", name: "水杉输入法 · 笔", scheme: "stroke", language: "简体中文" },
   { mode: "Roman", name: "水杉输入法 · 英", scheme: null, language: "简体中文" },
 ];
+
+const fullName = "水杉输入法";
+
+/**
+ * 本版本的菜单栏入口，与 `platforms/macos/scripts/edition_bundle.py` 生成的 Info.plist 一致：本版本的方案对应的模式加上「英」，中文主模式 `Hans` 总在。版本不含全拼时，`Hans` 显示默认方案的字（五笔版是「五」），默认方案自己的模式不再单列。名字的前缀是版本的产品名。full（`edition` 缺省）就是上面这张表。
+ */
+export function macosInputModeEntriesFor(edition?: EditionInfo): readonly ModeEntry[] {
+  if (!edition) return macosInputModeEntries;
+  const name = edition.display_name ?? fullName;
+  const primary = edition.input_schemes.includes("quanpin")
+    ? null
+    : (macosInputModeEntries.find((entry) => entry.scheme === edition.default_scheme) ?? null);
+  return macosInputModeEntries.flatMap((entry) => {
+    if (primary && entry.mode === primary.mode) return [];
+    if (entry.scheme !== null && !edition.input_schemes.includes(entry.scheme)) return [];
+    const source = entry.mode === "Hans" && primary ? primary : entry;
+    return [{ ...entry, name: source.name.replace(fullName, name) }];
+  });
+}
 
 /** 点了「打开键盘设置」之后多久内反复读取列表：用户在系统设置里添加时，设置窗口不一定会重新获得焦点。 */
 export const INPUT_MODE_RECHECK_MS = 3000;
@@ -89,6 +106,8 @@ export interface MacosInputModeEntriesSectionProps {
   scheme: InputScheme;
   /** 宿主提供的方案；没提供的方案（例如没装词库的粤拼、注音、笔画）不列出它的入口。 */
   inputSchemes: readonly InputScheme[];
+  /** 运行中的版本（`HostCapabilities.edition`），不是 full 时才有：入口和名字按版本来，见 `macosInputModeEntriesFor`。 */
+  edition?: EditionInfo;
   onError: (message: string) => void;
 }
 
@@ -103,19 +122,23 @@ export function MacosInputModeEntriesSection({
   client,
   scheme,
   inputSchemes,
+  edition,
   onError,
 }: MacosInputModeEntriesSectionProps) {
   const { enabled, watch } = useEnabledInputModes(client);
   if (!client || !enabled) return null;
-  const offered = macosInputModeEntries.filter(
+  const offered = macosInputModeEntriesFor(edition).filter(
     (entry) => entry.scheme === null || inputSchemes.includes(entry.scheme),
   );
-  const missing = offered.filter((entry) => !enabled.includes(modePrefix + entry.mode));
+  // 列表里只有本版本输入法的模式（设置应用按本版本的 bundle id 筛过），模式标识符是 bundle id 加「.」和模式名，所以按结尾认。
+  const missing = offered.filter(
+    (entry) => !enabled.some((identifier) => identifier.endsWith(`.${entry.mode}`)),
+  );
   const current = missing.find((entry) => entry.scheme === scheme);
 
   let description: string;
   if (missing.length === 0) {
-    description = "输入法菜单里已经有水杉输入法的全部入口。";
+    description = `输入法菜单里已经有${edition?.display_name ?? fullName}的全部入口。`;
   } else {
     const where = missing.map((entry) => `「${entry.name}」在「${entry.language}」下`).join("，");
     description = `${

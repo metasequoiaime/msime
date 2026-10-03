@@ -11,8 +11,15 @@ use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::System::IO::*;
 
-/// Dedicated control endpoint used by the Windows Server.
-pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeVoiceControlNamedPipe";
+/// Dedicated control endpoint used by the Windows Server，不带 `\\.\pipe\` 前缀和版本后缀；与 `platforms/windows/src/voice/VoiceControllerListener.h` 一致。
+const PIPE_BASE_NAME: &str = "FanyImeVoiceControlNamedPipe";
+
+/// 本安装包所属版本的 Server 的语音控制管道（full 是 `\\.\pipe\FanyImeVoiceControlNamedPipe`，其他版本带 `.<id>` 后缀）。安装包的版本声明坏了时为 `None`：不能去连 full 的 Server。
+pub fn pipe_name() -> Option<String> {
+    msime_client_core::edition::Edition::windows_package_identity()
+        .ok()
+        .map(|identity| identity.pipe_name(PIPE_BASE_NAME))
+}
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
@@ -260,7 +267,8 @@ pub fn recognize(
     cancelled: &AtomicBool,
     update: impl FnMut(&Update),
 ) -> Result<String, Error> {
-    let mut pipe = Pipe::connect_named(cancelled, PIPE_NAME)?;
+    let name = pipe_name().ok_or(Error::Unavailable)?;
+    let mut pipe = Pipe::connect_named(cancelled, &name)?;
     // SAFETY: identity query has no preconditions. Only controller identity is sent, never TSF identity.
     let controller =
         (u64::from(unsafe { GetCurrentProcessId() }) << 32) | (generation & 0xffff_ffff);

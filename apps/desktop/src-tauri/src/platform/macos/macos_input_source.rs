@@ -12,10 +12,17 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-// The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the client supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
-pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
-pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法.app";
-const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法";
+// 输入法 bundle 带的标识、文件名和可执行文件名，随本设置应用所属的版本而变（版本表 `platforms.macos`，见 `crate::platform::macos::macos_identity`）。full 的 bundle id 是 MetasequoiaIME 的那个而不是本客户端新起的：客户端原地接替那个输入源，而不是与它并列。`validate_bundle` 在打包的 Info.plist 里找这个 bundle id，所以它与 platforms/macos/Info.plist.in（及 scripts/edition_bundle.py 生成的其他版本的 plist）不一致时，拒绝的是正确的 bundle，而不是接受一个错误的。版本表保证任何一个版本的 bundle id 都不出现在另一个版本的 Info.plist 里。
+pub(crate) fn input_source_bundle_id() -> &'static str {
+    &crate::platform::macos::macos_identity().input_method_bundle_id
+}
+pub(crate) fn input_source_bundle_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| crate::platform::macos::macos_identity().input_method_bundle_name())
+}
+fn input_source_executable() -> &'static str {
+    &crate::platform::macos::macos_identity().input_method_name
+}
 const INITIAL_COMMAND_OUTPUT_CAPACITY: usize = 8 * 1024;
 const MAX_INFO_PLIST_BYTES: u64 = 1024 * 1024;
 const MAX_LAUNCH_SERVICES_DUMP_BYTES: usize = 8 * 1024 * 1024;
@@ -82,7 +89,9 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
         }
     }
     let info = source.join("Contents/Info.plist");
-    let executable = source.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
+    let executable = source
+        .join("Contents/MacOS")
+        .join(input_source_executable());
     if is_symlink(&info).map_err(|_| InstallError::InvalidBundle)?
         || is_symlink(&executable).map_err(|_| InstallError::InvalidBundle)?
         || !info.is_file()
@@ -95,7 +104,7 @@ fn validate_bundle(source: &Path) -> Result<(), InstallError> {
         MAX_INFO_PLIST_BYTES as usize,
     )
     .map_err(|_| InstallError::InvalidBundle)?;
-    if !String::from_utf8_lossy(&plist).contains(INPUT_SOURCE_BUNDLE_ID) {
+    if !String::from_utf8_lossy(&plist).contains(input_source_bundle_id()) {
         return Err(InstallError::InvalidBundle);
     }
     Ok(())
@@ -180,7 +189,7 @@ where
 {
     validate_bundle(source)?;
     fs::create_dir_all(input_methods).map_err(|_| InstallError::Io)?;
-    let target = input_methods.join(INPUT_SOURCE_BUNDLE_NAME);
+    let target = input_methods.join(input_source_bundle_name());
     match fs::symlink_metadata(&target) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
             return Err(InstallError::InvalidBundle);
@@ -190,8 +199,8 @@ where
         Err(_) => return Err(InstallError::Io),
     }
     let pid = std::process::id();
-    let staging = input_methods.join(format!(".{INPUT_SOURCE_BUNDLE_NAME}.installing-{pid}"));
-    let backup = input_methods.join(format!(".{INPUT_SOURCE_BUNDLE_NAME}.previous-{pid}"));
+    let staging = input_methods.join(format!(".{}.installing-{pid}", input_source_bundle_name()));
+    let backup = input_methods.join(format!(".{}.previous-{pid}", input_source_bundle_name()));
     remove_staging(&staging)?;
     if fs::symlink_metadata(&backup).is_ok() {
         return Err(InstallError::Io);
@@ -251,12 +260,12 @@ fn carries_product_identifier(bundle: &Path) -> bool {
         return false;
     };
     let plist = String::from_utf8_lossy(&plist);
-    plist.contains(INPUT_SOURCE_BUNDLE_ID)
+    plist.contains(input_source_bundle_id())
 }
 
 /// Copies of this input method in `input_methods`.
 fn product_bundles_in(input_methods: &Path) -> Vec<PathBuf> {
-    let bundle = input_methods.join(INPUT_SOURCE_BUNDLE_NAME);
+    let bundle = input_methods.join(input_source_bundle_name());
     if carries_product_identifier(&bundle) {
         vec![bundle]
     } else {
@@ -283,17 +292,17 @@ fn source_candidates(resource_directory: Option<&Path>, current_directory: &Path
     let repository_root = manifest_root.join("../../..");
     let mut candidates = Vec::with_capacity(3);
     if let Some(resource_directory) = resource_directory {
-        candidates.push(resource_directory.join(INPUT_SOURCE_BUNDLE_NAME));
+        candidates.push(resource_directory.join(input_source_bundle_name()));
     }
     candidates.push(
         current_directory
             .join("target/macos")
-            .join(INPUT_SOURCE_BUNDLE_NAME),
+            .join(input_source_bundle_name()),
     );
     candidates.push(
         repository_root
             .join("target/macos")
-            .join(INPUT_SOURCE_BUNDLE_NAME),
+            .join(input_source_bundle_name()),
     );
     candidates
 }
@@ -318,7 +327,7 @@ fn home_input_methods() -> Result<PathBuf, InstallError> {
 }
 
 pub(crate) fn installed_bundle_path() -> Result<PathBuf, InstallError> {
-    Ok(home_input_methods()?.join(INPUT_SOURCE_BUNDLE_NAME))
+    Ok(home_input_methods()?.join(input_source_bundle_name()))
 }
 
 /// The path LaunchServices records bundles through, when it is where macOS keeps it.
@@ -387,7 +396,7 @@ fn remove_competing_launch_services_records(bundle: &Path) {
         .ok()
         .unwrap_or_else(|| bundle.to_path_buf());
     let dump = String::from_utf8_lossy(&output);
-    for stale in launch_services_paths_for_identifier(&dump, INPUT_SOURCE_BUNDLE_ID) {
+    for stale in launch_services_paths_for_identifier(&dump, input_source_bundle_id()) {
         let same_bundle = stale == bundle
             || stale
                 .canonicalize()
@@ -406,7 +415,9 @@ fn remove_competing_launch_services_records(bundle: &Path) {
 fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
     remove_competing_launch_services_records(bundle);
     refresh_launch_services(bundle);
-    let executable = bundle.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
     let status = std::process::Command::new(executable)
         .arg("--register-input-source")
         .status()
@@ -451,7 +462,9 @@ fn literal_process_pattern(path: &Path) -> String {
 ///
 /// A process that started before the replacement keeps serving the old code until it exits, and nothing on screen says so; the text input system starts the new bundle the next time a client asks for it. Best-effort: the install has already succeeded, and a copy that will not stop is replaced at the next login.
 fn stop_running_copies(bundle: &Path) {
-    let executable = bundle.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
+    let executable = bundle
+        .join("Contents/MacOS")
+        .join(input_source_executable());
     let _ = Command::new("/usr/bin/pkill")
         .arg("-f")
         .arg(literal_process_pattern(&executable))
@@ -644,7 +657,7 @@ pub(crate) fn ensure_current(
         return Err(InstallError::SourceUnavailable);
     }
     let _guard = install_lock();
-    let source = resource_directory.join(INPUT_SOURCE_BUNDLE_NAME);
+    let source = resource_directory.join(input_source_bundle_name());
     let target = installed_bundle_path()?;
     ensure_current_with(&source, &target, defer_first_install, || {
         install_unlocked(Some(resource_directory))
@@ -661,7 +674,7 @@ fn any_product_bundle_beside(target: &Path) -> bool {
 /// Whether a start-time check with `defer_first_install` would leave the install to the user: a packaged app on a machine with no copy of this input method in `~/Library/Input Methods`. Cheap enough for the window setup to call before the first paint, so the window opens at the install window's size rather than resizing in front of the user.
 pub(crate) fn first_install_pending(resource_directory: &Path) -> bool {
     is_packaged_resource_directory(resource_directory)
-        && validate_bundle(&resource_directory.join(INPUT_SOURCE_BUNDLE_NAME)).is_ok()
+        && validate_bundle(&resource_directory.join(input_source_bundle_name())).is_ok()
         && installed_bundle_path()
             .is_ok_and(|target| !target.exists() && !any_product_bundle_beside(&target))
 }
@@ -681,7 +694,7 @@ pub(crate) fn is_packaged_resource_directory(resource_directory: &Path) -> bool 
 fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
     let list: serde_json::Value = serde_json::from_slice(json).ok()?;
     Some(list.as_array()?.iter().any(|entry| {
-        entry.get("Bundle ID").and_then(serde_json::Value::as_str) == Some(INPUT_SOURCE_BUNDLE_ID)
+        entry.get("Bundle ID").and_then(serde_json::Value::as_str) == Some(input_source_bundle_id())
     }))
 }
 
@@ -725,7 +738,7 @@ fn enabled_modes_in_input_source_list(json: &[u8]) -> Option<Vec<String>> {
             .iter()
             .filter(|entry| {
                 entry.get("Bundle ID").and_then(serde_json::Value::as_str)
-                    == Some(INPUT_SOURCE_BUNDLE_ID)
+                    == Some(input_source_bundle_id())
             })
             .filter_map(|entry| entry.get("Input Mode")?.as_str().map(str::to_owned))
             .collect(),
@@ -785,7 +798,7 @@ mod tests {
             format!("CFBundleIdentifier={id}"),
         )
         .unwrap();
-        let executable = bundle.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"));
+        let executable = bundle.join(format!("Contents/MacOS/{}", input_source_executable()));
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
@@ -800,11 +813,12 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     fn versioned_fixture(root: &Path, short: &str, build: &str, contents: &[u8]) -> PathBuf {
-        let bundle = fixture(root, INPUT_SOURCE_BUNDLE_ID, contents);
+        let bundle = fixture(root, input_source_bundle_id(), contents);
         fs::write(
             bundle.join("Contents/Info.plist"),
             format!(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{INPUT_SOURCE_BUNDLE_ID}</string><key>CFBundleVersion</key><string>{build}</string><key>CFBundleShortVersionString</key><string>{short}</string></dict></plist>\n"
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{id}</string><key>CFBundleVersion</key><string>{build}</string><key>CFBundleShortVersionString</key><string>{short}</string></dict></plist>\n",
+                id = input_source_bundle_id()
             ),
         )
         .unwrap();
@@ -818,9 +832,9 @@ mod tests {
     #[test]
     fn rejects_oversized_info_plist() {
         let root = tempdir().unwrap();
-        let bundle = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"synthetic");
+        let bundle = fixture(root.path(), input_source_bundle_id(), b"synthetic");
         let mut plist = vec![b'x'; 1024 * 1024 + 1];
-        plist.extend_from_slice(INPUT_SOURCE_BUNDLE_ID.as_bytes());
+        plist.extend_from_slice(input_source_bundle_id().as_bytes());
         fs::write(bundle.join("Contents/Info.plist"), plist).unwrap();
 
         assert!(matches!(
@@ -922,7 +936,7 @@ mod tests {
         assert_eq!(bundle_version(&bundle), Some(version("0.50.0", "7289")));
 
         let unversioned = tempdir().unwrap();
-        let bundle = fixture(unversioned.path(), INPUT_SOURCE_BUNDLE_ID, b"x");
+        let bundle = fixture(unversioned.path(), input_source_bundle_id(), b"x");
         fs::write(
             bundle.join("Contents/Info.plist"),
             "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleShortVersionString</key><string>0.50.0</string></dict></plist>",
@@ -940,8 +954,8 @@ mod tests {
     fn ensure_current_replaces_only_an_older_install() {
         let root = tempdir().unwrap();
         let destination = root.path().join("Library/Input Methods");
-        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
-        let executable = target.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"));
+        let target = destination.join(input_source_bundle_name());
+        let executable = target.join(format!("Contents/MacOS/{}", input_source_executable()));
 
         let first_root = tempdir().unwrap();
         let first = versioned_fixture(first_root.path(), "0.50.0", "10", b"first");
@@ -986,7 +1000,7 @@ mod tests {
     fn ensure_current_reports_a_missing_bundled_copy() {
         let root = tempdir().unwrap();
         let result = ensure_current_with(
-            &root.path().join(INPUT_SOURCE_BUNDLE_NAME),
+            &root.path().join(input_source_bundle_name()),
             &root.path().join("installed.app"),
             false,
             || panic!("nothing to install"),
@@ -997,9 +1011,9 @@ mod tests {
     #[test]
     fn ensure_current_leaves_a_first_install_to_the_user_when_asked() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
+        let source = fixture(root.path(), input_source_bundle_id(), b"bundled");
         let destination = root.path().join("Library/Input Methods");
-        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        let target = destination.join(input_source_bundle_name());
 
         let outcome = ensure_current_with(&source, &target, true, || {
             panic!("a deferred first install must not install")
@@ -1021,10 +1035,10 @@ mod tests {
     #[test]
     fn ensure_current_defers_beside_the_upstream_input_method() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
+        let source = fixture(root.path(), input_source_bundle_id(), b"bundled");
         let destination = root.path().join("Library/Input Methods");
         fs::create_dir_all(&destination).unwrap();
-        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        let target = destination.join(input_source_bundle_name());
         plist_bundle(
             &destination,
             "MetasequoiaIME.app",
@@ -1041,9 +1055,9 @@ mod tests {
     #[test]
     fn ensure_current_rejects_a_symlinked_installed_bundle() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"bundled");
-        let external = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"external");
-        let target = root.path().join(INPUT_SOURCE_BUNDLE_NAME);
+        let source = fixture(root.path(), input_source_bundle_id(), b"bundled");
+        let external = fixture(root.path(), input_source_bundle_id(), b"external");
+        let target = root.path().join(input_source_bundle_name());
         std::os::unix::fs::symlink(&external, &target).unwrap();
 
         let result = ensure_current_with(&source, &target, false, || {
@@ -1088,7 +1102,7 @@ mod tests {
     fn launch_services_parser_keeps_only_paths_for_the_requested_identifier() {
         let dump = "path: /old/水杉输入法.app (0x10)\nidentifier:                 app.msime.inputmethod.MetasequoiaIME\npath: /other.app (0x11)\nidentifier:                 com.example.other\npath: /new/水杉输入法.app (0x12)\nidentifier:                 app.msime.inputmethod.MetasequoiaIME\n";
         assert_eq!(
-            launch_services_paths_for_identifier(dump, INPUT_SOURCE_BUNDLE_ID),
+            launch_services_paths_for_identifier(dump, input_source_bundle_id()),
             vec![
                 PathBuf::from("/old/水杉输入法.app"),
                 PathBuf::from("/new/水杉输入法.app")
@@ -1116,26 +1130,31 @@ mod tests {
             "a missing directory has none"
         );
         fs::create_dir_all(&system).unwrap();
-        let current = plist_bundle(&system, INPUT_SOURCE_BUNDLE_NAME, INPUT_SOURCE_BUNDLE_ID);
-        plist_bundle(&system, "Other.app", INPUT_SOURCE_BUNDLE_ID);
+        let current = plist_bundle(
+            &system,
+            input_source_bundle_name(),
+            input_source_bundle_id(),
+        );
+        plist_bundle(&system, "Other.app", input_source_bundle_id());
         assert_eq!(product_bundles_in(&system), vec![current]);
-        fs::remove_dir_all(system.join(INPUT_SOURCE_BUNDLE_NAME)).unwrap();
-        plist_bundle(&system, INPUT_SOURCE_BUNDLE_NAME, "com.example.other");
+        fs::remove_dir_all(system.join(input_source_bundle_name())).unwrap();
+        plist_bundle(&system, input_source_bundle_name(), "com.example.other");
         assert!(product_bundles_in(&system).is_empty());
     }
 
     #[test]
     fn installs_atomically_and_preserves_executable_mode() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let source = fixture(root.path(), input_source_bundle_id(), b"new");
         let destination = root.path().join("Library/Input Methods");
         let installed = install_bundle_at(&source, &destination).unwrap();
         assert_eq!(
-            fs::read(installed.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))).unwrap(),
+            fs::read(installed.join(format!("Contents/MacOS/{}", input_source_executable())))
+                .unwrap(),
             b"new"
         );
         assert_eq!(
-            fs::metadata(installed.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}")))
+            fs::metadata(installed.join(format!("Contents/MacOS/{}", input_source_executable())))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -1143,20 +1162,21 @@ mod tests {
             0o111
         );
 
-        let replacement = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"replacement");
+        let replacement = fixture(root.path(), input_source_bundle_id(), b"replacement");
         install_bundle_at(&replacement, &destination).unwrap();
         assert_eq!(
             fs::read(
                 destination
-                    .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
             )
             .unwrap(),
             b"replacement"
         );
         assert!(!destination
             .join(format!(
-                ".{INPUT_SOURCE_BUNDLE_NAME}.installing-{}",
+                ".{}.installing-{}",
+                input_source_bundle_name(),
                 std::process::id()
             ))
             .exists());
@@ -1166,7 +1186,7 @@ mod tests {
     fn rejects_wrong_bundle_without_touching_existing_install() {
         let root = tempdir().unwrap();
         let destination = root.path().join("Library/Input Methods");
-        let existing = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"existing");
+        let existing = fixture(root.path(), input_source_bundle_id(), b"existing");
         install_bundle_at(&existing, &destination).unwrap();
         let wrong = fixture(root.path(), "org.example.other", b"wrong");
         assert!(matches!(
@@ -1176,8 +1196,8 @@ mod tests {
         assert_eq!(
             fs::read(
                 destination
-                    .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
             )
             .unwrap(),
             b"existing"
@@ -1187,7 +1207,7 @@ mod tests {
     #[test]
     fn rejects_symlinked_bundle_contents() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let source = fixture(root.path(), input_source_bundle_id(), b"new");
         let link = source.join("Contents/Info.plist.link-target");
         fs::write(&link, b"outside").unwrap();
         fs::remove_file(source.join("Contents/Info.plist")).unwrap();
@@ -1204,7 +1224,7 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let source = fixture(root.path(), input_source_bundle_id(), b"new");
         let contents = source.join("Contents");
         let real_contents = root.path().join("RealContents");
         fs::rename(&contents, &real_contents).unwrap();
@@ -1220,7 +1240,7 @@ mod tests {
     #[test]
     fn keeps_framework_symlinks_as_links() {
         let root = tempdir().unwrap();
-        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let source = fixture(root.path(), input_source_bundle_id(), b"new");
         let framework = source.join("Contents/Frameworks/Sparkle.framework");
         fs::create_dir_all(framework.join("Versions/B")).unwrap();
         fs::write(framework.join("Versions/B/Sparkle"), b"binary").unwrap();
@@ -1244,11 +1264,11 @@ mod tests {
     fn rejects_symlinks_that_leave_the_bundle_without_touching_existing_install() {
         let root = tempdir().unwrap();
         let destination = root.path().join("Library/Input Methods");
-        let existing = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"existing");
+        let existing = fixture(root.path(), input_source_bundle_id(), b"existing");
         install_bundle_at(&existing, &destination).unwrap();
         for target in ["../../../outside", "/etc/hosts"] {
             let source_root = tempdir().unwrap();
-            let source = fixture(source_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+            let source = fixture(source_root.path(), input_source_bundle_id(), b"new");
             std::os::unix::fs::symlink(target, source.join("Contents/escape")).unwrap();
             assert!(
                 matches!(
@@ -1261,8 +1281,8 @@ mod tests {
         assert_eq!(
             fs::read(
                 destination
-                    .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
             )
             .unwrap(),
             b"existing"
@@ -1291,7 +1311,7 @@ mod tests {
     fn first_install_keeps_the_bundle_when_registration_is_pending() {
         let new_root = tempdir().unwrap();
         let destination_root = tempdir().unwrap();
-        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
         let destination = destination_root.path().join("Library/Input Methods");
 
         let result = install_bundle_at_with_registration(&new_source, &destination, |_| {
@@ -1301,15 +1321,16 @@ mod tests {
         assert_eq!(
             fs::read(
                 destination
-                    .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
             )
             .unwrap(),
             b"new"
         );
         assert!(!destination
             .join(format!(
-                ".{INPUT_SOURCE_BUNDLE_NAME}.installing-{}",
+                ".{}.installing-{}",
+                input_source_bundle_name(),
                 std::process::id()
             ))
             .exists());
@@ -1320,8 +1341,8 @@ mod tests {
         let old_root = tempdir().unwrap();
         let new_root = tempdir().unwrap();
         let destination_root = tempdir().unwrap();
-        let old_source = fixture(old_root.path(), INPUT_SOURCE_BUNDLE_ID, b"old");
-        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let old_source = fixture(old_root.path(), input_source_bundle_id(), b"old");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
         let destination = destination_root.path().join("Library/Input Methods");
         install_bundle_at(&old_source, &destination).unwrap();
 
@@ -1332,15 +1353,16 @@ mod tests {
         assert_eq!(
             fs::read(
                 destination
-                    .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+                    .join(input_source_bundle_name())
+                    .join(format!("Contents/MacOS/{}", input_source_executable()))
             )
             .unwrap(),
             b"old"
         );
         assert!(!destination
             .join(format!(
-                ".{INPUT_SOURCE_BUNDLE_NAME}.previous-{}",
+                ".{}.previous-{}",
+                input_source_bundle_name(),
                 std::process::id()
             ))
             .exists());
@@ -1350,10 +1372,10 @@ mod tests {
     fn refuses_a_regular_file_at_the_bundle_slot_without_replacing_it() {
         let new_root = tempdir().unwrap();
         let destination_root = tempdir().unwrap();
-        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
         let destination = destination_root.path().join("Library/Input Methods");
         fs::create_dir_all(&destination).unwrap();
-        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        let target = destination.join(input_source_bundle_name());
         fs::write(&target, b"synthetic stray file").unwrap();
 
         let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));
@@ -1362,7 +1384,8 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"synthetic stray file");
         assert!(!destination
             .join(format!(
-                ".{INPUT_SOURCE_BUNDLE_NAME}.installing-{}",
+                ".{}.installing-{}",
+                input_source_bundle_name(),
                 std::process::id()
             ))
             .exists());
@@ -1375,10 +1398,10 @@ mod tests {
 
         let new_root = tempdir().unwrap();
         let destination_root = tempdir().unwrap();
-        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let new_source = fixture(new_root.path(), input_source_bundle_id(), b"new");
         let destination = destination_root.path().join("Library/Input Methods");
         fs::create_dir_all(&destination).unwrap();
-        let target = destination.join(INPUT_SOURCE_BUNDLE_NAME);
+        let target = destination.join(input_source_bundle_name());
         symlink(destination.join("missing.app"), &target).unwrap();
 
         let result = install_bundle_at_with_registration(&new_source, &destination, |_| Ok(()));

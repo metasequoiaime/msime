@@ -1085,8 +1085,52 @@ def next_steps(state: Path, host: str | None, registered: str | None) -> None:
     print("设置面板：msime-linux-settings（需要安装时提供了桌面二进制）")
 
 
+# 各版本（full、拼音、五笔等）是各自独立的安装包，可以同时安装，每个包带着自己的这个脚本：它只配置、注销本版本，状态目录、词库、用户服务和输入法条目都是本版本自己的。IBUS_ENGINE 就是包名，full 是 msime-linux，其他版本是 msime-linux-<id>。
+EDITION_PACKAGE_PREFIX = "msime-linux-"
+EDITION_ID = re.compile(r"[a-z][a-z0-9]*")
+
+
+def installed_edition() -> str:
+    """本脚本所属安装包的版本 id。"""
+    return IBUS_ENGINE[len(EDITION_PACKAGE_PREFIX):] if IBUS_ENGINE.startswith(EDITION_PACKAGE_PREFIX) else "full"
+
+
+def edition_setup_program(edition: str) -> Path:
+    """另一个版本的首次配置命令：它在 /usr/bin 下以那个版本的包名命名（full 是 msime-linux-setup，其他版本是指向 /opt/msime-linux-<id> 的 msime-linux-<id>-setup）。"""
+    package = EDITION_PACKAGE_PREFIX.rstrip("-") if edition == "full" else EDITION_PACKAGE_PREFIX + edition
+    return Path("/usr/bin") / f"{package}-setup"
+
+
+def delegate_to_edition(edition: str, argv: list[str]) -> None:
+    """--edition 指的不是本版本时，换成那个版本自己的命令来做，参数原样带过去；那个版本没装时报错，不拿本版本去配置它。"""
+    if not EDITION_ID.fullmatch(edition):
+        raise SystemExit(f"版本 id 只能是小写字母和数字：{edition}")
+    program = edition_setup_program(edition)
+    if not os.access(program, os.X_OK):
+        raise SystemExit(f"没有安装 {edition} 版本：找不到 {program}")
+    os.execv(program, [str(program), *argv])
+
+
+def without_edition_argument(argv: list[str]) -> list[str]:
+    """去掉命令行里的 --edition 及其值。"""
+    remaining = []
+    skip = False
+    for argument in argv:
+        if skip:
+            skip = False
+        elif argument == "--edition":
+            skip = True
+        elif not argument.startswith("--edition="):
+            remaining.append(argument)
+    return remaining
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="水杉输入法 Linux 首次配置")
+    parser.add_argument(
+        "--edition",
+        help=f"要配置的版本（full、pinyin、wubi 等），默认是本命令所属的版本 {installed_edition()}；指定另一个版本时交给那个版本自己的首次配置命令",
+    )
     parser.add_argument("--resources", type=Path, help="已备齐的词库目录（绝对路径）")
     parser.add_argument("--state", type=Path, help="要创建的状态目录，默认 $XDG_CONFIG_HOME/msime-client")
     parser.add_argument(
@@ -1115,6 +1159,8 @@ def main() -> int:
         help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除，恢复被改过的候选面板主题、字体和滚轮翻页设置后退出，不准备状态也不下载；卸载时自动执行",
     )
     arguments = parser.parse_args()
+    if arguments.edition and arguments.edition != installed_edition():
+        delegate_to_edition(arguments.edition, without_edition_argument(sys.argv[1:]))
     if arguments.unregister:
         unregister_input_method()
         return 0

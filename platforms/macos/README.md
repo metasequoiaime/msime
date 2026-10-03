@@ -98,6 +98,14 @@ cask 放在 [metasequoiaime/homebrew-tap](https://github.com/metasequoiaime/home
 
 cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在终端里配置的 AI 助手使用：既可以注册为 MCP 服务器，也可以由助手直接在终端里运行，`msime-mcp tools` 列出工具与参数，`msime-mcp call <tool> '<json>'`（或 `@文件` 从 UTF-8 文件读取参数）调用其中一个并输出 JSON，`msime-mcp prompt diagnose` 给出排查问题的步骤，权限开关（`--allow-write`、`--allow-dictionary-read`）与 MCP 相同；设置页「连接 AI 助手」的「命令行」页给出可直接交给助手的说明。和拖进「应用程序」一样，装完要打开一次 MSIME，在它的安装窗口里点「立即安装」，把输入法装进 `~/Library/Input Methods` 并登记；全新的机器还要按上面的首次安装规则注销并重新登录。`brew uninstall` 同时删除 `~/Library/Input Methods/水杉输入法.app`，`--zap` 再删除设置、词库与缓存。只提供 Apple silicon，最低 macOS 13，与 DMG 相同。
 
+## 版本（edition）
+
+除了 full（就是现在的水杉输入法），还有只带五笔的水杉五笔（`wubi`）和只带全拼、双拼的水杉拼音（`pinyin`）。版本表是 `shared/contracts/editions.json`，每个版本的 macOS 标识写在它的 `platforms.macos` 里：输入法 bundle id、bundle 与可执行文件名、设置应用 identifier（也是状态目录名）、钥匙串服务名、cask 和 DMG 前缀。几个版本可以同时安装，彼此完全隔离：输入源、NSUserDefaults 域、状态目录、钥匙串条目、分布式通知名和统一日志子系统都按版本分开，卸载或退出登录一个版本不影响另一个。full 的标识和产物（Info.plist、InfoPlist.strings、DMG 名、cask）与引入版本之前完全相同，`scripts/test-macos-editions.py` 检查这一点。
+
+所有版本共用同一份编译产物。输入法的版本身份写在 Info.plist 里（`MSIMEEdition`、`MSIMEInputSchemes`、`MSIMEDefaultScheme`、`MSIMESettingsBundleIdentifier`、`MSIMEKeychainService`、`MSIMEWubiMixedPinyinDefault`），原生代码在运行时读（`src/core/EditionIdentity.h`、`src/backend/core/BackendEdition.swift`），没有这些键就是 full。`scripts/edition_bundle.py` 从 `Info.plist.in` 和 `resources/*.lproj/InfoPlist.strings` 生成每个版本的这几个文件：五笔版只声明「五」（`.Hans` 换上五笔的图标）和「英」两个模式，拼音版声明中、双、英；连接名一律是 `<bundle id>_Connection`。设置应用的版本声明是 `Contents/Resources/edition.json`，设置应用和 `msime-mcp` 都按它找输入法 bundle、状态目录和通知名，full 的包不带这个文件。
+
+本地构建某个版本的输入法：`cmake -S platforms/macos -B target/macos-isolated -DMSIME_EDITION=wubi`，产物是 `target/macos-isolated/水杉五笔.app`，改回 `-DMSIME_EDITION=full` 即恢复。发布包用 `package-release.sh --editions full,wubi,pinyin`：输入法、`msime-mcp` 和设置应用只编一次，每个版本各自暂存资源（`MSIME_EDITION=<id> stage-resources.sh` 只带该版本资源锁里的文件）、把输入法 bundle 改成该版本、按该版本的 identifier 打设置应用，再各出一个 DMG；`release-macos.yml` 为每个版本发布一个 DMG 和一个 cask，只有 full 的 cask 把 `msime-mcp` 放上 `PATH`。macOS 版没有配置 Sparkle feed（`SUFeedURL`），应用内更新检查按版本选资产。
+
 ## 标识与数据目录
 
 这里有两个不同产品进程，不能用同一个概念混写：输入法本体是 InputMethodKit bundle，继续使用系统已经登记的 `app.msime.inputmethod.MetasequoiaIME`；承载共享 React 设置页的设置应用使用 `app.msime.macos`（`tauri.macos.conf.json` 覆盖共享配置里其他桌面平台用的 `app.msime.client`）。设置应用的默认状态根和输入法读取的原生定位器都在 `~/Library/Application Support/app.msime.macos/`，外部皮肤、偏好、统计与 `runtime-options.json` 以此为当前默认来源。

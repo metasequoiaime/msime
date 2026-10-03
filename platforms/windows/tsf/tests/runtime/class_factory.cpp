@@ -6,9 +6,11 @@
 #include <string>
 #include <cstring>
 
+#include "../../../../../shared/contracts/msime_edition.h"
+
 namespace {
-constexpr CLSID kMetasequoiaImeClsid = {
-    0xe3062e9a, 0xd834, 0x4637, {0x89, 0x58, 0xed, 0x8c, 0xfa, 0x42, 0x7d, 0x01}};
+// 本次构建的版本的 CLSID：DLL 只为自己版本的 CLSID 给出类工厂。
+constexpr CLSID kMetasequoiaImeClsid = MSIME_EDITION_CLSID;
 constexpr CLSID kUnknownClsid = {
     0x4c8a4f2b, 0x2c98, 0x4f85, {0x9e, 0x40, 0x62, 0x35, 0x8c, 0x1b, 0x91, 0x77}};
 

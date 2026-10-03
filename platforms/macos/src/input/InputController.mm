@@ -94,11 +94,12 @@ static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     return queue;
 }
 
-static NSString * const MSIMETypingStatisticsEnabledChangedNotification =
-    @"MetasequoiaTypingStatisticsEnabledChangedNotification";
-// Posted by the settings window (crates/host-macos/native/dictionary.mm) and by the native dictionary window once the quiesce lease is up. It only wakes the controllers; the lease beside the dictionary lock is what they check before letting go.
-static NSString * const MSIMEDictionaryMaintenanceWillBeginNotification =
-    @"MSIMEDictionaryMaintenanceWillBeginNotification";
+// 分布式通知在整个登录会话里广播，名字随版本而变（MSIMEEditionNotificationName，full 不变），一个版本的设置应用不会改动另一个版本的输入法。与 crates/host-macos/native/dictionary.mm 收发的是同一个名字。
+#define MSIMETypingStatisticsEnabledChangedNotification \
+    MSIMEEditionNotificationName(@"MetasequoiaTypingStatisticsEnabledChangedNotification")
+// 由设置窗口（crates/host-macos/native/dictionary.mm）和原生词库窗口在 quiesce 租约写好之后发出。它只负责叫醒控制器；控制器放手之前检查的是词库锁旁边的租约。
+#define MSIMEDictionaryMaintenanceWillBeginNotification \
+    MSIMEEditionNotificationName(@"MSIMEDictionaryMaintenanceWillBeginNotification")
 
 // Dictionary maintenance needs the Engine's exclusive lock, and every open session holds it shared. While the settings window's lease (platforms/common/DictionaryQuiesceLease.h) is live on a session's user directory, that session is closed and none is opened on it.
 static BOOL MSIMEDictionaryQuiesced(NSDictionary *options) {
@@ -2847,7 +2848,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
     const NSInteger index = [_view[@"scheme"] integerValue];
-    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : @"quanpin";
+    NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
     NSString *profile = _view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = _appearance.shuangpinProfile;
     NSDictionary<NSString *, NSString *> *schemeTitles = @{
@@ -3037,7 +3038,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 - (NSMenu *)menu {
     [self ensureAppearance];
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:MSIMEEditionDisplayName()];
     menu.autoenablesItems = NO;
     ApplyMetasequoiaMenuTheme(menu, [self resolvedMenuThemePreferences]);
     for (NSUInteger mode = 0; mode < 2; ++mode) {
@@ -3124,11 +3125,11 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [menu addItem:voice];
 
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
+    NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:[MSIMEEditionDisplayName() stringByAppendingString:@"设置…"] action:@selector(showAppearance:) keyEquivalent:@""];
     settings.target = self;
     [menu addItem:settings];
     // The reference tray menu ends with 关于, which opens the settings window on its about page. One row does not make the menu too tall, and without it the version and licence notices are only reachable by knowing to open settings and scroll to the last page.
-    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(showAbout:) keyEquivalent:@""];
+    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"关于%@…", MSIMEEditionDisplayName()] action:@selector(showAbout:) keyEquivalent:@""];
     about.target = self;
     [menu addItem:about];
     return menu;
@@ -6406,7 +6407,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (logo) {
         NSImageView *mark = [NSImageView imageViewWithImage:logo];
         mark.identifier = @"candidate-logo";
-        mark.accessibilityLabel = @"水杉输入法";
+        mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
         mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
         [content addSubview:mark];

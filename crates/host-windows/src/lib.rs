@@ -24,51 +24,20 @@ pub mod voice_controller;
 use std::path::Path;
 use std::time::Duration;
 
-const CLIPBOARD_HISTORY_CHANGE_EVENT: &[u16] = &[
-    'L' as u16,
-    'o' as u16,
-    'c' as u16,
-    'a' as u16,
-    'l' as u16,
-    '\\' as u16,
-    'M' as u16,
-    'S' as u16,
-    'I' as u16,
-    'M' as u16,
-    'E' as u16,
-    '.' as u16,
-    'C' as u16,
-    'l' as u16,
-    'i' as u16,
-    'e' as u16,
-    'n' as u16,
-    't' as u16,
-    '.' as u16,
-    'C' as u16,
-    'l' as u16,
-    'i' as u16,
-    'p' as u16,
-    'b' as u16,
-    'o' as u16,
-    'a' as u16,
-    'r' as u16,
-    'd' as u16,
-    'H' as u16,
-    'i' as u16,
-    's' as u16,
-    't' as u16,
-    'o' as u16,
-    'r' as u16,
-    'y' as u16,
-    'C' as u16,
-    'h' as u16,
-    'a' as u16,
-    'n' as u16,
-    'g' as u16,
-    'e' as u16,
-    'd' as u16,
-    0,
-];
+/// Server 发布剪贴板历史变化的命名事件，不带版本后缀；与 `platforms/windows/src/clipboard/ClipboardHistory.h` 一致。
+const CLIPBOARD_HISTORY_CHANGE_EVENT: &str = r"Local\MSIME.Client.ClipboardHistoryChanged";
+
+/// 以 NUL 结尾的 UTF-16 名字，供 Win32 调用。
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(Some(0)).collect()
+}
+
+/// 本安装包所属版本的命名对象名：`base` 加上版本后缀（full 没有后缀）。安装包的版本声明坏了时为 `None`，调用方当作 Server 不在，不去碰 full 的对象。
+fn edition_named(base: &str) -> Option<Vec<u16>> {
+    msime_client_core::edition::Edition::windows_package_identity()
+        .ok()
+        .map(|identity| wide(&identity.named(base)))
+}
 
 mod voice_output;
 pub use voice_output::{focus_external, paste_text, paste_voice_text};
@@ -179,9 +148,13 @@ pub fn wait_for_clipboard_history_change(timeout: Duration) -> bool {
     use windows_sys::Win32::System::Threading::{OpenEventW, WaitForSingleObject};
     const SYNCHRONIZE: u32 = 0x0010_0000;
     let millis = timeout.as_millis().min(u128::from(u32::MAX)) as u32;
-    // SAFETY: the name is a static, nul-terminated UTF-16 string and the
+    // 只等本版本的 Server 发布的事件：几个版本同时运行时，另一个版本的剪贴板变化不该叫醒这里。
+    let Some(name) = edition_named(CLIPBOARD_HISTORY_CHANGE_EVENT) else {
+        return false;
+    };
+    // SAFETY: the name is a nul-terminated UTF-16 string that outlives the call, and the
     // returned handle is closed on every path.
-    let event = unsafe { OpenEventW(SYNCHRONIZE, 0, CLIPBOARD_HISTORY_CHANGE_EVENT.as_ptr()) };
+    let event = unsafe { OpenEventW(SYNCHRONIZE, 0, name.as_ptr()) };
     if event.is_null() {
         return false;
     }
@@ -485,19 +458,18 @@ where
                 HWND_MESSAGE, WNDCLASSEXW,
             };
 
-            const CLASS_NAME: &[u16] = &[
-                'M' as u16, 'S' as u16, 'I' as u16, 'M' as u16, 'E' as u16, 'C' as u16, 'l' as u16,
-                'i' as u16, 'p' as u16, 'b' as u16, 'o' as u16, 'a' as u16, 'r' as u16, 'd' as u16,
-                'L' as u16, 'i' as u16, 's' as u16, 't' as u16, 'e' as u16, 'n' as u16, 'e' as u16,
-                'r' as u16, 0,
-            ];
+            // 窗口类名带版本后缀，与 Server 的窗口类一样按版本区分。
+            let Some(class_name) = edition_named("MSIMEClipboardListener") else {
+                return;
+            };
+            let class_name: &[u16] = &class_name;
             // SAFETY: all pointers refer to static data or this thread's
             // message loop, and the callback is confined to this thread.
             unsafe {
                 let class = WNDCLASSEXW {
                     cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                     lpfnWndProc: Some(clipboard_monitor_window_proc),
-                    lpszClassName: CLASS_NAME.as_ptr(),
+                    lpszClassName: class_name.as_ptr(),
                     ..std::mem::zeroed()
                 };
                 if RegisterClassExW(&class) == 0 {
@@ -505,8 +477,8 @@ where
                 }
                 let hwnd = CreateWindowExW(
                     0,
-                    CLASS_NAME.as_ptr(),
-                    CLASS_NAME.as_ptr(),
+                    class_name.as_ptr(),
+                    class_name.as_ptr(),
                     0,
                     0,
                     0,
@@ -652,32 +624,35 @@ fn shell_open(target: &[u16]) -> bool {
 
 use std::os::windows::ffi::OsStrExt;
 
-/// The state directory the managed Server uses, resolved the same way `production_state_directory` in `server_main.cpp` does: an absolute `METASEQUOIA_IME_DATA_DIR`, then the `DataDir` the installer records in the 64-bit machine view, then `%LOCALAPPDATA%\MSIME-Client`. The Server hands this directory to the shell it launches; a shell started any other way, such as from the Start Menu, needs it to find the same runtime options and preferences.
+/// The state directory the managed Server uses, resolved the same way `production_state_directory` in `server_main.cpp` does (`platforms/windows/common/StateDirectory.h`): an absolute value of this edition's data-directory variable (`METASEQUOIA_IME_DATA_DIR` in full), then the `DataDir` the installer records under this edition's key in the 64-bit machine view, then `%LOCALAPPDATA%\<this edition's state directory>` (`MSIME-Client` in full). The Server hands this directory to the shell it launches; a shell started any other way, such as from the Start Menu, needs it to find the same runtime options and preferences.
+///
+/// 名字都按本安装包所属的版本取（版本表 `platforms.windows`），与 C++ 侧的 `msime_edition.h` 同源；几个版本同时安装时各找各的状态根。安装包的版本声明坏了时返回 `None`，而不是落到 full 的目录上。
 pub fn server_state_directory() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
-    if let Some(value) = std::env::var_os("METASEQUOIA_IME_DATA_DIR") {
+    let identity = msime_client_core::edition::Edition::windows_package_identity().ok()?;
+    if let Some(value) = std::env::var_os(&identity.data_dir_environment_variable) {
         let path = PathBuf::from(value);
         if path.is_absolute() {
             return Some(path);
         }
     }
-    if let Some(path) = installed_data_directory().filter(|path| path.is_absolute()) {
+    if let Some(path) =
+        installed_data_directory(&identity.registry_key).filter(|path| path.is_absolute())
+    {
         return Some(path);
     }
     std::env::var_os("LOCALAPPDATA")
-        .map(|local| PathBuf::from(local).join("MSIME-Client"))
+        .map(|local| PathBuf::from(local).join(&identity.state_directory))
         .filter(|path| path.is_absolute())
 }
 
-fn installed_data_directory() -> Option<std::path::PathBuf> {
+fn installed_data_directory(registry_key: &str) -> Option<std::path::PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
         RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_SUBKEY_WOW6464KEY,
     };
-    let key: Vec<u16> = "Software\\Metasequoia\\MetasequoiaIME\0"
-        .encode_utf16()
-        .collect();
+    let key = wide(registry_key);
     let name: Vec<u16> = "DataDir\0".encode_utf16().collect();
     let flags = RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY;
     let mut bytes = 0u32;

@@ -1,15 +1,25 @@
-param([Parameter(Mandatory)][string]$Installer)
+param(
+    [Parameter(Mandatory)][string]$Installer,
+    # 安装包所属的版本（shared/contracts/editions.json 里有 Windows 段的 id）。CLSID、注册表键、看门狗任务名、安装目录和 host DLL 名都按它取。
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full'
+)
 # Installs the built package silently on a disposable Windows machine, checks what it leaves on disk, in the registry and in Task Scheduler, then uninstalls it silently and checks the same places are clean. Requires an elevated session; the release runner is one.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 
-$clsid = '{E3062E9A-D834-4637-8958-ED8CFA427D01}'
-$appKey = 'HKLM:\SOFTWARE\Metasequoia\MetasequoiaIME'
-$taskName = 'Metasequoia IME Watchdog'
-$pf64 = Join-Path $env:ProgramFiles 'metasequoiaime'
-$pf32 = Join-Path ${env:ProgramFiles(x86)} 'metasequoiaime'
-$logs = Join-Path $env:RUNNER_TEMP 'msime-install-smoke'
+$editions = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$identity = @($editions.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
+if ($identity.Count -ne 1) { throw "Edition $Edition has no Windows identifiers" }
+$identity = $identity[0].platforms.windows
+$clsid = $identity.clsid
+$appKey = "HKLM:\$($identity.registry_key)"
+$taskName = $identity.watchdog_task
+$pf64 = Join-Path $env:ProgramFiles $identity.install_dir
+$pf32 = Join-Path ${env:ProgramFiles(x86)} $identity.install_dir
+# 数据目录所有权标记的文件名接版本的名字后缀（platforms/windows/scripts/edition_windows.py 的 data_dir_marker），full 是 .metasequoiaime-data。
+$markerName = '.metasequoiaime-data' + $identity.name_suffix
+$logs = Join-Path $env:RUNNER_TEMP "msime-install-smoke-$Edition"
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 $failures = [Collections.Generic.List[string]]::new()
 function Check([bool]$Condition, [string]$What) {
@@ -22,7 +32,7 @@ function InprocServer([string]$ClassesRoot) {
 function TaskExists { $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) }
 
 # A custom data directory, not the default: the uninstaller used to re-read DataDir after its registry value was already gone and so only ever removed the default location.
-$dataDir = Join-Path $env:RUNNER_TEMP 'msime-smoke-data'
+$dataDir = Join-Path $env:RUNNER_TEMP "msime-smoke-data-$Edition"
 if (Test-Path -LiteralPath $dataDir) { Remove-Item -LiteralPath $dataDir -Recurse -Force }
 
 # ---- install ----
@@ -34,7 +44,17 @@ $versionDir = $app.VersionDir
 Check (-not [string]::IsNullOrWhiteSpace($versionDir)) 'VersionDir recorded in HKLM'
 Check (Test-Path -LiteralPath $app.ServerPath -PathType Leaf) "ServerPath points at an installed file ($($app.ServerPath))"
 Check (Test-Path -LiteralPath (Join-Path $app.DataDir 'config.toml') -PathType Leaf) 'user config.toml created in DataDir'
-Check (Test-Path -LiteralPath (Join-Path $app.DataDir '.metasequoiaime-data') -PathType Leaf) 'DataDir ownership marker written'
+Check (Test-Path -LiteralPath (Join-Path $app.DataDir $markerName) -PathType Leaf) 'DataDir ownership marker written'
+# 不是 full 的版本：所有权标记写着自己的版本 id，Server 目录里有版本声明，host DLL 用版本表里的名字；full 的包没有版本声明。
+$declaration = Join-Path $pf64 'server\edition.json'
+if ($Edition -eq 'full') {
+    Check (-not (Test-Path -LiteralPath $declaration)) 'full package carries no edition declaration'
+} else {
+    $marker = Get-Content -LiteralPath (Join-Path $app.DataDir $markerName) -Raw
+    Check ($marker.Contains("(edition $Edition)")) 'DataDir ownership marker names the edition'
+    $declared = if (Test-Path -LiteralPath $declaration) { (Get-Content -LiteralPath $declaration -Raw | ConvertFrom-Json).edition } else { $null }
+    Check ($declared -eq $Edition) "server\edition.json declares $Edition"
+}
 # The three voice runtime libraries are what the Server loads for on-device speech recognition; Build-Client.ps1 stages them for every release package.
 foreach ($name in 'MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-settings.exe', 'MSIME.exe', 'msime-mcp.exe',
     'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll') {
@@ -45,6 +65,8 @@ $mcpVersion = (& (Join-Path $pf64 'server\msime-mcp.exe') --version 2>&1 | Out-S
 Check ($LASTEXITCODE -eq 0 -and $mcpVersion -like 'msime-mcp *') "installed msime-mcp.exe runs ($mcpVersion)"
 $tip64 = Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"
 $tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
+Check (Test-Path -LiteralPath (Join-Path $pf64 "$versionDir\$($identity.host_dll)") -PathType Leaf) "64-bit $($identity.host_dll) installed beside the TSF DLL"
+Check (Test-Path -LiteralPath (Join-Path $pf32 "$versionDir\$($identity.host_dll)") -PathType Leaf) "32-bit $($identity.host_dll) installed beside the TSF DLL"
 Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
 Check (Test-Path -LiteralPath $tip32 -PathType Leaf) '32-bit TSF DLL installed'
 Check ((InprocServer 'HKLM:\SOFTWARE\Classes') -eq $tip64) '64-bit COM server registered to the installed DLL'

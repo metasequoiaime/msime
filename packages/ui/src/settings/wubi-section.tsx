@@ -7,6 +7,8 @@ export interface WubiPreferences {
 
 export interface WubiSectionProps {
   preferences: WubiPreferences;
+  /** 文档里没有 `wubi_mixed_pinyin` 时混拼开关显示的值：本版本的默认值（`HostCapabilities.edition.wubi_mixed_pinyin_default`），缺省为关。 */
+  mixedPinyinDefault?: boolean;
   autoCommitUnique?: boolean;
   onChange: (patch: Partial<WubiPreferences>) => void;
   onAutoCommitUniqueChange?: (value: boolean) => void;
@@ -15,6 +17,7 @@ export interface WubiSectionProps {
 /** Shared Wubi fallback and completion controls for hosts that expose them: rows of the 方案 group while Wubi is in use. */
 export function WubiSection({
   preferences,
+  mixedPinyinDefault = false,
   autoCommitUnique,
   onChange,
   onAutoCommitUniqueChange,
@@ -24,7 +27,7 @@ export function WubiSection({
       <SwitchRow
         title="编码打不出时用拼音候选"
         description="五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。"
-        checked={preferences.wubi_mixed_pinyin ?? false}
+        checked={preferences.wubi_mixed_pinyin ?? mixedPinyinDefault}
         onChange={(checked) => onChange({ wubi_mixed_pinyin: checked })}
       />
       <SwitchRow

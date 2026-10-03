@@ -21,6 +21,8 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
     [string]$Generator = 'Visual Studio 17 2022',
     [switch]$IncludeSymbols,
+    # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id），缺省是 full。
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     [switch]$Light,
     [switch]$Reconfigure
 )
@@ -46,20 +48,24 @@ $installer = Join-Path $PSScriptRoot 'Sign-Installer-SimplySign.ps1'
 foreach ($path in @($build, $prepare, $payload, $compile, $installer)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "发布入口缺失：$path" }
 }
+$editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
+$editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
+if ($editionEntry.Count -ne 1) { throw "版本 $Edition 在 shared/contracts/editions.json 里没有 Windows 标识" }
+$editionBuild = "target/windows-$Edition"
 $stageArgs = @{
     RepoRoot=$RepoRoot; X64Dependencies=$X64Dependencies; X86Dependencies=$X86Dependencies
-    Generator=$Generator; TargetVersion=$TargetVersion
+    Generator=$Generator; TargetVersion=$TargetVersion; Edition=$Edition
 }
 $prepareArgs = @{
     RepoRoot=$RepoRoot; TargetVersion=$TargetVersion; NoticesDirectory=$noticeRoot
-    DesktopResourcesDirectory=$DesktopResourcesDirectory; Light=$Light
-    ServerReleaseDirectory='target/windows-full/x64/bin'
-    Tsf32ReleaseDirectory='target/windows-full/x86/bin'
-    Tsf64ReleaseDirectory='target/windows-full/x64/bin'
-    DesktopExecutable='target/windows-full/x64/bin/msime-client-settings.exe'
+    DesktopResourcesDirectory=$DesktopResourcesDirectory; Light=$Light; Edition=$Edition
+    ServerReleaseDirectory="$editionBuild/x64/bin"
+    Tsf32ReleaseDirectory="$editionBuild/x86/bin"
+    Tsf64ReleaseDirectory="$editionBuild/x64/bin"
+    DesktopExecutable="$editionBuild/x64/bin/msime-client-settings.exe"
 }
 $signArgs = @{ PackageRoot=$PSScriptRoot; CertificateThumbprint=$CertificateThumbprint; TimestampUrl=$TimestampUrl; SignToolPath=$SignToolPath }
-$outerName = "MetasequoiaIME_Setup_v$TargetVersion"
+$outerName = "$($editionEntry[0].platforms.windows.installer_base_name)_v$TargetVersion"
 if ($Light) { $outerName += '_light' }
 if ($IncludeSymbols) { $outerName += '_with_pdb' }
 $outerPath = Join-Path $PSScriptRoot "Output\$outerName.exe"
@@ -68,7 +74,7 @@ try {
     Invoke-Stage $build $stageArgs
     Invoke-Stage $prepare $prepareArgs
     Invoke-Stage $payload $signArgs
-    Invoke-Stage $compile @{ IsccPath=$IsccPath; Light=$Light }
+    Invoke-Stage $compile @{ IsccPath=$IsccPath; Light=$Light; Edition=$Edition }
     if (-not (Test-Path -LiteralPath $outerPath -PathType Leaf)) { throw "未生成安装包：$outerPath" }
     Invoke-Stage $installer @{ InstallerPath=$outerPath; CertificateThumbprint=$CertificateThumbprint; TimestampUrl=$TimestampUrl; SignToolPath=$SignToolPath }
     Write-Host "发布安装包已生成并签名：$outerPath"

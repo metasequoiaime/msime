@@ -13,7 +13,7 @@ use crate::session::SessionOptions;
 use crate::types::{
     autocorrect_type, fuzzy_rule, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentMode,
     FrequencyAdjustmentOptions, FuzzyPinyinOptions, LocalModeOptions, MentionEntry,
-    MixedExpressiveOptions, QuickPhraseEntry, SchemeType, SentenceAssociationOptions,
+    MixedExpressiveOptions, QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions,
     ShuangpinProfileKind, WubiInputOptions, WubiProfileKind,
 };
 use crate::user_dictionary::generation::prepare_runtime_paths;
@@ -30,7 +30,9 @@ pub struct EngineOptions {
     pub dictionaries: String,
     /// 0 全拼，1 双拼，2 五笔，3 日文，4 韩文，5 粤拼，6 注音，7 越南文，8 藏文，9 笔画。
     pub scheme: u8,
-    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft.
+    /// 会话允许运行的方案，`prepare_options` 填 [`SchemeSet::ALL`]。宿主按产品版本收窄它：`scheme` 不在其中时建会话失败（`INPUT_SCHEME_NOT_ENABLED`），不在其中的方案不构造 provider。
+    pub enabled_schemes: SchemeSet,
+    /// 0 xiaohe, 1 ziranma, 2 shoudao, 3 microsoft. 双拼不在 `enabled_schemes` 里时不校验，不合法的值按小鹤处理。
     pub shuangpin_profile: u8,
     pub shuangpin_preedit_uses_raw: bool,
     pub learning: bool,
@@ -116,6 +118,7 @@ pub fn prepare_options(
         cache: text(&paths.cache),
         dictionaries: text(&paths.dictionaries),
         scheme: SchemeType::Quanpin as u8,
+        enabled_schemes: SchemeSet::ALL,
         shuangpin_profile: ShuangpinProfileKind::Xiaohe as u8,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -191,6 +194,7 @@ pub fn session_options(options: &EngineOptions) -> Result<SessionOptions> {
     };
     let mut session = SessionOptions::new(runtime_paths(options));
     session.scheme = scheme;
+    session.enabled_schemes = options.enabled_schemes;
     session.shuangpin_profile = shuangpin_profile;
     session.shuangpin_preedit_uses_raw = options.shuangpin_preedit_uses_raw;
     session.vietnamese_input_method = vietnamese_input_method;
@@ -354,7 +358,11 @@ pub(super) fn runtime_paths(options: &EngineOptions) -> RuntimePaths {
     }
 }
 
+/// 双拼方案的键位。双拼不在 `enabled_schemes` 里时这个值用不上（没有双拼 provider，也切不到双拼），所以不校验：不合法的值按小鹤处理，免得一份只对双拼有意义的偏好让没有双拼的会话建不起来。
 pub(super) fn shuangpin_profile(options: &EngineOptions) -> Result<ShuangpinProfileKind> {
-    ShuangpinProfileKind::from_u8(options.shuangpin_profile)
-        .ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_SHUANGPIN_PROFILE))
+    let profile = ShuangpinProfileKind::from_u8(options.shuangpin_profile);
+    if !options.enabled_schemes.contains(SchemeType::Shuangpin) {
+        return Ok(profile.unwrap_or_default());
+    }
+    profile.ok_or_else(|| EngineError::invalid(diagnostics::UNSUPPORTED_SHUANGPIN_PROFILE))
 }

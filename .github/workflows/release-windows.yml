@@ -8,9 +8,14 @@ on:
 permissions: {contents: write}
 concurrency: {group: release-windows, cancel-in-progress: false}
 jobs:
+  # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装。full 的安装包名、AppId、目录和注册表键与引入版本之前相同。
   release:
     runs-on: windows-2025
     timeout-minutes: 150
+    strategy:
+      fail-fast: true
+      matrix:
+        edition: [full, wubi, pinyin]
     env:
       VCPKG_DISABLE_METRICS: '1'
       # Python on Windows otherwise decodes text as the ANSI code page, and the fetch and packaging scripts read UTF-8 sources.
@@ -78,7 +83,7 @@ jobs:
           "MSIME_DESKTOP_RESOURCES=$(@($resources)[-1].Trim())" >> $env:GITHUB_ENV
       - name: Build Windows client
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
           # Build-Client.ps1 defaults to the Visual Studio 2022 generator; the runner image moves between Visual Studio releases, so name the one it has.
@@ -94,7 +99,7 @@ jobs:
           if ($msbuild.Count -lt 1) { throw 'no MSBuild in the Visual Studio installation' }
           $env:PATH = "$(Split-Path -Parent $msbuild[0]);$env:PATH"
           Write-Output "MSBuild: $($msbuild[0])"
-          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator
+          ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION
       - name: Collect third-party notices
         shell: pwsh
         run: |
@@ -116,19 +121,20 @@ jobs:
           ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows') -SupplementalNotices $rust, $frontend
       - name: Stage package files
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
         # The same arguments Package-SimplySign.ps1 passes.
         run: >-
           ./platforms/windows/installer/Prepare-PackageFiles.ps1 -TargetVersion $env:VERSION
+          -Edition $env:EDITION
           -NoticesDirectory target/windows-notices
           -DesktopResourcesDirectory $env:MSIME_DESKTOP_RESOURCES
-          -ServerReleaseDirectory target/windows-full/x64/bin
-          -Tsf32ReleaseDirectory target/windows-full/x86/bin
-          -Tsf64ReleaseDirectory target/windows-full/x64/bin
-          -DesktopExecutable target/windows-full/x64/bin/msime-client-settings.exe
+          -ServerReleaseDirectory target/windows-$env:EDITION/x64/bin
+          -Tsf32ReleaseDirectory target/windows-$env:EDITION/x86/bin
+          -Tsf64ReleaseDirectory target/windows-$env:EDITION/x64/bin
+          -DesktopExecutable target/windows-$env:EDITION/x64/bin/msime-client-settings.exe
       - name: Compile installer
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
         # Unsigned: the code-signing certificate is a Certum SimplySign card that only exists on the release machine, so signing stays a local step (installer/Package-SimplySign.ps1). This job produces the installer that step would sign.
         run: |
           $ErrorActionPreference = 'Stop'
@@ -143,8 +149,11 @@ jobs:
             Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/cfdf48923178df4b4f040e038b423aa555a61ffc/Files/Languages/Unofficial/ChineseSimplified.isl' -OutFile $isl
             if ((Get-FileHash -LiteralPath $isl -Algorithm SHA256).Hash -ne '7D544B9BB1D142CFA11F2E5D3CC8ABE2E55F8E066C5124E3772675AA236E1278') { throw 'ChineseSimplified.isl digest mismatch' }
           }
-          ./platforms/windows/installer/Compile-Installer.ps1
-          $installer = "platforms/windows/installer/Output/MetasequoiaIME_Setup_v$env:VERSION.exe"
+          ./platforms/windows/installer/Compile-Installer.ps1 -Edition $env:EDITION
+          # 安装包名前缀按版本取（full 是 MetasequoiaIME_Setup，五笔版是 MetasequoiaIME-Wubi_Setup），与更新检查认的名字一致。
+          $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
+          $installer = "platforms/windows/installer/Output/${base}_v$env:VERSION.exe"
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "installer missing: $installer" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item -LiteralPath $installer -Destination dist/
@@ -154,18 +163,58 @@ jobs:
           Get-ChildItem dist | Format-Table Name, Length
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: msime-windows-${{ steps.version.outputs.value }}
+          name: msime-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
       # The runner is a disposable elevated Windows machine, so install the built package on it and uninstall it again before anything is published. The artifact is uploaded first so a failing package can still be inspected.
       - name: Install and uninstall the package
         shell: pwsh
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
-        run: ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/MetasequoiaIME_Setup_v$env:VERSION.exe"
+        env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
+        run: |
+          $base = (python platforms/windows/scripts/edition_windows.py field --edition $env:EDITION installer_base_name).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'edition installer name lookup failed' }
+          ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+  # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full。runner 是一次性的管理员环境。
+  coexistence:
+    needs: release
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-windows-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
+      - name: Install the editions side by side
+        shell: pwsh
+        env: {VERSION: "${{ needs.release.outputs.version }}"}
+        run: |
+          $installers = @{}
+          foreach ($edition in (python platforms/windows/scripts/edition_windows.py editions).Trim().Split(',')) {
+            $base = (python platforms/windows/scripts/edition_windows.py field --edition $edition installer_base_name).Trim()
+            $installers[$edition] = "dist/${base}_v$env:VERSION.exe"
+          }
+          ./platforms/windows/installer/tests/coexistence-smoke.ps1 -Installers $installers
+  publish:
+    needs: [release, coexistence]
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: msime-windows-*-${{ needs.release.outputs.version }}
+          path: dist
+          merge-multiple: true
       - name: Publish independent Windows release
-        if: inputs.publish
         shell: bash
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.release.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           start=$(git tag --list 'windows-v*' --sort=-v:refname | head -1)

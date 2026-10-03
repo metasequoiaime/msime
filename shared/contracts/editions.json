@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "resource_components": {
+    "core": ["english.db", "others.db", "dictionary-manifest.json"],
+    "chinese-main": ["msime.db"],
+    "ngram": ["bigram.bin", "trigram.bin"],
+    "sentence-model": ["sentence-model.safetensors"],
+    "japanese": ["dict_japanese.dat", "mozc_dictionary_oss_README.txt"]
+  },
+  "editions": [
+    {
+      "id": "full",
+      "display_name": { "zh-Hans": "水杉输入法", "en": "MSIME" },
+      "input_schemes": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"],
+      "default_scheme": "quanpin",
+      "preference_defaults": {},
+      "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
+      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "language_dictionaries": ["cantonese.db", "zhuyin.db", "stroke.db"],
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.MetasequoiaIME", "input_method_name": "水杉输入法", "settings_bundle_id": "app.msime.macos", "keychain_service": "com.metasequoia.msime.account", "cask": "msime", "dmg_prefix": "msime-macos" },
+        "windows": {"langid": "0x0804", "clsid": "{E3062E9A-D834-4637-8958-ED8CFA427D01}", "profile_guid": "{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}", "tsf_guids": {"preserve_key_ime_mode": "{34764E82-AE6D-4F71-BB3A-96799AECE466}", "preserve_key_ime_mode_02": "{748C1D81-246B-4849-921F-143BA2BED3F5}", "preserve_key_ime_mode_03": "{B7E4F2A1-9C3D-4E8F-A1B2-C3D4E5F60718}", "preserve_key_english_input_mode": "{D625C0B1-5A8F-4CC4-9C65-6C536BFF2D91}", "preserve_key_double_single_byte": "{4393748A-89DC-485C-A7F7-5FA232CEC70B}", "preserve_key_punctuation": "{628DDA3B-38D8-4521-BDD4-85CA38F475B8}", "compartment_double_single_byte": "{851BC7CB-8395-4FA6-9C95-DB6EFC2E648E}", "compartment_punctuation": "{58DA9E0F-88B2-426F-91C8-802C9B4D9115}", "langbar_ime_mode": "{94B8FD94-E918-4667-93BE-57A49D35B02D}", "langbar_double_single_byte": "{3E044725-9617-402E-B113-9865AD9B4F8E}", "langbar_punctuation": "{596E7EE3-B629-4895-A5B0-C60A82B47A04}", "display_attribute_input": "{688746FF-BAF2-4153-93ED-96943436422F}", "display_attribute_converted": "{1E2209EA-13CD-4550-8A8F-B352E9744DF2}", "candidate_ui_element": "{9FFF12AA-B5EE-4477-A1AA-A4BF5F7B2447}"}, "inno_app_id": "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}", "app_name": "Metasequoia IME 水杉输入法", "text_service_description": "Metasequoia 水杉输入法", "install_dir": "metasequoiaime", "registry_key": "Software\\Metasequoia\\MetasequoiaIME", "state_directory": "MSIME-Client", "user_data_directory": "MSIME", "data_dir_environment_variable": "METASEQUOIA_IME_DATA_DIR", "name_suffix": "", "watchdog_task": "Metasequoia IME Watchdog", "host_dll": "msime_host_api.dll", "tauri_identifier": "app.msime.windows", "installer_base_name": "MetasequoiaIME_Setup"},
+        "linux": {"package": "msime-linux", "install_prefix": "/usr", "client_directory": "msime-client", "ibus_engine": "msime-linux", "fcitx5_addon": "msime", "tauri_identifier": "app.msime.linux"}, "android": { "application_id": "app.msime.android", "apk_name": "msime-client" }, "ios": null, "harmony": null
+      }
+    },
+    {
+      "id": "pinyin",
+      "display_name": { "zh-Hans": "水杉拼音", "en": "MSIME Pinyin" },
+      "input_schemes": ["quanpin", "shuangpin"],
+      "default_scheme": "quanpin",
+      "preference_defaults": {},
+      "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
+      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "language_dictionaries": [],
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.pinyin", "input_method_name": "水杉拼音", "settings_bundle_id": "app.msime.macos.pinyin", "keychain_service": "com.metasequoia.msime.pinyin.account", "cask": "msime-pinyin", "dmg_prefix": "msime-macos-pinyin" },
+        "windows": {"langid": "0x0804", "clsid": "{7C927972-6D06-44C7-9B7C-B0D00C77D7C7}", "profile_guid": "{A3373284-2DDE-483C-8DCC-057F2FEBAE3D}", "tsf_guids": {"preserve_key_ime_mode": "{51166CFF-8F43-455A-9BF7-C1FF4CCE6236}", "preserve_key_ime_mode_02": "{7110E3F3-84E7-4579-898A-09AC349B4034}", "preserve_key_ime_mode_03": "{CBD4A4A4-53A2-41E2-B4BA-88867CF86AF2}", "preserve_key_english_input_mode": "{CFF84C9E-F39D-4FA0-811A-589D287C7308}", "preserve_key_double_single_byte": "{57A84D9A-FC51-49BB-A715-3C4D7532A680}", "preserve_key_punctuation": "{DD606944-9418-470D-A26B-2A84A27235C5}", "compartment_double_single_byte": "{6A9D9F89-B1B0-4F92-A427-298A45063F25}", "compartment_punctuation": "{707A98BA-E985-43DF-9723-564F6D4D8FD9}", "langbar_ime_mode": "{5418318C-D96E-4048-B72F-CE5C1C06FCA5}", "langbar_double_single_byte": "{97664BB5-C954-485E-917C-7AB5C09EE069}", "langbar_punctuation": "{FABC0EE7-23B7-4396-AE1F-2D14AA5233C9}", "display_attribute_input": "{8086E25D-3945-471B-B7A5-CC33D82285E5}", "display_attribute_converted": "{4256F2C5-CEA2-4CCF-888C-AFCFDEDA0195}", "candidate_ui_element": "{8F07A1EC-0A0C-48CC-B947-2B9603D2C9E0}"}, "inno_app_id": "{EB4125FA-5687-4698-9E43-2C4CA4652132}", "app_name": "Metasequoia IME 水杉拼音", "text_service_description": "Metasequoia 水杉拼音", "install_dir": "metasequoiaime-pinyin", "registry_key": "Software\\Metasequoia\\MetasequoiaIME-Pinyin", "state_directory": "MSIME-Client-pinyin", "user_data_directory": "MSIME-pinyin", "data_dir_environment_variable": "METASEQUOIA_IME_PINYIN_DATA_DIR", "name_suffix": ".pinyin", "watchdog_task": "Metasequoia IME Watchdog (Pinyin)", "host_dll": "msime_host_api_pinyin.dll", "tauri_identifier": "app.msime.windows.pinyin", "installer_base_name": "MetasequoiaIME-Pinyin_Setup"},
+        "linux": {"package": "msime-linux-pinyin", "install_prefix": "/opt/msime-linux-pinyin", "client_directory": "msime-client-pinyin", "ibus_engine": "msime-linux-pinyin", "fcitx5_addon": "msime-pinyin", "tauri_identifier": "app.msime.linux.pinyin"}, "android": { "application_id": "app.msime.android.pinyin", "apk_name": "msime-client-pinyin" }, "ios": null, "harmony": null
+      }
+    },
+    {
+      "id": "wubi",
+      "display_name": { "zh-Hans": "水杉五笔", "en": "MSIME Wubi" },
+      "input_schemes": ["wubi"],
+      "default_scheme": "wubi",
+      "preference_defaults": { "wubi_mixed_pinyin": true },
+      "resources": { "components": ["core", "chinese-main", "ngram"] },
+      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "language_dictionaries": [],
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.wubi", "input_method_name": "水杉五笔", "settings_bundle_id": "app.msime.macos.wubi", "keychain_service": "com.metasequoia.msime.wubi.account", "cask": "msime-wubi", "dmg_prefix": "msime-macos-wubi" },
+        "windows": {"langid": "0x0804", "clsid": "{FD41CA20-BA49-41FE-96BE-923DCCA191DA}", "profile_guid": "{A71F3691-11A8-4F74-A6B1-900ED1DBB740}", "tsf_guids": {"preserve_key_ime_mode": "{2B354D4C-4648-4F4F-8A2B-89F524CF1456}", "preserve_key_ime_mode_02": "{61CACDB3-B22B-416B-98AE-E20785994770}", "preserve_key_ime_mode_03": "{7AE09187-9916-426F-806F-6FE91981CA6E}", "preserve_key_english_input_mode": "{4B78043C-CD1B-4D67-B296-35133699BCC2}", "preserve_key_double_single_byte": "{9CDEAF62-54C7-4F61-A4E7-F101B11E9813}", "preserve_key_punctuation": "{1EB8C375-367D-441C-8384-4BCF54590B51}", "compartment_double_single_byte": "{9F28BD81-7544-4BC5-A722-DC91C6306F7F}", "compartment_punctuation": "{567B1B7F-B1F9-4BB0-BDF7-69726519E32E}", "langbar_ime_mode": "{A2DE3247-4D1E-422E-B812-1A0CE91CC98D}", "langbar_double_single_byte": "{A7494FD0-2025-4C6C-8FE8-9281C700045B}", "langbar_punctuation": "{E01B25C6-717C-4724-B257-B65E2683F8A7}", "display_attribute_input": "{976DCE4E-381F-4924-99F6-69BEF6BFC790}", "display_attribute_converted": "{5D29017A-37B3-4A9E-B012-5371D18509BF}", "candidate_ui_element": "{578E5D98-9FAC-440C-B6A7-B938B63C2563}"}, "inno_app_id": "{FF5943BF-0F4B-4999-8504-15235E4516C6}", "app_name": "Metasequoia IME 水杉五笔", "text_service_description": "Metasequoia 水杉五笔", "install_dir": "metasequoiaime-wubi", "registry_key": "Software\\Metasequoia\\MetasequoiaIME-Wubi", "state_directory": "MSIME-Client-wubi", "user_data_directory": "MSIME-wubi", "data_dir_environment_variable": "METASEQUOIA_IME_WUBI_DATA_DIR", "name_suffix": ".wubi", "watchdog_task": "Metasequoia IME Watchdog (Wubi)", "host_dll": "msime_host_api_wubi.dll", "tauri_identifier": "app.msime.windows.wubi", "installer_base_name": "MetasequoiaIME-Wubi_Setup"},
+        "linux": {"package": "msime-linux-wubi", "install_prefix": "/opt/msime-linux-wubi", "client_directory": "msime-client-wubi", "ibus_engine": "msime-linux-wubi", "fcitx5_addon": "msime-wubi", "tauri_identifier": "app.msime.linux.wubi"}, "android": { "application_id": "app.msime.android.wubi", "apk_name": "msime-client-wubi" }, "ios": null, "harmony": null
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../../shared/contracts/msime_edition.h"
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -29,8 +30,9 @@ private:
 std::string normalize_clipboard_text(std::string text);
 
 #ifdef _WIN32
+// 带版本后缀：设置应用（crates/host-windows 的 `wait_for_clipboard_history_change`）按同一规则拼名字，只等自己版本的 Server。
 inline constexpr wchar_t clipboard_history_change_event_name[] =
-    L"Local\\MSIME.Client.ClipboardHistoryChanged";
+    L"Local\\MSIME.Client.ClipboardHistoryChanged" MSIME_EDITION_NAME_SUFFIX;
 
 class ClipboardMonitor final {
 public:

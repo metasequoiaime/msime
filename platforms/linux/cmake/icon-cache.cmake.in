@@ -9,7 +9,7 @@ if("$ENV{DESTDIR}" STREQUAL "")
   find_program(MSIME_ICON_CACHE_TOOL NAMES gtk-update-icon-cache gtk4-update-icon-cache)
   if(MSIME_ICON_CACHE_TOOL)
     execute_process(
-      COMMAND "${MSIME_ICON_CACHE_TOOL}" -f -t "@CMAKE_INSTALL_FULL_DATADIR@/icons/hicolor"
+      COMMAND "${MSIME_ICON_CACHE_TOOL}" -f -t "@MSIME_SYSTEM_FULL_DATADIR@/icons/hicolor"
       RESULT_VARIABLE msime_icon_cache_result OUTPUT_QUIET ERROR_QUIET)
     if(NOT msime_icon_cache_result EQUAL 0)
       message(STATUS "跳过：图标缓存未刷新，gtk-update-icon-cache 返回 ${msime_icon_cache_result}")

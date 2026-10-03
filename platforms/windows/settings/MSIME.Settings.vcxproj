@@ -46,6 +46,8 @@
     <IntDir Condition="'$(IntDir)' == ''">$(MSBuildProjectDirectory)\obj\$(Configuration)\</IntDir>
     <HostApiInclude Condition="'$(HostApiInclude)' == ''">$(MSBuildProjectDirectory)\..\..\..\crates\host-api\include</HostApiInclude>
     <HostApiLibrary Condition="'$(HostApiLibrary)' == ''">msime_host_api.lib</HostApiLibrary>
+    <!-- 本次构建的产品版本（shared/contracts/editions.json 的 id），选出 shared/contracts/msime_edition.h 里该版本的 CLSID、状态目录和方案；Build-Client.ps1 按 -Edition 传入，缺省是 full。 -->
+    <MsimeEdition Condition="'$(MsimeEdition)' == ''">full</MsimeEdition>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -55,7 +57,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(HostApiInclude);$(MSBuildProjectDirectory)\..\src\system;$(MSBuildProjectDirectory)\..\src\candidate;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /bigobj %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>UNICODE;_UNICODE;NOMINMAX;WIN32_LEAN_AND_MEAN;MSIME_EDITION_$(MsimeEdition.ToUpperInvariant());%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

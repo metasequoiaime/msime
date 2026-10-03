@@ -2,6 +2,7 @@
 //!
 //! An allowlist rather than the whole document: the document also holds API keys, account tokens and endpoints, none of which an agent should read, and most of its fields are choices only the settings page can present properly. The enums are mirrored here so the tool schema names exactly the values the store accepts; `the_mirrors_serialize_as_the_store_does` keeps the two in step.
 
+use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{
     CandidateLayout, CharacterWidthPreference, ChineseScheme, DefaultImeMode, InputScheme,
     Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile, WubiProfile,
@@ -429,23 +430,41 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(deserializer).map(Some)
 }
 
-pub fn load(state_dir: &Path) -> Result<PreferencesView, String> {
-    let snapshot = PreferencesStore::new(state_dir)
+/// `edition` 是运行时选项记录的版本：状态目录里还没有偏好文件时，读到的是这个版本的默认值。
+pub fn load(state_dir: &Path, edition: &'static Edition) -> Result<PreferencesView, String> {
+    let snapshot = PreferencesStore::for_edition(state_dir, edition)
         .load()
         .map_err(|error| error.to_string())?;
     Ok(PreferencesView::from(&snapshot))
 }
 
 /// Save `change` with compare-and-swap, and on Linux publish the result into the runtime-options document the IBus and Fcitx5 hosts read their preferences from, as the settings page does.
+///
+/// `edition` 是运行时选项记录的版本：本版本不提供的方案被拒绝，例如五笔版只能选五笔。
 pub fn update(
     state_dir: &Path,
     options: &Path,
+    edition: &'static Edition,
     change: &PreferencesChange,
 ) -> Result<PreferencesView, String> {
     if change.is_empty() {
         return Err("no preference to change".into());
     }
-    let store = PreferencesStore::new(state_dir);
+    if let Some(choice) = change.scheme {
+        let (scheme, _): (InputScheme, ChineseScheme) = choice.into();
+        if !edition.offers(scheme) {
+            let offered: Vec<Value> = edition
+                .input_schemes
+                .iter()
+                .filter_map(|scheme| serde_json::to_value(scheme).ok())
+                .collect();
+            return Err(format!(
+                "this edition of the input method does not offer that scheme; it offers {}",
+                Value::Array(offered)
+            ));
+        }
+    }
+    let store = PreferencesStore::for_edition(state_dir, edition);
     let previous = store.load().map_err(|error| error.to_string())?;
     if previous.revision != change.expected_revision {
         return Err("the preferences changed since they were read; read them again".into());
@@ -587,16 +606,23 @@ mod tests {
             br#"{"api_version":1,"candidate_skin_catalog":[{"id":"kept"}]}"#,
         )
         .unwrap();
-        let before = load(directory.path()).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
         let untouched = PreferencesStore::new(directory.path()).load().unwrap();
 
         assert_eq!(
-            update(directory.path(), &options, &change(before.revision)).unwrap_err(),
+            update(
+                directory.path(),
+                &options,
+                Edition::full(),
+                &change(before.revision)
+            )
+            .unwrap_err(),
             "no preference to change"
         );
         let updated = update(
             directory.path(),
             &options,
+            Edition::full(),
             &PreferencesChange {
                 scheme: Some(ChineseSchemeChoice::Shuangpin),
                 shuangpin_profile: Some(Profile::Ziranma),
@@ -645,13 +671,13 @@ mod tests {
             candidate_page_size: Some(5),
             ..change(before.revision)
         };
-        assert!(update(directory.path(), &options, &stale).is_err());
+        assert!(update(directory.path(), &options, Edition::full(), &stale).is_err());
         let invalid = PreferencesChange {
             candidate_page_size: Some(10),
             ..change(updated.revision)
         };
-        assert!(update(directory.path(), &options, &invalid).is_err());
-        assert_eq!(load(directory.path()).unwrap(), updated);
+        assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
+        assert_eq!(load(directory.path(), Edition::full()).unwrap(), updated);
 
         // Linux hosts read their preferences from the runtime options; the rest of that document is kept.
         let document: Value = serde_json::from_slice(&std::fs::read(&options).unwrap()).unwrap();
@@ -663,12 +689,61 @@ mod tests {
         assert_eq!(document["candidate_skin_catalog"][0]["id"], "kept");
     }
 
+    /// 五笔版只能选五笔：别的方案被拒绝，偏好不动；还没有偏好文件时读到的是五笔版的默认值。
+    #[test]
+    fn the_wubi_edition_refuses_a_scheme_it_does_not_offer() {
+        let wubi = Edition::by_id("wubi").unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let options = directory.path().join("runtime-options.json");
+        std::fs::write(&options, br#"{"api_version":1,"edition":"wubi"}"#).unwrap();
+        let before = load(directory.path(), wubi).unwrap();
+        assert_eq!(before.scheme, Scheme::Wubi);
+        assert!(before.wubi_mixed_pinyin);
+
+        for refused in [ChineseSchemeChoice::Quanpin, ChineseSchemeChoice::Shuangpin] {
+            let error = update(
+                directory.path(),
+                &options,
+                wubi,
+                &PreferencesChange {
+                    scheme: Some(refused),
+                    candidate_page_size: Some(7),
+                    ..change(before.revision)
+                },
+            )
+            .unwrap_err();
+            assert!(error.contains("does not offer"), "{error}");
+            assert!(error.contains("\"wubi\""), "{error}");
+        }
+        assert_eq!(load(directory.path(), wubi).unwrap(), before);
+
+        let updated = update(
+            directory.path(),
+            &options,
+            wubi,
+            &PreferencesChange {
+                scheme: Some(ChineseSchemeChoice::Wubi),
+                wubi_mixed_pinyin: Some(false),
+                ..change(before.revision)
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.scheme, Scheme::Wubi);
+        assert!(!updated.wubi_mixed_pinyin);
+        // 第一次保存写下的是五笔版的默认值加上这次的修改。
+        let stored = PreferencesStore::new(directory.path()).load().unwrap();
+        assert_eq!(
+            stored.preferences.last_chinese_scheme,
+            Some(ChineseScheme::Wubi)
+        );
+    }
+
     #[test]
     fn the_candidate_window_style_is_set_and_its_radius_returned_to_the_skin() {
         let directory = tempfile::tempdir().unwrap();
         let options = directory.path().join("runtime-options.json");
         std::fs::write(&options, br#"{"api_version":1}"#).unwrap();
-        let before = load(directory.path()).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
         assert_eq!(before.candidate_scale_percent, 100);
         assert_eq!(before.candidate_opacity_percent, 100);
         assert_eq!(before.candidate_corner_radius, None);
@@ -680,7 +755,7 @@ mod tests {
             "candidate_corner_radius": 12,
         }))
         .unwrap();
-        let updated = update(directory.path(), &options, &styled).unwrap();
+        let updated = update(directory.path(), &options, Edition::full(), &styled).unwrap();
         assert_eq!(updated.candidate_scale_percent, 125);
         assert_eq!(updated.candidate_opacity_percent, 80);
         assert_eq!(updated.candidate_corner_radius, Some(12));
@@ -692,7 +767,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(untouched.candidate_corner_radius, None);
-        let updated = update(directory.path(), &options, &untouched).unwrap();
+        let updated = update(directory.path(), &options, Edition::full(), &untouched).unwrap();
         assert_eq!(updated.candidate_corner_radius, Some(12));
         let cleared: PreferencesChange = serde_json::from_value(json!({
             "expected_revision": updated.revision,
@@ -700,7 +775,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!cleared.is_empty());
-        let updated = update(directory.path(), &options, &cleared).unwrap();
+        let updated = update(directory.path(), &options, Edition::full(), &cleared).unwrap();
         assert_eq!(updated.candidate_corner_radius, None);
         assert_eq!(updated.candidate_scale_percent, 150);
 
@@ -708,7 +783,7 @@ mod tests {
             candidate_opacity_percent: Some(30),
             ..change(updated.revision)
         };
-        assert!(update(directory.path(), &options, &invalid).is_err());
+        assert!(update(directory.path(), &options, Edition::full(), &invalid).is_err());
     }
 
     #[test]
@@ -759,16 +834,16 @@ mod tests {
     fn an_unreadable_runtime_options_document_does_not_leave_preferences_saved() {
         let directory = tempfile::tempdir().unwrap();
         // 目录无法作为 runtime-options 文档打开，因此发布步骤会在偏好存储接受修改后失败。
-        let before = load(directory.path()).unwrap();
+        let before = load(directory.path(), Edition::full()).unwrap();
         let change = PreferencesChange {
             candidate_page_size: Some(7),
             ..change(before.revision)
         };
 
         assert_eq!(
-            update(directory.path(), directory.path(), &change).unwrap_err(),
+            update(directory.path(), directory.path(), Edition::full(), &change).unwrap_err(),
             "cannot read the runtime options"
         );
-        assert_eq!(load(directory.path()).unwrap(), before);
+        assert_eq!(load(directory.path(), Edition::full()).unwrap(), before);
     }
 }

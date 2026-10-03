@@ -15,7 +15,10 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::RuntimeOptionsState;
 
-const SETUP_PROGRAM: &str = "msime-linux-setup";
+/// 本安装包所属版本的首次配置命令名（full 是 `msime-linux-setup`，其他版本是 `msime-linux-<id>-setup`）：设置应用只配置自己的版本。
+fn setup_program_name() -> String {
+    msime_client_core::edition::Edition::linux_package_identity_or_full().setup_program()
+}
 /// The first download is about 170 MB; a stalled mirror must still end the run rather than leave the page busy forever.
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
@@ -54,18 +57,28 @@ impl LinuxSetupError {
 pub struct LinuxSetupState(Arc<AtomicBool>);
 
 /// The fixed locator every Linux frontend reads: `$XDG_CONFIG_HOME/msime-client/runtime-options.json`. A relative XDG value is ignored, as the specification requires.
+///
+/// 目录名随本安装包所属的版本（full 是 `msime-client`），与同一版本的宿主和脚本读的是同一份。
 pub fn user_runtime_options() -> Option<PathBuf> {
     super::config_home(
         std::env::var_os("XDG_CONFIG_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )
-    .map(|directory| directory.join("msime-client/runtime-options.json"))
+    .map(|directory| {
+        directory
+            .join(
+                &msime_client_core::edition::Edition::linux_package_identity_or_full()
+                    .client_directory,
+            )
+            .join("runtime-options.json")
+    })
 }
 
 fn find_program(executable_dir: Option<&Path>, search_path: Option<&OsStr>) -> Option<PathBuf> {
     // The installer puts the script beside the desktop binary; prefer that copy so a second installation on PATH cannot prepare against another prefix's lock.
+    let name = setup_program_name();
     executable_dir
-        .map(|directory| directory.join(SETUP_PROGRAM))
+        .map(|directory| directory.join(&name))
         .into_iter()
         .chain(
             search_path
@@ -73,7 +86,7 @@ fn find_program(executable_dir: Option<&Path>, search_path: Option<&OsStr>) -> O
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|directory| directory.is_absolute())
-                .map(|directory| directory.join(SETUP_PROGRAM)),
+                .map(|directory| directory.join(&name)),
         )
         .find(|path| path.is_file())
 }
@@ -281,7 +294,7 @@ mod tests {
     }
 
     fn script(directory: &Path, body: &str) -> PathBuf {
-        let path = directory.join(SETUP_PROGRAM);
+        let path = directory.join(setup_program_name());
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path

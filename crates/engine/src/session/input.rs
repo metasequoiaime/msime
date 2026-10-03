@@ -105,6 +105,7 @@ impl InputSession {
         let journal = paths.user(assets::USER_JOURNAL);
         let mut engine = ImeSession::new(
             options.scheme,
+            options.enabled_schemes,
             options.shuangpin_profile,
             &paths,
             options.cantonese_dictionary.clone(),
@@ -1427,9 +1428,14 @@ impl InputSession {
             b'M' => (LocalInputMode::Kaomoji, options.kaomoji),
             b'J' => (LocalInputMode::SuperJianpin, options.super_jianpin),
             b'Y' => (LocalInputMode::TemporaryEnglish, options.temporary_english),
+            // 临时日文切到日文方案，日文不在会话允许的方案里时这个模式进不去，`R` 照常当字母处理。
             b'R' => (
                 LocalInputMode::TemporaryJapanese,
-                options.temporary_japanese,
+                options.temporary_japanese
+                    && self
+                        .engine
+                        .enabled_schemes()
+                        .contains(SchemeType::JapaneseRomaji),
             ),
             b'V' => (LocalInputMode::Expression, options.expression),
             _ => return None,

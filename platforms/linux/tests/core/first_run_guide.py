@@ -101,7 +101,10 @@ def main() -> int:
         # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-linux-ibus 自报的描述都得是这一个。
         longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-linux.xml.in").read_text()).group(1)
         assert longname == "Metasequoia 水杉输入法", longname
-        assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
+        # msime-linux-ibus 自报的显示名是 LinuxEdition.h 里本版本的 MSIME_EDITION_IBUS_LONGNAME，full 的那一个就是这个 longname。
+        assert "MSIME_EDITION_IBUS_LONGNAME" in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
+        full_longname = re.search(r'#if defined\(MSIME_EDITION_FULL\).*?#define MSIME_EDITION_IBUS_LONGNAME ("[^"]*")', (ROOT / "src/core/LinuxEdition.h").read_text(), re.S).group(1)
+        assert full_longname.encode().decode("unicode_escape").encode("latin-1").decode() == f'"{longname}"', full_longname
         assert f"切回「{longname}」" in calls(log, "notify")[0], calls(log, "notify")
         assert calls(log, "ibus") == []
         # 状态目录必须仍不存在：msime-linux-setup 拒绝准备一个已存在的目录。

@@ -4,7 +4,20 @@
 
 Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`installer/` 各自守着协议、UI、测试与打包的边界，`experiments/` 放不进产品的验证工具。平台根目录放构建文件、脚本、清单和文档。
 
-`common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）、`KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）和 `StateDirectory.h`（状态目录的解析顺序：`METASEQUOIA_IME_DATA_DIR`、HKLM 64 位视图的 `DataDir`、`%LOCALAPPDATA%\MSIME-Client`，两个进程各自解析，但必须落到同一个根；`crates/host-windows` 的 `server_state_directory` 是它的 Rust 副本，`scripts/test-windows-state-dir-parity.py` 核对两边的名字）。`tsf/` 只能以相对路径（`../common/`、`../../common/`）引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
+`common/` 只收 TSF DLL 与 Server 两侧都要编译的协议头：`PipeMetadata.h`（主管道元数据位）、`AuxMessage.h`（Aux 管道消息的编码与解析）、`TsfFocusLeaseProtocol.h`（焦点租约帧）、`KeyEventSendResult.h`（按键写入结果的三分类；`tsf/IPC/KeyEventSendResult.h` 只是把它以 DLL 原有的全局名转出来）和 `StateDirectory.h`（状态目录的解析顺序：本版本的数据目录环境变量（full 是 `METASEQUOIA_IME_DATA_DIR`）、本版本 HKLM 键在 64 位视图下的 `DataDir`、`%LOCALAPPDATA%\<本版本的状态目录>`（full 是 `MSIME-Client`），两个进程各自解析，但必须落到同一个根；`crates/host-windows` 的 `server_state_directory` 是它的 Rust 副本，`scripts/test-windows-state-dir-parity.py` 核对两边都从版本表取这些名字）。`tsf/` 只能以相对路径（`../common/`、`../../common/`）引用这里的头文件，不得再伸进 `src/`；Server 侧经全局 include 路径按文件名引用。往这里加头文件等于扩大 DLL ↔ Server 的契约，只放两侧确实共用的定义。
+
+## 产品版本（edition）
+
+同一套源码按 `shared/contracts/editions.json` 打出几个可以同时安装、彼此完全隔离的产品：full（水杉输入法，引入版本之前的产品本身）、pinyin（水杉拼音）和 wubi（水杉五笔）。每个版本有自己的 TSF CLSID、profile 和全部 TSF 内部 GUID、Inno AppId、Program Files 下的安装目录、HKLM 键、状态目录、用户目录（匿名账号和使用统计）、数据目录环境变量、看门狗计划任务、host DLL 名、`MSIME.exe` 的 Tauri identifier 和安装包名；命名管道、命名事件、互斥量和窗口类名都带 `.<id>` 后缀。full 的后缀是空串，所有标识与引入版本之前相同。
+
+- `platforms/windows/scripts/edition_windows.py gen` 从版本表生成并提交 `shared/contracts/msime_edition.h`（C++ 读的宏）和 `installer/editions.iss`（Inno Setup 读的 `#define`）。构建必须定义且只定义一个 `MSIME_EDITION_<ID>`：CMake 由缓存变量 `MSIME_EDITION`（`Edition.cmake`，缺省 full）定义，WinUI 设置窗口工程由 `MsimeEdition` 属性定义；少了它头文件以 `#error` 停下，不会悄悄编成 full。
+- TSF DLL、Server、看门狗、prepare 工具和设置窗口在编译期绑定一个版本，所以每个版本各编一次：`Build-Client.ps1 -Edition <id>` 和 `build-cross.sh <arch> <id>` 的输出在 `target/windows-<id>`（full 仍是 `target/windows-full`）。host DLL 改成版本表里的名字（例如 `msime_host_api_wubi.dll`），再按原 DLL 的导出表生成同名导入库（MSVC 用 `lib /DEF`，MinGW 用 `dlltool`）：两个版本的 TIP 被同一个应用加载时，按导入表找 DLL 会拿到先加载的那一个。
+- `MSIME.exe` 和 `msime-mcp.exe` 所有版本共用一份构建，运行时读 Server 目录里的 `edition.json`（只有不是 full 的包才有，由 `Prepare-PackageFiles.ps1 -Edition` 写入）决定管道后缀、状态目录和 Tauri identifier。
+- Server 把版本 id 交给宿主库准备状态根，宿主库按版本选资源锁、收窄方案；托盘和设置窗口只列出本版本提供的方案和本版本带的快捷模式（五笔版没有临时日语，也没有全拼、双拼的辅助码）。几个版本的 Server 同时运行时，维护快捷键由焦点所在版本的 Server 处理（每个生产 Server 用命名事件 `MetasequoiaImeServer_ModeActive<后缀>` 发布本版本的模式是否活动）；没有任何版本的模式活动时，由先收到按键的 Server 处理，不会谁都不管。
+- 数据目录的所有权标记文件名也按版本取：full 是 `.metasequoiaime-data`，其他版本接上名字后缀（例如 `.metasequoiaime-data.wubi`）。每个版本的安装器（包括 full）只认本版本的标记，目录里只要有别的版本的标记就不认，即使那是它自己的默认数据目录，所以不会接管、清理或删除别的版本的数据目录。full 的标记文件名和内容不变，以前的 full 写下的标记照样认。
+- 标记只看目录顶层，看不到嵌在子目录里的别的版本，所以安装器还按 `editions.iss` 里别的版本的注册表键和安装目录名（由 `edition_windows.py gen` 从版本表生成）找出别的版本的数据目录：它们登记的 `DataDir` 和默认目录 `%LOCALAPPDATA%\<安装目录>`。本版本的数据目录不能和这些目录重叠或互相包含，向导和 `/DATADIR` 都会拒绝；卸载和更换数据目录时，嵌在本版本目录里的别的版本的数据目录原样留下，迁移也不把它当作用户数据复制。
+- 升级和卸载前，每个版本的安装器（包括 full）只结束可执行文件在本安装 `server` 目录里的进程，不按映像名结束：几个版本的 Server、看门狗、设置窗口、`MSIME.exe` 和 `msime-mcp.exe` 同名，`taskkill /IM` 会把同时安装的其他版本一起停掉。已经发出去的旧版 full 仍按映像名结束进程，所以卸载旧版 full、或运行旧版 full 的安装包时，同时安装的其他版本的进程会被停一次；数据和安装不受影响，Server 在下次需要时由 TSF 重新拉起，看门狗在下次登录时由计划任务拉起。
+- `scripts/test-editions.py` 检查版本表（GUID 两两不同、名字不撞、目录不嵌套），`scripts/test-windows-editions.py` 检查生成文件没有漂移、安装脚本按版本展开后互不越界，并且 Windows 源码不再自己写 full 的 CLSID 和注册表键。
 
 `src/` 按职责分目录，每个目录一句话说清它收什么：
 
@@ -127,7 +140,7 @@ PreviousCandidate/NextCandidate/PreviousPage/NextPage 路径消费共享导航�
 
 `bash platforms/windows/run-tests-wine.sh x64` 把交叉构建出的 C++ 套件（`windows-*.exe`、`msime-tsf-*.exe`、`bin/msimeui-tests.exe`）和 `cargo test --no-run` 产出的 Rust 套件一起放在 `xvfb-run -a wine` 下执行，每个 120 秒超时，结果与 `scripts/known-failures.txt` 比对；不带 `--quick` 的 `scripts/verify-local.sh` 会自动调用它。
 
-CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，同样走 `build-cross.sh x64`，把 `target/windows-full/x64/` 压成 zip 发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
+CI（`.github/workflows/ci-platforms.yml` 的 windows job）在 `debian:trixie-slim` 容器里跑 `build-cross.sh x64`——Ubuntu 24.04 的 MinGW 头文件缺 `d2d1_3.h`。`release-windows.yml` 是手动 `workflow_dispatch`，在 Windows runner 上按版本矩阵（full、wubi、pinyin）各跑一遍 `Build-Client.ps1 -Edition`、打包和装卸冒烟，再用 `installer/tests/coexistence-smoke.ps1` 把几个版本装到同一台机器上，检查它们并存、卸掉一个版本不碰 full，最后一起发布。安装器由 Windows 上的 `installer/Package-SimplySign.ps1` 编译和签名，不在 CI 里产出。
 
 ## 管道 I/O 与进程身份绑定
 

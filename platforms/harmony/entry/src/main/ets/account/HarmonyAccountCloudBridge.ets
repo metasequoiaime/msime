@@ -671,9 +671,8 @@ export class HarmonyAccountCloudBridge {
 
   private options(resources: string, stateRoot: string): Object | null {
     try {
-      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify({
-        resources: resources, state_root: stateRoot
-      }))) as SnapshotReply;
+      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify(
+        KeyboardSession.prepareRequest(resources, stateRoot)))) as SnapshotReply;
       return reply.ok ? reply.value : null;
     } catch {
       return null;

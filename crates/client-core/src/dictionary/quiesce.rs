@@ -190,7 +190,15 @@ impl<'a, Announce: FnMut()> QuiescedHosts<'a, Announce> {
 /// The Windows Server's release, asked for over its auxiliary pipe with the UTF-16LE message `DictionaryQuiesce` and given back with `DictionaryResume` (`platforms/windows/common/AuxMessage.h`). It answers "OK" only once its sessions really are gone, so that reply, not a write getting through, is what makes the exclusive lock safe to take. It gives the sessions back by itself 30 seconds after the last `DictionaryQuiesce`, so a writer that dies mid-import cannot leave input off for longer, and a long one renews the release before each request.
 #[cfg(any(windows, test))]
 pub mod server {
-    pub const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+    /// Server 的辅助管道名，不带 `\\.\pipe\` 前缀和版本后缀；与 `shared/contracts/windows_ipc.h` 的 `FANY_IME_AUX_NAMED_PIPE` 一致。
+    pub const PIPE_BASE_NAME: &str = "FanyImeAuxNamedPipe";
+
+    /// `edition` 的 Server 的辅助管道：full 是 `\\.\pipe\FanyImeAuxNamedPipe`，其他版本带 `.<id>` 后缀。几个版本同时安装时，词库维护只让本版本的 Server 放开会话。
+    pub fn pipe_name(edition: &crate::edition::Edition) -> Option<String> {
+        edition
+            .windows()
+            .map(|identity| identity.pipe_name(PIPE_BASE_NAME))
+    }
 
     pub fn message(verb: &str) -> Vec<u8> {
         verb.encode_utf16().flat_map(u16::to_le_bytes).collect()
@@ -207,12 +215,19 @@ pub mod server {
         use std::io::{Read, Write};
         /// Every instance of the pipe is serving another client.
         const ERROR_PIPE_BUSY: i32 = 231;
+        // 本进程所在安装包的版本（Server 目录里的 edition.json）。声明坏了时报错，而不是去叫 full 的 Server 放开会话。
+        let name = crate::edition::Edition::of_windows_package()
+            .ok()
+            .and_then(pipe_name)
+            .ok_or_else(|| {
+                std::io::Error::other("the package declares an edition this build does not know")
+            })?;
         let mut attempt = 0;
         let mut pipe = loop {
             match std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(PIPE_NAME)
+                .open(&name)
             {
                 Ok(pipe) => break pipe,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -554,6 +569,14 @@ mod tests {
 
     #[test]
     fn the_windows_server_is_spoken_to_in_utf16() {
+        assert_eq!(
+            server::pipe_name(crate::edition::Edition::full()).unwrap(),
+            r"\\.\pipe\FanyImeAuxNamedPipe"
+        );
+        assert_eq!(
+            server::pipe_name(crate::edition::Edition::by_id("wubi").unwrap()).unwrap(),
+            r"\\.\pipe\FanyImeAuxNamedPipe.wubi"
+        );
         assert_eq!(server::message("DictionaryResume")[..4], *b"D\x00i\x00");
         assert_eq!(
             server::message("DictionaryQuiesce").len(),

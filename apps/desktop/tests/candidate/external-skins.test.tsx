@@ -421,9 +421,9 @@ test("decorated previews preserve upstream geometry in both layouts without deco
 
 test("keeps the external toolbar preview on its own row", () => {
   render(packageCard(sample));
-  const preview = screen.getByRole("article", { name: "Sample skin" }).querySelector<HTMLElement>(
-    "[data-skin-preview]",
-  )!;
+  const preview = screen
+    .getByRole("article", { name: "Sample skin" })
+    .querySelector<HTMLElement>("[data-skin-preview]")!;
   const stages = preview.querySelectorAll("[data-skin-stage]");
 
   expect(stages).toHaveLength(3);

@@ -5,6 +5,7 @@
 //! from injected capabilities instead of sniffing the user agent. Both sides of
 //! that agreement live here so no host re-implements the strings.
 
+use crate::edition::Edition;
 use crate::preferences::InputScheme;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -86,11 +87,15 @@ pub enum CandidatePanelLimit {
 
 impl CandidatePanelLimit {
     /// The file the running Linux host writes its finding to: `candidate-panel.json` under `$XDG_RUNTIME_DIR/msime-client`, the per-session directory that goes away with the session the finding describes. A relative or missing runtime directory yields nothing.
+    ///
+    /// 目录名随本进程所在安装包的版本（`Edition::linux_package_identity_or_full`，full 是 `msime-client`），读的是同一版本宿主写的那一份。
     pub fn status_file(runtime_directory: Option<&std::ffi::OsStr>) -> Option<std::path::PathBuf> {
         let directory = std::path::PathBuf::from(runtime_directory?);
-        directory
-            .is_absolute()
-            .then(|| directory.join("msime-client").join("candidate-panel.json"))
+        directory.is_absolute().then(|| {
+            directory
+                .join(&crate::edition::Edition::linux_package_identity_or_full().client_directory)
+                .join("candidate-panel.json")
+        })
     }
 
     /// Reads the host's report, `{"host": "ibus" | "fcitx5", "limit": <name> | null}`. Anything else - no file, a panel that honours the settings, a name this build does not know - reads as no limit, so the page never warns on a guess.
@@ -292,7 +297,32 @@ pub struct HostCapabilities {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_panel_limit: Option<CandidatePanelLimit>,
     /// The input schemes this host offers; the settings page shows the others disabled. A host may narrow the list at runtime the way it fills `os_version`, for instance when the Cantonese, Zhuyin or Stroke dictionary is not installed.
+    ///
+    /// 不是 full 的版本还会经 [`HostCapabilities::narrow_to_edition`] 去掉本版本不含的方案；那些方案在本版本里不存在，设置页应该直接不列出，而不是显示为禁用，`edition` 就是用来区分这两种情况的。
     pub input_schemes: Vec<InputScheme>,
+    /// 运行中的版本，不是 full 时才有。缺省（包括引入版本之前的宿主）就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<EditionInfo>,
+}
+
+/// 设置页需要知道的版本信息。
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditionInfo {
+    /// 版本 id。
+    pub id: String,
+    /// 版本的中文产品名（版本表 `display_name.zh-Hans`），例如「水杉五笔」。macOS 设置页用它称呼本版本在输入法菜单里的各个入口。
+    pub display_name: String,
+    /// 本版本提供的方案；不在其中的方案在本版本里不存在。
+    pub input_schemes: Vec<InputScheme>,
+    /// 本版本的默认方案，偏好里的方案不可用时回退到它。
+    pub default_scheme: InputScheme,
+    /// 本版本是否带临时日文。不带时设置页不列出临时日语开关，host-api 也始终把它关掉。
+    pub temporary_japanese: bool,
+    /// 本版本是否带键盘神经联想用的模型（`sentence-model.safetensors`）。不带时设置页不列出触屏宿主的神经联想开关，host-api 也始终把它关掉。桌面的神经联想用资源目录旁的 settled 模型，不归这一项管。
+    pub neural_keyboard: bool,
+    /// 本版本里五笔混拼的默认值，偏好文档缺这一项时设置页按它显示。
+    pub wubi_mixed_pinyin_default: bool,
 }
 
 /// 基础方案加上粤拼、注音、越南文、藏文和笔画，所有宿主都提供。
@@ -312,6 +342,14 @@ const ALL_INPUT_SCHEMES: [InputScheme; 10] = [
 /// 本构建交给 Engine 的方案：所有宿主都是全部十个，因为每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并放置粤拼、注音和笔画的词库（越南文和藏文不需要词库）。偏好文档里写的其他方案由 host-api 回退；粤拼、注音和笔画在词库没装时仍然回退。
 pub fn compiled_input_schemes() -> &'static [InputScheme] {
     &ALL_INPUT_SCHEMES
+}
+
+/// `edition` 交给 Engine 的方案：[`compiled_input_schemes`] 里本版本提供的那些，顺序不变。full 得到的就是全部八个。host-api 对偏好里其他的方案一律回退到本版本的方案，所以在不是 full 的版本里，任何偏好文档都不会让 Engine 跑一个本版本不含的方案。
+pub fn offered_input_schemes(edition: &Edition) -> Vec<InputScheme> {
+    ALL_INPUT_SCHEMES
+        .into_iter()
+        .filter(|scheme| edition.offers(*scheme))
+        .collect()
 }
 
 impl HostCapabilities {
@@ -565,7 +603,28 @@ impl HostCapabilities {
             candidate_panel_limit: None,
             // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
+            edition: None,
         }
+    }
+
+    /// 收窄到 `edition`：去掉本版本不含的方案，并在不是 full 时带上版本信息。对 full 什么也不改，序列化结果与引入版本之前相同。
+    pub fn narrow_to_edition(&mut self, edition: &Edition) {
+        if edition.is_full() {
+            return;
+        }
+        self.input_schemes.retain(|scheme| edition.offers(*scheme));
+        self.edition = Some(EditionInfo {
+            id: edition.id.clone(),
+            display_name: edition.display_name.zh_hans.clone(),
+            input_schemes: offered_input_schemes(edition),
+            default_scheme: edition.default_scheme,
+            temporary_japanese: edition.features.temporary_japanese,
+            neural_keyboard: edition.features.neural_keyboard,
+            wubi_mixed_pinyin_default: edition
+                .preference_defaults
+                .wubi_mixed_pinyin
+                .unwrap_or(crate::preferences::Preferences::default().wubi_mixed_pinyin),
+        });
     }
 }
 

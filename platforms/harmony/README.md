@@ -385,9 +385,24 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 V、`/`、`@` 三个模式的按键由 Engine 导出的 `spelling_symbols` 决定：`HardwareKeyRouter` 在组合中遇到列在其中的字符就交给 Engine 拼写，否则 Shift+1..9 选词，原先只认 `local_mode === "unicode"` 的分支因此泛化到 V 模式的数字和运算符（Shift+9 是 `(` 不是选第九个；`-`、`.` 是运算符和小数点不是翻页；小键盘的点也是小数点）。`/`、`@` 在无组合时照常作为标点交给 runtime，由 runtime 按 `spelling_symbols` 改走 Engine 进入模式。这三个模式生成的上屏内容按 `commit_context.typing_statistics` 不计入打字统计。
 
-## 目录结构
+## 产品版本
 
-- `entry/src/`：ArkTS 应用与键盘宿主源码。
+版本表 `shared/contracts/editions.json` 里每个版本的 HarmonyOS 段（`platforms.harmony`）目前都是 `null`：HarmonyOS 只有 `build-profile.json5` 里的 `default` 一个 product，也就是 full，`bundleName` 是 `app.msime.harmony`，HAP 不签名（`signingConfigs` 为空）。代码已经按版本参数化，full 的行为和产物与引入版本之前相同。
+
+已经就位的部分：
+
+- 版本身份：`entry/src/main/ets/keyboard/AppEdition.ts`，对应 Android 的 `AppEdition.java` 和 iOS 的 `MSIMEAppEdition`。`AppEdition.current()` 目前返回 full。
+- 方案：`KeyboardScheme` 的启用列表、默认启用列表和各处回退（词典缺失、列表为空、偏好里认不出的方案）都回退到本版本的默认方案，本版本不提供的入口不算启用；手写不属于任何方案，每个版本都有，写进偏好、交给 Engine 的是本版本的默认方案（`KeyboardScheme.engineSchemeOf`）。`KeyboardSession`、`KeyboardView` 的初始方案同样取版本默认。非 full 版本调 `prepareHost` 时带上版本 id（`KeyboardSession.prepareRequest`），host-api 据此收窄方案、按本版本的资源锁校验词库。
+- 设置同步：`AccountPreferencePlan` 的 `localAccountPreferences` 和 `applyAccountPreferences` 分别经 `filterUploadedAccountSettings`、`filterDownloadedAccountSettings` 过滤，规则与 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 相同：只有一个方案的版本既不上传也不应用 `input.schema`，随它一起的还有本机的 `platform.harmony.keyboard_layout`（方案加布局才决定是哪个入口）；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。
+- 以上规则由 `tests/run.sh` 用拼音版、五笔版的声明覆盖。
+
+要发一个版本（以五笔版为例）还差这些，本分支没有做：
+
+1. 版本表：给 wubi、pinyin 填 `platforms.harmony` 段，至少包括 `bundleName`（例如 `app.msime.harmony.wubi`）和 HAP 文件名；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查。不同的 `bundleName` 各有各的沙盒，`files/state`、`files/engine` 和偏好文档自然分开。
+2. 工程：`build-profile.json5` 为每个版本加一个 product，覆盖 `bundleName`、应用名（水杉五笔、水杉拼音；图标与 full 相同）和输入法扩展在系统列表里显示的名字，并把版本 id、方案和默认方案作为构建参数写进去，再让 `AppEdition.current()` 读出来；`entry` 的 target 用 `applyToProducts` 关联到这些 product。多 product 下 hvigor 的这些参数我没有在本仓验证过。
+3. 设置页：`Settings.ets` 的 `hostCapabilities` 取自 `msime_client_host_capabilities`，这个 C ABI 目前只接受平台名、不按版本收窄方案，共享设置页因此仍会列出 full 的全部方案。需要让它（或 Harmony 一侧）按版本调用 client-core 的 `HostCapabilities::narrow_to_edition`。
+4. 资源：`stage-resources.sh` 目前按 full 的 `resources/desktop-dictionary.lock.json` 暂存，要改成按版本的 `resources/editions/<id>.lock.json`；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
+5. 签名与发布：零售设备装不上不签名的 HAP。要在 AppGallery Connect 为每个 `bundleName` 建应用，申请发布证书和 profile，填进 `signingConfigs` 并按 product 关联；`release-harmony.yml` 现在只打一个 HAP、按 `find ... | head -1` 取产物，要改成按版本逐个构建，产物名带版本 id。
 - `native/`：NAPI/C++ 适配层。
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。

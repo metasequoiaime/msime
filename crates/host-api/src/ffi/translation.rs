@@ -25,22 +25,6 @@ fn traditional_retry_inputs(
     (retry, retry_index)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn traditional_retry_inputs_reserve_candidate_capacity() {
-        let candidates = vec![("學".to_owned(), 1), ("你好".to_owned(), 2)];
-        let glosses = vec![String::new(), String::new()];
-        let (retry, indexes) = traditional_retry_inputs(&candidates, &glosses);
-        assert_eq!(retry.len(), 1);
-        assert_eq!(indexes, [0]);
-        assert!(retry.capacity() >= candidates.len());
-        assert!(indexes.capacity() >= candidates.len());
-    }
-}
-
 /// Plan eligible visible candidates using shared script filters. No I/O.
 /// # Safety
 /// `request` must reference `length` readable bytes for this call.
@@ -723,4 +707,20 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         .map_err(|_| "English completion dictionary unavailable")?;
         Ok(json!({"prefix": request.prefix, "items": items}))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn traditional_retry_inputs_reserve_candidate_capacity() {
+        let candidates = vec![("學".to_owned(), 1), ("你好".to_owned(), 2)];
+        let glosses = vec![String::new(), String::new()];
+        let (retry, indexes) = traditional_retry_inputs(&candidates, &glosses);
+        assert_eq!(retry.len(), 1);
+        assert_eq!(indexes, [0]);
+        assert!(retry.capacity() >= candidates.len());
+        assert!(indexes.capacity() >= candidates.len());
+    }
 }

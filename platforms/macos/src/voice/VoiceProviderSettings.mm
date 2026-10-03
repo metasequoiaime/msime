@@ -6,6 +6,7 @@
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
 #import "../core/WindowPresentation.h"
+#import "../core/EditionIdentity.h"
 #include <sys/stat.h>
 
 namespace
@@ -92,10 +93,11 @@ static NSString *const MSIMEVoiceProviderPolishScope = @"polish";
 
 namespace
 {
-NSString *const service = @"app.msime.client.voice.providers";
+// 错误域不随版本而变：VoiceFailureMessages 按 app.msime.client.voice 前缀认出语音错误。钥匙串服务名随版本而变，见 MSIMEVoiceProviderKeychainService。
+NSString *const errorDomain = @"app.msime.client.voice.providers";
 NSError *Error(NSString *message, NSString *scope)
 {
-    return [NSError errorWithDomain:service
+    return [NSError errorWithDomain:errorDomain
                                code:1
                            userInfo:@{NSLocalizedDescriptionKey : message, MSIMEVoiceProviderErrorScopeKey : scope}];
 }
@@ -103,7 +105,7 @@ NSDictionary *Key(NSString *kind, NSString *provider, NSString *endpoint)
 {
     return @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : service,
+        (__bridge id)kSecAttrService : MSIMEVoiceProviderKeychainService(),
         (__bridge id)kSecAttrAccount : MSIMEVoiceProviderCredentialAccount(kind, provider, endpoint)
     };
 }

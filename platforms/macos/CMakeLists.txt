@@ -137,7 +137,49 @@ if(NOT MSIME_BUILD_NUMBER MATCHES "^[1-9][0-9]*$")
 endif()
 set(MACOSX_BUNDLE_BUNDLE_VERSION "${MSIME_BUILD_NUMBER}")
 message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
-set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+# 版本（edition）是 shared/contracts/editions.json 里的 id。full 用 Info.plist.in 和 resources/<语言>.lproj/InfoPlist.strings 原样构建，产物与引入版本之前相同；其他版本由 scripts/edition_bundle.py 在配置时从同样的模板生成该版本的 Info.plist 和 InfoPlist.strings（bundle id、模式、版本键），可执行文件也改成该版本的名字。原生代码在运行时从 Info.plist 读版本身份（src/core/EditionIdentity.h），所以除了这几个文件，各版本编出来的东西完全一样；发布包只编 full，再用同一个脚本把 bundle 改成各个版本（package-release.sh）。
+set(MSIME_EDITION "full" CACHE STRING "Edition id from shared/contracts/editions.json")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(MSIME_EDITION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/edition_bundle.py")
+if(MSIME_EDITION STREQUAL "full")
+  set(MSIME_INFO_PLIST_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+  set(MSIME_LOCALIZED_RESOURCES "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+  set(MSIME_INPUT_METHOD_NAME "水杉输入法")
+else()
+  set(MSIME_EDITION_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/edition-${MSIME_EDITION}")
+  set(MSIME_INFO_PLIST_TEMPLATE "${MSIME_EDITION_DIRECTORY}/Info.plist.in")
+  set(MSIME_LOCALIZED_RESOURCES "${MSIME_EDITION_DIRECTORY}/resources")
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${MSIME_EDITION_SCRIPT}" plist --edition "${MSIME_EDITION}"
+            --template "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" --output "${MSIME_INFO_PLIST_TEMPLATE}"
+    RESULT_VARIABLE MSIME_EDITION_RESULT)
+  if(NOT MSIME_EDITION_RESULT EQUAL 0)
+    message(FATAL_ERROR "Cannot generate the Info.plist of edition ${MSIME_EDITION}")
+  endif()
+  foreach(MSIME_BUNDLE_LOCALE zh-Hans en)
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" "${MSIME_EDITION_SCRIPT}" strings --edition "${MSIME_EDITION}"
+              --input "${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
+              --output "${MSIME_LOCALIZED_RESOURCES}/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
+      RESULT_VARIABLE MSIME_EDITION_RESULT)
+    if(NOT MSIME_EDITION_RESULT EQUAL 0)
+      message(FATAL_ERROR "Cannot generate the ${MSIME_BUNDLE_LOCALE} InfoPlist.strings of edition ${MSIME_EDITION}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings")
+  endforeach()
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${MSIME_EDITION_SCRIPT}" field --edition "${MSIME_EDITION}" input_method_name
+    OUTPUT_VARIABLE MSIME_INPUT_METHOD_NAME OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE MSIME_EDITION_RESULT)
+  if(NOT MSIME_EDITION_RESULT EQUAL 0)
+    message(FATAL_ERROR "Cannot read the input method name of edition ${MSIME_EDITION}")
+  endif()
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in" "${MSIME_EDITION_SCRIPT}" "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/contracts/editions.json")
+endif()
+message(STATUS "Edition: ${MSIME_EDITION} (${MSIME_INPUT_METHOD_NAME}.app)")
+set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${MSIME_INFO_PLIST_TEMPLATE}")
 set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE" "${MSIME_LEGAL_DIRECTORY}/GPL-3.0.txt" COPYONLY)
@@ -171,7 +213,7 @@ target_sources(MSIMEClientInputMethod PRIVATE ${MSIME_LEGAL_RESOURCES})
 set_source_files_properties(${MSIME_LEGAL_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/Licenses")
 # The Dock takes its label from the bundle's filename — not CFBundleDisplayName, CFBundleName or a
 # localized InfoPlist.strings, all of which it ignores here. Naming the product is the only lever.
-set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输入法")
+set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "${MSIME_INPUT_METHOD_NAME}")
 # The preferences window runs under NSApplicationActivationPolicyRegular, so the bundle appears in
 # the Dock and needs an icon; without CFBundleIconFile plus the file itself it shows the generic one.
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
@@ -220,8 +262,8 @@ endforeach()
 # carries only the English names and the input menu loses 水杉输入法. bundle-contents checks each locale.
 foreach(MSIME_BUNDLE_LOCALE zh-Hans en)
   target_sources(MSIMEClientInputMethod
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings")
-  set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
+    PRIVATE "${MSIME_LOCALIZED_RESOURCES}/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings")
+  set_source_files_properties("${MSIME_LOCALIZED_RESOURCES}/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
     PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/${MSIME_BUNDLE_LOCALE}.lproj")
 endforeach()
 # On-device recognition runs in its own process: the input method spawns Contents/MacOS/msime-voice-local (see src/voice/LocalVoiceRequest.h) and the helper loads the pinned sherpa-onnx runtime from Contents/Frameworks, where shared/voice/LocalAsr.cpp looks beside an executable in Contents/MacOS. The runtime is the prebuilt upstream library pinned in resources/voice-runtime.lock.json; scripts/fetch_voice_runtime.py downloads and verifies it once into MSIME_VOICE_RUNTIME_DIR and reuses its cached archive afterwards, and the stamp reruns it whenever the lock or the script changes.
@@ -967,21 +1009,21 @@ add_test(
   NAME info-plist-icons
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_icons.py"
-          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${MSIME_INFO_PLIST_TEMPLATE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 add_test(
   NAME info-plist-usage
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_usage.py"
-          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${MSIME_INFO_PLIST_TEMPLATE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/src")
 # The input source identifiers and the names the input menu shows for them live in different files, so renaming the bundle leaves the names keyed on an identifier nothing declares any more - and the menu then prints the identifier itself.
 add_test(
   NAME info-plist-names
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_names.py"
-          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-          "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+          "${MSIME_INFO_PLIST_TEMPLATE}"
+          "${MSIME_LOCALIZED_RESOURCES}"
           "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(
   NAME entitlements-guard

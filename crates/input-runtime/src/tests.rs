@@ -2949,6 +2949,7 @@ fn real_engine_options(root: &std::path::Path) -> msime_engine::host::EngineOpti
         cache: path("cache"),
         dictionaries: path("dictionaries"),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,

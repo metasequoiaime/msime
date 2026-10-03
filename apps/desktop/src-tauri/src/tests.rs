@@ -443,27 +443,22 @@ fn windows_restart_payload_is_exact_utf16_without_terminator() {
 
 #[test]
 fn linux_restart_targets_the_running_input_method_framework() {
+    let command = |fcitx5_running, addon| {
+        let (program, arguments) = super::linux_input_method_restart_command(fcitx5_running, addon);
+        (program, arguments.join(" "))
+    };
     assert_eq!(
-        super::linux_input_method_restart_command(true),
+        command(true, "msime"),
         (
             "gdbus",
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.fcitx.Fcitx5",
-                "--object-path",
-                "/controller",
-                "--method",
-                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
-                "'msime'",
-            ][..]
+            "call --session --dest org.fcitx.Fcitx5 --object-path /controller --method org.fcitx.Fcitx.Controller1.ReloadAddonConfig 'msime'".to_owned()
         )
     );
-    assert_eq!(
-        super::linux_input_method_restart_command(false),
-        ("ibus", &["restart"][..])
-    );
+    // 五笔版只重置自己的插件。
+    assert!(command(true, "msime-wubi")
+        .1
+        .ends_with("ReloadAddonConfig 'msime-wubi'"));
+    assert_eq!(command(false, "msime"), ("ibus", "restart".to_owned()));
 }
 
 #[test]

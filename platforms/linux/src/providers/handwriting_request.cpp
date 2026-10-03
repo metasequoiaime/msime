@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
   if (local && argc > 3)
     return 2;
   const std::string endpoint = local
-      ? (argc == 3 ? argv[2] : msime_linux::local_resource("MSIME_HANDWRITING_MODEL", "msime-client/handwriting/handwriting-zh_CN.model"))
+      ? (argc == 3 ? argv[2] : msime_linux::local_resource("MSIME_HANDWRITING_MODEL", MSIME_EDITION_CLIENT_DIRECTORY "/handwriting/handwriting-zh_CN.model"))
       : msime_cli_provider_socket(argc, argv, "MSIME_HANDWRITING_PROVIDER_SOCKET", "handwriting.sock");
   if (endpoint.empty() || endpoint[0] != '/')
     return 2;

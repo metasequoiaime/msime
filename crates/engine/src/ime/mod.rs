@@ -23,8 +23,8 @@ use crate::shuangpin::query::{
 };
 use crate::shuangpin::ShuangpinProfile;
 use crate::types::{
-    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeType,
-    SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
+    autocorrect_type, CandidateSource, FuzzyPinyinOptions, QueryRequest, SchemeKey, SchemeSet,
+    SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem, WubiInputOptions,
 };
 use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::vietnamese::{
@@ -73,9 +73,11 @@ pub struct ImeSession {
 }
 
 impl ImeSession {
-    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。
+    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         scheme: SchemeType,
+        enabled: SchemeSet,
         profile: ShuangpinProfileKind,
         paths: &RuntimePaths,
         cantonese_dictionary: PathBuf,
@@ -84,6 +86,7 @@ impl ImeSession {
         japanese_dictionary: PathBuf,
     ) -> Result<Self> {
         let mut registry = ProviderRegistry::new(
+            enabled,
             profile,
             paths,
             cantonese_dictionary,
@@ -147,6 +150,11 @@ impl ImeSession {
         self.scheme.scheme_type()
     }
 
+    /// 会话允许运行的方案。
+    pub fn enabled_schemes(&self) -> SchemeSet {
+        self.registry.enabled()
+    }
+
     /// `scheme.handle_key` then `refresh_candidates`; `SchemeKey::Requery` only refreshes.
     pub fn handle_key(&mut self, key: SchemeKey) {
         if key != SchemeKey::Requery {
@@ -163,7 +171,7 @@ impl ImeSession {
         self.registry.activate(scheme)
     }
 
-    /// A new scheme and an empty state. Cantonese, Zhuyin and Stroke open their dictionary the first time they are activated and keep it for the session; when that fails (`LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`) the scheme is unavailable and the current scheme and its composition stay as they were.
+    /// A new scheme and an empty state. Cantonese, Zhuyin and Stroke open their dictionary the first time they are activated and keep it for the session; when that fails (`LANGUAGE_DICTIONARY_UNAVAILABLE`, `LANGUAGE_DICTIONARY_VERSION_UNSUPPORTED`) the scheme is unavailable and the current scheme and its composition stay as they were. 不在 `enabled_schemes` 里的方案同样不可用（`INPUT_SCHEME_NOT_ENABLED`），当前方案和组合保持不变。
     pub fn switch_scheme(&mut self, scheme: SchemeType) -> Result<()> {
         self.activate(scheme)?;
         if let Some(zhuyin) = self

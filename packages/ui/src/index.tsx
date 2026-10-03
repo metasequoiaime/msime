@@ -309,6 +309,7 @@ export { useMacosSettings, type UseMacosSettingsOptions } from "./settings/use-m
 export {
   MacosInputModeEntriesSection,
   macosInputModeEntries,
+  macosInputModeEntriesFor,
   type MacosInputModesClient,
 } from "./settings/macos-input-mode-entries-section";
 export { useWindowState, type UseWindowStateOptions } from "./settings/use-window-state";
@@ -1403,6 +1404,7 @@ export {
   type CandidateOrientation,
 } from "./candidate/candidate-themes";
 import { describeInstallerTrust } from "./settings/update-manifest";
+import { editionUsesHelpcode } from "./settings/input-scheme-options";
 export {
   serializeWindowHostMessage,
   type WindowControl,
@@ -1625,6 +1627,25 @@ export interface HostCapabilities {
   symbol_set_packs: boolean;
   /** The input schemes this host offers; the others are shown disabled. */
   input_schemes: InputScheme[];
+  /** 运行中的版本，不是 full 时才有。缺省就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用；有它时，`edition.input_schemes` 之外的方案在本版本里不存在，设置页直接不列出。 */
+  edition?: EditionInfo;
+}
+
+/** Mirrors `client-core::host_surface::EditionInfo`. */
+export interface EditionInfo {
+  id: string;
+  /** 版本的中文产品名，例如「水杉五笔」。缺省时按 full 的「水杉输入法」。 */
+  display_name?: string;
+  /** 本版本提供的方案，顺序与全部方案的顺序一致。 */
+  input_schemes: InputScheme[];
+  /** 本版本的默认方案，偏好里的方案不可用时 host-api 回退到它。 */
+  default_scheme: InputScheme;
+  /** 本版本是否带临时日文。 */
+  temporary_japanese: boolean;
+  /** 本版本是否带键盘神经联想用的模型。不带时触屏宿主不列出神经联想开关；桌面的神经联想用另一份模型，不归这一项管。 */
+  neural_keyboard: boolean;
+  /** 本版本里五笔混拼的默认值。 */
+  wubi_mixed_pinyin_default: boolean;
 }
 
 export { useCandidatePreviewTheme } from "./candidate/candidate-preview-theme";
@@ -2577,6 +2598,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   } = useUpdateCheck({
     clientHostedPlatform,
     releasePlatform: client.host?.platform ?? null,
+    edition: client.host?.edition?.id,
     releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });
@@ -2633,7 +2655,11 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     select: selectTouchKeyboardScheme,
     selectHome: selectHomeScheme,
     setEnabled: setTouchKeyboardSchemeEnabled,
-  } = useTouchKeyboardSchemeSelection({ draft, setDraft });
+  } = useTouchKeyboardSchemeSelection({
+    draft,
+    setDraft,
+    handwritingScheme: client.host?.edition?.default_scheme,
+  });
   // 每个平台都显示全部快捷模式的开关。macOS 以前以发布包只带 msime.db 和 english.db 为由隐藏 Emoji、颜文字和临时日语，但 others.db 早已在 resources/desktop-dictionary.lock.json 里并随包发布，隐藏开关只是藏起了能用的功能；同样依赖 english.db 的临时英文却一直显示，前后并不一致。
   //
   // 现在 macOS 发布包不再内置 dict_japanese.dat，改为按需下载（输入页「临时日语」开关下方提供下载）。缺资源的情况仍由运行时处理，而且比隐藏开关处理得更好：资源不在时运行时关闭对应模式（临时日语在日文词库下载前不可用），触发键照常输入大写字母而不是被吞掉。
@@ -2706,10 +2732,16 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
   const touchKeyboardHeightAdjustment =
     draft?.touch_keyboard_height_adjustment ?? defaultTouchKeyboardGeometry.heightAdjustment;
   const installerTrust = availableUpdate
-    ? describeInstallerTrust(availableUpdate, client.host?.platform ?? null)
+    ? describeInstallerTrust(
+        availableUpdate,
+        client.host?.platform ?? null,
+        client.host?.edition?.id,
+      )
     : null;
   // Helper codes are per-host rather than per-form-factor. The Android keyboard sends them: Shift during a quanpin or shuangpin composition passes the next letter to the Engine as a helper code, and the Engine reads the schema and the candidate-row hint from these very preferences. Hiding the group left that shipping feature with no way to pick a schema or turn it off. The iOS keyboard extension marks a helper code the same way, and HarmonyOS ships the same input (its ChineseHelpcodePolicy is the Android one, ported), so on a mobile host the group follows the host's `helpcode_shift_entry`.
-  const showHelpcode = !mobilePlatform || showHelpcodeShiftEntry;
+  // 只有五笔的版本里辅助码没有用处（五笔不用辅助码），不显示这一组；模糊音照常显示，五笔混拼查全拼时会用到。
+  const showHelpcode =
+    (!mobilePlatform || showHelpcodeShiftEntry) && editionUsesHelpcode(client.host?.edition);
   // 维护与诊断页收纳输入法服务（重启、重新注册）、诊断日志、数据目录、本地 MCP 服务和 macOS 的卸载；这些一样都没有的宿主不显示这一页。
   const showDeveloperPage =
     Boolean(client.mcpServerStatus) ||

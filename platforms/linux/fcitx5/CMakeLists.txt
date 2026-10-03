@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientFcitx5 LANGUAGES CXX)
 include(GNUInstallDirs)
 include(CTest)
+# 单独配置这个目录时也要选版本；作为上级工程的子目录时上级已经包含过，这里什么也不做。
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/Edition.cmake)
 # 作为上级工程的子目录构建时不继承它钉死的 C++17。Fcitx5 5.1 的公开头文件用了
 # std::span 和 ranges，语言标准应当由 Fcitx5::Core 的接口要求决定；继承下来的 17 会
 # 让这个插件在新版本 Fcitx5 上整个编译不过，而单独配置这个目录时它是好的——上级工程
@@ -23,7 +25,17 @@ set(MSIME_HOST_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/../../../target/debug/libmsi
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Build msime-host-api for Linux first")
 endif()
-set(MSIME_FCITX5_ADDON_DIR "${CMAKE_INSTALL_LIBDIR}/fcitx5" CACHE PATH "Fcitx5 addon directory")
+msime_edition_host_library(MSIME_HOST_LIBRARY)
+# 装在自己前缀下的版本把插件装进 fcitx5 自己的插件目录（Fcitx5Core.pc 的 libdir 下），fcitx5 只从那里加载；其余情况与今天相同，跟着前缀走。
+if(MSIME_EDITION_SYSTEM_PATHS)
+  pkg_get_variable(MSIME_FCITX5_SYSTEM_LIBDIR Fcitx5Core libdir)
+  if(NOT IS_ABSOLUTE "${MSIME_FCITX5_SYSTEM_LIBDIR}")
+    message(FATAL_ERROR "Cannot find the Fcitx5 library directory from Fcitx5Core.pc")
+  endif()
+  set(MSIME_FCITX5_ADDON_DIR "${MSIME_FCITX5_SYSTEM_LIBDIR}/fcitx5" CACHE PATH "Fcitx5 addon directory")
+else()
+  set(MSIME_FCITX5_ADDON_DIR "${CMAKE_INSTALL_LIBDIR}/fcitx5" CACHE PATH "Fcitx5 addon directory")
+endif()
 # 中英文切换徽章：自绘的 layer-shell 浮层，需要 wayland-client、pangocairo 和 wlr-layer-shell
 # 的协议代码。缺其中任何一样就不编译它，宿主回退到面板自己的文字提示，插件照常可用。
 pkg_check_modules(MSIME_BADGE_WAYLAND QUIET IMPORTED_TARGET wayland-client pangocairo)
@@ -78,7 +90,7 @@ if(MSIME_BADGE_WAYLAND_SOURCES OR MSIME_BADGE_X11_SOURCES)
   target_sources(msime-fcitx5 PRIVATE ../src/overlay/ModeBadgeSurfaceFactory.cpp
       ${MSIME_BADGE_X11_SOURCES})
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_MODE_BADGE
-      MSIME_MODE_BADGE_ICON="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor/128x128/apps/msime-linux.png")
+      MSIME_MODE_BADGE_ICON="${MSIME_SYSTEM_FULL_DATADIR}/icons/hicolor/128x128/apps/${MSIME_EDITION_PACKAGE}.png")
   target_include_directories(msime-fcitx5 PRIVATE ../src/overlay "${MSIME_BADGE_PROTOCOL_DIR}")
   if(MSIME_BADGE_WAYLAND_SOURCES)
     target_compile_definitions(msime-fcitx5 PRIVATE MSIME_BADGE_HAS_WAYLAND)
@@ -117,9 +129,9 @@ target_compile_options(msime-fcitx5 PRIVATE -Wall -Wextra -Werror)
 target_include_directories(msime-fcitx5 PRIVATE ../../../crates/host-api/include)
 target_link_libraries(msime-fcitx5 PRIVATE Fcitx5::Core PkgConfig::GIO PkgConfig::CAIRO nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
 # The built-in sound packs the parent project installs beside the resource bundle; the addon names them to the Host API as sound_packs.
-target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/msime-client/runtime-options.json"
-  MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}" MSIME_ICON_DIR="${CMAKE_INSTALL_FULL_DATADIR}/icons/hicolor"
-  MSIME_SOUND_PACKS="${CMAKE_INSTALL_FULL_DATADIR}/msime-client/sound-packs")
+target_compile_definitions(msime-fcitx5 PRIVATE MSIME_SYSTEM_OPTIONS="${CMAKE_INSTALL_FULL_SYSCONFDIR}/${MSIME_CLIENT_DIRECTORY}/runtime-options.json"
+  MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}" MSIME_ICON_DIR="${MSIME_SYSTEM_FULL_DATADIR}/icons/hicolor"
+  MSIME_SOUND_PACKS="${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")
 if(MSIME_FCITX5_CUSTOM_IM_INFORMATION)
   target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_CUSTOM_IM_INFORMATION)
 endif()
@@ -136,12 +148,24 @@ endif()
 target_sources(msime-fcitx5 PRIVATE ../../common/Telemetry.cpp)
 target_include_directories(msime-fcitx5 PRIVATE ../../common)
 target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_TELEMETRY MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
-file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${CMAKE_INSTALL_PREFIX}/${MSIME_FCITX5_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
-set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "$ORIGIN/${MSIME_FCITX5_HOST_RELATIVE}")
+if(IS_ABSOLUTE "${MSIME_FCITX5_ADDON_DIR}")
+  # 插件在系统的 fcitx5 目录、宿主库在版本前缀下，两者不随同一个前缀移动，RPATH 直接写宿主库的绝对目录。
+  set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+else()
+  file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${CMAKE_INSTALL_PREFIX}/${MSIME_FCITX5_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+  set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "$ORIGIN/${MSIME_FCITX5_HOST_RELATIVE}")
+endif()
+if(NOT MSIME_EDITION_IS_FULL)
+  # 插件库名、插件名和输入法条目名都随版本（lib<fcitx5_addon>-fcitx5.so），几个版本的插件可以同时装进同一个 fcitx5。fcitx5 用 RTLD_LOCAL 加载插件，但 GCC 把内联函数里的静态变量导出成 STB_GNU_UNIQUE，动态链接器会在整个进程里把同名的合并成一份；隐藏符号不参与合并，所以两个版本的插件各用各的。导出的只有 FCITX_ADDON_FACTORY 声明的工厂函数。
+  set_target_properties(msime-fcitx5 PROPERTIES OUTPUT_NAME "${MSIME_EDITION_FCITX5_ADDON}-fcitx5"
+                        CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+endif()
 install(TARGETS msime-fcitx5 LIBRARY DESTINATION "${MSIME_FCITX5_ADDON_DIR}")
-install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
-install(FILES msime.conf DESTINATION "${CMAKE_INSTALL_DATADIR}/fcitx5/addon")
-install(FILES msime-inputmethod.conf DESTINATION "${CMAKE_INSTALL_DATADIR}/fcitx5/inputmethod" RENAME msime.conf)
+install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}")
+msime_edition_source(MSIME_FCITX5_ADDON_CONF fcitx5/msime.conf)
+msime_edition_source(MSIME_FCITX5_INPUT_METHOD_CONF fcitx5/msime-inputmethod.conf)
+install(FILES "${MSIME_FCITX5_ADDON_CONF}" DESTINATION "${MSIME_SYSTEM_DATADIR}/fcitx5/addon" RENAME ${MSIME_EDITION_FCITX5_ADDON}.conf)
+install(FILES "${MSIME_FCITX5_INPUT_METHOD_CONF}" DESTINATION "${MSIME_SYSTEM_DATADIR}/fcitx5/inputmethod" RENAME ${MSIME_EDITION_FCITX5_ADDON}.conf)
 if(BUILD_TESTING)
   add_executable(fcitx5-preceding-characters-test tests/preceding_characters.cpp)
   target_compile_features(fcitx5-preceding-characters-test PRIVATE cxx_std_17)

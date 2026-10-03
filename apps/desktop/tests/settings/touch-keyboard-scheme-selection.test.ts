@@ -278,6 +278,45 @@ test("the single Wubi touch scheme is titled by the Wubi profile and keeps it wh
   ).toBe("98 五笔");
 });
 
+test("handwriting writes the edition's default scheme, so the wubi edition keeps it", () => {
+  const wubi: Preferences = {
+    ...preferences,
+    scheme: "wubi",
+    last_chinese_scheme: "wubi",
+    touch_keyboard_schemes: { enabled: ["wubi", "handwriting"], selected: "wubi" },
+  };
+  const next = selectHomeTouchKeyboardScheme(wubi, "handwriting", "wubi");
+
+  expect(next.scheme).toBe("wubi");
+  expect(next.last_chinese_scheme).toBe("wubi");
+  expect(next.touch_keyboard_layout).toBe("handwriting");
+  expect(inferredTouchKeyboardScheme({ ...next, touch_keyboard_schemes: undefined }, "wubi")).toBe(
+    "handwriting",
+  );
+  // full 的手写照旧写全拼，五笔加手写布局在 full 里不是手写。
+  expect(selectHomeTouchKeyboardScheme(preferences, "handwriting").scheme).toBe("quanpin");
+  expect(inferredTouchKeyboardScheme({ ...next, touch_keyboard_schemes: undefined })).toBe("wubi");
+});
+
+test("the selection hook writes the edition's handwriting scheme", () => {
+  let draft: Preferences | undefined = {
+    ...preferences,
+    scheme: "wubi",
+    touch_keyboard_schemes: { enabled: ["wubi", "handwriting"], selected: "wubi" },
+  };
+  const setDraft = vi.fn((update) => {
+    draft = typeof update === "function" ? update(draft) : update;
+  });
+  const { result } = renderHook(() =>
+    useTouchKeyboardSchemeSelection({ draft, setDraft, handwritingScheme: "wubi" }),
+  );
+
+  act(() => result.current.select("handwriting"));
+
+  expect(draft?.scheme).toBe("wubi");
+  expect(draft?.touch_keyboard_layout).toBe("handwriting");
+});
+
 test("the Stroke keypad keeps its own title under either layout", () => {
   for (const layout of ["twenty_six_key", "nine_key"] as const) {
     const stroke: Preferences = {

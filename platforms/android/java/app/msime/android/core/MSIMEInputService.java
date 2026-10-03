@@ -226,9 +226,13 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.List<String> shuangpinKeyInputs = new java.util.ArrayList<>();
     private String shuangpinHintsProfile = "";
     private java.util.Map<String, String> shuangpinHints = java.util.Map.of();
-    private KeyboardScheme selectedScheme = KeyboardScheme.QUANPIN;
+    /** 本包所属的版本：键盘只列出本版本提供的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。 */
+    private final AppEdition edition = AppEdition.current();
+    /** 空闲时候选栏左侧显示的产品名，取自本版本的应用名（full 是「水杉输入法」，五笔版是「水杉五笔」）。 */
+    private String productName = "";
+    private KeyboardScheme selectedScheme = KeyboardScheme.fallback(edition);
     private java.util.List<KeyboardScheme> enabledSchemes =
-        KeyboardScheme.enabledFromPreferenceIds(null);
+        KeyboardScheme.enabledFromPreferenceIds(null, edition);
     // The schemes the picker offers: `enabledSchemes` without those whose dictionary `languageDictionaries` lacks. `enabledSchemes` stays the stored list, so a picker save does not drop a scheme the user turned on before its dictionary arrived.
     private java.util.List<KeyboardScheme> visibleSchemes = enabledSchemes;
     // The runtime options' `language_dictionaries` directory, read with them in onStartInput; empty when the configuration names none.
@@ -469,14 +473,14 @@ public final class MSIMEInputService extends InputMethodService {
                 if (value != null) ids.add(value);
             }
         }
-        java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids);
+        java.util.List<KeyboardScheme> enabled = KeyboardScheme.enabledFromPreferenceIds(ids, edition);
         // 切换器列出和设置 → 输入相同的方案：所有词典已安装的方案。Android 上没有启用开关，只按 `enabled` 过滤会让粤拼、注音、越南语这些默认不启用的方案在键盘上永远找不到。词典缺失的方案照旧不列，host-api 也会从它回退。
         java.util.List<KeyboardScheme> visible =
-            KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries);
+            KeyboardScheme.installedOf(java.util.List.of(KeyboardScheme.values()), languageDictionaries, edition);
         String selected = shared == null || shared.isNull("selected")
             ? null : shared.optString("selected", null);
         return new SchemeConfiguration(enabled, visible,
-            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible));
+            KeyboardScheme.resolveEnabledSelection(engineScheme, selected, visible, edition));
     }
 
     /**
@@ -520,10 +524,11 @@ public final class MSIMEInputService extends InputMethodService {
             && "global".equals(preferences.optString("ime_mode_scope", "app"))
             ? "global" : "app";
         KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
-            preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
+            preferences == null ? edition.defaultScheme()
+                : preferences.optString("scheme", edition.defaultScheme()),
             preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
             preferences == null ? "twenty_six_key"
-                : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+                : preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
         alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
         enabledSchemes = schemeConfiguration.enabled();
@@ -592,8 +597,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (preferences == null || configuration.selected() == engineScheme) return;
         KeyboardScheme.PreferenceMapping mapping = KeyboardScheme.mappingForRuntimeSelection(
             engineScheme, configuration.selected(),
-            preferences.optString("last_chinese_scheme", preferences.optString("scheme", "quanpin")),
-            preferences.optString("shuangpin_profile", "xiaohe"));
+            preferences.optString("last_chinese_scheme",
+                preferences.optString("scheme", edition.defaultScheme())),
+            preferences.optString("shuangpin_profile", "xiaohe"), edition);
         preferences.put("scheme", mapping.scheme());
         preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
         preferences.put("shuangpin_profile", mapping.shuangpinProfile());
@@ -909,7 +915,7 @@ public final class MSIMEInputService extends InputMethodService {
             inputModeStore = InputModeStore.from(
                 getSharedPreferences(INPUT_MODE_PREFERENCES, MODE_PRIVATE));
         }
-        enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
+        enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null, edition);
         visibleSchemes = enabledSchemes;
         languageDictionaries = "";
         letterCase.reset();
@@ -971,6 +977,7 @@ public final class MSIMEInputService extends InputMethodService {
     // One reporting session per keyboard process: a crash here is recorded against it, and a session that ends through onDestroy counts as a normal one.
     @Override public void onCreate() {
         super.onCreate();
+        productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
         Telemetry.beginInputSession(this);
     }
 
@@ -1571,9 +1578,9 @@ public final class MSIMEInputService extends InputMethodService {
         String nextImeModeScope = "global".equals(
             preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", "quanpin"),
+            preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
@@ -3931,7 +3938,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !view.optString("editing_text", "").isEmpty()
                 || !"none".equals(view.optString("local_mode", "none"))) return;
         PopupMenu popup = new PopupMenu(this, preedit);
-        for (LocalInputMode mode : LocalInputMode.values()) {
+        for (LocalInputMode mode : localInputModes()) {
             MenuItem item = popup.getMenu().add(mode.title());
             item.setEnabled(localModeEnabled(mode));
             item.setOnMenuItemClickListener(ignored -> {
@@ -3940,6 +3947,15 @@ public final class MSIMEInputService extends InputMethodService {
             });
         }
         popup.show();
+    }
+
+    /** 本版本提供的本地模式：不带临时日语的版本（五笔版）不列出它，其余与 {@link LocalInputMode#values()} 相同。 */
+    private java.util.List<LocalInputMode> localInputModes() {
+        java.util.List<LocalInputMode> modes = new java.util.ArrayList<>();
+        for (LocalInputMode mode : LocalInputMode.values()) {
+            if (mode != LocalInputMode.TEMPORARY_JAPANESE || edition.temporaryJapanese()) modes.add(mode);
+        }
+        return modes;
     }
 
     private boolean localModeEnabled(LocalInputMode mode) {
@@ -5812,10 +5828,10 @@ public final class MSIMEInputService extends InputMethodService {
             expectedRevision = pending.getLong("revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
-            String currentScheme = preferences.optString("scheme", "quanpin");
+            String currentScheme = preferences.optString("scheme", edition.defaultScheme());
             String lastChinese = preferences.optString("last_chinese_scheme", currentScheme);
             KeyboardScheme.PreferenceMapping mapping = scheme.mapping(lastChinese,
-                preferences.optString("shuangpin_profile", "xiaohe"));
+                preferences.optString("shuangpin_profile", "xiaohe"), edition);
             preferences.put("scheme", mapping.scheme());
             preferences.put("last_chinese_scheme", mapping.lastChineseScheme());
             preferences.put("shuangpin_profile", mapping.shuangpinProfile());
@@ -6431,10 +6447,10 @@ public final class MSIMEInputService extends InputMethodService {
                         localInputToolsOpen = false;
                         renderMoreTools();
                     }));
-            LocalInputMode[] modes = LocalInputMode.values();
-            Button[] localCards = new Button[modes.length];
-            for (int index = 0; index < modes.length; index++) {
-                LocalInputMode mode = modes[index];
+            java.util.List<LocalInputMode> modes = localInputModes();
+            Button[] localCards = new Button[modes.size()];
+            for (int index = 0; index < modes.size(); index++) {
+                LocalInputMode mode = modes.get(index);
                 localCards[index] = moreToolsCard(mode.title(), MoreToolsLayout.Section.LOCAL_INPUT,
                     false, supportsLocalTools() && localModeEnabled(mode), false, () -> {
                         closeMoreTools();
@@ -8660,7 +8676,7 @@ public final class MSIMEInputService extends InputMethodService {
             brandPillVisible = idleTitle;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
             String displayText = idleTitle
-                ? (dedicatedEnglish ? "英文输入" : "水杉输入法")
+                ? (dedicatedEnglish ? "英文输入" : productName)
                 : PhrasePreeditPolicy.title(phrasePrefix, localModeTitle,
                                             !"none".equals(localModeKey));
             preedit.setText(displayText);

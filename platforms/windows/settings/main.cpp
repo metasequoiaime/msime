@@ -26,6 +26,7 @@
 #include "SettingsNavigation.h"
 #include "ShellLauncher.h"
 #include "msime_client.h"
+#include "../../../shared/contracts/msime_edition.h"
 
 #include <winrt/base.h>
 
@@ -114,8 +115,9 @@ std::filesystem::path state_directory() {
       return path;
     }
   }
+  // 本版本的状态目录名（版本表 platforms.windows.state_directory），full 是 MSIME-Client。
   if (const auto local = environment(L"LOCALAPPDATA"); !local.empty()) {
-    return std::filesystem::path(local) / L"MSIME-Client";
+    return std::filesystem::path(local) / MSIME_EDITION_STATE_DIRECTORY;
   }
   return {};
 }
@@ -141,15 +143,25 @@ std::string path_utf8(const std::filesystem::path &path) {
 // Whether this input method is in the user's keyboard list, and whether it is the default one. Unknown when input.dll cannot answer, in which case no banner is shown rather than a wrong one.
 enum class InputMethodState { unknown, missing, not_default, ready };
 
-// The text service and its language profile, kept in sync with platforms/windows/tsf/Global/Globals.cpp (MetasequoiaIMECLSID, MetasequoiaIMEGuidProfile) and src/system/Watchdog.cpp.
-constexpr GUID input_method_clsid = {
-    0xe3062e9a, 0xd834, 0x4637, {0x89, 0x58, 0xed, 0x8c, 0xfa, 0x42, 0x7d, 0x01}};
-constexpr GUID input_method_profile = {
-    0x4d59b1b4, 0xd503, 0x44ae, {0x92, 0x59, 0xba, 0xd9, 0xbb, 0x27, 0x78, 0xab}};
+// 本版本的文本服务和语言 profile，与 TSF 的 Globals.cpp 和看门狗读同一份 shared/contracts/msime_edition.h。
+constexpr GUID input_method_clsid = MSIME_EDITION_CLSID;
+constexpr GUID input_method_profile = MSIME_EDITION_PROFILE_GUID;
 // The same profile in the <LangID>:<CLSID><profile> form InstallLayoutOrTip and SetDefaultLayoutOrTip take.
 constexpr const wchar_t *input_method_id =
-    L"0x0804:{E3062E9A-D834-4637-8958-ED8CFA427D01}"
-    L"{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}";
+    MSIME_EDITION_LANGID_STRING L":" MSIME_EDITION_CLSID_STRING
+    MSIME_EDITION_PROFILE_GUID_STRING;
+
+// 本版本是否提供这个方案（版本表 input_schemes）。不提供的方案不出现在输入方案的选项里。
+bool edition_offers_scheme(std::wstring_view scheme) {
+  for (const char *name : {MSIME_EDITION_INPUT_SCHEMES}) {
+    const std::string_view narrow(name);
+    if (scheme.size() == narrow.size() &&
+        std::equal(narrow.begin(), narrow.end(), scheme.begin(),
+                   [](char left, wchar_t right) { return static_cast<wchar_t>(left) == right; }))
+      return true;
+  }
+  return false;
+}
 
 // input.dll's "Install Layout or Tip" functions are documented but ship without a header or an import library, so the structure and flags are declared here as the documentation gives them (LAYOUTORTIPPROFILE, LOT_DEFAULT, LOT_DISABLED).
 struct LayoutOrTipProfile {
@@ -297,6 +309,13 @@ std::wstring response_error(Response const &response) {
   } catch (...) {
     return {};
   }
+}
+
+// 本版本在 AI 助手配置里登记的服务器名，与 client-core 的 `Edition::mcp_server_name` 相同：full 是 msime，其他版本是 msime-<id>。
+std::wstring mcp_server_name() {
+  const std::string_view id = MSIME_EDITION_ID;
+  return MSIME_EDITION_IS_FULL ? std::wstring(L"msime")
+                               : L"msime-" + std::wstring(id.begin(), id.end());
 }
 
 std::wstring mcp_client_name(std::wstring_view id) {
@@ -833,7 +852,8 @@ constexpr std::array<std::pair<const wchar_t *, const wchar_t *>, 9>
 
 struct MainWindow : WindowT<MainWindow> {
   explicit MainWindow(std::string page) : current_page_(std::move(page)) {
-    Title(L"水杉输入法设置");
+    // 窗口标题和侧栏的产品名按版本取，full 仍是「水杉输入法」。
+    Title(MSIME_EDITION_DISPLAY_NAME L"设置");
     ExtendsContentIntoTitleBar(true);
     reload_document();
     load_catalog();
@@ -1276,7 +1296,7 @@ private:
     show_logo(logo, 36);
     identity.Children().Append(logo);
 
-    auto product = make_text(L"水杉输入法", 12, palette_.text);
+    auto product = make_text(MSIME_EDITION_DISPLAY_NAME, 12, palette_.text);
     product.VerticalAlignment(VerticalAlignment::Center);
     identity.Children().Append(product);
     auto section = make_text(L"设置", 12, palette_.sub);
@@ -2741,17 +2761,21 @@ private:
   // ---- 输入 ----
 
   void build_typing_page(StackPanel const &page) {
-    const auto scheme = document_.String(L"scheme", L"quanpin");
+    const auto scheme = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     auto schemes = add_group(page, L"输入方案");
+    // 只列出本版本提供的方案。
+    std::vector<Option> scheme_options;
+    for (Option const &option : std::vector<Option>{
+             {L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
+             {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
+             {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
+             {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}})
+      if (edition_offers_scheme(option.value))
+        scheme_options.push_back(option);
     // Cantonese, Zhuyin and Stroke need their dictionary in language-dictionaries beside the resources; chosen without it, the Engine runs the last Chinese scheme instead and the tray shows that one.
     add_row(schemes, 0xE765, L"输入方案",
             L"全拼、双拼、五笔、粤拼、注音、日语、韩语、越南语、藏文或笔画。粤拼、注音和笔画需要安装对应词库，未安装时沿用上次的中文方案", segmented_control(
-        L"输入方案",
-        {{L"quanpin", L"全拼"}, {L"shuangpin", L"双拼"}, {L"wubi", L"五笔"},
-         {L"cantonese", L"粤拼"}, {L"zhuyin", L"注音"},
-         {L"japanese", L"日语"}, {L"korean", L"韩语"}, {L"vietnamese", L"越南语"},
-         {L"tibetan", L"藏文"}, {L"stroke", L"笔画"}},
-        scheme, [this](std::wstring const &next) { select_scheme(next); }));
+        L"输入方案", scheme_options, scheme, [this](std::wstring const &next) { select_scheme(next); }));
     if (scheme == L"shuangpin" || indexing_)
       select_row(schemes, 0xE8AB, L"双拼方案", L"", L"shuangpin_profile",
                  {{L"xiaohe", L"小鹤双拼"}, {L"ziranma", L"自然码双拼"},
@@ -2773,7 +2797,7 @@ private:
                  {{L"wubi86", L"86 五笔"}, {L"wubi98", L"98 五笔"}}, L"wubi86");
       bool_row(schemes, 0xE8D2, L"编码打不出时用拼音候选",
                L"五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。",
-               L"wubi_mixed_pinyin", false);
+               L"wubi_mixed_pinyin", MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT != 0);
       bool_row(schemes, 0xE8CB, L"候选显示剩余编码",
                L"在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。",
                L"wubi_code_hint", true);
@@ -2891,6 +2915,11 @@ private:
     std::vector<Check> checks;
     checks.reserve(modes.size());
     for (const auto &[id, label, default_on] : modes) {
+      // 不带临时日语的版本（版本表 features.temporary_japanese，host-api 也始终把它关掉）不列出这个开关。
+      if constexpr (!MSIME_EDITION_TEMPORARY_JAPANESE) {
+        if (std::wstring_view(id) == L"temporary_japanese")
+          continue;
+      }
       const std::wstring key = std::wstring(L"local_modes.") + id;
       checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
                           change([&](PreferencesDocument &doc) {
@@ -2907,12 +2936,19 @@ private:
              L"quanpin.autocorrect_transposition", true);
     fuzzy_row(correction);
 
-    auto helpcode = add_group(page, L"辅助码");
-    helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
-    helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
-    shell_row(helpcode, 0xE8A7, L"辅助码插件",
-              L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
-              nav::shell_links::input);
+    // 辅助码只用于全拼和双拼：只列出本版本提供的那几个，一个都没有的版本（五笔版）不显示这一组。
+    const bool quanpin_helpcode = edition_offers_scheme(L"quanpin");
+    const bool shuangpin_helpcode = edition_offers_scheme(L"shuangpin");
+    if (quanpin_helpcode || shuangpin_helpcode) {
+      auto helpcode = add_group(page, L"辅助码");
+      if (quanpin_helpcode)
+        helpcode_rows(helpcode, L"全拼", L"quanpin_helpcode");
+      if (shuangpin_helpcode)
+        helpcode_rows(helpcode, L"双拼", L"shuangpin_helpcode");
+      shell_row(helpcode, 0xE8A7, L"辅助码插件",
+                L"在水杉输入法应用的「输入 › 辅助码」中选用已安装的辅助码插件", L"打开",
+                nav::shell_links::input);
+    }
 
     auto frequency = add_group(page, L"拼音方案调频");
     select_row(frequency, 0xE8CB, L"调频方式", L"", L"frequency.mode",
@@ -2927,7 +2963,7 @@ private:
 
   // 选择日语、韩语、越南语或藏语时记住被替换的中文方案，切回时回到它；选择中文方案（包括粤拼、注音和笔画）时记住这个方案。在这几种语言之间切换保留记住的方案，因为它们都不是存储接受的中文方案。规则与托盘相同（server_main.cpp 的 store_input_scheme）。
   void select_scheme(std::wstring const &next) {
-    const auto current = document_.String(L"scheme", L"quanpin");
+    const auto current = document_.String(L"scheme", MSIME_EDITION_DEFAULT_SCHEME_W);
     if (current == next)
       return;
     const auto chinese = [](std::wstring const &value) {
@@ -3400,11 +3436,12 @@ private:
     auto response = call_mcp(msime_client_mcp_install, request);
     if (!response.ok && response_error(response) == L"mcp_entry_exists") {
       ContentDialog dialog;
-      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 msime？")));
+      const auto server = mcp_server_name();
+      dialog.Title(box_value(hstring(L"替换 " + name + L" 中的 " + server + L"？")));
       dialog.Content(box_value(
-          hstring(name + L" 的配置里已有另一个名为 msime "
-                         L"的服务器。替换后，它原来的命令和参数（包括手动加上的"
-                         L" --allow-write）会被这里的设置覆盖。")));
+          hstring(name + L" 的配置里已有另一个名为 " + server +
+                  L" 的服务器。替换后，它原来的命令和参数（包括手动加上的"
+                  L" --allow-write）会被这里的设置覆盖。")));
       dialog.PrimaryButtonText(L"替换");
       dialog.CloseButtonText(L"取消");
       dialog.DefaultButton(ContentDialogButton::Close);

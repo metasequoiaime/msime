@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <string_view>
 
+#include "../../../shared/contracts/msime_edition.h"
+
 // Scheme behaviour the Windows Server and TIP decide from a view's `scheme` number or from the configured scheme. The view publishes `chinese_text`, `script_conversion`, `spelling_symbols` and `candidate_list_open` itself, and those are read from the view where it is at hand; everything here is either a host-only trait or an Engine trait the view does not carry. An unknown scheme number answers false everywhere, the way host-api reads `SchemeType::from_u8`. scripts/test-scheme-traits-parity.py checks every Engine mirror below against crates/engine/src/types.rs.
 namespace msime::windows::scheme
 {
@@ -254,17 +256,46 @@ constexpr bool scheme_installed(int scheme, LanguageDictionaryPresence installed
     return scheme >= Quanpin && scheme <= Stroke;
 }
 
-// The scheme the Engine actually runs for a configured `scheme` and `last_chinese_scheme`, as host-api's `effective_scheme` decides it: a scheme that cannot run falls back to the last Chinese scheme when that one can, and to quanpin otherwise. The TIP has to key the scheme that runs, not the one the user picked before its dictionary was installed.
+// 一个版本提供的方案和它的默认方案（版本表 `input_schemes`、`default_scheme`）。不在其中的方案在这个版本里不存在：托盘不列出它，配置里写着它（例如从账号同步下来）时按 host-api 的 `effective_scheme` 退回。
+struct OfferedSchemes
+{
+    bool offered[Stroke + 1] = {};
+    int fallback = Quanpin;
+
+    constexpr bool offers(int scheme) const { return scheme >= Quanpin && scheme <= Stroke && offered[scheme]; }
+};
+
+// 引擎的全部方案，默认全拼：full 就是这样。
+constexpr OfferedSchemes all_schemes()
+{
+    OfferedSchemes result;
+    for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
+        result.offered[scheme] = true;
+    return result;
+}
+
+// 本次构建的版本提供的方案（shared/contracts/msime_edition.h）。
+constexpr OfferedSchemes edition_schemes()
+{
+    constexpr const char *names[] = {MSIME_EDITION_INPUT_SCHEMES};
+    OfferedSchemes result;
+    for (const char *name : names)
+        result.offered[scheme_from_name(name)] = true;
+    result.fallback = scheme_from_name(MSIME_EDITION_DEFAULT_SCHEME);
+    return result;
+}
+
+// The scheme the Engine actually runs for a configured `scheme` and `last_chinese_scheme`, as host-api's `effective_scheme` decides it: a scheme that this edition does not offer or that cannot run falls back to the last Chinese scheme when that one can run, and to the edition's default scheme otherwise (quanpin in full). The TIP has to key the scheme that runs, not the one the user picked before its dictionary was installed.
 constexpr int effective_scheme(std::string_view scheme_name, std::string_view last_chinese_scheme,
-                               LanguageDictionaryPresence installed)
+                               LanguageDictionaryPresence installed, OfferedSchemes offered = edition_schemes())
 {
     const int preferred = scheme_from_name(scheme_name);
-    if (scheme_installed(preferred, installed))
+    if (offered.offers(preferred) && scheme_installed(preferred, installed))
         return preferred;
     const int last = scheme_from_name(last_chinese_scheme);
-    if (IsChinese(last) && scheme_installed(last, installed))
+    if (IsChinese(last) && offered.offers(last) && scheme_installed(last, installed))
         return last;
-    return Quanpin;
+    return offered.fallback;
 }
 
 // The mode of a configured `scheme` preference. An unknown name is Chinese: host-api falls back to quanpin for it.

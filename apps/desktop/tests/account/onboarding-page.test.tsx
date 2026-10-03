@@ -221,6 +221,104 @@ test("the translation step turns the gloss on and 登录 asks for 我的", async
   );
 });
 
+test("the wubi edition skips choosing a keyboard and completes with Wubi", async () => {
+  const onComplete = vi.fn().mockResolvedValue(undefined);
+  render(
+    <WelcomeFlowPage
+      actions={makeActions()}
+      onComplete={onComplete}
+      edition={{
+        id: "wubi",
+        input_schemes: ["wubi"],
+        default_scheme: "wubi",
+        temporary_japanese: false,
+        neural_keyboard: false,
+        wubi_mixed_pinyin_default: true,
+      }}
+    />,
+  );
+
+  const progress = () => screen.getByRole("progressbar", { name: "设置进度" });
+  expect(progress().getAttribute("aria-valuemax")).toBe("3");
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  // 「选择输入方式」只有全拼的键盘可选，五笔版直接到下一步。
+  await screen.findByRole("heading", { name: "候选下方显示译文" });
+  expect(screen.queryByRole("radio", { name: /全拼/ })).toBeNull();
+  expect(progress().getAttribute("aria-valuenow")).toBe("2");
+  fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+  await screen.findByRole("heading", { name: "把水杉加进键盘" });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "候选下方显示译文" });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "登录后多端同步" });
+  expect(progress().getAttribute("aria-valuenow")).toBe("3");
+  fireEvent.click(screen.getByRole("button", { name: "稍后再说" }));
+
+  await waitFor(() =>
+    expect(onComplete).toHaveBeenCalledWith("wubi", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+    }),
+  );
+});
+
+test("a wubi edition learned only after preparing resources still skips choosing a keyboard", async () => {
+  // 第一次启动：发现宿主能力时还没有 HostOptions，版本要等第一步准备好资源之后才知道。
+  const onComplete = vi.fn().mockResolvedValue(undefined);
+  const wubi = {
+    id: "wubi",
+    input_schemes: ["wubi" as const],
+    default_scheme: "wubi" as const,
+    temporary_japanese: false,
+    neural_keyboard: false,
+    wubi_mixed_pinyin_default: true,
+  };
+  let learnEdition = () => {};
+  const actions = makeActions({
+    prepareResources: vi.fn(async () => learnEdition()),
+  });
+  const { rerender } = render(<WelcomeFlowPage actions={actions} onComplete={onComplete} />);
+  learnEdition = () =>
+    rerender(<WelcomeFlowPage actions={actions} onComplete={onComplete} edition={wubi} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "候选下方显示译文" });
+  expect(screen.queryByRole("radio", { name: /全拼/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  await screen.findByRole("heading", { name: "登录后多端同步" });
+  fireEvent.click(screen.getByRole("button", { name: "稍后再说" }));
+
+  await waitFor(() =>
+    expect(onComplete).toHaveBeenCalledWith("wubi", {
+      candidateEnglishGloss: undefined,
+      openAccount: false,
+    }),
+  );
+});
+
+test("the pinyin edition keeps the keyboard choice", async () => {
+  render(
+    <WelcomeFlowPage
+      actions={makeActions()}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      edition={{
+        id: "pinyin",
+        input_schemes: ["quanpin", "shuangpin"],
+        default_scheme: "quanpin",
+        temporary_japanese: true,
+        neural_keyboard: true,
+        wubi_mixed_pinyin_default: false,
+      }}
+    />,
+  );
+
+  expect(screen.getByRole("progressbar", { name: "设置进度" }).getAttribute("aria-valuemax")).toBe(
+    "4",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  expect(await screen.findByRole("heading", { name: "选择输入方式" })).toBeTruthy();
+});
+
 test("reports a resource preparation failure", async () => {
   const actions = makeActions({
     prepareResources: vi.fn().mockRejectedValue(new Error("bootstrap")),

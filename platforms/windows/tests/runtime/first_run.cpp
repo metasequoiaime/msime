@@ -30,6 +30,12 @@ int main() {
     fs::remove(state / "runtime-options.json");
     if (msime::windows::prepare_first_run(executable, state, host) || calls != 1)
       throw std::runtime_error("Incomplete state was rebuilt");
+    // 别的版本的标记文件名不同（本版本的加上它的名字后缀），不能让本版本接管那个目录。
+    const auto foreign = state / (std::wstring(msime::windows::kDataDirectoryMarker) + L".foreign");
+    std::ofstream(foreign) << "synthetic foreign ownership";
+    if (msime::windows::prepare_first_run(executable, state, host) || calls != 1)
+      throw std::runtime_error("Another edition's state was prepared");
+    fs::remove(foreign);
     std::ofstream(state / msime::windows::kDataDirectoryMarker) << "synthetic ownership";
     if (!msime::windows::prepare_first_run(executable, state, host) || calls != 2 ||
         !fs::is_regular_file(state / "runtime-options.json"))

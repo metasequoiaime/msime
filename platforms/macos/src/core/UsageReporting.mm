@@ -1,4 +1,5 @@
 #import "UsageReporting.h"
+#import "EditionIdentity.h"
 
 #import <AppKit/AppKit.h>
 
@@ -141,7 +142,7 @@ NSString *MSIMEUsageReportingDirectory(void)
     NSURL *support = [[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
 #endif
     NSURL *base = support ?: [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
-    return [[base URLByAppendingPathComponent:@"MSIME/telemetry" isDirectory:YES] path];
+    return [[base URLByAppendingPathComponent:MSIMEUsageReportingDirectoryName() isDirectory:YES] path];
 }
 
 void MSIMEUsageReportingStart(NSString *preferencesDirectory)

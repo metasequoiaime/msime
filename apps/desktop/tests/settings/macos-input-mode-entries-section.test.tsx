@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MacosInputModeEntriesSection, type MacosInputModesClient } from "@msime/ui";
+import {
+  type EditionInfo,
+  MacosInputModeEntriesSection,
+  macosInputModeEntries,
+  macosInputModeEntriesFor,
+  type MacosInputModesClient,
+} from "@msime/ui";
 
 afterEach(() => {
   cleanup();
@@ -155,4 +161,64 @@ test("reports a failure when opening keyboard settings fails", async () => {
       "无法打开系统设置，请手动前往「系统设置 › 键盘 › 文字输入 › 输入法」。",
     ),
   );
+});
+
+const wubiEdition: EditionInfo = {
+  id: "wubi",
+  display_name: "水杉五笔",
+  input_schemes: ["wubi"],
+  default_scheme: "wubi",
+  temporary_japanese: false,
+  neural_keyboard: false,
+  wubi_mixed_pinyin_default: true,
+};
+
+test("full keeps the table and each edition lists only its own entries under its own name", () => {
+  expect(macosInputModeEntriesFor()).toBe(macosInputModeEntries);
+  // 五笔版的主模式就是「五」：bundle 只声明 Hans（用五笔的字）和 Roman，见 edition_bundle.py。
+  expect(macosInputModeEntriesFor(wubiEdition).map(({ mode, name }) => [mode, name])).toEqual([
+    ["Hans", "水杉五笔 · 五"],
+    ["Roman", "水杉五笔 · 英"],
+  ]);
+  expect(
+    macosInputModeEntriesFor({
+      ...wubiEdition,
+      id: "pinyin",
+      display_name: "水杉拼音",
+      input_schemes: ["quanpin", "shuangpin"],
+      default_scheme: "quanpin",
+    }).map(({ mode, name }) => [mode, name]),
+  ).toEqual([
+    ["Hans", "水杉拼音 · 中"],
+    ["Shuangpin", "水杉拼音 · 双"],
+    ["Roman", "水杉拼音 · 英"],
+  ]);
+});
+
+test("an edition whose entries are all in the list says so under its own name", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client(["app.msime.inputmethod.wubi.Hans", "app.msime.inputmethod.wubi.Roman"])}
+      scheme="wubi"
+      inputSchemes={["wubi"]}
+      edition={wubiEdition}
+      onError={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText("输入法菜单里已经有水杉五笔的全部入口。")).toBeTruthy();
+});
+
+test("an edition names its missing entry by the edition's name", async () => {
+  render(
+    <MacosInputModeEntriesSection
+      client={client(["app.msime.inputmethod.wubi.Roman"])}
+      scheme="wubi"
+      inputSchemes={["wubi"]}
+      edition={wubiEdition}
+      onError={vi.fn()}
+    />,
+  );
+  const text = (await screen.findByText(/还没加入的/)).textContent;
+  expect(text).toContain("「水杉五笔 · 五」在「简体中文」下");
+  expect(text).not.toContain("水杉输入法");
 });

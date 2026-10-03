@@ -190,7 +190,7 @@ std::filesystem::path production_state_directory() {
   return {};
 #endif
 }
-// The anonymous account's secret and tokens belong to the Windows user running this Server, so they live in that user's %LOCALAPPDATA%\MSIME\account. The state root is no place for them: an installed Server's is the installer's DataDir, one directory for the whole machine that every user may modify.
+// The anonymous account's secret and tokens belong to the Windows user running this Server, so they live in that user's %LOCALAPPDATA%\<本版本的用户目录>\account（full 是 %LOCALAPPDATA%\MSIME\account，版本表 platforms.windows.user_data_directory）。The state root is no place for them: an installed Server's is the installer's DataDir, one directory for the whole machine that every user may modify. 每个版本各自登录，退出一个版本的账号不会删掉另一个版本的令牌。
 std::filesystem::path anonymous_account_directory() {
 #ifdef _WIN32
   PWSTR local = nullptr;
@@ -198,12 +198,19 @@ std::filesystem::path anonymous_account_directory() {
     CoTaskMemFree(local);
     return {};
   }
-  const auto directory = std::filesystem::path(local) / L"MSIME" / L"account";
+  const auto directory = std::filesystem::path(local) / MSIME_EDITION_USER_DATA_DIRECTORY / L"account";
   CoTaskMemFree(local);
   return directory;
 #else
   return {};
 #endif
+}
+// 使用统计的目录：msime::telemetry::default_directory() 是 %LOCALAPPDATA%\MSIME，本版本换成同级的用户目录（版本表 platforms.windows.user_data_directory），各版本的安装 id 和事件队列互不相干。full 的目录名就是 MSIME，结果与 default_directory() 相同。
+std::filesystem::path edition_telemetry_directory() {
+  const auto shared = msime::telemetry::default_directory();
+  if (shared.empty())
+    return {};
+  return shared.parent_path() / MSIME_EDITION_USER_DATA_DIRECTORY;
 }
 std::string read_document(const std::filesystem::path &path) {
   std::ifstream input(path, std::ios::binary);
@@ -572,22 +579,59 @@ std::string production_preview_document(const std::string &runtime_document,
   }
   return document.dump();
 }
+// 本版本的 TIP 有没有活动的输入模式，用一个命名的手动重置事件告诉别的版本的 Server：有信号表示活动。名字后面接版本后缀（full 是空串）。只有生产 Server 发布它，预览实例不碰。
+constexpr wchar_t server_mode_active_event_prefix[] = L"Local\\MetasequoiaImeServer_ModeActive";
+// 另一个版本的 TIP 是否有活动的输入模式：看那个版本的 Server 发布的事件。那个版本没在运行时事件不存在，按不活动处理。
+bool other_edition_mode_active() {
+  for (const wchar_t *suffix : {MSIME_EDITIONS_NAME_SUFFIXES}) {
+    if (std::wstring_view(suffix) == MSIME_EDITION_NAME_SUFFIX)
+      continue;
+    const std::wstring name = std::wstring(server_mode_active_event_prefix) + suffix;
+    if (HANDLE event = OpenEventW(SYNCHRONIZE, FALSE, name.c_str())) {
+      const bool active = WaitForSingleObject(event, 0) == WAIT_OBJECT_0;
+      CloseHandle(event);
+      if (active)
+        return true;
+    }
+  }
+  return false;
+}
 class ProductionInstance final {
 public:
   ProductionInstance() {
     handle_ = CreateMutexW(nullptr, FALSE,
-                           L"Local\\MetasequoiaImeServer_SingleInstance");
+                           L"Local\\MetasequoiaImeServer_SingleInstance" MSIME_EDITION_NAME_SUFFIX);
     if (!handle_)
       throw std::runtime_error("Server instance guard unavailable");
     already_running_ = GetLastError() == ERROR_ALREADY_EXISTS;
+    // 建不出来时别的版本只是看不到本版本的模式，维护快捷键在没有任何版本活动时照样有人处理，所以不算启动失败。
+    if (!already_running_)
+      mode_active_ = CreateEventW(nullptr, TRUE, FALSE,
+                                  (std::wstring(server_mode_active_event_prefix) + MSIME_EDITION_NAME_SUFFIX).c_str());
   }
   ~ProductionInstance() {
+    if (mode_active_) {
+      ResetEvent(mode_active_);
+      CloseHandle(mode_active_);
+    }
     if (handle_)
       CloseHandle(handle_);
   }
   bool already_running() const { return already_running_; }
+  // 主循环每一轮发布一次本版本的模式是否活动，只在变化时改事件。
+  void publish_mode_active(bool active) {
+    if (!mode_active_ || active == mode_active_published_)
+      return;
+    mode_active_published_ = active;
+    if (active)
+      SetEvent(mode_active_);
+    else
+      ResetEvent(mode_active_);
+  }
 private:
   HANDLE handle_ = nullptr;
+  HANDLE mode_active_ = nullptr;
+  bool mode_active_published_ = false;
   bool already_running_ = false;
 };
 // A Server that TSF revived after a crash (--production) has no Watchdog above it, so it starts the one packaged beside it, as the reference Server does. The Watchdog adopts this running Server instead of launching a second one, holds its own single-instance mutex, and exits on its own when the TIP profile is not enabled.
@@ -682,10 +726,13 @@ int wmain(int argc, wchar_t **argv) {
       diagnostic_log.server(line);
     };
     ConsoleControl console;
-    const auto bootstrap =
+    auto bootstrap_document =
         nlohmann::json{{"resources", config.resources.u8string()},
-                       {"state_root", config.state_root.u8string()}}
-            .dump();
+                       {"state_root", config.state_root.u8string()}};
+    // 不是 full 的版本把版本 id 交给宿主库：它按版本选资源锁、收窄方案，并在状态根里记下版本。full 不带这个键，请求与引入版本之前相同。
+    if constexpr (!MSIME_EDITION_IS_FULL)
+      bootstrap_document["edition"] = MSIME_EDITION_ID;
+    const auto bootstrap = bootstrap_document.dump();
     std::unique_ptr<char, decltype(&msime_client_string_free)> response(
         msime_client_prepare_host(
             reinterpret_cast<const uint8_t *>(bootstrap.data()),
@@ -701,7 +748,7 @@ int wmain(int argc, wchar_t **argv) {
     apply_diagnostic_log(diagnostic_log, prepared.at("value").at("preferences"));
     // Usage reporting, on unless the user turned usage_reporting off: one session per Server process, kept in this Windows user's %LOCALAPPDATA%\MSIME. begin closes the previous session (session_crash only when it left a crash record) and queues today's active; it is file I/O only. Delivery runs on a thread that is never joined, so an unreachable endpoint cannot delay the Server and exiting mid-request only leaves the events queued for the next start.
     const bool usage_reporting = msime::windows::usage_reporting_enabled(prepared.at("value").at("preferences"));
-    if (const auto telemetry_directory = msime::telemetry::default_directory(); !telemetry_directory.empty()) {
+    if (const auto telemetry_directory = edition_telemetry_directory(); !telemetry_directory.empty()) {
       msime::telemetry::begin({"windows", MSIME_WINDOWS_VERSION, telemetry_directory, usage_reporting, {}});
       msime::telemetry::start_flushing();
     }
@@ -1479,6 +1526,10 @@ int wmain(int argc, wchar_t **argv) {
     // while another application has focus, so they sit on a low-level keyboard
     // hook rather than the TSF key sink.
     MaintenanceHotkeyController maintenance([&](MaintenanceHotkey hotkey) {
+      // 几个版本的 Server 同时运行时，各自的低级键盘钩子都会看到这个按键，后装的钩子先看到，处理了就吞掉。焦点上的 TIP 属于别的版本时交给下一个钩子，让那个版本的 Server 处理；没有任何版本的模式活动时（焦点在别的输入法上，或 TIP 会话在崩溃后断开，正是要用重启快捷键的时候）谁先看到谁处理，不能都放过。只装一个版本时与引入版本之前相同。
+      if (hotkey.action != MaintenanceAction::DeleteCandidate &&
+          !server.mode_active() && other_edition_mode_active())
+        return false;
       switch (hotkey.action) {
       case MaintenanceAction::Restart:
         restart_requested.store(true);
@@ -1747,6 +1798,8 @@ int wmain(int argc, wchar_t **argv) {
                                 GetForegroundWindow() != tray_foreground))
           tray.hide();
       }
+      if (instance)
+        instance->publish_mode_active(server.mode_active());
       if (MsgWaitForMultipleObjectsEx(0, nullptr, 50, QS_ALLINPUT,
                                       MWMO_INPUTAVAILABLE) == WAIT_FAILED)
         throw std::runtime_error("Candidate message wait failed");

@@ -163,7 +163,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     preferences?["default_ime_mode"] as? String != "english"
   }
   private var inputContext = KeyboardInputContext()
-  private var inputScheme: ChineseInputScheme = .quanpin
+  private var inputScheme: ChineseInputScheme = .editionFallback
   private var usesShuangpin: Bool { inputScheme.shuangpinProfile != nil }
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
   // Idle Chinese input keeps the existing shortcut that switches to English capitalization.
@@ -2495,7 +2495,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .vietnamese: session.switchToVietnamese()
     case .tibetan: session.switchToTibetan()
     case .stroke: session.switchToStroke()
-    case .handwriting: session.switch(toShuangpin: false)
+    case .handwriting: session.switchToHandwriting()
     case .quanpin: session.switch(toShuangpin: usesShuangpin)
     case .shuangpin: session.switch(toShuangpinProfile: "xiaohe")
     }

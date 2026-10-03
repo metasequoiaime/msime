@@ -563,7 +563,7 @@ struct TypingStatisticsStore {
 
   init() {
     directory = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "group.app.msime.ios")?.appendingPathComponent("MSIME", isDirectory: true)
+      forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)?.appendingPathComponent("MSIME", isDirectory: true)
   }
 
   init(directory: URL?) {

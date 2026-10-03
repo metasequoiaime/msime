@@ -24,8 +24,6 @@ const MAX_AI_PROFILES: usize = 16;
 const AI_FILE: &str = "ai-provider.json";
 const TENCENT_FILE: &str = "tencent-provider.json";
 const VOICE_FILE: &str = "voice-provider.json";
-const VOICE_SOCKET_UNIT: &str = "msime-linux-voice.socket";
-const VOICE_SERVICE_UNIT: &str = "msime-linux-voice.service";
 /// The voice provider's `LOCAL_PROVIDER`: on-device recognition, whose file entry, when a user writes one, carries only the provider name.
 const LOCAL_ASR_PROVIDER: &str = "local";
 /// The voice provider's `ASR_PROVIDERS` and `POLISH_PROVIDERS`.
@@ -187,7 +185,12 @@ fn config_directory() -> Result<PathBuf, CredentialError> {
         return Err(CredentialError::Location);
     }
     config_home(xdg.as_deref(), std::env::var_os("HOME").as_deref())
-        .map(|base| base.join("msime-client"))
+        .map(|base| {
+            base.join(
+                &msime_client_core::edition::Edition::linux_package_identity_or_full()
+                    .client_directory,
+            )
+        })
         .ok_or(CredentialError::Location)
 }
 
@@ -789,8 +792,14 @@ pub(crate) fn enable_voice_service() -> bool {
             .status()
             .is_ok_and(|status| status.success())
     };
-    let _ = systemctl(&["reset-failed", VOICE_SERVICE_UNIT]);
-    systemctl(&["enable", "--now", VOICE_SOCKET_UNIT])
+    // 单元名随本安装包所属的版本（full 是 msime-linux-voice.*），只启用本版本的语音服务。
+    let identity = msime_client_core::edition::Edition::linux_package_identity_or_full();
+    let _ = systemctl(&["reset-failed", identity.user_unit("voice.service").as_str()]);
+    systemctl(&[
+        "enable",
+        "--now",
+        identity.user_unit("voice.socket").as_str(),
+    ])
 }
 
 /// Store the credential for `provider`, bound to `endpoint` and `model`. A `None` token keeps the stored one, so the user can rebind an endpoint or model without pasting the key again.

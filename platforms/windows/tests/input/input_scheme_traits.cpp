@@ -47,27 +47,47 @@ int main() {
   constexpr LanguageDictionaryPresence all{true, true, true};
   constexpr LanguageDictionaryPresence cantonese_only{true, false, false};
   constexpr LanguageDictionaryPresence stroke_only{false, false, true};
+  constexpr auto full = all_schemes();
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
-    assert(effective_scheme(names[scheme], "wubi", all) == scheme);
-  assert(effective_scheme("stroke", "shuangpin", none) == Shuangpin);
-  assert(effective_scheme("stroke", "shuangpin", cantonese_only) == Shuangpin);
-  assert(effective_scheme("stroke", "", stroke_only) == Stroke);
-  assert(effective_scheme("japanese", "stroke", stroke_only) == Japanese);
+    assert(effective_scheme(names[scheme], "wubi", all, full) == scheme);
+  assert(effective_scheme("stroke", "shuangpin", none, full) == Shuangpin);
+  assert(effective_scheme("stroke", "shuangpin", cantonese_only, full) == Shuangpin);
+  assert(effective_scheme("stroke", "", stroke_only, full) == Stroke);
+  assert(effective_scheme("japanese", "stroke", stroke_only, full) == Japanese);
   // 笔画是可以切回的中文方案，但只在它的词库存在时。
-  assert(effective_scheme("zhuyin", "stroke", stroke_only) == Stroke);
-  assert(effective_scheme("zhuyin", "stroke", cantonese_only) == Quanpin);
+  assert(effective_scheme("zhuyin", "stroke", stroke_only, full) == Stroke);
+  assert(effective_scheme("zhuyin", "stroke", cantonese_only, full) == Quanpin);
   assert(!scheme_installed(Stroke, cantonese_only) && scheme_installed(Stroke, stroke_only));
   assert(scheme_installed(Tibetan, none) && !scheme_installed(10, all));
-  assert(effective_scheme("zhuyin", "shuangpin", none) == Shuangpin);
-  assert(effective_scheme("zhuyin", "cantonese", cantonese_only) == Cantonese);
-  assert(effective_scheme("zhuyin", "zhuyin", cantonese_only) == Quanpin);
-  assert(effective_scheme("cantonese", "", none) == Quanpin);
-  assert(effective_scheme("vietnamese", "zhuyin", none) == Vietnamese);
-  assert(effective_scheme("tibetan", "zhuyin", none) == Tibetan);
-  assert(effective_scheme("pinyin", "wubi", none) == Wubi);
-  assert(effective_scheme("japanese", "korean", none) == Japanese);
+  assert(effective_scheme("zhuyin", "shuangpin", none, full) == Shuangpin);
+  assert(effective_scheme("zhuyin", "cantonese", cantonese_only, full) == Cantonese);
+  assert(effective_scheme("zhuyin", "zhuyin", cantonese_only, full) == Quanpin);
+  assert(effective_scheme("cantonese", "", none, full) == Quanpin);
+  assert(effective_scheme("vietnamese", "zhuyin", none, full) == Vietnamese);
+  assert(effective_scheme("tibetan", "zhuyin", none, full) == Tibetan);
+  assert(effective_scheme("pinyin", "wubi", none, full) == Wubi);
+  assert(effective_scheme("japanese", "korean", none, full) == Japanese);
   // A last_chinese_scheme that names a language is not a Chinese scheme to return to.
-  assert(effective_scheme("zhuyin", "japanese", none) == Quanpin);
+  assert(effective_scheme("zhuyin", "japanese", none, full) == Quanpin);
+
+  // 只提供五笔的版本：配置里写着它不提供的方案（比如从账号同步下来的全拼）时退回五笔，上次的中文方案也要是它提供的才算数。
+  OfferedSchemes wubi;
+  wubi.offered[Wubi] = true;
+  wubi.fallback = Wubi;
+  assert(effective_scheme("wubi", "quanpin", all, wubi) == Wubi);
+  assert(effective_scheme("quanpin", "quanpin", all, wubi) == Wubi);
+  assert(effective_scheme("japanese", "shuangpin", all, wubi) == Wubi);
+  // 拼音版：双拼可用，日文不在其中，回到上次的双拼。
+  OfferedSchemes pinyin;
+  pinyin.offered[Quanpin] = pinyin.offered[Shuangpin] = true;
+  assert(effective_scheme("japanese", "shuangpin", all, pinyin) == Shuangpin);
+  assert(effective_scheme("wubi", "wubi", all, pinyin) == Quanpin);
+  // 本次构建的版本提供它自己的默认方案，full 提供全部方案。
+  constexpr auto built = edition_schemes();
+  assert(built.offers(built.fallback));
+  if constexpr (MSIME_EDITION_IS_FULL != 0)
+    for (int scheme = Quanpin; scheme <= Stroke; ++scheme)
+      assert(built.offers(scheme) && built.fallback == Quanpin);
   assert(scheme_from_name("pinyin") == -1 && input_mode("pinyin") == InputMode::Chinese);
   assert(input_mode(-1) == InputMode::Chinese && input_mode(10) == InputMode::Chinese);
 

@@ -10,8 +10,9 @@
 
 use msime_client_core::ai::AiSuggestionRequest;
 use msime_client_core::dictionary::access::DictionaryAccess;
+use msime_client_core::edition::Edition;
 use msime_client_core::host_surface::{
-    compiled_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
+    offered_input_schemes, HostCapabilities, HostPlatform, SurfaceRoute,
 };
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
@@ -33,7 +34,7 @@ use msime_client_core::voice::doubao_frame::{
 };
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine::host::{CandidateEdge, Command, EngineOptions, Session};
-use msime_engine::SchemeType;
+use msime_engine::{SchemeSet, SchemeType};
 use msime_input_runtime::HandwritingQuery;
 #[cfg(unix)]
 use msime_input_runtime::UnixSocketProvider;
@@ -194,6 +195,8 @@ thread_local! {
 struct HostSession {
     runtime: Runtime,
     options: EngineOptions,
+    /// HostOptions 记录的版本：偏好里的方案只在本版本提供的方案里取，回退到本版本的默认方案。
+    edition: &'static Edition,
     applied: Preferences,
     requested: Option<PreferencesSnapshot>,
     /// Whether the requested preferences still need an Engine replacement. This decision is made
@@ -228,11 +231,10 @@ struct HostSession {
     _dictionary_access: DictionaryAccess,
 }
 
-/// Local input modes are preference-controlled, but their backing dictionaries are
-/// immutable runtime resources. Keep a missing optional resource from turning a
-/// trigger key into a swallowed event: the Engine must see that mode disabled until
-/// the complete resource set is present.
-fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
+/// 本地模式由偏好开关，但它们读的词典是不可变的运行时资源。可选资源不在时，触发键不能被吞掉：在资源齐全之前，Engine 看到的这个模式必须是关的。
+///
+/// 版本不提供的功能同样当作资源不在：五笔版的资源锁不带日文词典和键盘神经模型，临时日文和键盘神经联想无论偏好怎么写都是关的。资源目录按版本的锁校验，本来就放不进日文词典，这里再按版本表关一次，是为了状态目录里留有下载来的日文资源包时也不会打开它。
+fn apply_local_mode_resource_gates(options: &mut EngineOptions, edition: &Edition) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("others.db").is_file();
     let has_english_dictionary = resources.join("english.db").is_file();
@@ -245,7 +247,9 @@ fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
     options.local_emoji &= has_emoji_catalog;
     options.local_kaomoji &= has_emoji_catalog;
     options.local_temporary_english &= has_english_dictionary;
-    options.local_temporary_japanese &= has_japanese_model;
+    options.local_temporary_japanese &= has_japanese_model && edition.features.temporary_japanese;
+    // 键盘神经联想读的模型同样随版本的资源锁走；不带它的版本无论偏好怎么写都不打开。
+    options.sentence_association.neural_keyboard &= edition.features.neural_keyboard;
 }
 
 fn punctuation_lock_code(lock: msime_client_core::preferences::PunctuationLock) -> u8 {
@@ -366,8 +370,9 @@ impl HostSession {
         let mut options = self.options.clone();
         let (scheme, fallback) = effective_scheme(
             &preferences,
-            compiled_input_schemes(),
+            &offered_input_schemes(self.edition),
             &LanguageDictionaries::of_options(&self.options),
+            self.edition.default_scheme,
         );
         options.scheme = scheme_code(scheme);
         options.vietnamese_input_method = vietnamese_input_method_code(preferences.vietnamese);
@@ -414,7 +419,7 @@ impl HostSession {
         // gives it more to choose from, and even with no model the engine's own pick among them is
         // better than the one it makes when it searches without alternatives.
         options.sentence_alternatives = true;
-        apply_local_mode_resource_gates(&mut options);
+        apply_local_mode_resource_gates(&mut options, self.edition);
         options.paired_punctuation = preferences.paired_punctuation;
         options.punctuation_lock = punctuation_lock_code(preferences.punctuation_lock);
         options.chinese_punctuation =
@@ -641,6 +646,19 @@ fn wubi_profile_code(profile: WubiProfile) -> u8 {
     }
 }
 
+/// 交给 Engine 的 `enabled_schemes`：本版本提供的方案，版本带临时日文时再加上它要切到的日文方案。full 提供全部方案，得到的就是 [`SchemeSet::ALL`]，Engine 照旧构造全部 provider。
+fn engine_schemes(edition: &Edition) -> SchemeSet {
+    let offered = offered_input_schemes(edition)
+        .into_iter()
+        .filter_map(|scheme| SchemeType::from_u8(scheme_code(scheme)))
+        .fold(SchemeSet::EMPTY, SchemeSet::with);
+    if edition.features.temporary_japanese {
+        offered.with(SchemeType::JapaneseRomaji)
+    } else {
+        offered
+    }
+}
+
 fn scheme_code(scheme: InputScheme) -> u8 {
     match scheme {
         InputScheme::Quanpin => 0,
@@ -755,11 +773,14 @@ fn absolute_state_root(preferences_directory: Option<&str>) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
-/// The scheme to hand the Engine for `preferences`, and why it is not the preferred one when it is not. A scheme this build does not offer, or Cantonese, Zhuyin or Stroke without its dictionary, falls back to the last Chinese scheme when that one can run and to 全拼 otherwise, so a document written on another host never leaves this one without a working scheme. The preferences themselves are left alone: once the dictionary is installed, the next session runs the scheme the user chose.
+/// 按 `preferences` 交给 Engine 的方案，以及没用偏好里那个方案时的原因。本构建或本版本不提供的方案、没装词库的粤拼、注音和笔画，都回退到上一次的中文方案（它能跑时），否则回退到 `default`，所以别的宿主写下的文档不会让这个宿主没有能用的方案。偏好本身不改：词库装好后，下一个会话就跑用户选的方案。
+///
+/// `supported` 是运行中版本提供的方案（`offered_input_schemes`），`default` 是该版本的默认方案；full 分别是全部十个方案和全拼。所以在五笔版里，即使同步下来的偏好写着全拼，Engine 跑的也是五笔。
 pub(crate) fn effective_scheme(
     preferences: &Preferences,
     supported: &[InputScheme],
     dictionaries: &LanguageDictionaries,
+    default: InputScheme,
 ) -> (InputScheme, Option<String>) {
     let usable = |scheme: InputScheme| supported.contains(&scheme) && dictionaries.serve(scheme);
     let preferred = preferences.scheme;
@@ -775,7 +796,7 @@ pub(crate) fn effective_scheme(
         .last_chinese_scheme
         .map(InputScheme::from)
         .filter(|scheme| usable(*scheme))
-        .unwrap_or(InputScheme::Quanpin);
+        .unwrap_or(default);
     (
         fallback,
         Some(format!(
@@ -854,9 +875,44 @@ struct HostOptions {
     /// Absolute path to the directory holding `cantonese.db`, `zhuyin.db` and `stroke.db`, for a host that installs any of them. Absent, or a directory missing one of them, means that scheme falls back as `effective_scheme` describes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language_dictionaries: Option<String>,
+    /// 产品版本（`Edition::HOST_OPTIONS_KEY`）。只有不是 full 的版本才写：full 的文档因此与引入版本之前逐字节相同，旧版输入法（本结构拒绝未知键）照样能读。缺省就是 full；不是版本表里的 id 时整份文档被拒，而不是猜成 full。
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "edition_id")]
+    edition: Option<&'static Edition>,
+}
+
+/// HostOptions 的 `edition` 键与版本表条目之间的转换。
+mod edition_id {
+    use msime_client_core::edition::Edition;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(
+        edition: &Option<&'static Edition>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match edition {
+            Some(edition) => serializer.serialize_str(&edition.id),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<&'static Edition>, D::Error> {
+        match Option::<String>::deserialize(deserializer)? {
+            None => Ok(None),
+            Some(id) => Edition::by_id(&id)
+                .map(Some)
+                .ok_or_else(|| serde::de::Error::custom(format!("unknown edition {id:?}"))),
+        }
+    }
 }
 
 impl HostOptions {
+    /// 文档记录的版本，缺省是 full。
+    fn edition(&self) -> &'static Edition {
+        self.edition.unwrap_or_else(Edition::full)
+    }
+
     /// 解析 HostOptions 文档。其中的 `preferences` 是准备运行时配置那一刻的副本，升级时被原样带下去（`refresh_options_file`），所以后续版本一旦退役某个偏好字段，这份文档就读不了，会话、快照和词库请求全部被拒：#2830 退役了 `autocorrect`，macOS 输入随之失效，每个按键都像在英文模式下一样直接交给应用。副本被拒时，改用 `preferences_directory` 下实时的 preferences.json——设置界面会保持它最新并负责修复，宿主在会话打开后本来也会应用它。副本能解析时照原样使用。
     pub(crate) fn from_document(mut document: Value) -> Option<Self> {
         if let Ok(options) = Self::deserialize(&document) {
@@ -881,8 +937,13 @@ impl HostOptions {
         );
         let japanese = japanese_dictionary(state_root.as_deref());
         // Session creation has no diagnostic to carry the reason; the fallback itself is what matters here.
-        let (scheme, _) =
-            effective_scheme(&self.preferences, compiled_input_schemes(), &dictionaries);
+        let edition = self.edition();
+        let (scheme, _) = effective_scheme(
+            &self.preferences,
+            &offered_input_schemes(edition),
+            &dictionaries,
+            edition.default_scheme,
+        );
         let helpcode = helpcode_for_scheme(&self.preferences, scheme);
         let mut options = EngineOptions {
             resources: self.resources,
@@ -890,6 +951,7 @@ impl HostOptions {
             cache: self.cache,
             dictionaries: self.dictionaries,
             scheme: scheme_code(scheme),
+            enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
             learning: self.preferences.learning,
@@ -941,7 +1003,7 @@ impl HostOptions {
             paired_punctuation: self.preferences.paired_punctuation,
             punctuation_lock: punctuation_lock_code(self.preferences.punctuation_lock),
         };
-        apply_local_mode_resource_gates(&mut options);
+        apply_local_mode_resource_gates(&mut options, edition);
         options
     }
 }
@@ -1111,18 +1173,55 @@ pub fn prepare_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let specification: ResourceSet = serde_json::from_str(include_str!(
-        "../../../resources/desktop-dictionary.lock.json"
-    ))?;
-    prepare_shipped_host_configuration(resources, state_root, &specification, ON_DEMAND_ARTIFACTS)
+    prepare_host_configuration_for_edition(resources, state_root, Edition::full())
 }
 
-/// [`prepare_host_configuration`] 按给定的锁文件和按需下载清单准备；测试借它在各平台上检查 macOS 的发货规则。
+/// 为 `edition` 准备宿主：[`prepare_host_configuration`] 就是 full 的这一个。
+///
+/// 不是 full 的版本在文档里记下 `edition`，之后的会话、[`refresh_host_options`] 和 `msime-mcp` 都从文档里读它；full 的文档不写这个键，与以前完全相同。状态目录也记下它属于哪个版本（[`Edition::record_in`]，full 不写）：各平台宿主经 C 接口、设置应用经自己的存储都只按目录读写偏好，并不知道版本，偏好文件不见了或被修复时靠这份记录回到本版本的默认偏好。状态目录里还没有偏好文件时，不是 full 的版本还会把本版本的默认偏好写成第一份偏好文件，不经偏好存储直接读文件的一方第一次读到的也是本版本的默认值。
+pub fn prepare_host_configuration_for_edition(
+    resources: &std::path::Path,
+    state_root: &std::path::Path,
+    edition: &'static Edition,
+) -> Result<String, Box<dyn std::error::Error>> {
+    // 资源目录按本版本的锁校验，用户词库代次也按它计算；full 的锁就是原来那份文件。
+    let specification = edition.resource_set()?;
+    prepare_shipped_host_configuration(
+        resources,
+        state_root,
+        &specification,
+        ON_DEMAND_ARTIFACTS,
+        edition,
+    )
+}
+
+/// 状态目录里 `edition` 的偏好。不是 full 的版本在还没有偏好文件时，先把本版本的默认偏好写成第一份文件，理由见 [`prepare_host_configuration_for_edition`]。
+fn edition_preferences(
+    state_root: &Path,
+    edition: &'static Edition,
+) -> Result<Preferences, Box<dyn std::error::Error>> {
+    let store = PreferencesStore::for_edition(state_root, edition);
+    let snapshot = store.load()?;
+    if edition.is_full() || snapshot.revision > 0 {
+        return Ok(snapshot.preferences);
+    }
+    match store.save(0, snapshot.preferences) {
+        Ok(saved) => Ok(saved.preferences),
+        // 设置应用恰好在这期间写下了第一份偏好，以它为准。
+        Err(msime_client_core::preferences::PreferencesError::Conflict) => {
+            Ok(store.load()?.preferences)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// [`prepare_host_configuration_for_edition`] 按给定的锁文件和按需下载清单准备；测试借它在各平台上检查 macOS 的发货规则。
 fn prepare_shipped_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
     specification: &ResourceSet,
     on_demand: &[&str],
+    edition: &'static Edition,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);
     let state_root = std::path::absolute(state_root)?;
@@ -1140,7 +1239,9 @@ fn prepare_shipped_host_configuration(
         // 代次按完整锁文件计算，不随发布包是否内置日文词典而变：user/dictionaries/<generation> 和 refreshed_host_options 都保持原样，升级后不会重新准备，仍在运行的旧版输入法也不会。
         &specification.generation()?,
     )?;
-    let preferences = PreferencesStore::new(&state_root).load()?.preferences;
+    // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
+    edition.record_in(&state_root)?;
+    let preferences = edition_preferences(&state_root, edition)?;
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,
         resources: prepared.resources,
@@ -1167,6 +1268,7 @@ fn prepare_shipped_host_configuration(
         settled_model: settled_model_beside(&resources),
         sound_packs: None,
         language_dictionaries: installed_language_dictionaries(&resources),
+        edition: (!edition.is_full()).then_some(edition),
     })?)
 }
 
@@ -1280,9 +1382,11 @@ fn refresh_options_file(
         }
     })?;
     let document: Value = serde_json::from_slice(&bytes)?;
-    let specification: ResourceSet = serde_json::from_str(include_str!(
-        "../../../resources/desktop-dictionary.lock.json"
-    ))?;
+    // 文档记录的版本，缺省是 full。新代次按同一个版本准备；`refreshed_layout` 只替换 `resources` 和 `dictionaries`，`edition` 键原样保留。
+    let edition =
+        Edition::of_host_options(&document).ok_or("runtime options name an unknown edition")?;
+    // 已安装的代次要和 `prepare_host_configuration_for_edition` 用同一份锁比较，否则不是 full 的版本每次刷新都会被当成过期。
+    let specification = edition.resource_set()?;
     let prepared = refreshed_host_options(
         &document,
         &specification.generation()?,
@@ -1290,7 +1394,8 @@ fn refresh_options_file(
         Path::is_dir,
         |resources, state| {
             Ok(serde_json::from_str(
-                &prepare_host_configuration(resources, state).map_err(outdated_resources)?,
+                &prepare_host_configuration_for_edition(resources, state, edition)
+                    .map_err(outdated_resources)?,
             )?)
         },
     );

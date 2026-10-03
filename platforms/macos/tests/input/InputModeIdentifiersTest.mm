@@ -47,6 +47,45 @@ void require(bool condition, const char *message) {
 
 int main() {
     @autoreleasepool {
+        // 版本身份：没有 MSIMEEdition 的 Info.plist（full 的，以及不是 bundle 的测试进程）每个值都是 full 今天的那个；声明了版本的取 plist 里的值。
+        NSDictionary *wubi = @{@"MSIMEEdition": @"wubi", @"CFBundleIdentifier": @"app.msime.inputmethod.wubi",
+                               @"MSIMEInputSchemes": @[@"wubi"], @"MSIMEDefaultScheme": @"wubi",
+                               @"MSIMESettingsBundleIdentifier": @"app.msime.macos.wubi",
+                               @"MSIMEKeychainService": @"com.metasequoia.msime.wubi.account", @"MSIMEWubiMixedPinyinDefault": @YES};
+        require([MSIMEEditionIdentifierIn(@{}) isEqualToString:@"full"] && MSIMEEditionIsFullIn(@{@"CFBundleIdentifier": @"x"}) &&
+                    [MSIMEInputMethodBundleIdentifierIn(@{@"CFBundleIdentifier": @"x"}) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME"] &&
+                    [MSIMESettingsBundleIdentifierIn(@{}) isEqualToString:@"app.msime.macos"] &&
+                    [MSIMEKeychainServiceIn(@{}) isEqualToString:@"com.metasequoia.msime.account"] &&
+                    MSIMEEditionInputSchemesIn(@{}) == nil && [MSIMEEditionDefaultSchemeIn(@{}) isEqualToString:@"quanpin"] &&
+                    !MSIMEEditionWubiMixedPinyinDefaultIn(@{@"MSIMEWubiMixedPinyinDefault": @YES}) &&
+                    [MSIMEEditionNotificationNameIn(@{}, @"N") isEqualToString:@"N"],
+                "An Info.plist without an edition did not read as full.");
+        require([MSIMEEditionIdentifierIn(wubi) isEqualToString:@"wubi"] &&
+                    [MSIMEInputMethodBundleIdentifierIn(wubi) isEqualToString:@"app.msime.inputmethod.wubi"] &&
+                    [MSIMESettingsBundleIdentifierIn(wubi) isEqualToString:@"app.msime.macos.wubi"] &&
+                    [MSIMEKeychainServiceIn(wubi) isEqualToString:@"com.metasequoia.msime.wubi.account"] &&
+                    [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
+                    MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
+                "The wubi edition's Info.plist did not give the wubi identity.");
+        // 语音服务凭据和使用统计目录：full 沿用今天的名字，其他版本各有各的，语音服务名正是卸载时删掉的 `<bundle id>.voice`。
+        require([MSIMEVoiceProviderKeychainServiceIn(@{}) isEqualToString:@"app.msime.client.voice.providers"] &&
+                    [MSIMEVoiceProviderKeychainServiceIn(wubi) isEqualToString:[wubi[@"CFBundleIdentifier"] stringByAppendingString:@".voice"]] &&
+                    [MSIMEUsageReportingDirectoryNameIn(@{}) isEqualToString:@"MSIME/telemetry"] &&
+                    [MSIMEUsageReportingDirectoryNameIn(wubi) isEqualToString:@"MSIME/wubi/telemetry"],
+                "The voice provider keychain service or the usage reporting directory did not follow the edition.");
+        // 卸载按 bundle 文件名找要移走的 bundle：五笔版只能是它自己的，名字缺了时宁可不卸载也不退回 full 的。
+        NSMutableDictionary *named = [wubi mutableCopy];
+        named[@"CFBundleExecutable"] = @"水杉五笔";
+        named[@"CFBundleDisplayName"] = @"水杉五笔";
+        require([MSIMEInputMethodBundleNameIn(@{}) isEqualToString:@"水杉输入法.app"] &&
+                    [MSIMEInputMethodBundleNameIn(named) isEqualToString:@"水杉五笔.app"] &&
+                    MSIMEInputMethodBundleNameIn(wubi) == nil &&
+                    [MSIMEEditionDisplayNameIn(@{}) isEqualToString:@"水杉输入法"] &&
+                    [MSIMEEditionDisplayNameIn(named) isEqualToString:@"水杉五笔"],
+                "The bundle file name or the display name did not follow the edition.");
+        require(MSIMEEditionIsFull() && MSIMEEditionOffersScheme(@"tibetan") && !MSIMEEditionOffersScheme(@"klingon") &&
+                    [MSIMEEffectiveInputScheme(@"cantonese", @"klingon", @{}) isEqualToString:@"quanpin"],
+                "The test process, which is full, did not offer every scheme or fall back to quanpin.");
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Hans"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(YES, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Roman"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"japanese")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Japanese"] &&
@@ -55,6 +94,15 @@ int main() {
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"shuangpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Shuangpin"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"wubi")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Wubi"],
                 "The shuangpin and wubi schemes do not map to the modes Info.plist.in declares.");
+        // 五笔版只声明 .Hans 和 .Roman，五笔的名字和图标在 .Hans 上：设置窗口检查菜单栏入口时不能去找一个不存在的 .Wubi，否则提示永远消不掉。full 每个方案仍是它自己的模式。
+        NSDictionary *wubiModes = @{@"MSIMEEdition": @"wubi", @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+        require(MSIMEInputModeDeclaredIn(@{}, MSIMETibetanInputModeID) && MSIMEInputModeDeclaredIn(wubiModes, MSIMEChineseInputModeID) &&
+                    !MSIMEInputModeDeclaredIn(wubiModes, MSIMEWubiInputModeID) && !MSIMEInputModeDeclaredIn(@{@"MSIMEEdition": @"wubi"}, MSIMEChineseInputModeID) &&
+                    [MSIMEInputModeIDForSchemeIn(wubiModes, @"wubi") isEqualToString:MSIMEChineseInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"wubi") isEqualToString:MSIMEWubiInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"shuangpin") isEqualToString:MSIMEShuangpinInputModeID],
+                "The settings window would look for a mode the edition does not declare.");
         require(MSIMEInputModeFor(NO, @"quanpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
                 "Quanpin or an unset scheme did not show 中.");
         require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English &&
