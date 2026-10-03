@@ -6,7 +6,7 @@ import { GroupList, Row } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
-import { preferredAccountName } from "./account-labels";
+import { isValidAccountName, normalizeAccountName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { AccountNicknameField } from "./account-nickname-field";
@@ -140,11 +140,8 @@ function MobileAccountProfilePage({
   const mounted = useRef(true);
   const clientGeneration = useRef(0);
   const actionRunning = useRef(false);
-  const normalizedName = name.trim();
-  const validName =
-    Boolean(normalizedName) &&
-    [...normalizedName].length <= 64 &&
-    !/[\u0000-\u001f\u007f]/.test(normalizedName);
+  const normalizedName = normalizeAccountName(name);
+  const validName = isValidAccountName(name);
 
   useEffect(() => {
     const generation = ++clientGeneration.current;
@@ -980,9 +977,8 @@ function AccountDetailsPage({
   const rename = () =>
     void perform(async () => {
       const generation = clientGeneration.current;
-      const normalized = name.trim();
-      if (!normalized || [...normalized].length > 64 || /[\u0000-\u001f\u007f]/.test(normalized))
-        throw { code: "account_invalid" };
+      const normalized = normalizeAccountName(name);
+      if (!isValidAccountName(name)) throw { code: "account_invalid" };
       const updated = await client.rename(normalized);
       if (!mounted.current || generation !== clientGeneration.current) return;
       applyProfile(updated);
@@ -1382,7 +1378,7 @@ function AccountDetailsPage({
                   setEditingProfile(false);
                 }}
                 className={account.primary}
-                disabled={busy || name.trim() === user.displayName}
+                disabled={busy || normalizeAccountName(name) === user.displayName}
                 label="保存修改"
               />
               <ActionButton
