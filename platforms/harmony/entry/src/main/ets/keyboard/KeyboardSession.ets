@@ -15,6 +15,7 @@ import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
 } from './skin/GlobalTheme';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
+import { AppEdition } from './AppEdition';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
@@ -1044,7 +1045,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // The grid is the Engine's business too: it decides what a 2 means, and it only reads them as
   // nine-key spellings once it has been told the grid is up.
   private nineKeyMode: boolean = false;
-  private schemeName: string = 'quanpin';
+  // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
+  private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
   // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
@@ -1098,7 +1100,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     enabledSchemes: KeyboardScheme.DEFAULT_ENABLED.map(
       (candidate: SchemeDefinition): string => candidate.preferenceId),
     selectedScheme: null,
-    scheme: 'quanpin',
+    scheme: AppEdition.current().defaultScheme,
     shuangpinProfile: 'xiaohe',
     wubiProfile: KeyboardScheme.WUBI_86,
     layout: 'twenty_six_key',
@@ -4943,7 +4945,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.changePreferences(changes)) {
       return false;
     }
-    this.useScheme(selected.engineScheme, selected.shuangpinProfile);
+    this.useScheme(KeyboardScheme.engineSchemeOf(selected), selected.shuangpinProfile);
     KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
       + `${applied.preferenceId} is no longer enabled`);
     return true;

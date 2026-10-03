@@ -1,3 +1,4 @@
+import { AppEdition } from "../keyboard/AppEdition";
 import { utf8Length } from "../keyboard/Utf8";
 
 /**
@@ -83,6 +84,55 @@ const GLOBAL_THEMES = ["system", "shuishan", "light", "paper", "night", "ink", "
 const THEME_BASES = ["system", "shuishan", "light", "paper", "night", "ink"];
 const THEMES = ["dark", "light", "system"];
 const HAPTIC_STRENGTHS = ["light", "medium", "strong"];
+
+// 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值不归版本过滤管，留给下面的规则处理。
+const ACCOUNT_SCHEMES = SCHEMES.concat(LOCAL_ONLY_SCHEMES);
+// 随 `input.schema` 一起同步的键：它们和方案一起才决定键盘上的那个入口（全拼加九键是全拼 9 键，加手写是手写），方案不同步时它们也不同步，否则 full 那边选的全拼 9 键会把五笔版的键盘换成九键布局。前两个是 client-core 的规则里列出的 iOS、Android 的键，最后一个是本机的同类键。
+const SCHEME_COMPANION_KEYS = [
+  "platform.ios.nine_key",
+  "platform.android.keyboard_layout",
+  "platform.harmony.keyboard_layout",
+];
+
+/** 本版本不同步 `input.schema`（只有一个方案），或它的值是本版本不提供的方案时，去掉它和随它的布局。 */
+function dropUnsyncedScheme(edition: AppEdition, settings: AccountPreferenceSettings): void {
+  const scheme: AccountPreferenceValue | undefined = settings["input.schema"];
+  let keeps: boolean = edition.offersSchemeChoice();
+  if (keeps && typeof scheme === "string" && ACCOUNT_SCHEMES.includes(scheme)) {
+    keeps = edition.offers(scheme);
+  }
+  if (!keeps) {
+    delete settings["input.schema"];
+    for (const key of SCHEME_COMPANION_KEYS) delete settings[key];
+  }
+}
+
+/**
+ * 上传前按版本过滤本机整理出的账号设置，规则与 client-core 的 `filter_uploaded_account_settings`（crates/client-core/src/edition.rs）相同：
+ * - 只有一个方案的版本不上传 `input.schema` 和随它的布局，否则会把 full 等其他版本记在账号里的方案盖掉；
+ * - 有多个方案的版本只上传本版本提供的方案；
+ * - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
+ *
+ * full 提供全部方案，什么也不去掉。
+ */
+export function filterUploadedAccountSettings(
+  edition: AppEdition,
+  settings: AccountPreferenceSettings,
+): void {
+  dropUnsyncedScheme(edition, settings);
+  if (!edition.offers("shuangpin")) delete settings["input.shuangpin_schema"];
+  if (!edition.offers("wubi")) delete settings["input.wubi_schema"];
+}
+
+/**
+ * 应用前按版本过滤从账号下载的设置，规则与 client-core 的 `filter_downloaded_account_settings` 相同：只有一个方案的版本忽略 `input.schema` 和随它的布局；有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，其余设置照常应用。full 什么也不去掉。
+ */
+export function filterDownloadedAccountSettings(
+  edition: AppEdition,
+  settings: AccountPreferenceSettings,
+): void {
+  dropUnsyncedScheme(edition, settings);
+}
 
 function validKey(value: string): boolean {
   if (value.length === 0 || utf8Length(value) > MAX_KEY_BYTES) return false;
@@ -215,6 +265,7 @@ function whole(value: Object | undefined, fallback: number): number {
 export function localAccountPreferences(
   preferences: Document,
   feedback: FeedbackValues,
+  edition: AppEdition = AppEdition.current(),
 ): AccountPreferenceSettings {
   const frequency = record(member(preferences, "frequency")) ?? {};
   const customTheme = record(member(preferences, "custom_theme")) ?? {};
@@ -284,7 +335,11 @@ export function localAccountPreferences(
     ),
   };
   if (!(typeof scheme === "string" && LOCAL_ONLY_SCHEMES.includes(scheme))) {
-    settings["input.schema"] = enumerated(scheme, SCHEMES, "quanpin");
+    // 本机文档里的方案认不出时按本版本的默认方案上传（full 是全拼）。
+    const fallback: string = SCHEMES.includes(edition.defaultScheme)
+      ? edition.defaultScheme
+      : "quanpin";
+    settings["input.schema"] = enumerated(scheme, SCHEMES, fallback);
   }
   // 五笔版本只随五笔方案上传：不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
   if (scheme === "wubi") {
@@ -294,6 +349,7 @@ export function localAccountPreferences(
       "wubi86",
     );
   }
+  filterUploadedAccountSettings(edition, settings);
   return settings;
 }
 
@@ -375,6 +431,7 @@ export function applyAccountPreferences(
   cloud: AccountPreferences,
   schema: AccountPreferenceSchema,
   feedback: FeedbackValues,
+  edition: AppEdition = AppEdition.current(),
 ): AppliedPreferences {
   validateAccountPreferences(cloud);
   validatePreferenceSchema(schema);
@@ -384,7 +441,9 @@ export function applyAccountPreferences(
       refuse("account_invalid");
     }
   }
-  const reader = new Reader(cloud.settings, schema);
+  const settings: AccountPreferenceSettings = { ...cloud.settings };
+  filterDownloadedAccountSettings(edition, settings);
+  const reader = new Reader(settings, schema);
   const preferences: Document = { ...local };
 
   const scheme = reader.text("input.schema");

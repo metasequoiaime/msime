@@ -49,6 +49,7 @@ import {
   SchemeDefinition,
   PreferenceMapping,
 } from "../entry/src/main/ets/keyboard/KeyboardScheme";
+import { AppEdition } from "../entry/src/main/ets/keyboard/AppEdition";
 import { ReplyKeyboardPolicy } from "../entry/src/main/ets/keyboard/ReplyKeyboardPolicy";
 import { ReplyContextPolicy } from "../entry/src/main/ets/keyboard/ReplyContextPolicy";
 import { CommunityReplyLibraryPolicy } from "../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy";
@@ -8827,6 +8828,146 @@ group("applying writes only what the schema declares", () => {
   check(
     withFeedback.feedback?.hapticStrength === "light",
     "and the members it did not mention keep their local values",
+  );
+});
+
+// 与 shared/contracts/editions.json 里的拼音版、五笔版相同：方案和默认方案。
+const pinyinEdition = AppEdition.of("pinyin", ["quanpin", "shuangpin"], "quanpin");
+const wubiEdition = AppEdition.of("wubi", ["wubi"], "wubi");
+
+group("an edition declaration is complete or refused", () => {
+  check(AppEdition.current() === AppEdition.FULL, "the only HarmonyOS product today is full");
+  check(
+    AppEdition.of("full", ["wubi"], "wubi") === AppEdition.FULL,
+    "full is full whatever it lists",
+  );
+  check(
+    AppEdition.FULL.offers("tibetan") && AppEdition.FULL.offersSchemeChoice(),
+    "full offers everything",
+  );
+  check(!wubiEdition.offersSchemeChoice() && wubiEdition.offers("wubi"), "wubi has one scheme");
+  check(!pinyinEdition.offers("wubi") && pinyinEdition.offersSchemeChoice(), "pinyin has two");
+  let refused = false;
+  try {
+    AppEdition.of("wubi", ["wubi"], "quanpin");
+  } catch {
+    refused = true;
+  }
+  check(refused, "a default scheme outside the edition is refused");
+});
+
+group("the account scheme follows the edition both ways", () => {
+  const schema = fullPreferenceSchema();
+  const local = {
+    scheme: "wubi",
+    shuangpin_profile: "ziranma",
+    wubi_profile: "wubi98",
+    touch_keyboard_layout: "twenty_six_key",
+  };
+  const full = localAccountPreferences(local, syncFeedback);
+  check(
+    full["input.schema"] === "wubi" &&
+      full["input.shuangpin_schema"] === "ziranma" &&
+      full["input.wubi_schema"] === "wubi98" &&
+      full["platform.harmony.keyboard_layout"] === "twenty_six_key",
+    "full uploads everything it did before",
+  );
+  const wubi = localAccountPreferences(local, syncFeedback, wubiEdition);
+  check(
+    !("input.schema" in wubi) && !("platform.harmony.keyboard_layout" in wubi),
+    "a one-scheme edition never uploads the scheme or the layout that goes with it",
+  );
+  check(!("input.shuangpin_schema" in wubi), "nor a double pinyin profile it does not offer");
+  check(wubi["input.wubi_schema"] === "wubi98", "but its own wubi profile still travels");
+  const pinyin = localAccountPreferences(
+    { scheme: "shuangpin", shuangpin_profile: "ziranma" },
+    syncFeedback,
+    pinyinEdition,
+  );
+  check(pinyin["input.schema"] === "shuangpin", "a multi-scheme edition uploads its own scheme");
+  check(!("input.wubi_schema" in pinyin), "and never a wubi profile");
+
+  const cloud: AccountPreferences = {
+    revision: 1,
+    settings: {
+      "input.schema": "wubi",
+      "input.character_set": "traditional",
+      "platform.harmony.keyboard_layout": "nine_key",
+    },
+  };
+  const onPinyin = applyAccountPreferences(
+    { scheme: "quanpin", touch_keyboard_layout: "twenty_six_key" },
+    cloud,
+    schema,
+    syncFeedback,
+    pinyinEdition,
+  );
+  check(
+    onPinyin.preferences.scheme === "quanpin" &&
+      onPinyin.preferences.touch_keyboard_layout === "twenty_six_key",
+    "a scheme the edition lacks reads as absent, and its layout stays put with it",
+  );
+  check(onPinyin.preferences.traditional_chinese_output === true, "the rest still applies");
+  const onWubi = applyAccountPreferences(
+    { scheme: "wubi" },
+    { revision: 1, settings: { "input.schema": "quanpin" } },
+    schema,
+    syncFeedback,
+    wubiEdition,
+  );
+  check(onWubi.preferences.scheme === "wubi", "a one-scheme edition never takes the account's");
+  const onFull = applyAccountPreferences({ scheme: "quanpin" }, cloud, schema, syncFeedback);
+  check(
+    onFull.preferences.scheme === "wubi" && onFull.preferences.touch_keyboard_layout === "nine_key",
+    "full applies the scheme as before",
+  );
+});
+
+group("keyboard scheme fallbacks follow the edition's default", () => {
+  check(KeyboardScheme.fallback() === KeyboardScheme.QUANPIN, "full falls back to 全拼 26 键");
+  check(KeyboardScheme.fallback(pinyinEdition) === KeyboardScheme.QUANPIN, "and so does pinyin");
+  check(KeyboardScheme.fallback(wubiEdition) === KeyboardScheme.WUBI, "wubi falls back to wubi");
+  const wubiCards = KeyboardScheme.enabledFromPreferenceIds(null, wubiEdition);
+  check(
+    wubiCards.length === 2 &&
+      wubiCards[0] === KeyboardScheme.WUBI &&
+      wubiCards[1] === KeyboardScheme.HANDWRITING,
+    "a wubi device that never chose shows wubi and handwriting",
+  );
+  check(
+    KeyboardScheme.enabledFromPreferenceIds(["quanpin", "xiaohe"], wubiEdition)[0] ===
+      KeyboardScheme.WUBI,
+    "a list carried over from full falls back to the edition's default",
+  );
+  check(
+    KeyboardScheme.resolveEnabledSelection(null, null, [], wubiEdition) === KeyboardScheme.WUBI,
+    "an empty list resolves to the edition's default",
+  );
+  check(
+    KeyboardScheme.fromPreferences("nonsense", null, "twenty_six_key", wubiEdition) ===
+      KeyboardScheme.WUBI,
+    "an unknown scheme reads as the edition's default",
+  );
+  check(
+    KeyboardScheme.engineSchemeOf(KeyboardScheme.HANDWRITING) === "quanpin" &&
+      KeyboardScheme.engineSchemeOf(KeyboardScheme.HANDWRITING, wubiEdition) === "wubi",
+    "handwriting runs the edition's default scheme behind it",
+  );
+  check(
+    KeyboardScheme.fromPreferences("wubi", null, "handwriting", wubiEdition) ===
+      KeyboardScheme.HANDWRITING,
+    "which maps back to handwriting",
+  );
+  const mapping = KeyboardScheme.mapping(KeyboardScheme.HANDWRITING, null, null, wubiEdition);
+  check(
+    mapping.scheme === "wubi" &&
+      mapping.lastChineseScheme === "wubi" &&
+      mapping.touchKeyboardLayout === "handwriting",
+    "and that is what the preference mapping writes",
+  );
+  check(
+    KeyboardScheme.mapping(KeyboardScheme.HANDWRITING, null, null).scheme === "quanpin",
+    "full handwriting still writes quanpin",
   );
 });
 
