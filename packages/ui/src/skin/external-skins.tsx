@@ -6,6 +6,7 @@ import type { SkinFontReader } from "./skin-font";
 import { useSelectedBarPalette } from "./skin-palette";
 export { selectedBarCss } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
+import { SkinCardHeader } from "./skin-card-header";
 import * as settings from "../settings/settings-style";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
@@ -232,47 +233,48 @@ export function ExternalSkinCard({
       // `external-skin-decorated` is the `@utility` that lays out the decoration band inside the preview.
       className={`${settings.skinCard(selected)}${decorated ? " external-skin-decorated" : ""}`}
     >
-      <div className={settings.skinCardHeader} data-skin-card-header="">
-        <div className={settings.skinCardBody}>
-          <span className={settings.skinCardTitle}>
-            {skin.name}（{theme === "dark" ? "深色" : "浅色"}）
-            {selected && <span className={settings.skinCardInUse}>使用中</span>}
-          </span>
-          <span className={settings.skinCardDescription}>
-            {compatible
-              ? skin.description || `基于 ${themeEntry(skin.base).title}`
-              : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`}
-          </span>
+      <SkinCardHeader
+        title={skin.name}
+        theme={theme}
+        selected={selected}
+        description={
+          compatible
+            ? skin.description || `基于 ${themeEntry(skin.base).title}`
+            : `当前布局或明暗模式不受支持（${skin.layouts.join("/")}，${skin.themes.join("/")}）`
+        }
+        details={
           <span className={settings.externalMeta}>
             {[skin.id, skin.version && `v${skin.version}`, skin.author].filter(Boolean).join(" · ")}
           </span>
-        </div>
-        <div className={settings.skinCardActions}>
-          <ActionButton
-            action={() => onSelect(skin.id, skin.base)}
-            ariaChecked={selected}
-            ariaLabel={skin.name}
-            className={settings.skinSwitch(selected)}
-            disabled={!compatible}
-            label={<span className={settings.skinSwitchKnob(selected)} />}
-            role="switch"
-          />
-          {fixed === null && (
+        }
+        actions={
+          <>
             <ActionButton
-              action={() => setOverride(theme === "dark" ? "light" : "dark")}
-              className={settings.skinPreviewSwitch}
-              label={theme === "dark" ? "预览浅色" : "预览深色"}
+              action={() => onSelect(skin.id, skin.base)}
+              ariaChecked={selected}
+              ariaLabel={skin.name}
+              className={settings.skinSwitch(selected)}
+              disabled={!compatible}
+              label={<span className={settings.skinSwitchKnob(selected)} />}
+              role="switch"
             />
-          )}
-          {onPublish && (
-            <ActionButton
-              action={() => onPublish(skin.id)}
-              className={settings.skinPreviewSwitch}
-              label="发布到社区"
-            />
-          )}
-        </div>
-      </div>
+            {fixed === null && (
+              <ActionButton
+                action={() => setOverride(theme === "dark" ? "light" : "dark")}
+                className={settings.skinPreviewSwitch}
+                label={theme === "dark" ? "预览浅色" : "预览深色"}
+              />
+            )}
+            {onPublish && (
+              <ActionButton
+                action={() => onPublish(skin.id)}
+                className={settings.skinPreviewSwitch}
+                label="发布到社区"
+              />
+            )}
+          </>
+        }
+      />
       <div
         data-skin-preview=""
         className={`${settings.skinCardPreview} ${scope}${theme === "light" ? " theme-light" : ""}`}

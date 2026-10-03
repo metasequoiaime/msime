@@ -1282,6 +1282,7 @@ export {
   SettingsShortcutKey,
   type SettingsShortcutKeyProps,
 } from "./settings/settings-shortcut-key";
+export { SkinCardHeader, type SkinCardHeaderProps } from "./skin/skin-card-header";
 export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,

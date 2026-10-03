@@ -12,6 +12,7 @@ import {
 } from "../../theme/global-theme";
 import { SkinCandidatePreview } from "../../skin/skin-candidate-preview";
 import { SkinToolbarPreview } from "../../skin/skin-toolbar-preview";
+import { SkinCardHeader } from "../../skin/skin-card-header";
 import {
   ExternalSkinCard,
   ExternalSkinDirectoryRow,
@@ -142,50 +143,49 @@ export function SkinSettingsPage({ hidden = false }: { hidden?: boolean }) {
             const previewTheme = fixedAppearance ?? skinPreviewThemes[id] ?? candidatePreviewTheme;
             return (
               <article aria-label={entry.title} className={settings.skinCard(selected)} key={id}>
-                <div className={settings.skinCardHeader} data-skin-card-header="">
-                  <div className={settings.skinCardBody}>
-                    <span className={settings.skinCardTitle}>
-                      {entry.title}（{previewTheme === "dark" ? "深色" : "浅色"}）
-                      {selected && <span className={settings.skinCardInUse}>使用中</span>}
-                    </span>
-                    <span className={settings.skinCardDescription}>
-                      {globalThemeDescription(entry, linuxPlatform)}
-                    </span>
-                  </div>
-                  <div className={settings.skinCardActions}>
-                    <ActionButton
-                      action={() =>
-                        onPreferencesChange(
-                          id === "custom"
-                            ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
-                              {
-                                global_theme: "custom",
-                                custom_theme: { ...draft.custom_theme, candidate_skin: null },
-                              }
-                            : { global_theme: id },
-                        )
-                      }
-                      ariaChecked={selected}
-                      ariaLabel={entry.title}
-                      className={settings.skinSwitch(selected)}
-                      label={<span className={settings.skinSwitchKnob(selected)} />}
-                      role="switch"
-                    />
-                    {fixedAppearance === null && (
+                <SkinCardHeader
+                  title={entry.title}
+                  theme={previewTheme}
+                  selected={selected}
+                  description={globalThemeDescription(entry, linuxPlatform)}
+                  actions={
+                    <>
                       <ActionButton
                         action={() =>
-                          setSkinPreviewThemes((current) => ({
-                            ...current,
-                            [id]:
-                              (current[id] ?? candidatePreviewTheme) === "dark" ? "light" : "dark",
-                          }))
+                          onPreferencesChange(
+                            id === "custom"
+                              ? // Choosing the custom card itself drops the package and keeps the rest of the custom theme, drawn over its own base.
+                                {
+                                  global_theme: "custom",
+                                  custom_theme: { ...draft.custom_theme, candidate_skin: null },
+                                }
+                              : { global_theme: id },
+                          )
                         }
-                        className={settings.skinPreviewSwitch}
-                        label={previewTheme === "dark" ? "预览浅色" : "预览深色"}
+                        ariaChecked={selected}
+                        ariaLabel={entry.title}
+                        className={settings.skinSwitch(selected)}
+                        label={<span className={settings.skinSwitchKnob(selected)} />}
+                        role="switch"
                       />
-                    )}
-                  </div>
-                </div>
+                      {fixedAppearance === null && (
+                        <ActionButton
+                          action={() =>
+                            setSkinPreviewThemes((current) => ({
+                              ...current,
+                              [id]:
+                                (current[id] ?? candidatePreviewTheme) === "dark"
+                                  ? "light"
+                                  : "dark",
+                            }))
+                          }
+                          className={settings.skinPreviewSwitch}
+                          label={previewTheme === "dark" ? "预览浅色" : "预览深色"}
+                        />
+                      )}
+                    </>
+                  }
+                />
                 <div
                   className={settings.skinCardPreview}
                   data-skin-preview=""
