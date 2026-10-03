@@ -118,8 +118,12 @@ final class BackendPreferencesTests: XCTestCase {
     let editions = try XCTUnwrap(document["editions"] as? [[String: Any]])
     let edition = try XCTUnwrap(editions.first { $0["id"] as? String == id })
     if id == "full" { return [:] }
-    return ["MSIMEEdition": id, "MSIMEInputSchemes": try XCTUnwrap(edition["input_schemes"] as? [String]),
-            "MSIMEDefaultScheme": try XCTUnwrap(edition["default_scheme"] as? String)]
+    var info: [String: Any] = ["MSIMEEdition": id, "MSIMEInputSchemes": try XCTUnwrap(edition["input_schemes"] as? [String]),
+                               "MSIMEDefaultScheme": try XCTUnwrap(edition["default_scheme"] as? String)]
+    if let mixed = (edition["preference_defaults"] as? [String: Any])?["wubi_mixed_pinyin"] as? Bool {
+      info["MSIMEWubiMixedPinyinDefault"] = mixed
+    }
+    return info
   }
 
   func testFullKeepsTodaysAppGroupAndSchemes() throws {
@@ -128,6 +132,7 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier(in: info), "group.app.msime.ios")
     XCTAssertNil(MSIMEAppEdition.inputSchemes(in: info))
     XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: info), "quanpin")
+    XCTAssertFalse(MSIMEAppEdition.wubiMixedPinyinDefault(in: info))
     // 测试进程不是 App bundle，读到的就是 full。
     XCTAssertEqual(MSIMEAppEdition.appGroupIdentifier, "group.app.msime.ios")
     // 写明 full 的 Info.plist 和不写一样。
@@ -143,6 +148,9 @@ final class BackendPreferencesTests: XCTestCase {
     XCTAssertEqual(MSIMEAppEdition.inputSchemes(in: wubi), ["wubi"])
     XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: wubi), "wubi")
     XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: pinyin), "quanpin")
+    // 五笔版的混拼默认开，拼音版没有这一项。
+    XCTAssertTrue(MSIMEAppEdition.wubiMixedPinyinDefault(in: wubi))
+    XCTAssertFalse(MSIMEAppEdition.wubiMixedPinyinDefault(in: pinyin))
     // 声明的默认方案不在方案里时退回第一个方案，回退到的方案一定能跑。
     XCTAssertEqual(MSIMEAppEdition.defaultScheme(in: ["MSIMEEdition": "wubi", "MSIMEInputSchemes": ["wubi"], "MSIMEDefaultScheme": "quanpin"]), "wubi")
   }

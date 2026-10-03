@@ -212,15 +212,15 @@ Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内
 
 已经就位的部分：
 
-- 版本身份：`MSIMEAppEdition`（`shared/backend/account/BackendAccountClient.swift`）读 App 和键盘扩展各自 Info.plist 里的 `MSIMEEdition`（版本 id）、`MSIMEInputSchemes`（方案）和 `MSIMEDefaultScheme`（默认方案），键名与 macOS 的 `EditionIdentity.h` 相同。没有 `MSIMEEdition` 就是 full。键盘扩展进程读的是扩展自己的 bundle，所以两份 Info.plist 都要写。
+- 版本身份：`MSIMEAppEdition`（`shared/backend/account/BackendAccountClient.swift`）读 App 和键盘扩展各自 Info.plist 里的 `MSIMEEdition`（版本 id）、`MSIMEInputSchemes`（方案）、`MSIMEDefaultScheme`（默认方案）和 `MSIMEWubiMixedPinyinDefault`（五笔混拼的默认值），键名与 macOS 的 `EditionIdentity.h` 相同。没有 `MSIMEEdition` 就是 full。键盘扩展进程读的是扩展自己的 bundle，所以两份 Info.plist 都要写。
 - App Group：标识只写在 `MSIMEAppEdition.appGroupIdentifier` 一处，full 是 `group.app.msime.ios`，其他版本是 `group.app.msime.ios.<版本 id>`。共享容器里的一切（偏好镜像、状态根 `MSIME/`、个人词库与云词库队列、使用统计、剪贴板、语音交接、账号的刷新锁和匿名会话）以及账号会话所在的钥匙串访问组都跟着它走，两个版本装在同一台设备上互不读写。`tests/settings/ProjectConfigurationTests.py` 检查 App、键盘扩展、`SharedUI` 和 `shared/backend` 的 Swift 源码里没有别处再写死这个标识。
-- 方案：方案页只列本版本的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，每个版本都有，背后跑本版本的默认方案。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
+- 方案：方案页只列本版本的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，每个版本都有，背后跑本版本的默认方案。五笔混拼开关没被用户动过时取版本的默认值（五笔版是开）：键盘每次重载都把 App Group 里的这个开关写回共享文档，按 `bool(forKey:)` 的缺省 false 读会让五笔版首次启动就关掉混拼。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
 - 设置同步：原生「设置同步」上传和应用前分别经 `IOSPreferencePlan.filterUploaded`、`filterDownloaded` 过滤，规则与 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 相同：只有一个方案的版本既不上传也不应用 `input.schema` 和随它的九键开关；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。Tauri 公共组件的 iOS 工程走的就是 client-core 那两个函数。
 
 要发一个版本（以五笔版为例）还差这些，全部在仓库之外或需要签名身份，本分支没有做：
 
 1. 版本表：给 wubi、pinyin 填 `platforms.ios` 段，至少包括 App 与键盘扩展的 bundle id（例如 `app.msime.ios.wubi`、`app.msime.ios.wubi.keyboard`）和 App Group；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查，并断言 App Group 等于 `MSIMEAppEdition` 推出的 `group.app.msime.ios.<id>`。
-2. 工程：`project.yml` 为每个版本加一对 target（App 和键盘扩展），各自设 `PRODUCT_BUNDLE_IDENTIFIER`、`CFBundleDisplayName`（水杉五笔、水杉拼音；图标与 full 相同）、上面三个 Info.plist 键，以及各自的 entitlements 文件，`com.apple.security.application-groups` 写本版本的 App Group。`ProjectConfigurationTests.py` 和 `scripts/test-ios-project-config.py` 里按 full 写死的断言要随之参数化。
+2. 工程：`project.yml` 为每个版本加一对 target（App 和键盘扩展），各自设 `PRODUCT_BUNDLE_IDENTIFIER`、`CFBundleDisplayName`（水杉五笔、水杉拼音；图标与 full 相同）、上面四个 Info.plist 键，以及各自的 entitlements 文件，`com.apple.security.application-groups` 写本版本的 App Group。`ProjectConfigurationTests.py` 和 `scripts/test-ios-project-config.py` 里按 full 写死的断言要随之参数化。
 3. 资源：`stage-resources.sh` 目前固定用 full 的 `resources/desktop-dictionary.lock.json`，要改成按版本的 `resources/editions/<id>.lock.json` 暂存；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音词库。
 4. 签名与发布：在 Apple Developer 后台为每个版本注册 App ID 和 App Group，生成 App 与键盘扩展的描述文件，并在 App Store Connect 各建一条 App 记录。`release-ios.yml` 的模拟器包由 `build-app.sh` 以 `CODE_SIGNING_ALLOWED=NO` 构建，不签名；它的 TestFlight 那段的 `check_profile` 只认 `app.msime.ios`、`app.msime.ios.keyboard` 和 `group.app.msime.ios`，`upload-testflight.sh` 也只接受一对描述文件，都要按版本参数化。多个版本能否在一台设备上共存，只能在真机签名构建里验证。功能相近的多个 App 同时上架，有被 App Store 按 4.3（重复 App）拒审的风险。
 5. 不随版本走的部分：Tauri 公共组件的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）只服务 full，它的 `main.mm` 和 `crates/tauri-mobile-platform` 的 `MobilePlatformPlugin.swift` 仍写死 `group.app.msime.ios`；账号钥匙串的服务名 `app.msime.backend.account` 不变，版本之间靠访问组隔离。

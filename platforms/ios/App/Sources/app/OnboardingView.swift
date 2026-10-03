@@ -49,7 +49,7 @@ struct InputSettingsView: View {
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
-  private var wubiMixedPinyin = false
+  private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
   @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
   private var wubiCodeHint = true
   @State private var previewFeedback: UIImpactFeedbackGenerator?

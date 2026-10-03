@@ -4,7 +4,7 @@ import Foundation
 ///
 /// App Group 标识只写在这里一处，其他代码一律引用 `appGroupIdentifier`：`UserDefaults(suiteName:) ?? .standard` 和 `containerURL(...)` 在标识不对时不报错，漏改的那一处会悄悄读写另一份数据。放在这个文件里，是因为 iOS App、键盘扩展、各测试目标和 Tauri 公共组件的 iOS 工程都编译它。
 ///
-/// 版本身份写在 App 和键盘扩展各自的 Info.plist 里，键名与 macOS 相同（platforms/macos/src/core/EditionIdentity.h）：`MSIMEEdition` 是版本 id，`MSIMEInputSchemes` 是本版本提供的方案，`MSIMEDefaultScheme` 是回退方案。full 不带这些键，没有 `MSIMEEdition` 就是 full，每个值都取引入版本之前的那个；测试进程同样读到 full。其他版本的 App Group 是 full 的标识加 `.<版本 id>`，两个版本同时装在一台设备上也不会读写对方的数据。只有 iOS 读 Info.plist，macOS 等平台编译这个文件时始终是 full，它们的版本身份另有来源。
+/// 版本身份写在 App 和键盘扩展各自的 Info.plist 里，键名与 macOS 相同（platforms/macos/src/core/EditionIdentity.h）：`MSIMEEdition` 是版本 id，`MSIMEInputSchemes` 是本版本提供的方案，`MSIMEDefaultScheme` 是回退方案，`MSIMEWubiMixedPinyinDefault` 是五笔混拼的默认值。full 不带这些键，没有 `MSIMEEdition` 就是 full，每个值都取引入版本之前的那个；测试进程同样读到 full。其他版本的 App Group 是 full 的标识加 `.<版本 id>`，两个版本同时装在一台设备上也不会读写对方的数据。只有 iOS 读 Info.plist，macOS 等平台编译这个文件时始终是 full，它们的版本身份另有来源。
 enum MSIMEAppEdition {
   static let fullIdentifier = "full"
   static let fullAppGroupIdentifier = "group.app.msime.ios"
@@ -24,6 +24,8 @@ enum MSIMEAppEdition {
   static let inputSchemes = inputSchemes(in: info)
   /// 本版本的默认方案，也是偏好里的方案本版本没有时的回退值。
   static let defaultScheme = defaultScheme(in: info)
+  /// 五笔混拼开关没被用户动过时的值：full 是关，五笔版是开（版本表的 `preference_defaults`）。
+  static let wubiMixedPinyinDefault = wubiMixedPinyinDefault(in: info)
 
   static var isFull: Bool { identifier == fullIdentifier }
 
@@ -44,6 +46,11 @@ enum MSIMEAppEdition {
     guard identifier(in: info) != fullIdentifier,
           let schemes = info["MSIMEInputSchemes"] as? [String], !schemes.isEmpty else { return nil }
     return schemes
+  }
+
+  static func wubiMixedPinyinDefault(in info: [String: Any]) -> Bool {
+    guard identifier(in: info) != fullIdentifier else { return false }
+    return info["MSIMEWubiMixedPinyinDefault"] as? Bool ?? false
   }
 
   /// 声明的默认方案不在本版本的方案里时取第一个方案，保证回退到的方案本版本一定能跑。
