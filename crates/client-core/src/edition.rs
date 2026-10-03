@@ -398,6 +398,8 @@ const STATE_RECORD_LIMIT: u64 = 256;
 const ACCOUNT_SCHEME_KEY: &str = "input.schema";
 /// iOS 的九键开关：它说的是 `input.schema` 那个方案用不用九键，只随方案一起同步。
 const ACCOUNT_NINE_KEY_KEY: &str = "platform.ios.nine_key";
+/// Android 的触屏布局（26 键、九键、手写）。它和 `input.schema` 一起才决定键盘上的那个入口（全拼加九键是全拼 9 键，全拼加手写是手写），所以同样只随方案一起同步：五笔版不同步方案，也就不同步布局，否则 full 那边选的全拼 9 键会把五笔版的键盘换成九键布局。
+const ACCOUNT_ANDROID_LAYOUT_KEY: &str = "platform.android.keyboard_layout";
 /// 双拼方案的键。不提供双拼的版本里它只是本机的缺省值，不该盖掉账号里别的设备选的方案。
 const ACCOUNT_SHUANGPIN_KEY: &str = "input.shuangpin_schema";
 /// 五笔版本（86/98）的键，理由同上。
@@ -418,7 +420,7 @@ fn syncs_account_scheme(edition: Option<&Edition>) -> bool {
     edition.is_some_and(|edition| edition.input_schemes.len() > 1)
 }
 
-/// 本版本不同步 `input.schema`，或它的值是本版本不提供的方案时，去掉它和随它的 iOS 九键开关。
+/// 本版本不同步 `input.schema`，或它的值是本版本不提供的方案时，去掉它和随它的 iOS 九键开关、Android 触屏布局。
 fn drop_unsynced_account_scheme(
     edition: Option<&Edition>,
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
@@ -429,12 +431,13 @@ fn drop_unsynced_account_scheme(
     if !keeps_scheme {
         settings.remove(ACCOUNT_SCHEME_KEY);
         settings.remove(ACCOUNT_NINE_KEY_KEY);
+        settings.remove(ACCOUNT_ANDROID_LAYOUT_KEY);
     }
 }
 
 /// 上传前按版本过滤本机整理出的账号设置。各平台把本机偏好换成账号设置之后、合并进账号文档之前调用。
 ///
-/// - 只有一个方案的版本（以及认不出的版本，`edition` 为 `None`）不上传 `input.schema` 和随它的 iOS 九键开关；
+/// - 只有一个方案的版本（以及认不出的版本，`edition` 为 `None`）不上传 `input.schema` 和随它的 iOS 九键开关、Android 触屏布局；
 /// - 有多个方案的版本只上传本版本提供的方案；
 /// - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
 ///
@@ -454,7 +457,7 @@ pub fn filter_uploaded_account_settings(
 
 /// 应用前按版本过滤从账号下载的设置，各平台在解析账号文档之前调用。
 ///
-/// - 只有一个方案的版本（以及认不出的版本）忽略 `input.schema` 和随它的 iOS 九键开关；
+/// - 只有一个方案的版本（以及认不出的版本）忽略 `input.schema` 和随它的 iOS 九键开关、Android 触屏布局；
 /// - 有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，文档其余部分照常应用。不认识的取值留给平台代码按原来的规则处理。
 ///
 /// full 提供全部方案，什么也不去掉。
@@ -691,6 +694,10 @@ mod tests {
                 AccountPreferenceValue::Boolean(true),
             ),
             (
+                "platform.android.keyboard_layout".to_owned(),
+                AccountPreferenceValue::String("nine_key".to_owned()),
+            ),
+            (
                 "input.shuangpin_schema".to_owned(),
                 AccountPreferenceValue::String("ziranma".to_owned()),
             ),
@@ -768,6 +775,7 @@ mod tests {
                     "input.learning",
                     "input.schema",
                     "input.shuangpin_schema",
+                    "platform.android.keyboard_layout",
                     "platform.ios.nine_key"
                 ],
                 "{scheme}"
