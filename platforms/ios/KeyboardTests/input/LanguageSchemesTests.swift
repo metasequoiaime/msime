@@ -266,8 +266,9 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(keypad.keyButtons.first?.accessibilityLabel, "笔画 横")
     let names = nodes(keypad).compactMap { $0 as? UILabel }.filter { $0.accessibilityIdentifier == "strokeKeyName" }
     XCTAssertEqual(names.map(\.text), ["横", "竖", "撇", "点", "折", "通配"])
-    let heights = Set(keypad.keyButtons.map { Int($0.bounds.height.rounded()) })
-    XCTAssertEqual(heights.count, 1, "both rows share the height")
+    let heights = keypad.keyButtons.map(\.bounds.height)
+    XCTAssertGreaterThan(heights.min() ?? 0, 0)
+    XCTAssertEqual(heights.min() ?? 0, heights.max() ?? 0, accuracy: 1, "both rows share the height")
     for button in keypad.keyButtons { button.sendActions(for: .primaryActionTriggered) }
     XCTAssertEqual(sent, ["h", "s", "p", "n", "z", "x"])
     let wildcard = try XCTUnwrap(keypad.keyButtons.last)
@@ -347,6 +348,7 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertFalse(idle.isHandled, "an idle wildcard starts nothing")
     XCTAssertEqual(idle.preedit, "")
     let one = bridge.handleCharacter("h")
+    XCTAssertNil(one.diagnosticText)
     XCTAssertTrue(one.isHandled)
     XCTAssertEqual(one.preedit, "一")
     XCTAssertTrue(one.candidates.contains("一"), "\(one.candidates.prefix(5))")
