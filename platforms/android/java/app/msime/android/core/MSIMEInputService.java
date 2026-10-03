@@ -601,6 +601,7 @@ public final class MSIMEInputService extends InputMethodService {
             }
             public boolean compose(String text) { return target.setComposingText(text, 1); }
             public boolean finish() { return target.finishComposingText(); }
+            public boolean select(int start, int end) { return target.setSelection(start, end); }
             public void end() { target.endBatchEdit(); }
         };
     }
@@ -1045,7 +1046,9 @@ public final class MSIMEInputService extends InputMethodService {
             try { NativeClient.destroy(session); } catch (LinkageError ignored) { }
             session = 0;
         }
-        if (connection != null) bridge.abandon(sink(typingSource()));
+        // A Stroke composition still marked here (the session stopped without CommitRaw) is stroke glyphs, not text: remove it rather than finish it into the document.
+        if (connection != null && strokeCompositionMarked()) bridge.discard(sink(typingSource()));
+        else if (connection != null) bridge.abandon(sink(typingSource()));
         view = null;
         closeCandidatePanel();
         closeClipboardHistory();
@@ -2489,6 +2492,13 @@ public final class MSIMEInputService extends InputMethodService {
             && ZhuyinInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
     }
 
+    /** A Stroke composition whose glyphs the editor holds as its composing region (apply marks View.reading for Stroke). */
+    private boolean strokeCompositionMarked() {
+        return view != null && !view.optString("editing_text", "").isEmpty()
+            && StrokeInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish)
+            && !view.optBoolean("nine_key", false);
+    }
+
     private boolean vietnameseSchemeActive() {
         return view != null
             && VietnameseInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
@@ -3092,7 +3102,10 @@ public final class MSIMEInputService extends InputMethodService {
                 if (keepsComposition && left != null && !left.optString("editing_text", "").isEmpty())
                     value(NativeClient.command(session, 3));
             } catch (JSONException | LinkageError error) { fail(); }
-            if (connection != null) bridge.abandon(sink(typingSource()));
+            // Stroke marks its stroke glyphs, which are not text the user wrote (`commits_on_blur` is false): finishing the region would leave 一丨 in the document, so the region is removed and the tapped selection put back.
+            if (connection != null && strokeCompositionMarked())
+                bridge.discard(sink(typingSource()), composingStart, composingEnd, newStart, newEnd);
+            else if (connection != null) bridge.abandon(sink(typingSource()));
             view = null;
             render();
         }

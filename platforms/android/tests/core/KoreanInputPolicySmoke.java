@@ -122,6 +122,7 @@ public final class KoreanInputPolicySmoke {
             public boolean commit(String text) { writes.add("commit:" + text); return true; }
             public boolean compose(String text) { writes.add("compose:" + text); return true; }
             public boolean finish() { writes.add("finish"); return true; }
+            public boolean select(int start, int end) { writes.add("select:" + start + "," + end); return true; }
             public void end() { writes.add("end"); }
         };
     }
