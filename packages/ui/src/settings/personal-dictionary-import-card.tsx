@@ -13,6 +13,7 @@ import { GroupList } from "../core/platform-controls";
 import { rowTitle } from "../core/platform-controls-style";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionButton } from "./action-button";
 
@@ -199,7 +200,7 @@ export function PersonalDictionaryImportCard({
   );
   if (embedded) {
     return (
-      <div className={settings.managerBlock} role="group" aria-label="个人词库文件">
+      <SettingsManagerBlock role="group" aria-label="个人词库文件">
         <div>
           <span className={rowTitle} data-row-title="">
             个人词库文件
@@ -207,13 +208,13 @@ export function PersonalDictionaryImportCard({
           <SettingsManagerNote>{note}</SettingsManagerNote>
         </div>
         {content}
-      </div>
+      </SettingsManagerBlock>
     );
   }
   return (
     <GroupList title="个人词库文件">
       <SettingsGroupNote>{note}</SettingsGroupNote>
-      <div className={settings.managerBlock}>{content}</div>
+      <SettingsManagerBlock>{content}</SettingsManagerBlock>
     </GroupList>
   );
 }

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import * as settings from "./settings-style";
 import { FeedbackKindOptions } from "./feedback-kind-options";
 import { SelectRow } from "./select-row";
 import { SettingsTextareaField } from "./settings-textarea-field";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 export interface FeedbackReportFieldsProps {
   kind: string;
@@ -30,7 +30,7 @@ export function FeedbackReportFields({
       >
         <FeedbackKindOptions />
       </SelectRow>
-      <div className={settings.managerBlock}>
+      <SettingsManagerBlock>
         <SettingsTextareaField
           label="描述"
           ariaLabel="反馈描述"
@@ -41,7 +41,7 @@ export function FeedbackReportFields({
           rows={6}
         />
         {children}
-      </div>
+      </SettingsManagerBlock>
     </>
   );
 }

@@ -1,9 +1,9 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import type { ReactNode } from "react";
 import { GroupList, Row } from "../core/platform-controls";
-import * as settings from "./settings-style";
 import {
   MAX_COMMAND_TABLES,
   MAX_PHRASE_TABLES,
@@ -33,10 +33,10 @@ import { ActionButton } from "./action-button";
 
 function ActionBlock({ note, children }: { note?: ReactNode; children?: ReactNode }) {
   return (
-    <div className={settings.managerBlock}>
+    <SettingsManagerBlock>
       {note && <SettingsManagerNote>{note}</SettingsManagerNote>}
       {children && <SettingsManagerActions>{children}</SettingsManagerActions>}
-    </div>
+    </SettingsManagerBlock>
   );
 }
 

@@ -8,6 +8,7 @@ import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -374,7 +375,7 @@ export function McpConnectSection({
 
   return (
     <GroupList title="连接 AI 助手">
-      <div className={settings.managerBlock} role="group" aria-label="连接 AI 助手">
+      <SettingsManagerBlock role="group" aria-label="连接 AI 助手">
         <SettingsManagerNote>
           连接后，把输入法的问题（卡顿、候选窗口不见了）直接告诉 AI
           助手：它会打开诊断日志、请你重做一遍出问题的操作，再读日志找原因；也能读取快捷短语、设置、打字统计和已安装的候选窗口皮肤。通过
@@ -500,7 +501,7 @@ export function McpConnectSection({
             <p className="notice">输入法尚未完成初始化，完成设置向导后即可连接。</p>
           ))}
         {confirmation}
-      </div>
+      </SettingsManagerBlock>
     </GroupList>
   );
 }

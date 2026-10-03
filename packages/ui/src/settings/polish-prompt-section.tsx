@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { SelectRow } from "./select-row";
 import { SettingsTextareaField } from "./settings-textarea-field";
-import * as settings from "./settings-style";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsManagerBlock } from "./settings-manager-block";
 import { CustomPromptSlotOptions } from "./custom-prompt-slot-options";
 import {
   POLISH_CUSTOM_IDS,
@@ -52,7 +52,7 @@ export function PolishPromptSection({
         ))}
         <CustomPromptSlotOptions />
       </SelectRow>
-      <div className={settings.managerBlock}>
+      <SettingsManagerBlock>
         {customSlot ? (
           <SettingsTextareaField
             label="润色提示词"
@@ -72,7 +72,7 @@ export function PolishPromptSection({
           />
         )}
         {actions && <SettingsManagerActions>{actions}</SettingsManagerActions>}
-      </div>
+      </SettingsManagerBlock>
     </>
   );
 }

@@ -7,6 +7,7 @@ import { ActionButton } from "./action-button";
 import { SettingsInputField } from "./settings-input-field";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
+import { SettingsManagerBlock } from "./settings-manager-block";
 
 /** `client-core::plugins::mentions::MAX_ENTRIES`. */
 export const MAX_MENTIONS = 1000;
@@ -68,7 +69,7 @@ export function PluginMentionsView({
     <>
       <PluginViewHeader title="@ 名单" onBack={onBack} />
       <GroupList>
-        <div className={settings.managerBlock}>
+        <SettingsManagerBlock>
           <SettingsManagerNote>
             在「输入 → 快捷模式」打开 @ 名字与地点后，按 @
             再输入拼音或首字母，就会从这份名单里出候选。名单只保存在本机，不随账号同步，也不会读取通讯录或位置。拼音可以留空，中文名字会自动取读音。
@@ -119,7 +120,7 @@ export function PluginMentionsView({
               label="保存名单"
             />
           </SettingsManagerActions>
-        </div>
+        </SettingsManagerBlock>
       </GroupList>
     </>
   );

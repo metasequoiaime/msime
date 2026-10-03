@@ -1269,6 +1269,10 @@ export {
   type SettingsManagerActionsProps,
 } from "./settings/settings-manager-actions";
 export {
+  SettingsManagerBlock,
+  type SettingsManagerBlockProps,
+} from "./settings/settings-manager-block";
+export {
   SettingsInputDescription,
   type SettingsInputDescriptionProps,
 } from "./settings/settings-input-description";
