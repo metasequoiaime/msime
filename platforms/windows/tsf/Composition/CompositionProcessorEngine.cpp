@@ -303,8 +303,13 @@ BOOL CCompositionProcessorEngine::AddVirtualKey(WCHAR wch)
 
     DWORD_PTR srgKeystrokeBufLen = _keystrokeBuffer.GetLength();
     _caretPosition = min(_caretPosition, srgKeystrokeBufLen);
-    if (wch == L'\'' && ((_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'') ||
-                         (_caretPosition < srgKeystrokeBufLen && _keystrokeBuffer.Get()[_caretPosition] == L'\'')))
+    // 连续的分隔符只留一个，网址模式除外：那里的 `'` 是网址里的字符，Engine 照收不误。
+    if (wch == L'\'' &&
+        !Global::IsUrlModeComposition(_keystrokeBuffer.Get(), srgKeystrokeBufLen,
+                                      msime::windows::scheme::DetectsUrls(
+                                          Global::InputModeScheme.load(std::memory_order_relaxed))) &&
+        ((_caretPosition > 0 && _keystrokeBuffer.Get()[_caretPosition - 1] == L'\'') ||
+         (_caretPosition < srgKeystrokeBufLen && _keystrokeBuffer.Get()[_caretPosition] == L'\'')))
     {
         return TRUE;
     }
@@ -2164,6 +2169,41 @@ BOOL CCompositionProcessorEngine::IsVirtualKeyNeed( //
         case Global::ExpressionKey::Unclaimed:
             break;
         }
+    }
+    // 网址模式：触发词后的 `.`、`:` 打开它，之后网址的数字和符号都是输入，排在 '-'、'='、','、'.'、'[' 和 ']' 的翻页、标点和数字选词之前；打出其他字符的数字键选词。
+    const bool detectsUrls =
+        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed));
+    if (Global::IsUrlModeComposition(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), detectsUrls))
+    {
+        switch (Global::ClassifyUrlKey(uCode, pwch ? *pwch : 0))
+        {
+        case Global::ExpressionKey::Input:
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_COMPOSING;
+                pKeyState->Function = FUNCTION_INPUT;
+            }
+            return TRUE;
+        case Global::ExpressionKey::SelectByNumber:
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_CANDIDATE;
+                pKeyState->Function = FUNCTION_SELECT_BY_NUMBER;
+            }
+            return TRUE;
+        case Global::ExpressionKey::Unclaimed:
+            break;
+        }
+    }
+    else if (Global::OpensUrlMode(_keystrokeBuffer.Get(), _keystrokeBuffer.GetLength(), _caretPosition,
+                                  pwch ? *pwch : 0, detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
+    {
+        if (pKeyState)
+        {
+            pKeyState->Category = CATEGORY_COMPOSING;
+            pKeyState->Function = FUNCTION_INPUT;
+        }
+        return TRUE;
     }
 
     if (IsJapaneseLongVowelKey(uCode, pwch ? *pwch : 0))

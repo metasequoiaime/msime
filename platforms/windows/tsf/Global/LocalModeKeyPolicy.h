@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <string>
 
 namespace Global
 {
@@ -39,6 +40,109 @@ enum class ExpressionKey
 inline ExpressionKey ClassifyExpressionKey(unsigned code, wchar_t wch)
 {
     if (IsExpressionSpellingSymbol(wch))
+    {
+        return ExpressionKey::Input;
+    }
+    if (code >= L'1' && code <= L'9')
+    {
+        return ExpressionKey::SelectByNumber;
+    }
+    return ExpressionKey::Unclaimed;
+}
+
+// 网址模式当作输入的数字和符号：crates/engine/src/local/url.rs SPELLING_SYMBOLS。Server 从 View.spelling_symbols 读取，TIP 在 Server 回答之前就要给按键分类，所以保留一份拷贝，由 scripts/test-windows-expression-symbols-parity.py 核对两份相同。
+inline constexpr wchar_t UrlSpellingSymbols[] = L"0123456789-._~:/?#[]@!$&'()*+,;=%^";
+
+inline bool IsUrlSpellingSymbol(wchar_t wch)
+{
+    if (wch == L'\0')
+    {
+        return false;
+    }
+    for (const wchar_t *symbol = UrlSpellingSymbols; *symbol; ++symbol)
+    {
+        if (*symbol == wch)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 网址触发词和紧跟其后进入网址模式的按键：crates/engine/src/local/url.rs TRIGGERS。触发词要与组字原文完全相同，大写不算。
+struct UrlTrigger
+{
+    const wchar_t *word;
+    const wchar_t *keys;
+};
+
+inline constexpr UrlTrigger UrlTriggers[] = {{L"www", L"."}, {L"http", L":"}, {L"https", L":"}, {L"ftp", L".:"}};
+
+inline size_t UrlTriggerLength(const wchar_t *word)
+{
+    size_t length = 0;
+    while (word[length])
+    {
+        ++length;
+    }
+    return length;
+}
+
+inline bool IsUrlTriggerKey(const UrlTrigger &trigger, wchar_t wch)
+{
+    for (const wchar_t *key = trigger.keys; *key; ++key)
+    {
+        if (*key == wch)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 这个键是否在组字中打开网址模式：方案检测网址（scheme::DetectsUrls）、不在 Engine 的专用英文模式、光标在末尾、键击缓冲恰好是触发词、按键是它的触发键。Engine 只在同样的条件下把触发键列进 spelling_symbols，所以 Server 也把它当作输入（EditPolicy.h 的 edit_kind），两边对它是输入还是翻页、标点的判断一致。
+inline bool OpensUrlMode(const wchar_t *buffer, size_t length, size_t caret, wchar_t wch, bool detectsUrls,
+                         bool dedicatedEnglish)
+{
+    if (!detectsUrls || dedicatedEnglish || !buffer || length == 0 || caret != length)
+    {
+        return false;
+    }
+    for (const UrlTrigger &trigger : UrlTriggers)
+    {
+        const size_t wordLength = UrlTriggerLength(trigger.word);
+        if (wordLength == length && std::char_traits<wchar_t>::compare(buffer, trigger.word, length) == 0 &&
+            IsUrlTriggerKey(trigger, wch))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 网址组字：键击缓冲以触发词加触发键开头（`www.`、`http:`、`https:`、`ftp.`、`ftp:`），方案检测网址。触发键只能由 OpensUrlMode 放进缓冲，删掉它时 Engine 回到普通组字，缓冲也不再以它开头。五笔在 `http` 后的第五个字母 `s` 上就已进入网址模式，但 TIP 把五笔记成全拼，分不出这时的 `https`，所以要等触发键 `:` 之后才按网址分类。
+inline bool IsUrlModeComposition(const wchar_t *buffer, size_t length, bool detectsUrls)
+{
+    if (!detectsUrls || !buffer)
+    {
+        return false;
+    }
+    for (const UrlTrigger &trigger : UrlTriggers)
+    {
+        const size_t wordLength = UrlTriggerLength(trigger.word);
+        if (length > wordLength && std::char_traits<wchar_t>::compare(buffer, trigger.word, wordLength) == 0 &&
+            IsUrlTriggerKey(trigger, buffer[wordLength]))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 网址组字里不带 Ctrl、Alt 的按键：网址的数字和符号是输入，包括 Shift 打出的符号（Shift+2 的 `@`、Shift+3 的 `#`）和在别处翻页的 `-` `=` `,` `.` `[` `]`；打出其他字符的数字键（数字行要按 Shift 的布局上的裸数字键）按槽位选词。规则与 V 模式相同，只是符号表不同，Server 的 digit_selects_candidate 也这样判断。字母照常走组字，不在表里的符号（`"` `<` `>` `\` `{` `}` `|` 和反引号）照常走标点，Engine 先上屏网址再写标点。
+inline ExpressionKey ClassifyUrlKey(unsigned code, wchar_t wch)
+{
+    if (IsUrlSpellingSymbol(wch))
     {
         return ExpressionKey::Input;
     }

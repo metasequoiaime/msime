@@ -51,6 +51,63 @@ int main() {
     check(ClassifyExpressionKey(0xBC, L',') == ExpressionKey::Unclaimed, "comma keeps paging");
     check(ClassifyExpressionKey(L'A', L'a') == ExpressionKey::Unclaimed, "letters keep their route");
 
+    // 网址模式：触发词恰好是整个缓冲、光标在末尾、方案检测网址且不在专用英文模式时，触发键打开它。
+    const auto opens = [](const wchar_t *buffer, wchar_t key) {
+        const std::wstring raw = buffer;
+        return OpensUrlMode(raw.c_str(), raw.size(), raw.size(), key, true, false);
+    };
+    check(opens(L"www", L'.'), "www dot opens the URL mode");
+    check(opens(L"http", L':'), "http colon opens the URL mode");
+    check(opens(L"https", L':'), "https colon opens the URL mode");
+    check(opens(L"ftp", L'.') && opens(L"ftp", L':'), "ftp opens on dot and colon");
+    check(!opens(L"www", L':') && !opens(L"http", L'.') && !opens(L"www", L'@'), "only the trigger's own key opens it");
+    for (const wchar_t *other : {L"ww", L"wwww", L"Www", L"WWW", L"w'ww", L"ni", L"httpss", L"mailto"})
+        check(!opens(other, L'.') && !opens(other, L':'), "only the exact lowercase trigger words open it");
+    const std::wstring www = L"www";
+    check(!OpensUrlMode(www.c_str(), www.size(), 2, L'.', true, false), "not with the caret inside the trigger");
+    check(!OpensUrlMode(www.c_str(), www.size(), www.size(), L'.', false, false), "not in a scheme that does not detect URLs");
+    check(!OpensUrlMode(www.c_str(), www.size(), www.size(), L'.', true, true), "not in the dedicated English mode");
+    check(!OpensUrlMode(L"", 0, 0, L'.', true, false), "not on an empty composition");
+    check(!OpensUrlMode(nullptr, 3, 3, L'.', true, false), "no buffer opens nothing");
+
+    // 网址组字：缓冲以触发词加触发键开头。
+    for (const wchar_t *url : {L"www.", L"www.example.com", L"http:", L"https://a.b/c?d=1", L"ftp.x", L"ftp://x"}) {
+        const std::wstring raw = url;
+        check(IsUrlModeComposition(raw.c_str(), raw.size(), true), "a buffer that starts with a trigger and its key is a URL");
+        check(!IsUrlModeComposition(raw.c_str(), raw.size(), false), "not in a scheme that does not detect URLs");
+    }
+    for (const wchar_t *other : {L"www", L"https", L"wwwbaidu", L"ww.", L"Www.", L"www:", L"http.", L"nihao", L"V1+2", L"U4e2d", L""}) {
+        const std::wstring raw = other;
+        check(!IsUrlModeComposition(raw.c_str(), raw.size(), true), "other buffers are not URLs");
+    }
+    check(!IsUrlModeComposition(nullptr, 4, true), "no buffer is no URL");
+
+    // 网址的数字和符号是输入，包括 Shift 打出的符号和在别处翻页的键。
+    for (wchar_t symbol : std::wstring(L"0123456789-._~:/?#[]@!$&'()*+,;=%^"))
+        check(IsUrlSpellingSymbol(symbol), "every URL symbol is spelled");
+    for (wchar_t other : std::wstring(L"\"<>\\{}|` a"))
+        check(!IsUrlSpellingSymbol(other), "URL enders are not spelled");
+    check(!IsUrlSpellingSymbol(L'\0'), "no text is not spelled in a URL");
+    check(ClassifyUrlKey(L'1', L'1') == ExpressionKey::Input, "digit is URL input, not a pick");
+    check(ClassifyUrlKey(L'0', L'0') == ExpressionKey::Input, "zero is URL input");
+    check(ClassifyUrlKey(0x61, L'1') == ExpressionKey::Input, "numpad digit is URL input");
+    check(ClassifyUrlKey(L'1', L'!') == ExpressionKey::Input, "Shift+1 bang is URL input");
+    check(ClassifyUrlKey(L'2', L'@') == ExpressionKey::Input, "Shift+2 at is URL input");
+    check(ClassifyUrlKey(L'3', L'#') == ExpressionKey::Input, "Shift+3 hash is URL input");
+    check(ClassifyUrlKey(0xBE, L'.') == ExpressionKey::Input, "period is URL input instead of paging");
+    check(ClassifyUrlKey(0xBC, L',') == ExpressionKey::Input, "comma is URL input instead of paging");
+    check(ClassifyUrlKey(0xBD, L'-') == ExpressionKey::Input, "minus is URL input instead of paging");
+    check(ClassifyUrlKey(0xBB, L'=') == ExpressionKey::Input, "equals is URL input instead of paging");
+    check(ClassifyUrlKey(0xDB, L'[') == ExpressionKey::Input, "bracket is URL input instead of paging");
+    check(ClassifyUrlKey(0xBF, L'/') == ExpressionKey::Input, "slash is URL input instead of punctuation");
+    check(ClassifyUrlKey(0xBA, L':') == ExpressionKey::Input, "colon is URL input");
+    check(ClassifyUrlKey(L'2', 0x00E9) == ExpressionKey::SelectByNumber, "AZERTY bare 2 printing e-acute selects");
+    check(ClassifyUrlKey(0xBC, L'<') == ExpressionKey::Unclaimed, "Shift+comma keeps the punctuation route");
+    check(ClassifyUrlKey(0xDC, L'\\') == ExpressionKey::Unclaimed, "backslash keeps the punctuation route");
+    check(ClassifyUrlKey(0xDB, L'{') == ExpressionKey::Unclaimed, "brace keeps the punctuation route");
+    check(ClassifyUrlKey(L'A', L'a') == ExpressionKey::Unclaimed, "letters keep their route");
+    check(ClassifyUrlKey(0x20, L' ') == ExpressionKey::Unclaimed, "space keeps selecting");
+
     // "/" and "@" open their modes only on an empty composition, with Chinese punctuation, and for a mode that is on.
     check(OpensLocalMode(L'/', false, true, true, false), "slash opens commands");
     check(OpensLocalMode(L'@', false, true, false, true), "at opens mentions");

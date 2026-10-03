@@ -106,9 +106,14 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.rawInput.size() < MAX_PINYIN_LENGTH && wch != L'\0')
         {
+            // 与 AddVirtualKey 一致：网址模式里的 `'` 是网址字符，连续的也不合并。
             const bool duplicateSeparator =
-                wch == L'\'' && ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
-                                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
+                wch == L'\'' &&
+                !Global::IsUrlModeComposition(
+                    shadow.rawInput.c_str(), shadow.rawInput.size(),
+                    msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed))) &&
+                ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
+                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
             if (!duplicateSeparator)
             {
                 shadow.rawInput.insert(shadow.caret, 1, wch);
@@ -1695,6 +1700,25 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             case Global::ExpressionKey::Unclaimed:
                 break;
             }
+        }
+        // 与普通路径一致：触发词后的触发键打开网址模式，之后网址的数字和符号排在翻页、标点和数字选词之前作为输入。
+        const bool detectsUrls = msime::windows::scheme::DetectsUrls(scheme);
+        if (Global::IsUrlModeComposition(shadow.rawInput.c_str(), shadow.rawInput.size(), detectsUrls))
+        {
+            switch (Global::ClassifyUrlKey(*classifiedCode, *classifiedWch))
+            {
+            case Global::ExpressionKey::Input:
+                return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
+            case Global::ExpressionKey::SelectByNumber:
+                return setKeyState(CATEGORY_CANDIDATE, FUNCTION_SELECT_BY_NUMBER);
+            case Global::ExpressionKey::Unclaimed:
+                break;
+            }
+        }
+        else if (Global::OpensUrlMode(shadow.rawInput.c_str(), shadow.rawInput.size(), shadow.caret, *classifiedWch,
+                                      detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
+        {
+            return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
         }
         const bool candidateKey = shadow.candidateActive;
         switch (*classifiedCode)
