@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "editions": [
-    { "id": "full", "platforms": {} },
-    { "id": "pinyin", "platforms": {} },
-    { "id": "wubi", "platforms": {} }
+    { "id": "full", "platforms": { "macos": { "input_method_bundle_id": "app.msime.inputmethod.MetasequoiaIME", "input_method_name": "水杉输入法", "settings_bundle_id": "app.msime.macos", "keychain_service": "com.metasequoia.msime.account", "cask": "msime", "dmg_prefix": "msime-macos" } } },
+    { "id": "pinyin", "platforms": { "macos": { "input_method_bundle_id": "app.msime.inputmethod.pinyin", "input_method_name": "水杉拼音", "settings_bundle_id": "app.msime.macos.pinyin", "keychain_service": "com.metasequoia.msime.pinyin.account", "cask": "msime-pinyin", "dmg_prefix": "msime-macos-pinyin" } } },
+    { "id": "wubi", "platforms": { "macos": { "input_method_bundle_id": "app.msime.inputmethod.wubi", "input_method_name": "水杉五笔", "settings_bundle_id": "app.msime.macos.wubi", "keychain_service": "com.metasequoia.msime.wubi.account", "cask": "msime-wubi", "dmg_prefix": "msime-macos-wubi" } } }
   ]
 }

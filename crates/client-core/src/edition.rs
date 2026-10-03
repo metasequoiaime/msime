@@ -2,7 +2,7 @@
 //!
 //! 版本表 `shared/contracts/editions.json` 是各版本的单一事实源：每个版本提供哪些输入方案、默认方案是什么、在 `Preferences::default()` 之上叠加哪些默认值、随包带哪些资源和功能。full 是现有产品本身，所有值都等于今天写死在代码里的那个；其他版本是它的收窄。多个版本可以同时安装，彼此完全隔离，因此这里只描述一个版本自己的样子，不涉及版本之间的共享。
 //!
-//! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）由平台构建脚本读取，本模块不解析。
+//! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（目前是 macOS）在这里解析，其余平台的段本模块不解析。
 
 use crate::account::AccountPreferenceValue;
 use crate::preferences::{InputScheme, TouchKeyboardScheme};
@@ -37,6 +37,41 @@ pub struct Edition {
     pub features: EditionFeatures,
     /// 本版本需要的语言词库，取值是 `resources/language-dictionaries.lock.json` 里的条目名。
     pub language_dictionaries: Vec<String>,
+    /// 各平台的身份标识中 Rust 进程用得到的那几段。
+    #[serde(default)]
+    platforms: EditionPlatforms,
+}
+
+/// 版本表 `platforms` 里本模块解析的段。其余平台的键由各自的构建脚本读取，这里忽略。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+struct EditionPlatforms {
+    #[serde(default)]
+    macos: Option<MacosIdentity>,
+}
+
+/// 一个版本在 macOS 上的身份标识（版本表 `platforms.macos`）。所有版本两两不同，所以多个版本可以同时安装，互不覆盖。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MacosIdentity {
+    /// InputMethodKit bundle 的 CFBundleIdentifier，也是它的 NSUserDefaults 域。
+    pub input_method_bundle_id: String,
+    /// 输入法 bundle 的文件名（不含 `.app`）和可执行文件名。
+    pub input_method_name: String,
+    /// 设置应用的 bundle identifier，也是 Application Support 下状态目录的名字。
+    pub settings_bundle_id: String,
+    /// 原生账号窗口存访问令牌的钥匙串服务名，刷新令牌在它加 `.refresh` 的服务名下。
+    pub keychain_service: String,
+    /// Homebrew cask 名。
+    pub cask: String,
+    /// 发布 DMG 的文件名前缀。
+    pub dmg_prefix: String,
+}
+
+impl MacosIdentity {
+    /// 输入法 bundle 的文件名，例如 `水杉输入法.app`。
+    pub fn input_method_bundle_name(&self) -> String {
+        format!("{}.app", self.input_method_name)
+    }
 }
 
 /// 版本的产品名。
@@ -189,6 +224,34 @@ impl Edition {
             Some(serde_json::Value::String(id)) => Self::by_id(id),
             Some(_) => None,
         }
+    }
+
+    /// 本版本在 macOS 上的身份标识；版本表里这个版本还没有 macOS 段时为 `None`。
+    pub fn macos(&self) -> Option<&MacosIdentity> {
+        self.platforms.macos.as_ref()
+    }
+
+    /// 安装包里声明版本的文件名。macOS 的设置应用把它放在 `Contents/Resources/` 下，内容是 `{"edition": "<id>"}`。full 的包不带这个文件，所以 full 的包与引入版本之前相同。
+    pub const PACKAGE_MARKER_FILE: &'static str = "edition.json";
+
+    /// 读取安装包里的版本声明（见 [`Edition::PACKAGE_MARKER_FILE`]）。文件不存在时是 full；文件存在但读不了、不是合法的声明、或声明了版本表里没有的 id 时是错误：一个声明了版本的包不能被当成 full 运行，否则它会去读写 full 的状态目录和输入法。
+    pub fn declared_by_package(marker: &Path) -> std::io::Result<&'static Edition> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Marker {
+            edition: String,
+        }
+        let file = match std::fs::File::open(marker) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::full()),
+            Err(error) => return Err(error),
+        };
+        let mut text = String::new();
+        file.take(STATE_RECORD_LIMIT).read_to_string(&mut text)?;
+        let marker: Marker = serde_json::from_str(&text)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        Self::by_id(&marker.edition)
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "unknown edition"))
     }
 
     /// 状态目录里记录它属于哪个版本的文件名，内容就是版本 id。
@@ -640,6 +703,56 @@ mod tests {
         let mut downloaded = account_settings("klingon");
         filter_downloaded_account_settings(pinyin, &mut downloaded);
         assert!(downloaded.contains_key("input.schema"));
+    }
+
+    #[test]
+    fn full_keeps_its_macos_identifiers_and_every_edition_has_its_own() {
+        let full = Edition::full().macos().unwrap();
+        assert_eq!(
+            full.input_method_bundle_id,
+            "app.msime.inputmethod.MetasequoiaIME"
+        );
+        assert_eq!(full.input_method_bundle_name(), "水杉输入法.app");
+        assert_eq!(full.settings_bundle_id, "app.msime.macos");
+        assert_eq!(full.keychain_service, "com.metasequoia.msime.account");
+        assert_eq!(full.cask, "msime");
+        assert_eq!(full.dmg_prefix, "msime-macos");
+        let wubi = Edition::by_id("wubi").unwrap().macos().unwrap();
+        assert_eq!(wubi.input_method_bundle_name(), "水杉五笔.app");
+        let bundles: BTreeSet<_> = Edition::all()
+            .iter()
+            .map(|edition| {
+                edition
+                    .macos()
+                    .unwrap()
+                    .input_method_bundle_id
+                    .to_lowercase()
+            })
+            .collect();
+        assert_eq!(bundles.len(), Edition::all().len());
+        let states: BTreeSet<_> = Edition::all()
+            .iter()
+            .map(|edition| edition.macos().unwrap().settings_bundle_id.to_lowercase())
+            .collect();
+        assert_eq!(states.len(), Edition::all().len());
+    }
+
+    #[test]
+    fn a_package_without_a_marker_is_full_and_a_bad_marker_is_an_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join(Edition::PACKAGE_MARKER_FILE);
+        assert!(Edition::declared_by_package(&marker).unwrap().is_full());
+        std::fs::write(&marker, br#"{"edition":"wubi"}"#).unwrap();
+        assert_eq!(Edition::declared_by_package(&marker).unwrap().id, "wubi");
+        for bad in [
+            &br#"{"edition":"klingon"}"#[..],
+            br#"{"edition":3}"#,
+            br#"{"edition":"wubi","extra":1}"#,
+            b"wubi",
+        ] {
+            std::fs::write(&marker, bad).unwrap();
+            assert!(Edition::declared_by_package(&marker).is_err());
+        }
     }
 
     #[test]

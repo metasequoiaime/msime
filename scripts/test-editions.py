@@ -12,6 +12,7 @@
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
+- macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 也不能撞；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
 不带参数运行时检查仓库里的文件；`--editions` 和 `--frozen` 可以换成别的文件，用来确认某种错误确实会被拦下。
@@ -35,6 +36,7 @@ DESKTOP_LOCK = ROOT / "resources/desktop-dictionary.lock.json"
 LANGUAGE_LOCK = ROOT / "resources/language-dictionaries.lock.json"
 INFO_PLIST = ROOT / "platforms/macos/Info.plist.in"
 TAURI_CONF = ROOT / "apps/desktop/src-tauri/tauri.conf.json"
+TAURI_MACOS_CONF = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
@@ -46,6 +48,15 @@ FEATURE_COMPONENTS = {"temporary_japanese": "japanese", "neural_keyboard": "sent
 SCHEME_LANGUAGE_DICTIONARIES = {"cantonese": "cantonese.db", "zhuyin": "zhuyin.db"}
 # 版本默认值只对含某个方案的版本有意义。
 PREFERENCE_DEFAULT_SCHEMES = {"wubi_mixed_pinyin": "wubi"}
+# full 今天写死在 macOS 各处的标识。改了其中任何一个，已安装的用户就会被当成另一个产品：输入源、偏好域、状态目录、钥匙串条目、cask 和更新资产都对不上。
+FULL_MACOS = {
+    "input_method_bundle_id": "app.msime.inputmethod.MetasequoiaIME",
+    "input_method_name": "水杉输入法",
+    "settings_bundle_id": "app.msime.macos",
+    "keychain_service": "com.metasequoia.msime.account",
+    "cask": "msime",
+    "dmg_prefix": "msime-macos",
+}
 
 
 def load_generator():
@@ -121,6 +132,15 @@ def check_schema_shape(errors: list[str], table: dict, schema: dict) -> None:
             for platform, section in entry["platforms"].items():
                 if section is not None and not isinstance(section, dict):
                     errors.append(f"{where}.platforms.{platform}: expected an object or null")
+            macos = entry["platforms"].get("macos")
+            node = edition["properties"]["platforms"]["properties"]["macos"]
+            if isinstance(macos, dict) and check_keys(errors, f"{where}.platforms.macos", macos, schema_keys(node), set(node["required"])):
+                for key, value in macos.items():
+                    rule = node["properties"][key]
+                    if not isinstance(value, str) or len(value) < rule.get("minLength", 1):
+                        errors.append(f"{where}.platforms.macos.{key}: expected a non-empty string")
+                    elif "pattern" in rule and not re.search(rule["pattern"], value):
+                        errors.append(f"{where}.platforms.macos.{key}: {value!r} does not match {rule['pattern']}")
 
 
 def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
@@ -217,6 +237,8 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
     if full is not None:
         check_full(errors, full, engine, components)
 
+    check_macos(errors, editions)
+
     check_frozen(errors, editions, frozen)
 
 
@@ -239,6 +261,52 @@ def check_full(errors: list[str], full: dict, engine: list[str], components: dic
     product = json.loads(TAURI_CONF.read_text(encoding="utf-8")).get("productName")
     if full["display_name"]["en"] != product:
         errors.append(f"edition full: display_name.en must equal productName {product!r} in {TAURI_CONF.relative_to(ROOT)}")
+    macos = full["platforms"].get("macos")
+    if macos != FULL_MACOS:
+        errors.append(f"edition full: platforms.macos must be the identifiers the product ships with today: {FULL_MACOS}")
+    else:
+        bundle = plist_string("CFBundleIdentifier")
+        if macos["input_method_bundle_id"] != bundle:
+            errors.append(f"edition full: platforms.macos.input_method_bundle_id must equal CFBundleIdentifier {bundle!r} in {INFO_PLIST.relative_to(ROOT)}")
+        executable = plist_string("CFBundleExecutable")
+        if macos["input_method_name"] != executable:
+            errors.append(f"edition full: platforms.macos.input_method_name must equal CFBundleExecutable {executable!r} in {INFO_PLIST.relative_to(ROOT)}")
+        identifier = json.loads(TAURI_MACOS_CONF.read_text(encoding="utf-8")).get("identifier")
+        if macos["settings_bundle_id"] != identifier:
+            errors.append(f"edition full: platforms.macos.settings_bundle_id must equal identifier {identifier!r} in {TAURI_MACOS_CONF.relative_to(ROOT)}")
+
+
+def check_macos(errors: list[str], editions: list[dict]) -> None:
+    """多个版本同时安装在一台 Mac 上：任何一个标识撞了，一个版本就会覆盖、停掉或读到另一个版本的东西。"""
+    sections = [(entry["id"], entry["platforms"].get("macos")) for entry in editions]
+    sections = [(edition_id, section) for edition_id, section in sections if section is not None]
+    for key in FULL_MACOS:
+        seen: dict[str, str] = {}
+        for edition_id, section in sections:
+            folded = section[key].casefold()
+            if folded in seen:
+                errors.append(f"editions {seen[folded]} and {edition_id}: platforms.macos.{key} {section[key]!r} is not unique (case-insensitive)")
+            seen[folded] = edition_id
+    # 输入模式标识符是 `<bundle id>.<后缀>`。一个版本的 bundle id 以另一个版本的 bundle id 加点开头时，它就可能等于另一个版本的某个输入模式；设置应用的状态目录、偏好域也一样不能落进另一个版本的命名空间。
+    bundles = [(edition_id, section["input_method_bundle_id"].casefold()) for edition_id, section in sections]
+    for edition_id, bundle in bundles:
+        for other_id, other in bundles:
+            if edition_id != other_id and bundle.startswith(other + "."):
+                errors.append(f"edition {edition_id}: platforms.macos.input_method_bundle_id starts with edition {other_id}'s bundle id, so it can collide with one of that edition's input modes")
+    identifiers: dict[str, str] = {}
+    for edition_id, section in sections:
+        for key in ["input_method_bundle_id", "settings_bundle_id"]:
+            folded = section[key].casefold()
+            if folded in identifiers and identifiers[folded] != f"{edition_id}.{key}":
+                errors.append(f"edition {edition_id}: platforms.macos.{key} {section[key]!r} is also {identifiers[folded]}")
+            identifiers[folded] = f"{edition_id}.{key}"
+    services: dict[str, str] = {}
+    for edition_id, section in sections:
+        for service in [section["keychain_service"], section["keychain_service"] + ".refresh"]:
+            folded = service.casefold()
+            if folded in services:
+                errors.append(f"edition {edition_id}: keychain service {service!r} is also used by edition {services[folded]}")
+            services[folded] = edition_id
 
 
 def check_frozen(errors: list[str], editions: list[dict], frozen: dict) -> None:

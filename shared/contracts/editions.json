@@ -17,7 +17,10 @@
       "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
       "features": { "temporary_japanese": true, "neural_keyboard": true },
       "language_dictionaries": ["cantonese.db", "zhuyin.db"],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.MetasequoiaIME", "input_method_name": "水杉输入法", "settings_bundle_id": "app.msime.macos", "keychain_service": "com.metasequoia.msime.account", "cask": "msime", "dmg_prefix": "msime-macos" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     },
     {
       "id": "pinyin",
@@ -28,7 +31,10 @@
       "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
       "features": { "temporary_japanese": true, "neural_keyboard": true },
       "language_dictionaries": [],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.pinyin", "input_method_name": "水杉拼音", "settings_bundle_id": "app.msime.macos.pinyin", "keychain_service": "com.metasequoia.msime.pinyin.account", "cask": "msime-pinyin", "dmg_prefix": "msime-macos-pinyin" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     },
     {
       "id": "wubi",
@@ -39,7 +45,10 @@
       "resources": { "components": ["core", "chinese-main", "ngram"] },
       "features": { "temporary_japanese": false, "neural_keyboard": false },
       "language_dictionaries": [],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.wubi", "input_method_name": "水杉五笔", "settings_bundle_id": "app.msime.macos.wubi", "keychain_service": "com.metasequoia.msime.wubi.account", "cask": "msime-wubi", "dmg_prefix": "msime-macos-wubi" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     }
   ]
 }

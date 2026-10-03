@@ -54,11 +54,11 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"] }
+          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"] }
         },
         "default_scheme": {
           "description": "本版本的默认方案，也是偏好里的方案不可用时的回退值。必须在 input_schemes 里。",
-          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese"]
+          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan"]
         },
         "preference_defaults": {
           "description": "叠加在 Preferences::default() 之上的版本默认值，没有偏好文件时和恢复默认时都生效。用户之后仍可以修改这些偏好。",
@@ -114,7 +114,44 @@
           "additionalProperties": false,
           "required": ["macos", "windows", "linux", "android", "ios", "harmony"],
           "properties": {
-            "macos": { "type": ["object", "null"] },
+            "macos": {
+              "description": "macOS 的身份标识。所有版本的每个字段两两不同（不区分大小写），由 scripts/test-editions.py 检查；full 的值等于现有的 Info.plist.in、tauri.macos.conf.json、Homebrew cask 和 DMG 名。输入模式标识符是 `<input_method_bundle_id>.<后缀>`，不单独写在这里：模式集合由 input_schemes 决定，见 platforms/macos/scripts/edition_bundle.py。",
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["input_method_bundle_id", "input_method_name", "settings_bundle_id", "keychain_service", "cask", "dmg_prefix"],
+              "properties": {
+                "input_method_bundle_id": {
+                  "description": "InputMethodKit bundle 的 CFBundleIdentifier，也是它的 NSUserDefaults 域、os_log 子系统和 TIS 输入模式标识符的前缀；连接名是它加上 `_Connection`。不能等于另一个版本的 bundle id，也不能以另一个版本的 bundle id 加点开头，否则一个版本的输入模式会和另一个版本撞名。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.inputmethod\\.[A-Za-z][A-Za-z0-9]*$"
+                },
+                "input_method_name": {
+                  "description": "输入法 bundle 的文件名（不含 .app）和可执行文件名。Dock 和进程列表显示的就是它。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "settings_bundle_id": {
+                  "description": "设置应用（Tauri）的 bundle identifier，也是 Application Support 下状态目录的名字和设置应用的 NSUserDefaults 域。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.macos(\\.[a-z][a-z0-9]*)?$"
+                },
+                "keychain_service": {
+                  "description": "原生账号窗口存访问令牌的钥匙串服务名；刷新令牌存在它加上 `.refresh` 的服务名下。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cask": {
+                  "description": "Homebrew cask 名，也是 homebrew-tap 里 Casks/<cask>.rb 的文件名。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "dmg_prefix": {
+                  "description": "发布 DMG 的文件名前缀，完整文件名是 `<dmg_prefix>-<版本>-universal.dmg`。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                }
+              }
+            },
             "windows": { "type": ["object", "null"] },
             "linux": { "type": ["object", "null"] },
             "android": { "type": ["object", "null"] },
