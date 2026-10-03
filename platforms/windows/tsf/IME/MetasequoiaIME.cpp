@@ -967,6 +967,7 @@ void CMetasequoiaIME::_ClearAsyncKeyRequests()
     std::vector<uint64_t> deferredReplayTokens;
     {
         std::lock_guard<std::mutex> lock(_pendingCommitCandidateMutex);
+        deferredReplayTokens.reserve(_pendingAsyncKeyMessages.size());
         for (const auto &entry : _pendingAsyncKeyMessages)
         {
             if (entry.second.deferredReplayToken != 0)
