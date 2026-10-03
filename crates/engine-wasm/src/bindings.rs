@@ -110,6 +110,11 @@ impl WebEngine {
         self.host.set_model_enabled(enabled);
     }
 
+    /// 页面的退格是否真的删字；出错时停下打开时传 false，空闲退格就不再删上文。
+    pub fn set_backspace_deletes(&mut self, deletes: bool) {
+        self.host.set_backspace_deletes(deletes);
+    }
+
     /// 新回合：取消组字、清空上下文、重建会话，返回 `MsimeFrame`。
     pub fn reset(&mut self) -> JsValue {
         frame_to_js(&self.host.reset())

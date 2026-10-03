@@ -204,6 +204,32 @@ fn highlight_moves_within_and_across_pages() {
 }
 
 #[test]
+fn a_new_composition_in_the_same_batch_starts_at_the_first_seat() {
+    let mut fixture = quanpin();
+    let frame = type_text(&mut fixture.host, "ni");
+    let first = frame.page[0].text.clone();
+    let second = frame.page[1].text.clone();
+    let frame = fixture.host.keys(&[Key::HighlightNext]);
+    assert_eq!(frame.highlight, 1);
+    // 上屏后重打同一个码，和中间状态不同的退格加同一个字母，批末的列表和批首一样，高亮仍要回到首位。
+    let frame = type_text(&mut fixture.host, " ni");
+    assert_eq!(frame.out, vec![commit(&second, 1)]);
+    assert_eq!(frame.highlight, 0);
+    fixture.host.keys(&[Key::HighlightNext]);
+    let frame = fixture
+        .host
+        .keys(&[Key::Backspace { word: false }, Key::Letter(b'i')]);
+    assert_eq!(frame.highlight, 0);
+    let frame = fixture.host.keys(&[Key::Space]);
+    assert_eq!(frame.out, vec![commit(&first, 0)]);
+    // 只动了高亮的批次不换组字，高亮留在原处。
+    type_text(&mut fixture.host, "ni");
+    fixture.host.keys(&[Key::HighlightNext]);
+    let frame = fixture.host.keys(&[Key::HighlightNext, Key::HighlightPrev]);
+    assert_eq!(frame.highlight, 1);
+}
+
+#[test]
 fn an_apostrophe_separates_syllables() {
     let mut fixture = quanpin();
     let frame = type_text(&mut fixture.host, "xi'an");
@@ -448,6 +474,24 @@ fn the_context_holds_only_emitted_text() {
     assert_eq!(fixture.host.context_for_tests(), "你好1，");
     fixture.host.reset();
     assert_eq!(fixture.host.context_for_tests(), "");
+}
+
+#[test]
+fn backspace_that_deletes_nothing_on_the_page_keeps_the_context() {
+    let mut fixture = quanpin();
+    type_text(&mut fixture.host, "\"nihao ");
+    fixture.host.set_backspace_deletes(false);
+    let frame = fixture.host.keys(&[Key::Backspace { word: false }; 3]);
+    assert_eq!(frame.out, vec![Out::Back { word: false }; 3]);
+    assert_eq!(fixture.host.context_for_tests(), "“你好");
+    // 开引号还在上文里，下一个引号是关引号。
+    assert_eq!(
+        type_text(&mut fixture.host, "\"").out,
+        vec![commit("”", -1)]
+    );
+    fixture.host.set_backspace_deletes(true);
+    fixture.host.keys(&[Key::Backspace { word: false }]);
+    assert_eq!(fixture.host.context_for_tests(), "“你好");
 }
 
 #[test]

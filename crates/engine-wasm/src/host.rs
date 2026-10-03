@@ -221,8 +221,10 @@ pub struct WebHost {
     slow_streak: u8,
     /// 评测用：关掉熔断，让机器负载不影响测出来的排序。
     breaker_enabled: bool,
-    /// 只含本会话自己输出过的文字（上屏和直通的 `Type`），从不读取目标文章（D18）。
+    /// 只含本会话自己输出过的文字（上屏和直通的 `Type`），从不读取目标文章（D18）。页面拒收的字（出错时停下打开时打错的字）也留在这里：引擎不知道页面收了哪些，上文因此可能和屏幕上的字不一致，引号配对随之可能给错一边。
     context: String,
+    /// 页面的空闲退格是否真的删字（`set_backspace_deletes`）；出错时停下打开时页面不删，上文也就不能删。
+    backspace_deletes: bool,
     english: bool,
     /// 最近一次快照；None 表示引擎状态变了还没重新取。
     snapshot: Option<SessionSnapshot>,
@@ -231,6 +233,8 @@ pub struct WebHost {
     ordered: Ordered,
     /// `ordered` 是否对应当前快照。
     order_valid: bool,
+    /// 上次排序之后改变引擎状态的次数。`Runtime::refresh` 每个键都比较一次，惰性排序（D19）只比较批首和批末；中间改过不止一次时，批首批末相同也不代表组字没换过（上屏后重打同一个码，退格后补回同一个字母）。
+    engine_changes: u32,
     /// 当前高亮的座位（整个列表里的下标，不是页内下标）。
     highlighted: usize,
     /// 这次组字已经尝试过展开被截留的候选。
@@ -300,11 +304,13 @@ impl WebHost {
             slow_streak: 0,
             breaker_enabled: true,
             context: String::new(),
+            backspace_deletes: true,
             english: false,
             snapshot: None,
             composing_hint: Some(false),
             ordered: Ordered::default(),
             order_valid: false,
+            engine_changes: 0,
             highlighted: 0,
             expanded: false,
             out: Vec::new(),
@@ -343,6 +349,11 @@ impl WebHost {
             self.slow_streak = 0;
         }
         self.order_valid = false;
+    }
+
+    /// 页面的退格是否真的删字。出错时停下打开时页面的退格什么也不删，这时空闲退格只输出 `Out::Back`，不动上文；默认删。
+    pub fn set_backspace_deletes(&mut self, deletes: bool) {
+        self.backspace_deletes = deletes;
     }
 
     /// 取消组字、清空上下文，并重建 Session（标点交替状态随之归零），新回合从开引号开始
@@ -434,7 +445,9 @@ impl WebHost {
                     let result = self.session.command(Command::Backspace);
                     self.apply(result, -1);
                 } else {
-                    self.pop_context(word);
+                    if self.backspace_deletes {
+                        self.pop_context(word);
+                    }
                     self.out.push(Out::Back { word });
                 }
             }
@@ -670,6 +683,7 @@ impl WebHost {
     }
 
     fn invalidate(&mut self) {
+        self.engine_changes = self.engine_changes.saturating_add(1);
         self.snapshot = None;
         self.composing_hint = None;
         self.order_valid = false;
@@ -788,8 +802,10 @@ impl WebHost {
             })
             .collect();
         let editing_text = snapshot.editing_text.clone();
-        // `Runtime::refresh`：列表和组字都没变时高亮留在原处，否则回到首位；换了一次组字，展开也要重新来过。
-        let same_composition = editing_text == self.ordered.editing_text;
+        // `Runtime::refresh`：列表和组字都没变时高亮留在原处，否则回到首位；换了一次组字，展开也要重新来过。上次排序后引擎改过不止一次时，中间必定经过别的状态，`Runtime` 在那里已经回到首位。
+        let same_composition =
+            self.engine_changes <= 1 && editing_text == self.ordered.editing_text;
+        self.engine_changes = 0;
         let unchanged = same_composition && ordered_rows == self.ordered.rows;
         if !same_composition {
             self.expanded = false;
