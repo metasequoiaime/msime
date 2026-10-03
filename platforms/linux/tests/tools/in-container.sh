@@ -75,6 +75,14 @@ if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.
 fi
 echo "Linux clipboard stream acceptance passed"
 
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" remove $'first\nentry\r'
+if /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 1 >/dev/null; then
+  echo "Linux clipboard remove did not normalize the requested value" >&2
+  exit 1
+fi
+[[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "second" ]]
+echo "Linux clipboard normalized remove passed"
+
 python3 - "$clipboard_fixture/history.json" <<'PYTHON'
 import sys
 from pathlib import Path

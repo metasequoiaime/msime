@@ -535,6 +535,11 @@ export {
   AccountIdentityDetails,
   type AccountIdentityDetailsProps,
 } from "./account/account-identity-details";
+export { AccountInputField, type AccountInputFieldProps } from "./account/account-input-field";
+export {
+  AccountStatusMessages,
+  type AccountStatusMessagesProps,
+} from "./account/account-status-messages";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
 export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
 export {
@@ -1255,6 +1260,14 @@ export {
   type CommunityTextareaFieldProps,
 } from "./community/community-textarea-field";
 export { CommunityField, type CommunityFieldProps } from "./community/community-field";
+export {
+  CommunityActionNotice,
+  type CommunityActionNoticeProps,
+} from "./community/community-action-notice";
+export {
+  CommunityGalleryHeading,
+  type CommunityGalleryHeadingProps,
+} from "./community/community-gallery-heading";
 export {
   CommunityInputField,
   type CommunityInputFieldProps,
