@@ -1335,6 +1335,7 @@ private:
       return;
     const double scale = titlebar_.XamlRoot().RasterizationScale();
     std::vector<Windows::Graphics::RectInt32> rects;
+    rects.reserve(2);
     auto add = [&rects, scale](FrameworkElement const &element) {
       if (!element || element.ActualWidth() <= 0)
         return;
