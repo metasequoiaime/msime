@@ -2735,6 +2735,7 @@ dependencies = [
  "image",
  "libc",
  "md-5",
+ "msime-path-trust",
  "pinyin",
  "pulldown-cmark",
  "reqwest 0.12.28",
@@ -2817,6 +2818,7 @@ dependencies = [
  "lru",
  "lunar-lite",
  "memmap2",
+ "msime-path-trust",
  "rink-core",
  "rusqlite",
  "serde",
@@ -2840,6 +2842,7 @@ dependencies = [
  "msime-client-core",
  "msime-engine",
  "msime-input-runtime",
+ "msime-path-trust",
  "rubato",
  "rusqlite",
  "rustix",
@@ -2882,6 +2885,7 @@ dependencies = [
  "chinese-ime-lm",
  "msime-client-core",
  "msime-engine",
+ "msime-path-trust",
  "rusqlite",
  "rustix",
  "serde",
@@ -2915,6 +2919,13 @@ name = "msime-pack-tool"
 version = "0.1.0"
 dependencies = [
  "msime-client-core",
+ "tempfile",
+]
+
+[[package]]
+name = "msime-path-trust"
+version = "0.1.0"
+dependencies = [
  "tempfile",
 ]
 

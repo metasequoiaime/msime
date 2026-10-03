@@ -119,25 +119,13 @@ public final class CustomSkinLibrary {
 
     private static Path checkedRoot(Path preferencesDirectory) throws IOException {
         if (preferencesDirectory == null) throw new IOException("Invalid preferences directory");
-        Path root = preferencesDirectory.toAbsolutePath().normalize();
-        Path current = root.getRoot();
-        if (current == null) throw new IOException("Invalid preferences directory");
-        for (Path component : root) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current)) throw new IOException("Invalid preferences directory");
-        }
-        return root;
+        SafePaths.rejectSymlinkComponents(preferencesDirectory);
+        return preferencesDirectory.toAbsolutePath().normalize();
     }
 
     static void ensureSafeDirectory(Path directory) throws IOException {
-        Path absolute = checkedRoot(directory);
-        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("Invalid custom skin directory");
-        Files.createDirectories(absolute);
-        checkedRoot(absolute);
-        if (!Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("Invalid custom skin directory");
+        if (directory == null) throw new IOException("Invalid custom skin directory");
+        SafePaths.ensureDirectory(directory);
     }
 
     private static JSONObject entry(String id, String name, JSONObject design) {

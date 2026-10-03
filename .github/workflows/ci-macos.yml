@@ -92,7 +92,7 @@ jobs:
               # 工作区清单与工具链:Dependabot 的 cargo 分组只改这几个。crates/ 只列这条构建真正编译的:
               # CMakeLists.txt 直接编 host-macos/native,cargo build -p msime-host-api 带上它依赖的三个 crate。
               # host-windows、mcp-server 等改动重编 macOS 不会多发现什么,理由同下面 scripts/ 那段。
-              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-macos/*|crates/host-api/*|crates/path-trust/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # scripts/ 里只有这些进得了 macOS 的构建。其余七十来个是各平台自己的契约检查,由 Core CI
               # 和 verify-local.sh 跑,改它们重编一次 macOS 不会多发现任何东西 —— 而 `scripts/*` 让每一个

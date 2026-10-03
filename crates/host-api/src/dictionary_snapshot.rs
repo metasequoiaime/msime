@@ -22,7 +22,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::{c_char, c_void},
     io::{BufRead, BufReader, Write},
-    path::{Component, Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex, OnceLock,
@@ -279,40 +279,7 @@ fn inspect_snapshot_record(
 }
 
 fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => {}
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match std::fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(_) if crate::is_trusted_system_alias(&current));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err("snapshot file unavailable");
-                        }
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err("snapshot file unavailable"),
-                }
-            }
-        }
-    }
-    Ok(())
+    msime_path_trust::reject_symlinked_components(path).map_err(|_| "snapshot file unavailable")
 }
 
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.

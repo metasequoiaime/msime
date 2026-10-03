@@ -321,8 +321,8 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
         current = path.parent();
     }
     for path in ancestors.into_iter().rev() {
-        // macOS 的临时目录通过受信任的 /var 别名暴露。
-        if crate::storage::is_system_path_alias(path) {
+        // 系统自己的符号链接（macOS 的 /var、Android 的 /data/user/0）由 msime-path-trust 列出。
+        if msime_path_trust::is_trusted_system_alias(path) {
             continue;
         }
         match fs::symlink_metadata(path) {

@@ -168,26 +168,7 @@ public final class VoiceResultStore {
     }
 
     private static void rejectSymlinkComponents(Path path) throws IOException {
-        Path absolute = path.toAbsolutePath().normalize();
-        Path current = absolute.getRoot();
-        if (current == null) throw new IOException("voice result path unavailable");
-        for (Path component : absolute) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current) && !isTrustedMacSystemAlias(current))
-                throw new IOException("voice result path contains a symbolic link");
-        }
-    }
-
-    /** The host-side smoke tests run on macOS, where these two root aliases are stable. */
-    private static boolean isTrustedMacSystemAlias(Path path) {
-        if (!path.equals(Path.of("/tmp")) && !path.equals(Path.of("/var"))) return false;
-        try {
-            Path target = path.getParent().resolve(Files.readSymbolicLink(path)).normalize();
-            return (path.equals(Path.of("/tmp")) && target.equals(Path.of("/private/tmp")))
-                || (path.equals(Path.of("/var")) && target.equals(Path.of("/private/var")));
-        } catch (IOException | SecurityException error) {
-            return false;
-        }
+        SafePaths.rejectSymlinkComponents(path);
     }
 
     private static Entry readFile(Path result, long nowMillis) throws Failure, IOException {

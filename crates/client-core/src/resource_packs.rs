@@ -112,11 +112,11 @@ pub fn root(state_root: &Path) -> PathBuf {
     state_root.join(DIRECTORY)
 }
 
-/// 资源包的每一层父目录都必须是真实目录。只检查最后一层会让 `resource-packs` 自身的符号链接把读取导向 state_root 外部；macOS 的 `/var` 和 `/tmp` 可能只是受信任的别名。
+/// 资源包的每一层父目录都必须是真实目录。只检查最后一层会让 `resource-packs` 自身的符号链接把读取导向 state_root 外部；系统自己的符号链接（macOS 的 `/var`、`/tmp`，Android 的 `/data/user/0`）由 `msime-path-trust` 列出。
 fn resource_root_is_safe(state_root: &Path) -> bool {
     let mut current = Some(root(state_root));
     while let Some(path) = current {
-        if crate::storage::is_system_path_alias(&path) {
+        if msime_path_trust::is_trusted_system_alias(&path) {
             break;
         }
         match fs::symlink_metadata(&path) {

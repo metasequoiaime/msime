@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+msime-path-trust = { path = "../path-trust" }
 chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "7e02487323ee5047a07a36b6e20d766d7c2f381d" }
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
 exmex = "0.21"

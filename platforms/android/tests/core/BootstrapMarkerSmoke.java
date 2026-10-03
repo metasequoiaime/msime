@@ -110,6 +110,34 @@ public final class BootstrapMarkerSmoke {
             Files.deleteIfExists(boundaryOutside.resolve("resources"));
             Files.deleteIfExists(boundaryOutside);
         }
+        // The system's own links (Android's /data/user/0 -> /data/data inside the app's mount namespace, macOS's /tmp and /var) are passed only with their exact target; a device refusing them never prepares its dictionary.
+        check(SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/data")));
+        check(SafePaths.trustedSystemAliasTarget(Path.of("/var"), Path.of("private/var")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0"), Path.of("/data/local/tmp")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/10"), Path.of("/data/data")));
+        check(!SafePaths.trustedSystemAliasTarget(Path.of("/data/user/0/app"), Path.of("/data/data/app")));
+        Path aliasRoot = Files.createTempDirectory("bootstrap-alias-root").toRealPath();
+        Path aliasOutside = Files.createTempDirectory("bootstrap-alias-outside");
+        try {
+            Path planted = aliasRoot.resolve("files");
+            Files.createSymbolicLink(planted, aliasOutside);
+            boolean rejected = false;
+            try {
+                SafePaths.ensureDirectory(planted.resolve("bootstrap"));
+            } catch (java.io.IOException expected) {
+                rejected = true;
+            }
+            check(rejected);
+            check(!Files.exists(aliasOutside.resolve("bootstrap")));
+            SafePaths.ensureDirectory(aliasRoot.resolve("real/bootstrap"));
+            check(Files.isDirectory(aliasRoot.resolve("real/bootstrap")));
+        } finally {
+            Files.deleteIfExists(aliasRoot.resolve("real/bootstrap"));
+            Files.deleteIfExists(aliasRoot.resolve("real"));
+            Files.deleteIfExists(aliasRoot.resolve("files"));
+            Files.deleteIfExists(aliasRoot);
+            Files.deleteIfExists(aliasOutside);
+        }
         Path copyRoot = Files.createTempDirectory("bootstrap-copy-root");
         Path copyOutside = Files.createTempDirectory("bootstrap-copy-outside");
         try {

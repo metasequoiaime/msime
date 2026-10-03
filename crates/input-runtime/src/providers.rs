@@ -72,26 +72,6 @@ fn valid_ai_provider_endpoint(provider: &str, endpoint: &str) -> bool {
         && msime_client_core::is_bounded_text(endpoint, 2048)
 }
 
-#[cfg(target_os = "macos")]
-pub(crate) fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
-    let expected = match path {
-        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
-        path if path == Path::new("/var") => Path::new("/private/var"),
-        _ => return false,
-    };
-    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
-    std::fs::canonicalize(parent.join(target))
-        .ok()
-        .is_some_and(|resolved| resolved == expected)
-}
-
-#[cfg(target_os = "macos")]
-fn is_trusted_system_alias(path: &Path) -> bool {
-    std::fs::read_link(path)
-        .ok()
-        .is_some_and(|target| trusted_system_alias_target(path, &target))
-}
-
 #[cfg(unix)]
 fn provider_path_has_no_symlink_ancestors(path: &Path) -> bool {
     for ancestor in path.ancestors() {
@@ -100,8 +80,7 @@ fn provider_path_has_no_symlink_ancestors(path: &Path) -> bool {
         }
         match std::fs::symlink_metadata(ancestor) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                #[cfg(target_os = "macos")]
-                if is_trusted_system_alias(ancestor) {
+                if msime_path_trust::is_trusted_system_alias(ancestor) {
                     continue;
                 }
                 return false;

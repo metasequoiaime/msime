@@ -7,43 +7,11 @@ use msime_client_core::translation::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 fn reject_symlinked_path(path: &Path) -> Result<(), &'static str> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => {}
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(_) if crate::is_trusted_system_alias(&current));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err("learned translation storage unavailable");
-                        }
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return Err("learned translation storage unavailable"),
-                }
-            }
-        }
-    }
-    Ok(())
+    msime_path_trust::reject_symlinked_components(path)
+        .map_err(|_| "learned translation storage unavailable")
 }
 
 fn prepare_storage_directory(directory: &Path) -> Result<(), &'static str> {

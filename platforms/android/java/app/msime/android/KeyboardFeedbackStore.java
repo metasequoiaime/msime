@@ -87,28 +87,9 @@ public final class KeyboardFeedbackStore {
         }
     }
 
-    private static void rejectSymlinkComponents(Path path) throws IOException {
-        Path absolute = path.toAbsolutePath().normalize();
-        Path current = absolute.getRoot();
-        if (current == null) throw new IOException("feedback path unavailable");
-        for (Path component : absolute) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new IOException("feedback path contains a symbolic link");
-        }
-    }
-
     static void ensureSafeDirectory(Path directory) throws IOException {
         if (directory == null) throw new IOException("feedback directory unavailable");
-        rejectSymlinkComponents(directory);
-        if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("feedback directory unavailable");
-        Files.createDirectories(directory);
-        rejectSymlinkComponents(directory);
-        if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
-                || Files.isSymbolicLink(directory))
-            throw new IOException("feedback directory unavailable");
+        SafePaths.ensureDirectory(directory);
     }
 
     static Settings decode(String text) throws JSONException {

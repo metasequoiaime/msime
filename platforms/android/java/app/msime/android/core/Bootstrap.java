@@ -94,25 +94,7 @@ public final class Bootstrap {
     }
 
     static void ensureSafeDirectory(java.nio.file.Path directory) throws java.io.IOException {
-        java.nio.file.Path absolute = directory.toAbsolutePath().normalize();
-        java.nio.file.Path current = absolute.getRoot();
-        if (current == null) throw new java.io.IOException("bootstrap directory unavailable");
-        for (java.nio.file.Path component : absolute) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new java.io.IOException("bootstrap path contains a symbolic link");
-        }
-        if (Files.exists(absolute, LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
-            throw new java.io.IOException("bootstrap directory unavailable");
-        Files.createDirectories(absolute);
-        for (java.nio.file.Path component : absolute) {
-            current = current.getRoot().resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new java.io.IOException("bootstrap path contains a symbolic link");
-        }
-        if (!Files.isDirectory(absolute, LinkOption.NOFOLLOW_LINKS))
-            throw new java.io.IOException("bootstrap directory unavailable");
+        SafePaths.ensureDirectory(directory);
     }
 
     /**

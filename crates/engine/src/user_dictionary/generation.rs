@@ -234,7 +234,6 @@ fn reject_redirected_directory(path: &Path) -> std::io::Result<()> {
     for ancestor in path.ancestors() {
         match fs::symlink_metadata(ancestor) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                #[cfg(target_os = "macos")]
                 if crate::paths::is_trusted_system_alias(ancestor) {
                     continue;
                 }

@@ -1,91 +1,10 @@
 use std::fs;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
-pub(crate) fn is_system_path_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        fs::read_link(path)
-            .ok()
-            .is_some_and(|target| trusted_system_alias_target(path, &target))
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
-
-/// macOS exposes `/tmp` and `/var` as symlinks into `/private`. Trust only the
-/// exact system targets; the path names alone are not an ownership guarantee.
-fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
-    let expected = match path {
-        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
-        path if path == Path::new("/var") => Path::new("/private/var"),
-        _ => return false,
-    };
-    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
-    normalize_lexical(&parent.join(target)) == expected
-}
-
-fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if normalized.file_name().is_some() {
-                    normalized.pop();
-                }
-            }
-            _ => normalized.push(component),
-        }
-    }
-    normalized
-}
-
-/// Reject an existing symbolic link before a storage operation follows it.
+/// Reject an existing symbolic link before a storage operation follows it. The system links every app's storage passes through are the ones `msime-path-trust` names.
 pub(crate) fn reject_symlink(path: &Path) -> io::Result<()> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => continue,
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(_) if is_system_path_alias(&current));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                "storage path is a symbolic link",
-                            ));
-                        }
-                        // The first component under a system alias such as macOS /tmp or /var
-                        // may itself be a symlink. Once a real component exists below it, stop
-                        // looking above that boundary; descendants are still checked.
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-    }
-    Ok(())
+    msime_path_trust::reject_symlinked_components(path)
 }
 
 /// Create a directory and report whether the path itself is a real directory.
@@ -102,7 +21,7 @@ pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
     loop {
         match fs::symlink_metadata(current) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                if is_system_path_alias(current) {
+                if msime_path_trust::is_trusted_system_alias(current) {
                     break;
                 }
                 return Err(io::Error::new(
@@ -161,38 +80,5 @@ mod tests {
         assert!(create_directory_and_check(&path).unwrap());
         assert!(std::fs::symlink_metadata(&path).unwrap().is_dir());
         std::fs::remove_dir_all(path).unwrap();
-    }
-
-    #[test]
-    fn system_path_aliases_are_trusted_only_on_macos() {
-        assert_eq!(
-            is_system_path_alias(Path::new("/tmp")),
-            cfg!(target_os = "macos")
-        );
-        assert_eq!(
-            is_system_path_alias(Path::new("/var")),
-            cfg!(target_os = "macos")
-        );
-        assert!(!is_system_path_alias(Path::new("/tmp/work")));
-    }
-
-    #[test]
-    fn macos_aliases_require_the_private_system_target() {
-        assert!(trusted_system_alias_target(
-            Path::new("/tmp"),
-            Path::new("private/tmp")
-        ));
-        assert!(trusted_system_alias_target(
-            Path::new("/var"),
-            Path::new("/private/var")
-        ));
-        assert!(!trusted_system_alias_target(
-            Path::new("/tmp"),
-            Path::new("/Users/synthetic/outside")
-        ));
-        assert!(!trusted_system_alias_target(
-            Path::new("/var"),
-            Path::new("private/tmp")
-        ));
     }
 }

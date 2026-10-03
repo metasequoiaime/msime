@@ -58,29 +58,8 @@ fn join(root: &Path, name: &str) -> PathBuf {
     root.join(name)
 }
 
-pub(crate) fn is_trusted_system_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let expected = match path {
-            path if path == Path::new("/tmp") => Path::new("/private/tmp"),
-            path if path == Path::new("/var") => Path::new("/private/var"),
-            _ => return false,
-        };
-        let target = match std::fs::read_link(path) {
-            Ok(target) => target,
-            Err(_) => return false,
-        };
-        let parent = path.parent().unwrap_or_else(|| Path::new("/"));
-        return std::fs::canonicalize(parent.join(target))
-            .ok()
-            .is_some_and(|resolved| resolved == expected);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
-}
+/// The system links a storage path may pass through are listed once, in `msime-path-trust`.
+pub(crate) use msime_path_trust::is_trusted_system_alias;
 
 /// `join` for a name that came from outside the crate: a `..` component is refused rather than allowed to escape the root (`runtime_paths.cpp:14-23`).
 #[cfg_attr(
@@ -119,12 +98,5 @@ mod tests {
         assert_eq!(paths.user("/abs"), PathBuf::new());
         assert!(join_checked(Path::new("/r"), "helpcodes/../x").is_err());
         assert!(paths.validate().is_err());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_aliases_require_the_private_system_target() {
-        assert!(is_trusted_system_alias(Path::new("/tmp")));
-        assert!(is_trusted_system_alias(Path::new("/var")));
     }
 }

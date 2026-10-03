@@ -48,7 +48,7 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 // Only the Unix socket streaming entry point takes raw callback context.
 #[cfg(unix)]
@@ -84,33 +84,6 @@ pub(crate) fn valid_uuid_string(value: &str) -> bool {
                 byte.is_ascii_hexdigit()
             }
         })
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
-    let expected = match path {
-        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
-        path if path == Path::new("/var") => Path::new("/private/var"),
-        _ => return false,
-    };
-    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
-    std::fs::canonicalize(parent.join(target))
-        .ok()
-        .is_some_and(|resolved| resolved == expected)
-}
-
-pub(crate) fn is_trusted_system_alias(path: &Path) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        return std::fs::read_link(path)
-            .ok()
-            .is_some_and(|target| trusted_system_alias_target(path, &target));
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = path;
-        false
-    }
 }
 
 mod ffi;
@@ -1056,43 +1029,13 @@ fn without_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
 /// Failing to write the marker is not failing to start. The next launch hashes again, which is the
 /// behaviour this function replaces, so the cost of that miss is the cost of doing nothing here.
 fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
-    let mut current = PathBuf::new();
-    let mut saw_prefix_alias = false;
-    let mut saw_real_component = false;
-    let components: Vec<_> = path.components().collect();
-    for (index, component) in components.iter().enumerate() {
-        match component {
-            Component::Prefix(_) | Component::RootDir => current.push(component),
-            Component::CurDir => {}
-            Component::ParentDir => current.push(component),
-            Component::Normal(_) => {
-                current.push(component);
-                match std::fs::symlink_metadata(&current) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => {
-                        let system_alias = path.is_absolute()
-                            && !saw_real_component
-                            && !saw_prefix_alias
-                            && matches!(component, Component::Normal(_) if is_trusted_system_alias(&current));
-                        if index + 1 == components.len()
-                            || saw_real_component
-                            || saw_prefix_alias
-                            || !system_alias
-                        {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidInput,
-                                "state root contains a symbolic link",
-                            ));
-                        }
-                        saw_prefix_alias = true;
-                    }
-                    Ok(_) => saw_real_component = true,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error),
-                }
-            }
+    msime_path_trust::reject_symlinked_components(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::InvalidInput {
+            std::io::Error::new(error.kind(), "state root contains a symbolic link")
+        } else {
+            error
         }
-    }
-    Ok(())
+    })
 }
 
 /// 当前平台发布包不内置、改为按需下载的资源文件：macOS 是日文词典与它的 Mozc 许可说明，其余平台照旧全部内置。

@@ -80,7 +80,7 @@ jobs:
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "共享输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:工作区清单与工具链,以及 build-native.sh 的 cargo build -p msime-host-api
               # 和它依赖的三个 crate(client-core 的 example 也由本工作流运行)。
-              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-api/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
+              Cargo.toml|Cargo.lock|rust-toolchain.toml|.cargo/*|crates/host-api/*|crates/path-trust/*|crates/client-core/*|crates/engine/*|crates/input-runtime/*)
                 echo "build=true" >> "$GITHUB_OUTPUT"; echo "Rust 输入改动: $path"; exit 0 ;;
               # 同 ci-macos.yml:scripts/ 下只有真正进得了这条构建的才触发。run_ui_tests.sh 在 platforms/ios/scripts/ 下,已由 platforms/ios/* 覆盖。
               # fetch_voice_runtime.py 与它读的 lock 决定 MSIMEApp 嵌入的 sherpa-onnx 运行时。

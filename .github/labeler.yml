@@ -42,6 +42,7 @@ area/shared:
           - crates/host-api/**
           - crates/input-runtime/**
           - crates/mcp-server/**
+          - crates/path-trust/**
           - crates/tauri-mobile-platform/**
           - shared/**
           - platforms/common/**

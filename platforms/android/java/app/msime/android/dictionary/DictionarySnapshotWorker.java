@@ -57,26 +57,7 @@ public final class DictionarySnapshotWorker {
 
     static void ensureSafeDirectory(Path directory) throws java.io.IOException {
         if (directory == null) throw new java.io.IOException("snapshot staging directory unavailable");
-        Path absolute = directory.toAbsolutePath().normalize();
-        Path current = absolute.getRoot();
-        if (current == null) throw new java.io.IOException("snapshot staging directory unavailable");
-        for (Path component : absolute) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new java.io.IOException("snapshot staging path contains a symbolic link");
-        }
-        if (Files.exists(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                && !Files.isDirectory(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS))
-            throw new java.io.IOException("snapshot staging directory unavailable");
-        Files.createDirectories(absolute);
-        current = absolute.getRoot();
-        for (Path component : absolute) {
-            current = current.resolve(component);
-            if (Files.isSymbolicLink(current))
-                throw new java.io.IOException("snapshot staging path contains a symbolic link");
-        }
-        if (!Files.isDirectory(absolute, java.nio.file.LinkOption.NOFOLLOW_LINKS))
-            throw new java.io.IOException("snapshot staging directory unavailable");
+        SafePaths.ensureDirectory(directory);
     }
 
     private static String version(String options) throws Exception {

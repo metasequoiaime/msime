@@ -162,20 +162,11 @@ public final class Telemetry {
     private static boolean prepareCrashDirectory(File directory) {
         try {
             Path path = directory.toPath().toAbsolutePath().normalize();
-            Path current = path.getRoot();
-            if (current == null) return false;
-            for (Path component : path) {
-                current = current.resolve(component);
-                if (Files.isSymbolicLink(current)) return false;
-            }
+            app.msime.android.SafePaths.rejectSymlinkComponents(path);
             if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !directory.mkdirs()) return false;
-            current = path.getRoot();
-            for (Path component : path) {
-                current = current.resolve(component);
-                if (Files.isSymbolicLink(current)) return false;
-            }
+            app.msime.android.SafePaths.rejectSymlinkComponents(path);
             return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS);
-        } catch (RuntimeException error) {
+        } catch (java.io.IOException | RuntimeException error) {
             return false;
         }
     }

@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+msime-path-trust = { path = "../path-trust" }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
