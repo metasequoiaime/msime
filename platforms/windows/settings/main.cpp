@@ -3016,6 +3016,7 @@ private:
       }, true);
     });
     std::vector<Check> checks;
+    checks.reserve(all_rules.size());
     for (const auto *rule : all_rules) {
       const std::wstring id(rule);
       const auto dash = id.find(L'-');
