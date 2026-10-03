@@ -49,6 +49,7 @@ floating_toolbar_settings(const nlohmann::json &preferences) {
 // The buttons the toolbar draws, in order: 0 language, 1 fullwidth, 2 punctuation, 3 character set, 4 emoji, 5 screen keyboard, 6 settings. `items` is ordered as character_set, punctuation, fullwidth, emoji, screen_keyboard, settings, the preference order. Handwriting, voice and about are not offered here - the shipped toolbar has no voice button at all, and all three stay one click away in the tray menu.
 inline std::vector<int> floating_toolbar_slots(const std::array<bool, 6> &items, bool language) {
   std::vector<int> result;
+  result.reserve(items.size() + (language ? 1u : 0u));
   if (language) result.push_back(0);
   if (items[2]) result.push_back(1);
   if (items[1]) result.push_back(2);

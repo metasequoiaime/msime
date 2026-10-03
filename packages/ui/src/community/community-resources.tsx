@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { randomUuid } from "../core/random-id";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import { CommunityErrorAlert } from "./community-error-alert";
 import {
   appendUniqueById,
   communityRating,
@@ -12,9 +13,8 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunityCardAuthor } from "./community-card-author";
-import { CommunityErrorAlert } from "./community-error-alert";
 import { CommunitySearchForm } from "./community-search-form";
-import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
 import {
   CommunityReportSection,
@@ -26,11 +26,12 @@ import {
   CommunityResourceScopeButtons,
   type CommunityResourceScope,
 } from "./community-resource-scope-buttons";
-import { CommunityRightsAgreement } from "./community-rights-agreement";
 import { CommunityInputField } from "./community-input-field";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
-import { CommunityBackButton, CommunityLoadMoreButton } from "./community-gallery-controls";
+import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
+import { CommunityBackButton } from "./community-gallery-controls";
+import { CommunityLoadMoreButton } from "./community-gallery-controls";
 import { ActionButton } from "../core/action-button";
 import { CommunityModerationSection } from "./community-moderation-section";
 
@@ -236,129 +237,112 @@ function ResourceEditor({
     });
   };
   return (
-    <div className={style.backdrop}>
-      <form
-        className={style.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label={existing ? "更新社区作品" : `发布${resourceKindTitle(kind)}`}
-        onSubmit={(event) => void submit(event)}
-      >
-        <CommunityDialogHeader
-          title={existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
-          titleClassName={style.dialogTitle}
-          busy={busy}
-          onClose={close}
-        />
-        {error && <CommunityErrorAlert message={error} />}
-        <CommunityInputField
-          label="作品名称"
-          ariaLabel="社区作品名称"
-          maxLength={32}
-          value={name}
-          disabled={busy}
-          onChange={setName}
-        />
+    <CommunityDialogFrame
+      title={existing ? "更新作品" : `发布${resourceKindTitle(kind)}`}
+      titleClassName={style.dialogTitle}
+      ariaLabel={existing ? "更新社区作品" : `发布${resourceKindTitle(kind)}`}
+      busy={busy}
+      onClose={close}
+      error={error}
+      onSubmit={(event) => void submit(event)}
+    >
+      <CommunityPublicationMetadataFields
+        name={name}
+        description={description}
+        agreed={agreed}
+        busy={busy}
+        nameLabel="作品名称"
+        nameAriaLabel="社区作品名称"
+        descriptionLabel="作品说明"
+        descriptionAriaLabel="社区作品说明"
+        descriptionRows={3}
+        showAgreement={!existing}
+        agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
+        onNameChange={setName}
+        onDescriptionChange={setDescription}
+        onAgreedChange={setAgreed}
+      />
+      {kind === "reply" ? (
         <CommunityTextareaField
-          label="作品说明"
-          ariaLabel="社区作品说明"
-          maxLength={280}
-          rows={3}
-          value={description}
+          label="回复提示词"
+          ariaLabel="社区回复提示词"
+          maxLength={2000}
+          rows={8}
+          value={prompt}
           disabled={busy}
-          onChange={setDescription}
+          onChange={setPrompt}
         />
-        {kind === "reply" ? (
-          <CommunityTextareaField
-            label="回复提示词"
-            ariaLabel="社区回复提示词"
-            maxLength={2000}
-            rows={8}
-            value={prompt}
-            disabled={busy}
-            onChange={setPrompt}
-          />
-        ) : (
-          <>
-            <div className={style.entryForm}>
-              <CommunitySelectField
-                label="类型"
-                ariaLabel="社区词条类型"
-                value={entryKind}
-                disabled={busy}
-                onChange={(value) => setEntryKind(value as CommunitySharedWord["kind"])}
-              >
-                <option value="pinyin">拼音</option>
-                <option value="wubi">五笔</option>
-                <option value="quick">快捷短语</option>
-                <option value="english">英文</option>
-              </CommunitySelectField>
-              <CommunityInputField
-                label="编码"
-                ariaLabel="社区词条编码"
-                value={code}
-                disabled={busy}
-                onChange={setCode}
-              />
-              <CommunityInputField
-                label="词语"
-                ariaLabel="社区词条文字"
-                value={word}
-                disabled={busy}
-                onChange={setWord}
-              />
-              <CommunityInputField
-                label="权重"
-                ariaLabel="社区词条权重"
-                type="number"
-                value={weight}
-                disabled={busy}
-                onChange={setWeight}
-              />
-              <ActionButton
-                action={addEntry}
-                className="secondary"
-                disabled={busy}
-                label="添加词条"
-              />
-            </div>
-            <div className={style.entryList} aria-label={`待发布词条 ${entries.length}/128`}>
-              {entries.map((item, index) => (
-                <div key={`${item.kind}-${item.code}-${item.word}-${index}`}>
-                  <span>
-                    {item.word} · <code>{item.code}</code> · {item.weight}
-                  </span>
-                  <ActionButton
-                    action={() => setEntries(entries.filter((_, current) => current !== index))}
-                    className="secondary"
-                    disabled={busy}
-                    label="移除"
-                  />
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-        {!existing && (
-          <CommunityRightsAgreement
-            agreementText="我拥有发布所用内容的权利，并同意其他用户查看和使用"
-            ariaLabel="确认拥有发布内容权利"
-            checked={agreed}
-            disabled={busy}
-            onChange={setAgreed}
-          />
-        )}
-        <p className={style.warning}>
-          发布内容会公开展示。请勿包含 API
-          Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
-        </p>
-        <CommunityDialogActions busy={busy} onClose={close}>
-          <button type="submit" className="primary" disabled={busy}>
-            {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}
-          </button>
-        </CommunityDialogActions>
-      </form>
-    </div>
+      ) : (
+        <>
+          <div className={style.entryForm}>
+            <CommunitySelectField
+              label="类型"
+              ariaLabel="社区词条类型"
+              value={entryKind}
+              disabled={busy}
+              onChange={(value) => setEntryKind(value as CommunitySharedWord["kind"])}
+            >
+              <option value="pinyin">拼音</option>
+              <option value="wubi">五笔</option>
+              <option value="quick">快捷短语</option>
+              <option value="english">英文</option>
+            </CommunitySelectField>
+            <CommunityInputField
+              label="编码"
+              ariaLabel="社区词条编码"
+              value={code}
+              disabled={busy}
+              onChange={setCode}
+            />
+            <CommunityInputField
+              label="词语"
+              ariaLabel="社区词条文字"
+              value={word}
+              disabled={busy}
+              onChange={setWord}
+            />
+            <CommunityInputField
+              label="权重"
+              ariaLabel="社区词条权重"
+              type="number"
+              value={weight}
+              disabled={busy}
+              onChange={setWeight}
+            />
+            <ActionButton
+              action={addEntry}
+              className="secondary"
+              disabled={busy}
+              label="添加词条"
+            />
+          </div>
+          <div className={style.entryList} aria-label={`待发布词条 ${entries.length}/128`}>
+            {entries.map((item, index) => (
+              <div key={`${item.kind}-${item.code}-${item.word}-${index}`}>
+                <span>
+                  {item.word} · <code>{item.code}</code> · {item.weight}
+                </span>
+                <ActionButton
+                  action={() => setEntries(entries.filter((_, current) => current !== index))}
+                  className="secondary"
+                  disabled={busy}
+                  label="移除"
+                />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <p className={style.warning}>
+        发布内容会公开展示。请勿包含 API
+        Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
+      </p>
+      <CommunityDialogActions busy={busy} onClose={close}>
+        <button type="submit" className="primary" disabled={busy}>
+          {busy ? "正在发布…" : existing ? "发布新版本" : "公开发布"}
+        </button>
+      </CommunityDialogActions>
+    </CommunityDialogFrame>
   );
 }
 

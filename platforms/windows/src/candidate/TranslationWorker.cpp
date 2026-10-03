@@ -379,8 +379,10 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
 
     // `/fy` (command mode): one English sentence for the service the user selected, into the query's own target language, whatever the gloss switches say (command_translation_item in CandidateTranslationPolicy.h). The selected service alone is asked, in the same precedence as below, with no packaged gloss and no gloss cache, and its answer goes back through apply_translations, which makes it the command's first row.
     if (query.value("sentence", false)) {
+      const auto &candidates = query.at("candidates");
       std::vector<std::string> texts;
-      for (const auto &candidate : query.at("candidates"))
+      texts.reserve(candidates.size());
+      for (const auto &candidate : candidates)
         texts.push_back(candidate.at("text").get<std::string>());
       const auto command = msime::windows::command_translation_item(
           true, texts, query.at("target_language").get<std::string>());
@@ -522,15 +524,23 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       const auto entries = [](const nlohmann::json &values, auto &into) {
         if (!values.is_array())
           return;
+        into.reserve(values.size());
         for (const auto &entry : values)
           if (entry.is_object())
             into.emplace_back(entry.value("text", std::string{}),
                               entry.value("translation", std::string{}));
       };
-      if (online)
-        entries(nlohmann::json::parse(online->translations), answered);
-      if (offline)
+      if (online) {
+        const auto parsed = nlohmann::json::parse(online->translations);
+        if (parsed.is_array())
+          answered.reserve(parsed.size());
+        entries(parsed, answered);
+      }
+      if (offline) {
+        if (offline->is_array())
+          dictionary.reserve(offline->size());
         entries(*offline, dictionary);
+      }
       msime::windows::fill_offline_glosses(answered, dictionary);
       auto merged = nlohmann::json::array();
       for (const auto &[text, translation] : answered)
@@ -578,7 +588,10 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
     // can be read and tested without a provider, a page or a session.
     std::vector<std::pair<std::string, std::string>> answered;
     try {
-      for (const auto &entry : nlohmann::json::parse(translations))
+      const auto parsed = nlohmann::json::parse(translations);
+      if (parsed.is_array())
+        answered.reserve(parsed.size());
+      for (const auto &entry : parsed)
         if (entry.is_object())
           answered.emplace_back(entry.value("text", std::string{}),
                                 entry.value("translation", std::string{}));
@@ -697,6 +710,7 @@ TranslationWorker::translate(const FocusLease &lease, const std::string &query_b
       if (!tencent.is_object() || !tencent.value("enabled", false))
         return std::nullopt;
       std::unordered_map<std::string, std::vector<nlohmann::json>> groups;
+      groups.reserve(pending.size());
       for (const auto &item : pending)
         groups[item.at("source_language").get<std::string>() + "\n" +
                item.at("target_language").get<std::string>()]

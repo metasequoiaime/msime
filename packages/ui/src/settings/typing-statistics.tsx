@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConfirm } from "../core/confirm";
 import {
   keyboardHeatmapModel,
@@ -88,6 +88,36 @@ const heatCell = "block size-[14px] box-border rounded-[3px] border-0 p-0";
 const heatWeek = "grid grid-rows-[repeat(7,14px)] gap-[3px]";
 const bar = "block w-full min-h-0.5 rounded-t-[3px] rounded-b-[1px]";
 const axis = "mt-[7px] flex justify-between text-xs text-muted";
+
+/** Shared selection semantics for the statistics charts; each chart supplies its own face and contents. */
+function StatisticsChartButton({
+  className,
+  title,
+  ariaLabel,
+  selected,
+  onClick,
+  children,
+}: {
+  className: string;
+  title: string;
+  ariaLabel: string;
+  selected: boolean;
+  onClick: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      title={title}
+      aria-label={ariaLabel}
+      aria-pressed={selected}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
 
 // The segmented control behind the content tabs. The column count is a parameter because the tab row silently kept four columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width. Each count is spelled out so Tailwind sees the class.
 const segmentedColumns: Record<number, string> = {
@@ -551,13 +581,12 @@ function StatisticsHeatmap({
                   const level =
                     day.count === 0 ? 0 : Math.max(1, Math.ceil((day.count / maximum) * 4));
                   return (
-                    <button
-                      type="button"
+                    <StatisticsChartButton
                       className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
                       title={`${day.label}：${day.count > 0 ? `${day.count.toLocaleString("zh-CN")} 字符` : "无记录"}`}
-                      aria-label={`热力图：${day.label}，${day.count} 字符`}
-                      aria-pressed={selectedDay === day.key}
+                      ariaLabel={`热力图：${day.label}，${day.count} 字符`}
+                      selected={selectedDay === day.key}
                       onClick={() => onSelect(day.key)}
                     />
                   );
@@ -1754,13 +1783,12 @@ export function TypingStatisticsPage({
                 // already holds it, so the state answers directly.
                 const dimmed = selectedDay !== null && !chosen;
                 return (
-                  <button
-                    type="button"
+                  <StatisticsChartButton
                     className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 border-0 bg-transparent p-0 text-[10px] text-muted"
                     key={day.key}
                     title={`${day.label}：${count} 字符`}
-                    aria-label={`${day.label}，${count} 字符`}
-                    aria-pressed={chosen}
+                    ariaLabel={`${day.label}，${count} 字符`}
+                    selected={chosen}
                     onClick={() =>
                       setSelectedDay((current) => (current === day.key ? null : day.key))
                     }
@@ -1770,7 +1798,7 @@ export function TypingStatisticsPage({
                       className={`${bar} ${chosen ? "bg-[#e59b43]" : "bg-accent"} ${dimmed ? "opacity-40" : chosen ? "opacity-100" : "opacity-85"}`}
                       style={{ height: `${Math.max(2, (count / maximum) * 100)}%` }}
                     />
-                  </button>
+                  </StatisticsChartButton>
                 );
               })}
               {trendAverage > 0 && <ReferenceLine bottom={(trendAverage / maximum) * 100} />}

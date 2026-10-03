@@ -322,7 +322,7 @@ fn check_root(root: &Path) -> Result<(), LocalModelError> {
     }
     for path in ancestors.into_iter().rev() {
         // macOS 的临时目录通过受信任的 /var 别名暴露。
-        if path == Path::new("/var") || path == Path::new("/tmp") {
+        if crate::storage::is_system_path_alias(path) {
             continue;
         }
         match fs::symlink_metadata(path) {

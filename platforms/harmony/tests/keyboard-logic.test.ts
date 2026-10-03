@@ -7072,6 +7072,20 @@ group("a clipboard history document is not trusted because we wrote it", () => {
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
+  let oversizedCleared = false;
+  const oversizedStore: AccountSessionStore = {
+    load: () => "x".repeat(64 * 1024 + 1),
+    save: () => {},
+    clear: () => {
+      oversizedCleared = true;
+    },
+  };
+  new AccountCloudBridge(
+    { request: async () => ({ status: 200, body: "{}" }) },
+    oversizedStore,
+  );
+  check(oversizedCleared, "an oversized saved session is cleared before JSON parsing");
+
   let stored: string | null = null;
   const store: AccountSessionStore = {
     load: () => stored,
@@ -11767,6 +11781,14 @@ group("LocalAsrPolicy", () => {
   check(
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
+  );
+  check(
+    LocalAsrPolicy.modelDirectory("/data/files/../outside") === "",
+    "model paths cannot escape through parent components",
+  );
+  check(
+    LocalAsrPolicy.modelDirectory("/data/files/./model") === "",
+    "model paths cannot hide dot components",
   );
   check(LocalAsrPolicy.modelDirectory("/data/\u0000m") === "", "control characters are refused");
   const transducer = LocalAsrPolicy.plan(

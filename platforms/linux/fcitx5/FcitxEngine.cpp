@@ -2815,12 +2815,16 @@ public:
   // The `count` characters in front of the caret, oldest first. std::nullopt is
   // "this host publishes nothing usable there", which is not the same answer as
   // an empty vector: that one means the document starts at the caret.
-  std::optional<std::vector<std::string>> precedingCharacters(size_t count) {
+  std::optional<std::vector<std::string>> precedingCharacters(
+      size_t count, std::optional<size_t> validatedLength = std::nullopt) {
     const auto &surrounding = ic_.surroundingText();
     if (privateInput() || !ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) ||
         !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
       return std::nullopt;
     const auto &text = surrounding.text();
+    if (validatedLength)
+      return preceding_characters_with_validated_length<std::vector<std::string>>(
+          text, surrounding.cursor(), count, *validatedLength);
     return preceding_characters(text, surrounding.cursor(), count);
   }
   bool composingOrCandidates() const {
@@ -2891,15 +2895,19 @@ public:
                    msime::linux_host::PunctuationPairMode pairMode =
                        msime::linux_host::PunctuationPairMode::Unpaired) {
     uint32_t preceding = 0;
+    std::optional<size_t> surroundingLength;
     const auto &surrounding = ic_.surroundingText();
     if (!privateInput() && ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) &&
         surrounding.isValid() && surrounding.cursor() > 0 &&
         surrounding.cursor() == surrounding.anchor()) {
       const auto &text = surrounding.text();
       const auto length = fcitx::utf8::lengthValidated(text);
-      if (length != fcitx::utf8::INVALID_LENGTH && surrounding.cursor() <= length)
-        preceding = fcitx::utf8::getChar(
-            fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
+      if (length != fcitx::utf8::INVALID_LENGTH) {
+        surroundingLength = length;
+        if (surrounding.cursor() <= length)
+          preceding = fcitx::utf8::getChar(
+              fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
+      }
     }
     // Engine is about to commit the Chinese mark for this key. Record what the
     // caret follows now, while the document still predates the commit; a Space
@@ -2913,7 +2921,8 @@ public:
                      !composingOrCandidates();
     std::string armedPreceding;
     if (arm) {
-      if (const auto characters = precedingCharacters(1); characters && !characters->empty())
+      if (const auto characters = precedingCharacters(1, surroundingLength);
+          characters && !characters->empty())
         armedPreceding = characters->front();
     }
     // The ASCII mark this key already produced once was deleted, so the shared
@@ -3535,7 +3544,10 @@ public:
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
 #endif
-    for (const auto &candidate : state.view_.at("candidates")) {
+    const auto &candidates = state.view_.at("candidates");
+    words_.reserve(candidates.size());
+    labels_.reserve(candidates.size());
+    for (const auto &candidate : candidates) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
       words_.push_back(std::make_unique<FcitxCandidate>(
           factory, candidate, state.traditionalApplies(), annotations,
@@ -3577,6 +3589,8 @@ public:
     const auto scheme = state_.view_.value("scheme", 0u);
     if (!msime::linux_host::candidate_dictionary_actions_available(scheme, item->source()))
       return actions;
+    // One pin, one optional removal, five fixed positions, and one optional clear.
+    actions.reserve(8);
     const auto make = [](int id, const char *text) {
       fcitx::CandidateAction action;
       action.setId(id);
@@ -6971,7 +6985,11 @@ void FcitxEngine::rebuildSchemeMenu(fcitx::InputContext *ic, bool cantonese, boo
   const std::pair languages{cantonese, zhuyin};
   if (scheme_menu_languages_ == languages) return;
   for (auto *entry : scheme_menu_entries_) scheme_menu_.removeAction(entry);
-  scheme_menu_entries_ = {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_};
+  scheme_menu_entries_.clear();
+  scheme_menu_entries_.reserve(8);
+  scheme_menu_entries_.insert(
+      scheme_menu_entries_.end(),
+      {&scheme_quanpin_action_, &scheme_shuangpin_action_, &scheme_wubi_action_});
   if (cantonese) scheme_menu_entries_.push_back(&scheme_cantonese_action_);
   if (zhuyin) scheme_menu_entries_.push_back(&scheme_zhuyin_action_);
   scheme_menu_entries_.insert(scheme_menu_entries_.end(),
@@ -6985,6 +7003,7 @@ void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
   for (auto *action : toolbar_entries_)
     toolbar_menu_.removeAction(action);
   toolbar_entries_.clear();
+  toolbar_entries_.reserve(8);
   if (!ic) return;
   const auto *state = ic->propertyFor(&factory_);
   if (!state->session_) return;

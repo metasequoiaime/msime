@@ -74,6 +74,7 @@ inline std::vector<std::wstring> EncodeSnapshot(std::wstring text, wchar_t gener
     {
         text.resize(kMaxSnapshotChars);
     }
+    frames.reserve((kMaxSnapshotChars + kMaxChunkChars - 1) / kMaxChunkChars);
     if (text.empty())
     {
         std::wstring frame(kHeaderChars, L'\0');

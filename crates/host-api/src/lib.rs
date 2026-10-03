@@ -86,6 +86,33 @@ pub(crate) fn valid_uuid_string(value: &str) -> bool {
         })
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
+    let expected = match path {
+        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
+        path if path == Path::new("/var") => Path::new("/private/var"),
+        _ => return false,
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+    std::fs::canonicalize(parent.join(target))
+        .ok()
+        .is_some_and(|resolved| resolved == expected)
+}
+
+pub(crate) fn is_trusted_system_alias(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return std::fs::read_link(path)
+            .ok()
+            .is_some_and(|target| trusted_system_alias_target(path, &target));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
 mod ffi;
 pub use ffi::*;
 mod doubao_auth;
@@ -1045,7 +1072,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
                         let system_alias = path.is_absolute()
                             && !saw_real_component
                             && !saw_prefix_alias
-                            && matches!(component, Component::Normal(name) if *name == std::ffi::OsStr::new("tmp") || *name == std::ffi::OsStr::new("var"));
+                            && matches!(component, Component::Normal(_) if is_trusted_system_alias(&current));
                         if index + 1 == components.len()
                             || saw_real_component
                             || saw_prefix_alias

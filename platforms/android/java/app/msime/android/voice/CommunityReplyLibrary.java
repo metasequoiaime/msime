@@ -11,14 +11,20 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Bounded reader for reply templates explicitly shared into the app-private library. */
 public final class CommunityReplyLibrary {
     public static final int MAXIMUM_BYTES = 4_000_000;
     public static final int MAXIMUM_ITEMS = 50;
+    private static final int MAXIMUM_CONTAINER_ITEMS = 64;
+    private static final int MAXIMUM_ID_BYTES = 64 * 1024;
+    private static final int MAXIMUM_NAME_CHARACTERS = 32;
+    private static final int MAXIMUM_PROMPT_CHARACTERS = 2_000;
     public record Template(String id, String name, String prompt) {}
 
     private final Path file;
@@ -32,6 +38,7 @@ public final class CommunityReplyLibrary {
     }
 
     public static List<Template> read(Path file) throws IOException {
+        rejectSymlinkComponents(file);
         if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return List.of();
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Invalid community library");
         byte[] bytes = readBounded(file);
@@ -48,20 +55,27 @@ public final class CommunityReplyLibrary {
         if (!(decoded instanceof List<?> items) || items.size() > MAXIMUM_ITEMS)
             throw new IOException("Invalid community library");
         List<Template> replies = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
         for (Object value : items) {
             if (!(value instanceof Map<?, ?> item)) throw new IOException("Invalid community library");
             String id = string(item.get("id"));
             String kind = string(item.get("kind"));
-            String name = string(item.get("name"));
             Object contentValue = item.get("content");
-            if (id == null || kind == null || name == null || !(contentValue instanceof Map<?, ?> content))
+            if (id == null || kind == null || !(contentValue instanceof Map<?, ?> content))
                 throw new IOException("Invalid community library");
             if (!"reply".equals(kind)) continue;
+            String name = string(item.get("name"));
             String prompt = string(content.get("prompt"));
-            if (id.isBlank() || name.isBlank() || prompt == null || prompt.isBlank())
+            if (name == null || id.isEmpty() || name.isEmpty() || prompt == null
+                    || TextPolicy.blank(id) || TextPolicy.blank(name) || TextPolicy.blank(prompt)
+                    || !name.equals(name.trim()) || !ids.add(id))
                 throw new IOException("Invalid community library");
             if (!TextPolicy.validUnicode(id) || !TextPolicy.validUnicode(name)
-                    || !TextPolicy.validUnicode(prompt))
+                    || !TextPolicy.validUnicode(prompt) || TextPolicy.hasControl(id)
+                    || TextPolicy.hasControl(name) || TextPolicy.hasControl(prompt)
+                    || TextPolicy.utf8Length(id) > MAXIMUM_ID_BYTES
+                    || name.codePointCount(0, name.length()) > MAXIMUM_NAME_CHARACTERS
+                    || prompt.codePointCount(0, prompt.length()) > MAXIMUM_PROMPT_CHARACTERS)
                 throw new IOException("Invalid community library");
             replies.add(new Template(id, name, prompt));
         }
@@ -80,6 +94,30 @@ public final class CommunityReplyLibrary {
                 bytes.write(buffer, 0, count);
             }
             return bytes.toByteArray();
+        }
+    }
+
+    private static void rejectSymlinkComponents(Path path) throws IOException {
+        if (path == null) throw new IOException("Community library path unavailable");
+        Path absolute = path.toAbsolutePath().normalize();
+        Path current = absolute.getRoot();
+        if (current == null) throw new IOException("Community library path unavailable");
+        for (Path component : absolute) {
+            current = current.resolve(component);
+            if (Files.isSymbolicLink(current) && !isTrustedMacSystemAlias(current))
+                throw new IOException("Community library path contains a symbolic link");
+        }
+    }
+
+    /** The host-side smoke tests run on macOS, where these two root aliases are stable. */
+    private static boolean isTrustedMacSystemAlias(Path path) {
+        if (!path.equals(Path.of("/tmp")) && !path.equals(Path.of("/var"))) return false;
+        try {
+            Path target = path.getParent().resolve(Files.readSymbolicLink(path)).normalize();
+            return (path.equals(Path.of("/tmp")) && target.equals(Path.of("/private/tmp")))
+                || (path.equals(Path.of("/var")) && target.equals(Path.of("/private/var")));
+        } catch (IOException | SecurityException error) {
+            return false;
         }
     }
 
@@ -120,6 +158,7 @@ public final class CommunityReplyLibrary {
             whitespace();
             if (take(']')) return values;
             while (true) {
+                if (values.size() >= MAXIMUM_CONTAINER_ITEMS) throw invalid();
                 values.add(value(depth));
                 whitespace();
                 if (take(']')) return values;
@@ -133,6 +172,7 @@ public final class CommunityReplyLibrary {
             whitespace();
             if (take('}')) return values;
             while (true) {
+                if (values.size() >= MAXIMUM_CONTAINER_ITEMS) throw invalid();
                 whitespace();
                 if (index >= input.length() || input.charAt(index) != '"') throw invalid();
                 String key = string();

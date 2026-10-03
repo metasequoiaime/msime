@@ -109,6 +109,38 @@ int main() {
         assert([NSFileManager.defaultManager removeItemAtURL:gateRoot error:nil]);
         assert([NSFileManager.defaultManager removeItemAtURL:gateOutside error:nil]);
 
+        NSURL *hardlinkRoot = [NSURL fileURLWithPath:[NSTemporaryDirectory()
+                                                       stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+        NSURL *hardlinkOutside = [NSURL fileURLWithPath:[NSTemporaryDirectory()
+                                                          stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
+        assert([NSFileManager.defaultManager createDirectoryAtURL:hardlinkRoot
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:nil]);
+        assert([NSFileManager.defaultManager createDirectoryAtURL:hardlinkOutside
+                                         withIntermediateDirectories:YES
+                                                          attributes:nil
+                                                               error:nil]);
+        NSURL *outsideHardlink = [hardlinkOutside URLByAppendingPathComponent:@"outside.lock"];
+        assert([@"synthetic-hardlink-target" writeToURL:outsideHardlink atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+        NSURL *linkedSessionsFile = [hardlinkRoot URLByAppendingPathComponent:@"dictionary-sessions.lock"];
+        assert([NSFileManager.defaultManager linkItemAtURL:outsideHardlink
+                                                      toURL:linkedSessionsFile
+                                                      error:nil]);
+        rejected = false;
+        try {
+            DictionarySessionLease rejectedLease(hardlinkRoot);
+        } catch (const std::exception &) {
+            rejected = true;
+        }
+        assert(rejected);
+        unchanged = [NSString stringWithContentsOfURL:outsideHardlink
+                                               encoding:NSUTF8StringEncoding
+                                                  error:nil];
+        assert([unchanged isEqualToString:@"synthetic-hardlink-target"]);
+        assert([NSFileManager.defaultManager removeItemAtURL:hardlinkRoot error:nil]);
+        assert([NSFileManager.defaultManager removeItemAtURL:hardlinkOutside error:nil]);
+
         NSURL *root = [NSURL fileURLWithPath:[NSTemporaryDirectory()
                                                  stringByAppendingPathComponent:NSUUID.UUID.UUIDString]];
         {

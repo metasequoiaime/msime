@@ -965,6 +965,28 @@ fn fuzzy_candidates_do_not_allocate_the_full_path_budget_up_front() {
     assert!(candidates.capacity() < FUZZY_PATH_BUDGET * FUZZY_ROW_LIMIT);
 }
 
+#[test]
+fn query_rows_reserve_the_incoming_batch() {
+    let mut result = Vec::with_capacity(1);
+    result.push(WordItem::new("a", "啊", 1, CandidateSource::Database, "a"));
+    let rows: Vec<WordItem> = (0..10)
+        .map(|index| {
+            WordItem::new(
+                "a",
+                format!("词{index}"),
+                index,
+                CandidateSource::Database,
+                "a",
+            )
+        })
+        .collect();
+
+    QuanpinDictionary::append_query_rows(&mut result, rows);
+
+    assert_eq!(result.len(), 11);
+    assert_eq!(result.capacity(), 11);
+}
+
 /// test_fuzzy_pinyin.cpp:265-270: two hundred warm fuzzy queries stay well inside the reference's five-second budget.
 #[test]
 fn two_hundred_warm_fuzzy_queries_stay_under_budget() {

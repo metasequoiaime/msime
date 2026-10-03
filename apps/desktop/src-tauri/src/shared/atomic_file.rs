@@ -4,13 +4,28 @@ use std::path::{Path, PathBuf};
 fn is_system_path_alias(path: &Path) -> bool {
     #[cfg(target_os = "macos")]
     {
-        return path == Path::new("/var") || path == Path::new("/tmp");
+        return std::fs::read_link(path)
+            .ok()
+            .is_some_and(|target| trusted_system_alias_target(path, &target));
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = path;
         false
     }
+}
+
+#[cfg(target_os = "macos")]
+fn trusted_system_alias_target(path: &Path, target: &Path) -> bool {
+    let expected = match path {
+        path if path == Path::new("/tmp") => Path::new("/private/tmp"),
+        path if path == Path::new("/var") => Path::new("/private/var"),
+        _ => return false,
+    };
+    let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+    std::fs::canonicalize(parent.join(target))
+        .ok()
+        .is_some_and(|resolved| resolved == expected)
 }
 
 /// Check that `path` and all existing ancestors are real directories.
@@ -80,6 +95,27 @@ pub(crate) fn write(path: &Path, contents: &[u8]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_aliases_require_the_private_system_target() {
+        assert!(trusted_system_alias_target(
+            Path::new("/tmp"),
+            Path::new("private/tmp")
+        ));
+        assert!(trusted_system_alias_target(
+            Path::new("/var"),
+            Path::new("/private/var")
+        ));
+        assert!(!trusted_system_alias_target(
+            Path::new("/tmp"),
+            Path::new("/Users/synthetic/outside")
+        ));
+        assert!(!trusted_system_alias_target(
+            Path::new("/var"),
+            Path::new("private/tmp")
+        ));
+    }
 
     #[cfg(unix)]
     #[test]

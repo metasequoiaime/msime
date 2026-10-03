@@ -32,6 +32,7 @@ struct MSIMEVoiceCommitIO {
 };
 
 struct MSIMEVoiceCommitRoute {
+    static constexpr NSUInteger kEventChunkUnits = 16;
     NSString *mode = @"tsf";
     pid_t pid = 0;
     std::function<bool()> current;
@@ -43,12 +44,14 @@ struct MSIMEVoiceCommitRoute {
         if (!current()) return MSIMEVoiceCommitOutcome::stale;
         if (!io.permitted()) return MSIMEVoiceCommitOutcome::unavailable;
         using Event = std::unique_ptr<__CGEvent, decltype(&CFRelease)>;
-        std::vector<Event> events;
         const bool paste = [mode isEqual:@"ctrl_v"];
+        std::vector<Event> events;
+        const NSUInteger chunks = (text.length + kEventChunkUnits - 1) / kEventChunkUnits;
+        events.reserve(paste ? 2 : chunks * 2);
         for (NSUInteger offset = 0; offset < text.length;) {
-            NSUInteger count = MIN(NSUInteger(16), text.length - offset);
+            NSUInteger count = MIN(kEventChunkUnits, text.length - offset);
             if (offset + count < text.length && CFStringIsSurrogateHighCharacter([text characterAtIndex:offset + count - 1])) --count;
-            UniChar units[16]; [text getCharacters:units range:NSMakeRange(offset, count)];
+            UniChar units[kEventChunkUnits]; [text getCharacters:units range:NSMakeRange(offset, count)];
             for (bool down : {true, false}) {
                 Event event(io.create(paste ? 9 : 0, down), CFRelease);
                 if (!event) return MSIMEVoiceCommitOutcome::unavailable;

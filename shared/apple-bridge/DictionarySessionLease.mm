@@ -21,6 +21,12 @@ int Lock(int fd, int flags)
     return result;
 }
 
+bool SafeLockFile(int fd)
+{
+    struct stat info = {};
+    return fstat(fd, &info) == 0 && S_ISREG(info.st_mode) && info.st_nlink == 1;
+}
+
 bool SafeDirectoryPath(NSURL *user)
 {
     if (!user || !user.isFileURL)
@@ -72,7 +78,8 @@ DictionarySessionLease::DictionarySessionLease(NSURL *user)
                      O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     gate_ = open([user URLByAppendingPathComponent:@"dictionary-publication.lock"].fileSystemRepresentation,
                  O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (sessions_ < 0 || gate_ < 0 || Lock(sessions_, LOCK_SH) != 0)
+    if (sessions_ < 0 || gate_ < 0 || !SafeLockFile(sessions_) || !SafeLockFile(gate_) ||
+        Lock(sessions_, LOCK_SH) != 0)
     {
         if (sessions_ >= 0)
             close(sessions_);

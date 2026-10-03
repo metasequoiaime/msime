@@ -298,6 +298,8 @@ candidate_single_line_columns(const std::vector<CandidateItemWidths> &items,
                               double line_width,
                               const CandidateCardMetrics &metrics) {
   std::vector<double> natural, firm;
+  natural.reserve(items.size());
+  firm.reserve(items.size());
   double natural_total = 0.0, firm_total = 0.0;
   for (const auto &item : items) {
     auto line = item;

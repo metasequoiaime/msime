@@ -141,7 +141,7 @@ void deliver_panel_key_stroke(Process process, Forward forward) {
 // Holds requests until a context can take them. A request that cannot be delivered within kPanelInputWaitUs is answered no_focus and dropped, so a focus that arrives later can never type it a second time after the panel has already fallen back to another route. The pending count is capped so a same-user client cannot retain an arbitrary number of open request connections while focus is unavailable.
 class PanelInputBroker {
 public:
-  PanelInputBroker() = default;
+  PanelInputBroker() { pending_.reserve(kPanelInputPendingLimit); }
   PanelInputBroker(const PanelInputBroker &) = delete;
   PanelInputBroker &operator=(const PanelInputBroker &) = delete;
   ~PanelInputBroker() {

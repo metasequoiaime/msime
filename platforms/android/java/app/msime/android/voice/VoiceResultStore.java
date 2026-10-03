@@ -152,7 +152,7 @@ public final class VoiceResultStore {
                         && !Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)))
                 throw new Failure(Reason.UNAVAILABLE);
             try (FileChannel channel = FileChannel.open(lockPath, StandardOpenOption.CREATE,
-                    StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
                 FileLock lock;
                 try { lock = channel.tryLock(); }
                 catch (OverlappingFileLockException error) { throw new Failure(Reason.BUSY, error); }
@@ -173,10 +173,20 @@ public final class VoiceResultStore {
         if (current == null) throw new IOException("voice result path unavailable");
         for (Path component : absolute) {
             current = current.resolve(component);
-            // macOS 的临时目录通过受信任的 /var 别名暴露。
-            if (!current.toString().equals("/var") && !current.toString().equals("/tmp")
-                    && Files.isSymbolicLink(current))
+            if (Files.isSymbolicLink(current) && !isTrustedMacSystemAlias(current))
                 throw new IOException("voice result path contains a symbolic link");
+        }
+    }
+
+    /** The host-side smoke tests run on macOS, where these two root aliases are stable. */
+    private static boolean isTrustedMacSystemAlias(Path path) {
+        if (!path.equals(Path.of("/tmp")) && !path.equals(Path.of("/var"))) return false;
+        try {
+            Path target = path.getParent().resolve(Files.readSymbolicLink(path)).normalize();
+            return (path.equals(Path.of("/tmp")) && target.equals(Path.of("/private/tmp")))
+                || (path.equals(Path.of("/var")) && target.equals(Path.of("/private/var")));
+        } catch (IOException | SecurityException error) {
+            return false;
         }
     }
 
@@ -196,8 +206,9 @@ public final class VoiceResultStore {
                 || !validText(entry.text())
                 || entry.expiresAtMillis() - entry.createdAtMillis() != LIFETIME_MILLIS)
             throw new Failure(Reason.INVALID);
-        if (entry.expiresAtMillis() <= nowMillis
-                || entry.createdAtMillis() > nowMillis + FUTURE_TOLERANCE_MILLIS) {
+        boolean tooFarInFuture = entry.createdAtMillis() > nowMillis
+            && entry.createdAtMillis() - nowMillis > FUTURE_TOLERANCE_MILLIS;
+        if (entry.expiresAtMillis() <= nowMillis || tooFarInFuture) {
             Files.delete(result);
             return null;
         }

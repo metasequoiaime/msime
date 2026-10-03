@@ -135,7 +135,11 @@ void InstallCrashHandlers(NSString *recordPath)
 
 NSString *MSIMEUsageReportingDirectory(void)
 {
+#if defined(MSIME_USAGE_REPORTING_TEST_SUPPORT)
+    NSURL *support = [NSURL fileURLWithPath:@MSIME_USAGE_REPORTING_TEST_SUPPORT isDirectory:YES];
+#else
     NSURL *support = [[NSFileManager.defaultManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
+#endif
     NSURL *base = support ?: [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
     return [[base URLByAppendingPathComponent:@"MSIME/telemetry" isDirectory:YES] path];
 }
@@ -146,10 +150,7 @@ void MSIMEUsageReportingStart(NSString *preferencesDirectory)
     dispatch_once(&once, ^{
         gPreferencesDirectory = [preferencesDirectory copy];
         gQueue = dispatch_queue_create("app.msime.usage-reporting", DISPATCH_QUEUE_SERIAL);
-        [NSFileManager.defaultManager createDirectoryAtPath:MSIMEUsageReportingDirectory()
-                                withIntermediateDirectories:YES
-                                                 attributes:@{NSFilePosixPermissions: @0700}
-                                                      error:nil];
+        // host-api telemetry 存储会在接触队列、标记或崩溃文件前创建并校验目录。
         NSDictionary *started = CallHost(msime_client_telemetry_begin, SessionRequest());
         if (![started isKindOfClass:NSDictionary.class] || ![started[@"enabled"] isEqual:@YES]) return;
         NSString *recordPath = started[@"crash_record_path"];

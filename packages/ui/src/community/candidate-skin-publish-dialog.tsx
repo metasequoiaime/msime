@@ -4,7 +4,6 @@ import {
   communityPublishFields,
   handleCommunityPublishKeyDown,
 } from "./community-publish-validation";
-import { randomUuid } from "../core/random-id";
 import { errorCode } from "../core/error-code";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
@@ -16,11 +15,11 @@ import {
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
-import { CommunityErrorAlert } from "./community-error-alert";
-import { CommunityDialogActions, CommunityDialogHeader } from "./community-dialog";
+import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
+import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -97,16 +96,24 @@ export function CandidateSkinPublishDialog({
   const [writingLicense, setWritingLicense] = useState(false);
   const [licenseFailed, setLicenseFailed] = useState(false);
   const [packLoading, setPackLoading] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const {
+    name,
+    description,
+    agreed,
+    publicationId,
+    setName,
+    setAgreed,
+    onNameChange,
+    onDescriptionChange,
+    onAgreedChange,
+    resetPublication,
+  } = useCommunityPublicationDraft();
   const [visibility, setVisibility] = useState<CandidateSkinVisibility>("public");
   const [category, setCategory] = useState<CandidateSkinCategory>("other");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
-  const [publicationId, setPublicationId] = useState(randomUuid);
   const clientGeneration = useRef(0);
   const packGeneration = useRef(0);
   const actionRunning = useRef(false);
@@ -164,7 +171,7 @@ export function CandidateSkinPublishDialog({
     setDrawFailed(false);
     setLicenseFailed(false);
     setAgreed(false);
-    setPublicationId(randomUuid());
+    resetPublication();
     if (!skinId) {
       setPackLoading(false);
       return;
@@ -318,215 +325,202 @@ export function CandidateSkinPublishDialog({
   };
 
   return (
-    <div className={style.backdrop}>
-      <div
-        className={style.dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label="发布候选窗口皮肤"
-        onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
-      >
-        <CommunityDialogHeader
-          title="发布候选窗口皮肤"
-          titleClassName={style.dialogTitle}
-          busy={busy}
-          onClose={onClose}
-        />
-        {error && (
-          <CommunityErrorAlert message={error} signInRequired={signInRequired} onLogin={onLogin} />
-        )}
-        {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
-        {!optionsLoading && options.length === 0 && (
-          <p className={style.notice}>
-            还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「主题」的外部皮肤中刷新。
+    <CommunityDialogFrame
+      title="发布候选窗口皮肤"
+      titleClassName={style.dialogTitle}
+      ariaLabel="发布候选窗口皮肤"
+      busy={busy}
+      onClose={onClose}
+      error={error}
+      signInRequired={signInRequired}
+      onLogin={onLogin}
+      onKeyDown={(event) => handleCommunityPublishKeyDown(event, () => void submit())}
+    >
+      {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
+      {!optionsLoading && options.length === 0 && (
+        <p className={style.notice}>
+          还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「主题」的外部皮肤中刷新。
+        </p>
+      )}
+      {options.length > 0 && (
+        <CommunitySelectField
+          label="发布皮肤"
+          ariaLabel="发布皮肤"
+          value={skinId}
+          disabled={busy}
+          onChange={setSkinId}
+        >
+          {options.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
+            </option>
+          ))}
+        </CommunitySelectField>
+      )}
+      <fieldset className={style.field} disabled={busy}>
+        <legend>谁可以看到</legend>
+        <label>
+          <input
+            type="radio"
+            name="candidate-skin-visibility"
+            checked={visibility === "public"}
+            onChange={() => setVisibility("public")}
+          />{" "}
+          公开（所有人可下载）
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="candidate-skin-visibility"
+            checked={visibility === "private"}
+            onChange={() => setVisibility("private")}
+          />{" "}
+          仅自己可见
+        </label>
+      </fieldset>
+      {packLoading && <p role="status">正在检查皮肤包…</p>}
+      {packError && previewless && readImage && (
+        <div className={style.confirmation} role="alert">
+          <p>
+            这款皮肤还没有预览图，社区要用它展示皮肤。可以按皮肤自己的配色和图片生成一张，保存到皮肤文件夹后继续发布。
           </p>
-        )}
-        {options.length > 0 && (
-          <CommunitySelectField
-            label="发布皮肤"
-            ariaLabel="发布皮肤"
-            value={skinId}
-            disabled={busy}
-            onChange={setSkinId}
-          >
-            {options.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name === item.id ? item.id : `${item.name}（${item.id}）`}
-              </option>
-            ))}
-          </CommunitySelectField>
-        )}
-        <fieldset className={style.field} disabled={busy}>
-          <legend>谁可以看到</legend>
-          <label>
-            <input
-              type="radio"
-              name="candidate-skin-visibility"
-              checked={visibility === "public"}
-              onChange={() => setVisibility("public")}
-            />{" "}
-            公开（所有人可下载）
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="candidate-skin-visibility"
-              checked={visibility === "private"}
-              onChange={() => setVisibility("private")}
-            />{" "}
-            仅自己可见
-          </label>
-        </fieldset>
-        {packLoading && <p role="status">正在检查皮肤包…</p>}
-        {packError && previewless && readImage && (
-          <div className={style.confirmation} role="alert">
-            <p>
-              这款皮肤还没有预览图，社区要用它展示皮肤。可以按皮肤自己的配色和图片生成一张，保存到皮肤文件夹后继续发布。
-            </p>
-            {drawFailed && (
-              <p>生成预览图失败，请重试，或自己在 skin.toml 中用 preview 指定一张图片。</p>
-            )}
-            <div className={style.confirmationActions}>
-              {openSkinDirectory && (
-                <ActionButton
-                  action={() => void openFolder()}
-                  className="secondary"
-                  disabled={drawing}
-                  label="打开目录"
-                />
-              )}
+          {drawFailed && (
+            <p>生成预览图失败，请重试，或自己在 skin.toml 中用 preview 指定一张图片。</p>
+          )}
+          <div className={style.confirmationActions}>
+            {openSkinDirectory && (
               <ActionButton
-                action={() => void drawPreview()}
-                className="primary"
+                action={() => void openFolder()}
+                className="secondary"
                 disabled={drawing}
-                label={drawing ? "正在生成…" : "生成预览图"}
+                label="打开目录"
               />
-            </div>
-            {openFailed && <p>无法打开皮肤目录，请重试。</p>}
+            )}
+            <ActionButton
+              action={() => void drawPreview()}
+              className="primary"
+              disabled={drawing}
+              label={drawing ? "正在生成…" : "生成预览图"}
+            />
           </div>
-        )}
-        {packError && licenseless && (
-          <fieldset className={style.field} disabled={writingLicense}>
-            <legend>素材授权</legend>
-            <p className={style.metrics}>
-              公开发布需要注明别人可以怎样使用皮肤里的图片，选择后会写入 skin.toml。
-            </p>
-            {assetLicenses.map((item) => (
-              <label key={item.value}>
-                <input
-                  type="radio"
-                  name="candidate-skin-asset-license"
-                  checked={licenseChoice === item.value}
-                  onChange={() => setLicenseChoice(item.value)}
-                />{" "}
-                {item.label}
-              </label>
-            ))}
-            <label>
+          {openFailed && <p>无法打开皮肤目录，请重试。</p>}
+        </div>
+      )}
+      {packError && licenseless && (
+        <fieldset className={style.field} disabled={writingLicense}>
+          <legend>素材授权</legend>
+          <p className={style.metrics}>
+            公开发布需要注明别人可以怎样使用皮肤里的图片，选择后会写入 skin.toml。
+          </p>
+          {assetLicenses.map((item) => (
+            <label key={item.value}>
               <input
                 type="radio"
                 name="candidate-skin-asset-license"
-                checked={licenseChoice === "other"}
-                onChange={() => setLicenseChoice("other")}
+                checked={licenseChoice === item.value}
+                onChange={() => setLicenseChoice(item.value)}
               />{" "}
-              其他
+              {item.label}
             </label>
-            {licenseChoice === "other" && (
-              <input
-                className={style.fieldControl}
-                aria-label="其他素材授权"
-                placeholder="例如：仅限个人使用，不得转售"
-                value={customLicense}
-                onChange={(event) => setCustomLicense(event.target.value)}
+          ))}
+          <label>
+            <input
+              type="radio"
+              name="candidate-skin-asset-license"
+              checked={licenseChoice === "other"}
+              onChange={() => setLicenseChoice("other")}
+            />{" "}
+            其他
+          </label>
+          {licenseChoice === "other" && (
+            <input
+              className={style.fieldControl}
+              aria-label="其他素材授权"
+              placeholder="例如：仅限个人使用，不得转售"
+              value={customLicense}
+              onChange={(event) => setCustomLicense(event.target.value)}
+            />
+          )}
+          {licenseChoice === "other" && customLicense.trim() !== "" && !licenseValid && (
+            <p className={style.metrics} role="alert">
+              授权说明太长，请控制在 40 个汉字以内。
+            </p>
+          )}
+          {licenseFailed && (
+            <p className={style.metrics} role="alert">
+              写入授权失败，请重试，或在 skin.toml 的 [license] 中自己填写 assets。
+            </p>
+          )}
+        </fieldset>
+      )}
+      {packError && !(previewless && readImage) && !licenseless && (
+        <div className={style.confirmation} role="alert">
+          <p>{packError}</p>
+          {openSkinDirectory && (
+            <div className={style.confirmationActions}>
+              <ActionButton
+                action={() => void openFolder()}
+                className="secondary"
+                label="打开目录"
               />
-            )}
-            {licenseChoice === "other" && customLicense.trim() !== "" && !licenseValid && (
-              <p className={style.metrics} role="alert">
-                授权说明太长，请控制在 40 个汉字以内。
-              </p>
-            )}
-            {licenseFailed && (
-              <p className={style.metrics} role="alert">
-                写入授权失败，请重试，或在 skin.toml 的 [license] 中自己填写 assets。
-              </p>
-            )}
-          </fieldset>
-        )}
-        {packError && !(previewless && readImage) && !licenseless && (
-          <div className={style.confirmation} role="alert">
-            <p>{packError}</p>
-            {openSkinDirectory && (
-              <div className={style.confirmationActions}>
-                <ActionButton
-                  action={() => void openFolder()}
-                  className="secondary"
-                  label="打开目录"
-                />
-              </div>
-            )}
-            {openFailed && <p>无法打开皮肤目录，请重试。</p>}
-          </div>
-        )}
-        {pack && (
-          <>
-            <p className={style.metrics}>
-              {pack.fileCount} 个文件 · {candidateSkinMegabytes(pack.size)} / {packageLimit}
-            </p>
-            <p className={style.metrics} aria-label="皮肤授权">
-              {licenseLines(pack.license).join(" / ")}
-            </p>
-            <CommunitySkinPublicationFields
-              name={name}
-              description={description}
-              agreed={agreed}
-              busy={busy}
-              agreementText={
-                visibility === "public"
-                  ? "我拥有发布所用素材的权利，并同意其他用户按上述授权免费下载使用"
-                  : "我拥有上传所用素材的权利"
-              }
-              onNameChange={(value) => {
-                setPublicationId(randomUuid());
-                setName(boundedGraphemes(value, 32));
-              }}
-              onDescriptionChange={(value) => {
-                setPublicationId(randomUuid());
-                setDescription(value);
-              }}
-              onAgreedChange={setAgreed}
-            />
-            <CommunitySkinCategorySelect
-              ariaLabel="发布分类"
-              value={category}
-              disabled={busy}
-              onChange={(next) => {
-                // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
-                setPublicationId(randomUuid());
-                setCategory(next);
-              }}
-            />
-            <p className={style.warning}>{publishWarning}</p>
-          </>
-        )}
-        <CommunityDialogActions busy={busy} onClose={onClose}>
-          {packError && licenseless && (
-            <ActionButton
-              action={() => void writeLicense()}
-              className="primary"
-              disabled={writingLicense || !licenseValid}
-              label={writingLicense ? "正在写入…" : "使用此授权并继续"}
-            />
+            </div>
           )}
-          {!packError && (
-            <ActionButton
-              action={() => void submit()}
-              className="primary"
-              disabled={busy || !ready}
-              label={busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
-            />
-          )}
-        </CommunityDialogActions>
-      </div>
-    </div>
+          {openFailed && <p>无法打开皮肤目录，请重试。</p>}
+        </div>
+      )}
+      {pack && (
+        <>
+          <p className={style.metrics}>
+            {pack.fileCount} 个文件 · {candidateSkinMegabytes(pack.size)} / {packageLimit}
+          </p>
+          <p className={style.metrics} aria-label="皮肤授权">
+            {licenseLines(pack.license).join(" / ")}
+          </p>
+          <CommunitySkinPublicationFields
+            name={name}
+            description={description}
+            agreed={agreed}
+            busy={busy}
+            agreementText={
+              visibility === "public"
+                ? "我拥有发布所用素材的权利，并同意其他用户按上述授权免费下载使用"
+                : "我拥有上传所用素材的权利"
+            }
+            onNameChange={onNameChange}
+            onDescriptionChange={onDescriptionChange}
+            onAgreedChange={onAgreedChange}
+          />
+          <CommunitySkinCategorySelect
+            ariaLabel="发布分类"
+            value={category}
+            disabled={busy}
+            onChange={(next) => {
+              // 分类也是这次发布的内容，换了分类就是另一次发布，不能沿用上一次的发布 id。
+              resetPublication();
+              setCategory(next);
+            }}
+          />
+          <p className={style.warning}>{publishWarning}</p>
+        </>
+      )}
+      <CommunityDialogActions busy={busy} onClose={onClose}>
+        {packError && licenseless && (
+          <ActionButton
+            action={() => void writeLicense()}
+            className="primary"
+            disabled={writingLicense || !licenseValid}
+            label={writingLicense ? "正在写入…" : "使用此授权并继续"}
+          />
+        )}
+        {!packError && (
+          <ActionButton
+            action={() => void submit()}
+            className="primary"
+            disabled={busy || !ready}
+            label={busy ? "正在发布…" : visibility === "public" ? "公开发布" : "保存到我的皮肤库"}
+          />
+        )}
+      </CommunityDialogActions>
+    </CommunityDialogFrame>
   );
 }

@@ -4,6 +4,35 @@
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <filesystem>
+
+static BOOL MSIMEVoiceSafeDirectoryPath(NSURL *url) {
+    if (!url || !url.isFileURL) return NO;
+    const std::filesystem::path path(url.fileSystemRepresentation);
+    if (!path.is_absolute()) return NO;
+    auto current = path.root_path();
+    bool sawPrefixAlias = false;
+    bool sawRealComponent = false;
+    for (const auto &component : path.relative_path()) {
+        current /= component;
+        struct stat info = {};
+        if (lstat(current.c_str(), &info) != 0) {
+            if (errno == ENOENT) return YES;
+            return NO;
+        }
+        if (S_ISLNK(info.st_mode)) {
+            const bool systemAlias = !sawRealComponent && !sawPrefixAlias &&
+                                     (current == "/tmp" || current == "/var");
+            if (!systemAlias) return NO;
+            sawPrefixAlias = true;
+        } else if (!S_ISDIR(info.st_mode)) {
+            return NO;
+        } else {
+            sawRealComponent = true;
+        }
+    }
+    return YES;
+}
 // The default output can move mid-recording while the device it left is already gone and cannot be handed back yet, so one journal may owe restores to several devices.
 static const NSUInteger MSIMEVoiceOwnedDeviceLimit = 8;
 static const AudioObjectPropertyAddress MSIMEVoiceDefaultOutputAddress = {kAudioHardwarePropertyDefaultOutputDevice,
@@ -44,9 +73,9 @@ static BOOL MSIMEVoiceValidUID(id uid) {
 }
 - (BOOL)loadJournal {
     if (!_recoveryDirectory || _journalFD >= 0) return YES;
-    if (!_recoveryDirectory.isFileURL) return NO;
-    [NSFileManager.defaultManager createDirectoryAtURL:_recoveryDirectory withIntermediateDirectories:YES
-        attributes:@{NSFilePosixPermissions:@0700} error:nil];
+    if (!MSIMEVoiceSafeDirectoryPath(_recoveryDirectory) ||
+        ![NSFileManager.defaultManager createDirectoryAtURL:_recoveryDirectory
+            withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:nil]) return NO;
     int directory = open(_recoveryDirectory.fileSystemRepresentation, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (directory < 0) return NO;
     struct stat info = {};

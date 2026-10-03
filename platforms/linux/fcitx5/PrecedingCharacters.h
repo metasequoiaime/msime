@@ -10,10 +10,12 @@
 namespace msime::fcitx_host {
 
 template <typename StringVector>
-inline std::optional<StringVector> preceding_characters_with_storage(
-    const std::string &text, std::size_t cursor, std::size_t count) {
-  const auto length = fcitx::utf8::lengthValidated(text);
-  if (length == fcitx::utf8::INVALID_LENGTH || cursor > length)
+// `length` must be the result of lengthValidated(text); callers use this form
+// when that scan has already been paid for by another surrounding-text check.
+inline std::optional<StringVector> preceding_characters_with_validated_length(
+    const std::string &text, std::size_t cursor, std::size_t count,
+    std::size_t length) {
+  if (cursor > length)
     return std::nullopt;
   const auto available = std::min<std::size_t>(count, cursor);
   StringVector characters;
@@ -25,6 +27,16 @@ inline std::optional<StringVector> preceding_characters_with_storage(
     start = next;
   }
   return characters;
+}
+
+template <typename StringVector>
+inline std::optional<StringVector> preceding_characters_with_storage(
+    const std::string &text, std::size_t cursor, std::size_t count) {
+  const auto length = fcitx::utf8::lengthValidated(text);
+  if (length == fcitx::utf8::INVALID_LENGTH)
+    return std::nullopt;
+  return preceding_characters_with_validated_length<StringVector>(
+      text, cursor, count, length);
 }
 
 inline std::optional<std::vector<std::string>> preceding_characters(

@@ -60,6 +60,19 @@ inline int open_clipboard_lock(const std::filesystem::path &history) {
   return ::open(lock.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
 }
 
+// Remove the history file only when its parent remains a real directory. The
+// filesystem remove operation does not follow a final symlink, but it does
+// traverse symlinked ancestors; clearing must use the same boundary as reads
+// and writes.
+inline bool remove_clipboard_file(const std::filesystem::path &file) {
+  const auto directory = file.has_parent_path() ? file.parent_path()
+                                                : std::filesystem::path(".");
+  if (!clipboard_directory_is_safe(directory)) return false;
+  std::error_code error;
+  std::filesystem::remove(file, error);
+  return !error;
+}
+
 inline std::optional<std::string> read_clipboard_file(const std::filesystem::path &file,
                                                       std::size_t max_bytes) {
   const auto directory = file.has_parent_path() ? file.parent_path() : std::filesystem::path(".");

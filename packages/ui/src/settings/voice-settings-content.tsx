@@ -33,6 +33,7 @@ import {
 import type { ProviderPresetControlFactory } from "./provider-preset-control";
 import type { useProviderCredentials } from "./use-provider-credentials";
 import { GroupList } from "../core/platform-controls";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 export interface VoiceSettingsContentProps {
   disabled: boolean;
@@ -328,8 +329,8 @@ export function VoiceSettingsContent({
     </>
   );
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="语音输入">
-      <div className={settings.groups}>{content}</div>
-    </fieldset>
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="语音输入">
+      {content}
+    </SettingsPageFieldset>
   );
 }

@@ -233,8 +233,30 @@ export class HarmonyTelemetry {
     const directory: string = `${HarmonyTelemetry.directory}/${CRASH_DIRECTORY}`;
     const path: string = `${directory}/${TelemetryPolicy.standaloneRecordName(report)}`;
     try {
-      if (!fs.accessSync(directory)) {
+      if (!HarmonyTelemetry.prepareTelemetryDirectory()) {
+        return;
+      }
+      if (fs.accessSync(directory)) {
+        const directoryStat: fs.Stat = fs.lstatSync(directory);
+        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+          return;
+        }
+      } else {
         fs.mkdirSync(directory, true);
+        const directoryStat: fs.Stat = fs.lstatSync(directory);
+        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+          return;
+        }
+      }
+      // A dangling link is invisible to accessSync but openSync would follow it when CREATE is set.
+      let pathStat: fs.Stat | null = null;
+      try {
+        pathStat = fs.lstatSync(path);
+      } catch {
+        // The record does not exist yet.
+      }
+      if (pathStat !== null && pathStat.isSymbolicLink()) {
+        return;
       }
       if (fs.accessSync(path)) {
         return;
@@ -253,12 +275,23 @@ export class HarmonyTelemetry {
   private static readRememberedPid(): number | null {
     const path: string = `${HarmonyTelemetry.directory}/${KEYBOARD_PROCESS_FILE}`;
     try {
-      if (!fs.accessSync(path)) {
+      if (!HarmonyTelemetry.safeTelemetryDirectory()) {
+        return null;
+      }
+      const stat: fs.Stat = fs.lstatSync(path);
+      if (stat.isSymbolicLink() || !stat.isFile()) {
         return null;
       }
       return TelemetryPolicy.rememberedPid(fs.readTextSync(path));
     } catch (error) {
-      KeyboardLog.error(`telemetry: keyboard process unreadable: ${describeError(error)}`);
+      // An absent marker is the normal first-run state.
+      try {
+        if (fs.accessSync(path)) {
+          KeyboardLog.error(`telemetry: keyboard process unreadable: ${describeError(error)}`);
+        }
+      } catch {
+        // The directory or marker is unavailable.
+      }
       return null;
     }
   }
@@ -267,6 +300,18 @@ export class HarmonyTelemetry {
     const remembered: RememberedProcess = { pid: process.pid };
     const path: string = `${HarmonyTelemetry.directory}/${KEYBOARD_PROCESS_FILE}`;
     try {
+      if (!HarmonyTelemetry.prepareTelemetryDirectory()) {
+        return;
+      }
+      let stat: fs.Stat | null = null;
+      try {
+        stat = fs.lstatSync(path);
+      } catch {
+        // The marker does not exist yet.
+      }
+      if (stat !== null && (stat.isSymbolicLink() || !stat.isFile())) {
+        return;
+      }
       const file: fs.File =
         fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try {
@@ -276,6 +321,27 @@ export class HarmonyTelemetry {
       }
     } catch (error) {
       KeyboardLog.error(`telemetry: keyboard process not remembered: ${describeError(error)}`);
+    }
+  }
+
+  /** Ensure the shared telemetry directory itself is a real directory before following it. */
+  private static prepareTelemetryDirectory(): boolean {
+    try {
+      if (!fs.accessSync(HarmonyTelemetry.directory)) {
+        fs.mkdirSync(HarmonyTelemetry.directory, true);
+      }
+      return HarmonyTelemetry.safeTelemetryDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  private static safeTelemetryDirectory(): boolean {
+    try {
+      const stat: fs.Stat = fs.lstatSync(HarmonyTelemetry.directory);
+      return !stat.isSymbolicLink() && stat.isDirectory();
+    } catch {
+      return false;
     }
   }
 

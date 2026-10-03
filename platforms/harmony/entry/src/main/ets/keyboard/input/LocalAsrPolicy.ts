@@ -80,6 +80,7 @@ export class LocalAsrPolicy {
     const path: string = (modelPath ?? "").trim();
     if (path.length === 0 || path.length > MAX_MODEL_PATH || !path.startsWith("/")) return "";
     if (/[\u0000-\u001f\u007f]/.test(path)) return "";
+    if (path.split("/").some((part: string): boolean => part === "." || part === "..")) return "";
     return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
   }
 

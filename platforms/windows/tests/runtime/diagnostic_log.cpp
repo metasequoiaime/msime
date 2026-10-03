@@ -79,6 +79,21 @@ int main() {
             "diagnostic log followed a reparse point");
     std::filesystem::remove(logs);
   }
+
+  const auto outside_file = linked_root / L"outside.log";
+  const auto leaf = linked_root / L"leaf.log";
+  {
+    std::ofstream sentinel(outside_file, std::ios::binary);
+    sentinel << "synthetic outside";
+  }
+  if (CreateSymbolicLinkW(leaf.c_str(), outside_file.c_str(), 0)) {
+    DiagnosticLog linked_leaf(leaf);
+    linked_leaf.set_enabled(true, false);
+    linked_leaf.server("must not follow leaf");
+    require(read(outside_file) == "synthetic outside",
+            "diagnostic log followed a leaf reparse point");
+    std::filesystem::remove(leaf);
+  }
   std::filesystem::remove_all(linked_root);
   return 0;
 }

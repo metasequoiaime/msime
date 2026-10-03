@@ -140,6 +140,7 @@ int main()
         const std::vector<CandidateItemWidths> items{{60.0, 0.0, 200.0}, {50.0, 0.0, 150.0}, {40.0}};
         const auto columns = SingleLineColumns(items, 300.0, metrics);
         assert(columns && Near((*columns)[0], 125.0) && Near((*columns)[1], 105.0) && Near((*columns)[2], 70.0));
+        assert(columns->capacity() == items.size());
         const auto rows = LayoutCandidatePage(items, 300.0, metrics, true,
             [](std::size_t, CandidateRun run, double) { return run == CandidateRun::translation ? 40.0 : 0.0; });
         assert(Near(rows[0].x, 0.0) && Near(rows[1].x, 125.0) && Near(rows[2].x, 230.0));

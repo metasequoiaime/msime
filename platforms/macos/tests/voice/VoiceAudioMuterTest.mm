@@ -222,6 +222,25 @@ int main() {
         [muter restore]; assert(muted[100] == 0 && !record());
         muter = nil;
         assert([NSFileManager.defaultManager removeItemAtURL:directory error:nil]);
+
+        // A replaced recovery parent must not redirect the durable mute journal.
+        char linkedTemporary[] = "/tmp/msime-voice-linked-parent-XXXXXX";
+        assert(mkdtemp(linkedTemporary));
+        NSURL *linkedRoot = [NSURL fileURLWithPath:@(linkedTemporary) isDirectory:YES];
+        NSURL *outside = [linkedRoot URLByAppendingPathComponent:@"outside" isDirectory:YES];
+        assert([NSFileManager.defaultManager createDirectoryAtURL:outside
+            withIntermediateDirectories:NO attributes:nil error:nil]);
+        NSURL *linkedParent = [linkedRoot URLByAppendingPathComponent:@"linked" isDirectory:YES];
+        assert(symlink(outside.fileSystemRepresentation, linkedParent.fileSystemRepresentation) == 0);
+        NSURL *linkedRecovery = [linkedParent URLByAppendingPathComponent:@"recovery" isDirectory:YES];
+        Reset();
+        muter = [[MSIMEVoiceAudioMuter alloc] initWithAudioAPI:{Get, Set, nullptr, nullptr}
+            recoveryDirectory:linkedRecovery];
+        assert(![muter mute:nil]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:
+            [outside URLByAppendingPathComponent:@"recovery/pending.json"].path]);
+        muter = nil;
+        assert([NSFileManager.defaultManager removeItemAtURL:linkedRoot error:nil]);
     }
     return 0;
 }

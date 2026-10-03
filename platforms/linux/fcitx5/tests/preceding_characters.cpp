@@ -45,6 +45,17 @@ int main() {
     require(CountingAllocator<std::string>::allocations == 1,
             "preceding characters reserve before appending");
 
+    const auto validated =
+        msime::fcitx_host::preceding_characters_with_validated_length<
+            std::vector<std::string>>("甲乙丙丁", 4, 2, 4);
+    require(validated && *validated == std::vector<std::string>{"丙", "丁"},
+            "validated preceding characters preserve order");
+    const auto validatedBeyond =
+        msime::fcitx_host::preceding_characters_with_validated_length<
+            std::vector<std::string>>("甲乙", 3, 1, 2);
+    require(!validatedBeyond,
+            "validated preceding characters reject a caret beyond the document");
+
     const auto shorter = msime::fcitx_host::preceding_characters("甲乙", 2, 5);
     require(shorter && *shorter == std::vector<std::string>{"甲", "乙"},
             "preceding characters stop at the document start");

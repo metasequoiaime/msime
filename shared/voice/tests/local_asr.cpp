@@ -61,6 +61,14 @@ int main() {
     assert(rejected_linked);
     fs::remove(root / "linked-model");
 
+    // A symlinked ancestor is just as much an escape from the configured model tree as a symlinked model directory.
+    const auto nested_model = external / "nested-model";
+    fs::create_directories(nested_model);
+    std::ofstream(nested_model / std::string(local_model_manifest)) << "{}";
+    fs::create_symlink(external, root / "linked-parent");
+    assert(!is_local_model_dir((root / "linked-parent" / "nested-model").u8string()));
+    fs::remove(root / "linked-parent");
+
     const auto external_manifest = external / "external-manifest.json";
     std::ofstream(external_manifest) << "{}";
     fs::remove(root / "model" / std::string(local_model_manifest));

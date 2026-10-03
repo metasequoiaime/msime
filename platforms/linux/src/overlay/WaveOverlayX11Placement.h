@@ -223,6 +223,7 @@ inline WaveOverlayMonitor x11_overlay_monitor(Display *display,
   std::optional<std::size_t> primary;
   int count = 0;
   if (auto *infos = XRRGetMonitors(display, root, True, &count)) {
+    monitors.reserve(static_cast<std::size_t>(count));
     for (int index = 0; index < count; ++index) {
       const WaveOverlayWorkArea full{infos[index].x, infos[index].y,
                                      infos[index].width, infos[index].height};

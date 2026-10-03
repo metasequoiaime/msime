@@ -1,6 +1,9 @@
 package app.msime.android;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -79,7 +82,9 @@ public final class CandidateTranslationPolicy {
         for (String target : targets) {
             String code = normalize(target);
             if (OFFLINE_GLOSS_LANGUAGES.contains(code)
-                    && new File(parent, "offline-glosses/zh-" + code + ".db").isFile()) result.add(code);
+                    && Files.isRegularFile(
+                        new File(parent, "offline-glosses/zh-" + code + ".db").toPath(),
+                        LinkOption.NOFOLLOW_LINKS)) result.add(code);
         }
         return List.copyOf(result);
     }

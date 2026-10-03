@@ -9,10 +9,10 @@ use crate::platform::mobile::mobile_account_helpers::{
     account_profile as shared_account_profile, account_rename as shared_account_rename,
     account_request_code as shared_account_request_code, account_status as shared_account_status,
     call_session, cleanup_stale_snapshot_previews, clear_snapshot_previews,
-    clear_snapshot_previews_after, cloud_dictionary_account_request, replace_pending_snapshot,
-    snapshot_command_error, snapshot_response_without_account, snapshot_text_within_limit,
-    take_pending_snapshot, valid_mobile_haptic_strength, validate_pending_snapshot,
-    PendingSnapshot, SnapshotMetadata,
+    clear_snapshot_previews_after, cloud_dictionary_account_request, prepare_snapshot_directory,
+    replace_pending_snapshot, snapshot_command_error, snapshot_response_without_account,
+    snapshot_text_within_limit, take_pending_snapshot, valid_mobile_haptic_strength,
+    validate_pending_snapshot, PendingSnapshot, SnapshotMetadata,
 };
 #[cfg(target_os = "ios")]
 use crate::shared::account_dto::{
@@ -111,7 +111,7 @@ pub fn setup(app: &AppHandle<Wry>) -> Result<(), AccountError> {
     let community = MobileCommunityState::new(client, &session)?;
     let snapshot_directory =
         std::env::temp_dir().join(format!("msime-ios-tauri-snapshots-{}", std::process::id()));
-    fs::create_dir_all(&snapshot_directory).map_err(|_| AccountError::Storage)?;
+    prepare_snapshot_directory(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     cleanup_stale_snapshot_previews(&snapshot_directory).map_err(|_| AccountError::Storage)?;
     app.manage(AccountState {
         session,
@@ -352,7 +352,7 @@ async fn dictionary_snapshot_preview(
     let token = uuid::Uuid::new_v4().to_string();
     let file_token = token.clone();
     let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let profile = session.profile().map_err(account_command_error)?;
         let path = directory.join(format!("download-{file_token}.ndjson"));
         if let Err(error) = session.dictionary_snapshot_to_file(&path) {
@@ -436,7 +436,7 @@ async fn dictionary_snapshot_export(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("export-{token}.ndjson"));
         let result = (|| {
             session
@@ -474,7 +474,7 @@ async fn dictionary_snapshot_restore_preview(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
             fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;
@@ -513,7 +513,7 @@ async fn dictionary_snapshot_restore(
     let directory = state.snapshot_directory.clone();
     let token = uuid::Uuid::new_v4().to_string();
     tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&directory).map_err(|_| snapshot_command_error())?;
+        prepare_snapshot_directory(&directory).map_err(|_| snapshot_command_error())?;
         let path = directory.join(format!("restore-{token}.ndjson"));
         let result = (|| {
             fs::write(&path, text.as_bytes()).map_err(|_| snapshot_command_error())?;

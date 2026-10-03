@@ -16,6 +16,7 @@ import { DictionaryFormatOptions } from "../../dictionary/dictionary-format-opti
 import { OpenPanelRow } from "../open-panel-row";
 import { ActionRow } from "../action-row";
 import { ActionButton } from "../action-button";
+import { SettingsPageFieldset } from "../settings-page-fieldset";
 
 export { dictionaryKindKeyHint } from "../../dictionary/dictionary-messages";
 
@@ -56,206 +57,203 @@ export function DictionarySettingsPage() {
     openPanel,
   } = useSettingsForm();
   return (
-    <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
-      <div className={settings.groups}>
-        {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
-        {client.dictionary && (
-          <GroupList title="本地词库管理">
-            <p className={settings.groupNote}>
-              查询、新增、编辑和删除用户词库。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
-            </p>
-            <SelectRow
-              title="词库"
-              aria-label="本地词库类型"
-              value={dictionaryKind}
+    <SettingsPageFieldset disabled={busy} hidden={page !== "dictionary"} ariaLabel="词库">
+      {/* 先是词库本身（查、看、加），再是成批的导入导出和云词库，然后是只读的词库信息和别的入口，清除学习数据这种危险操作放在页末。 */}
+      {client.dictionary && (
+        <GroupList title="本地词库管理">
+          <p className={settings.groupNote}>
+            查询、新增、编辑和删除用户词库。标有「内置」的是随输入法附带的词条，只能调整权重或删除。
+          </p>
+          <SelectRow
+            title="词库"
+            aria-label="本地词库类型"
+            value={dictionaryKind}
+            disabled={phraseBusy}
+            onChange={(event) => {
+              const kind = event.target.value as LocalDictionaryKind;
+              setDictionaryKind(kind);
+              if (kind !== "pinyin" && dictionaryFormat === "hans") setDictionaryFormat("standard");
+              setPhrases([]);
+              void loadPhrases(kind);
+            }}
+          >
+            {localDictionaryKinds.map(([kind, label]) => (
+              <option key={kind} value={kind}>
+                {label}
+              </option>
+            ))}
+          </SelectRow>
+          <TextInputRow
+            title="编码前缀"
+            label="编码前缀"
+            className={settings.fieldInput}
+            value={phraseSearch}
+            placeholder="留空查看全部"
+            onChange={setPhraseSearch}
+          >
+            <ActionButton
+              action={() => void loadPhrases(dictionaryKind, 0)}
               disabled={phraseBusy}
-              onChange={(event) => {
-                const kind = event.target.value as LocalDictionaryKind;
-                setDictionaryKind(kind);
-                if (kind !== "pinyin" && dictionaryFormat === "hans")
-                  setDictionaryFormat("standard");
-                setPhrases([]);
-                void loadPhrases(kind);
-              }}
-            >
-              {localDictionaryKinds.map(([kind, label]) => (
-                <option key={kind} value={kind}>
-                  {label}
-                </option>
-              ))}
-            </SelectRow>
-            <TextInputRow
-              title="编码前缀"
-              label="编码前缀"
-              className={settings.fieldInput}
-              value={phraseSearch}
-              placeholder="留空查看全部"
-              onChange={setPhraseSearch}
-            >
+              label="查询"
+            />
+          </TextInputRow>
+          <div className={settings.managerBlock}>
+            {dictionaryPendingCount > 0 && (
+              <p className="input-setting-description" role="status">
+                {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
+              </p>
+            )}
+            {dictionarySnapshotError && (
+              <p role="alert" className="error">
+                {dictionarySnapshotError}
+              </p>
+            )}
+            <DictionaryFailuresNotice
+              failures={dictionaryFailures}
+              busy={phraseBusy}
+              canRetry={Boolean(client.dictionary?.retry)}
+              canDismiss={Boolean(client.dictionary?.dismissFailure)}
+              onRetry={(requestId) => void retryDictionaryFailure(requestId)}
+              onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
+            />
+            {phraseError && (
+              <p role="alert" className="error">
+                {phraseError}
+              </p>
+            )}
+            {phraseNotice && (
+              <p role="status" className={settings.empty}>
+                {phraseNotice}
+              </p>
+            )}
+            <DictionaryEntries
+              kind={dictionaryKind}
+              entries={phrases}
+              form={phraseForm}
+              busy={phraseBusy}
+              listRef={phraseListRef}
+              onFormChange={setPhraseForm}
+              onSave={() => void savePhrase()}
+              onCancel={() => setPhraseForm(null)}
+              onEdit={(entry) =>
+                setPhraseForm({
+                  key: entry.key,
+                  value: entry.value,
+                  weight: entry.weight,
+                  previous: entry,
+                })
+              }
+              onRemove={(entry) => void removePhrase(entry)}
+            />
+            <DictionaryPagination
+              busy={phraseBusy}
+              offset={phrasePage.offset}
+              hasMore={phrasePage.hasMore}
+              status={phrasePage.status}
+              pageSize={DICTIONARY_PAGE_SIZE}
+              onPageChange={turnPhrasePage}
+            />
+            <div className={settings.managerActions}>
               <ActionButton
-                action={() => void loadPhrases(dictionaryKind, 0)}
-                disabled={phraseBusy}
-                label="查询"
-              />
-            </TextInputRow>
-            <div className={settings.managerBlock}>
-              {dictionaryPendingCount > 0 && (
-                <p className="input-setting-description" role="status">
-                  {dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。
-                </p>
-              )}
-              {dictionarySnapshotError && (
-                <p role="alert" className="error">
-                  {dictionarySnapshotError}
-                </p>
-              )}
-              <DictionaryFailuresNotice
-                failures={dictionaryFailures}
-                busy={phraseBusy}
-                canRetry={Boolean(client.dictionary?.retry)}
-                canDismiss={Boolean(client.dictionary?.dismissFailure)}
-                onRetry={(requestId) => void retryDictionaryFailure(requestId)}
-                onDismiss={(requestId) => void dismissDictionaryFailure(requestId)}
-              />
-              {phraseError && (
-                <p role="alert" className="error">
-                  {phraseError}
-                </p>
-              )}
-              {phraseNotice && (
-                <p role="status" className={settings.empty}>
-                  {phraseNotice}
-                </p>
-              )}
-              <DictionaryEntries
-                kind={dictionaryKind}
-                entries={phrases}
-                form={phraseForm}
-                busy={phraseBusy}
-                listRef={phraseListRef}
-                onFormChange={setPhraseForm}
-                onSave={() => void savePhrase()}
-                onCancel={() => setPhraseForm(null)}
-                onEdit={(entry) =>
+                action={() =>
                   setPhraseForm({
-                    key: entry.key,
-                    value: entry.value,
-                    weight: entry.weight,
-                    previous: entry,
+                    key: "",
+                    value: "",
+                    weight: 10,
+                    previous: null,
                   })
                 }
-                onRemove={(entry) => void removePhrase(entry)}
+                disabled={phraseBusy}
+                label="新增词条"
               />
-              <DictionaryPagination
-                busy={phraseBusy}
-                offset={phrasePage.offset}
-                hasMore={phrasePage.hasMore}
-                status={phrasePage.status}
-                pageSize={DICTIONARY_PAGE_SIZE}
-                onPageChange={turnPhrasePage}
-              />
-              <div className={settings.managerActions}>
-                <ActionButton
-                  action={() =>
-                    setPhraseForm({
-                      key: "",
-                      value: "",
-                      weight: 10,
-                      previous: null,
-                    })
-                  }
-                  disabled={phraseBusy}
-                  label="新增词条"
-                />
-              </div>
             </div>
-          </GroupList>
-        )}
-        {client.dictionary && (
-          <GroupList title="导入与导出">
-            <p className={settings.groupNote}>
-              导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
-            </p>
-            <SelectRow
-              title="文件格式"
-              aria-label="本地词库文件格式"
-              value={dictionaryFormat}
-              disabled={phraseBusy}
-              onChange={(event) => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}
-            >
-              <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
-            </SelectRow>
-            <div className={settings.managerBlock}>
-              <div className={settings.managerActions}>
-                <label className="secondary">
-                  导入
-                  <input
-                    hidden
-                    type="file"
-                    accept=".txt,.tsv,.yaml,.yml,text/plain"
-                    disabled={phraseBusy}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file) {
-                        const name = file.name.toLowerCase();
-                        if (name.endsWith(".yaml") || name.endsWith(".yml"))
-                          setDictionaryFormat("rime");
-                        void importPhrases(file);
-                      }
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-                <ActionButton
-                  action={() => void exportPhrases()}
-                  disabled={phraseBusy || dictionaryFormat === "hans"}
-                  label="导出当前类型"
-                />
-                <ActionButton
-                  action={() => void exportAllPhrases()}
+          </div>
+        </GroupList>
+      )}
+      {client.dictionary && (
+        <GroupList title="导入与导出">
+          <p className={settings.groupNote}>
+            导入和导出的是上面所选类型的词库；导入支持标准、Windows TSV、Rime 和纯汉字自动注音。
+          </p>
+          <SelectRow
+            title="文件格式"
+            aria-label="本地词库文件格式"
+            value={dictionaryFormat}
+            disabled={phraseBusy}
+            onChange={(event) => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}
+          >
+            <DictionaryFormatOptions pinyin={dictionaryKind === "pinyin"} rime />
+          </SelectRow>
+          <div className={settings.managerBlock}>
+            <div className={settings.managerActions}>
+              <label className="secondary">
+                导入
+                <input
+                  hidden
+                  type="file"
+                  accept=".txt,.tsv,.yaml,.yml,text/plain"
                   disabled={phraseBusy}
-                  label="导出全部"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      const name = file.name.toLowerCase();
+                      if (name.endsWith(".yaml") || name.endsWith(".yml"))
+                        setDictionaryFormat("rime");
+                      void importPhrases(file);
+                    }
+                    event.currentTarget.value = "";
+                  }}
                 />
-              </div>
-            </div>
-            {client.dictionary.importPersonal && (
-              <PersonalDictionaryImportCard
-                embedded
-                dictionary={client.dictionary}
-                platform={client.host?.platform}
+              </label>
+              <ActionButton
+                action={() => void exportPhrases()}
+                disabled={phraseBusy || dictionaryFormat === "hans"}
+                label="导出当前类型"
               />
-            )}
-          </GroupList>
-        )}
-        {client.openCloudDictionary && (
-          <GroupList title="云词库">
-            <OpenPanelRow
-              title="云词库"
-              description="管理同步到账号的词条和备份"
-              action={() => openPanel(client.openCloudDictionary)}
-              label="打开云词库"
+              <ActionButton
+                action={() => void exportAllPhrases()}
+                disabled={phraseBusy}
+                label="导出全部"
+              />
+            </div>
+          </div>
+          {client.dictionary.importPersonal && (
+            <PersonalDictionaryImportCard
+              embedded
+              dictionary={client.dictionary}
+              platform={client.host?.platform}
             />
-          </GroupList>
-        )}
-        {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}
-        <SubPageEntries
-          title="更多"
-          pages={[{ id: "vocabulary", description: "用输入过的英文单词复习词汇" }]}
-        />
-        {/* 宿主提供 `resetLearnedData` 就显示（宿主只在真正能清除的桌面平台上提供）；它是危险操作，放在页末。 */}
-        {client.resetLearnedData && (
-          <GroupList title="学习数据">
-            <ActionRow
-              title="清除候选词频、用户词库和拼音学习记录"
-              description="自己新增和修改的词条也会删除；输入方案与其他设置不会改变。"
-              action={resetLearnedData}
-              className="secondary danger-button"
-              disabled={phraseBusy}
-              label="清除全部学习数据"
-            />
-          </GroupList>
-        )}
-      </div>
-    </fieldset>
+          )}
+        </GroupList>
+      )}
+      {client.openCloudDictionary && (
+        <GroupList title="云词库">
+          <OpenPanelRow
+            title="云词库"
+            description="管理同步到账号的词条和备份"
+            action={() => openPanel(client.openCloudDictionary)}
+            label="打开云词库"
+          />
+        </GroupList>
+      )}
+      {client.dictionaryManifest && <DictionaryManifestCard read={client.dictionaryManifest} />}
+      <SubPageEntries
+        title="更多"
+        pages={[{ id: "vocabulary", description: "用输入过的英文单词复习词汇" }]}
+      />
+      {/* 宿主提供 `resetLearnedData` 就显示（宿主只在真正能清除的桌面平台上提供）；它是危险操作，放在页末。 */}
+      {client.resetLearnedData && (
+        <GroupList title="学习数据">
+          <ActionRow
+            title="清除候选词频、用户词库和拼音学习记录"
+            description="自己新增和修改的词条也会删除；输入方案与其他设置不会改变。"
+            action={resetLearnedData}
+            className="secondary danger-button"
+            disabled={phraseBusy}
+            label="清除全部学习数据"
+          />
+        </GroupList>
+      )}
+    </SettingsPageFieldset>
   );
 }

@@ -85,6 +85,7 @@ const MAX_COMMUNITY_RESOURCE_PAGE_BYTES = 48 * 1024 * 1024;
 const MAX_COMMUNITY_RESOURCE_DETAIL_BYTES = 3 * 1024 * 1024;
 const MAX_SESSION_SECONDS = 86_400 * 30;
 const MAX_SESSION_MILLISECONDS = MAX_SESSION_SECONDS * 1000;
+const MAX_SESSION_BYTES = 64 * 1024;
 const MAX_SEARCH = 256;
 
 /**
@@ -731,7 +732,7 @@ export class AccountCloudBridge {
     this.transport = transport;
     this.store = store;
     const saved = store.load();
-    if (saved !== null) {
+    if (saved !== null && utf8Length(saved) <= MAX_SESSION_BYTES) {
       try {
         const value: unknown = JSON.parse(saved);
         if (validateSession(value)) this.session = value;
@@ -739,6 +740,8 @@ export class AccountCloudBridge {
       } catch {
         store.clear();
       }
+    } else if (saved !== null) {
+      store.clear();
     }
   }
 
@@ -1906,7 +1909,7 @@ export class AccountCloudBridge {
 
   private storedSession(): Session | null {
     const saved: string | null = this.store.load();
-    if (saved === null) return null;
+    if (saved === null || utf8Length(saved) > MAX_SESSION_BYTES) return null;
     try {
       const value: unknown = JSON.parse(saved);
       return validateSession(value) ? value : null;

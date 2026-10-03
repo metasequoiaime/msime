@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CommunityField } from "./community-field";
 import * as style from "./community-style";
 
 export interface CommunityTextareaFieldProps {
@@ -24,8 +25,7 @@ export function CommunityTextareaField({
   onChange,
 }: CommunityTextareaFieldProps) {
   return (
-    <label className={style.field}>
-      {label}
+    <CommunityField label={label}>
       <textarea
         className={style.textArea}
         aria-label={ariaLabel}
@@ -36,6 +36,6 @@ export function CommunityTextareaField({
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
       />
-    </label>
+    </CommunityField>
   );
 }

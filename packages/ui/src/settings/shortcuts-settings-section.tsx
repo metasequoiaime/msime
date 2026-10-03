@@ -3,8 +3,8 @@ import { InputModeShortcutsSection } from "./input-mode-shortcuts-section";
 import { CandidateShortcutsSection } from "./candidate-shortcuts-section";
 import { PanelShortcutsSection } from "./panel-shortcuts-section";
 import { ShortcutsIntroSection } from "./shortcuts-intro-section";
-import * as settings from "./settings-style";
 import type { NavigationPreferences, WordCharacterPreferences } from "./word-character-section";
+import { SettingsPageFieldset } from "./settings-page-fieldset";
 
 export interface ShortcutsSettingsSectionProps {
   disabled: boolean;
@@ -50,29 +50,27 @@ export function ShortcutsSettingsSection({
   harmony,
 }: ShortcutsSettingsSectionProps) {
   return (
-    <fieldset disabled={disabled} hidden={hidden} aria-label="快捷键">
-      <div className={settings.groups}>
-        <ShortcutsIntroSection mobile={mobile} />
-        <InputModeShortcutsSection
-          keybindings={keybindings}
-          onChange={onKeybindingsChange}
-          showModeSwitchShortcuts={showModeSwitchShortcuts}
-          macos={macos}
-          linux={linux}
-          showFullwidthChord={showFullwidthChord}
-          fullwidthChord={fullwidthChord}
-          windows={windows}
-        />
-        <CandidateShortcutsSection
-          navigation={navigation}
-          wordCharacter={wordCharacter}
-          numberRowSelection={numberRowSelection}
-          showNumberRowSelection={showNumberRowSelection}
-          mobile={mobile}
-          onNumberRowSelectionChange={onNumberRowSelectionChange}
-        />
-        <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
-      </div>
-    </fieldset>
+    <SettingsPageFieldset disabled={disabled} hidden={hidden} ariaLabel="快捷键">
+      <ShortcutsIntroSection mobile={mobile} />
+      <InputModeShortcutsSection
+        keybindings={keybindings}
+        onChange={onKeybindingsChange}
+        showModeSwitchShortcuts={showModeSwitchShortcuts}
+        macos={macos}
+        linux={linux}
+        showFullwidthChord={showFullwidthChord}
+        fullwidthChord={fullwidthChord}
+        windows={windows}
+      />
+      <CandidateShortcutsSection
+        navigation={navigation}
+        wordCharacter={wordCharacter}
+        numberRowSelection={numberRowSelection}
+        showNumberRowSelection={showNumberRowSelection}
+        mobile={mobile}
+        onNumberRowSelectionChange={onNumberRowSelectionChange}
+      />
+      <PanelShortcutsSection visible={showPanelShortcuts} macos={macos} harmony={harmony} />
+    </SettingsPageFieldset>
   );
 }

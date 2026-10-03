@@ -324,6 +324,7 @@ bool CandidateWindow::set_fonts(const CandidateFontSettings &settings) {
     // Resolve all names before replacing any live display state.
     auto primary = wide(settings.family);
     std::vector<std::wstring> fallback;
+    fallback.reserve(settings.fallback.size());
     for (const auto &name : settings.fallback)
       fallback.push_back(wide(name));
     if (!installed_font(primary)) {

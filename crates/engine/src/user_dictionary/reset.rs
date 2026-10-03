@@ -180,7 +180,7 @@ fn reject_redirected_directory(path: &Path) -> std::io::Result<()> {
         match fs::symlink_metadata(ancestor) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 #[cfg(target_os = "macos")]
-                if ancestor == Path::new("/var") || ancestor == Path::new("/tmp") {
+                if crate::paths::is_trusted_system_alias(ancestor) {
                     continue;
                 }
                 return Err(std::io::Error::new(

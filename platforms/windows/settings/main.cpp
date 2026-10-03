@@ -438,6 +438,7 @@ public:
     const auto value = Value(key);
     if (!value || value.ValueType() != JsonValueType::Array)
       return result;
+    result.reserve(value.GetArray().Size());
     for (auto const &item : value.GetArray())
       if (item.ValueType() == JsonValueType::String)
         result.emplace_back(item.GetString().c_str());
@@ -1334,6 +1335,7 @@ private:
       return;
     const double scale = titlebar_.XamlRoot().RasterizationScale();
     std::vector<Windows::Graphics::RectInt32> rects;
+    rects.reserve(2);
     auto add = [&rects, scale](FrameworkElement const &element) {
       if (!element || element.ActualWidth() <= 0)
         return;
@@ -1524,6 +1526,7 @@ private:
     if (!index_valid_ || index_revision_ != document_.revision())
       rebuild_search_index();
     std::vector<SearchEntry const *> matches;
+    matches.reserve(12);
     const auto needle = lowercase(query);
     if (needle.empty())
       return matches;
@@ -1543,6 +1546,7 @@ private:
 
   void update_suggestions(std::wstring const &query) {
     std::vector<Inspectable> items;
+    items.reserve(13);
     for (const auto *entry : search(query))
       items.push_back(box_value(hstring(entry->display)));
     if (items.empty() && !query.empty())
@@ -2179,6 +2183,7 @@ private:
       std::sort(values.begin(), values.end());
     }
     std::vector<Option> options;
+    options.reserve(values.size());
     for (const int value : values)
       options.push_back({std::to_wstring(value), std::to_wstring(value) + suffix});
     add_row(group, glyph, title, subtitle,
@@ -2718,6 +2723,7 @@ private:
         {L"settings", L"设置"},
     }};
     std::vector<Check> checks;
+    checks.reserve(components.size() + 1);
     checks.push_back({L"中英文切换（始终显示）", true, [](bool) {}, false});
     for (const auto &[id, label] : components) {
       const std::wstring key = std::wstring(L"floating_toolbar.") + id;
@@ -2877,6 +2883,7 @@ private:
         {L"mention", L"@ 名字与地点(@ 模式)", false},
     }};
     std::vector<Check> checks;
+    checks.reserve(modes.size());
     for (const auto &[id, label, default_on] : modes) {
       const std::wstring key = std::wstring(L"local_modes.") + id;
       checks.push_back({label, document_.Boolean(key, default_on), [this, key](bool on) {
@@ -3009,6 +3016,7 @@ private:
       }, true);
     });
     std::vector<Check> checks;
+    checks.reserve(all_rules.size());
     for (const auto *rule : all_rules) {
       const std::wstring id(rule);
       const auto dash = id.find(L'-');

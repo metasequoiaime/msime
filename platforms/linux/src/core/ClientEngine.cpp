@@ -1168,9 +1168,7 @@ bool clipboard_delete(const std::string &path, const std::optional<std::string> 
   bool removed = false;
   try {
     if (!text) {
-      std::error_code error;
-      std::filesystem::remove(path, error);
-      removed = !error;
+      removed = msime::linux_host::remove_clipboard_file(std::filesystem::path(path));
     } else {
       auto value = read_clipboard_store(std::filesystem::path(path));
       if (value && value->is_array()) {
@@ -1862,6 +1860,7 @@ Json prefer_online_translations(const Json &glosses, const Json &online) {
   std::vector<std::pair<std::string, std::string>> merged, answers;
   const auto read = [](const Json &values, auto &into) {
     if (!values.is_array()) return;
+    into.reserve(into.size() + values.size());
     for (const auto &item : values)
       if (item.is_object())
         into.emplace_back(item.value("text", std::string{}),
@@ -2188,6 +2187,7 @@ void online_dispatch(IBusEngine *engine, uint8_t only_source, bool ai_cache_only
     // Keep the original Engine identity for application, while each transport
     // request enables only one source. Fast cloud results need not wait for AI.
     std::vector<std::unique_ptr<OnlineTask>> requests;
+    requests.reserve(2);
     for (uint8_t source = 0; source < 2; ++source) {
       if (source != only_source) continue;
       // Each source has one in-flight request and its own duplicate guard. A pending AI result must not delay cloud for a newer composition.
@@ -2548,8 +2548,9 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
     ibus_prop_list_append(items, entry);
     const auto fixed_position = candidate.value("fixed_position", 0);
     // The parent entry already names the slot ("N. preview"), so the items carry only the action, worded like the Windows candidate menu.
-    std::vector<std::pair<const char *, std::string>> candidate_commands = {
-        {"CandidatePin", msime::linux_host::candidate_pin_label}};
+    std::vector<std::pair<const char *, std::string>> candidate_commands;
+    candidate_commands.reserve(7);
+    candidate_commands.emplace_back("CandidatePin", msime::linux_host::candidate_pin_label);
     if (msime::linux_host::candidate_dictionary_removal_available(
             scheme, source, candidate_text))
       candidate_commands.emplace_back("CandidateRemove", "删除候选");
@@ -3297,6 +3298,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   ibus_property_set_sub_props(profile, profile_menu);
   // The design menu: 中文/英文; 全角/标点/译文; 输入方案; 主题/词库…/设置…/关于, then the tools that depend on the moment (voice, candidate actions, nine-key spellings, clipboard history) and the three option groups holding every other switch. 中文/英文 is the one InputMode toggle Shift flips, labelled 中文 and checked while letters compose; the Engine's dedicated English mode (EnglishMode, Ctrl+Shift+E) is a different feature and sits in 输入选项 beside 英文候选. Nesting keeps each key, so activation and the by-key updates below do not change.
   std::vector<IBusProperty *> design_panel_actions;
+  design_panel_actions.reserve(3);
   for (const auto &action : desktop_panel_actions)
     if (action.design_menu) design_panel_actions.push_back(desktop_panel_property(engine, action));
   if (registration) {
