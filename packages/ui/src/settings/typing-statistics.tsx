@@ -14,6 +14,7 @@ import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
+import { SettingsEmptyMessage } from "./settings-empty-message";
 import {
   charactersPerMinute,
   readableCharacters,
@@ -64,7 +65,6 @@ const menuItem =
 // loaded -- and the loading branch was the one that got left behind when the class it used was
 // replaced.
 const page = "flex flex-col gap-3.5 max-phone:gap-2.5";
-const empty = "mt-0.5 mb-3.5 text-center text-muted";
 const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
 // The first column has to hold the longest label without the row's ellipsis cutting it. The count and share columns are fixed rather than auto because every row is its own grid: sized to their own content, a seven-digit count beside a two-digit one would start each track at a different x.
 const rankRow =
@@ -495,7 +495,9 @@ function DailyDetails({ rows }: { rows: DailyDetailRow[] }) {
         按日明细 · 最近 {DETAIL_DAYS} 天
       </h2>
       {rows.length === 0 ? (
-        <p className={`${empty} mt-3.5`}>暂无输入记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          暂无输入记录
+        </SettingsEmptyMessage>
       ) : (
         <div className="mt-3 overflow-x-auto">
           <table
@@ -682,7 +684,9 @@ function KeyboardHeatmap({
         按键热力图 · {scopeLabel}
       </h2>
       {model.total === 0 ? (
-        <p className={`${empty} mt-3.5`}>这段时间还没有按键记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          这段时间还没有按键记录
+        </SettingsEmptyMessage>
       ) : (
         <>
           <p className="mt-[7px] mb-0 text-xs text-muted">
@@ -819,9 +823,9 @@ function SpeedTrend({
   const count = (value: number) => Math.round(value).toLocaleString("zh-CN");
   if (known.length === 0)
     return (
-      <p className={`${empty} mt-3.5`}>
+      <SettingsEmptyMessage centered className="mt-3.5">
         这段时间还没有测量到足够的活跃时长。每天连续打字满 1 分钟后，这里会画出当天的速度。
-      </p>
+      </SettingsEmptyMessage>
     );
   const high = Math.max(...known, averageSpeed);
   const low = Math.min(...known, averageSpeed);
@@ -1078,7 +1082,9 @@ function Distribution({
         {title}
       </h2>
       {total === 0 ? (
-        <p className={`${empty} mt-3.5`}>暂无输入记录</p>
+        <SettingsEmptyMessage centered className="mt-3.5">
+          暂无输入记录
+        </SettingsEmptyMessage>
       ) : (
         // 标题独占一行，图表区整体放在标题下方；宽版按容器宽度而不是视口宽度决定是否并排，窄窗口里环形图回到图例上方，不再把图例挤成一字一行。
         <div
@@ -1165,7 +1171,9 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
         </small>
       </p>
       {total === 0 ? (
-        <p className={empty}>暂无候选记录。用水杉键盘上屏几次后再回来查看。</p>
+        <SettingsEmptyMessage centered>
+          暂无候选记录。用水杉键盘上屏几次后再回来查看。
+        </SettingsEmptyMessage>
       ) : (
         <div className={rankChart} role="img" aria-label="候选命中位置分布">
           {rows.map((row) => (
