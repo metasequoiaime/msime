@@ -3441,7 +3441,8 @@ async fn uninstall_input_source(
         code: "unavailable",
     })?;
     let input_methods = PathBuf::from(home).join("Library/Input Methods");
-    let bundle = input_methods.join("水杉输入法.app");
+    // 只卸载本设置应用所属版本的输入法，同时安装的其他版本不动。
+    let bundle = input_methods.join(macos_input_source::input_source_bundle_name());
     tauri::async_runtime::spawn_blocking(move || {
         // Wait for a start-time refresh or a manual install that is still writing the bundle.
         let _guard = macos_input_source::install_lock();

@@ -3028,7 +3028,7 @@ static __weak MSIMEInputController *MSIMEFocusedController;
 }
 - (NSMenu *)menu {
     [self ensureAppearance];
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"水杉输入法"];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:MSIMEEditionDisplayName()];
     menu.autoenablesItems = NO;
     ApplyMetasequoiaMenuTheme(menu, [self resolvedMenuThemePreferences]);
     for (NSUInteger mode = 0; mode < 2; ++mode) {
@@ -3115,11 +3115,11 @@ static __weak MSIMEInputController *MSIMEFocusedController;
     [menu addItem:voice];
 
     [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
+    NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:[MSIMEEditionDisplayName() stringByAppendingString:@"设置…"] action:@selector(showAppearance:) keyEquivalent:@""];
     settings.target = self;
     [menu addItem:settings];
     // The reference tray menu ends with 关于, which opens the settings window on its about page. One row does not make the menu too tall, and without it the version and licence notices are only reachable by knowing to open settings and scroll to the last page.
-    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(showAbout:) keyEquivalent:@""];
+    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"关于%@…", MSIMEEditionDisplayName()] action:@selector(showAbout:) keyEquivalent:@""];
     about.target = self;
     [menu addItem:about];
     return menu;
@@ -6397,7 +6397,7 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (logo) {
         NSImageView *mark = [NSImageView imageViewWithImage:logo];
         mark.identifier = @"candidate-logo";
-        mark.accessibilityLabel = @"水杉输入法";
+        mark.accessibilityLabel = MSIMEEditionDisplayName();
         mark.imageScaling = NSImageScaleProportionallyUpOrDown;
         mark.frame = NSMakeRect(inset + 2 * scale, headerBottom + floor((headerHeight - logoSide) / 2), logoSide, logoSide);
         [content addSubview:mark];

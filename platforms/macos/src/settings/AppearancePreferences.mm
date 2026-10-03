@@ -2982,7 +2982,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                                                              NSWindowStyleMaskFullSizeContentView
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
-    window.title = @"水杉输入法设置";
+    window.title = [MSIMEEditionDisplayName() stringByAppendingString:@"设置"];
     // A window the user is expected to come back to, at the size and place they left it. The
     // identifier is what makes restorable more than a flag: AppKit keys a window's saved state by
     // it, and a window without one is encoded into the saved-state bundle and then cannot be found
@@ -3747,7 +3747,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _uninstallButton = [NSButton buttonWithTitle:@"卸载…" target:self action:@selector(uninstallInputSource:)];
     _uninstallButton.bezelStyle = NSBezelStyleRounded;
     _uninstallButton.contentTintColor = NSColor.systemRedColor;
-    _uninstallButton.accessibilityLabel = @"卸载水杉输入法";
+    _uninstallButton.accessibilityLabel = [@"卸载" stringByAppendingString:MSIMEEditionDisplayName()];
     _uninstallButton.enabled = msime_macos_uninstall_input_source != nullptr;
     // The checkbox goes above the button, because it changes what the button does: below it, it
     // read as a consequence of a press that had already happened.
@@ -3769,7 +3769,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     logo.translatesAutoresizingMaskIntoConstraints = NO;
     [logo.widthAnchor constraintEqualToConstant:52.0].active = YES;
     [logo.heightAnchor constraintEqualToConstant:52.0].active = YES;
-    NSTextField *brand = [NSTextField labelWithString:@"水杉输入法"];
+    NSTextField *brand = [NSTextField labelWithString:MSIMEEditionDisplayName()];
     brand.font = [NSFont systemFontOfSize:17.0 weight:NSFontWeightSemibold];
     NSTextField *tagline = [NSTextField labelWithString:@"Metasequoia IME"];
     tagline.font = [NSFont systemFontOfSize:kBodyFontSize];
@@ -4862,7 +4862,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (msime_macos_uninstall_input_source == nullptr) return;
     NSAlert *confirmation = [NSAlert new];
     confirmation.alertStyle = NSAlertStyleWarning;
-    confirmation.messageText = @"确认卸载水杉输入法？";
+    confirmation.messageText = [NSString stringWithFormat:@"确认卸载%@？", MSIMEEditionDisplayName()];
     confirmation.informativeText = _removeUserDataButton.state == NSControlStateValueOn
         ? @"输入法会移到废纸篓，并删除本机词库、学习记录、偏好与语音密钥。"
         : @"输入法会移到废纸篓；本机词库、学习记录和偏好会保留。";
@@ -4880,7 +4880,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                                             create:NO
                                              error:nil];
     NSURL *inputMethods = [library URLByAppendingPathComponent:@"Input Methods" isDirectory:YES];
-    NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法.app" isDirectory:YES];
+    // 只卸载本版本的 bundle，同时安装的其他版本不动。
+    NSString *bundleName = MSIMEInputMethodBundleName();
+    if (!bundleName) return;
+    NSURL *bundle = [inputMethods URLByAppendingPathComponent:bundleName isDirectory:YES];
     NSDictionary *runtime = MSIMELoadRuntimeOptions();
     NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]
         && [runtime[@"preferences_directory"] isAbsolutePath] ? runtime[@"preferences_directory"] : nil;

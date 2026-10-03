@@ -34,6 +34,19 @@ static inline NSString *MSIMEInputMethodBundleIdentifierIn(NSDictionary *info) {
     return MSIMEEditionStringIn(info, @"CFBundleIdentifier") ?: MSIMEFullInputMethodBundleIdentifier;
 }
 
+// 产品名（菜单标题、无障碍标签用），full 是「水杉输入法」。
+static inline NSString *MSIMEEditionDisplayNameIn(NSDictionary *info) {
+    if (MSIMEEditionIsFullIn(info)) return @"水杉输入法";
+    return MSIMEEditionStringIn(info, @"CFBundleDisplayName") ?: @"水杉输入法";
+}
+
+// 输入法 bundle 在 ~/Library/Input Methods 下的文件名。full 是「水杉输入法.app」；其他版本是可执行文件名加 .app（scripts/edition_bundle.py 让两者同名）。卸载按它找要移到废纸篓的 bundle，所以不能退回 full 的名字。
+static inline NSString *MSIMEInputMethodBundleNameIn(NSDictionary *info) {
+    if (MSIMEEditionIsFullIn(info)) return @"水杉输入法.app";
+    NSString *executable = MSIMEEditionStringIn(info, @"CFBundleExecutable");
+    return executable ? [executable stringByAppendingString:@".app"] : nil;
+}
+
 // 设置应用的 bundle identifier，也是 Application Support 下状态目录的名字。
 static inline NSString *MSIMESettingsBundleIdentifierIn(NSDictionary *info) {
     if (MSIMEEditionIsFullIn(info)) return MSIMEFullSettingsBundleIdentifier;
@@ -77,6 +90,8 @@ static inline NSString *MSIMEEditionNotificationNameIn(NSDictionary *info, NSStr
 static inline NSString *MSIMEEditionIdentifier(void) { return MSIMEEditionIdentifierIn(MSIMEEditionInfo()); }
 static inline BOOL MSIMEEditionIsFull(void) { return MSIMEEditionIsFullIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEInputMethodBundleIdentifier(void) { return MSIMEInputMethodBundleIdentifierIn(MSIMEEditionInfo()); }
+static inline NSString *MSIMEEditionDisplayName(void) { return MSIMEEditionDisplayNameIn(MSIMEEditionInfo()); }
+static inline NSString *MSIMEInputMethodBundleName(void) { return MSIMEInputMethodBundleNameIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMESettingsBundleIdentifier(void) { return MSIMESettingsBundleIdentifierIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEKeychainService(void) { return MSIMEKeychainServiceIn(MSIMEEditionInfo()); }
 static inline NSArray<NSString *> *MSIMEEditionInputSchemes(void) { return MSIMEEditionInputSchemesIn(MSIMEEditionInfo()); }

@@ -67,6 +67,16 @@ int main() {
                     [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
                     MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
                 "The wubi edition's Info.plist did not give the wubi identity.");
+        // 卸载按 bundle 文件名找要移走的 bundle：五笔版只能是它自己的，名字缺了时宁可不卸载也不退回 full 的。
+        NSMutableDictionary *named = [wubi mutableCopy];
+        named[@"CFBundleExecutable"] = @"水杉五笔";
+        named[@"CFBundleDisplayName"] = @"水杉五笔";
+        require([MSIMEInputMethodBundleNameIn(@{}) isEqualToString:@"水杉输入法.app"] &&
+                    [MSIMEInputMethodBundleNameIn(named) isEqualToString:@"水杉五笔.app"] &&
+                    MSIMEInputMethodBundleNameIn(wubi) == nil &&
+                    [MSIMEEditionDisplayNameIn(@{}) isEqualToString:@"水杉输入法"] &&
+                    [MSIMEEditionDisplayNameIn(named) isEqualToString:@"水杉五笔"],
+                "The bundle file name or the display name did not follow the edition.");
         require(MSIMEEditionIsFull() && MSIMEEditionOffersScheme(@"tibetan") && !MSIMEEditionOffersScheme(@"klingon") &&
                     [MSIMEEffectiveInputScheme(@"cantonese", @"klingon", @{}) isEqualToString:@"quanpin"],
                 "The test process, which is full, did not offer every scheme or fall back to quanpin.");
