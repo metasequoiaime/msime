@@ -716,7 +716,7 @@ endif()
 if(MSIME_LANGUAGE_DICTIONARY_COUNT EQUAL 0)
   message(STATUS "No language dictionaries; Cantonese, Zhuyin and Stroke stay unavailable")
 endif()
-# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet (stroke.db until a langdict release carries it) is installed when present but cannot fail a release, and the lock bump that publishes it makes it required.
+# A release requires every dictionary resources/language-dictionaries.lock.json pins, not a fixed list: a dictionary that has not been released yet is installed when present but cannot fail a release, and the lock bump that publishes it makes it required.
 if(MSIME_REQUIRE_LANGUAGE_DICTIONARIES)
   set(MSIME_LANGUAGE_DICTIONARIES_LOCK "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/language-dictionaries.lock.json")
   if(NOT EXISTS "${MSIME_LANGUAGE_DICTIONARIES_LOCK}")

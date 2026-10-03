@@ -55,7 +55,7 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
     }
 
-    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `<方案>.db` 的方案：词库还没发布的方案（例如锁文件补上 `stroke.db` 之前的笔画）下载了也装不上，不能当作由这个包提供。
+    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
     pub fn schemes(self) -> &'static [&'static str] {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
@@ -301,7 +301,7 @@ mod tests {
                 (&locked.url, &locked.sha256, locked.size)
             );
         }
-        assert_eq!(ResourcePack::LanguageDictionaries.set().artifacts.len(), 4);
+        assert_eq!(ResourcePack::LanguageDictionaries.set().artifacts.len(), 6);
         assert_eq!(ResourcePack::Handwriting.set().artifacts.len(), 2);
     }
 

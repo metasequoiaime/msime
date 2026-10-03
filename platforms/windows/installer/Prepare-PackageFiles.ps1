@@ -401,7 +401,7 @@ if (-not $Light) {
     } else {
         Write-Host "未找到语言词库（$languagesSource），粤拼、注音和笔画保持不可用"
     }
-    # 发版要求的是 resources/language-dictionaries.lock.json 固定的每一份词库，而不是写死的清单：还没发布的词库（langdict release 带上 stroke.db 之前的笔画）存在时照常装入，但不会让发版失败；发布它的那次锁更新会让它变成必需。
+    # 发版要求的是 resources/language-dictionaries.lock.json 固定的每一份词库，而不是写死的清单：还没发布的词库存在时照常装入，但不会让发版失败；发布它的那次锁更新会让它变成必需。
     if ($env:MSIME_REQUIRE_LANGUAGE_DICTIONARIES -eq '1') {
         $languagesLock = Join-Path $RepoRoot 'resources/language-dictionaries.lock.json'
         if (-not (Test-Path -LiteralPath $languagesLock -PathType Leaf)) {

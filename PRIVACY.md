@@ -110,11 +110,11 @@ Windows 与 HarmonyOS 除了你主动提交的[社区举报](#社区举报与审
 
 首次准备词库时从 GitHub Releases 拉取固定版本的资源，地址、长度和 SHA-256 全部写死在 `resources/desktop-dictionary.lock.json` 里，逐一校验，全部成功才发布到内容标识目录。下载的是公开发布物，不上传任何东西。检查更新只在点击「检查更新」时进行，向 `https://api.github.com/repos/metasequoiaime/msime/releases` 发起 GET 请求并在本地按平台标签前缀筛选（识别不出宿主平台时改为读取 `https://msime.app/update.json`）；请求除 IP 地址和防缓存时间戳外不携带标识，适用 GitHub 隐私条款。
 
-macOS 发布包只内置打中文所需的核心词库，日文词典、粤拼与注音词库、手写模型三个资源包由设置应用在首次用到时下载，之后从本机读取：
+macOS 发布包只内置打中文所需的核心词库，日文词典、粤拼注音与笔画词库、手写模型三个资源包由设置应用在首次用到时下载，之后从本机读取：
 
 | | |
 | --- | --- |
-| 触发 | 只在这几种情况下发生：在设置里选日文、粤拼或注音方案；第一次打开手写面板；设置应用启动时发现已保存的方案（或上一次的中文方案）需要的资源包还没装；在「临时日语」一行点「下载」 |
+| 触发 | 只在这几种情况下发生：在设置里选日文、粤拼、注音或笔画方案；第一次打开手写面板；设置应用启动时发现已保存的方案（或上一次的中文方案）需要的资源包还没装；在「临时日语」一行点「下载」 |
 | 目的地 | GitHub Releases（`https://github.com/metasequoiaime/msime/releases/download/dict-v.../`、`.../langdict-v.../`，下载时会被重定向到 GitHub 的文件存储域名）与 `https://raw.githubusercontent.com/metasequoiaime/msime-engine/<固定提交>/...`（手写模型）；配置了镜像时改为镜像地址 |
 | 发送内容 | 对固定文件的 HTTPS GET 请求，不携带任何输入内容、账号或设备标识 |
 | 需要凭据 | 否 |

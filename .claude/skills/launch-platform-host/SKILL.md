@@ -70,7 +70,7 @@ bash platforms/macos/stage-resources.sh target/resources/<上一步返回的目�
 mkdir -p target/macos && find target/macos-isolated -maxdepth 1 -name "*.app" -exec cp -R {} target/macos/ \;
 ```
 
-开发构建照旧暂存全部资源（含日文词典，和 `target/language-dictionaries` 里有的粤拼、注音词库），它们是按需下载之外的内置兜底，所以开发包里这几个方案装好就能用。发布包只带核心词库，日文词典、粤拼/注音词库和手写模型由设置应用下载到 `~/Library/Application Support/app.msime.macos/resource-packs/<id>/`。要在本机测试下载流程，暂存时改用 `MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh <目录>`（不准备 `target/language-dictionaries`），并先删掉 `resource-packs/` 下已装的资源包；`cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- <绝对路径的 state_root> [japanese|language-dictionaries|handwriting]` 用 App 同一个安装器直接装资源包。
+开发构建照旧暂存全部资源（含日文词典，和 `target/language-dictionaries` 里有的粤拼、注音、笔画词库），它们是按需下载之外的内置兜底，所以开发包里这几个方案装好就能用。发布包只带核心词库，日文词典、粤拼/注音/笔画词库和手写模型由设置应用下载到 `~/Library/Application Support/app.msime.macos/resource-packs/<id>/`。要在本机测试下载流程，暂存时改用 `MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh <目录>`（不准备 `target/language-dictionaries`），并先删掉 `resource-packs/` 下已装的资源包；`cargo run --quiet --locked -p msime-client-core --example install_resource_pack -- <绝对路径的 state_root> [japanese|language-dictionaries|handwriting]` 用 App 同一个安装器直接装资源包。
 
 ## iOS
 
