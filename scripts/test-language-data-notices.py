@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check that the licences of the Cantonese and Zhuyin data travel through every platform's notice channel.
+"""Check that the licences of the Cantonese, Zhuyin and Stroke data travel through every platform's notice channel.
 
-The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers the two schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries both texts, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
+The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
-许可证文件写明它覆盖的上游提交。两份数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip。
+许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `stroke/` 等 msime-dictionary 发布后以同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
 """
 import json
 import sys
@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
-# 粤拼与注音的源文件只从 msime-dictionary 的 sources release 附件取用。
+# 粤拼、注音与笔画的源文件只从 msime-dictionary 的 sources release 附件取用。
 DICTIONARY_RELEASES = "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v"
 # 每个许可证文件对应的上游仓库、它覆盖的提交、锁文件里这份数据所在的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
 LICENCES = {
@@ -27,7 +27,15 @@ LICENCES = {
         "tw/",
         ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS"),
     ),
+    "resources/licenses/rime-stroke-LGPL-3.0.txt": (
+        "rime/rime-stroke",
+        "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48",
+        "stroke/",
+        ("四季的風", "Kunki Chou", "宋天", "數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw", "北大中文論壇", "cn/SingleCharsAllV1.txt", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48", "https://www.gnu.org/licenses/gpl-3.0.txt"),
+    ),
 }
+# 锁文件固定之前，dict-builder 按自己记下的上游提交校验缓存里的源文件；那个提交也必须是许可证覆盖的提交。
+BUILDER_COMMITS = {"rime/rime-stroke": ("crates/dict-builder/src/stroke.rs", 'pub const COMMIT: &str = "{commit}";')}
 # Every channel has to name each licence file on a live (non-comment) line.
 NOTICE_CHANNELS = {
     "platforms/windows/Collect-Notices.ps1": "Windows: the notice collection the installer ships",
@@ -72,6 +80,10 @@ def main() -> int:
             check(any(licence.name in line for line in live), f"{channel} ({description}) does not ship {licence.name}")
         for overview in OVERVIEWS:
             check(commit in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name {repository} commit {commit}")
+
+        if repository in BUILDER_COMMITS:
+            source, declaration = BUILDER_COMMITS[repository]
+            check(declaration.format(commit=commit) in (ROOT / source).read_text(encoding="utf-8"), f"{source} does not build from {repository} at {commit}, the commit {relative} covers")
 
         references = [entry["commit"] for entry in lock["references"].values() if repository in entry["repository"]]
         files = [entry["url"] for entry in lock["files"] if entry["path"].startswith(directory)]

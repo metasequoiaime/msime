@@ -64,4 +64,6 @@ cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$notices/libhangul-hanja
 # The engine's Cantonese and Zhuyin schemes take their Jyutping and bopomofo syllables and words from data derived from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer). build-apk.sh and build-client-apk.sh package the dictionaries themselves, each beside its own licence text, when target/language-dictionaries (or MSIME_LANGUAGE_DICTIONARIES) holds them; the notices travel with every engine build either way so that one notice list covers every platform.
 cp resources/licenses/rime-cantonese-CC-BY-4.0.txt "$notices/rime-cantonese.txt"
 cp resources/licenses/libchewing-data-LGPL-2.1.txt "$notices/libchewing-data.txt"
+# The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, whose main table also carries the CNS11643 attribution); its notice travels the same way.
+cp resources/licenses/rime-stroke-LGPL-3.0.txt "$notices/rime-stroke.txt"
 echo "Android native libraries built: $output (not yet device-verified)"

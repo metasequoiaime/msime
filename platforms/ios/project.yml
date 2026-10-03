@@ -85,6 +85,9 @@ targets:
         buildPhase: resources
       - path: ../../resources/licenses/libchewing-data-LGPL-2.1.txt
         buildPhase: resources
+      # The Stroke scheme's stroke orders come from rime-stroke (LGPL-3.0, with the CNS11643 attribution); its notice travels the same way.
+      - path: ../../resources/licenses/rime-stroke-LGPL-3.0.txt
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

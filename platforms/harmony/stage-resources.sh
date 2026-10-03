@@ -28,12 +28,12 @@ cp resources/helpcodes/NOTICE.md "$staged/helpcodes/NOTICE-jiajia.md"
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$staged" >/dev/null
 echo "Staged for the HAP: $staged"
 
-# Licences of what the native library carries that its own notices do not cover: the input engine embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions, and its Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), whose notices travel with every engine build even where those schemes are not offered. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts it to context.resourceDir/licenses.
+# Licences of what the native library carries that its own notices do not cover: the input engine embeds the Korean Hanja table from libhangul's data/hanja/hanja.txt, whose BSD-3-Clause licence requires the notice in binary distributions, its Cantonese and Zhuyin schemes take their syllables and words from data derived from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and its Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, with the CNS11643 attribution), whose notices travel with every engine build even where those schemes are not offered. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts it to context.resourceDir/licenses.
 licenses_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/licenses"
 rm -rf "$licenses_staged"
 mkdir -p "$licenses_staged"
 cp resources/licenses/libhangul-hanja-BSD-3-Clause.txt "$licenses_staged/"
-cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt "$licenses_staged/"
+cp resources/licenses/rime-cantonese-CC-BY-4.0.txt resources/licenses/libchewing-data-LGPL-2.1.txt resources/licenses/rime-stroke-LGPL-3.0.txt "$licenses_staged/"
 echo "Licences staged for the HAP: $licenses_staged"
 
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py. Beside the engine directory rather than in it, which the lock check above would reject; resfile extracts them to context.resourceDir/sound-packs, the built-in pack root the keyboard names to client-core.

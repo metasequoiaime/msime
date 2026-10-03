@@ -106,11 +106,11 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("buildPhase: resources", blocks[0])
         self.assertIn("Choe Hwanjin", (IOS_ROOT / "../../resources/licenses/libhangul-hanja-BSD-3-Clause.txt").read_text())
 
-    def test_app_ships_the_licences_of_the_cantonese_and_zhuyin_data(self):
-        # The engine linked into the app and its keyboard extension has Cantonese and Zhuyin schemes whose data derives from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later).
+    def test_app_ships_the_licences_of_the_language_dictionary_data(self):
+        # The engine linked into the app and its keyboard extension has Cantonese, Zhuyin and Stroke schemes whose data derives from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and rime-stroke (LGPL-3.0, with the CNS11643 attribution).
         project = (IOS_ROOT / "project.yml").read_text()
         app = dict(target_blocks(project))["MSIMEApp"]
-        for licence, holder in (("rime-cantonese-CC-BY-4.0.txt", "CanCLID"), ("libchewing-data-LGPL-2.1.txt", "libchewing Core Team")):
+        for licence, holder in (("rime-cantonese-CC-BY-4.0.txt", "CanCLID"), ("libchewing-data-LGPL-2.1.txt", "libchewing Core Team"), ("rime-stroke-LGPL-3.0.txt", "CNS11643中文標準交換碼全字庫網站")):
             path = f"../../resources/licenses/{licence}"
             blocks = source_path_blocks(app, path)
             self.assertEqual(len(blocks), 1)
