@@ -4,6 +4,7 @@ import { errorCode } from "../core/error-code";
 import { SettingsServiceRow } from "./settings-service-row";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
+import { useMountedRef } from "./use-mounted-ref";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
@@ -236,18 +237,16 @@ export function McpConnectSection({
   const [preferred, setPreferred] = useState<McpFlag[]>(savedFlags);
   // 已连接的助手页上，开关先显示它现有条目的权限；用户改过之后记在这里，直到写入。
   const [drafts, setDrafts] = useState<Partial<Record<McpClientId, McpFlag[]>>>({});
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const refreshGeneration = useRef(0);
   const clientGeneration = useRef(0);
   const actionRunning = useRef(false);
 
   useEffect(() => {
     const generation = ++clientGeneration.current;
-    mounted.current = true;
     actionRunning.current = false;
     setBusy(undefined);
     return () => {
-      mounted.current = false;
       refreshGeneration.current += 1;
       if (generation === clientGeneration.current) clientGeneration.current++;
     };
