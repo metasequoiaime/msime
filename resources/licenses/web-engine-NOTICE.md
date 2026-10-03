@@ -15,7 +15,7 @@
 ## 引擎
 
 - 许可证：GPL-3.0-only，全文见下文「仓库内的许可证全文」中的 `LICENSE`。
-- 对应源码：<https://github.com/metasequoiaime/msime/tree/{{source_commit}}>（发布时 `scripts/build-web-engine.sh` 把占位符换成构建所用的完整提交号）。构建方法见该提交的 `scripts/build-web-engine.sh`。
+- 对应源码：<https://github.com/metasequoiaime/msime/tree/{{source_commit}}>，即构建本 release 的提交；构建方法见该提交的 `scripts/build-web-engine.sh`。<!-- 仓库里这份的链接是占位符，scripts/build-web-engine.sh 发布时把它替换为构建所用的完整提交号。 -->
 - wasm 里编进了下列数据和移植代码，它们的许可证要求在二进制分发时附带声明：
   - libhangul 的韩语汉字表（`crates/engine/src/korean/hanja.rs` 以 `include_str!("hanja.tsv")` 编入，约 430 KB）：BSD-3-Clause，全文见 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`。
   - 中国行政区划数据（`crates/engine/src/local/places.rs` 以 `include_str!("places.tsv")` 编入）：WTFPL，全文见 `resources/licenses/Administrative-divisions-of-China-WTFPL.txt`。
