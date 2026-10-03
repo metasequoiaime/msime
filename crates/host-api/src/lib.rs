@@ -559,11 +559,15 @@ impl HostSession {
             let prior = result.diagnostic.take().unwrap_or_default();
             result.diagnostic = Some(format!("{prior} {note}").trim().to_owned());
         }
-        // A replacement changes the view generation, never the completed commit. A scheme that does not widen (Korean) writes half-width ASCII punctuation and digits whatever the width switch says; the dedicated English mode keeps its own rules in every scheme, so its commits are widened as they are under a Chinese scheme.
-        let half_width_text = SchemeType::from_u8(result.view.scheme)
+        // A replacement changes the view generation, never the completed commit. A scheme that does not widen (Korean) writes half-width ASCII punctuation and digits whatever the width switch says; the dedicated English mode keeps its own rules in every scheme, so its commits are widened as they are under a Chinese scheme. 网址模式的上屏始终是半角：上屏后 view 已回到 `none`，所以看上屏前记下的 `commit_context`。
+        let half_width_text = (SchemeType::from_u8(result.view.scheme)
             .is_some_and(|scheme| !scheme.widens_full_width())
             && !result.view.dedicated_english
-            && result.view.local_mode == "none";
+            && result.view.local_mode == "none")
+            || result
+                .commit_context
+                .as_ref()
+                .is_some_and(|context| context.local_mode == "url");
         if result.view.character_width == CharacterWidth::Fullwidth && !half_width_text {
             if let Some(c) = result.commit.as_mut() {
                 *c = c

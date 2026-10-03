@@ -529,7 +529,7 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic: View.microsoft_shuangpin reports the applied Engine configuration, never a newer deferred preference. Hosts use it with mode, editing text and caret. none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin, temporary_english, temporary_japanese, expression, command, mention. Treat unknown as unusable state.
+/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic: View.microsoft_shuangpin reports the applied Engine configuration, never a newer deferred preference. Hosts use it with mode, editing text and caret. none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin, temporary_english, temporary_japanese, expression, command, mention, url. Treat unknown as unusable state.
  * View.spelling_symbols lists the non-letter keys the Engine takes as input in this state: the active mode's spelling (digits and operators in expression, digits in unicode) or, with nothing composed, the keys that open a mode (/ and @). Send them as characters; a digit listed there is input, not a candidate shortcut. A transition's commit_context.typing_statistics is false for text the expression, command and mention modes generated, which is not counted as typing.
  */
 char *msime_client_view(uint64_t session);

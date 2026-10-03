@@ -1059,6 +1059,38 @@ fn tibetan_scheme_crosses_the_host_boundary() {
     read(msime_client_destroy(handle));
 }
 
+// 全角输出开着时，中文方案的上屏都转成全角，网址例外：上屏后 view 已回到 `none`，所以按上屏前的 `commit_context.local_mode` 豁免。
+#[test]
+fn url_commits_stay_half_width_in_full_width_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let handle = test_host(directory.path());
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    read(msime_client_set_character_width(handle, true));
+
+    // 对照：同样的 ASCII 字母不在网址模式时照旧变成全角。
+    for character in b"abc" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let plain = read(msime_client_command(handle, 2));
+    assert_eq!(plain["value"]["commit"], "ａｂｃ");
+
+    for character in b"www" {
+        read(msime_client_character(handle, *character, false));
+    }
+    let opened = read(msime_client_punctuation(handle, b'.'));
+    assert!(opened["value"]["commit"].is_null());
+    assert_eq!(opened["value"]["view"]["local_mode"], "url");
+    for character in b"a1" {
+        read(msime_client_character(handle, *character, false));
+    }
+    read(msime_client_punctuation(handle, b'/'));
+    let committed = read(msime_client_command(handle, 2));
+    assert_eq!(committed["value"]["commit"], "www.a1/");
+    assert_eq!(committed["value"]["commit_context"]["local_mode"], "url");
+    assert_eq!(committed["value"]["view"]["local_mode"], "none");
+    assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+}
+
 #[test]
 fn korean_scheme_crosses_the_host_boundary() {
     let dir = tempfile::tempdir().unwrap();
