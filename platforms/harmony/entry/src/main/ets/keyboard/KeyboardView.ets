@@ -1700,8 +1700,11 @@ struct KeyboardView {
     KeyboardSession.shared.recordKey(KeyIdPolicy.ENTER);
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
       this.japanese, this.editing.length > 0, this.candidates.length,
-      KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace());
-    if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
+      KeyboardSession.shared.japaneseConversionActive(), this.koreanFace(), this.vietnameseFace(),
+      this.strokeFace());
+    if (dispatch === ReturnDispatch.COMMIT_RAW) {
+      KeyboardSession.shared.commitRaw();
+    } else if (dispatch === ReturnDispatch.FINISH_THEN_EDITOR) {
       KeyboardSession.shared.finishBeforeKey();
       KeyboardSession.shared.submit();
     } else if (dispatch === ReturnDispatch.COMMIT_HIGHLIGHTED) {

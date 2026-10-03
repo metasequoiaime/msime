@@ -4461,6 +4461,18 @@ group("return performs an editor action only when nothing else claimed it", () =
     "a candidate-less non-Japanese composition is still finished before Return",
   );
   check(
+    ReturnKeyAction.dispatch(false, true, 3, false, false, false, true) === ReturnDispatch.COMMIT_RAW,
+    "Stroke Return commits the typed letters even with candidates, as on iOS, Android and a hardware Return",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0, false, false, false, true) === ReturnDispatch.COMMIT_RAW,
+    "a Stroke composition without candidates commits its letters too",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0, false, false, false, true) === ReturnDispatch.EDITOR,
+    "with nothing composing Stroke's Return is the editor's",
+  );
+  check(
     ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
     "an idle Return belongs to the editor",
   );
