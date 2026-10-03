@@ -90,8 +90,14 @@ pub enum Key {
         word: bool,
     },
     Escape,
-    PagePrev,
-    PageNext,
+    /// 上一页。`punct` 是这次翻页借用的标点键（只能是 `b'-'`）：组字时照常翻页，空闲时打出这个标点；None 是 PageUp、方向键这类空闲时什么也不做的翻页键。
+    PagePrev {
+        punct: Option<u8>,
+    },
+    /// 下一页。`punct` 只能是 `b'='`，含义同 [`Key::PagePrev`]。
+    PageNext {
+        punct: Option<u8>,
+    },
     HighlightPrev,
     HighlightNext,
     /// 不是字母也不是数字的可打印 ASCII，包括 `b'\''`。
@@ -106,6 +112,12 @@ impl Key {
         let kind = packed >> 8;
         let byte = (packed & 0xff) as u8;
         let bare = |key: Key| (byte == 0).then_some(key);
+        // 翻页键的低字节为 0（PageUp、方向键），或者是它借用的那个标点键。
+        let paging = |mark: u8| match byte {
+            0 => Some(None),
+            _ if byte == mark => Some(Some(mark)),
+            _ => None,
+        };
         match kind {
             1 if byte.is_ascii_lowercase() => Some(Key::Letter(byte)),
             2 if byte.is_ascii_uppercase() => Some(Key::ShiftLetter(byte)),
@@ -115,8 +127,8 @@ impl Key {
             6 => bare(Key::Backspace { word: false }),
             7 => bare(Key::Backspace { word: true }),
             8 => bare(Key::Escape),
-            9 => bare(Key::PagePrev),
-            10 => bare(Key::PageNext),
+            9 => paging(b'-').map(|punct| Key::PagePrev { punct }),
+            10 => paging(b'=').map(|punct| Key::PageNext { punct }),
             11 => bare(Key::HighlightPrev),
             12 => bare(Key::HighlightNext),
             13 if is_punct(byte) => Some(Key::Punct(byte)),
@@ -136,8 +148,8 @@ impl Key {
             Key::Backspace { word: false } => (6, 0),
             Key::Backspace { word: true } => (7, 0),
             Key::Escape => (8, 0),
-            Key::PagePrev => (9, 0),
-            Key::PageNext => (10, 0),
+            Key::PagePrev { punct } => (9, punct.unwrap_or(0)),
+            Key::PageNext { punct } => (10, punct.unwrap_or(0)),
             Key::HighlightPrev => (11, 0),
             Key::HighlightNext => (12, 0),
             Key::Punct(byte) => (13, byte),
@@ -156,7 +168,7 @@ fn is_punct(byte: u8) -> bool {
 pub enum Out {
     /// 上屏。`seat` 是候选在排序后列表里的 0 起座位（标点结束组字时，被结束的那部分也带座位）；原文上屏、标点本身以及五笔顶字和四码唯一自动上屏为 -1。
     Commit { text: String, seat: i32 },
-    /// 空闲时直接打出的文字：英文模式下的字母、数字、空格、换行、引擎不翻译的 ASCII 标点。
+    /// 空闲时直接打出的文字：英文模式下的字母、数字、空格、引擎不翻译的 ASCII 标点。
     Type(String),
     /// 空闲时的退格：删除已上屏的文字。
     Back { word: bool },
@@ -433,11 +445,10 @@ impl WebHost {
                     self.type_text(" ".to_owned());
                 }
             }
+            // 空闲的回车什么也不输出：跟打页面从不需要引擎打出换行。
             Key::Enter => {
                 if self.composing() {
                     self.commit_raw();
-                } else {
-                    self.type_text("\n".to_owned());
                 }
             }
             Key::Backspace { word } => {
@@ -459,14 +470,22 @@ impl WebHost {
                     self.out.push(Out::Exit);
                 }
             }
-            Key::PageNext => self.page_next(),
-            Key::PagePrev => {
+            Key::PageNext { punct } => {
+                if self.composing() {
+                    self.page_next();
+                } else if let Some(byte) = punct {
+                    self.punct(byte);
+                }
+            }
+            Key::PagePrev { punct } => {
                 if self.composing() {
                     self.ensure_ordered();
                     if !self.ordered.rows.is_empty() {
                         let page = self.highlighted / self.page_size;
                         self.highlighted = page.saturating_sub(1) * self.page_size;
                     }
+                } else if let Some(byte) = punct {
+                    self.punct(byte);
                 }
             }
             Key::HighlightNext => self.highlight_next(),
@@ -602,9 +621,6 @@ impl WebHost {
     }
 
     fn page_next(&mut self) {
-        if !self.composing() {
-            return;
-        }
         self.ensure_ordered();
         let len = self.ordered.rows.len();
         if len == 0 {
@@ -1026,8 +1042,10 @@ mod tests {
             Key::Backspace { word: false },
             Key::Backspace { word: true },
             Key::Escape,
-            Key::PagePrev,
-            Key::PageNext,
+            Key::PagePrev { punct: None },
+            Key::PageNext { punct: None },
+            Key::PagePrev { punct: Some(b'-') },
+            Key::PageNext { punct: Some(b'=') },
             Key::HighlightPrev,
             Key::HighlightNext,
             Key::Punct(b'\''),
@@ -1040,6 +1058,11 @@ mod tests {
         }
         assert_eq!(Key::pack(Key::Letter(b'n')), (1 << 8) | u32::from(b'n'));
         assert_eq!(Key::pack(Key::ShiftTap), 14 << 8);
+        assert_eq!(Key::pack(Key::PagePrev { punct: None }), 9 << 8);
+        assert_eq!(
+            Key::pack(Key::PageNext { punct: Some(b'=') }),
+            (10 << 8) | u32::from(b'=')
+        );
     }
 
     #[test]
@@ -1050,6 +1073,10 @@ mod tests {
         assert_eq!(Key::unpack((2 << 8) | u32::from(b'a')), None);
         assert_eq!(Key::unpack((3 << 8) | u32::from(b'x')), None);
         assert_eq!(Key::unpack((4 << 8) | 1), None);
+        // 翻页键只认自己借用的那个标点。
+        assert_eq!(Key::unpack((9 << 8) | u32::from(b'=')), None);
+        assert_eq!(Key::unpack((10 << 8) | u32::from(b'-')), None);
+        assert_eq!(Key::unpack((9 << 8) | u32::from(b',')), None);
         assert_eq!(Key::unpack((13 << 8) | u32::from(b'a')), None);
         assert_eq!(Key::unpack((13 << 8) | u32::from(b' ')), None);
         assert_eq!(Key::unpack((13 << 8) | 0x7f), None);

@@ -108,8 +108,12 @@ fn enter_commits_the_letters() {
     type_text(&mut fixture.host, "nihao");
     let frame = fixture.host.keys(&[Key::Enter]);
     assert_eq!(frame.out, vec![commit("nihao", -1)]);
+    assert!(!frame.composing);
+    // 空闲的回车什么也不输出，也不进上文。
     let frame = fixture.host.keys(&[Key::Enter]);
-    assert_eq!(frame.out, vec![Out::Type("\n".to_owned())]);
+    assert!(frame.out.is_empty());
+    assert!(!frame.composing);
+    assert_eq!(fixture.host.context_for_tests(), "nihao");
 }
 
 #[test]
@@ -148,7 +152,7 @@ fn paging_expands_past_the_initial_candidates() {
     assert!(frame.has_next);
     let mut frame = frame;
     for _ in 0..3 {
-        frame = fixture.host.keys(&[Key::PageNext]);
+        frame = fixture.host.keys(&[Key::PageNext { punct: None }]);
     }
     // 首次查询只给 24 个（三页，第三页不满），第四页（下标 3）只有展开之后才有。
     assert_eq!(frame.page_index, 3);
@@ -157,16 +161,52 @@ fn paging_expands_past_the_initial_candidates() {
     // 一直翻到底：展开已经在最后一页尝试过，has_next 才变成 false。
     let mut last = frame.page_index;
     loop {
-        let next = fixture.host.keys(&[Key::PageNext]);
+        let next = fixture.host.keys(&[Key::PageNext { punct: None }]);
         if next.page_index == last {
             assert!(!next.has_next);
             break;
         }
         last = next.page_index;
     }
-    let frame = fixture.host.keys(&[Key::PagePrev]);
+    let frame = fixture.host.keys(&[Key::PagePrev { punct: None }]);
     assert_eq!(frame.page_index, last - 1);
     assert!(frame.has_next);
+}
+
+#[test]
+fn minus_and_equals_page_while_composing_and_type_when_idle() {
+    let mut fixture = quanpin();
+    let minus = Key::PagePrev { punct: Some(b'-') };
+    let equals = Key::PageNext { punct: Some(b'=') };
+    type_text(&mut fixture.host, "a");
+    // 组字时 `=`、`-` 和 PageDown、PageUp 一样只翻页，不上屏。
+    let frame = fixture.host.keys(&[equals]);
+    assert!(frame.out.is_empty());
+    assert!(frame.composing);
+    assert_eq!(frame.page_index, 1);
+    let frame = fixture.host.keys(&[minus]);
+    assert!(frame.out.is_empty());
+    assert!(frame.composing);
+    assert_eq!(frame.page_index, 0);
+    fixture.host.keys(&[Key::Escape]);
+    // 空闲时它们和同一个标点键的结果完全相同。
+    let idle_minus = fixture.host.keys(&[minus]).out;
+    assert_eq!(idle_minus, vec![Out::Type("-".to_owned())]);
+    let idle_equals = fixture.host.keys(&[equals]).out;
+    assert_eq!(idle_equals, type_text(&mut quanpin().host, "=").out);
+    assert!(!idle_equals.is_empty());
+    assert_eq!(fixture.host.context_for_tests(), "-=");
+}
+
+#[test]
+fn bare_paging_keys_do_nothing_when_idle() {
+    let mut fixture = quanpin();
+    let frame = fixture
+        .host
+        .keys(&[Key::PagePrev { punct: None }, Key::PageNext { punct: None }]);
+    assert!(frame.out.is_empty());
+    assert!(!frame.composing);
+    assert_eq!(fixture.host.context_for_tests(), "");
 }
 
 #[test]
@@ -176,7 +216,7 @@ fn has_next_holds_until_the_last_page_tried_to_expand() {
     // 走到最后一页：只要还没在最后一页尝试过展开，has_next 就一直是 true。
     loop {
         assert!(frame.has_next);
-        let next = fixture.host.keys(&[Key::PageNext]);
+        let next = fixture.host.keys(&[Key::PageNext { punct: None }]);
         if next.page_index == frame.page_index {
             assert!(!next.has_next);
             break;

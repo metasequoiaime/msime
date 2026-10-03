@@ -117,14 +117,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut current = first;
         loop {
             all.extend(current.page.iter().map(|row| row.text.clone()));
-            let next = host.keys(&[Key::PageNext]);
+            let next = host.keys(&[Key::PageNext { punct: None }]);
             if next.page_index == current.page_index {
                 break;
             }
             current = next;
         }
         while current.page_index > 0 {
-            current = host.keys(&[Key::PagePrev]);
+            current = host.keys(&[Key::PagePrev { punct: None }]);
         }
         if let Some(rank) = all.iter().position(|text| *text == case.gold) {
             found += 1;
@@ -236,7 +236,7 @@ fn play(host: &mut WebHost, mut frame: Frame, gold: &str) -> Option<(usize, usiz
             .map(|(slot, _)| slot);
         // 没有就往后翻，取第一个正确前缀。
         while choice.is_none() {
-            let next = host.keys(&[Key::PageNext]);
+            let next = host.keys(&[Key::PageNext { punct: None }]);
             if next.page_index == frame.page_index {
                 return None;
             }
