@@ -27,9 +27,18 @@ export class SchemeCompositionPolicy {
     return SchemeTraits.locksCaret(rulesScheme);
   }
 
-  /** The composition to draw: the written text for a scheme that composes it, the spelling for every other scheme. */
+  /**
+   * 笔画方案：`editing_text` 是键入的字母 hspnzx，`preedit` 是一笔一个字形的 一丨丿丶乛＊。画出来的是字形，但光标仍是引擎的：字母和字形一一对应，且都在 BMP 内，所以字母串里的下标就是字形串里的下标。
+   */
+  static drawsKeyGlyphs(rulesScheme: number): boolean {
+    return rulesScheme === SchemeTraits.STROKE;
+  }
+
+  /** The composition to draw: the written text for a scheme that composes it, the Stroke glyphs for Stroke, the spelling for every other scheme. */
   static reading(rulesScheme: number, editing: string, preedit: string): string {
-    return SchemeCompositionPolicy.drawsPreedit(rulesScheme) && editing.length > 0
+    return (SchemeCompositionPolicy.drawsPreedit(rulesScheme) ||
+      SchemeCompositionPolicy.drawsKeyGlyphs(rulesScheme)) &&
+      editing.length > 0
       ? preedit
       : editing;
   }

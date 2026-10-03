@@ -28,6 +28,7 @@ import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { DubeolsikLayout } from './input/DubeolsikLayout';
 import { ZhuyinLayout } from './input/ZhuyinLayout';
+import { StrokeKey, StrokeLayout } from './input/StrokeLayout';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
 import { SchemeTraits } from './SchemeTraits';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
@@ -916,6 +917,39 @@ struct KeyboardView {
   private dachenRowHeight(): number {
     return ZhuyinLayout.rowHeight(this.rowHeight(0) + this.rowHeight(1) + this.rowHeight(2),
       this.rowSpacing());
+  }
+
+  /** 是否画笔画键盘：笔画方案，且英文和本地工具模式都没有接管按键；与 zhuyinFace 一样按键盘自己选的方案判断，引擎还没回报时也画对。 */
+  private strokeFace(): boolean {
+    return SchemeCompositionPolicy.selectedRulesScheme(this.scheme.engineScheme, this.english,
+      this.localMode) === SchemeTraits.STROKE;
+  }
+
+  /** 笔画键发送它的字母，组字和候选都归引擎。空组合时的通配键不发送，见 StrokeLayout.sends。 */
+  private tapStrokeKey(input: string): void {
+    KeyboardSession.shared.recordKey(KeyIdPolicy.character(input));
+    if (!StrokeLayout.sends(input, KeyboardSession.shared.composing())) {
+      return;
+    }
+    KeyboardSession.shared.press(input.charCodeAt(0), false);
+  }
+
+  private strokeKey(key: StrokeKey): KeyOptions {
+    return {
+      face: key.face,
+      label: key.label,
+      hint: key.hint,
+      size: KeyboardMetrics.KEY_FONT_SIZE,
+      emphasized: false,
+      width: 0,
+      action: () => this.tapStrokeKey(key.input)
+    };
+  }
+
+  /** 底排是否用网格面板那一套（「符」代替逗号，逗号等标点在侧栏）：九键拼音，或不在符号层的笔画键盘。 */
+  private gridActionRow(): boolean {
+    return KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)
+      || (this.strokeFace() && !this.symbols);
   }
 
   private tapLetter(letter: string): void {
@@ -2939,7 +2973,7 @@ struct KeyboardView {
         width: KeyboardMetrics.LAYOUT_TOGGLE_WIDTH_VP,
         action: () => this.toggleSymbolLayer()
       });
-      if (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)) {
+      if (this.gridActionRow()) {
         this.fixedKey({
           face: '符',
           label: KeyAccessibilityPolicy.symbolPanel(),
@@ -6084,6 +6118,8 @@ struct KeyboardView {
         this.nineKeyFace()
       } else if (this.zhuyinFace() && !this.symbols) {
         this.dachenFace()
+      } else if (this.strokeFace() && !this.symbols) {
+        this.strokeKeypadFace()
       } else {
         Row({ space: this.keySpacing() }) {
           ForEach(this.symbols ? SYMBOL_ROWS[0] : LETTER_ROWS[0], (key: string) => {
@@ -6170,5 +6206,67 @@ struct KeyboardView {
     .height(this.dachenRowHeight())
 
     this.actionRow()
+  }
+
+  /** 笔画键盘：九键的外框，左侧标点栏，中间 2×3 的笔画键，右侧删除键，底排与九键相同。符号层沿用共用的字母面，与大千注音一样。 */
+  @Builder
+  strokeKeypadFace() {
+    Column({ space: this.rowSpacing() }) {
+      this.strokeGrid()
+      this.actionRow()
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
+  @Builder
+  strokeGrid() {
+    Row({ space: this.keySpacing() }) {
+      Column() {
+        ForEach(NineKeyLayout.punctuation(), (symbol: string) => {
+          Column() {
+            Text(this.symbolFace(symbol))
+              .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+              .fontColor(this.skin.keyForeground)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .width('100%')
+          .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
+          .onClick(() => {
+            KeyboardSession.shared.recordKey(KeyIdPolicy.SOFT_PUNCTUATION);
+            KeyboardSession.shared.punctuation(symbol.charCodeAt(0));
+          })
+        }, (symbol: string) => symbol + this.faceKey())
+      }
+      .width(`${NINE_KEY_COLUMN_PERCENT}%`)
+      .height('100%')
+      .backgroundColor(this.skin.keySurfaceBackground(false, true))
+      .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+
+      Column({ space: this.rowSpacing() }) {
+        ForEach(StrokeLayout.ROWS, (row: StrokeKey[]) => {
+          Row({ space: this.keySpacing() }) {
+            ForEach(row, (key: StrokeKey) => {
+              this.flexibleKey(this.strokeKey(key));
+            }, (key: StrokeKey) => key.input + this.faceKey())
+          }
+          .layoutWeight(1)
+          .width('100%')
+        }, (row: StrokeKey[]) => row[0].input + this.faceKey())
+      }
+      .layoutWeight(1)
+      .height('100%')
+
+      Column() {
+        this.deleteKey('100%')
+      }
+      .width(`${NINE_KEY_COLUMN_PERCENT}%`)
+      .height('100%')
+    }
+    .width('100%')
+    .height(this.gridHeight())
   }
 }

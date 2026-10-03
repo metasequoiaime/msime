@@ -21,6 +21,7 @@ import { JapaneseSpacePolicy } from './input/JapaneseSpacePolicy';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
 import { SchemeTraits } from './SchemeTraits';
+import { StrokeLayout } from './input/StrokeLayout';
 import {
   CapitalizationMode, EnglishCapitalizationPolicy
 } from './input/EnglishCapitalizationPolicy';
@@ -2288,6 +2289,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       japanese: !this.englishMode && this.schemeName === 'japanese',
       korean: !this.englishMode && this.schemeName === 'korean',
       vietnamese: !this.englishMode && this.schemeName === 'vietnamese',
+      stroke: !this.englishMode && this.schemeName === 'stroke',
       capsLock: this.capsLock,
       // Korean and Vietnamese write ASCII punctuation whatever the switch says (`uses_chinese_punctuation`), and the face reports what is written.
       chinesePunctuation: this.chinesePunctuation && !this.writesAsciiPunctuation(),
@@ -2901,8 +2903,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   private syncPreview(): void {
     const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
     const view: EngineView | undefined = this.lastView;
+    // 拼写一栏传的是候选条画出来的那一串：多数方案就是 editing_text，笔画方案是笔画字形，文档里不出现键入的字母。
     const wanted: string = view === undefined ? '' : InlinePreeditPolicy.text(this.inlinePreeditStyle,
-      KeyboardFormFactor.isDesktop(), this.previewSupported, view.editing_text, view.preedit,
+      KeyboardFormFactor.isDesktop(), this.previewSupported, KeyboardSession.drawnReading(view), view.preedit,
       view.phrase_prefix ?? '', SchemeCompositionPolicy.drawsPreedit(SchemeCompositionPolicy.rulesScheme(
         view.scheme, view.dedicated_english, view.local_mode)));
     if (inputClient === undefined || wanted === this.previewText) return;
@@ -3069,7 +3072,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     const consumed: boolean = handled || this.editing !== before;
     // A capital with nothing composed is declined by design and handed back to the application, so only a lower-case letter that composed nothing is a failure worth reporting.
     const capital: boolean = ascii >= 0x41 && ascii <= 0x5a;
-    if (!consumed && before.length === 0 && !capital) {
+    // 笔画方案空组合时只有 h s p n z 开始组字，通配键 x 和其它字母按约定交回宿主，同样不是故障。
+    const strokeDeclined: boolean = this.rulesScheme() === SchemeTraits.STROKE
+      && !StrokeLayout.startsComposition(String.fromCharCode(ascii));
+    if (!consumed && before.length === 0 && !capital && !strokeDeclined) {
       KeyboardLog.error(`composing key produced no composition: scheme=${this.schemeName}`
         + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`
         + ` shift=${shift} caps=${this.capsLock}`);
@@ -3213,7 +3219,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       localMode: this.localMode,
       editing: this.editing,
       caret: this.editingCaret,
-      wubi: this.schemeName === 'wubi',
+      wubi: HardwareKeyRouter.spellsWithoutSyllables(this.schemeName),
       microsoftShuangpin: this.lastView?.microsoft_shuangpin === true,
       englishCandidates: this.isEnglishCandidates(),
       spellingSymbols: this.lastView?.spelling_symbols ?? '',

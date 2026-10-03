@@ -14,6 +14,7 @@ export class SchemeTraits {
   static readonly CANTONESE: number = 5;
   static readonly ZHUYIN: number = 6;
   static readonly VIETNAMESE: number = 7;
+  static readonly STROKE: number = 8;
 
   /** The Engine's wire names, indexed by scheme number. */
   static readonly NAMES: string[] = [
@@ -25,6 +26,7 @@ export class SchemeTraits {
     "cantonese",
     "zhuyin",
     "vietnamese",
+    "stroke",
   ];
 
   /** The scheme number for a wire name, or -1 for a name no build knows, which every predicate answers false for. */
@@ -39,11 +41,12 @@ export class SchemeTraits {
       SchemeTraits.SHUANGPIN,
       SchemeTraits.WUBI,
       SchemeTraits.CANTONESE,
+      SchemeTraits.STROKE,
       SchemeTraits.ZHUYIN,
     ].includes(scheme);
   }
 
-  /** The Simplified-to-Traditional switch applies; Cantonese and Zhuyin are Traditional as typed. */
+  /** The Simplified-to-Traditional switch applies; Cantonese and Zhuyin are Traditional as typed, and Stroke writes each character as stroke.db stores it. */
   static scriptConversionApplies(scheme: number): boolean {
     return [SchemeTraits.QUANPIN, SchemeTraits.SHUANGPIN, SchemeTraits.WUBI].includes(scheme);
   }
@@ -56,6 +59,7 @@ export class SchemeTraits {
       SchemeTraits.WUBI,
       SchemeTraits.JAPANESE,
       SchemeTraits.CANTONESE,
+      SchemeTraits.STROKE,
       SchemeTraits.ZHUYIN,
     ].includes(scheme);
   }
@@ -67,6 +71,7 @@ export class SchemeTraits {
       SchemeTraits.SHUANGPIN,
       SchemeTraits.WUBI,
       SchemeTraits.CANTONESE,
+      SchemeTraits.STROKE,
     ].includes(scheme);
   }
 
@@ -78,6 +83,7 @@ export class SchemeTraits {
       SchemeTraits.WUBI,
       SchemeTraits.JAPANESE,
       SchemeTraits.CANTONESE,
+      SchemeTraits.STROKE,
       SchemeTraits.ZHUYIN,
     ].includes(scheme);
   }

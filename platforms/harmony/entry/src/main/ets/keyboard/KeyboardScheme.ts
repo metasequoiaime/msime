@@ -156,6 +156,17 @@ const VIETNAMESE: SchemeDefinition = {
   glyph: "越",
   badge: "26",
 };
+// 笔画：五个笔画键加通配键，键盘由 KeyboardView 按方案画成九键外框里的笔画面板，所以布局仍记作 twenty_six_key（与大千注音同理），不会触发九键拼音的数字串解码。
+const STROKE: SchemeDefinition = {
+  id: "STROKE",
+  preferenceId: "stroke",
+  engineScheme: "stroke",
+  shuangpinProfile: null,
+  touchKeyboardLayout: "twenty_six_key",
+  title: "笔画",
+  glyph: "笔",
+  badge: "5",
+};
 const HANDWRITING: SchemeDefinition = {
   id: "HANDWRITING",
   preferenceId: "handwriting",
@@ -182,6 +193,7 @@ export class KeyboardScheme {
   static readonly CANTONESE: SchemeDefinition = CANTONESE;
   static readonly ZHUYIN: SchemeDefinition = ZHUYIN;
   static readonly VIETNAMESE: SchemeDefinition = VIETNAMESE;
+  static readonly STROKE: SchemeDefinition = STROKE;
 
   /** Declaration order is the fixed order the pickers render. */
   static readonly SCHEMES: SchemeDefinition[] = [
@@ -200,6 +212,7 @@ export class KeyboardScheme {
     CANTONESE,
     ZHUYIN,
     VIETNAMESE,
+    STROKE,
   ];
 
   /** 偏好 `wubi_profile` 的两个取值：方案仍是 `wubi`，版本是旁边的独立字段，就像 `shuangpin_profile` 之于 `shuangpin`。 */
@@ -233,19 +246,25 @@ export class KeyboardScheme {
     return scheme.badge;
   }
 
-  /** What a keyboard shows before the user picks any, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` has it: Cantonese, Zhuyin and Vietnamese are turned on by the user, so a device without a stored list keeps the keyboard it always had. */
+  /** What a keyboard shows before the user picks any, as the shared `TouchKeyboardScheme::DEFAULT_ENABLED` has it: Cantonese, Zhuyin, Vietnamese and Stroke are turned on by the user, so a device without a stored list keeps the keyboard it always had. */
   static readonly DEFAULT_ENABLED: SchemeDefinition[] = KeyboardScheme.SCHEMES.filter(
     (candidate: SchemeDefinition): boolean =>
-      candidate !== CANTONESE && candidate !== ZHUYIN && candidate !== VIETNAMESE,
+      candidate !== CANTONESE &&
+      candidate !== ZHUYIN &&
+      candidate !== VIETNAMESE &&
+      candidate !== STROKE,
   );
 
-  /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese and Zhuyin read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
+  /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese, Zhuyin and Stroke read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
   static languageDictionary(engineScheme: string): string | null {
     if (engineScheme === "cantonese") {
       return "cantonese.db";
     }
     if (engineScheme === "zhuyin") {
       return "zhuyin.db";
+    }
+    if (engineScheme === "stroke") {
+      return "stroke.db";
     }
     return null;
   }
@@ -401,6 +420,8 @@ export class KeyboardScheme {
         return "zhuyin";
       case 7:
         return "vietnamese";
+      case 8:
+        return "stroke";
       default:
         return "quanpin";
     }

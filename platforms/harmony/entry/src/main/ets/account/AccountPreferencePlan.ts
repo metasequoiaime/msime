@@ -71,7 +71,7 @@ const MAX_STRING_BYTES = MAX_JSON_BYTES;
 
 const SCHEMES = ["quanpin", "shuangpin", "wubi", "japanese", "korean"];
 // Schemes this host types in that the cloud `input.schema` cannot carry (an older device would refuse the whole document), so uploading leaves the field out and the account keeps the scheme it holds.
-const LOCAL_ONLY_SCHEMES = ["cantonese", "zhuyin", "vietnamese"];
+const LOCAL_ONLY_SCHEMES = ["cantonese", "zhuyin", "vietnamese", "stroke"];
 const SHUANGPIN_PROFILES = ["xiaohe", "ziranma", "shoudao", "microsoft"];
 // `input.wubi_schema` 是本地 `wubi_profile` 在云端的名字，只在 `input.schema` 为 `wubi` 时有意义；其它值一律拒绝。
 const WUBI_PROFILES = ["wubi86", "wubi98"];
@@ -388,7 +388,7 @@ export function applyAccountPreferences(
   const preferences: Document = { ...local };
 
   const scheme = reader.text("input.schema");
-  // A scheme this host does not offer (a newer device's Cantonese, Zhuyin or Vietnamese) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
+  // A scheme this host does not offer (a newer device's Cantonese, Zhuyin, Vietnamese or Stroke) keeps the local one rather than refusing the whole sync, so the rest of the document still applies.
   if (scheme !== null && SCHEMES.includes(scheme)) preferences.scheme = scheme;
   const characterSet = reader.text("input.character_set");
   if (characterSet !== null) {
