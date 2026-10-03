@@ -7,6 +7,7 @@
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build languages --cache <dir> [--out <dir>] [--offline]
+//! msime-dict-build web --input <msime.db> --out-dir <dir> [--keep-multi 200000]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime.db>] [--english-db <english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
@@ -27,6 +28,7 @@ mod sources;
 mod sqlite;
 mod stroke;
 mod text;
+mod web;
 mod zhuyin;
 
 use std::path::{Path, PathBuf};
@@ -133,6 +135,28 @@ enum Command {
     Hanja(Hanja),
     /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db, stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
     Languages(Languages),
+    /// 从完整的 msime.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），两者逐字节可复现。
+    Web(WebArgs),
+}
+
+#[derive(Args)]
+struct WebArgs {
+    /// 完整的 msime.db，只读打开。
+    #[arg(long)]
+    input: PathBuf,
+    /// 写出 msime-pinyin.db 和 msime-wubi86.db 的目录，不存在时创建；同名文件会被覆盖。
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// msime-pinyin.db 在全部多字表里保留的行数（单字表总是全部保留）。
+    #[arg(long, default_value_t = web::DEFAULT_KEEP_MULTI)]
+    keep_multi: usize,
+}
+
+fn build_web(arguments: &WebArgs) -> Result<()> {
+    for summary in web::build(&arguments.input, &arguments.out_dir, arguments.keep_multi)? {
+        eprintln!("[done] {summary}");
+    }
+    Ok(())
 }
 
 #[derive(Args)]
@@ -585,6 +609,9 @@ fn main() -> Result<()> {
     }
     if let Some(Command::Languages(languages)) = &arguments.command {
         return build_languages(languages);
+    }
+    if let Some(Command::Web(web)) = &arguments.command {
+        return build_web(web);
     }
     if let Some(Command::CheckWords(check)) = &arguments.command {
         match check_words(check) {
