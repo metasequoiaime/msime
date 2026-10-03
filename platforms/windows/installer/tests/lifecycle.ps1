@@ -27,6 +27,16 @@ $order = @("StopProcess('{#MyWatchdogName}')", "StopProcess('{#MyAppExeName}')",
     ForEach-Object { $stop.IndexOf($_) })
 if ($order -contains -1) { throw 'StopImeProcesses does not stop the Watchdog, the Server, the WinUI settings window, the Tauri shell and the MCP server' }
 if ($order[0] -gt $order[1]) { throw 'The Watchdog must stop before the Server, or it restarts it' }
+# 不是 full 的版本按本版本 server 目录的路径结束进程，不按映像名：几个版本的进程同名，taskkill /IM 会停掉同时安装的其他版本。看门狗同样先停。
+$editionStop = Get-Block '{ 只停可执行文件在本版本 server 目录里的进程' 'procedure DeleteWatchdogLogonTask;'
+$watchdogFirst = $editionStop.IndexOf("StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');")
+$rest = $editionStop.IndexOf("StopProcessesUnder(ServerDir, '');")
+if ($watchdogFirst -lt 0 -or $rest -lt 0 -or $watchdogFirst -gt $rest -or $editionStop.Contains('taskkill.exe')) {
+    throw 'An edition other than full must stop its own processes by path, the Watchdog first'
+}
+if (-not $editionStop.Contains("ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');")) {
+    throw 'An edition other than full does not stop processes under its own server directory'
+}
 $prepare = Get-Block 'function PrepareToInstall' 'procedure CurStepChanged'
 $uninstall = Get-Block 'procedure CurUninstallStepChanged' 'else if CurUninstallStep = usPostUninstall'
 foreach ($block in @($prepare, $uninstall)) {
@@ -35,7 +45,7 @@ foreach ($block in @($prepare, $uninstall)) {
     }
 }
 $flatPrepare = $prepare -replace '\s+', ' '
-$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{commonpf64}\metasequoiaime\server'))")
+$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{commonpf64}\{#MyEditionInstallDir}\server'))")
 if ($serverRemoval -lt 0 -or $flatPrepare.IndexOf('StopImeProcesses;') -gt $serverRemoval) {
     throw 'Upgrade removes the server directory before stopping its processes'
 }
