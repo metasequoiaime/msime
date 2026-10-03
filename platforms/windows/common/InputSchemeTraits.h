@@ -54,6 +54,9 @@ constexpr bool LetterPassesWhileIdle(int scheme, bool dedicatedEnglish, wchar_t 
     return letter && (wch > 0x7F || kStrokeKeys.find(static_cast<char>(wch)) == std::string_view::npos);
 }
 
+// A composing apostrophe is ordinary punctuation rather than the pinyin syllable separator the TIP and the Server otherwise take as composition input: the Engine refuses it under Stroke (`accepts_apostrophe` is false there), so as composition input it would be dropped, while as punctuation it commits the highlighted row followed by the mark, as on Linux and macOS. Only Stroke, of the schemes that key through the Server's candidate window: Wubi refuses it too, but the TIP keys Wubi as quanpin (mode_scheme) and cannot tell the two apart.
+constexpr bool ApostropheIsPunctuationWhileComposing(int scheme) { return scheme == Stroke; }
+
 // ---- Engine traits the view does not publish; each mirrors the `SchemeType` predicate of the same name ----
 
 // `is_chinese`: a Chinese scheme, the kind `last_chinese_scheme` remembers and the Chinese mode returns to.

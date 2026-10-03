@@ -5906,6 +5906,17 @@ fn stroke_punctuation_commits_the_top_row_then_the_mark() {
     assert!(question.handled);
     assert_eq!(question.commit.as_deref(), Some("大？"));
     assert_eq!(question.view.editing_text, "");
+
+    // The apostrophe separates no syllables under Stroke, so it is punctuation like the rest: the Windows Server and the Linux hosts send it here rather than as composition input.
+    compose_stroke(&mut runtime, "pn");
+    let apostrophe = runtime.dispatch(Action::Punctuation(b'\'')).unwrap();
+    assert!(apostrophe.handled);
+    let written = apostrophe.commit.unwrap();
+    assert!(
+        written.starts_with('人') && written.chars().count() == 2,
+        "{written}"
+    );
+    assert_eq!(apostrophe.view.editing_text, "");
 }
 
 /// Picking a lower row again and again does not lift it, and nothing the user picks is written to any database.

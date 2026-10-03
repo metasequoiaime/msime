@@ -655,6 +655,12 @@ bool IsManualPinyinSeparatorInComposition(WCHAR wch, BOOL fComposing, CANDIDATE_
     {
         return false;
     }
+    // Under Stroke the apostrophe separates nothing: it takes the punctuation route below, which commits the highlighted row followed by the mark.
+    if (msime::windows::scheme::ApostropheIsPunctuationWhileComposing(
+            Global::InputModeScheme.load(std::memory_order_relaxed)))
+    {
+        return false;
+    }
     return fComposing || candidateMode != CANDIDATE_NONE;
 }
 } // namespace

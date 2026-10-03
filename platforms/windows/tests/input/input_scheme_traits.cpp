@@ -105,6 +105,9 @@ int main() {
   // In the Engine's own English mode under Stroke (Ctrl+Shift+E, the toolbar English) the Engine composes every letter as English before it looks at the scheme, so "apple" must reach it from its first letter: none passes to the application.
   for (const wchar_t letter : {L'a', L'x', L'q', L'h', L'A'})
     assert(!LetterPassesWhileIdle(Stroke, true, letter));
+  // Only Stroke takes a composing apostrophe as punctuation; the pinyin schemes (Wubi included, which the TIP keys as quanpin) keep it as the separator.
+  for (int scheme = Quanpin; scheme <= Stroke + 1; ++scheme)
+    assert(ApostropheIsPunctuationWhileComposing(scheme) == (scheme == Stroke));
   assert(FoldsLetterCase(Korean) && !FoldsLetterCase(Vietnamese));
   // Only a Vietnamese word keeps composing after an Escape; every other composition, schemes 0-4 included, is discarded by it.
   for (int scheme = Quanpin; scheme <= Stroke; ++scheme)

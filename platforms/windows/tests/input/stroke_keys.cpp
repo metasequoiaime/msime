@@ -198,6 +198,17 @@ int main(int argc, char **argv) {
     assert(stroke.editing().empty());
   }
 
+  // The apostrophe is no syllable separator under Stroke (the Engine refuses it): it is punctuation like the comma, so the highlighted row is committed followed by the mark, as on Linux and macOS, instead of the key being dropped with the composition left open.
+  {
+    Fixture stroke(serialized);
+    stroke.type("hs");
+    const auto ended = stroke.press_text('\'');
+    assert(ended && ended->committed_text);
+    const std::string written = *ended->committed_text;
+    assert(written.rfind("十", 0) == 0 && written.size() > std::string("十").size());
+    assert(stroke.editing().empty());
+  }
+
   // The pinyin style reads the composition from the Server, so a stroke is answered with the glyphs it draws.
   {
     Fixture stroke(serialized);
