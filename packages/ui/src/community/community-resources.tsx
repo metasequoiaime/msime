@@ -18,6 +18,7 @@ import { CommunityMetrics } from "./community-metrics";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
+import { CommunityRatingMetrics } from "./community-rating-metrics";
 import {
   CommunityReportSection,
   communityReportedNotice,
@@ -500,11 +501,12 @@ function ResourceDetail({
         moderation={item.moderation}
         description={item.description}
       />
-      <CommunityMetrics>
-        {formatZhNumber(item.saves)} 人收藏 ·{" "}
-        {communityRating(item.rating_count, item.rating_average)} ·{" "}
-        {formatZhNumber(item.rating_count)} 人评分
-      </CommunityMetrics>
+      <CommunityRatingMetrics
+        count={item.saves}
+        countLabel="收藏"
+        ratingCount={item.rating_count}
+        ratingAverage={item.rating_average}
+      />
       {item.kind === "dictionary" ? (
         <>
           <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>

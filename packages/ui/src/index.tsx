@@ -1198,6 +1198,10 @@ export {
   type CommunityDetailStatusProps,
 } from "./community/community-detail-status";
 export {
+  CommunityRatingMetrics,
+  type CommunityRatingMetricsProps,
+} from "./community/community-rating-metrics";
+export {
   CommunityDetailFrame,
   type CommunityDetailFrameProps,
 } from "./community/community-detail-frame";
