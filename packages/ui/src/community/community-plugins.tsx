@@ -37,6 +37,7 @@ import {
 } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -139,12 +140,7 @@ function isCommunityKind(kind: PluginKind): kind is CommunityPluginKind {
 
 function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: () => void }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看插件 ${plugin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看插件 ${plugin.name}`} onClick={open}>
       <strong className={style.cardTitle}>{plugin.name}</strong>
       <CommunityCardAuthor
         prefix={kindLabels[plugin.kind]}
@@ -160,7 +156,7 @@ function CommunityPluginCard({ plugin, open }: { plugin: CommunityPlugin; open: 
         ratingCount={plugin.rating_count}
         ratingAverage={plugin.rating_average}
       />
-    </button>
+    </CommunityCard>
   );
 }
 

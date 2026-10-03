@@ -25,6 +25,7 @@ import {
 } from "./community-report";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
@@ -210,12 +211,7 @@ function CommunityCandidateSkinCard({
   open: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看候选窗口皮肤 ${skin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看候选窗口皮肤 ${skin.name}`} onClick={open}>
       <CandidateSkinPreviewImage
         id={skin.id}
         name={skin.name}
@@ -238,7 +234,7 @@ function CommunityCandidateSkinCard({
       {skin.license.assets.trim() && (
         <span className={style.cardAuthor}>素材授权 {skin.license.assets.trim()}</span>
       )}
-    </button>
+    </CommunityCard>
   );
 }
 

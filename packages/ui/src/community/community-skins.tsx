@@ -31,6 +31,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
@@ -294,12 +295,7 @@ function CommunitySkinCard({
   open: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      aria-label={`查看皮肤 ${skin.name}`}
-      onClick={open}
-    >
+    <CommunityCard aria-label={`查看皮肤 ${skin.name}`} onClick={open}>
       <span className={style.cardStage}>
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} compact />
       </span>
@@ -315,7 +311,7 @@ function CommunitySkinCard({
         ratingCount={skin.rating_count}
         ratingAverage={skin.rating_average}
       />
-    </button>
+    </CommunityCard>
   );
 }
 

@@ -12,6 +12,7 @@ import {
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 import { CommunityCardAuthor } from "./community-card-author";
+import { CommunityCard } from "./community-card";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
@@ -113,12 +114,7 @@ export interface CommunityResourceClient {
 
 function ResourceCard({ item, open }: { item: CommunityResource; open: () => void }) {
   return (
-    <button
-      type="button"
-      className={style.card}
-      onClick={open}
-      aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}
-    >
+    <CommunityCard onClick={open} aria-label={`查看${resourceKindTitle(item.kind)} ${item.name}`}>
       <span className={style.resourceIcon} aria-hidden="true">
         {item.kind === "dictionary" ? "字" : "话"}
       </span>
@@ -135,7 +131,7 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
         {item.saves.toLocaleString("zh-CN")} 人收藏
       </span>
-    </button>
+    </CommunityCard>
   );
 }
 
