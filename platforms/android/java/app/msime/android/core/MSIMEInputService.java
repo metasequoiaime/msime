@@ -4500,8 +4500,18 @@ public final class MSIMEInputService extends InputMethodService {
         skinSaving = false;
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
-            applyPreferencesSnapshot(value(response));
-            showKeyboardSkinStatus("皮肤已切换");
+            JSONObject saved = value(response);
+            long currentRevision = preferencesSnapshot == null
+                ? -1 : preferencesSnapshot.optLong("revision", -1);
+            if (PreferencesSavePolicy.shouldApplyResponse(
+                    currentRevision, saved.getLong("revision"))) {
+                applyPreferencesSnapshot(saved);
+                showKeyboardSkinStatus("皮肤已切换");
+            } else {
+                // A preferences reload won the race while this save was in flight. Its newer
+                // snapshot is already applied; the stale save response must not roll it back.
+                showKeyboardSkinStatus("设置已更新");
+            }
         } catch (JSONException | LinkageError error) {
             JSONObject accepted = preferencesSnapshot == null ? null
                 : preferencesSnapshot.optJSONObject("preferences");
