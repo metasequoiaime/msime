@@ -27,3 +27,19 @@ test("renders the shared community detail shell and forwards navigation actions"
   expect(onBack).toHaveBeenCalledOnce();
   expect(onLogin).toHaveBeenCalledOnce();
 });
+
+test("plugin gallery reuses the shared community detail frame", () => {
+  const source = Object.values(
+    import.meta.glob<string>("../../../../packages/ui/src/community/community-plugins.tsx", {
+      eager: true,
+      query: "?raw",
+      import: "default",
+    }),
+  )[0];
+
+  expect(source).toContain('import { CommunityDetailFrame } from "./community-detail-frame";');
+  expect(source).toContain("<CommunityDetailFrame");
+  expect(source).not.toContain(
+    "<CommunityBackButton disabled={actionBusy} onClick={closeDetail} />",
+  );
+});

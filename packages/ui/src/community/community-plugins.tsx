@@ -37,8 +37,8 @@ import { CommunityCardMetrics } from "./community-card-metrics";
 import { CommunityCardAuthor } from "./community-card-author";
 import { CommunityInstallButton } from "./community-install-button";
 import { CommunityReplaceConfirmation } from "./community-replace-confirmation";
-import { CommunityBackButton } from "./community-gallery-controls";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
+import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { CommunityActionNotice } from "./community-action-notice";
@@ -293,9 +293,13 @@ export function CommunityPluginsPage({
 
   if (selected) {
     return (
-      <div className={style.page}>
-        <CommunityBackButton disabled={actionBusy} onClick={closeDetail} />
-        {errorAlert}
+      <CommunityDetailFrame
+        backDisabled={actionBusy}
+        onBack={closeDetail}
+        error={error}
+        signInRequired={signInRequired}
+        onLogin={onLogin}
+      >
         <section className={`section ${style.detail}`}>
           <CommunityDetailHeader
             title={selected.name}
@@ -374,7 +378,7 @@ export function CommunityPluginsPage({
             <CommunityReportSection actionBusy={actionBusy} onReport={reportSelected} />
           )}
         </section>
-      </div>
+      </CommunityDetailFrame>
     );
   }
 
