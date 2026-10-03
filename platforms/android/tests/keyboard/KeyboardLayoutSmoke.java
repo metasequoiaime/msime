@@ -62,6 +62,18 @@ public final class KeyboardLayoutSmoke {
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        // Stroke draws its own keypad over a 26-key or nine-key preference and yields only to handwriting.
+        check(KeyboardLayout.resolveTouchLayout(false, false, 8, "twenty_six_key")
+            == KeyboardLayout.STROKE_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, true, 8, "nine_key")
+            == KeyboardLayout.STROKE_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 8, "nine_key")
+            == KeyboardLayout.STROKE_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(true, false, 8, "handwriting")
+            == KeyboardLayout.HANDWRITING_LAYOUT);
+        check(!KeyboardLayout.carriesLetterCase(KeyboardLayout.STROKE_LAYOUT));
+        check(KeyboardLayout.STROKE_LAYOUT != KeyboardLayout.ZHUYIN_LAYOUT
+            && KeyboardLayout.STROKE_LAYOUT != KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
         List<List<String>> dachen = KeyboardLayout.rows(KeyboardLayout.Layer.LETTERS, KeyboardLayout.ZHUYIN_LAYOUT);
         check(dachen.size() == 4 && dachen.get(0).size() == 11 && "1".equals(dachen.get(0).get(0))
             && "-".equals(dachen.get(0).get(10)) && ";".equals(dachen.get(2).get(9)) && "/".equals(dachen.get(3).get(9)));

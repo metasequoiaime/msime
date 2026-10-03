@@ -59,8 +59,8 @@ if rg -n -i '0xac00|44032|0x3131|12593' "$repo_root/platforms/android/java/app/m
   echo "Android must not compose Hangul syllables itself; the Engine owns the Korean automaton" >&2
   exit 1
 fi
-# Cantonese, Zhuyin and Vietnamese are View.scheme 5, 6 and 7 in the shared header; InputSchemeTraits names the same numbers, and every scheme gate in this host reads them from there.
-for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;'; do
+# Cantonese, Zhuyin, Vietnamese and Stroke are View.scheme 5, 6, 7 and 8 in the shared header; InputSchemeTraits names the same numbers, and every scheme gate in this host reads them from there.
+for pair in '5 cantonese:CANTONESE = 5;' '6 zhuyin:ZHUYIN = 6;' '7 vietnamese:VIETNAMESE = 7;' '8 stroke:STROKE = 8;'; do
   if ! rg -qF "${pair%%:*}" "$repo_root/crates/host-api/include/msime_client.h" \
     || ! rg -qF "${pair#*:}" "$repo_root/platforms/android/java/app/msime/android/policy/InputSchemeTraits.java"; then
     echo "Android InputSchemeTraits no longer matches the shared View.scheme ordinal ${pair%%:*}" >&2
@@ -77,6 +77,19 @@ fi
 # Bopomofo composition is Engine state too. Android labels the Dachen keys and sends their ASCII keys; a syllable or phrase table here would be a second editor that can drift from the Engine's.
 if rg -n 'U\+3105|0x3105|12549' "$repo_root/platforms/android/java/app/msime/android"; then
   echo "Android must not compose bopomofo itself; the Engine owns the Zhuyin editor" >&2
+  exit 1
+fi
+# 笔画的组字与查字都在 Engine 里：宿主只把笔画键印成字形并发送字母 h s p n z x，不保存笔顺码表，也不自己打开 stroke.db（它只用文件名判断方案是否可用）。
+if rg -n '"[hspnzx]{3,}"' "$repo_root/platforms/android/java/app/msime/android" \
+  || rg -n '"stroke\.db"' "$repo_root/platforms/android/java/app/msime/android" \
+    | rg -v '/keyboard/KeyboardScheme\.java:'; then
+  echo "Android must not look up strokes itself; the Engine owns the Stroke scheme and stroke.db" >&2
+  exit 1
+fi
+# The Stroke inline composition is the glyphs in View.reading, marked through the same policy as Korean and Zhuyin; editing_text holds only the stroke letters.
+if ! rg -q 'StrokeInputPolicy\.active' \
+    "$repo_root/platforms/android/java/app/msime/android/core/MSIMEInputService.java"; then
+  echo "Android must mark the Stroke composition's reading through StrokeInputPolicy" >&2
   exit 1
 fi
 # The Hanja command is shared command 16 at both ends: the header's MSIME_CONVERT_HANJA, the FFI's ConvertHanja and this host's named constant must agree, and the service reaches it by name so a renumbering cannot leave a bare 16 behind.
@@ -496,6 +509,8 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/InputSchemeTraitsSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ZhuyinKeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/core/ZhuyinInputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/StrokeKeyboardLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/core/StrokeInputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/QuickPunctuationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
@@ -597,6 +612,8 @@ java -cp "$output_dir" KoreanInputPolicySmoke
 java -cp "$output_dir" InputSchemeTraitsSmoke
 java -cp "$output_dir" ZhuyinKeyboardLayoutSmoke
 java -cp "$output_dir" ZhuyinInputPolicySmoke
+java -cp "$output_dir" StrokeKeyboardLayoutSmoke
+java -cp "$output_dir" StrokeInputPolicySmoke
 java -cp "$output_dir" QuickPunctuationPolicySmoke
 java -cp "$output_dir" HandwritingContractSmoke
 java -cp "$output_dir" CandidateAppearanceSmoke
