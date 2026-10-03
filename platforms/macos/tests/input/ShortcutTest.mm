@@ -6999,6 +6999,57 @@ static void TestOnDeviceGlossPersistence() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     [[MSIMETranslationCache sharedCache] clear];
 }
+
+// 同一控制器先后为同一个词发起两个端侧英文释义请求时，晚到的第一个回复仍须使用它自己的 Engine 来源写入词库；不能被后一个页面的同名词覆盖。
+static void TestOnDeviceGlossDuplicateTextKeepsRequestMetadata() {
+    [[MSIMETranslationCache sharedCache] clear];
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
+    NSString *suite = [@"msime.on-device-gloss-duplicate." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationSession *session = [CustomTranslationSession new];
+    session.enabled = YES; session.targetLanguage = @"en"; session.generation = 1;
+    session.targetLanguages = @[@"en"];
+    session.page = @[@{ @"text": @"同名", @"source": @0 }];
+    session.queryCandidates = @[@{ @"text": @"同名", @"online_gloss": @YES }];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.onDeviceFetches = [NSMutableArray array];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:root forKey:@"preferencesDirectory"];
+    void (^settle)(void) = ^{
+        [controller synchronizeCandidateGloss];
+        [(NSOperationQueue *)[controller valueForKey:@"glossQueue"] waitUntilAllOperationsAreFinished];
+        DrainMainQueue();
+        [controller synchronizeOnDeviceGloss];
+    };
+    settle();
+    assert(controller.onDeviceFetches.count == 1);
+
+    // The next page asks for the same text with a different Engine source and target set,
+    // replacing the visible request while the first model answer is still in flight.
+    session.generation = 2;
+    session.targetLanguages = @[@"en", @"de"];
+    session.page = @[@{ @"text": @"同名", @"source": @6 }];
+    settle();
+    assert(controller.onDeviceFetches.count == 3);
+
+    [controller onDeviceCandidateTranslationsDidArrive:[NSNotification notificationWithName:@"MSIMEBackendOnDeviceTranslationsDidArrive"
+        object:nil userInfo:@{@"target": @"en", @"translations": @{@"同名": @"old reply"}}]];
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
+    __block NSDictionary *lookup;
+    dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{
+        lookup = [MSIMEClientSession learnedTranslationRequest:@{@"directory": root, @"action": @"lookup", @"target_language": @"en",
+            @"generation": @1, @"items": @[@{@"text": @"同名", @"direction": @"chinese_to_english"},
+                                               @{@"text": @"同名", @"direction": @"english_to_chinese"}]} error:nil];
+    });
+    assert(([lookup[@"translations"] isEqual:@[@{@"text": @"同名", @"translation": @"old reply"}]]));
+    [[NSUserDefaults new] removePersistentDomainForName:suite];
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+    [[MSIMETranslationCache sharedCache] clear];
+}
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -7651,6 +7702,7 @@ int main(int argc, char **argv) {
             @autoreleasepool { TestOfflineTargetGlosses(); }
             @autoreleasepool { TestOnDeviceGlosses(); }
             @autoreleasepool { TestOnDeviceGlossPersistence(); }
+            @autoreleasepool { TestOnDeviceGlossDuplicateTextKeepsRequestMetadata(); }
             @autoreleasepool { TestCustomTranslationController(); }
             @autoreleasepool { TestSecondaryTranslationScheduling(); }
             @autoreleasepool { TestCustomTranslationCacheDelivery(); }
@@ -7689,6 +7741,7 @@ int main(int argc, char **argv) {
         @autoreleasepool { TestOfflineTargetGlosses(); }
         @autoreleasepool { TestOnDeviceGlosses(); }
         @autoreleasepool { TestOnDeviceGlossPersistence(); }
+        @autoreleasepool { TestOnDeviceGlossDuplicateTextKeepsRequestMetadata(); }
         @autoreleasepool { TestCustomTranslationController(); }
         @autoreleasepool { TestSecondaryTranslationScheduling(); }
         @autoreleasepool { TestCustomTranslationCacheDelivery(); }

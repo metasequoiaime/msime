@@ -1107,8 +1107,8 @@ static NSImage *MSIMECandidateLogoImage() {
     BOOL _serviceSnapshotViewLoaded;
     NSDictionary *_serviceSnapshotQuery;
     NSDictionary *_serviceSnapshotView;
-    // Each English word this controller sent to the on-device model, mapped to the English gloss request of the page that sent it: that request carries the Engine source and directory persisting needs, and the reply often lands after the page has moved on.
-    NSMutableDictionary<NSString *, NSDictionary *> *_onDeviceEnglishQueries;
+    // Each English word this controller sent to the on-device model, queued with the English gloss requests of the pages that sent it: the same word can be requested again before an older reply lands, and each request carries the Engine source and directory persisting needs.
+    NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *_onDeviceEnglishQueries;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -2241,8 +2241,15 @@ static NSImage *MSIMECandidateLogoImage() {
         if (!words.count) continue;
         if ([target isEqualToString:@"en"] && gloss) {
             // Words a newer page displaced from the backend's queue never reply, so the map is bounded rather than drained.
-            if (!_onDeviceEnglishQueries || _onDeviceEnglishQueries.count > 64) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
-            for (NSString *word in words) _onDeviceEnglishQueries[word] = gloss;
+            if (!_onDeviceEnglishQueries) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
+            NSUInteger pendingQueries = 0;
+            for (NSArray *queries in _onDeviceEnglishQueries.allValues) pendingQueries += queries.count;
+            if (pendingQueries > 64) _onDeviceEnglishQueries = [NSMutableDictionary dictionary];
+            for (NSString *word in words) {
+                NSMutableArray *queries = _onDeviceEnglishQueries[word];
+                if (!queries) { queries = [NSMutableArray array]; _onDeviceEnglishQueries[word] = queries; }
+                [queries addObject:[gloss copy]];
+            }
         }
         [self fetchOnDeviceGlosses:words targets:@[target]];
     }
@@ -2273,9 +2280,11 @@ static NSImage *MSIMECandidateLogoImage() {
 // Windows saves every English gloss it fetches to the user glossary the moment it arrives (cloud_translation.cpp PersistGloss), so the offline lookup answers that word from then on, across restarts. On-device glosses get the same treatment: the model spends about half a second per word, one at a time, and the process cache it otherwise lives in is gone when the input method restarts. Only English, because the learned glossary is the English one, and only words this controller asked about, since every controller hears every reply; each is written with the gloss request of the page that asked, which carries the source the plan needs.
 - (void)persistOnDeviceGlosses:(NSDictionary *)values {
     for (NSString *text in values) {
-        NSDictionary *query = [text isKindOfClass:NSString.class] ? _onDeviceEnglishQueries[text] : nil;
+        NSMutableArray *queries = [text isKindOfClass:NSString.class] ? _onDeviceEnglishQueries[text] : nil;
+        NSDictionary *query = queries.firstObject;
         if (!query) continue;
-        [_onDeviceEnglishQueries removeObjectForKey:text];
+        [queries removeObjectAtIndex:0];
+        if (!queries.count) [_onDeviceEnglishQueries removeObjectForKey:text];
         NSString *value = values[text];
         if ([value isKindOfClass:NSString.class] && value.length)
             [self persistFetchedTranslations:@[@{@"text":text, @"translation":value}] forQuery:query];
