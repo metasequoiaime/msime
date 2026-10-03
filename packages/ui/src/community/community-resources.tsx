@@ -30,6 +30,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { CommunityTextareaField } from "./community-textarea-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
+import { CommunityNotice } from "./community-notice";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
@@ -727,7 +728,7 @@ export function CommunityResourcesPage({
         error={error}
         empty={
           !busy && items.length === 0 ? (
-            <p className={style.notice}>这里还没有{resourceKindTitle(kind)}作品。</p>
+            <CommunityNotice>这里还没有{resourceKindTitle(kind)}作品。</CommunityNotice>
           ) : undefined
         }
       />

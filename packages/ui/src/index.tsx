@@ -1260,6 +1260,7 @@ export {
   CommunityPublicationWarning,
   type CommunityPublicationWarningProps,
 } from "./community/community-publication-warning";
+export { CommunityNotice, type CommunityNoticeProps } from "./community/community-notice";
 export {
   useCommunityPublicationDraft,
   type CommunityPublicationDraft,

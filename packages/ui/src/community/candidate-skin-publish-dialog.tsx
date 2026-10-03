@@ -17,6 +17,7 @@ import {
 import * as style from "./community-style";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
+import { CommunityNotice } from "./community-notice";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
@@ -332,9 +333,9 @@ export function CandidateSkinPublishDialog({
     >
       {optionsLoading && <p role="status">正在读取本地皮肤…</p>}
       {!optionsLoading && options.length === 0 && (
-        <p className={style.notice}>
+        <CommunityNotice>
           还没有可发布的外部皮肤，请先把皮肤文件夹放进皮肤目录，再在「主题」的外部皮肤中刷新。
-        </p>
+        </CommunityNotice>
       )}
       {options.length > 0 && (
         <CommunitySelectField

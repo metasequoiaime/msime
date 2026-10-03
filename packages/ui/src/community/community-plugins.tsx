@@ -29,6 +29,7 @@ import { CommunityScopeButtons } from "./community-scope-buttons";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityPublicationMetadataFields } from "./community-publication-metadata-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
+import { CommunityNotice } from "./community-notice";
 import {
   CommunityReportSection,
   type CommunityModeration,
@@ -431,13 +432,13 @@ export function CommunityPluginsPage({
         empty={
           !listBusy && !error && plugins.length === 0 ? (
             hasMore ? (
-              <p className={style.notice}>
+              <CommunityNotice>
                 {activeSearch || kind
                   ? "前面的插件这台设备都不能安装，点「加载更多」继续查找。"
                   : "前面的插件这台设备都不能安装，点「加载更多」查看更早发布的插件。"}
-              </p>
+              </CommunityNotice>
             ) : (
-              <p className={style.notice}>
+              <CommunityNotice>
                 {mineOnly
                   ? "你还没有发布过插件。"
                   : activeSearch || kind
@@ -445,7 +446,7 @@ export function CommunityPluginsPage({
                     : localPlugins
                       ? "社区里还没有插件，安装或制作插件后可以点「发布我的插件」分享出来。"
                       : "社区里还没有插件。"}
-              </p>
+              </CommunityNotice>
             )
           ) : undefined
         }
@@ -648,9 +649,9 @@ export function CommunityPluginPublishDialog({
     >
       {optionsLoading && <p role="status">正在读取本地插件…</p>}
       {!optionsLoading && options.length === 0 && (
-        <p className={style.notice}>
+        <CommunityNotice>
           还没有可发布的插件。内置插件和特效包不能发布，请先在「我的插件」中导入自己的音效包、音乐包、指令表、短语表、辅助码表、单词本或符号集。
-        </p>
+        </CommunityNotice>
       )}
       {options.length > 0 && (
         <CommunitySelectField

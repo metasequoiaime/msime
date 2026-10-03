@@ -31,6 +31,7 @@ import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
+import { CommunityNotice } from "./community-notice";
 import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
@@ -565,9 +566,9 @@ export function CommunityCandidateSkinsPage({
         notice={actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}
         empty={
           !listBusy && skins.length === 0 ? (
-            <p className={style.notice}>
+            <CommunityNotice>
               {mineOnly ? "你的皮肤库里还没有候选窗口皮肤。" : "暂时没有匹配的候选窗口皮肤。"}
-            </p>
+            </CommunityNotice>
           ) : undefined
         }
       />

@@ -26,6 +26,7 @@ import {
 } from "./community-report";
 import { CommunitySkinPublicationFields } from "./community-skin-publication-fields";
 import { CommunityPublicationWarning } from "./community-publication-warning";
+import { CommunityNotice } from "./community-notice";
 import { CommunitySelectField } from "./community-select-field";
 import { CommunityModerationSection } from "./community-moderation-section";
 import { CommunityCardMetrics } from "./community-card-metrics";
@@ -222,7 +223,7 @@ function CommunitySkinPublishDialog({
     >
       {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
       {!busy && saved.length === 0 && (
-        <p className={style.notice}>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</p>
+        <CommunityNotice>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</CommunityNotice>
       )}
       {saved.length > 0 && (
         <>
@@ -626,13 +627,13 @@ export function CommunitySkinsPage({
         onLogin={onLogin}
         empty={
           !listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 ? (
-            <p className={style.notice}>
+            <CommunityNotice>
               {mineOnly
                 ? hasMore
                   ? "当前页没有你的作品，请继续加载查看更多。"
                   : "还没有已发布的皮肤。"
                 : "暂时没有匹配的皮肤。"}
-            </p>
+            </CommunityNotice>
           ) : undefined
         }
       />
