@@ -12,7 +12,7 @@ chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev
 chinese-number = { version = "0.8", default-features = false, features = ["std", "number-to-chinese"] }
 exmex = "0.21"
 hex = "0.4"
-lru = "0.16"
+lru = "0.18"
 lunar-lite = "1.3"
 memmap2 = "0.9"
 # V-mode unit conversion. MPL-2.0, used unmodified, so shipping the licence text (resources/licenses/MPL-2.0.txt) and naming the crate is all it asks. `bundle-files` embeds definitions.units; the live currency data, the one part that would need the network, is never loaded.
