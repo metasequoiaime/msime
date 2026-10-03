@@ -1,7 +1,7 @@
 /**
  * 本包所属的产品版本（edition），对应 Android 的 `AppEdition.java` 和 iOS 的 `MSIMEAppEdition`。版本表是 `shared/contracts/editions.json`：每个版本有一组方案和一个默认方案，偏好里的方案本版本没有时退回默认方案。
  *
- * HarmonyOS 目前只有 build-profile.json5 里的 `default` 一个 product，也就是 full：提供全部方案，默认全拼，与引入版本之前相同，所以 `current()` 返回 full。要发别的版本，得为它加一个 product，把版本 id、方案和默认方案写进这个 product 的构建参数，再让 `current()` 从那里读出来，见 platforms/harmony/README.md 的「按版本打包」。
+ * HarmonyOS 目前只有 build-profile.json5 里的 `default` 一个 product，也就是 full：提供全部方案，默认全拼，与引入版本之前相同，所以 `current()` 返回 full。要发别的版本，得为它加一个 product，把版本 id、方案和默认方案写进这个 product 的构建参数，再让 `current()` 从那里读出来，见 platforms/harmony/README.md 的「产品版本」。
  */
 export class AppEdition {
   static readonly FULL_ID: string = "full";

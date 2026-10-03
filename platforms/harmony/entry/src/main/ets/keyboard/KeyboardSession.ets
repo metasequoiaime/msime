@@ -641,9 +641,10 @@ interface SkinToolbarStylesheetResponse {
 }
 
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
-interface PrepareRequest {
+export interface PrepareRequest {
   resources: string;
   state_root: string;
+  edition?: string;
 }
 
 interface SnapshotQueueProcessAction {
@@ -1456,7 +1457,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
     this.preferencesRevision = this.storedRevision(stateRoot);
-    const request: PrepareRequest = { resources: resources, state_root: stateRoot };
+    const request: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
     let options: string;
     try {
       const prepared: PrepareResponse =
@@ -2998,7 +2999,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     let result: string;
     try {
-      const bootstrap: PrepareRequest = { resources: resources, state_root: stateRoot };
+      const bootstrap: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
       const prepared: PrepareResponse =
         JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
       if (!prepared.ok) {
@@ -4409,6 +4410,16 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
       return KeyboardFeedback.DEFAULTS;
     }
+  }
+
+  /** `prepareHost` 的请求。full 不带版本，与引入版本之前相同；其他版本让 host-api 按本版本收窄方案、按本版本的资源锁校验词库。 */
+  static prepareRequest(resources: string, stateRoot: string): PrepareRequest {
+    const request: PrepareRequest = { resources: resources, state_root: stateRoot };
+    const edition: AppEdition = AppEdition.current();
+    if (!edition.isFull()) {
+      request.edition = edition.id;
+    }
+    return request;
   }
 
   static saveFeedbackIn(stateRoot: string, settings: FeedbackSettings): boolean {
