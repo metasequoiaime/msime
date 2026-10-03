@@ -12,6 +12,7 @@ import {
   localModelStageLabel,
   visibleLocalModels,
 } from "./local-model-helpers";
+import { StatusMessage } from "../core/status-message";
 export {
   formatModelBytes,
   localModelErrorMessage,
@@ -292,7 +293,7 @@ export function LocalModelManager({
           );
         })}
       </ul>
-      {notice && <p role="status">{notice}</p>}
+      {notice && <StatusMessage role="status">{notice}</StatusMessage>}
     </SettingsManagerBlock>
   );
 }
