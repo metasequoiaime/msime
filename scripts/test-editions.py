@@ -13,6 +13,7 @@
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 数据依赖：用到 msime.db 的方案要带 chinese-main，功能开关要带对应组件，粤语和注音要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
+- Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
 - 只追加不改写：`shared/contracts/editions.frozen.json` 里的每个版本都还在，冻结的平台标识一字未改，新写入的平台标识必须同时冻结。
 
 不带参数运行时检查仓库里的文件；`--editions` 和 `--frozen` 可以换成别的文件，用来确认某种错误确实会被拦下。
@@ -38,6 +39,8 @@ INFO_PLIST = ROOT / "platforms/macos/Info.plist.in"
 TAURI_CONF = ROOT / "apps/desktop/src-tauri/tauri.conf.json"
 TAURI_MACOS_CONF = ROOT / "apps/desktop/src-tauri/tauri.macos.conf.json"
 EDITION_IDENTITY = ROOT / "platforms/macos/src/core/EditionIdentity.h"
+TAURI_WINDOWS_CONF = ROOT / "apps/desktop/src-tauri/tauri.windows.conf.json"
+UPDATE_MANIFEST = ROOT / "packages/ui/src/settings/update-manifest.ts"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
@@ -58,6 +61,45 @@ FULL_MACOS = {
     "cask": "msime",
     "dmg_prefix": "msime-macos",
 }
+# full 今天写死在 Windows 各处的标识：TSF 的 GUID 在 tsf/Global/Globals.cpp，名字在 common/StateDirectory.h、tsf/IME/MetasequoiaIME.cpp 和 installer/msime_setup.iss。改了其中任何一个，已经装着的 full 就会被当成另一个产品：TIP 注册、卸载项、数据目录和登录任务都对不上。
+FULL_WINDOWS = {
+    "langid": "0x0804",
+    "clsid": "{E3062E9A-D834-4637-8958-ED8CFA427D01}",
+    "profile_guid": "{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}",
+    "tsf_guids": {
+        "preserve_key_ime_mode": "{34764E82-AE6D-4F71-BB3A-96799AECE466}",
+        "preserve_key_ime_mode_02": "{748C1D81-246B-4849-921F-143BA2BED3F5}",
+        "preserve_key_ime_mode_03": "{B7E4F2A1-9C3D-4E8F-A1B2-C3D4E5F60718}",
+        "preserve_key_english_input_mode": "{D625C0B1-5A8F-4CC4-9C65-6C536BFF2D91}",
+        "preserve_key_double_single_byte": "{4393748A-89DC-485C-A7F7-5FA232CEC70B}",
+        "preserve_key_punctuation": "{628DDA3B-38D8-4521-BDD4-85CA38F475B8}",
+        "compartment_double_single_byte": "{851BC7CB-8395-4FA6-9C95-DB6EFC2E648E}",
+        "compartment_punctuation": "{58DA9E0F-88B2-426F-91C8-802C9B4D9115}",
+        "langbar_ime_mode": "{94B8FD94-E918-4667-93BE-57A49D35B02D}",
+        "langbar_double_single_byte": "{3E044725-9617-402E-B113-9865AD9B4F8E}",
+        "langbar_punctuation": "{596E7EE3-B629-4895-A5B0-C60A82B47A04}",
+        "display_attribute_input": "{688746FF-BAF2-4153-93ED-96943436422F}",
+        "display_attribute_converted": "{1E2209EA-13CD-4550-8A8F-B352E9744DF2}",
+        "candidate_ui_element": "{9FFF12AA-B5EE-4477-A1AA-A4BF5F7B2447}",
+    },
+    "inno_app_id": "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}",
+    "app_name": "Metasequoia IME 水杉输入法",
+    "text_service_description": "Metasequoia 水杉输入法",
+    "install_dir": "metasequoiaime",
+    "registry_key": "Software\\Metasequoia\\MetasequoiaIME",
+    "state_directory": "MSIME-Client",
+    "user_data_directory": "MSIME",
+    "data_dir_environment_variable": "METASEQUOIA_IME_DATA_DIR",
+    "name_suffix": "",
+    "watchdog_task": "Metasequoia IME Watchdog",
+    "host_dll": "msime_host_api.dll",
+    "tauri_identifier": "app.msime.windows",
+    "installer_base_name": "MetasequoiaIME_Setup",
+}
+# Windows 段里两两不同的名字类字段（GUID 另查）。
+WINDOWS_UNIQUE_NAMES = ["app_name", "text_service_description", "install_dir", "registry_key", "state_directory", "user_data_directory", "data_dir_environment_variable", "name_suffix", "watchdog_task", "host_dll", "tauri_identifier", "installer_base_name"]
+# 落在 %LOCALAPPDATA% 下的目录名：安装器的默认数据目录（install_dir）、没有 DataDir 时的状态目录和按用户的账号与统计目录。任意两个版本的任意两个撞名，一个版本就会读写、卸载时删掉另一个版本的数据。
+WINDOWS_LOCAL_APP_DATA_NAMES = ["install_dir", "state_directory", "user_data_directory"]
 # macOS 上不写进版本表、由 EditionIdentity.h 从版本身份推出的标识：full 沿用今天的值，其他版本按下面的规则推出。
 FULL_VOICE_PROVIDER_SERVICE = "app.msime.client.voice.providers"
 FULL_USAGE_REPORTING_DIRECTORY = "MSIME/telemetry"
@@ -144,15 +186,31 @@ def check_schema_shape(errors: list[str], table: dict, schema: dict) -> None:
             for platform, section in entry["platforms"].items():
                 if section is not None and not isinstance(section, dict):
                     errors.append(f"{where}.platforms.{platform}: expected an object or null")
-            macos = entry["platforms"].get("macos")
-            node = edition["properties"]["platforms"]["properties"]["macos"]
-            if isinstance(macos, dict) and check_keys(errors, f"{where}.platforms.macos", macos, schema_keys(node), set(node["required"])):
-                for key, value in macos.items():
-                    rule = node["properties"][key]
-                    if not isinstance(value, str) or len(value) < rule.get("minLength", 1):
-                        errors.append(f"{where}.platforms.macos.{key}: expected a non-empty string")
-                    elif "pattern" in rule and not re.search(rule["pattern"], value):
-                        errors.append(f"{where}.platforms.macos.{key}: {value!r} does not match {rule['pattern']}")
+            for platform in ["macos", "windows"]:
+                section = entry["platforms"].get(platform)
+                node = edition["properties"]["platforms"]["properties"][platform]
+                if isinstance(section, dict):
+                    check_strings(errors, f"{where}.platforms.{platform}", section, node)
+
+
+def check_strings(errors: list[str], where: str, section: dict, node: dict) -> None:
+    """平台段的字段集合与 schema 一致，每个字符串非空并符合 schema 的 pattern；嵌套的对象（Windows 的 `tsf_guids`）逐层检查。"""
+    if not check_keys(errors, where, section, schema_keys(node), set(node["required"])):
+        return
+    for key, value in section.items():
+        rule = node["properties"][key]
+        if rule.get("type") == "object":
+            if isinstance(value, dict):
+                check_strings(errors, f"{where}.{key}", value, rule)
+            else:
+                errors.append(f"{where}.{key}: expected an object")
+            continue
+        # name_suffix 是唯一允许为空串的字段：full 的名字不带后缀。
+        minimum = rule.get("minLength", 0 if key == "name_suffix" else 1)
+        if not isinstance(value, str) or len(value) < minimum:
+            errors.append(f"{where}.{key}: expected a non-empty string")
+        elif "pattern" in rule and not re.search(rule["pattern"], value):
+            errors.append(f"{where}.{key}: {value!r} does not match {rule['pattern']}")
 
 
 def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
@@ -250,6 +308,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
         check_full(errors, full, engine, components)
 
     check_macos(errors, editions)
+    check_windows(errors, editions)
 
     check_frozen(errors, editions, frozen)
 
@@ -335,6 +394,74 @@ def check_macos(errors: list[str], editions: list[dict]) -> None:
         for other_id, other in directories:
             if edition_id != other_id and (directory == other or directory.startswith(other + "/")):
                 errors.append(f"edition {edition_id}: usage reporting directory {directory!r} is inside edition {other_id}'s {other!r}")
+
+
+def windows_guids(section: dict) -> list[tuple[str, str]]:
+    """一个 Windows 段里的全部 GUID：字段名和值。"""
+    guids = [(key, section[key]) for key in ["clsid", "profile_guid", "inno_app_id"]]
+    guids += [(f"tsf_guids.{key}", value) for key, value in section["tsf_guids"].items()]
+    return guids
+
+
+def installer_base_name(edition_id: str) -> str:
+    """不是 full 的版本的安装包名前缀，与 `update-manifest.ts` 的 `editionInstallerPrefix` 相同。"""
+    return f"MetasequoiaIME-{edition_id[:1].upper()}{edition_id[1:]}_Setup"
+
+
+def check_windows(errors: list[str], editions: list[dict]) -> None:
+    """多个版本同时安装在一台 Windows 上，而且两个版本的 TIP 可能被同一个应用同时加载：任何一个 GUID 或名字撞了，一个版本就会覆盖、停掉、读到或卸载掉另一个版本的东西。"""
+    sections = [(entry["id"], entry["platforms"].get("windows")) for entry in editions]
+    sections = [(edition_id, section) for edition_id, section in sections if section is not None]
+    guids: dict[str, str] = {}
+    for edition_id, section in sections:
+        for key, value in windows_guids(section):
+            folded = value.casefold()
+            if folded in guids:
+                errors.append(f"edition {edition_id}: platforms.windows.{key} {value} is also {guids[folded]}")
+            guids[folded] = f"edition {edition_id}'s platforms.windows.{key}"
+    for key in WINDOWS_UNIQUE_NAMES:
+        seen: dict[str, str] = {}
+        for edition_id, section in sections:
+            folded = section[key].casefold()
+            if folded in seen:
+                errors.append(f"editions {seen[folded]} and {edition_id}: platforms.windows.{key} {section[key]!r} is not unique (case-insensitive)")
+            seen[folded] = edition_id
+    # 卸载用 RegDeleteKeyIncludingSubkeys 一类的递归删除：一个版本的键在另一个版本的键下面，卸载外层就带走了里层。
+    keys = [(edition_id, section["registry_key"].casefold()) for edition_id, section in sections]
+    for edition_id, key in keys:
+        for other_id, other in keys:
+            if edition_id != other_id and key.startswith(other + "\\"):
+                errors.append(f"edition {edition_id}: platforms.windows.registry_key is inside edition {other_id}'s key")
+    local: dict[str, str] = {}
+    for edition_id, section in sections:
+        for key in WINDOWS_LOCAL_APP_DATA_NAMES:
+            folded = section[key].casefold()
+            if folded in local and local[folded] != f"{edition_id}.{key}":
+                errors.append(f"edition {edition_id}: platforms.windows.{key} {section[key]!r} is also %LOCALAPPDATA%\\{section[key]} of {local[folded]}")
+            local[folded] = f"{edition_id}.{key}"
+    for edition_id, section in sections:
+        if edition_id == FULL:
+            continue
+        expected = {
+            "name_suffix": f".{edition_id}",
+            "host_dll": f"msime_host_api_{edition_id}.dll",
+            "installer_base_name": installer_base_name(edition_id),
+        }
+        for key, value in expected.items():
+            if section[key] != value:
+                errors.append(f"edition {edition_id}: platforms.windows.{key} must be {value!r}, found {section[key]!r}")
+    full = next((section for edition_id, section in sections if edition_id == FULL), None)
+    if full is not None and full != FULL_WINDOWS:
+        errors.append(f"edition full: platforms.windows must be the identifiers the product ships with today: {FULL_WINDOWS}")
+    if full is not None:
+        identifier = json.loads(TAURI_WINDOWS_CONF.read_text(encoding="utf-8")).get("identifier")
+        if full["tauri_identifier"] != identifier:
+            errors.append(f"edition full: platforms.windows.tauri_identifier must equal identifier {identifier!r} in {TAURI_WINDOWS_CONF.relative_to(ROOT)}")
+    # 推出规则抄自 update-manifest.ts；那边改了而这里没跟上时，上面查的就不是更新检查认的名字。
+    manifest = UPDATE_MANIFEST.read_text(encoding="utf-8")
+    for fragment in ['if (isFullEdition(edition)) return "MetasequoiaIME_Setup_v";', "return `MetasequoiaIME-${edition.charAt(0).toUpperCase()}${edition.slice(1)}_Setup_v`;"]:
+        if fragment not in manifest:
+            errors.append(f"{UPDATE_MANIFEST.relative_to(ROOT)} no longer contains {fragment!r}; update installer_base_name in this script")
 
 
 def check_frozen(errors: list[str], editions: list[dict], frozen: dict) -> None:

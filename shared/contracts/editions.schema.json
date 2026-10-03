@@ -152,7 +152,208 @@
                 }
               }
             },
-            "windows": { "type": ["object", "null"] },
+            "windows": {
+              "description": "Windows 的身份标识。所有版本的每个 GUID 两两不同（不区分大小写），名字类字段两两不同，一个版本的注册表键、目录不能嵌在另一个版本的里面，由 scripts/test-editions.py 检查；full 的值等于今天写死在 TSF、Server、安装器和 tauri.windows.conf.json 里的值。C++ 侧从 platforms/windows/scripts/edition_windows.py 生成的 shared/contracts/msime_edition.h 读，Inno Setup 从同一个脚本生成的 platforms/windows/installer/editions.iss 读，Rust 侧由 crates/client-core/src/edition.rs 解析。",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "langid",
+                "clsid",
+                "profile_guid",
+                "tsf_guids",
+                "inno_app_id",
+                "app_name",
+                "text_service_description",
+                "install_dir",
+                "registry_key",
+                "state_directory",
+                "user_data_directory",
+                "data_dir_environment_variable",
+                "name_suffix",
+                "watchdog_task",
+                "host_dll",
+                "tauri_identifier",
+                "installer_base_name"
+              ],
+              "properties": {
+                "langid": {
+                  "description": "输入法注册的语言（十六进制 LANGID）。中文版本都是 0x0804（简体中文）。",
+                  "type": "string",
+                  "pattern": "^0x[0-9A-F]{4}$"
+                },
+                "clsid": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "TSF 文本服务的 CLSID，也是 HKLM\\SOFTWARE\\Microsoft\\CTF\\TIP 下的键名。"
+                },
+                "profile_guid": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "TSF 语言 profile 的 GUID。"
+                },
+                "tsf_guids": {
+                  "description": "TSF 文本服务内部注册的其余 GUID。两个版本的 TIP 可能被同一个应用同时加载，保留键、compartment、语言栏按钮和显示属性的 GUID 撞了会互相覆盖。",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "preserve_key_ime_mode",
+                    "preserve_key_ime_mode_02",
+                    "preserve_key_ime_mode_03",
+                    "preserve_key_english_input_mode",
+                    "preserve_key_double_single_byte",
+                    "preserve_key_punctuation",
+                    "compartment_double_single_byte",
+                    "compartment_punctuation",
+                    "langbar_ime_mode",
+                    "langbar_double_single_byte",
+                    "langbar_punctuation",
+                    "display_attribute_input",
+                    "display_attribute_converted",
+                    "candidate_ui_element"
+                  ],
+                  "properties": {
+                    "preserve_key_ime_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Shift）的保留键。"
+                    },
+                    "preserve_key_ime_mode_02": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Ctrl+Alt+Space）的保留键。"
+                    },
+                    "preserve_key_ime_mode_03": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Ctrl）的保留键。"
+                    },
+                    "preserve_key_english_input_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "英文候选输入（Ctrl+Shift+E）的保留键。"
+                    },
+                    "preserve_key_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "全半角切换（Ctrl+Shift+Space）的保留键。"
+                    },
+                    "preserve_key_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英标点切换（Ctrl+.）的保留键。"
+                    },
+                    "compartment_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "全半角状态的 compartment。"
+                    },
+                    "compartment_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英标点状态的 compartment。"
+                    },
+                    "langbar_ime_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的中英按钮。"
+                    },
+                    "langbar_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的全半角按钮。"
+                    },
+                    "langbar_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的标点按钮。"
+                    },
+                    "display_attribute_input": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "组字中文本的显示属性。"
+                    },
+                    "display_attribute_converted": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "已转换文本的显示属性。"
+                    },
+                    "candidate_ui_element": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "候选列表的 UI element。"
+                    }
+                  }
+                },
+                "inno_app_id": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "Inno Setup 的 AppId，决定卸载项和升级时认哪个已安装的产品。"
+                },
+                "app_name": {
+                  "description": "安装器、开始菜单和「已安装的应用」里显示的产品名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text_service_description": {
+                  "description": "注册进系统输入法列表的文本服务名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "install_dir": {
+                  "description": "Program Files 下的安装目录名（32 位和 64 位各一个），也是安装器默认数据目录 %LOCALAPPDATA%\\<install_dir> 的名字。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "registry_key": {
+                  "description": "HKLM 下记录 VersionDir、ServerPath 和 DataDir 的键。",
+                  "type": "string",
+                  "pattern": "^Software\\\\Metasequoia\\\\[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "state_directory": {
+                  "description": "没有 DataDir 时 %LOCALAPPDATA% 下的状态目录名。",
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "user_data_directory": {
+                  "description": "%LOCALAPPDATA% 下按 Windows 用户存放匿名账号和使用统计的目录名。",
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "data_dir_environment_variable": {
+                  "description": "覆盖状态目录的环境变量名。",
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                },
+                "name_suffix": {
+                  "description": "拼在命名管道、命名事件、互斥量和窗口类名后面的后缀。full 是空串，所以 full 的名字与引入版本之前相同；其他版本是 `.<id>`。",
+                  "type": "string",
+                  "pattern": "^(\\.[a-z][a-z0-9]*)?$"
+                },
+                "watchdog_task": {
+                  "description": "看门狗的登录计划任务名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "host_dll": {
+                  "description": "msime-host-api 的 DLL 文件名。TSF DLL 被加载进每个宿主应用，同一个进程里两个版本的 TIP 按导入表找同名 DLL 时会拿到先加载的那一个，所以每个版本的名字不同。",
+                  "type": "string",
+                  "pattern": "^msime_host_api(_[a-z][a-z0-9]*)?\\.dll$"
+                },
+                "tauri_identifier": {
+                  "description": "MSIME.exe（Tauri）的 identifier，决定它的应用数据目录和单实例互斥量。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.windows(\\.[a-z][a-z0-9]*)?$"
+                },
+                "installer_base_name": {
+                  "description": "安装包文件名前缀，完整文件名是 `<installer_base_name>_v<版本>.exe`；不是 full 时必须是 packages/ui/src/settings/update-manifest.ts 认的 `MetasequoiaIME-<Id>_Setup`。",
+                  "type": "string",
+                  "pattern": "^MetasequoiaIME(-[A-Z][a-z0-9]*)?_Setup$"
+                }
+              }
+            },
             "linux": { "type": ["object", "null"] },
             "android": { "type": ["object", "null"] },
             "ios": { "type": ["object", "null"] },
