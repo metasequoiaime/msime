@@ -302,7 +302,12 @@ public final class BackendAccount {
                 throw new IllegalStateException("invalid clipboard response");
             items.add(new ClipboardItem(id, text, updated));
         }
-        return new ClipboardPage(response.optBoolean("enabled", false), List.copyOf(items));
+        return new ClipboardPage(requiredBooleanField(response.opt("enabled")), List.copyOf(items));
+    }
+
+    static boolean requiredBooleanField(Object value) {
+        if (!(value instanceof Boolean)) throw new IllegalStateException("invalid clipboard response");
+        return (Boolean) value;
     }
 
     public void setClipboardEnabled(boolean enabled) throws Exception {

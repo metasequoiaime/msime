@@ -41,7 +41,25 @@ public final class BackendAccountResponseSmoke {
         }
         check(rejected, "responses above the shared one-megabyte bound are rejected");
 
-        System.out.println("Android account response bounds passed");
+        rejected = false;
+        try {
+            BackendAccount.requiredBooleanField(null);
+        } catch (IllegalStateException error) {
+            rejected = true;
+        }
+        check(rejected, "clipboard responses without a boolean enabled field are rejected");
+
+        rejected = false;
+        try {
+            BackendAccount.requiredBooleanField("false");
+        } catch (IllegalStateException error) {
+            rejected = true;
+        }
+        check(rejected, "clipboard responses with a non-boolean enabled field are rejected");
+        check(BackendAccount.requiredBooleanField(Boolean.TRUE), "enabled=true is accepted");
+        check(!BackendAccount.requiredBooleanField(Boolean.FALSE), "enabled=false is accepted");
+
+        System.out.println("Android account response bounds and fields passed");
     }
 
     private static void check(boolean condition, String message) {
