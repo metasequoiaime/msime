@@ -95,6 +95,13 @@ static inline BOOL MSIMEEditionWubiMixedPinyinDefaultIn(NSDictionary *info) {
     return !MSIMEEditionIsFullIn(info) && [value isKindOfClass:NSNumber.class] && [value boolValue];
 }
 
+// 本版本是否提供手写。手写模型只认汉字，不提供中文方案的版本（日文、越南文和藏文版）在 Info.plist 里写 MSIMEHandwriting = false（scripts/edition_bundle.py 按版本表 features.handwriting 生成），输入法菜单和悬浮工具栏上就没有手写入口。没有这个键（full 和其他中文版本）就是有手写。
+static inline BOOL MSIMEEditionOffersHandwritingIn(NSDictionary *info) {
+    if (MSIMEEditionIsFullIn(info)) return YES;
+    id value = info[@"MSIMEHandwriting"];
+    return ![value isKindOfClass:NSNumber.class] || [value boolValue];
+}
+
 // 设置应用和输入法之间的分布式通知名。它们在整个登录会话里广播，所以不是 full 的版本在名字后面加上「.版本 id」，一个版本的设置应用不会叫醒或改动另一个版本的输入法。与 crates/host-macos 的 edition_notification_name 一致。
 static inline NSString *MSIMEEditionNotificationNameIn(NSDictionary *info, NSString *base) {
     if (MSIMEEditionIsFullIn(info)) return base;
@@ -113,4 +120,5 @@ static inline NSString *MSIMEUsageReportingDirectoryName(void) { return MSIMEUsa
 static inline NSArray<NSString *> *MSIMEEditionInputSchemes(void) { return MSIMEEditionInputSchemesIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEEditionDefaultScheme(void) { return MSIMEEditionDefaultSchemeIn(MSIMEEditionInfo()); }
 static inline BOOL MSIMEEditionWubiMixedPinyinDefault(void) { return MSIMEEditionWubiMixedPinyinDefaultIn(MSIMEEditionInfo()); }
+static inline BOOL MSIMEEditionOffersHandwriting(void) { return MSIMEEditionOffersHandwritingIn(MSIMEEditionInfo()); }
 static inline NSString *MSIMEEditionNotificationName(NSString *base) { return MSIMEEditionNotificationNameIn(MSIMEEditionInfo(), base); }

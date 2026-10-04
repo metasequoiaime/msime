@@ -67,10 +67,13 @@ else
 fi
 
 # Optional: non-English candidate glosses built by scripts/build_offline_glosses.py. Engine looks for them beside the resource directory, one zh-<lang>.db per target language; without them only English is glossed offline.
+# 这些数据库按中文候选查释义，不提供中文方案的版本（版本表 features.offline_glosses 为 false：日文、越南文和藏文版）不暂存，package-release.sh 也就不把它们放进包里。
 glosses_source=${3:-$repo_root/target/offline-glosses}
 glosses_destination="$repo_root/target/macos/offline-glosses"
 rm -rf "$glosses_destination"
-if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+if [ "$(python3 "$repo_root/platforms/macos/scripts/edition_bundle.py" field --edition "$edition" features.offline_glosses)" != true ]; then
+  echo "edition $edition offers no Chinese scheme; offline glosses are not staged"
+elif compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
   mkdir -p "$glosses_destination"
   cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$glosses_destination/"
   echo "offline glosses staged: $glosses_destination"

@@ -693,7 +693,9 @@ static void MSIMELogToolbarAction(const char *action, BOOL hasDelegate, id sende
         // Keep optional utility buttons off when an older or partial settings
         // snapshot omits their keys. They can still be enabled explicitly.
         const BOOL defaultEnabled = ![@[@"emoji", @"handwriting", @"voice", @"screen_keyboard"] containsObject:keys[index]];
-        const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
+        // 不提供手写的版本（日文、越南文和藏文版）不放手写按钮，偏好里同步来的开关也不算。
+        const BOOL offered = ![keys[index] isEqualToString:@"handwriting"] || MSIMEEditionOffersHandwriting();
+        const BOOL enabled = offered && ([value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled);
         if (enabled) { mask |= 1u << index; ++count; }
     }
     if (scale == _appliedScale && fontSize == _appliedFontSize && mask == _appliedComponentMask) return;

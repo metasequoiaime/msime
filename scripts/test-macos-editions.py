@@ -102,6 +102,10 @@ def check_edition(errors: list[str], generator, table: dict, entry: dict, others
         mixed = entry["preference_defaults"].get("wubi_mixed_pinyin")
         if mixed is not None:
             expected["MSIMEWubiMixedPinyinDefault"] = mixed
+        if not entry["features"]["handwriting"]:
+            expected["MSIMEHandwriting"] = False
+        elif "MSIMEHandwriting" in plist:
+            errors.append(f"{where}: an edition with handwriting must not declare MSIMEHandwriting")
     for key, value in expected.items():
         if plist.get(key) != value:
             errors.append(f"{where}: {key} is {plist.get(key)!r}, expected {value!r}")

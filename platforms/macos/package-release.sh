@@ -163,6 +163,8 @@ bundle_name="$(python3 "$edition_tool" field --edition "$edition" bundle_name)"
 bundle_id="$(python3 "$edition_tool" field --edition "$edition" input_method_bundle_id)"
 display_name="$(python3 "$edition_tool" field --edition "$edition" display_name.zh-Hans)"
 dmg_prefix="$(python3 "$edition_tool" field --edition "$edition" dmg_prefix)"
+# 非英文离线释义按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带：stage-resources.sh 不暂存，check_app 再确认包里没有。
+offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)"
 echo "packaging edition $edition: $bundle_name ($bundle_id)"
 
 # ---- Core dictionaries for this edition ----
@@ -243,7 +245,7 @@ check_app() {
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt NOTICE.md NOTICE-jiajia.md; do
     test -f "$resources_dir/EngineResources/helpcodes/$table"
   done
-  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里。
+  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（macos_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
   test ! -e "$resources_dir/EngineResources/dict_japanese.dat"
   test ! -e "$resources_dir/EngineResources/mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/language-dictionaries"
@@ -259,7 +261,9 @@ check_app() {
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
   test -x "$root/Contents/MacOS/msime-mcp"
   codesign --verify --strict "$root/Contents/MacOS/msime-mcp"
-  if [ -d "$glosses" ]; then
+  if [ "$offline_glosses" != true ]; then
+    test ! -e "$resources_dir/offline-glosses"
+  elif [ -d "$glosses" ]; then
     test -f "$resources_dir/offline-glosses/offline-glosses-NOTICE.txt"
   fi
   local nested

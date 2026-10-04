@@ -10,7 +10,7 @@ full 是现有产品本身：对 full，这里的每个输出都与输入逐字�
 - `CFBundleIdentifier`、`CFBundleExecutable`、`CFBundleName`、`CFBundleDisplayName` 换成版本表里的值，`InputMethodConnectionName` 是新 bundle id 加 `_Connection`（imklaunchagent 只认这种形式，见 Info.plist.in）；
 - 输入模式只留下本版本的方案对应的模式，再加上「英」（Roman）。主模式 `.Hans` 总是在：输入控制器把它当作任何方案都能退回的模式，安装时它总被启用（粤、注、越、藏、笔这些按需模式安装时不启用）。版本不含全拼时，`.Hans` 换上默认方案的图标和名字，默认方案自己的模式不再单列，所以五笔版的菜单里只有「五」和「英」，日文版只有「日」和「英」；
 - 默认方案不是中文方案时（日文、越南文、藏文版），`.Hans` 还换上默认方案模式的语言、字符集和脚本（`TISIntendedLanguage` 是 ja、vi 或 bo），「英」的 `TISIntendedLanguage` 也随之改成这个语言，系统设置的「添加」对话框把整个输入法列在这个语言下，而不是「简体中文」；
-- 加上 `MSIMEEdition`、`MSIMEInputSchemes`、`MSIMEDefaultScheme`、`MSIMESettingsBundleIdentifier`、`MSIMEKeychainService`，以及版本表 `preference_defaults` 里的 `MSIMEWubiMixedPinyinDefault`；
+- 加上 `MSIMEEdition`、`MSIMEInputSchemes`、`MSIMEDefaultScheme`、`MSIMESettingsBundleIdentifier`、`MSIMEKeychainService`，版本表 `preference_defaults` 里的 `MSIMEWubiMixedPinyinDefault`，以及不提供手写（`features.handwriting` 为 false）时的 `MSIMEHandwriting` = false：输入法据此不在菜单和悬浮工具栏上放手写入口（`EditionIdentity.h` 的 `MSIMEEditionOffersHandwritingIn`），没有这个键就是有手写；
 - 去掉模板里的 XML 注释：它们描述的是 full 的十个模式。
 
 用法：
@@ -19,7 +19,7 @@ full 是现有产品本身：对 full，这里的每个输出都与输入逐字�
     edition_bundle.py strings --edition ID --input InfoPlist.strings --output InfoPlist.strings
     edition_bundle.py settings-strings --edition ID --input InfoPlist.strings --output InfoPlist.strings  # 设置应用的显示名
     edition_bundle.py apply   --edition ID path/to/水杉输入法.app      # 把编好的 full bundle 原地改成该版本（改名由调用方负责）
-    edition_bundle.py field   --edition ID KEY                        # 打印 macOS 段的字段、display_name.zh-Hans/en 或 bundle_name
+    edition_bundle.py field   --edition ID KEY                        # 打印 macOS 段的字段、display_name.zh-Hans/en、bundle_name 或 features.<功能>（true/false）
     edition_bundle.py marker  --edition ID --output edition.json      # 设置应用 Resources 里的版本声明；full 不写
     edition_bundle.py tauri-config --edition ID --version VERSION     # 设置应用按版本打包时传给 tauri bundle --config 的配置
     edition_bundle.py cask    --edition ID --version V --sha256 S --template msime.rb.in
@@ -127,6 +127,9 @@ def edition_keys(entry: dict) -> str:
     mixed = entry["preference_defaults"].get("wubi_mixed_pinyin")
     if mixed is not None:
         lines.append(f"<key>MSIMEWubiMixedPinyinDefault</key><{'true' if mixed else 'false'}/>")
+    # 只写 false：有手写的版本的 plist 与加入这个键之前相同。
+    if not entry["features"]["handwriting"]:
+        lines.append("<key>MSIMEHandwriting</key><false/>")
     return "".join(line + "\n" for line in lines)
 
 
@@ -305,6 +308,8 @@ def field(entry: dict, key: str) -> str:
         return entry["platforms"]["macos"]["input_method_name"] + ".app"
     if key.startswith("display_name."):
         return entry["display_name"][key.split(".", 1)[1]]
+    if key.startswith("features.") and key.split(".", 1)[1] in entry["features"]:
+        return "true" if entry["features"][key.split(".", 1)[1]] else "false"
     if key in entry["platforms"]["macos"]:
         return entry["platforms"]["macos"][key]
     raise SystemExit(f"unknown field {key}")

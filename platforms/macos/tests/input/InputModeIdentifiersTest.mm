@@ -67,6 +67,12 @@ int main() {
                     [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
                     MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
                 "The wubi edition's Info.plist did not give the wubi identity.");
+        // 手写：full 和没写 MSIMEHandwriting 的版本都有；不提供中文方案的版本写了 false 就没有，full 不认这个键。
+        require(MSIMEEditionOffersHandwritingIn(@{}) && MSIMEEditionOffersHandwritingIn(wubi) &&
+                    MSIMEEditionOffersHandwritingIn(@{@"MSIMEHandwriting": @NO}) &&
+                    !MSIMEEditionOffersHandwritingIn(@{@"MSIMEEdition": @"vietnamese", @"MSIMEHandwriting": @NO}) &&
+                    MSIMEEditionOffersHandwritingIn(@{@"MSIMEEdition": @"pinyin", @"MSIMEHandwriting": @YES}),
+                "Handwriting did not follow the edition's MSIMEHandwriting declaration.");
         // 语音服务凭据和使用统计目录：full 沿用今天的名字，其他版本各有各的，语音服务名正是卸载时删掉的 `<bundle id>.voice`。
         require([MSIMEVoiceProviderKeychainServiceIn(@{}) isEqualToString:@"app.msime.client.voice.providers"] &&
                     [MSIMEVoiceProviderKeychainServiceIn(wubi) isEqualToString:[wubi[@"CFBundleIdentifier"] stringByAppendingString:@".voice"]] &&
