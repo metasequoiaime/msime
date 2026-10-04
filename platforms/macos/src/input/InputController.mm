@@ -234,6 +234,25 @@ static NSInteger MSIMEStrictInteger(id value, NSInteger fallback) {
     return [number compare:@(integer)] == NSOrderedSame ? integer : fallback;
 }
 
+static BOOL MSIMEStrictUnsignedInteger(id value, uint64_t *result) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t integer = number.unsignedLongLongValue;
+    if ([number compare:@(integer)] != NSOrderedSame) return NO;
+    if (result) *result = integer;
+    return YES;
+}
+
+static BOOL MSIMEStrictUnsignedIntegerValue(id value, NSUInteger *result) {
+    uint64_t integer = 0;
+    if (!MSIMEStrictUnsignedInteger(value, &integer) || integer > NSUIntegerMax) return NO;
+    if (result) *result = (NSUInteger)integer;
+    return YES;
+}
+
 static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
     for (NSDictionary *candidate in view[@"candidates"])
         if ([candidate isKindOfClass:NSDictionary.class] &&
@@ -563,8 +582,7 @@ static NSFont *MSIMECandidatePreeditFont(MSIMEAppearancePreferences *appearance)
 }
 
 static BOOL MSIMEUnsignedCandidateIdentityValue(id value) {
-    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value compare:@0] != NSOrderedAscending;
+    return MSIMEStrictUnsignedInteger(value, nullptr);
 }
 static NSUInteger MSIMECandidateDeletionSlot(NSEvent *event) {
     const NSEventModifierFlags required = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
@@ -602,6 +620,8 @@ static BOOL MSIMECurrentCandidateIdentity(id identifier, NSDictionary *view) {
     if (![identifier isKindOfClass:NSDictionary.class] || ![view[@"focused"] isEqual:@YES]) return NO;
     for (NSString *key in @[@"session", @"generation", @"index"])
         if (!MSIMEUnsignedCandidateIdentityValue(identifier[key])) return NO;
+    for (NSString *key in @[@"session", @"generation"])
+        if (!MSIMEUnsignedCandidateIdentityValue(view[key])) return NO;
     return [identifier[@"session"] isEqual:view[@"session"]] && [identifier[@"generation"] isEqual:view[@"generation"]] &&
            [identifier[@"index"] compare:@(NSUIntegerMax)] != NSOrderedDescending;
 }
@@ -1566,9 +1586,9 @@ static NSImage *MSIMECandidateLogoImage() {
         _japaneseConversionIndex = nil;
         _japaneseConversionReading = nil;
         if (!MSIMECurrentCandidateIdentity(identifier, _view)) return NO;
-        NSDictionary *transition = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
-                                                        index:[identifier[@"index"] unsignedIntegerValue]
-                                                        error:nil];
+        uint64_t generation = 0; NSUInteger index = 0;
+        if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return NO;
+        NSDictionary *transition = [_session selectGeneration:generation index:index error:nil];
         if (!transition) return NO;
         [self apply:transition];
         return YES;
@@ -1986,7 +2006,9 @@ static NSImage *MSIMECandidateLogoImage() {
     // Applying translations advances the Engine snapshot. Any enclosing service pass must
     // fetch the new query/view before it asks another provider to synchronize.
     [self invalidateServiceSnapshots];
-    NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+    uint64_t generation = 0;
+    if (!MSIMEStrictUnsignedInteger(view[@"generation"], &generation)) return NO;
+    NSDictionary *applied = [_session applyTranslations:results generation:generation error:nil];
     if (![applied[@"applied"] boolValue]) return NO;
     // A gloss changes what the card shows, never the composition, so only the card is redrawn. Going through apply: re-sent the marked text on every arrival, and IMK services the next key inside that synchronous setMarkedText: call - the whole keystroke, reranking included, ran nested in it, after which the outer apply: wrote the older view back over the newer one.
     NSDictionary *next = applied[@"view"];
@@ -2119,8 +2141,10 @@ static NSImage *MSIMECandidateLogoImage() {
             for (NSString *text in englishPending) owner->_accountEnglishQueries[text] = [owner->_preferencesDirectory copy];
         }
         // The request carries no generation, so the one on screen when the words go out is passed along; nothing compares it since replies are cached by word.
-        [owner fetchAccountGlosses:unique primary:primary secondary:secondary
-                        generation:[[owner->_session translationQueryWithError:nil][@"generation"] unsignedLongLongValue]];
+        NSDictionary *query = [owner->_session translationQueryWithError:nil];
+        uint64_t generation = 0;
+        if (MSIMEStrictUnsignedInteger(query[@"generation"], &generation))
+            [owner fetchAccountGlosses:unique primary:primary secondary:secondary generation:generation];
     }];
 }
 
@@ -2895,7 +2919,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (_appearance && !_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) {
         NSDictionary *view = [_session viewWithError:nil];
         if (view) {
-            NSDictionary *cleared = [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+            uint64_t generation = 0;
+            NSDictionary *cleared = MSIMEStrictUnsignedInteger(view[@"generation"], &generation) ? [_session applyTranslations:@[] generation:generation error:nil] : nil;
             if (cleared[@"view"]) _view = cleared[@"view"];
         }
     }
@@ -2933,7 +2958,9 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         NSDictionary *preferences = snapshot ? MSIMEMergePreferenceSnapshot(snapshot[@"preferences"], overrides) : nil;
         if (!preferences) break;
         id revision = snapshot[@"revision"] ?: @0;
-        saved = [MSIMEClientSession savePreferencesInDirectory:_preferencesDirectory expectedRevision:[revision unsignedLongLongValue]
+        uint64_t revisionValue = 0;
+        if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(revision, &revisionValue)) break;
+        saved = [MSIMEClientSession savePreferencesInDirectory:_preferencesDirectory expectedRevision:revisionValue
                                                      snapshot:@{ @"format_version": @1, @"revision": revision, @"preferences": preferences } error:nil];
     }
     if (![saved isKindOfClass:NSDictionary.class]) { msime_macos_diagnostic_write("preferences_save_failed"); return; }
@@ -2954,7 +2981,8 @@ static __weak MSIMEInputController *MSIMEFocusedController;
         NSError *loadError = nil;
         NSDictionary *snapshot = [MSIMEClientSession loadPreferencesInDirectory:directory error:&loadError];
         NSDictionary *preferences = snapshot ? MSIMEMergePreferenceSnapshot(snapshot[@"preferences"], overrides) : nil;
-        uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+        uint64_t revision = 0;
+        if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) preferences = nil;
         NSError *saveError = nil;
         NSDictionary *saved = nil;
         if (preferences) {
@@ -2966,7 +2994,9 @@ static __weak MSIMEInputController *MSIMEFocusedController;
             NSDictionary *latestPreferences = latest ? MSIMEMergePreferenceSnapshot(latest[@"preferences"], overrides) : nil;
             if (latestPreferences) {
                 saveError = nil;
-                saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
+                uint64_t latestRevision = 0;
+                if (latest[@"revision"] && !MSIMEStrictUnsignedInteger(latest[@"revision"], &latestRevision)) latestPreferences = nil;
+                if (latestPreferences) saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:@{ @"format_version": @1, @"revision": latest[@"revision"] ?: @0, @"preferences": latestPreferences } error:&saveError];
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -4563,8 +4593,8 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
     // every preference, another trip into the Engine and a diagnostic line, a second at a time, for
     // nothing - and it buried the log this was found in. A revision of zero predates the field and
     // is always applied.
-    const uint64_t revision = [snapshot[@"revision"] isKindOfClass:NSNumber.class]
-        ? [snapshot[@"revision"] unsignedLongLongValue] : 0;
+    uint64_t revision = 0;
+    if (snapshot[@"revision"] && !MSIMEStrictUnsignedInteger(snapshot[@"revision"], &revision)) { msime_macos_diagnostic_write("preferences_load_failed"); return; }
     if (!_preferenceLoadState.needsApply(revision)) return;
     _preferenceLoadState.applied(revision);
     NSDictionary *preferences = snapshot[@"preferences"];
@@ -4709,14 +4739,14 @@ static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
         [self cancelCustomTranslations];
         if (!candidateEnglishGlossEnabled) { [self cancelCandidateGloss]; [self cancelTargetGloss]; }
         NSDictionary *view = [_session viewWithError:nil];
-        if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view)
-            [_session applyTranslations:@[] generation:[view[@"generation"] unsignedLongLongValue] error:nil];
+        if (!candidateTranslationsEnabled && !candidateEnglishGlossEnabled && view) {
+            uint64_t generation = 0;
+            if (MSIMEStrictUnsignedInteger(view[@"generation"], &generation)) [_session applyTranslations:@[] generation:generation error:nil];
+        }
     }
     id pageSize = preferences[@"candidate_page_size"];
-    if ([pageSize isKindOfClass:NSNumber.class] &&
-        CFGetTypeID((__bridge CFTypeRef)pageSize) != CFBooleanGetTypeID() &&
-        [pageSize doubleValue] == [pageSize integerValue] && [pageSize integerValue] >= 1 && [pageSize integerValue] <= 9 &&
-        [pageSize unsignedIntegerValue] != _requestedPageSize) _requestedPageSize = 0;
+    NSUInteger strictPageSize = 0;
+    if (MSIMEStrictUnsignedIntegerValue(pageSize, &strictPageSize) && strictPageSize >= 1 && strictPageSize <= 9 && strictPageSize != _requestedPageSize) _requestedPageSize = 0;
     [_appearance applySharedInputPreferences:preferences];
     [_appearance applySharedCandidatePreferences:preferences];
     if (!_appearance.inputModeHUD) [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
@@ -5391,7 +5421,9 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, (NSInteger)deletionSlot);
         if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
         NSError *error = nil;
-        NSDictionary *result = [_session removeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:&error];
+        uint64_t generation = 0; NSUInteger index = 0;
+        if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
+        NSDictionary *result = [_session removeGeneration:generation index:index error:&error];
         if (result) [self apply:result];
         else if (error) NSBeep();
         return YES; // Never finish composition or leak a reserved deletion chord.
@@ -5434,9 +5466,9 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             // of letting it fall through to Engine numeric input.
             NSDictionary *identifier = MSIMERenderedCandidateIdentity(_panel, slot);
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
-            NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
-                                                           index:[identifier[@"index"] unsignedIntegerValue]
-                                                           error:nil];
+            uint64_t generation = 0; NSUInteger index = 0;
+            if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
+            NSDictionary *selected = [_session selectGeneration:generation index:index error:nil];
             if (selected) [self apply:selected];
             return YES;
         }
@@ -5614,7 +5646,9 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
                     if (![candidate[@"highlighted"] isEqual:@YES]) continue;
                     NSDictionary *identifier = candidate[@"id"];
                     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
-                    NSDictionary *selected = [_session selectEdgeGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
+                    uint64_t generation = 0; NSUInteger index = 0;
+                    if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
+                    NSDictionary *selected = [_session selectEdgeGeneration:generation index:index edge:first ? MSIME_FIRST_HAN : MSIME_LAST_HAN error:nil];
                     if (selected) {
                         NSMutableDictionary *annotated = [selected mutableCopy];
                         annotated[@"word_character_candidate"] = candidate[@"text"] ?: @"";
@@ -5655,9 +5689,9 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         if (identifier) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
             if (_armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
-            NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
-                                                           index:[identifier[@"index"] unsignedIntegerValue]
-                                                           error:nil];
+            uint64_t generation = 0; NSUInteger index = 0;
+            if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return YES;
+            NSDictionary *selected = [_session selectGeneration:generation index:index error:nil];
             if (selected) [self apply:selected];
             return YES;
         }
@@ -6136,6 +6170,8 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     const CGFloat scale = MSIMECandidateScale(_appearance);
     CGFloat clearance = (_appearance.fontSize + 42.0) * scale;
+    NSUInteger pageCount = 0;
+    MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     if (_appearance.vertical) clearance = ((_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0) * scale;
     NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
@@ -6148,14 +6184,14 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
         NSFont *glossFont = [_appearance candidateFontOfSize:MSIMECandidateTranslationPointSize * scale englishFirst:YES];
         const MSIMECandidatePageGeometry geometry =
             [self candidatePageGeometry:candidates font:font glossFont:glossFont showSelectedBar:_skinShowsSelectedBar inset:12 * scale
-                                 paging:[_view[@"page_count"] unsignedIntegerValue] > 1
+                                 paging:pageCount > 1
                                 visible:screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900) preeditWidth:0 minimumWidth:0];
         clearance = MAX(clearance, geometry.rowsHeight + 24 * scale);
     }
     id preedit = [_view[@"preedit"] isKindOfClass:NSString.class] ? _view[@"preedit"] : editing;
     if ([_view[@"candidates"] count]) {
         // The card's top row: the brand mark, the reading when it is shown, and the page indicator whenever there is more than one page.
-        CGFloat header = [_view[@"page_count"] unsignedIntegerValue] > 1 || MSIMECandidateLogoImage() ? MSIMECandidateHeaderHeight * scale : 0;
+        CGFloat header = pageCount > 1 || MSIMECandidateLogoImage() ? MSIMECandidateHeaderHeight * scale : 0;
         if (_appearance.showsCandidatePreedit && [preedit length]) {
             NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
             header = MAX(header, MAX(22.0 * scale, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0 * scale));
@@ -6227,8 +6263,9 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     NSString *preedit = _appearance.showsCandidatePreedit && [preeditValue isKindOfClass:NSString.class] ? preeditValue : @"";
     NSFont *preeditFont = MSIMECandidatePreeditFont(_appearance);
     CGFloat preeditHeight = preedit.length ? MAX(22.0 * scale, MSIMECandidateTextHeight(preedit, preeditFont) + 6.0 * scale) : 0;
-    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
-    const NSUInteger pageCount = [_view[@"page_count"] unsignedIntegerValue];
+    NSUInteger page = 0; NSUInteger pageCount = 0;
+    MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page);
+    MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &pageCount);
     const BOOL paging = pageCount > 1;
     // The top row leads with the brand mark, as the floating toolbar and the mode HUD do, then the reading; 「1 / 3」 with ‹ › sit on the right.
     NSImage *logo = MSIMECandidateLogoImage();
@@ -6529,7 +6566,9 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (!_activeClient || !_session || !_panel.isVisible || !button.enabled || button.superview != _panel.contentView) return;
     NSDictionary *identifier = button.candidateID;
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
-    [self apply:[_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue] index:[identifier[@"index"] unsignedIntegerValue] error:nil]];
+    uint64_t generation = 0; NSUInteger index = 0;
+    if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return;
+    [self apply:[_session selectGeneration:generation index:index error:nil]];
 }
 
 - (NSMenu *)menuForCandidate:(NSDictionary *)candidate {
@@ -6581,8 +6620,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
     if (![context isKindOfClass:NSDictionary.class] || context[@"render"] != _candidateMenuToken) return;
     NSDictionary *identifier = context[@"id"];
     if (!MSIMECurrentCandidateIdentity(identifier, _view)) return;
-    uint64_t generation = [identifier[@"generation"] unsignedLongLongValue];
-    NSUInteger index = [identifier[@"index"] unsignedIntegerValue];
+    uint64_t generation = 0; NSUInteger index = 0;
+    if (!MSIMEStrictUnsignedInteger(identifier[@"generation"], &generation) || !MSIMEStrictUnsignedIntegerValue(identifier[@"index"], &index)) return;
     NSError *error = nil;
     NSDictionary *result = nil;
     switch (item.tag) {
@@ -6615,8 +6654,8 @@ static __weak MSIMEInputController *MSIMECandidatePanelOwner;
             !MSIMEUnsignedCandidateIdentityValue(_view[key]) || ![button.candidateID[key] isEqual:_view[key]]) return;
     }
     if (!MSIMEUnsignedCandidateIdentityValue(_view[@"page_count"])) return;
-    const NSUInteger page = [_view[@"page"] unsignedIntegerValue];
-    const NSUInteger count = [_view[@"page_count"] unsignedIntegerValue];
+    NSUInteger page = 0; NSUInteger count = 0;
+    if (!MSIMEStrictUnsignedIntegerValue(_view[@"page"], &page) || !MSIMEStrictUnsignedIntegerValue(_view[@"page_count"], &count)) return;
     if (count == 0 || page >= count) return;
     if (button.tag == -1 && page > 0) [self apply:[_session command:MSIME_PREVIOUS_PAGE error:nil]];
     if (button.tag == -2 && count > 0 && page < count - 1) [self apply:[_session command:MSIME_NEXT_PAGE error:nil]];
