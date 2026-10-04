@@ -1439,7 +1439,7 @@ export function VoicePanel({
   const busyRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const stoppingRef = useRef(false);
-  const recognitionRevision = useRef(0);
+  const recognitionRevision = useAsyncGeneration();
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const voiceGeneration = useAsyncGeneration(client);
