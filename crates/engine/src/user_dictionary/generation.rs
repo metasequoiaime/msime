@@ -12,7 +12,9 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
+use crate::user_dictionary::journal::open_database;
 use crate::user_dictionary::replay::replay;
+use crate::wubi::provider::ensure_reverse_indexes;
 
 pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 
@@ -65,6 +67,8 @@ pub fn prepare_runtime_paths(
         }
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
         replay_into(&result, &result.dictionaries)?;
+        // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
+        index_reverse_lookup(&result.dictionaries)?;
         stage_generation_copies(resources, &result.dictionaries, false)?;
         return Ok(result);
     }
@@ -86,6 +90,7 @@ pub fn prepare_runtime_paths(
         }
         stage_generation_copies(resources, &stage, true)?;
         replay_into(&result, &stage)?;
+        index_reverse_lookup(&stage)?;
         fs::write(
             stage.join(assets::GENERATION_READY),
             format!("{content_id}\n"),
@@ -123,6 +128,15 @@ fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
             diagnostics::RUNTIME_REPLAY_FAILED,
             replayed.error
         )));
+    }
+    Ok(())
+}
+
+/// 给代次里每个词库副本补上五笔反查索引（见 `wubi::provider::ensure_reverse_indexes`）。代次是用户可写的副本，资源目录保持只读、原样；索引不进日志，也不影响词库状态的摘要。
+fn index_reverse_lookup(generation: &Path) -> Result<()> {
+    for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        let connection = open_database(&generation.join(name), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        ensure_reverse_indexes(&connection)?;
     }
     Ok(())
 }
@@ -579,6 +593,56 @@ mod tests {
                 "SELECT weight FROM tbl_1_n WHERE value='妮'"
             ),
             Some(70)
+        );
+    }
+
+    fn reverse_indexes(database: &Path) -> Vec<String> {
+        let connection = Connection::open(database).unwrap();
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_wubi%_value' ORDER BY name")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn generations_get_the_wubi_reverse_index_and_resources_stay_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        // 只有 wubi86：没有的 wubi98 不会凭空建表或建索引。
+        sql(
+            &resources.join(assets::MAIN_DICTIONARY),
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        );
+        let original = fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert!(reverse_indexes(&paths.dictionary(assets::ENGLISH_DICTIONARY)).is_empty());
+        assert_eq!(
+            fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap(),
+            original
+        );
+
+        // 旧版本准备的代次没有这个索引：再次打开同一代次时补上。
+        sql(&main, "DROP INDEX idx_wubi86_value;");
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        // 已有索引时什么也不改。
+        let indexed = fs::read(&main).unwrap();
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert_eq!(fs::read(&main).unwrap(), indexed);
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='你好'"),
+            Some(300)
         );
     }
 

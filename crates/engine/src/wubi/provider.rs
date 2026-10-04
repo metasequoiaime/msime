@@ -20,6 +20,35 @@ const QUERY_SQL_86: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi86 WH
 /// 与 `QUERY_SQL_86` 相同，只是读 `wubi98`。
 const QUERY_SQL_98: &str = "SELECT \"key\", \"value\", \"weight\" FROM wubi98 WHERE \"key\" >= ?1 AND \"key\" < ?2 ORDER BY (\"key\" = ?1) DESC, \"weight\" DESC, \"key\" ASC, rowid ASC LIMIT ?3";
 
+/// 反查按 `"value"` 找行，而发布词库只有 `("key","value")` 的唯一约束和 `("key","weight")` 索引，没有索引时每次反查都要扫整张表。每张五笔表配一个只按词条建的索引，由 [`ensure_reverse_indexes`] 在可写的代次副本里补上。
+const REVERSE_INDEXES: [(&str, &str, &str); 2] = [
+    (
+        "wubi86",
+        "idx_wubi86_value",
+        "CREATE INDEX IF NOT EXISTS idx_wubi86_value ON wubi86(\"value\")",
+    ),
+    (
+        "wubi98",
+        "idx_wubi98_value",
+        "CREATE INDEX IF NOT EXISTS idx_wubi98_value ON wubi98(\"value\")",
+    ),
+];
+
+/// 给库里已有的五笔表补上反查索引；按表名判断而不是按文件名，所以词库无论拆成几个文件都能调用。表不存在就跳过，索引已在时只读一次 schema、不开写事务，可以每次准备代次都调用。
+pub(crate) fn ensure_reverse_indexes(connection: &Connection) -> rusqlite::Result<()> {
+    for (table, index, create) in REVERSE_INDEXES {
+        let (has_table, has_index): (bool, bool) = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1), EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?2)",
+            (table, index),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if has_table && !has_index {
+            connection.execute_batch(create)?;
+        }
+    }
+    Ok(())
+}
+
 fn query_sql(profile: WubiProfileKind) -> &'static str {
     match profile {
         WubiProfileKind::Wubi86 => QUERY_SQL_86,
@@ -361,6 +390,89 @@ mod tests {
             rows(&mut fixture.provider, "wqbb"),
             vec![row("wqbb", "父子", 99)]
         );
+    }
+
+    fn reverse_plan(connection: &Connection, profile: WubiProfileKind) -> String {
+        let sql = match profile {
+            WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
+            WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+        };
+        let mut statement = connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap();
+        let details: Vec<String> = statement
+            .query_map(["你好"], |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        details.join("; ")
+    }
+
+    #[test]
+    fn reverse_indexes_are_created_once_for_the_tables_present() {
+        let both = fixture(
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));",
+        );
+        let connection = Connection::open(&both.provider.main_db).unwrap();
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi86).contains("SCAN wubi86"));
+        ensure_reverse_indexes(&connection).unwrap();
+        ensure_reverse_indexes(&connection).unwrap();
+        let indexes: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='index' AND name IN ('idx_wubi86_value','idx_wubi98_value')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(indexes, 2);
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi86)
+            .contains("USING INDEX idx_wubi86_value"));
+        assert!(reverse_plan(&connection, WubiProfileKind::Wubi98)
+            .contains("USING INDEX idx_wubi98_value"));
+
+        // 没有五笔表的库（例如 english.db）原样不动。
+        let other = fixture("CREATE TABLE english_words(word TEXT);");
+        let connection = Connection::open(&other.provider.main_db).unwrap();
+        ensure_reverse_indexes(&connection).unwrap();
+        let tables: i64 = connection
+            .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(tables, 1);
+    }
+
+    #[test]
+    fn the_reverse_index_does_not_change_which_code_is_shown() {
+        // 同一词条的多个编码：完整编码优先，同长度按权重，再按编码；索引只改变查法，不改变答案。
+        let sql = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));\
+             INSERT INTO wubi86 VALUES('a','工',900);\
+             INSERT INTO wubi86 VALUES('aaaa','工',10);\
+             INSERT INTO wubi86 VALUES('aaab','工',20);\
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);\
+             INSERT INTO wubi86 VALUES('wqvc','你好',300);\
+             INSERT INTO wubi86 VALUES('wq','你',10);";
+        let words = ["工", "你好", "你", "缺"];
+        let mut plain = fixture(sql);
+        let before: Vec<Option<String>> = words
+            .iter()
+            .map(|word| plain.provider.reverse_code(word))
+            .collect();
+        assert_eq!(
+            before,
+            [
+                Some("aaab".to_owned()),
+                Some("wqvb".to_owned()),
+                Some("wq".to_owned()),
+                None
+            ]
+        );
+        let mut indexed = fixture(sql);
+        ensure_reverse_indexes(&Connection::open(&indexed.provider.main_db).unwrap()).unwrap();
+        let after: Vec<Option<String>> = words
+            .iter()
+            .map(|word| indexed.provider.reverse_code(word))
+            .collect();
+        assert_eq!(after, before);
     }
 
     #[test]
