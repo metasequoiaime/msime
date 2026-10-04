@@ -321,7 +321,7 @@ function flag(value: Object | undefined, fallback: boolean): boolean {
 }
 
 function whole(value: Object | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
 }
 
 /**

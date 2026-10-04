@@ -8837,6 +8837,14 @@ group("the account settings sync maps this host's document, not another's", () =
     "the custom design travels as one string, as the other hosts send it",
   );
   check(values["platform.harmony.haptic_strength"] === "light", "feedback comes from its own file");
+  const malformedNumeric = localAccountPreferences(
+    { touch_key_spacing_tenths: Number.MAX_SAFE_INTEGER + 1 },
+    syncFeedback,
+  );
+  check(
+    malformedNumeric["platform.harmony.touch_key_spacing_tenths"] === 60,
+    "an unsafe local integer falls back before upload",
+  );
 
   // A document written by an older build is missing the keys that build did not have. Refusing to
   // sync at all because of one absent field would help nobody.
