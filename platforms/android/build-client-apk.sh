@@ -12,6 +12,7 @@ edition_tool="$repo_root/platforms/android/scripts/edition_android.py"
 apk_name=$(python3 "$edition_tool" field --edition "$edition" apk_name)
 edition_lock=$(python3 "$edition_tool" field --edition "$edition" resource_lock)
 edition_languages=$(python3 "$edition_tool" field --edition "$edition" language_dictionaries)
+edition_offline_glosses=$(python3 "$edition_tool" field --edition "$edition" features.offline_glosses)
 case "$abi" in
   arm64-v8a) tauri_target=aarch64 ;;
   x86_64) tauri_target=x86_64 ;;
@@ -71,7 +72,10 @@ cp resources/helpcodes/NOTICE.md "$assets/helpcodes/NOTICE-jiajia.md"
 # Optional non-English candidate glosses (scripts/build_offline_glosses.py). Bootstrap extracts them beside the resources, where the Engine looks for one zh-<lang>.db per target language; without them only English is glossed offline.
 glosses_source=${MSIME_OFFLINE_GLOSSES:-$repo_root/target/offline-glosses}
 rm -rf "$assets/offline-glosses"
-if compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
+# 它们按中文候选查释义，不提供中文方案的版本（版本表 features.offline_glosses 为 false：日文、越南文和藏文版）不带。
+if [ "$edition_offline_glosses" != true ]; then
+  echo "edition $edition offers no Chinese scheme; offline glosses are not packaged"
+elif compgen -G "$glosses_source/zh-*.db" >/dev/null && [ -f "$glosses_source/offline-glosses-NOTICE.txt" ]; then
   mkdir -p "$assets/offline-glosses"
   cp "$glosses_source"/zh-*.db "$glosses_source/offline-glosses-NOTICE.txt" "$assets/offline-glosses/"
   echo "offline glosses packaged from $glosses_source"
@@ -138,4 +142,9 @@ for pair in $language_pairs; do
     grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
   done
 done
+# 不提供中文方案的版本不带非英文离线释义（见上面的暂存），打出来的 APK 里也不能有。
+if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' <<< "$apk_entries"; then
+  echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2
+  exit 1
+fi
 echo "Tauri + native IME development APK for edition $edition built for $abi: $output; no device changed"

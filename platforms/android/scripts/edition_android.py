@@ -8,7 +8,7 @@ full 是现有产品本身：applicationId 仍是 `app.msime.android`，APK 仍�
 用法：
 
     edition_android.py editions                    # 有 Android 段的版本 id，逗号分隔，full 在最前
-    edition_android.py field --edition ID KEY      # 打印 Android 段的字段，或 id、resource_lock、language_dictionaries（每行一个）
+    edition_android.py field --edition ID KEY      # 打印 Android 段的字段，或 id、resource_lock、language_dictionaries（每行一个）、features.<功能>（true/false）
 """
 
 from __future__ import annotations
@@ -45,6 +45,9 @@ def field(entry: dict, key: str) -> str:
         return str(ROOT / lock)
     if key == "language_dictionaries":
         return "\n".join(entry["language_dictionaries"])
+    if key.startswith("features.") and key.split(".", 1)[1] in entry["features"]:
+        # 打包脚本据 features.offline_glosses 决定带不带非英文离线释义：它们按中文候选查，不提供中文方案的版本（日文、越南文和藏文版）不带。
+        return "true" if entry["features"][key.split(".", 1)[1]] else "false"
     section = entry["platforms"]["android"]
     if key not in section:
         raise SystemExit(f"unknown Android field {key!r}; expected one of id, resource_lock, language_dictionaries, {', '.join(section)}")
