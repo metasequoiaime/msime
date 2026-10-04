@@ -645,7 +645,13 @@ endif()
 # harvested failure set, at a cost that keeps it off the keystroke path and on the settle timer.
 # Fetch it with `scripts/fetch_neural_model.py`, which writes `target/neural-model` by default.
 # The historical one-artifact `scripts/fetch_settled_model.py` output remains accepted below.
-if(NOT MSIME_SETTLED_MODEL AND
+# 不带中文主词库的版本（cmake/Edition.cmake 的 MSIME_EDITION_CHINESE_MAIN）没有中文整句可以重排，不装这个模型，也不从暂存目录捡。
+if(NOT MSIME_EDITION_CHINESE_MAIN)
+  if(MSIME_SETTLED_MODEL)
+    message(STATUS "Edition ${MSIME_EDITION} has no Chinese main dictionary; not installing the settled model")
+  endif()
+  set(MSIME_SETTLED_MODEL "")
+elseif(NOT MSIME_SETTLED_MODEL AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model/sentence-model-desktop.safetensors")
   get_filename_component(MSIME_SETTLED_MODEL
                          "${CMAKE_CURRENT_SOURCE_DIR}/../../target/neural-model" ABSOLUTE)

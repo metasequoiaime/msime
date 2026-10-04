@@ -108,17 +108,18 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
 
-## 多版本（水杉拼音、水杉五笔）
+## 多版本（水杉拼音、水杉五笔、水杉日语、水杉越南语、水杉藏文）
 
-除了现有的水杉输入法（full），版本表 `shared/contracts/editions.json` 还定义了水杉拼音（`pinyin`，全拼与双拼，带临时日文）和水杉五笔（`wubi`，只有五笔，混拼默认打开，不带临时日文）。几个版本是各自独立的包，可以同时安装、同时启用，互不覆盖：
+除了现有的水杉输入法（full），版本表 `shared/contracts/editions.json` 还定义了水杉拼音（`pinyin`，全拼与双拼，带临时日文）、水杉五笔（`wubi`，只有五笔，混拼默认打开，不带临时日文），以及只有一个方案的水杉日语（`japanese`）、水杉越南语（`vietnamese`）和水杉藏文（`tibetan`）。三个语言版本只带英文词库、`others.db` 和清单（日文版另带日文词典），不带中文主词库、n-gram 和落定重排模型。几个版本是各自独立的包，可以同时安装、同时启用，互不覆盖：
 
 - full 仍是今天的 `msime-linux`，装在 `/usr` 下，包结构、文件、IBus 引擎 `msime-linux`、Fcitx5 条目 `msime`、状态目录 `~/.config/msime-client` 和用户服务都与引入版本之前相同；
 - 其他版本是 `msime-linux-<id>`，程序、词库、宿主库和文档整个装在 `/opt/msime-linux-<id>` 下；系统按名字查找的那几样装到系统目录，名字都带版本：IBus 组件 `/usr/share/ibus/component/msime-linux-<id>.xml`（引擎 `msime-linux-<id>`）、Fcitx5 插件 `libmsime-<id>-fcitx5.so` 与条目 `msime-<id>`、systemd 用户单元 `msime-linux-<id>-{online,voice}.socket` 等、桌面入口与自启动项、图标 `msime-linux-<id>`（与 full 同一张图），以及 `/usr/bin/msime-linux-<id>-setup` 和 `/usr/bin/msime-linux-<id>-settings`；
+- 每个版本登记在默认方案所属的语言下：中文的版本是 IBus `zh`、Fcitx5 `zh_CN`，日文、越南文、藏文版是 `ja`、`vi`、`bo`（IBus 组件与引擎的 `<language>`、Fcitx5 输入法条目的 `LangCode`），GNOME 的输入源对话框和 Fcitx5 的配置工具把它们列在日语、越南语、藏语下；
 - 每个用户的状态目录、运行时目录（`panel-input.sock`、`candidate-panel.json`、各 provider socket）、自行下载的词库和缓存都在 `msime-client-<id>` 下，宿主生成的 Fcitx5 主题、Omarchy 钩子与插件、使用统计目录和设置窗口的 Tauri identifier（`app.msime.linux.<id>`）也按版本分开；随装的词库锁是本版本的锁（`resources/editions/<id>.lock.json`，装成 `<前缀>/share/msime-client-<id>/desktop-dictionary.lock.json`），首次配置只取回本版本需要的词库。
 
 装好之后运行该版本自己的首次配置命令，例如 `msime-linux-wubi-setup --download`；任何一个版本的 `msime-linux-setup` 也可以加 `--edition wubi`，它会转交给 `/usr/bin` 下那个版本的命令，那个版本没装时报错。卸载一个版本只停用、注销它自己的服务和输入法条目，其他版本不受影响。Fcitx5 下两个版本的插件被同一个 fcitx5 进程加载：插件以 `RTLD_LOCAL` 加载，非 full 的插件隐藏全部符号；宿主库在非 full 的版本里改名为 `libmsime_host_api_<id>.so`（full 仍是 `libmsime_host_api.so`），因为动态链接器按插件 DT_NEEDED 里的文件名复用已经加载的库，同名时两个插件会共用先加载的那个版本的宿主库，改名后各用各的那一份；每个插件注册的输入上下文属性也随插件名（full 仍是 `msimeState`），否则后加载的插件拿不到属性槽位；`crates/host-api` 的测试 `two_editions_with_their_own_state_roots_share_one_process` 另外确认，即使两份宿主库被合并成一份，两个状态目录的会话也互不影响。
 
-构建某个版本时给 CMake 传 `-DMSIME_EDITION=<id>`（缺省 `full`），打包时前缀必须是该版本的前缀（`-DCMAKE_INSTALL_PREFIX=/opt/msime-linux-<id>`，`packaging.cmake` 检查）；换成别的前缀的开发安装把所有文件都留在前缀里，不碰系统目录。脚本和数据文件由 `scripts/edition_linux.py` 在配置阶段按版本改写，C++ 侧的名字来自它生成的 `src/core/LinuxEdition.h`；改了版本表之后运行 `python3 platforms/linux/scripts/edition_linux.py gen`。`scripts/test-linux-editions.py` 检查生成文件没有漂移、每个版本都能改写全部文件且不留下 full 的名字、各版本的 Fcitx5 动作名两两不撞。`package-container.sh` 缺省按版本表给每个版本各打一个包（`MSIME_PACKAGE_EDITIONS=full,wubi` 可以只打其中几个），单测只在 full 的构建上跑；发布流程逐个版本核对包名与版本，再用 `tests/tools/check-deb-coexistence.sh` 和 `tests/tools/check-rpm-install.sh` 把全部版本一起装进干净容器、逐个卸载，确认卸载一个不带走另一个的文件。
+构建某个版本时给 CMake 传 `-DMSIME_EDITION=<id>`（缺省 `full`），打包时前缀必须是该版本的前缀（`-DCMAKE_INSTALL_PREFIX=/opt/msime-linux-<id>`，`packaging.cmake` 检查）；换成别的前缀的开发安装把所有文件都留在前缀里，不碰系统目录。脚本和数据文件由 `scripts/edition_linux.py` 在配置阶段按版本改写，C++ 侧的名字来自它生成的 `src/core/LinuxEdition.h`；改了版本表之后运行 `python3 platforms/linux/scripts/edition_linux.py gen`。`scripts/test-linux-editions.py` 检查生成文件没有漂移、每个版本都能改写全部文件且不留下 full 的名字、各版本的 Fcitx5 动作名两两不撞、每个版本登记在正确的语言下。`package-container.sh` 缺省按版本表给每个版本各打一个包（`MSIME_PACKAGE_EDITIONS=full,wubi` 可以只打其中几个），单测只在 full 的构建上跑；发布流程逐个版本核对包名与版本，再用 `tests/tools/check-deb-coexistence.sh` 和 `tests/tools/check-rpm-install.sh` 把全部版本一起装进干净容器、逐个卸载，确认卸载一个不带走另一个的文件。
 
 ## 卸载 CMake 安装
 

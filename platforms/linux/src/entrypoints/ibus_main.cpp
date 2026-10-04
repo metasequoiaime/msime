@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
         return engine;
       }), nullptr);
 #endif
-  // 组件名、引擎名和显示名按版本取（LinuxEdition.h）：几个版本的 IBus 宿主是各自的进程，名字不同才能同时注册。
+  // 组件名、引擎名、显示名和登记的语言按版本取（LinuxEdition.h）：几个版本的 IBus 宿主是各自的进程，名字不同才能同时注册；日文、越南文、藏文版登记在各自的语言下。
   auto component = ibus_component_new(
       MSIME_EDITION_TAURI_IDENTIFIER, MSIME_EDITION_IBUS_LONGNAME, "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
   ibus_component_add_engine(
       component,
       ibus_engine_desc_new(MSIME_EDITION_IBUS_ENGINE, MSIME_EDITION_IBUS_LONGNAME,
-                           "Shared MSIME Linux input runtime", "zh",
+                           "Shared MSIME Linux input runtime", MSIME_EDITION_IBUS_LANGUAGE,
                            "GPL-3.0-only", "MSIME contributors", "", "us"));
   if (!ibus_bus_register_component(bus, component)) {
     g_object_unref(component);

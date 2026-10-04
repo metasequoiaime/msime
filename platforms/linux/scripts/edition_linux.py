@@ -7,6 +7,7 @@
 
 - `platforms/linux/src/core/LinuxEdition.h`：C++ 侧（IBus 宿主、Fcitx5 插件、prepare 工具和各 provider 入口）读的宏，提交进仓库，构建时不需要 Python。构建必须定义且只定义一个 `MSIME_EDITION_<ID>`（CMake 的 `MSIME_EDITION` 缓存变量），否则头文件以 `#error` 拒绝编译，不会悄悄编成 full；
 - 脚本和数据文件：full 原样安装仓库里的文件，所以 full 的包与引入版本之前逐字节相同；其他版本在配置阶段由 `render` 按下面的规则改写一份再安装。每条规则必须至少命中一次，改写后不能再留下任何一个 full 的名字，否则配置失败——源文件改了写法而规则没跟上时，不会悄悄装出一个去读写 full 状态目录的版本；
+- 登记语言：IBus 组件与引擎的 `<language>` 和 Fcitx5 输入法条目的 `LangCode` 取默认方案所属的语言（`SCHEME_LANGUAGES`）。中文的版本（full、拼音版、五笔版）仍是 `zh` / `zh_CN`；日文、越南文、藏文版是 `ja`、`vi`、`bo`，GNOME 的输入源对话框和 Fcitx5 的配置工具把它们列在日语、越南语、藏语下；
 - 版本声明：其他版本在前缀的 `bin` 目录写 `edition.json`（`Edition::PACKAGE_MARKER_FILE`），设置应用和 `msime-mcp` 从它知道自己属于哪个版本；full 不写。
 
 用法：
@@ -37,6 +38,16 @@ FULL = "full"
 Identity = dict[str, str]
 Replacement = Callable[[Identity], str]
 
+# 默认方案到它所属语言的（IBus 语言，Fcitx5 LangCode）。中文方案都是简体中文；一个版本的默认方案不在这里时，先想清楚它该登记在哪个语言下再补上。
+SCHEME_LANGUAGES = {
+    "quanpin": ("zh", "zh_CN"),
+    "shuangpin": ("zh", "zh_CN"),
+    "wubi": ("zh", "zh_CN"),
+    "japanese": ("ja", "ja"),
+    "vietnamese": ("vi", "vi"),
+    "tibetan": ("bo", "bo"),
+}
+
 
 def load_table() -> dict:
     return json.loads(EDITIONS.read_text(encoding="utf-8"))
@@ -60,10 +71,15 @@ def identity(entry: dict) -> Identity:
     linux = entry["platforms"]["linux"]
     if linux["ibus_engine"] != linux["package"]:
         raise SystemExit(f"edition {entry['id']}: platforms.linux.ibus_engine must equal platforms.linux.package")
+    languages = SCHEME_LANGUAGES.get(entry["default_scheme"])
+    if languages is None:
+        raise SystemExit(f"edition {entry['id']}: no Linux language is known for its default scheme {entry['default_scheme']!r}; add it to SCHEME_LANGUAGES")
     return {
         "id": entry["id"],
         "zh": entry["display_name"]["zh-Hans"],
         "en": entry["display_name"]["en"],
+        "ibus_language": languages[0],
+        "fcitx5_language": languages[1],
         **linux,
     }
 
@@ -100,6 +116,7 @@ RULES: dict[str, list[Rule]] = {
     "data/msime-linux.xml.in": [
         # full 的组件写的图标名是 msime-client，没有这个名字的图标；其他版本直接用装上的图标名。
         ("engine icon", r"<icon>msime-client</icon>", lambda n: f"<icon>{n['package']}</icon>"),
+        ("engine language", r"<language>zh</language>", lambda n: f"<language>{n['ibus_language']}</language>"),
         CLIENT_DIRECTORY, PACKAGE, DISPLAY_NAME,
     ],
     "data/msime-linux-clipboard.service.in": [CLIENT_DIRECTORY],
@@ -137,6 +154,7 @@ RULES: dict[str, list[Rule]] = {
     "fcitx5/msime-inputmethod.conf": [
         PACKAGE, DISPLAY_NAME, ENGLISH_NAME,
         ("addon", r"^Addon=msime$", lambda n: f"Addon={n['fcitx5_addon']}"),
+        ("language", r"^LangCode=zh_CN$", lambda n: f"LangCode={n['fcitx5_language']}"),
     ],
     "cmake/deb-prerm.in": [
         COMMANDS, CLIENT_DIRECTORY, DISPLAY_NAME,
@@ -232,6 +250,8 @@ def header_text(table: dict) -> str:
             ("CLIENT_DIRECTORY", narrow(names["client_directory"])),
             ("IBUS_ENGINE", narrow(names["ibus_engine"])),
             ("IBUS_LONGNAME", narrow("Metasequoia " + names["zh"])),
+            # IBus 引擎登记的语言，与 IBus 组件文件里的 <language> 相同。
+            ("IBUS_LANGUAGE", narrow(names["ibus_language"])),
             ("FCITX5_ADDON", narrow(names["fcitx5_addon"])),
             ("ICON", narrow(names["package"])),
             ("SETUP_PROGRAM", narrow(names["package"] + "-setup")),

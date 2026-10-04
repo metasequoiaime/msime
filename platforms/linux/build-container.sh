@@ -72,4 +72,17 @@ docker run --rm --init \
       echo "$needed" >&2
       exit 1
     fi
+    # 日文版只配置不编译：它的原生代码与五笔版只差 LinuxEdition.h 里的名字，但它是不带中文主词库、登记在另一个语言下的版本，cmake/Edition.cmake 和改写规则在这里走另一条分支。配置出的 IBus 组件和 Fcitx5 输入法条目要登记在日语（ja）下。
+    cmake -S platforms/linux -B /build/cmake-japanese -G Ninja \
+      -DMSIME_EDITION=japanese \
+      -DCMAKE_INSTALL_PREFIX=/opt/msime-linux-japanese \
+      -DBUILD_TESTING=OFF \
+      -DMSIME_ENABLE_FCITX5=ON \
+      -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so >/dev/null
+    if ! grep -q "<language>ja</language>" /build/cmake-japanese/msime-linux-japanese.xml ||
+       ! grep -qx "LangCode=ja" /build/cmake-japanese/edition/fcitx5/msime-inputmethod.conf; then
+      echo "the japanese edition does not register under Japanese:" >&2
+      grep -h -e "<language>" -e "^LangCode=" /build/cmake-japanese/msime-linux-japanese.xml /build/cmake-japanese/edition/fcitx5/msime-inputmethod.conf >&2
+      exit 1
+    fi
   '
