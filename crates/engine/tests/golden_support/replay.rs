@@ -17,12 +17,12 @@ use super::fixture::stage_fixture;
 use super::golden_dir;
 use super::snapshot::{dump_journal, query_rows, result_json, scrub, snapshot_json};
 
-/// The file name a scenario fixture stages `cantonese.db` under, beside the resource set's own files.
-const CANTONESE_DICTIONARY: &str = "cantonese.db";
-/// The file name a scenario fixture stages `zhuyin.db` under, beside the resource set's own files.
-const ZHUYIN_DICTIONARY: &str = "zhuyin.db";
-/// The file name a scenario fixture stages `stroke.db` under, beside the resource set's own files.
-const STROKE_DICTIONARY: &str = "stroke.db";
+/// The file name a scenario fixture stages `msime-cantonese.db` under, beside the resource set's own files.
+const CANTONESE_DICTIONARY: &str = "msime-cantonese.db";
+/// The file name a scenario fixture stages `msime-zhuyin.db` under, beside the resource set's own files.
+const ZHUYIN_DICTIONARY: &str = "msime-zhuyin.db";
+/// The file name a scenario fixture stages `msime-stroke.db` under, beside the resource set's own files.
+const STROKE_DICTIONARY: &str = "msime-stroke.db";
 
 pub const SCENARIO_ENV: &str = "MSIME_GOLDEN_SCENARIO";
 
@@ -452,7 +452,7 @@ impl Scenario {
         });
         let mut options = self.options.clone();
         options.paths = self.paths.clone();
-        // `cantonese.db`, `zhuyin.db` and `stroke.db` ship beside the resource set, so a fixture that stages one hands its path to the session as a host would.
+        // `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` ship beside the resource set, so a fixture that stages one hands its path to the session as a host would.
         let cantonese = self.resources.join(CANTONESE_DICTIONARY);
         if cantonese.exists() {
             options.cantonese_dictionary = cantonese;
@@ -731,7 +731,7 @@ impl Scenario {
                 None
             }
             "query" => {
-                // Read-only SQL against the live generation copy of a dictionary (msime.db / english.db) or the journal.
+                // Read-only SQL against the live generation copy of a dictionary (msime-pinyin.db / msime-english.db) or the journal.
                 msime_engine::flush_personal_learning();
                 let db = as_str(&step["db"]);
                 let path = if db == USER_JOURNAL {

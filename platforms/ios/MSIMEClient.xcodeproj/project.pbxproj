@@ -75,7 +75,7 @@
 		195C93A321298609E05B757F /* BackendAiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD27E4D5116A057B7A521F5 /* BackendAiClient.swift */; };
 		195D5343471C79316E546800 /* TypingStatisticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 811060BE21223F81A58B9D84 /* TypingStatisticsTests.swift */; };
 		1968A3B60AD602DA142ABA05 /* VoiceLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B4BF32181CDCA60E434E4A4 /* VoiceLevel.swift */; };
-		1A95935E9AEDF63E93196350 /* dictionary-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = AD93EE2172B2396A5BBF07DE /* dictionary-manifest.json */; };
+		1A95935E9AEDF63E93196350 /* msime-dictionary-manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = AD93EE2172B2396A5BBF07DE /* msime-dictionary-manifest.json */; };
 		1AA7DAEF1521ABCDA9A44F40 /* IOSPreferencePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308AE7F0D589CAEEEEE95865 /* IOSPreferencePlan.swift */; };
 		1B56450476AF24A2747ED5AC /* PersonalDictionaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7683D50B02EC2D8AD99089B5 /* PersonalDictionaryStore.swift */; };
 		1B6440AE389598DDD5EB0450 /* AppAppearancePreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98498F1E1231D37B96B2E7AB /* AppAppearancePreference.swift */; };
@@ -1008,7 +1008,7 @@
 		ACD87E9001BFA2C28DCCCC9F /* ReplyKeyboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyKeyboardView.swift; sourceTree = "<group>"; };
 		AD218910A7F8A0937B5F9C4B /* SkinGenerationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinGenerationModel.swift; sourceTree = "<group>"; };
 		AD52A986DB3B501E1E7974D2 /* InputSchemePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputSchemePreference.swift; sourceTree = "<group>"; };
-		AD93EE2172B2396A5BBF07DE /* dictionary-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dictionary-manifest.json"; sourceTree = "<group>"; };
+		AD93EE2172B2396A5BBF07DE /* msime-dictionary-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "msime-dictionary-manifest.json"; sourceTree = "<group>"; };
 		AECD77C4832DAF8BE7348717 /* CandidatePageSizePreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CandidatePageSizePreference.swift; sourceTree = "<group>"; };
 		AFA5AC2ED8E38D8E073C2C85 /* BackendDictionaryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendDictionaryClient.swift; sourceTree = "<group>"; };
 		B074ACFAB38464164DC139F1 /* DubeolsikKeyLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DubeolsikKeyLayout.swift; sourceTree = "<group>"; };
@@ -1255,7 +1255,7 @@
 		208C6AE8B03301167575E550 /* EngineResources */ = {
 			isa = PBXGroup;
 			children = (
-				AD93EE2172B2396A5BBF07DE /* dictionary-manifest.json */,
+				AD93EE2172B2396A5BBF07DE /* msime-dictionary-manifest.json */,
 			);
 			name = EngineResources;
 			path = ../../target/ios/EngineResources;
@@ -2307,7 +2307,7 @@
 				84B7B0B173F1C93261D00BFC /* MLKit-NOTICES.txt in Resources */,
 				48F6B510E00DE89F55C998B4 /* PrivacyInfo.xcprivacy in Resources */,
 				D8AD3CD0BCBBD5862EE79B3A /* VoiceRuntime-NOTICES.txt in Resources */,
-				1A95935E9AEDF63E93196350 /* dictionary-manifest.json in Resources */,
+				1A95935E9AEDF63E93196350 /* msime-dictionary-manifest.json in Resources */,
 				63E5399F38340FB5BC1D80E3 /* ewts-MIT.txt in Resources */,
 				A59935F2ECE3BD02A941814B /* libchewing-data-LGPL-2.1.txt in Resources */,
 				13A026D923B4DD8B686F9FB8 /* libhangul-hanja-BSD-3-Clause.txt in Resources */,

@@ -56,7 +56,7 @@ pub struct ZhuyinScheme {
 }
 
 impl ZhuyinScheme {
-    /// An idle editor reading `dictionary` (`zhuyin.db`).
+    /// An idle editor reading `dictionary` (`msime-zhuyin.db`).
     pub fn new(dictionary: LanguageDictionary) -> Self {
         Self {
             dictionary,
@@ -71,7 +71,7 @@ impl ZhuyinScheme {
         }
     }
 
-    /// The `zhuyin.db` connection, given back when the editor is replaced so the next one reuses it.
+    /// The `msime-zhuyin.db` connection, given back when the editor is replaced so the next one reuses it.
     pub fn into_dictionary(self) -> LanguageDictionary {
         self.dictionary
     }
@@ -468,7 +468,7 @@ mod tests {
 
     fn scheme_with(entries: &[(&str, &str, i64)]) -> (tempfile::TempDir, ZhuyinScheme) {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("zhuyin.db");
+        let path = dir.path().join("msime-zhuyin.db");
         let connection = Connection::open(&path).unwrap();
         connection.execute_batch(SCHEMA).unwrap();
         connection

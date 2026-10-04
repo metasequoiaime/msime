@@ -92,7 +92,7 @@ impl Fixture {
         let directory = tempfile::tempdir().expect("temporary directory");
         Connection::open(directory.path().join(assets::MAIN_DICTIONARY))
             .and_then(|connection| connection.execute_batch(main_sql))
-            .expect("fixture msime.db");
+            .expect("fixture msime-pinyin.db");
         let helpcodes = directory.path().join("helpcodes");
         std::fs::create_dir_all(&helpcodes).expect("helpcode directory");
         std::fs::write(helpcodes.join("helpcode.txt"), "你=ab\n拟=cd\n好=ef\n").expect("helpcodes");
@@ -104,7 +104,7 @@ impl Fixture {
         crate::ensure_english_schema(&path).expect("english schema");
         Connection::open(&path)
             .and_then(|connection| connection.execute_batch(sql))
-            .expect("fixture english.db");
+            .expect("fixture msime-english.db");
         self
     }
 
@@ -3174,11 +3174,11 @@ fn tibetan_dedicated_english_keeps_its_own_rules() {
     assert!(session.snapshot().preedit.is_empty());
 }
 
-/// A `cantonese.db` with the rows the Cantonese session tests read, written with the shipped schema.
+/// A `msime-cantonese.db` with the rows the Cantonese session tests read, written with the shipped schema.
 fn cantonese_dictionary(directory: &Path) -> PathBuf {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
-    let path = directory.join("cantonese.db");
-    let connection = Connection::open(&path).expect("cantonese.db");
+    let path = directory.join("msime-cantonese.db");
+    let connection = Connection::open(&path).expect("msime-cantonese.db");
     connection.execute_batch(SCHEMA).expect("cantonese schema");
     connection
         .execute(
@@ -3231,7 +3231,7 @@ fn cantonese_without_its_dictionary_is_unavailable() {
         options
     })
     .err()
-    .expect("no cantonese.db");
+    .expect("no msime-cantonese.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -3242,7 +3242,7 @@ fn cantonese_without_its_dictionary_is_unavailable() {
     type_text(&mut session, "nihao");
     let error = session
         .switch_scheme(SchemeType::Cantonese)
-        .expect_err("no cantonese.db");
+        .expect_err("no msime-cantonese.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -3334,9 +3334,9 @@ fn cantonese_caret_edits_keep_the_shown_syllables() {
     assert_eq!(words(&session), ["我"]);
 }
 
-/// 合成的 `stroke.db`（`stroke::fixture`），用共享的 schema 写成。
+/// 合成的 `msime-stroke.db`（`stroke::fixture`），用共享的 schema 写成。
 fn stroke_dictionary(directory: &Path) -> PathBuf {
-    let path = directory.join("stroke.db");
+    let path = directory.join("msime-stroke.db");
     crate::stroke::fixture::build(&path);
     path
 }
@@ -3357,7 +3357,7 @@ fn stroke_without_its_dictionary_is_unavailable() {
         options
     })
     .err()
-    .expect("no stroke.db");
+    .expect("no msime-stroke.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -3368,7 +3368,7 @@ fn stroke_without_its_dictionary_is_unavailable() {
     type_text(&mut session, "nihao");
     let error = session
         .switch_scheme(SchemeType::Stroke)
-        .expect_err("no stroke.db");
+        .expect_err("no msime-stroke.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -3392,7 +3392,7 @@ fn stroke_keeps_its_dictionary_open_across_scheme_switches() {
     let mut session = stroke_session(&fixture);
     session.switch_scheme(SchemeType::Quanpin).unwrap();
     // 文件没了，但激活时打开的连接仍归这个会话。
-    std::fs::remove_file(fixture.path().join("stroke.db")).unwrap();
+    std::fs::remove_file(fixture.path().join("msime-stroke.db")).unwrap();
     session.switch_scheme(SchemeType::Stroke).unwrap();
     type_text(&mut session, "pn");
     assert_eq!(words(&session), ["人"]);
@@ -3563,11 +3563,11 @@ fn stroke_caret_insert_stops_at_the_stroke_limit() {
     assert!(snapshot.editing_text.starts_with('s') && snapshot.editing_text.ends_with('z'));
 }
 
-/// A `zhuyin.db` with the rows the Zhuyin session tests read, written with the shipped schema.
+/// A `msime-zhuyin.db` with the rows the Zhuyin session tests read, written with the shipped schema.
 fn zhuyin_dictionary(directory: &Path) -> PathBuf {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
-    let path = directory.join("zhuyin.db");
-    let connection = Connection::open(&path).expect("zhuyin.db");
+    let path = directory.join("msime-zhuyin.db");
+    let connection = Connection::open(&path).expect("msime-zhuyin.db");
     connection.execute_batch(SCHEMA).expect("zhuyin schema");
     connection
         .execute(
@@ -3597,7 +3597,7 @@ fn zhuyin_keeps_its_dictionary_open_across_scheme_switches() {
     let mut session = zhuyin_session(&fixture);
     session.switch_scheme(SchemeType::Quanpin).unwrap();
     // The file is gone, but the connection opened at activation is still the session's.
-    std::fs::remove_file(fixture.path().join("zhuyin.db")).unwrap();
+    std::fs::remove_file(fixture.path().join("msime-zhuyin.db")).unwrap();
     session.switch_scheme(SchemeType::Zhuyin).unwrap();
     session.switch_scheme(SchemeType::Zhuyin).unwrap();
     type_text(&mut session, "su3");
@@ -3616,7 +3616,7 @@ fn zhuyin_without_its_dictionary_is_unavailable() {
         options
     })
     .err()
-    .expect("no zhuyin.db");
+    .expect("no msime-zhuyin.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -3683,7 +3683,7 @@ fn zhuyin_list_selection_pins_without_committing_or_learning() {
     assert!(snapshot.candidate_list_open);
     assert_eq!(snapshot.spelling_symbols, "0,./;-");
     assert_eq!(words(&session), ["你好", "好", "郝"]);
-    // Rows come from the read-only zhuyin.db: none can be pinned, removed or fixed.
+    // Rows come from the read-only msime-zhuyin.db: none can be pinned, removed or fixed.
     assert!(!session.pin(1).handled);
     assert!(!session.remove(0).handled);
     assert!(!session.fix_position(1, 1).handled);

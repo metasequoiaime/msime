@@ -8,14 +8,14 @@
  "fixture": {
   "english_schema": true,
   "databases": {
-   "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','妮',10000),('ni','n','拟',9000);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('x','妮短语',10);",
-   "english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',10);"
+   "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','妮',10000),('ni','n','拟',9000);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('x','妮短语',10);",
+   "msime-english.db": "INSERT INTO english_words(word,display,weight) VALUES('hello','hello',10);"
   },
   "files": {
    "custom_translations.txt": "hello\t妮翻译\n",
    "helpcodes/helpcode.txt": "妮=aa\n拟=cc\n",
    "helpcodes/xiaohe_helpcode.txt": "妮=cc\n拟=aa\n",
-   "dict_japanese.dat": "MSJPDT1\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u00008\u0000\u0000\u0000\u0000\u0000\u0000\u0000L\u0000\u0000\u0000\u0000\u0000\u0000\u0000N\u0000\u0000\u0000\u0000\u0000\u0000\u0000\t\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006\u0000\u0006\u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000かな乙"
+   "msime-japanese.dat": "MSJPDT1\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000\u0000\u00008\u0000\u0000\u0000\u0000\u0000\u0000\u0000L\u0000\u0000\u0000\u0000\u0000\u0000\u0000N\u0000\u0000\u0000\u0000\u0000\u0000\u0000\t\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0006\u0000\u0006\u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0000\u0000かな乙"
   }
  },
  "options": {

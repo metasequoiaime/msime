@@ -190,7 +190,7 @@ mod tests {
         matrix: &[i16],
     ) -> JapaneseDictionary {
         let root = tempfile::tempdir().expect("temporary directory");
-        let path = root.path().join("dict_japanese.dat");
+        let path = root.path().join("msime-japanese.dat");
         std::fs::write(&path, test_model::bytes(entries, size, matrix)).expect("write model");
         JapaneseDictionary::load(&path).expect("model loads")
     }

@@ -367,7 +367,7 @@ struct MacEmojiView: View {
             guard selectedCategory == "symbols" || selectedCategory == "kaomoji" else {
               return (try loadBuiltIn(), [])
             }
-            // 插件组追加在内置目录之后，取自打开这一页时读好的缓存。有插件组时内置目录读不出来（比如 others.db 坏了）只当作没有内置条目，插件组照常显示；没有插件组时照旧报告目录不可用。
+            // 插件组追加在内置目录之后，取自打开这一页时读好的缓存。有插件组时内置目录读不出来（比如 msime-others.db 坏了）只当作没有内置条目，插件组照常显示；没有插件组时照旧报告目录不可用。
             let builtInOrNone = { plugins.isEmpty ? try loadBuiltIn() : ((try? loadBuiltIn()) ?? []) }
             if selectedCategory == "kaomoji" {
               let sections = MacEmojiSymbolSections.kaomoji(builtIn: try builtInOrNone(), plugins: plugins, search: query)

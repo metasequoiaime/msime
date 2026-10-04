@@ -5733,8 +5733,8 @@ group("quietening other applications is off unless asked for", () => {
 
 group("a staged resource copy is trusted only while it matches the package", () => {
   const set: StagedArtifact[] = [
-    { name: "msime.db", size: 107552768 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552768 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   const token: string = StagedResourcePolicy.generationToken(set);
   check(token.length > 0, "a package can be described");
@@ -5745,15 +5745,15 @@ group("a staged resource copy is trusted only while it matches the package", () 
   // The defect this replaces: a marker saying only "staged" went on saying so after the package
   // changed, and the shared verification then refused the directory outright.
   const upgraded: StagedArtifact[] = [
-    { name: "msime.db", size: 107552769 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552769 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(upgraded)) ===
       true,
     "an artifact that changed size is a different generation",
   );
-  const dropped: StagedArtifact[] = [{ name: "msime.db", size: 107552768 }];
+  const dropped: StagedArtifact[] = [{ name: "msime-pinyin.db", size: 107552768 }];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(dropped)) ===
       true,
@@ -13661,8 +13661,8 @@ group(
       "the preference ids resolve, in the fixed order",
     );
     check(
-      KeyboardScheme.languageDictionary("cantonese") === "cantonese.db" &&
-        KeyboardScheme.languageDictionary("zhuyin") === "zhuyin.db" &&
+      KeyboardScheme.languageDictionary("cantonese") === "msime-cantonese.db" &&
+        KeyboardScheme.languageDictionary("zhuyin") === "msime-zhuyin.db" &&
         KeyboardScheme.languageDictionary("vietnamese") === null &&
         KeyboardScheme.languageDictionary("quanpin") === null,
       "Cantonese and Zhuyin read their own lexicon; Vietnamese needs none",
@@ -13673,7 +13673,7 @@ group(
       KeyboardScheme.ZHUYIN,
       KeyboardScheme.VIETNAMESE,
     ];
-    const onlyCantonese = (file: string): boolean => file === "cantonese.db";
+    const onlyCantonese = (file: string): boolean => file === "msime-cantonese.db";
     check(
       KeyboardScheme.withInstalledDictionaries(enabled, onlyCantonese)
         .map((scheme: SchemeDefinition): string => scheme.engineScheme)
@@ -13808,7 +13808,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
   );
 });
 
-group("Stroke is one more card, opt-in and needing stroke.db", () => {
+group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
     KeyboardScheme.SCHEMES.length === 16 &&
       KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
@@ -13854,21 +13854,21 @@ group("Stroke is one more card, opt-in and needing stroke.db", () => {
       KeyboardScheme.engineSchemeName(10) === "quanpin",
     "nine names Stroke rather than falling back to quanpin",
   );
-  check(KeyboardScheme.languageDictionary("stroke") === "stroke.db", "Stroke reads stroke.db");
+  check(KeyboardScheme.languageDictionary("stroke") === "msime-stroke.db", "Stroke reads msime-stroke.db");
   const enabled: SchemeDefinition[] = [KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, stroke];
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "zhuyin.db",
+      (file: string): boolean => file === "msime-zhuyin.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,zhuyin",
-    "without stroke.db the card is hidden",
+    "without msime-stroke.db the card is hidden",
   );
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "stroke.db",
+      (file: string): boolean => file === "msime-stroke.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,stroke",

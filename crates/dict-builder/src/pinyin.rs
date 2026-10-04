@@ -1,6 +1,6 @@
 //! Toneless pinyin for emoji, kaomoji and symbol keywords, shaped like pypinyin's `lazy_pinyin`: one item per Han character, and each run of other characters kept as one item.
 //!
-//! The `pinyin` crate reads each character on its own, while pypinyin picks a polyphone's reading from the phrase around it (重 in 重复 is chong, not zhong). The keywords whose phrase reading differs from the per-character one are listed in `resources/dictionary-sources/pinyin-overrides.txt` (`keyword<TAB>item<TAB>item...`), which keeps the shipped `others.db` keys unchanged. A new polyphone keyword gets the per-character reading until it is added there.
+//! The `pinyin` crate reads each character on its own, while pypinyin picks a polyphone's reading from the phrase around it (重 in 重复 is chong, not zhong). The keywords whose phrase reading differs from the per-character one are listed in `resources/dictionary-sources/pinyin-overrides.txt` (`keyword<TAB>item<TAB>item...`), which keeps the shipped `msime-others.db` keys unchanged. A new polyphone keyword gets the per-character reading until it is added there.
 
 use std::collections::HashMap;
 

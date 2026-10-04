@@ -1,4 +1,4 @@
-//! SQLite access to the working dictionaries: the pinyin tables of `msime.db` (quanpin.md §9), `english.db` with its glosses and the custom translations sidecar (schemes-lang.md §4, data-formats.md §5, §10, §11), and the reading lookup `hanzi_to_pinyin` the import path uses. Every statement goes through `prepare_cached`; weights are `i64`.
+//! SQLite access to the working dictionaries: the pinyin tables of `msime-pinyin.db` (quanpin.md §9), `msime-english.db` with its glosses and the custom translations sidecar (schemes-lang.md §4, data-formats.md §5, §10, §11), and the reading lookup `hanzi_to_pinyin` the import path uses. Every statement goes through `prepare_cached`; weights are `i64`.
 
 pub mod english;
 #[cfg(test)]

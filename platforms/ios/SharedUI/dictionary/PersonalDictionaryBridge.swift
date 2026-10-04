@@ -114,7 +114,7 @@ extension PersonalDictionaryBridge {
     }?.filter { $0.pathExtension == "appex" }
       .map { $0.appendingPathComponent("EngineResources", isDirectory: true) } ?? []
     return ([own].compactMap { $0 } + plugins).first {
-      fm.isReadableFile(atPath: $0.appendingPathComponent("msime.db").path)
+      fm.isReadableFile(atPath: $0.appendingPathComponent("msime-pinyin.db").path)
     }
   }
 }

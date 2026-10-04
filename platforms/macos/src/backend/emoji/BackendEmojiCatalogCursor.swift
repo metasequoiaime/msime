@@ -63,7 +63,7 @@ struct MacEmojiCatalogRevision: Equatable {
   let wal: File?
   static func capture(resources: String) throws -> Self {
     guard NSString(string: resources).isAbsolutePath else { throw MacEmojiCatalogCursor.invalid() }
-    let path = URL(fileURLWithPath: resources).appendingPathComponent("others.db").resolvingSymlinksInPath().path
+    let path = URL(fileURLWithPath: resources).appendingPathComponent("msime-others.db").resolvingSymlinksInPath().path
     func mark(_ path: String) throws -> File {
       let attributes = try FileManager.default.attributesOfItem(atPath: path)
       guard let device = attributes[.systemNumber] as? NSNumber,

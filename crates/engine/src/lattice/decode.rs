@@ -31,7 +31,7 @@ pub struct LatticeOptions<'a> {
     /// Cap on rows per span. The DB lookup already applies the same cap.
     pub span_limit: usize,
     pub max_phrase_syllables: usize,
-    /// Heuristic unigram normaliser against a phrase-length bonus: single-character msime.db weights are corpus counts, phrase weights are on a smaller scale.
+    /// Heuristic unigram normaliser against a phrase-length bonus: single-character msime-pinyin.db weights are corpus counts, phrase weights are on a smaller scale.
     pub unigram_z: f64,
     /// The bonus was 3.0, which was never measured against the eval sets: a plausible number for a term whose only job was to stop the decoder spelling a sentence out character by character. Swept through the client's convert_eval with the n-gram tables present, whole-sentence top-1 rises monotonically up to 20 and stops moving after it: sentences-v1 0.850 -> 0.900, sentences-v2 0.125 -> 0.189, quanpin-words-v1 unchanged at 0.768. Raising it further trades sentences-v1 away for nothing.
     pub phrase_length_bonus: f64,
@@ -201,7 +201,7 @@ impl TypoSentence {
     }
 }
 
-/// WL:56-68. Single-character rows in msime.db are raw corpus counts (often 1e6+) while multi-syllable rows are phrase weights on a much smaller scale; libpinyin stores comparable log probabilities, approximated here by down-projecting unigrams and giving dictionary phrases a length bonus.
+/// WL:56-68. Single-character rows in msime-pinyin.db are raw corpus counts (often 1e6+) while multi-syllable rows are phrase weights on a much smaller scale; libpinyin stores comparable log probabilities, approximated here by down-projecting unigrams and giving dictionary phrases a length bonus.
 pub fn edge_log_prob(weight: i64, syllables: usize, options: &LatticeOptions<'_>) -> f64 {
     let weight = if weight > 0 { weight as f64 } else { 1.0 };
     let z = if options.unigram_z > 1.0 {

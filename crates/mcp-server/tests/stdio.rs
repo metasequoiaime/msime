@@ -20,7 +20,7 @@ fn fixture(root: &Path) -> std::path::PathBuf {
     for name in ["resources", "dictionaries"] {
         let path = root.join(name);
         std::fs::create_dir(&path).unwrap();
-        rusqlite::Connection::open(path.join("msime.db"))
+        rusqlite::Connection::open(path.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(tables)
             .unwrap();

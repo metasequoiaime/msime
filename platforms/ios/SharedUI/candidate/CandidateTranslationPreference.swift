@@ -45,7 +45,7 @@ enum CandidateTranslationPreference {
     let index = secondaryIndex
     return languages.indices.contains(index) ? languages[index] : nil
   }
-  /// `offline` is the codes whose offline gloss dictionary is installed (see `offlineGlossLanguages`); English always comes from the bundled english.db.
+  /// `offline` is the codes whose offline gloss dictionary is installed (see `offlineGlossLanguages`); English always comes from the bundled msime-english.db.
   static func needsNetwork(_ language: CandidateTranslationLanguage, offline: Set<String> = []) -> Bool {
     language.code != "EN" && !offline.contains(language.code)
   }

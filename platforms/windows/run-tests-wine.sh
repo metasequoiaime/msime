@@ -99,11 +99,11 @@ docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/wine" >
 # here: what gets mounted has to be the directory the files are actually in.
 if [ -z "${MSIME_WINE_RESOURCES:-}" ]; then
   cache="$root/target/desktop-resources"
-  if [ -f "$cache/msime.db" ]; then
+  if [ -f "$cache/msime-pinyin.db" ]; then
     MSIME_WINE_RESOURCES="$cache"
   else
     for generation in "$cache"/*/; do
-      if [ -f "$generation/msime.db" ]; then
+      if [ -f "$generation/msime-pinyin.db" ]; then
         MSIME_WINE_RESOURCES="${generation%/}"
         break
       fi

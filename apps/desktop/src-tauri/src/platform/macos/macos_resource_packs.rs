@@ -180,7 +180,7 @@ mod tests {
             needed_packs(Scheme::Quanpin, Some(Last::Zhuyin)),
             [ResourcePack::LanguageDictionaries]
         );
-        // 笔画也读语言词库里的 stroke.db。
+        // 笔画也读语言词库里的 msime-stroke.db。
         assert_eq!(
             needed_packs(Scheme::Stroke, None),
             [ResourcePack::LanguageDictionaries]

@@ -1,4 +1,4 @@
-//! Generation staging (core-session.md §12, data-formats.md §3, `runtime_paths.cpp:116-182`): `user_data/dictionaries/<content id>` holds backup-API copies of `msime.db` and `english.db` with the journal replayed, plus the n-gram tables.
+//! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。
 
 use std::ffi::OsString;
 use std::fs;
@@ -20,6 +20,9 @@ pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 
 /// Tables the lattice reads through `RuntimePaths::dictionary`. They are built from one generation's vocabulary, so they live beside it, and a resource set without them simply leaves the decoder without them (RP:56-59).
 const GENERATION_COPIES: [&str; 2] = [assets::BIGRAM_TABLE, assets::TRIGRAM_TABLE];
+
+/// `msime-wubi.db` 里单独发布、准备代次时并回工作主词库的五笔码表。
+const SPLIT_WUBI_TABLES: [&str; 2] = ["wubi86", "wubi98"];
 
 /// Validate the content id (1..=128 of `[0-9A-Za-z_-]`) and the disjoint absolute roots, create `user_data` and `cache`, then either re-replay an existing ready generation (copying n-gram tables it lacks) or stage `<id>.incoming`, replay, write `.ready` and rename it into place. A failed staging removes only its own directory.
 pub fn prepare_runtime_paths(
@@ -65,6 +68,8 @@ pub fn prepare_runtime_paths(
                 ));
             }
         }
+        // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。
+        merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
         replay_into(&result, &result.dictionaries)?;
         // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
@@ -88,6 +93,7 @@ pub fn prepare_runtime_paths(
         for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
             copy_database(&resources.join(name), &stage.join(name))?;
         }
+        merge_split_wubi(resources, &stage.join(assets::MAIN_DICTIONARY))?;
         stage_generation_copies(resources, &stage, true)?;
         replay_into(&result, &stage)?;
         index_reverse_lookup(&stage);
@@ -183,6 +189,77 @@ fn copy_database(source: &Path, target: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// 词库发布把五笔码表单独放在只读的 `msime-wubi.db` 里，`msime-pinyin.db` 不再含 `wubi86`/`wubi98`。五笔的学习调序、删词、个人词典编辑与日志回放都写代次里的工作主词库，五笔 provider 也从它读，所以准备代次（以及重置学习数据）时把这两张表连同索引并回工作副本：读写落在同一个文件上，学到的权重立即可见。资源目录没有 `msime-wubi.db`（旧的合并发布）或工作副本里已有同名表时不动。
+pub(crate) fn merge_split_wubi(resources: &Path, main_db: &Path) -> Result<()> {
+    let source = resources.join(assets::WUBI_DICTIONARY);
+    if !is_real_file(&source) {
+        return Ok(());
+    }
+    let merged = (|| -> rusqlite::Result<()> {
+        let input = Connection::open_with_flags(
+            &source,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        let mut output = Connection::open_with_flags(
+            main_db,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        input.busy_timeout(std::time::Duration::ZERO)?;
+        output.busy_timeout(std::time::Duration::ZERO)?;
+        let transaction = output.transaction()?;
+        for table in SPLIT_WUBI_TABLES {
+            let present: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=?1)",
+                [table],
+                |row| row.get(0),
+            )?;
+            if present {
+                continue;
+            }
+            // 先建表（`UNIQUE` 约束的自动索引随表建立），灌完数据再建显式索引。
+            let schema = input
+                .prepare("SELECT sql FROM sqlite_master WHERE tbl_name=?1 AND sql IS NOT NULL ORDER BY type='index', rowid")?
+                .query_map([table], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let Some((create, indexes)) = schema.split_first() else {
+                continue;
+            };
+            transaction.execute_batch(create)?;
+            let mut select = input.prepare(&format!("SELECT rowid,* FROM \"{table}\""))?;
+            let columns: Vec<String> = select
+                .column_names()
+                .iter()
+                .map(|name| format!("\"{name}\""))
+                .collect();
+            let placeholders = vec!["?"; columns.len()].join(",");
+            // 保留 rowid：反查五笔编码时用 rowid 作最后的排序键。
+            let mut insert = transaction.prepare(&format!(
+                "INSERT INTO \"{table}\"({}) VALUES({placeholders})",
+                columns.join(",")
+            ))?;
+            let mut rows = select.query([])?;
+            while let Some(row) = rows.next()? {
+                let values = (0..columns.len())
+                    .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                insert.execute(rusqlite::params_from_iter(values))?;
+            }
+            for index in indexes {
+                transaction.execute_batch(index)?;
+            }
+            transaction.execute_batch(&format!("ANALYZE \"{table}\""))?;
+        }
+        transaction.commit()
+    })();
+    merged.map_err(|_| {
+        EngineError::failed(format!(
+            "{}{}",
+            diagnostics::RUNTIME_COPY_FAILED,
+            source.display()
+        ))
+    })
 }
 
 /// Copy the optional n-gram tables the resource set carries. Also run for an already prepared generation with `replace_existing` false, so a table a later build starts shipping arrives without a new generation while the one a session may have mapped stays untouched (RP:76-90).
@@ -349,7 +426,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let resources = resources(root.path());
-        let external = root.path().join("external-msime.db");
+        let external = root.path().join("external-msime-pinyin.db");
         fs::rename(resources.join(assets::MAIN_DICTIONARY), &external).unwrap();
         symlink(&external, resources.join(assets::MAIN_DICTIONARY)).unwrap();
 
@@ -690,11 +767,76 @@ mod tests {
             fs::read(paths.dictionary(assets::BIGRAM_TABLE)).unwrap(),
             b"first"
         );
-        assert!(!paths.dictionary("trigram.bin.incoming").exists());
+        assert!(!paths.dictionary("msime-trigram.bin.incoming").exists());
         let fresh = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap();
         assert_eq!(
             fs::read(fresh.dictionary(assets::BIGRAM_TABLE)).unwrap(),
             b"second"
+        );
+    }
+
+    /// 发布把五笔码表拆进 `msime-wubi.db` 后，准备代次要把它并回工作主词库：日志里的五笔行照常回放，不会让整个代次因为缺表被拒；索引与 rowid 原样保留；再次准备已就绪的代次时不重复导入。
+    #[test]
+    fn split_wubi_tables_are_merged_into_the_generation_before_replay() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        sql(
+            &resources.join(assets::WUBI_DICTIONARY),
+            "CREATE TABLE wubi86(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\",\"weight\" DESC);
+             CREATE TABLE wubi98(\"key\" TEXT NOT NULL,\"value\" TEXT NOT NULL,\"weight\" INTEGER NOT NULL DEFAULT 0,UNIQUE(\"key\",\"value\"));
+             INSERT INTO wubi86(rowid,\"key\",\"value\",weight) VALUES(7,'wqvb','你好',100),(3,'aaaa','工',90);
+             INSERT INTO wubi98 VALUES('wqvb','你好',80);",
+        );
+        let user = root.path().join("user");
+        let journal = user.join(assets::USER_JOURNAL);
+        fs::create_dir_all(&user).unwrap();
+        sql(&journal, OPERATIONS_DDL);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,user_inserted,updated_at) VALUES
+               ('wubi','wqvb','合成五笔','upsert',9,1,1),
+               ('wubi98','wqvb','你好','upsert',99,1,2)",
+        );
+        let cache = root.path().join("cache");
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='合成五笔'"),
+            Some(9)
+        );
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi98 WHERE value='你好'"),
+            Some(99)
+        );
+        assert_eq!(
+            weight(&main, "SELECT rowid FROM wubi86 WHERE value='你好'"),
+            Some(7)
+        );
+        assert_eq!(
+            weight(
+                &main,
+                "SELECT count(*) FROM sqlite_master WHERE name='idx_wubi86_key_weight'"
+            ),
+            Some(1)
+        );
+        // 只读资源不变。
+        assert_eq!(
+            weight(
+                &resources.join(assets::WUBI_DICTIONARY),
+                "SELECT count(*) FROM wubi86"
+            ),
+            Some(2)
+        );
+        assert!(!paths.dictionary(assets::WUBI_DICTIONARY).exists());
+
+        let again = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(
+            weight(
+                &again.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT count(*) FROM wubi86"
+            ),
+            Some(3)
         );
     }
 
@@ -711,12 +853,12 @@ mod tests {
         assert!(!roots_overlap(Path::new("/a/bc"), Path::new("/a/b")));
     }
 
-    /// The shipped dict-v2.0.1 set stages whole: both databases copied, both n-gram tables byte for byte, and a journal of every kind replays onto the real tables.
+    /// 发布的整套词库能完整准备：两个数据库复制进来（五笔码表并回主词库），两张 n-gram 表逐字节一致，每种日志行都回放到真实的表上。
     #[test]
     fn the_real_dictionary_set_stages_and_replays() {
         let Some(resources) = std::env::var_os("MSIME_EVAL_RESOURCES") else {
             eprintln!(
-                "skipped: MSIME_EVAL_RESOURCES is not set to the dict-v2.0.1 resource directory"
+                "skipped: MSIME_EVAL_RESOURCES is not set to the dict-v2.0.5 resource directory"
             );
             return;
         };

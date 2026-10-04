@@ -204,7 +204,7 @@ enum InputSchemePreference {
   /// The schemes whose dictionary `directory` holds, by the file names host-api looks for; nil when there is no directory to look in, which `offeredSchemes` reads as unknown.
   static func installedLanguageSchemes(in directory: URL?) -> Set<ChineseInputScheme>? {
     guard let directory else { return nil }
-    let files: [(ChineseInputScheme, String)] = [(.cantonese, "cantonese.db"), (.zhuyin, "zhuyin.db"), (.stroke, "stroke.db")]
+    let files: [(ChineseInputScheme, String)] = [(.cantonese, "msime-cantonese.db"), (.zhuyin, "msime-zhuyin.db"), (.stroke, "msime-stroke.db")]
     return Set(files.filter { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.1).path) }.map(\.0))
   }
 

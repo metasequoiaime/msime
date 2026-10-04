@@ -1,4 +1,4 @@
-//! The read-only dictionaries of the Cantonese, Zhuyin and Stroke schemes (`cantonese.db`, `zhuyin.db`, `stroke.db`). They ship beside the resource set rather than inside it, so the engine opens one only when its scheme is activated and treats a missing or unknown file as the scheme being unavailable.
+//! The read-only dictionaries of the Cantonese, Zhuyin and Stroke schemes (`msime-cantonese.db`, `msime-zhuyin.db`, `msime-stroke.db`). They ship beside the resource set rather than inside it, so the engine opens one only when its scheme is activated and treats a missing or unknown file as the scheme being unavailable.
 //!
 //! dict-builder writes every file with `SCHEMA` and the metadata below; this module is the one definition of that contract.
 
@@ -12,7 +12,7 @@ use crate::error::{EngineError, Result};
 /// The schema version the engine reads. A file with any other `format_version` is refused.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// The whole schema. `entries.key` is the syllables of an entry joined by a single space; in `stroke.db` it is the character's stroke code (`hspnz` letters, no spaces).
+/// The whole schema. `entries.key` is the syllables of an entry joined by a single space; in `msime-stroke.db` it is the character's stroke code (`hspnz` letters, no spaces).
 pub const SCHEMA: &str = "\
 CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn round_trips_entries_syllables_and_metadata() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cantonese.db");
+        let path = dir.path().join("msime-cantonese.db");
         build(&path, &FORMAT_VERSION.to_string());
 
         let dictionary = open_read_only(&path).unwrap();
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn lists_syllables_and_completes_the_last_syllable() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cantonese.db");
+        let path = dir.path().join("msime-cantonese.db");
         build(&path, &FORMAT_VERSION.to_string());
         let connection = Connection::open(&path).unwrap();
         for (key, text, weight) in [("nei hou aa", "你好呀", 10), ("nei i", "你意", 5)] {
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn matches_wildcard_patterns_within_the_literal_prefix() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("stroke.db");
+        let path = dir.path().join("msime-stroke.db");
         build(&path, &FORMAT_VERSION.to_string());
         let connection = Connection::open(&path).unwrap();
         for (key, text, weight) in [
@@ -438,18 +438,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let real = dir.path().join("real");
         std::fs::create_dir(&real).unwrap();
-        build(&real.join("zhuyin.db"), &FORMAT_VERSION.to_string());
+        build(&real.join("msime-zhuyin.db"), &FORMAT_VERSION.to_string());
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        let dictionary = open_read_only(&link.join("zhuyin.db")).unwrap();
+        let dictionary = open_read_only(&link.join("msime-zhuyin.db")).unwrap();
         assert!(dictionary.has_syllable("nei").unwrap());
     }
 
     #[test]
     fn refuses_an_unknown_format_version() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("zhuyin.db");
+        let path = dir.path().join("msime-zhuyin.db");
         build(&path, "2");
         assert_eq!(
             message(open_read_only(&path).err().unwrap()),
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn refuses_missing_empty_and_foreign_files_without_creating_them() {
         let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("cantonese.db");
+        let missing = dir.path().join("msime-cantonese.db");
         assert_eq!(
             message(open_read_only(&missing).err().unwrap()),
             diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE

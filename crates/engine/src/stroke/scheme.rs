@@ -1,4 +1,4 @@
-//! 笔画组合：键入的笔画与通配符，以及 `stroke.db` 对它们给出的单字候选。选中任一候选都结束整个组合，没有分段，也不保留词组进度。
+//! 笔画组合：键入的笔画与通配符，以及 `msime-stroke.db` 对它们给出的单字候选。选中任一候选都结束整个组合，没有分段，也不保留词组进度。
 
 use std::collections::HashSet;
 
@@ -12,7 +12,7 @@ pub const EXACT_LIMIT: usize = 200;
 /// 以键入笔画开头、笔画更多的字最多读这么多。
 pub const COMPLETION_LIMIT: usize = 100;
 
-/// 一个候选字和它在 `stroke.db` 里的笔画码。
+/// 一个候选字和它在 `msime-stroke.db` 里的笔画码。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrokeCandidate {
     pub text: String,
@@ -166,7 +166,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("stroke.db");
+        let path = dir.path().join("msime-stroke.db");
         fixture::build(&path);
         Fixture {
             dictionary: open_read_only(&path).unwrap(),

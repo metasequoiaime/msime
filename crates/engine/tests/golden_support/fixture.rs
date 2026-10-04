@@ -1,4 +1,4 @@
-//! Fixture staging, as the recorder's `prepare_fixture` does it: `english_schema` first, then each database's SQL verbatim, then the files, then an empty `msime.db` and a schema-only `english.db` for whichever is still missing.
+//! Fixture staging, as the recorder's `prepare_fixture` does it: `english_schema` first, then each database's SQL verbatim, then the files, then an empty `msime-pinyin.db` and a schema-only `msime-english.db` for whichever is still missing.
 
 use std::fs;
 use std::path::Path;
@@ -110,7 +110,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let fixture = json!({
             "english_schema": true,
-            "databases": {"english.db": "INSERT INTO english_words(word, display, weight) VALUES('codex', 'Codex', 10);"},
+            "databases": {"msime-english.db": "INSERT INTO english_words(word, display, weight) VALUES('codex', 'Codex', 10);"},
         });
         stage_fixture(&fixture, dir.path());
         assert_eq!(
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "fixture SQL failed on msime.db")]
+    #[should_panic(expected = "fixture SQL failed on msime-pinyin.db")]
     fn bad_fixture_sql_fails_the_scenario() {
         let dir = tempfile::tempdir().unwrap();
         exec_sql(&dir.path().join(MAIN_DICTIONARY), "CREATE TABLE");

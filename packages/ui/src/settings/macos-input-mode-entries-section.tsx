@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { InputScheme } from "../index";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "./action-button";
+import { useAsyncGeneration } from "./use-async-generation";
 
 /** macOS 输入法列表的读取与系统设置入口，见 `SettingsClient.macosInputModes`。 */
 export interface MacosInputModesClient {
@@ -44,7 +45,7 @@ export const INPUT_MODE_RECHECK_WINDOW_MS = 120_000;
 function useEnabledInputModes(client: MacosInputModesClient | undefined) {
   const [enabled, setEnabled] = useState<readonly string[] | null>(null);
   const [watchingUntil, setWatchingUntil] = useState(0);
-  const request = useRef(0);
+  const request = useAsyncGeneration(client);
   const refresh = useCallback(async () => {
     if (!client) return;
     const current = ++request.current;

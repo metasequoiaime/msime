@@ -243,7 +243,7 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&directory).unwrap();
-    std::fs::write(directory.join("zhuyin.db"), b"sqlite").unwrap();
+    std::fs::write(directory.join("msime-zhuyin.db"), b"sqlite").unwrap();
     // Every host narrows the schemes the same way.
     for platform in [
         HostPlatform::Macos,
@@ -252,7 +252,7 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
         HostPlatform::Android,
         HostPlatform::Ios,
     ] {
-        for name in ["cantonese.db", "stroke.db"] {
+        for name in ["msime-cantonese.db", "msime-stroke.db"] {
             let dictionary = directory.join(name);
             if dictionary.exists() {
                 std::fs::remove_file(&dictionary).unwrap();
@@ -290,11 +290,11 @@ fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary(
         let mut with_zhuyin = without_both.clone();
         with_zhuyin.insert(5, InputScheme::Zhuyin);
         assert_eq!(offered(Some(&named)), with_zhuyin, "{platform:?}");
-        std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+        std::fs::write(directory.join("msime-cantonese.db"), b"sqlite").unwrap();
         let mut without_stroke = HostCapabilities::for_platform(platform).input_schemes;
         without_stroke.retain(|scheme| *scheme != InputScheme::Stroke);
         assert_eq!(offered(Some(&named)), without_stroke, "{platform:?}");
-        std::fs::write(directory.join("stroke.db"), b"sqlite").unwrap();
+        std::fs::write(directory.join("msime-stroke.db"), b"sqlite").unwrap();
         assert_eq!(
             offered(Some(&named)),
             HostCapabilities::for_platform(platform).input_schemes,
@@ -341,7 +341,7 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&directory).unwrap();
-    std::fs::write(directory.join("cantonese.db"), b"sqlite").unwrap();
+    std::fs::write(directory.join("msime-cantonese.db"), b"sqlite").unwrap();
     let offered = |host_options: &serde_json::Value| {
         let mut capabilities = HostCapabilities::for_platform(HostPlatform::Windows);
         super::drop_uninstalled_language_schemes(&mut capabilities, Some(host_options), true);
@@ -353,7 +353,7 @@ fn windows_finds_language_dictionaries_beside_resources_its_options_file_does_no
     assert!(!schemes.contains(&InputScheme::Stroke));
     assert!(schemes.contains(&InputScheme::Vietnamese));
     assert!(schemes.contains(&InputScheme::Tibetan));
-    std::fs::write(directory.join("stroke.db"), b"sqlite").unwrap();
+    std::fs::write(directory.join("msime-stroke.db"), b"sqlite").unwrap();
     let schemes = offered(&serde_json::json!({ "resources": root.path().join("resources") }));
     assert!(schemes.contains(&InputScheme::Stroke));
     // A relative resources directory is not trusted to locate the installed dictionaries.
@@ -556,7 +556,7 @@ fn ios_first_run_host_options_name_the_bundled_language_dictionaries() {
     let empty = super::ios_host_options_document(None, &resources, bundle.path())
         .expect("first-run options");
     assert!(empty.get("language_dictionaries").is_none());
-    std::fs::write(dictionaries.join("zhuyin.db"), b"fixture").expect("zhuyin.db");
+    std::fs::write(dictionaries.join("msime-zhuyin.db"), b"fixture").expect("msime-zhuyin.db");
     let document = super::ios_host_options_document(None, &resources, bundle.path())
         .expect("first-run options");
     assert_eq!(

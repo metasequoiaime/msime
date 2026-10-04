@@ -1,4 +1,4 @@
-//! `dict_japanese.dat`: the immutable Viterbi model (`MSJPDT1`) the Japanese sentence decoder memory-maps, packed from Mozc's OSS dictionary at a pinned revision.
+//! `msime-japanese.dat`: the immutable Viterbi model (`MSJPDT1`) the Japanese sentence decoder memory-maps, packed from Mozc's OSS dictionary at a pinned revision.
 //!
 //! Layout, little-endian: a 56-byte header (`MSJPDT1\0`, version, token count, connection size, reserved, token/connection/string offsets, string bytes), 20-byte token records (reading offset u32, reading length u16, surface offset u32, surface length u16, left id u16, right id u16, cost i32), the `size * size` connection matrix as i16, then the interned UTF-8 strings.
 
@@ -7,27 +7,37 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
+use regex::Regex;
 
 use crate::text;
 
 pub const MAGIC: &[u8; 8] = b"MSJPDT1\0";
 pub const DICTIONARY_FILES: [&str; 10] = [
-    "ja/mozc/dictionary00.txt",
-    "ja/mozc/dictionary01.txt",
-    "ja/mozc/dictionary02.txt",
-    "ja/mozc/dictionary03.txt",
-    "ja/mozc/dictionary04.txt",
-    "ja/mozc/dictionary05.txt",
-    "ja/mozc/dictionary06.txt",
-    "ja/mozc/dictionary07.txt",
-    "ja/mozc/dictionary08.txt",
-    "ja/mozc/dictionary09.txt",
+    "sources/japanese/dictionary00.txt",
+    "sources/japanese/dictionary01.txt",
+    "sources/japanese/dictionary02.txt",
+    "sources/japanese/dictionary03.txt",
+    "sources/japanese/dictionary04.txt",
+    "sources/japanese/dictionary05.txt",
+    "sources/japanese/dictionary06.txt",
+    "sources/japanese/dictionary07.txt",
+    "sources/japanese/dictionary08.txt",
+    "sources/japanese/dictionary09.txt",
 ];
-pub const ID_DEF: &str = "ja/mozc/id.def";
-pub const CONNECTION: &str = "ja/mozc/connection_single_column.txt";
+pub const ID_DEF: &str = "sources/japanese/id.def";
+/// Mozc's `src/data/dictionary_oss/aux_dictionary.tsv`: new words that copy the context ids and cost of a word already in the dictionary.
+pub const AUX_DICTIONARY: &str = "sources/japanese/aux_dictionary.tsv";
+/// Mozc's `src/data/dictionary_oss/dictionary_filter.tsv`: dictionary lines Mozc removes before building its system dictionary.
+pub const DICTIONARY_FILTER: &str = "sources/japanese/dictionary_filter.tsv";
+/// Mozc's `src/data/dictionary_manual/` word lists, in the order of that directory's `dictionary_manual` filegroup.
+pub const MANUAL_WORDS: [&str; 2] = ["sources/japanese/places.tsv", "sources/japanese/words.tsv"];
+pub const CONNECTION: &str = "sources/japanese/connection_single_column.txt";
 /// Mozc 的 README 包含模型所依据的 IPAdic、ICOT 与冲绳词典说明，因此随模型一同发布。
-pub const NOTICE: &str = "ja/mozc/README.txt";
-pub const NOTICE_NAME: &str = "mozc_dictionary_oss_README.txt";
+pub const NOTICE: &str = "sources/japanese/README.txt";
+pub const NOTICE_NAME: &str = "msime-mozc_dictionary_oss_README.txt";
+/// Mozc's BSD-3-Clause `LICENSE`, which asks for its copyright notice, conditions and disclaimer in the documentation of every binary redistribution; the model is built from Mozc's data files, so the licence ships beside it too.
+pub const LICENSE: &str = "sources/japanese/LICENSE";
+pub const LICENSE_NAME: &str = "msime-mozc_LICENSE.txt";
 
 const HEADER_SIZE: u64 = 56;
 
@@ -40,12 +50,21 @@ pub struct Token {
     pub cost: i32,
 }
 
-/// `reading<TAB>left<TAB>right<TAB>cost<TAB>surface[...]` lines, deduplicated and sorted by reading, surface, left, right, cost.
-pub fn read_tokens(sources: &[(&str, String)]) -> Result<Vec<Token>> {
-    let mut seen = HashSet::new();
+/// `reading<TAB>left<TAB>right<TAB>cost<TAB>surface[...]` lines that `filter` keeps, plus `extra`, deduplicated and sorted by reading, surface, left, right, cost. Also returns how many lines the filter removed.
+pub fn read_tokens(
+    sources: &[(&str, String)],
+    filter: &DictionaryFilter,
+    extra: Vec<Token>,
+) -> Result<(Vec<Token>, usize)> {
+    let mut seen: HashSet<Token> = extra.into_iter().collect();
+    let mut filtered = 0;
     for (name, source) in sources {
         for (number, line) in text::universal_lines(source).into_iter().enumerate() {
             if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if filter.removes(line) {
+                filtered += 1;
                 continue;
             }
             let columns: Vec<&str> = line.split('\t').collect();
@@ -72,7 +91,249 @@ pub fn read_tokens(sources: &[(&str, String)]) -> Result<Vec<Token>> {
     }
     let mut tokens: Vec<Token> = seen.into_iter().collect();
     tokens.sort_unstable();
+    Ok((tokens, filtered))
+}
+
+/// The token list of Mozc's OSS system dictionary: `aux_tokens` computed from the unfiltered base (the Bazel `:aux_dictionary` rule reads `:base_dictionary_data`), then the base lines that `filter` keeps plus those aux tokens, which the filter never touches (only `:filtered_dictionary` applies `dictionary_filter.tsv`). Returns the tokens, the number of aux tokens and the number of filtered base lines.
+pub fn system_tokens(
+    dictionaries: &[(&str, String)],
+    id_def: &str,
+    aux_tsv: (&str, &str),
+    word_lists: &[(&str, String)],
+    filter: &DictionaryFilter,
+) -> Result<(Vec<Token>, usize, usize)> {
+    let aux = aux_tokens(dictionaries, id_def, aux_tsv, word_lists)?;
+    let added = aux.len();
+    let (tokens, filtered) = read_tokens(dictionaries, filter, aux)?;
+    Ok((tokens, added, filtered))
+}
+
+/// `dictionary_filter.tsv` as `gen_filtered_dictionary.py` applies it to the base dictionary lines: each `key<TAB>value` row is a pair of regular expressions, and a line is removed when it fully matches `{key}\t\d+\t\d+\t\d+\t{value}(\t.*)?`. The pieces are concatenated without grouping, exactly as the script does.
+pub struct DictionaryFilter(Vec<Regex>);
+
+impl DictionaryFilter {
+    pub fn parse(name: &str, source: &str) -> Result<Self> {
+        let mut patterns = Vec::new();
+        for (number, line) in text::universal_lines(source).into_iter().enumerate() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let [key, value] = line.split('\t').collect::<Vec<_>>()[..] else {
+                bail!("{name}:{}: expected key<TAB>value", number + 1);
+            };
+            let pattern = format!(r"^(?:{key}\t\d+\t\d+\t\d+\t{value}(\t.*)?)$");
+            patterns.push(
+                Regex::new(&pattern)
+                    .with_context(|| format!("{name}:{}: bad pattern", number + 1))?,
+            );
+        }
+        Ok(Self(patterns))
+    }
+
+    fn removes(&self, line: &str) -> bool {
+        self.0.iter().any(|pattern| pattern.is_match(line))
+    }
+}
+
+/// A dictionary line as `gen_aux_dictionary.py` reads it: `line.rstrip().split('\t')`, context ids kept as text.
+struct AuxBase<'a> {
+    key: &'a str,
+    left: &'a str,
+    right: &'a str,
+    cost: i64,
+    value: &'a str,
+}
+
+/// The tokens `gen_aux_dictionary.py --strict` writes to `aux_dictionary.txt`, which Mozc's OSS build adds to the filtered base dictionary.
+///
+/// `aux_dictionary.tsv` rows (`key, value, base_key, base_value, cost_offset`) copy the context ids of every base entry with `base_key`/`base_value`, at that entry's cost plus the offset, unless the new word already exists with those ids; a missing base entry is an error. Then each word list (`key, value, pos`) adds its words not already in the base or the aux rows, with the POS alias mapped through id.def and the cost set to the median cost of the base entries whose left and right ids are both that POS id. The base is the unfiltered dictionary, as in the Bazel rule; its zip-code part is not in the OSS sources, and zip-code entries use context id 0, which no alias names, so leaving it out changes no median.
+pub fn aux_tokens(
+    dictionaries: &[(&str, String)],
+    id_def: &str,
+    aux_tsv: (&str, &str),
+    word_lists: &[(&str, String)],
+) -> Result<Vec<Token>> {
+    let mut bases: Vec<AuxBase<'_>> = Vec::new();
+    for (name, source) in dictionaries {
+        for (number, line) in text::universal_lines(source).into_iter().enumerate() {
+            let columns: Vec<&str> = line.trim_end_matches(text::is_space).split('\t').collect();
+            let [key, left, right, cost, value, ..] = columns[..] else {
+                bail!(
+                    "{name}:{}: expected at least five tab-separated columns",
+                    number + 1
+                );
+            };
+            let cost = text::strip(cost)
+                .parse()
+                .with_context(|| format!("{name}:{}: {cost:?} is not an integer", number + 1))?;
+            bases.push(AuxBase {
+                key,
+                left,
+                right,
+                cost,
+                value,
+            });
+        }
+    }
+    let mut by_word: HashMap<(&str, &str), Vec<usize>> = HashMap::new();
+    let mut existing: HashSet<(&str, &str, &str, &str)> = HashSet::new();
+    let mut costs_by_pos: HashMap<&str, Vec<i64>> = HashMap::new();
+    for (index, base) in bases.iter().enumerate() {
+        by_word
+            .entry((base.key, base.value))
+            .or_default()
+            .push(index);
+        existing.insert((base.left, base.right, base.key, base.value));
+        if base.left == base.right {
+            costs_by_pos.entry(base.left).or_default().push(base.cost);
+        }
+    }
+
+    let token = |key: &str, left: &str, right: &str, cost: i64, value: &str| -> Result<Token> {
+        let id = |value: &str| -> Result<u16> {
+            value
+                .parse()
+                .with_context(|| format!("context id {value:?} outside u16"))
+        };
+        Ok(Token {
+            reading: key.to_owned(),
+            surface: value.to_owned(),
+            left: id(left)?,
+            right: id(right)?,
+            cost: i32::try_from(cost).context("cost outside i32")?,
+        })
+    };
+
+    let mut tokens = Vec::new();
+    let mut added: HashSet<(String, String, String, String)> = HashSet::new();
+    let (aux_name, aux_source) = aux_tsv;
+    for (number, line) in text::universal_lines(aux_source).into_iter().enumerate() {
+        if line.starts_with('#') {
+            continue;
+        }
+        let columns: Vec<&str> = line.trim_end_matches(text::is_space).split('\t').collect();
+        let [key, value, base_key, base_value, offset] = columns[..] else {
+            bail!(
+                "{aux_name}:{}: expected five tab-separated columns",
+                number + 1
+            );
+        };
+        let offset: i64 = text::strip(offset)
+            .parse()
+            .with_context(|| format!("{aux_name}:{}: bad cost offset", number + 1))?;
+        let Some(indices) = by_word.get(&(base_key, base_value)) else {
+            bail!(
+                "{aux_name}:{}: {base_key} and {base_value} are not in the dictionary",
+                number + 1
+            );
+        };
+        for &index in indices {
+            let base = &bases[index];
+            if existing.contains(&(base.left, base.right, key, value)) {
+                continue;
+            }
+            tokens.push(token(
+                key,
+                base.left,
+                base.right,
+                base.cost + offset,
+                value,
+            )?);
+            added.insert((
+                base.left.to_owned(),
+                base.right.to_owned(),
+                key.to_owned(),
+                value.to_owned(),
+            ));
+        }
+    }
+
+    let pos_ids = manual_pos_ids(id_def)?;
+    let mut medians: HashMap<&str, i64> = HashMap::new();
+    for (name, source) in word_lists {
+        for (number, line) in text::universal_lines(source).into_iter().enumerate() {
+            if line.starts_with('#') || line.trim_end_matches(text::is_space).is_empty() {
+                continue;
+            }
+            let columns: Vec<&str> = line.trim_end_matches(text::is_space).split('\t').collect();
+            let [key, value, pos] = columns[..] else {
+                bail!("{name}:{}: expected key<TAB>value<TAB>pos", number + 1);
+            };
+            let Some(&id) = pos_ids.get(pos) else {
+                bail!("{name}:{}: {pos} is an invalid pos", number + 1);
+            };
+            if existing.contains(&(id, id, key, value))
+                || added.contains(&(
+                    id.to_owned(),
+                    id.to_owned(),
+                    key.to_owned(),
+                    value.to_owned(),
+                ))
+            {
+                continue;
+            }
+            let cost = match medians.get(id) {
+                Some(&cost) => cost,
+                None => {
+                    let mut costs = costs_by_pos
+                        .get(id)
+                        .with_context(|| format!("no dictionary entry has context ids {id}/{id}"))?
+                        .clone();
+                    costs.sort_unstable();
+                    // `EntryList.AtRatio(0.5)`: index int((n - 1) * 0.5) of the costs in ascending order.
+                    let cost = costs[(costs.len() - 1) / 2];
+                    medians.insert(id, cost);
+                    cost
+                }
+            };
+            tokens.push(token(key, id, id, cost, value)?);
+        }
+    }
     Ok(tokens)
+}
+
+/// The POS aliases `gen_aux_dictionary.py` accepts in the word lists, mapped to their id.def ids.
+fn manual_pos_ids(id_def: &str) -> Result<HashMap<&'static str, &str>> {
+    const ALIASES: [(&str, &str); 18] = [
+        ("名詞", "名詞,一般,*,*,*,*,*"),
+        ("固有名詞", "名詞,固有名詞,一般,*,*,*,*"),
+        ("人名", "名詞,固有名詞,人名,一般,*,*,*"),
+        ("姓", "名詞,固有名詞,人名,姓,*,*,*"),
+        ("名", "名詞,固有名詞,人名,名,*,*,*"),
+        ("組織", "名詞,固有名詞,組織,*,*,*,*"),
+        ("地名", "名詞,固有名詞,地域,一般,*,*,*"),
+        ("名詞サ変", "名詞,サ変接続,*,*,*,*,*"),
+        ("名詞形動", "名詞,形容動詞語幹,*,*,*,*,*"),
+        ("副詞", "副詞,一般,*,*,*,*,*"),
+        ("連体詞", "連体詞,*,*,*,*,*,*"),
+        ("接続詞", "接続詞,*,*,*,*,*,*"),
+        ("感動詞", "感動詞,*,*,*,*,*,*"),
+        ("接頭語", "接頭詞,名詞接続,*,*,*,*,*"),
+        ("助数詞", "名詞,接尾,助数詞,*,*,*,*"),
+        ("接尾一般", "名詞,接尾,一般,*,*,*,*"),
+        ("接尾人名", "名詞,接尾,人名,*,*,*,*"),
+        ("接尾地名", "名詞,接尾,地域,*,*,*,*"),
+    ];
+    let mut ids = HashMap::new();
+    for (number, line) in text::universal_lines(id_def).into_iter().enumerate() {
+        let [id, name] = line
+            .trim_end_matches(text::is_space)
+            .split(' ')
+            .collect::<Vec<_>>()[..]
+        else {
+            bail!("id.def:{}: expected <id> <name>", number + 1);
+        };
+        ids.insert(name, id);
+    }
+    ALIASES
+        .iter()
+        .map(|&(alias, name)| {
+            let id = ids
+                .get(name)
+                .with_context(|| format!("id.def has no {name}"))?;
+            Ok((alias, *id))
+        })
+        .collect()
 }
 
 /// The connection matrix, costs clamped to i16. The single-column file may start with the matrix size.
@@ -210,13 +471,16 @@ mod tests {
                 "あ\t0\t1\t10\t亜\r\nかな\t1\t0\t400\tかな\r\n".to_owned(),
             ),
         ];
-        let tokens = read_tokens(
+        let (tokens, filtered) = read_tokens(
             &sources
                 .iter()
                 .map(|(name, text)| (*name, text.clone()))
                 .collect::<Vec<_>>(),
+            &DictionaryFilter::parse("empty", "").unwrap(),
+            Vec::new(),
         )
         .unwrap();
+        assert_eq!(filtered, 0);
         let summary: Vec<_> = tokens
             .iter()
             .map(|token| (token.reading.as_str(), token.surface.as_str(), token.cost))
@@ -264,6 +528,174 @@ mod tests {
         }];
         assert!(pack(&out_of_range, size, &costs).is_err());
     }
+
+    // gen_filtered_dictionary.py: the key and value are regular expressions over the reading and surface columns, the line must match in full, and a sixth column is allowed.
+    #[test]
+    fn the_filter_removes_fully_matching_base_lines_only() {
+        let filter = DictionaryFilter::parse(
+            "dictionary_filter.tsv",
+            "# key\tvalue\nみいだ[さ-そ].*\t見い出[さ-そ].*\nのろける?\t惚気ける?\nよね([づず]げ|ずけ)んし\t米津玄師\n",
+        )
+        .unwrap();
+        let sources = [(
+            "d",
+            concat!(
+                "みいだす\t837\t837\t5530\t見い出す\n",
+                "みいだす\t837\t837\t5000\t見出す\n",
+                "のろけ\t694\t694\t6805\t惚気け\n",
+                "のろけた\t694\t694\t6805\t惚気けた\n",
+                "よねずけんし\t1921\t1921\t4175\t米津玄師\tSPELLING_CORRECTION\n",
+                "よねづけんし\t1921\t1921\t4175\t米津玄師\n",
+                "よねづげんし\t1921\t1921\t4000\t米津玄師\n",
+            )
+            .to_owned(),
+        )];
+        let (tokens, filtered) = read_tokens(&sources, &filter, Vec::new()).unwrap();
+        assert_eq!(filtered, 4);
+        let kept: Vec<_> = tokens
+            .iter()
+            .map(|token| (token.reading.as_str(), token.surface.as_str()))
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                ("のろけた", "惚気けた"),
+                ("みいだす", "見出す"),
+                ("よねづけんし", "米津玄師")
+            ]
+        );
+        assert!(DictionaryFilter::parse("f", "only-one-column\n").is_err());
+        assert!(DictionaryFilter::parse("f", "(\tx\n").is_err());
+    }
+
+    // gen_aux_dictionary.py: aux rows copy every base entry's ids at cost + offset unless already present; word-list rows take the median cost of their POS and are skipped when the base or the aux rows already have them.
+    #[test]
+    fn aux_rows_and_word_lists_follow_gen_aux_dictionary() {
+        let id_def = "0 BOS/EOS,*,*,*,*,*,*\n5 名詞,一般,*,*,*,*,*\n6 名詞,固有名詞,地域,一般,*,*,*\n7 動詞,自立,*,*,五段・カ行イ音便,基本形,*\n";
+        let id_def = ALIAS_NAMES_FOR_TEST
+            .iter()
+            .enumerate()
+            .fold(id_def.to_owned(), |text, (index, name)| {
+                format!("{text}{} {name}\n", 100 + index)
+            });
+        let dictionaries = [(
+            "d",
+            concat!(
+                "みにおぼえ\t5\t7\t7000\t見に覚え\n",
+                "みにおぼえ\t5\t5\t6000\t見に覚え \n",
+                "みにおぼえ\t5\t7\t6500\t身に覚え\n",
+                "かな\t5\t5\t100\t仮名\n",
+                "かな\t5\t5\t300\t仮名\n",
+                "まち\t6\t6\t4000\t町\n",
+            )
+            .to_owned(),
+        )];
+        let aux = "# key\tvalue\tbase_key\tbase_value\tcost_offset\nみにおぼえ\t身に覚え\tみにおぼえ\t見に覚え\t-1\n";
+        let words = [
+            (
+                "places.tsv",
+                "# key\tvalue\tpos\nあきのくに\t安芸国\t地名\nまち\t町\t地名\n".to_owned(),
+            ),
+            (
+                "words.tsv",
+                "\nみにおぼえ\t身に覚え\t名詞\nかんじ\t漢字\t名詞\nあきのくに\t安芸国\t地名\n"
+                    .to_owned(),
+            ),
+        ];
+        let tokens =
+            aux_tokens(&dictionaries, &id_def, ("aux_dictionary.tsv", aux), &words).unwrap();
+        let summary: Vec<_> = tokens
+            .iter()
+            .map(|token| {
+                (
+                    token.reading.as_str(),
+                    token.surface.as_str(),
+                    token.left,
+                    token.right,
+                    token.cost,
+                )
+            })
+            .collect();
+        // 見に覚え has (5, 7) and, after rstrip, (5, 5); 身に覚え already exists as (5, 7), so only (5, 5) is added. 町 already exists. The words.tsv 身に覚え is now an aux row and is skipped; 漢字 takes the 名詞 median, the middle of 100, 300 and 6000; 安芸国 is added once per list, as the script does.
+        assert_eq!(
+            summary,
+            [
+                ("みにおぼえ", "身に覚え", 5, 5, 5999),
+                ("あきのくに", "安芸国", 6, 6, 4000),
+                ("かんじ", "漢字", 5, 5, 300),
+                ("あきのくに", "安芸国", 6, 6, 4000),
+            ]
+        );
+
+        let missing = "みにおぼえ\t身に覚え\tない\tない\t-1\n";
+        assert!(aux_tokens(&dictionaries, &id_def, ("aux_dictionary.tsv", missing), &[]).is_err());
+        let bad_pos = [("words.tsv", "かんじ\t漢字\t動詞\n".to_owned())];
+        assert!(aux_tokens(&dictionaries, &id_def, ("aux_dictionary.tsv", ""), &bad_pos).is_err());
+    }
+
+    // The aux dictionary is built from the unfiltered base and is not filtered itself: an aux row whose base entry the filter removes still resolves, and a filter row matching an aux or word-list token leaves that token in place.
+    #[test]
+    fn aux_tokens_come_from_the_unfiltered_base_and_skip_the_filter() {
+        let id_def = ALIAS_NAMES_FOR_TEST.iter().enumerate().fold(
+            "0 BOS/EOS,*,*,*,*,*,*\n5 名詞,一般,*,*,*,*,*\n6 名詞,固有名詞,地域,一般,*,*,*\n"
+                .to_owned(),
+            |text, (index, name)| format!("{text}{} {name}\n", 100 + index),
+        );
+        let dictionaries = [(
+            "d",
+            "おみ\t5\t5\t5000\tお見\nみる\t5\t5\t3000\t見る\nまち\t6\t6\t4000\t町\n".to_owned(),
+        )];
+        let aux = "# key\tvalue\tbase_key\tbase_value\tcost_offset\nおみ\t御見\tおみ\tお見\t10\n";
+        let words = [("places.tsv", "あきのくに\t安芸国\t地名\n".to_owned())];
+        // Removes the base お見 (the aux row's base), and would remove 御見 and 安芸国 if it applied to them.
+        let filter = DictionaryFilter::parse(
+            "dictionary_filter.tsv",
+            "おみ\tお見\nおみ\t御見\nあきのくに\t安芸国\n",
+        )
+        .unwrap();
+        let (tokens, added, filtered) = system_tokens(
+            &dictionaries,
+            &id_def,
+            ("aux_dictionary.tsv", aux),
+            &words,
+            &filter,
+        )
+        .unwrap();
+        assert_eq!((added, filtered), (2, 1));
+        let summary: Vec<_> = tokens
+            .iter()
+            .map(|token| (token.reading.as_str(), token.surface.as_str(), token.cost))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("あきのくに", "安芸国", 4000),
+                ("おみ", "御見", 5010),
+                ("まち", "町", 4000),
+                ("みる", "見る", 3000),
+            ]
+        );
+    }
+
+    /// The id.def names of the aliases the test id.def does not already give an id.
+    const ALIAS_NAMES_FOR_TEST: [&str; 16] = [
+        "名詞,固有名詞,一般,*,*,*,*",
+        "名詞,固有名詞,人名,一般,*,*,*",
+        "名詞,固有名詞,人名,姓,*,*,*",
+        "名詞,固有名詞,人名,名,*,*,*",
+        "名詞,固有名詞,組織,*,*,*,*",
+        "名詞,サ変接続,*,*,*,*,*",
+        "名詞,形容動詞語幹,*,*,*,*,*",
+        "副詞,一般,*,*,*,*,*",
+        "連体詞,*,*,*,*,*,*",
+        "接続詞,*,*,*,*,*,*",
+        "感動詞,*,*,*,*,*,*",
+        "接頭詞,名詞接続,*,*,*,*,*",
+        "名詞,接尾,助数詞,*,*,*,*",
+        "名詞,接尾,一般,*,*,*,*",
+        "名詞,接尾,人名,*,*,*,*",
+        "名詞,接尾,地域,*,*,*,*",
+    ];
 
     #[test]
     fn a_connection_file_that_is_not_square_fails() {

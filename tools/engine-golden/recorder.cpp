@@ -1,6 +1,6 @@
 // Golden-fixture recorder for the C++ reference engine (MSIME-Engine a9b9f092 + 23 msime overlays).
 //
-// Records what the reference engine does so the Rust engine (crates/engine) can be tested against committed JSON after the C++ is deleted. It drives only the public metasequoia::Session API (include/metasequoia/session.h) plus the personal dictionary functions (include/metasequoia/personal_dictionary.h); two internal helpers are used for fixture preparation and determinism: EnglishDictionary::ensure_schema (a fixture without english.db still needs one, runtime_paths.cpp copies both) and PersonalNgramStore::flush_all (personal context rows are written asynchronously after a 2 s delay).
+// Records what the reference engine does so the Rust engine (crates/engine) can be tested against committed JSON after the C++ is deleted. It drives only the public metasequoia::Session API (include/metasequoia/session.h) plus the personal dictionary functions (include/metasequoia/personal_dictionary.h); two internal helpers are used for fixture preparation and determinism: EnglishDictionary::ensure_schema (a fixture without msime-english.db still needs one, runtime_paths.cpp copies both) and PersonalNgramStore::flush_all (personal context rows are written asynchronously after a 2 s delay).
 //
 // Modes:
 //   recorder scenario <scenario.json> <work-root> <out.json>
@@ -749,7 +749,7 @@ ordered_json run_step(Scenario &scenario, const ordered_json &step)
     }
     else if (op == "query")
     {
-        // Read-only SQL against the live generation copy of a dictionary (msime.db / english.db) or the journal.
+        // Read-only SQL against the live generation copy of a dictionary (msime-pinyin.db / msime-english.db) or the journal.
         snapshot = false;
         user_dictionary::PersonalNgramStore::flush_all();
         const auto db = step.at("db").get<std::string>();

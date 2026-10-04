@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch ECDICT and expand it into the 背单词 wordbooks the settings page offers.
 
-The exam syllabuses are not something this project can derive. The shipped ``english.db`` carries
+The exam syllabuses are not something this project can derive. The shipped ``msime-english.db`` carries
 Chinese glosses and corpus frequency, which is enough to build "the thousand commonest words" but
 not enough to say a word is on the CET-4 list — that is a published syllabus, and inventing the
 label would put a name on the page that nothing behind it supports.

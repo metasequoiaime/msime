@@ -211,7 +211,7 @@ mod tests {
 
     fn fixture(sql: &str) -> Fixture {
         let root = tempfile::tempdir().expect("temporary directory");
-        let main_db = root.path().join("msime.db");
+        let main_db = root.path().join("msime-pinyin.db");
         Connection::open(&main_db)
             .expect("fixture database")
             .execute_batch(sql)

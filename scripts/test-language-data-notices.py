@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Check that the licences of the Cantonese, Zhuyin and Stroke data travel through every platform's notice channel.
 
-The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and the BSD-derived McBopomofo supplement, and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
+The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and the BSD-derived McBopomofo supplement, and their ranking weights partly from the HKCanCor corpus (CC BY 4.0, attribution and citation required) and McBopomofo's phrase.occ (MIT, copyright and permission notice required), and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
-许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `stroke/` 等 msime-dictionary 发布后以同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
+许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `sources/cantonese/`、`sources/zhuyin/` 下，resources/dictionary-sources.lock.json 从它的固定 Git 提交读取这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `sources/stroke/` 也按同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
 """
 import json
 import sys
@@ -11,28 +11,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
-# 粤拼、注音与笔画的源文件只从 msime-dictionary 的 sources release 附件取用。
-DICTIONARY_RELEASES = "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v"
+# 粤拼、注音与笔画的源文件直接从 msime-dictionary 的固定提交取用。
+DICTIONARY_RAW = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/"
 # 每个许可证文件对应的上游仓库、它覆盖的提交、锁文件里这份数据所在的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
 LICENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (
         "rime/rime-cantonese",
-        "ac277184f161f297c2031b497588975234019f9d",
-        "yue/",
-        ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml"),
+        "259f0e48bba840c3a2e0d117539e96937f3d89bc",
+        "sources/cantonese/",
+        ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml", "Hong Kong Cantonese Corpus", "Luke Kang Kwong", "K. K. Luke and May L. Y. Wong (2015) The Hong Kong Cantonese Corpus: Design and Uses"),
     ),
     "resources/licenses/libchewing-data-LGPL-2.1.txt": (
         "chewing/libchewing-data",
         "c44e81aef24b06f1509f19e1be54c99812d0c43f",
-        "tw/",
-        ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS"),
+        "sources/zhuyin/",
+        ("Copyright (c) 2025 libchewing Core Team", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 2.1, February 1999", "https://github.com/chewing/libchewing-data/tree/c44e81aef24b06f1509f19e1be54c99812d0c43f/dict/chewing", "END OF TERMS AND CONDITIONS", "Source/Data/phrase.occ", "Copyright (c) 2011-2026 Mengjuei Hsieh et al.", "Permission is hereby granted, free of charge", "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.", "THE SOFTWARE IS PROVIDED \"AS IS\""),
     ),
     "resources/licenses/rime-stroke-LGPL-3.0.txt": (
         "rime/rime-stroke",
         "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48",
-        "stroke/",
-        ("四季的風", "Kunki Chou", "宋天", "數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw", "北大中文論壇", "cn/SingleCharsAllV1.txt", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48", "https://www.gnu.org/licenses/gpl-3.0.txt"),
+        "sources/stroke/",
+        ("四季的風", "Kunki Chou", "宋天", "數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw", "北大中文論壇", "sources/pinyin/single-chars.txt", "GNU LESSER GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007", "https://github.com/rime/rime-stroke/tree/1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48", "https://www.gnu.org/licenses/gpl-3.0.txt"),
     ),
+}
+# 许可证文件还覆盖的其他上游：锁文件里的引用名，以及许可证文件写出那个引用的提交时用的文字。HKCanCor 的词频随粤拼词库分发，McBopomofo 的补充表与 phrase.occ 随注音词库分发，换了它们的提交却忘了改许可证会在这里失败。
+SECONDARY_REFERENCES = {
+    "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (("hkcancor", "https://github.com/fcbond/hkcancor, commit {commit}"),),
+    "resources/licenses/libchewing-data-LGPL-2.1.txt": (("McBopomofo", "openvanilla/McBopomofo, commit {commit}"), ("McBopomofo", "https://github.com/openvanilla/McBopomofo/tree/{commit}/Source/Data")),
 }
 # 锁文件固定之前，dict-builder 按自己记下的上游提交校验缓存里的源文件；那个提交也必须是许可证覆盖的提交。
 BUILDER_COMMITS = {"rime/rime-stroke": ("crates/dict-builder/src/stroke.rs", 'pub const COMMIT: &str = "{commit}";')}
@@ -87,6 +92,10 @@ def main() -> int:
         for overview in OVERVIEWS:
             check(commit in (ROOT / overview).read_text(encoding="utf-8"), f"{overview} does not name {repository} commit {commit}")
 
+        for reference, wording in SECONDARY_REFERENCES.get(relative, ()):
+            pinned = lock["references"].get(reference, {}).get("commit")
+            check(pinned is not None and wording.format(commit=pinned) in text, f"{relative} does not cover {reference} at the sources lock's commit {pinned}")
+
         if repository in BUILDER_COMMITS:
             source, declaration = BUILDER_COMMITS[repository]
             check(declaration.format(commit=commit) in (ROOT / source).read_text(encoding="utf-8"), f"{source} does not build from {repository} at {commit}, the commit {relative} covers")
@@ -99,7 +108,8 @@ def main() -> int:
         check(references == [commit], f"the sources lock references {repository} at {references}, the notices cover {commit}; update {relative} and the channels together with the pin")
         check(bool(files), f"the sources lock references {repository} but pins no file under {directory}")
         for url in files:
-            check(url.startswith(DICTIONARY_RELEASES), f"the sources lock pins {url} under {directory}, which is not a msime-dictionary sources release asset")
+            expected = DICTIONARY_RAW + lock["references"]["msime-dictionary"]["commit"] + "/"
+            check(url.startswith(expected) and url[len(expected):] == next(entry["path"] for entry in lock["files"] if entry["url"] == url), f"the sources lock pins {url} under {directory}, which is not the fixed msime-dictionary repository file")
         check(not any(f"/{repository}/" in entry["url"] for entry in lock["files"]), f"the sources lock still downloads from {repository} directly; pin msime-dictionary's {directory} assets instead")
 
     vi_licence = ROOT / VI_LICENCE

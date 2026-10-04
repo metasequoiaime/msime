@@ -2,7 +2,7 @@
 
 Full `Prepare-PackageFiles.ps1` runs require the exact resource set in `resources/desktop-dictionary.lock.json`. Download that pinned release's files into `target/desktop-resources`, or pass `-DesktopResourcesDirectory` with an absolute path or a path relative to `RepoRoot`.
 
-Every listed file must match its pinned byte length and SHA-256 before staging directories are reset. Only manifest-listed files are copied, retaining their original names, including `mozc_dictionary_oss_README.txt`. Staged bytes are verified again by `Get-VerifiedDesktopResources.ps1`. The result is `server_exe/resources`; Inno's recursive Server rule installs it under Program Files alongside the native executables. No resource URL is downloaded or followed by this script.
+Every listed file must match its pinned byte length and SHA-256 before staging directories are reset. Only manifest-listed files are copied, retaining their original names, including `msime-mozc_dictionary_oss_README.txt`. Staged bytes are verified again by `Get-VerifiedDesktopResources.ps1`. The result is `server_exe/resources`; Inno's recursive Server rule installs it under Program Files alongside the native executables. No resource URL is downloaded or followed by this script.
 
 Light packages neither require nor carry this bundle. A stale `resources` directory copied from native build output is removed from light staging, not from the installed application. Full packages likewise replace native-output resources with only verified files.
 

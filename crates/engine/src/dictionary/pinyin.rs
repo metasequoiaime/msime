@@ -744,7 +744,7 @@ mod tests {
     #[test]
     fn a_missing_file_stays_missing_and_answers_empty() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime.db");
+        let path = directory.path().join("msime-pinyin.db");
         let mut database = PinyinDatabase::open(&path);
         assert!(!database.is_open());
         assert!(!path.exists(), "opening must not create the dictionary");
@@ -798,7 +798,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut database = cascade_fixture(directory.path());
         assert!(!database.database_changed());
-        let other = Connection::open(directory.path().join("msime.db")).unwrap();
+        let other = Connection::open(directory.path().join("msime-pinyin.db")).unwrap();
         other
             .execute(
                 "INSERT INTO tbl_1_n (key, jp, value, weight) VALUES ('ni', 'n', '伱', 1)",
@@ -1004,7 +1004,7 @@ mod tests {
     #[test]
     fn lattice_span_is_exact_and_canonicalises_umlaut_spellings() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime.db");
+        let path = directory.path().join("msime-pinyin.db");
         let connection = Connection::open(&path).unwrap();
         connection
             .execute_batch(

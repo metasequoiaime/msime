@@ -171,7 +171,7 @@ fn reject_database_parent(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// A dictionary (`msime.db`, `english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
+/// A dictionary (`msime-pinyin.db`, `msime-english.db`) opened for writing; a missing dictionary is an error, never a new empty file.
 pub(crate) fn open_dictionary_for_writing(path: &Path) -> Result<Connection> {
     open_database(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
 }
@@ -418,11 +418,11 @@ pub(crate) mod test_support {
         }
 
         pub fn main_db(&self) -> PathBuf {
-            self.root.path().join("msime.db")
+            self.root.path().join("msime-pinyin.db")
         }
 
         pub fn english_db(&self) -> PathBuf {
-            self.root.path().join("english.db")
+            self.root.path().join("msime-english.db")
         }
 
         /// Pinyin rows `(key, word, weight)`, each into the table its key names.

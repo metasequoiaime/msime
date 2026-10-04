@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.util.Locale;
+import java.math.BigDecimal;
 import org.json.JSONObject;
 
 /** Apple-compatible touch-keyboard spacing contract; input algorithms remain in Engine. */
@@ -52,10 +53,18 @@ public final class KeyboardGeometry {
 
     public static long strictLong(Object raw, long fallback) {
         if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        try {
+            return new BigDecimal(raw.toString()).longValueExact();
+        } catch (NumberFormatException | ArithmeticException error) {
+            return fallback;
+        }
+    }
+
+    /** Read a finite JSON number without accepting numeric strings or booleans. */
+    public static double strictDouble(Object raw, double fallback) {
+        if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
         double value = ((Number) raw).doubleValue();
-        if (!Double.isFinite(value) || value != Math.rint(value)
-                || value < Long.MIN_VALUE || value > Long.MAX_VALUE) return fallback;
-        return ((Number) raw).longValue();
+        return Double.isFinite(value) ? value : fallback;
     }
 
     /** Divide the total adjustment across rows without losing a density-independent pixel. */
