@@ -6063,6 +6063,16 @@ group("a streaming frame is read at whichever level answered", () => {
   );
 });
 
+group("流式语音拒绝非对象 JSON，并保留结束标记", () => {
+  for (const payload of ["null", "[]", "true", "42", '"synthetic"']) {
+    for (const last of [false, true]) {
+      const outcome = VoiceResponsePolicy.streamingFrame(payload, last);
+      check(outcome.failure.length > 0, `拒绝非对象响应 ${payload}`);
+      check(outcome.text === "" && outcome.last === last, "无效响应不提交文字并保留结束标记");
+    }
+  }
+});
+
 group("a final frame ends the recording even when it carries no text", () => {
   const last: VoiceOutcome = VoiceResponsePolicy.streamingFrame(JSON.stringify({}), true);
   check(

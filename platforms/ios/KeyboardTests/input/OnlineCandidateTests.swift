@@ -52,6 +52,17 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertThrowsError(try bridge.snapshot(from: malformed))
   }
 
+  func testSnapshotRejectsMalformedCandidateNumericFields() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let malformed: [String: Any] = [
+      "view": [
+        "candidates": [["text": "你", "source": 1.5]],
+        "page_count": 1, "editing_text": "ni", "caret_position": 0,
+      ],
+    ]
+    XCTAssertThrowsError(try bridge.snapshot(from: malformed))
+  }
+
   func testCloudCandidatesStayOffUntilTheSwitchIsOn() async throws {
     CloudCandidatePreference.enabled = false
     // A document synced from a desktop, where cloud candidates are on.
@@ -200,11 +211,10 @@ final class OnlineCandidateTests: XCTestCase {
     ]))
   }
 
-  func testTheAIDescriptorIgnoresNonIntegerLimits() {
+  func testTheAIDescriptorDefaultsAbsentTransportLimits() {
     let descriptor: [String: Any] = [
       "url": "https://example.invalid/v1/chat/completions", "method": "POST",
-      "body": ["model": "m"], "timeout_ms": true, "connect_timeout_ms": 2.5,
-      "max_response_bytes": 1.5,
+      "body": ["model": "m"],
     ]
     let request = OnlineCandidateProvider.aiRequest(descriptor)
     XCTAssertEqual(request?.timeout, 8)

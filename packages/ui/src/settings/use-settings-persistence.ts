@@ -222,26 +222,23 @@ export function useSettingsPersistence({
   }, [client, generation]);
 
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     client
       .load()
       .then((value) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         adoptSnapshot(value);
         setLoadFailed(false);
       })
       .catch((reason) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setError(errorMessage(reason));
         setLoadFailed(true);
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (generation.current === current) setBusy(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, generation]);
 
   async function reload() {
     if (!mounted.current) return;
