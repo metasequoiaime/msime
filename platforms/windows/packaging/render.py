@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """把一个 Windows 发布填进 winget、Scoop 与 Chocolatey 的包定义模板。
 
-本脚本旁边的模板保存发布之间不变的事实（ProductCode、静默参数、依赖、说明）；每个发布只提供版本号、安装包地址、安装包的 SHA-256、发布日期和发布说明地址，由本脚本填进 @...@ 字段。它们有三种来源：
+本脚本旁边的模板保存发布之间不变的事实（ProductCode、静默参数、依赖、说明）；每个发布只提供版本号、安装包地址、安装包的 SHA-256、发布日期和发布说明地址，由本脚本填进 @...@ 字段。它们有两种来源：
 
     render.py --latest --output DIR                      GitHub 上最新一个已发布、非预发布的 windows-v* 发布
     render.py --tag windows-v0.1.0 --output DIR          GitHub 上的指定发布
     render.py --version 0.1.0 --installer FILE --output DIR
-    render.py --version 0.1.0 --sha256 HEX --output DIR
 
-走 GitHub 时只读发布元数据：GitHub 为每个附件记录的摘要，与发布流程放在安装包旁边的 `<安装包>.sha256` 小文件互相核对，从不下载安装包本身。`--installer` 改为对本地文件求摘要，给刚构建出安装包的场合用；地址按发布流程将来发布它的位置推出。
+走 GitHub 时，GitHub 为每个附件记录的摘要与发布流程放在安装包旁边的 `<安装包>.sha256` 小文件互相核对，再下载安装包本身核对同一个摘要。`--installer` 改为对本地文件求摘要，地址按发布流程发布它的位置推出。
+
+两种来源都要求安装包带有效的 Authenticode 签名，没有就拒绝渲染。release-windows.yml 在 CI 上打出、先行发布的安装包是未签名的：x64 Server 以 uiAccess=true 构建，未签名时系统拒绝启动它，装上之后只能打英文（installer/Sign-InstalledServer-Local.ps1）。能交给包管理器的只有维护者用 installer/Package-SimplySign.ps1 签名后替换上去的那一份，而替换会改变摘要，所以也只能在替换之后渲染。签名在 Windows 上用 Get-AuthenticodeSignature 核对（状态必须是 Valid），其他系统用 osslsigncode verify。
 
 输出目录按三个包管理器各自的布局：
 
@@ -28,7 +29,10 @@ import json
 import os
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ElementTree
@@ -112,6 +116,20 @@ def github_request(url: str, accept: str = "application/vnd.github+json") -> byt
         raise RenderError(f"GET {url}: HTTP {error.code}") from error
 
 
+def download(url: str, target: pathlib.Path) -> str:
+    """把 url 下载到 target，返回内容的 SHA-256。发布附件的地址会重定向到 GitHub 的对象存储，urllib 自己跟随。"""
+    request = urllib.request.Request(url, headers={"Accept": "application/octet-stream", "User-Agent": "msime-windows-packaging-render"})
+    digest = hashlib.sha256()
+    try:
+        with urllib.request.urlopen(request, timeout=300) as response, target.open("wb") as stream:
+            for block in iter(lambda: response.read(1 << 20), b""):
+                digest.update(block)
+                stream.write(block)
+    except urllib.error.HTTPError as error:
+        raise RenderError(f"GET {url}: HTTP {error.code}") from error
+    return digest.hexdigest()
+
+
 def github_json(url: str):
     return json.loads(github_request(url))
 
@@ -177,11 +195,20 @@ def values_from_release(repo: str, release: dict, allow_prerelease: bool) -> dic
     if len(set(digests.values())) != 1:
         raise RenderError(f"{tag}: the installer digests disagree: {digests}")
 
+    digest = next(iter(digests.values()))
+    # 摘要只说明元数据彼此一致；签名要看文件本身，所以把安装包取下来，先核对它就是摘要说的那一份，再核对签名。
+    with tempfile.TemporaryDirectory(prefix="msime-render-") as scratch:
+        local = pathlib.Path(scratch) / name
+        downloaded = download(installer["browser_download_url"], local)
+        if downloaded != digest:
+            raise RenderError(f"{tag}: the downloaded {name} has SHA-256 {downloaded}, not the published {digest}")
+        verify_signature(local)
+
     published = release.get("published_at") or release.get("created_at") or ""
     return values_for(
         repo,
         version,
-        next(iter(digests.values())),
+        digest,
         published[:10],
         installer_url=installer["browser_download_url"],
         notes_url=release.get("html_url") or release_page_url(repo, version),
@@ -194,6 +221,36 @@ def sha256_file(path: pathlib.Path) -> str:
         for block in iter(lambda: stream.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def verify_signature(path: pathlib.Path) -> None:
+    """安装包没有有效的 Authenticode 签名时抛出 RenderError。
+
+    发布页上先出现的是 CI 打的未签名安装包，它的 uiAccess Server 起不来，交给包管理器的用户装上之后只能打英文；签名后的安装包替换它之后才能渲染。这里只看签名是否有效、链到受信任的根，不认具体的证书：证书换代时不需要改这里。
+    """
+    if sys.platform == "win32":
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        if shell is None:
+            raise RenderError("neither pwsh nor powershell is available to check the installer's Authenticode signature")
+        script = "$s = Get-AuthenticodeSignature -LiteralPath $env:MSIME_INSTALLER; Write-Output $s.Status; Write-Output $s.StatusMessage; Write-Output $s.SignerCertificate.Subject"
+        result = subprocess.run(
+            [shell, "-NoProfile", "-NonInteractive", "-Command", script],
+            env={**os.environ, "MSIME_INSTALLER": str(path)}, capture_output=True, text=True, check=False,
+        )
+        lines = [line.strip() for line in result.stdout.splitlines()]
+        if result.returncode != 0 or not lines or lines[0] != "Valid":
+            detail = " / ".join(line for line in lines if line) or result.stderr.strip()
+            raise RenderError(f"{path.name} has no valid Authenticode signature ({detail}); render only after the SimplySign-signed installer has replaced the CI build on the release")
+        print(f"signature ok: {path.name}: {lines[2] if len(lines) > 2 else ''}", file=sys.stderr)
+        return
+    tool = shutil.which("osslsigncode")
+    if tool is None:
+        raise RenderError("cannot check the installer's Authenticode signature: run on Windows, or install osslsigncode")
+    result = subprocess.run([tool, "verify", "-in", str(path)], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        output = (result.stdout + result.stderr).strip().splitlines()
+        raise RenderError(f"{path.name} has no valid Authenticode signature ({output[-1] if output else f'osslsigncode exited {result.returncode}'}); render only after the SimplySign-signed installer has replaced the CI build on the release")
+    print(f"signature ok: {path.name} (osslsigncode)", file=sys.stderr)
 
 
 # ---- 渲染 ----
@@ -246,9 +303,8 @@ def main(argv: list[str] | None = None) -> int:
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--latest", action="store_true", help="newest published windows-v* release on GitHub")
     source.add_argument("--tag", help="a windows-v* release on GitHub")
-    source.add_argument("--version", help="MAJOR.MINOR.PATCH, with --installer or --sha256")
-    parser.add_argument("--installer", type=pathlib.Path, help="local installer to hash (with --version)")
-    parser.add_argument("--sha256", help="installer SHA-256 (with --version)")
+    source.add_argument("--version", help="MAJOR.MINOR.PATCH, with --installer")
+    parser.add_argument("--installer", type=pathlib.Path, help="local signed installer to hash (with --version)")
     parser.add_argument("--release-date", help="YYYY-MM-DD (with --version; default: today, UTC)")
     parser.add_argument("--repo", default=DEFAULT_REPO, help=f"GitHub repository (default: {DEFAULT_REPO})")
     parser.add_argument("--allow-prerelease", action="store_true", help="render a prerelease named by --tag")
@@ -257,19 +313,17 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.version is not None:
-            if (args.installer is None) == (args.sha256 is None):
-                parser.error("--version needs exactly one of --installer and --sha256")
-            if args.installer is not None:
-                if args.installer.name != installer_name(args.version):
-                    raise RenderError(f"{args.installer.name} is not {installer_name(args.version)}, the name the release publishes")
-                digest = sha256_file(args.installer)
-            else:
-                digest = args.sha256
+            if args.installer is None:
+                parser.error("--version needs --installer")
+            if args.installer.name != installer_name(args.version):
+                raise RenderError(f"{args.installer.name} is not {installer_name(args.version)}, the name the release publishes")
+            verify_signature(args.installer)
+            digest = sha256_file(args.installer)
             date = args.release_date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
             values = values_for(args.repo, args.version, digest, date)
         else:
-            if args.installer is not None or args.sha256 is not None or args.release_date is not None:
-                parser.error("--installer, --sha256 and --release-date go with --version")
+            if args.installer is not None or args.release_date is not None:
+                parser.error("--installer and --release-date go with --version")
             release = latest_release(args.repo) if args.latest else tagged_release(args.repo, args.tag)
             values = values_from_release(args.repo, release, args.allow_prerelease)
         written = render(values, args.output)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """winget、Scoop 与 Chocolatey 的包定义必须描述发布里实际发出的那个安装包。
 
-platforms/windows/packaging/ 下是由 platforms/windows/packaging/render.py 按 windows-v 发布填写的模板。它们重复了安装包的一些事实（AppId 以及由它得到的卸载键、发布者、显示名、架构、权限级别、文件名和静默参数），这些事实的来源是 platforms/windows/installer/msime_setup.iss、editions.iss、版本表 shared/contracts/editions.json 与 release-windows.yml；本检查让两边保持一致，用固定输入渲染全部模板，并在不联网的情况下用一份录制的发布走一遍 render.py 的 GitHub 路径。
+platforms/windows/packaging/ 下是由 platforms/windows/packaging/render.py 按 windows-v 发布填写的模板。它们重复了安装包的一些事实（AppId 以及由它得到的卸载键、发布者、显示名、架构、权限级别、文件名和静默参数），这些事实的来源是 platforms/windows/installer/msime_setup.iss、editions.iss、版本表 shared/contracts/editions.json 与 release-windows.yml；本检查让两边保持一致，用固定输入渲染全部模板，并在不联网的情况下用一份录制的发布走一遍 render.py 的 GitHub 路径；render.py 拒绝没有有效 Authenticode 签名的安装包，这里核对每条路径都经过签名检查，且包定义只在单独手动触发的工作流里渲染。
 
 不带参数时只用标准库。加 `--schema-dir DIR` 时还按官方 schema 校验渲染结果，需要 PyYAML、jsonschema 和 lxml；DIR 里要有 microsoft/winget-cli schemas/JSON/manifests/v1.12.0 的 manifest.{version,installer,defaultLocale,locale}.1.12.0.json、Scoop 的 schema.json，以及 chocolatey/NuGet.Client src/NuGet.Core/NuGet.Packaging/compiler/resources 的 nuspec.xsd（它的 targetNamespace 是占位符「{0}」，本检查会填上）。下载命令见 platforms/windows/packaging/README.md。
 """
@@ -27,6 +27,7 @@ EDITIONS_ISS = ROOT / "platforms/windows/installer/editions.iss"
 EDITIONS = ROOT / "shared/contracts/editions.json"
 SMOKE = ROOT / "platforms/windows/installer/tests/install-smoke.ps1"
 WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
+DEFINITIONS_WORKFLOW = ROOT / ".github/workflows/package-definitions-windows.yml"
 NUSPEC_NS = "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"
 SILENT = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
 
@@ -92,13 +93,13 @@ def check_installer_facts(render) -> None:
     check(setup_value(setup, "AppName") == "{#MyAppName}" and setup_value(setup, "AppPublisher") == "{#MyAppPublisher}", "AppName/AppPublisher no longer come from MyAppName/MyAppPublisher")
     check(setup_value(setup, "ArchitecturesAllowed") == "x64compatible", "the installer is no longer x64 only; add or drop installers in winget, Scoop and Chocolatey to match")
     check(setup_value(setup, "PrivilegesRequired") == "admin", "the installer is no longer per-machine (PrivilegesRequired=admin); winget Scope and the Scoop notes say machine")
-    check(setup_value(setup, "OutputBaseFilename") == "{#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}", "the installer file name changed; update render.installer_name and the Scoop autoupdate URL")
+    check(setup_value(setup, "OutputBaseFilename") == "{#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}", "the installer file name changed; update render.installer_name")
     check(full_defines.get("MyEditionInstallerBaseName") == full["installer_base_name"], "editions.iss full MyEditionInstallerBaseName differs from the edition table")
     check(render.installer_name("1.2.3") == f"{full['installer_base_name']}_v1.2.3.exe", "render.installer_name does not follow the full edition's installer_base_name")
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    check('tag="windows-v${VERSION}"' in workflow, "release-windows.yml no longer tags windows-v${VERSION}; render.TAG_PREFIX and the Scoop checkver follow it")
-    check('"dist/$name.sha256"' in workflow, "release-windows.yml no longer uploads <installer>.sha256; the Scoop autoupdate hash and render.py read it")
+    check('tag="windows-v${VERSION}"' in workflow, "release-windows.yml no longer tags windows-v${VERSION}; render.TAG_PREFIX follows it")
+    check('"dist/$name.sha256"' in workflow, "release-windows.yml no longer uploads <installer>.sha256; render.py reads it")
     check("'^\\d+\\.\\d+\\.\\d+$'" in workflow and render.VERSION_PATTERN.pattern == r"^\d+\.\d+\.\d+$", "release versions are no longer MAJOR.MINOR.PATCH in both release-windows.yml and render.py")
 
     smoke = SMOKE.read_text(encoding="utf-8")
@@ -123,8 +124,9 @@ def check_installer_facts(render) -> None:
     check(all(f"'{s}'" in install_script for s in SILENT), "Scoop installer script lacks the silent switches")
     check(product_code in uninstall_script, f"Scoop uninstaller does not read the {product_code} uninstall key")
     check("$cmd -eq 'update'" in uninstall_script, "Scoop uninstaller must skip 'scoop update': the Inno uninstaller deletes the data directory")
-    check(set(scoop["architecture"]) == {"64bit"} and set(scoop["autoupdate"]["architecture"]) == {"64bit"}, "Scoop offers an architecture other than 64bit")
-    check(scoop["autoupdate"]["architecture"]["64bit"]["url"] == render.release_download_url(render.DEFAULT_REPO, "$version"), "Scoop autoupdate URL differs from render.release_download_url")
+    check(set(scoop["architecture"]) == {"64bit"}, "Scoop offers an architecture other than 64bit")
+    # CI 先发布的是未签名的安装包；checkver/autoupdate 会让 Excavator 把它写进 bucket，绕过 render.py 的签名检查。
+    check("checkver" not in scoop and "autoupdate" not in scoop, "the Scoop manifest must not autoupdate: Excavator would pick up the unsigned CI installer before the signed one replaces it")
 
     choco_install = (PACKAGING / "chocolatey/tools/chocolateyinstall.ps1").read_text(encoding="utf-8")
     choco_uninstall = (PACKAGING / "chocolatey/tools/chocolateyuninstall.ps1").read_text(encoding="utf-8")
@@ -135,22 +137,17 @@ def check_installer_facts(render) -> None:
         check(script.read_bytes().isascii(), f"{script.name} is not ASCII")
 
 
-def scoop_checkver(scoop: dict, api_text: str) -> str | None:
-    match = re.search(scoop["checkver"]["regex"], api_text)
-    return match.group(1) if match else None
-
-
-def check_scoop_checkver() -> None:
-    scoop = json.loads((PACKAGING / "scoop/msime.json").read_text(encoding="utf-8"))
-    releases = [
-        {"url": "u", "author": {"login": "bot", "events_url": "https://x{/privacy}"}, "tag_name": "linux-v0.9.1", "name": "Linux 0.9.1", "draft": False, "prerelease": False},
-        {"url": "u", "author": {"login": "bot"}, "tag_name": "windows-v0.3.0", "target_commitish": "abc", "name": "Windows 0.3.0", "draft": False, "immutable": False, "prerelease": True, "assets": []},
-        {"url": "u", "author": {"login": "bot"}, "tag_name": "windows-v0.2.1", "target_commitish": "abc", "name": "Windows 0.2.1", "draft": False, "immutable": False, "prerelease": False, "assets": [{"name": "a"}]},
-        {"url": "u", "author": {"login": "bot"}, "tag_name": "windows-v0.2.0", "name": "Windows 0.2.0", "draft": False, "prerelease": False},
-    ]
-    # GitHub API 的输出带两格缩进；缩进与紧凑两种写法都要能匹配。
-    for text in (json.dumps(releases, indent=2), json.dumps(releases, separators=(",", ":"))):
-        check(scoop_checkver(scoop, text) == "0.2.1", "Scoop checkver does not pick the newest non-prerelease windows-v release")
+def check_workflows() -> None:
+    """包定义不在 release-windows.yml 里渲染：那里发布的是未签名的安装包，签名的那份由维护者事后替换上去。单独的工作流按标签渲染，签名检查由 render.py 做。"""
+    release = WORKFLOW.read_text(encoding="utf-8")
+    check("packaging/render.py" not in release, "release-windows.yml renders package definitions right after publishing the unsigned CI installer")
+    check(DEFINITIONS_WORKFLOW.is_file(), f"{DEFINITIONS_WORKFLOW.relative_to(ROOT)} is missing")
+    if DEFINITIONS_WORKFLOW.is_file():
+        definitions = DEFINITIONS_WORKFLOW.read_text(encoding="utf-8")
+        check(re.search(r"(?m)^on:\n  workflow_dispatch:", definitions) is not None and "\n  release:" not in definitions and "\n  push:" not in definitions, "package-definitions-windows.yml must only run when dispatched by hand, after the signed installer is on the release")
+        check('render.py --tag "windows-v$env:VERSION"' in definitions, "package-definitions-windows.yml no longer renders from the published release with --tag")
+        check("runs-on: windows-" in definitions, "package-definitions-windows.yml must run on Windows, where Get-AuthenticodeSignature checks the signature")
+        check("--skip" not in definitions and "--no-" not in definitions, "package-definitions-windows.yml passes a flag that weakens render.py's checks")
 
 
 def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
@@ -189,27 +186,66 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
     choco_install = (output / "chocolatey/msime/tools/chocolateyinstall.ps1").read_text(encoding="utf-8")
     check(f"url64bit       = '{url}'" in choco_install and f"checksum64     = '{digest}'" in choco_install, "Chocolatey URL or checksum not rendered")
 
-    # --installer：对刚构建出的安装包求摘要，文件名必须是发布时用的那个。
+    # --installer：对本地的安装包求摘要，文件名必须是发布时用的那个，签名必须有效。
     fake = output / "MetasequoiaIME_Setup_v1.2.3.exe"
     fake.write_bytes(b"msime")
-    with contextlib.redirect_stdout(io.StringIO()):
-        check(render.main(["--version", "1.2.3", "--installer", str(fake), "--release-date", "2026-10-05", "--output", str(output / "local")]) == 0, "render.py --installer failed")
-    local = json.loads((output / "local/scoop/msime.json").read_text(encoding="utf-8"))
-    check(local["architecture"]["64bit"]["hash"] == hashlib.sha256(b"msime").hexdigest(), "render.py --installer did not hash the file")
-    wrong = output / "setup.exe"
-    wrong.write_bytes(b"msime")
+    original = render.verify_signature
+    checked: list[str] = []
+    try:
+        render.verify_signature = lambda path: checked.append(path.name)
+        with contextlib.redirect_stdout(io.StringIO()):
+            check(render.main(["--version", "1.2.3", "--installer", str(fake), "--release-date", "2026-10-05", "--output", str(output / "local")]) == 0, "render.py --installer failed")
+        check(checked == [fake.name], "render.py --installer did not check the installer's signature")
+        local = json.loads((output / "local/scoop/msime.json").read_text(encoding="utf-8"))
+        check(local["architecture"]["64bit"]["hash"] == hashlib.sha256(b"msime").hexdigest(), "render.py --installer did not hash the file")
+        wrong = output / "setup.exe"
+        wrong.write_bytes(b"msime")
+        with contextlib.redirect_stderr(io.StringIO()):
+            check(render.main(["--version", "1.2.3", "--installer", str(wrong), "--output", str(output / "wrong")]) == 1, "render.py accepted an installer under a name the release does not publish")
+
+        def unsigned(path):
+            raise render.RenderError(f"{path.name} has no valid Authenticode signature")
+
+        render.verify_signature = unsigned
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            check(render.main(["--version", "1.2.3", "--installer", str(fake), "--output", str(output / "unsigned")]) == 1, "render.py --installer rendered an unsigned installer")
+        check("Authenticode" in stderr.getvalue() and not (output / "unsigned").exists(), "an unsigned installer still produced definitions")
+    finally:
+        render.verify_signature = original
+    # 真实的检查：在没有签名的文件上不能通过，不论这台机器有没有能核对签名的工具。
     with contextlib.redirect_stderr(io.StringIO()):
-        check(render.main(["--version", "1.2.3", "--installer", str(wrong), "--output", str(output / "wrong")]) == 1, "render.py accepted an installer under a name the release does not publish")
+        try:
+            render.verify_signature(fake)
+            check(False, "render.verify_signature accepted a file with no signature")
+        except render.RenderError:
+            pass
     return written
 
 
 def check_github_path(render) -> None:
     """用一份录制的发布跑 values_from_release，摘要小文件的下载在本地应答。"""
-    digest = "ab" * 32
     name = "MetasequoiaIME_Setup_v0.1.0.exe"
+    payload = b"signed installer"
+    digest = hashlib.sha256(payload).hexdigest()
     sidecars = {"https://example.invalid/sidecar": f"{digest}  {name}\n".encode()}
-    original = render.github_request
+    served = {"payload": payload}
+    signed = {"value": True}
+    checked: list[str] = []
+
+    def fake_download(url, target):
+        check(url.endswith(f"/windows-v0.1.0/{name}"), f"render.py downloaded {url}, not the installer asset")
+        target.write_bytes(served["payload"])
+        return hashlib.sha256(served["payload"]).hexdigest()
+
+    def fake_verify(path):
+        checked.append(path.name)
+        if not signed["value"]:
+            raise render.RenderError(f"{path.name} has no valid Authenticode signature")
+
+    originals = (render.github_request, render.download, render.verify_signature)
     render.github_request = lambda url, accept="": sidecars[url]
+    render.download = fake_download
+    render.verify_signature = fake_verify
     try:
         def release(**changes):
             base = {
@@ -225,6 +261,7 @@ def check_github_path(render) -> None:
 
         values = render.values_from_release(render.DEFAULT_REPO, release(), False)
         check(values["VERSION"] == "0.1.0" and values["SHA256"] == digest and values["RELEASE_DATE"] == "2026-10-03", "values_from_release misread a release")
+        check(checked == [name], "values_from_release did not check the downloaded installer's signature")
 
         def rejects(what: str, payload: dict, allow_prerelease: bool = False) -> None:
             try:
@@ -240,8 +277,15 @@ def check_github_path(render) -> None:
         rejects("disagreeing digests", release(assets=[dict(release()["assets"][0], digest="sha256:" + "cd" * 32), release()["assets"][1]]))
         rejects("a release with no digest at all", release(assets=[dict(release()["assets"][0], digest=None)]))
         check(render.values_from_release(render.DEFAULT_REPO, release(prerelease=True), True)["VERSION"] == "0.1.0", "--allow-prerelease does not render a prerelease")
+        # 发布页上还是 CI 打的未签名安装包：元数据一致也不渲染。
+        signed["value"] = False
+        rejects("an unsigned installer", release())
+        signed["value"] = True
+        # 安装包被替换了，摘要元数据却没跟着换：下载到的文件与摘要不符。
+        served["payload"] = b"replaced installer"
+        rejects("an installer that differs from its published digest", release())
     finally:
-        render.github_request = original
+        render.github_request, render.download, render.verify_signature = originals
 
 
 def validate_schemas(written: list[pathlib.Path], schema_dir: pathlib.Path) -> None:
@@ -276,7 +320,7 @@ def main() -> int:
 
     render = load_render()
     check_installer_facts(render)
-    check_scoop_checkver()
+    check_workflows()
     check_github_path(render)
     with tempfile.TemporaryDirectory(prefix="msime-packaging-") as output:
         written = check_render(render, pathlib.Path(output))

@@ -221,31 +221,3 @@ jobs:
           start=$(git tag --list 'windows-v*' --sort=-v:refname | head -1)
           python3 scripts/generate-release-notes.py --platform windows --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" --title "Windows ${VERSION}" --notes-file release-notes.md "${flags[@]}"
-  # 按刚发布的 windows-vVERSION 渲染 winget、Scoop 与 Chocolatey 的包定义并打出 .nupkg，作为构建产物上传，由维护者按 platforms/windows/packaging/README.md 发布；这里不向任何外部仓库推送。只发 full 的安装包。走 --tag 让摘要取自发布页本身（GitHub 记录的附件摘要与 .sha256 互相核对）；在 Windows 上跑是为了用 choco pack。
-  package-definitions:
-    needs: [release, publish]
-    if: inputs.publish
-    runs-on: windows-2025
-    timeout-minutes: 15
-    env:
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
-      - name: Render package manager definitions
-        shell: pwsh
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.release.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $flags = @()
-          if ($env:PRERELEASE -eq 'true') { $flags += '--allow-prerelease' }
-          python platforms/windows/packaging/render.py --tag "windows-v$env:VERSION" --output target/package-managers @flags
-          if ($LASTEXITCODE -ne 0) { throw 'render.py failed' }
-          choco pack target/package-managers/chocolatey/msime/msime.nuspec --outputdirectory target/package-managers/chocolatey
-          if ($LASTEXITCODE -ne 0) { throw 'choco pack failed' }
-          Get-ChildItem -Recurse target/package-managers | Format-Table FullName, Length
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: msime-package-definitions-windows-${{ needs.release.outputs.version }}
-          path: target/package-managers/
-          if-no-files-found: error

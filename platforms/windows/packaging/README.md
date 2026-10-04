@@ -9,9 +9,9 @@
 | 路径 | 内容 |
 | --- | --- |
 | `winget/` | 多文件清单（ManifestVersion 1.12.0）：`version`、`installer`、`defaultLocale`（en-US）和 `locale`（zh-CN） |
-| `scoop/msime.json` | Scoop 清单，带 `checkver` 与 `autoupdate` |
+| `scoop/msime.json` | Scoop 清单（不带 `checkver` 与 `autoupdate`，原因见「签名」） |
 | `chocolatey/` | `msime.nuspec` 与 `tools/chocolateyinstall.ps1`、`tools/chocolateyuninstall.ps1` |
-| `render.py` | 用一个发布的版本号、安装包地址、SHA-256、日期和发布说明地址填模板 |
+| `render.py` | 核对安装包的签名，再用一个发布的版本号、安装包地址、SHA-256、日期和发布说明地址填模板 |
 
 模板里的 `@VERSION@`、`@INSTALLER_URL@`、`@SHA256@`、`@SHA256_UPPER@`、`@RELEASE_DATE@`、`@RELEASE_NOTES_URL@` 由 `render.py` 填写；其余内容在发布之间不变。
 
@@ -32,6 +32,16 @@
 
 Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统。输入法做不到——TSF DLL 必须以 COM 服务器注册到 HKLM，Server 要装在 Program Files 里才满足 uiAccess，还要创建登录任务——直接解压 Inno 安装包（Scoop 的 `innosetup: true`）得到的是一堆不会被系统加载的文件。所以这份清单用 `installer.script` 运行安装包，Scoop 目录里不留任何东西，`scoop install` 会弹 UAC。这样的清单不符合 Scoop 官方 Main / Extras bucket 的收录规则，发布方式是项目自己的 bucket（见下文）。
 
+## 签名
+
+包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
+
+因此：
+
+- `render.py` 在渲染前核对安装包的 Authenticode 签名，没有有效签名就失败，不写任何文件。Windows 上用 `Get-AuthenticodeSignature`，状态必须是 `Valid`；其他系统用 `osslsigncode verify`（例如 `brew install osslsigncode`、`apt install osslsigncode`），两者都没有时同样失败。走 GitHub 时它会下载安装包本身来核对。
+- 渲染包定义的是单独手动触发的 `package-definitions-windows.yml`，不在 `release-windows.yml` 发布之后自动运行。
+- Scoop 清单不带 `checkver`/`autoupdate`：Scoop 的 Excavator 会在新的 `windows-v*` 发布出现时自动改写 bucket，那时发布页上还是未签名的安装包，而它不经过 `render.py` 的签名检查。
+
 ## 渲染
 
 `render.py` 只用 Python 标准库：
@@ -41,13 +51,11 @@ Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统�
 python3 platforms/windows/packaging/render.py --latest --output out/package-managers
 # 指定标签
 python3 platforms/windows/packaging/render.py --tag windows-v0.1.0 --output out/package-managers
-# 发布任务里，用刚构建出的安装包（地址按发布页的规则推出）
+# 本地签好名、还没上传的安装包（地址按发布页的规则推出）
 python3 platforms/windows/packaging/render.py --version 0.1.0 --installer dist/MetasequoiaIME_Setup_v0.1.0.exe --output out/package-managers
-# 已知摘要
-python3 platforms/windows/packaging/render.py --version 0.1.0 --sha256 <hex> --release-date 2026-10-03 --output out/package-managers
 ```
 
-走 GitHub 时只读发布元数据：GitHub 为每个发布附件记录的 `sha256:` 摘要，与发布页上的 `.sha256` 小文件互相核对，不下载安装包。草稿和预发布默认拒绝（`--tag` 加 `--allow-prerelease` 可以强制渲染）。设置 `GH_TOKEN` 或 `GITHUB_TOKEN` 可以提高 API 限额。
+走 GitHub 时，GitHub 为每个发布附件记录的 `sha256:` 摘要与发布页上的 `.sha256` 小文件互相核对，再下载安装包，核对它就是摘要说的那一份并检查签名。草稿和预发布默认拒绝（`--tag` 加 `--allow-prerelease` 可以强制渲染）。设置 `GH_TOKEN` 或 `GITHUB_TOKEN` 可以提高 API 限额。
 
 输出目录按各自仓库的布局：
 
@@ -58,7 +66,7 @@ chocolatey/msime/msime.nuspec
 chocolatey/msime/tools/chocolateyinstall.ps1、chocolateyuninstall.ps1
 ```
 
-发布页上的安装包如果在发布之后被替换（例如换成本地 SimplySign 签过名的版本，见 `../installer/README.md`），摘要随之改变，必须在最终的安装包就位之后再渲染。
+发布页上的安装包被替换之后摘要随之改变，所以只在签名的安装包就位之后渲染（见上文「签名」）。
 
 ## 检查
 
@@ -66,7 +74,7 @@ chocolatey/msime/tools/chocolateyinstall.ps1、chocolateyuninstall.ps1
 python3 scripts/test-windows-package-managers.py
 ```
 
-只用标准库：核对上面那些安装包事实、渲染全部模板并检查填写结果、用一份录制的发布元数据走一遍 GitHub 路径、检查 Scoop `checkver` 的正则只取最新的非预发布 Windows 版本。
+只用标准库：核对上面那些安装包事实、渲染全部模板并检查填写结果、用一份录制的发布元数据走一遍 GitHub 路径（包括拒绝未签名的安装包和与摘要不符的下载）、确认没有签名的文件过不了真实的签名检查、Scoop 清单不自动更新，以及包定义只在手动触发的工作流里渲染。
 
 加 `--schema-dir DIR` 再按官方 schema 校验渲染结果，需要 PyYAML、jsonschema 和 lxml。DIR 里放：
 
@@ -81,7 +89,7 @@ Chocolatey 用的 nuspec 架构是它自己维护的 NuGet 分支里的那份（
 
 ## 发布步骤
 
-先确认发布页上的安装包就是最终版本（已签名，或确定不再替换），再渲染：
+先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME_Setup_v<版本>.exe MetasequoiaIME_Setup_v<版本>.exe.sha256 --clobber`），再渲染；也可以手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
 
 ```sh
 python3 platforms/windows/packaging/render.py --tag windows-v<版本> --output out/package-managers
@@ -90,14 +98,14 @@ python3 platforms/windows/packaging/render.py --tag windows-v<版本> --output o
 ### winget
 
 1. 在 Windows 上本地验证：`winget validate --manifest out\package-managers\winget\manifests\m\Metasequoia\MetasequoiaIME\<版本>`，再以管理员身份 `winget settings --enable LocalManifestFiles` 后 `winget install --manifest <同一目录>`，装完 `winget list Metasequoia.MetasequoiaIME` 应能按 ProductCode 认出已安装版本，最后 `winget uninstall Metasequoia.MetasequoiaIME`。
-2. fork `microsoft/winget-pkgs`，把 `winget/manifests/m/Metasequoia/MetasequoiaIME/<版本>/` 原样放进去，开 PR（或用 `wingetcreate submit <目录>`，它会代为 fork 和开 PR）。首次提交是新包，需要通过 winget-pkgs 的自动验证（会在沙箱里下载、扫描并安装）和人工审核；未签名的安装包能提交，但 SmartScreen 信誉更差。
+2. fork `microsoft/winget-pkgs`，把 `winget/manifests/m/Metasequoia/MetasequoiaIME/<版本>/` 原样放进去，开 PR（或用 `wingetcreate submit <目录>`，它会代为 fork 和开 PR）。首次提交是新包，需要通过 winget-pkgs 的自动验证（会在沙箱里下载、扫描并安装）和人工审核。
 3. 之后每个版本重复第 2 步；`wingetcreate update Metasequoia.MetasequoiaIME --version <版本> --urls <安装包地址> --submit` 也可以，但它会重新生成清单，依赖和说明以这里的模板为准，提交前要比对。
 
 ### Scoop
 
 1. 建一个 bucket 仓库（例如 `metasequoiaime/scoop-bucket`），把渲染出的 `scoop/msime.json` 放到 `bucket/msime.json`。
 2. 用户安装：`scoop bucket add msime https://github.com/metasequoiaime/scoop-bucket`，然后 `scoop install msime`。不建 bucket 也可以直接 `scoop install <msime.json 的 raw 地址>`。
-3. 后续版本：bucket 里配 Scoop 的 Excavator（`ScoopInstaller/GithubActions` 的 `excavate` 任务），它按 `checkver` 发现新的 `windows-v*` 发布、按 `autoupdate` 改写地址并从 `.sha256` 取摘要，自动提交；也可以每次发布后重新渲染、手动提交。
+3. 后续版本：签名的安装包替换上去之后重新渲染，把新的 `msime.json` 提交到 bucket。不要给 bucket 配 Excavator 自动更新，原因见上文「签名」。
 4. 在 Windows 上验证：`scoop install .\out\package-managers\scoop\msime.json`、`scoop update msime`（数据目录应保留）、`scoop uninstall msime`。
 
 ### Chocolatey
@@ -107,6 +115,6 @@ python3 platforms/windows/packaging/render.py --tag windows-v<版本> --output o
 3. `choco push msime.<版本>.nupkg --source https://push.chocolatey.org/`。社区仓库会先跑自动校验（validator）、在测试机上安装卸载（verifier），再进人工审核；首个版本审核时间最长。包从发布页下载安装包并按 `checksum64` 校验，没有内嵌二进制，所以不需要 `VERIFICATION.txt`。
 4. 首次审核通过前，`owners` 里的 `Metasequoia` 要换成实际的 Chocolatey 账号名。
 
-## 发布任务接入
+## 工作流
 
-`release-windows.yml` 的 `package-definitions` job 在发布之后运行：`render.py --tag windows-v<版本> --output target/package-managers`（预发布加 `--allow-prerelease`），再用 `choco pack` 打出 `chocolatey/msime.<版本>.nupkg`，整个目录作为构建产物 `msime-package-definitions-windows-<版本>` 上传。摘要取自发布页本身，不是构建机上算的那份。这个 job 不向任何外部仓库推送；上面的发布步骤可以直接用这个产物，跳过自己渲染。没有勾选发布（`publish=false`）时它不运行，因为定义里的安装包地址只有发布之后才存在。
+`package-definitions-windows.yml` 只能手动触发（`gh workflow run package-definitions-windows.yml -f version=<版本>`，预发布加 `-f prerelease=true`），在签名的安装包替换到 `windows-v<版本>` 之后运行。它在 Windows runner 上跑 `render.py --tag windows-v<版本> --output target/package-managers`：下载发布页上的安装包，核对摘要，要求 `Get-AuthenticodeSignature` 报告 `Valid`；再用 `choco pack` 打出 `chocolatey/msime.<版本>.nupkg`，整个目录作为构建产物 `msime-package-definitions-windows-<版本>` 上传。发布页上还是 CI 打的未签名安装包时它失败，不产出任何定义。它不向任何外部仓库推送；上面的发布步骤可以直接用这个产物，跳过自己渲染。`release-windows.yml` 不渲染包定义，因为它发布的正是那份未签名的安装包。

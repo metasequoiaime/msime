@@ -1,6 +1,6 @@
 {
     "##": [
-        "模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段；放进 bucket 之后由 checkver 与 autoupdate 跟上新版本。",
+        "模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。没有 checkver 与 autoupdate：发布页上先出现的是 CI 打的未签名安装包（它的 uiAccess Server 起不来），Excavator 按它们会把那一份写进 bucket；新版本由维护者在签名的安装包替换上去之后重新渲染、提交。",
         "不是便携应用：输入法要在系统范围注册 TSF DLL 与 COM 类，所以这里运行发布的 Inno Setup 安装包（按机器安装，会弹 UAC），Scoop 的应用目录里什么也不留。安装包就地升级并保留数据目录，所以卸载脚本在 scoop update 时什么也不做，只在 scoop uninstall 时运行 Inno 卸载程序，后者也会删除安装包拥有的数据目录。"
     ],
     "version": "@VERSION@",
@@ -41,19 +41,5 @@
             "$deadline = (Get-Date).AddMinutes(3)",
             "while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }"
         ]
-    },
-    "checkver": {
-        "url": "https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100",
-        "regex": "\"tag_name\":\\s*\"windows-v([\\d.]+)\"[^{}]*?\"prerelease\":\\s*false"
-    },
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/metasequoiaime/msime/releases/download/windows-v$version/MetasequoiaIME_Setup_v$version.exe",
-                "hash": {
-                    "url": "$url.sha256"
-                }
-            }
-        }
     }
 }
