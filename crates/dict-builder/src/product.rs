@@ -174,7 +174,7 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
             insert.execute(rusqlite::params![key, value, weight])?;
         }
     }
-    drop(transaction);
+    transaction.commit()?;
     crate::sqlite::analyze(&wubi, true)?;
     drop(wubi);
 
