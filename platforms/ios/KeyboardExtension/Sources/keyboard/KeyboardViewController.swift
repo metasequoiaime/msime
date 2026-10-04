@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreImage
+import CoreFoundation
 import UIKit
 
 private final class KeyboardBrandButton: UIButton {
@@ -2843,17 +2844,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  private static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
-    let integer: Int?
-    if let value = value as? Int {
-      integer = value
-    } else if let value = value as? NSNumber {
-      integer = value.intValue
-    } else {
-      integer = nil
-    }
-    if let integer, range.contains(integer) { return integer }
-    return nil
+  static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          range.contains(integer) else { return nil }
+    return integer
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
