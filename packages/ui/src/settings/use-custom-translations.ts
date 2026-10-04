@@ -12,6 +12,7 @@ import {
 } from "./use-settings-persistence";
 import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
 import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface CustomTranslationsClient {
   load(): Promise<string>;
@@ -36,6 +37,7 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
     : "还没有自定义释义。";
 
   const mounted = useMountedRef();
+  const generation = useAsyncGeneration(client);
   const clientRef = useRef(client);
   clientRef.current = client;
   // The text as last edited, and whether it differs from what was last written; the save loop reads these so edits made while a save is in flight are not lost.
@@ -47,22 +49,19 @@ export function useCustomTranslations({ client }: UseCustomTranslationsOptions) 
 
   useEffect(() => {
     if (!client) return;
-    let active = true;
+    const requestGeneration = generation.current;
     void client
       .load()
       .then((value) => {
         // An edit made before the file arrived wins over it rather than being overwritten.
-        if (!active || dirtyRef.current) return;
+        if (generation.current !== requestGeneration || dirtyRef.current) return;
         textRef.current = value;
         setTextState(value);
       })
       .catch(() => {
         // An unreadable overlay stays empty; saving it creates a fresh valid file.
       });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, generation]);
 
   function clearAutosave() {
     if (autosaveTimer.current === undefined) return;
