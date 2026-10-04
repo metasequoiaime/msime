@@ -118,6 +118,11 @@ public final class LocalAsrPolicy {
         return "pinyin".equals(hotwordMode);
     }
 
+    /** The native correction response carries text; reject non-string bridge values. */
+    static String strictText(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
     /**
      * Whether one `{text, pinyin}` hotword the shared layer resolved (the Tauri request's `hotwords`) may be carried to the recognizer.
      *
