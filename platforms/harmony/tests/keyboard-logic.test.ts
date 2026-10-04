@@ -8947,6 +8947,15 @@ group("account preference envelopes reject malformed numeric metadata", () => {
     accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) === null,
     "an unsafe cloud revision is unavailable",
   );
+  for (const malformed of [null, [], {}]) {
+    check(
+      accountPreferencesFromDocument({
+        revision: 1,
+        settings: { "input.learning": malformed as never },
+      } as never) === null,
+      `a non-scalar cloud value (${malformed === null ? "null" : Array.isArray(malformed) ? "array" : "object"}) is unavailable`,
+    );
+  }
   check(
     localPreferenceRevision({ revision: 3.25 }) === null,
     "a fractional local revision is unavailable",

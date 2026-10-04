@@ -157,13 +157,19 @@ export function validateAccountPreferences(value: AccountPreferences): void {
   for (const key of keys) {
     if (!validKey(key)) refuse("account_unavailable");
     const entry = value.settings[key];
-    if (typeof entry === "number" && !Number.isFinite(entry)) refuse("account_unavailable");
+    if (typeof entry === "boolean") continue;
+    if (typeof entry === "number") {
+      if (!Number.isFinite(entry)) refuse("account_unavailable");
+      continue;
+    }
     if (typeof entry === "string") {
       // eslint-disable-next-line no-control-regex
       if (utf8Length(entry) > MAX_STRING_BYTES || /[\u0000-\u001f\u007f]/.test(entry)) {
         refuse("account_unavailable");
       }
+      continue;
     }
+    refuse("account_unavailable");
   }
 }
 
