@@ -231,6 +231,7 @@ import {
   MAX_SNAPSHOT_DOWNLOAD_BYTES,
   COMMUNITY_REPORT_REASONS,
   dictionaryChangePageChanged,
+  parseResponseContentLength,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   CrashDestination,
@@ -7404,6 +7405,18 @@ group("Harmony HTTP requests stop before following redirects", () => {
 
   const options = noRedirectOptions({ readTimeout: 1000 });
   check(options.maxRedirects === 0, "the native redirect limit is also set to zero when available");
+});
+
+group("account response lengths accept only decimal octets", () => {
+  check(parseResponseContentLength("0") === 0, "zero is a valid response length");
+  check(parseResponseContentLength("0012") === 12, "leading zeroes are valid decimal syntax");
+  check(
+    parseResponseContentLength("1.0000000000000000001") === -1,
+    "fractional response lengths are rejected before numeric rounding",
+  );
+  check(parseResponseContentLength("1e0") === -1, "exponent response lengths are rejected");
+  check(parseResponseContentLength(" 1 ") === -1, "whitespace response lengths are rejected");
+  check(parseResponseContentLength("9007199254740993") === -1, "unsafe lengths are rejected");
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {

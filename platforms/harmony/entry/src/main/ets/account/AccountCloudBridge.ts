@@ -110,6 +110,12 @@ const MAX_COMMUNITY_SEARCH = 128;
 export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
 export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
+export function parseResponseContentLength(raw: string): number {
+  if (!/^[0-9]+$/.test(raw)) return -1;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : -1;
+}
+
 /**
  * A publication id, checked before it is put in a path.
  *
