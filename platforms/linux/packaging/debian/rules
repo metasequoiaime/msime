@@ -15,6 +15,8 @@ PRIVATE_LIB := $(CURDIR)/debian/msime/usr/lib/$(DEB_HOST_MULTIARCH)/msime-client
 
 export CARGO_HOME := $(CURDIR)/debian/cargo-home
 export CARGO_NET_OFFLINE := true
+# Release 配置默认不带调试信息，-dbgsym 包里 Rust 编译的三个程序就是空的；只带行号表，足够还原崩溃栈，编译开销也小。
+export CARGO_PROFILE_RELEASE_DEBUG := line-tables-only
 ifneq (,$(DEB_BUILD_OPTION_PARALLEL))
 export CARGO_BUILD_JOBS := $(DEB_BUILD_OPTION_PARALLEL)
 endif
@@ -94,6 +96,17 @@ execute_before_dh_installdeb:
 	  sed '$$s/^exit 0$$/#DEBHELPER#\nexit 0/' $(CMAKE_BUILD)/debian/$$script > debian/msime.$$script; \
 	  grep -q '^#DEBHELPER#$$' debian/msime.$$script; \
 	done
+
+# dh_clean 默认删除源码树里所有 *.orig 文件，而 vendor/cargo 里每个 crate 都带一份 Cargo.toml.orig，并记在 .cargo-checksum.json 里；删掉后 Cargo 校验目录源失败。Launchpad 构建前同样先跑 clean。
+override_dh_clean:
+	dh_clean -Xvendor/cargo/
+
+# sherpa-onnx 与 ONNX Runtime 是上游的预构建库，不带调试信息，ONNX Runtime 的节区顺序还会让 dwz 直接报错；dwz 和 strip 都只处理本包编译出的程序，上游的库原样安装。
+override_dh_dwz:
+	dh_dwz -Xlibonnxruntime.so -Xlibsherpa-onnx-c-api.so
+
+override_dh_strip:
+	dh_strip -Xlibonnxruntime.so -Xlibsherpa-onnx-c-api.so
 
 # Host API 与 sherpa-onnx 运行库装在包内私有目录，不是系统库，dpkg-shlibdeps 要在那里找它们。
 override_dh_shlibdeps:

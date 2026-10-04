@@ -17,11 +17,11 @@ Comment:
  texts in /usr/share/doc/msime-client.
 
 Files: *
-Copyright: Metasequoia IME contributors
+Copyright: 2026 Metasequoia IME contributors
 License: GPL-3.0-only
 
 Files: debian/*
-Copyright: Metasequoia IME contributors
+Copyright: 2026 Metasequoia IME contributors
 License: GPL-3.0-only
 
 Files: vendor/cargo/*
