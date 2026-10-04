@@ -13276,6 +13276,16 @@ group("an effect pack's parameters replace the preference values once host-api r
     odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
   );
+  check(
+    TypingEffectPolicy.resolve(preferences, {
+      pack: "neon",
+      issue: null,
+      intensity: 50,
+      colors: [],
+      duration_ms: Number.NaN,
+    }).flashMillis === FLASH_MILLIS,
+    "a non-finite flash length keeps the safe default",
+  );
 });
 
 group("background music follows the desktop player's rules", () => {
