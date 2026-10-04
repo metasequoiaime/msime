@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>metasequoiaime@gmail.com</email>
+		<name>Metasequoia IME</name>
+	</maintainer>
+	<longdescription lang="en">
+		Metasequoia IME (MSIME) is a Chinese input method. This package installs the native Linux hosts: the Fcitx5 addon, the IBus engine, msime-linux-setup for first-run configuration, the settings window and the MCP server, together with the pinned voice runtime, handwriting model, offline glosses and the Cantonese, Zhuyin and Stroke dictionaries. The main dictionary is downloaded per user by msime-linux-setup --download.
+	</longdescription>
+	<use>
+		<flag name="fcitx5">Build and install the native Fcitx5 input method addon; the IBus engine is always built</flag>
+	</use>
+	<upstream>
+		<remote-id type="github">metasequoiaime/msime</remote-id>
+		<bugs-to>https://github.com/metasequoiaime/msime/issues</bugs-to>
+	</upstream>
+</pkgmetadata>
