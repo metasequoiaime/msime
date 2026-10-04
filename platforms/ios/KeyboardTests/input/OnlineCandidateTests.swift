@@ -35,6 +35,13 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(try bridge.snapshot(from: applied).candidates.contains("泥壕云"))
   }
 
+  func testBridgeRejectsMalformedUnsignedIntegers() {
+    XCTAssertEqual(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7)), 7)
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7.5)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: true)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: -1)))
+  }
+
   func testSnapshotRejectsCandidateRowsWithoutText() throws {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     let malformed: [String: Any] = [
