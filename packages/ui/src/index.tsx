@@ -119,6 +119,7 @@ import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
+import { useAsyncGeneration } from "./settings/use-async-generation";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -2214,25 +2215,21 @@ function useCustomHelpcodeSchemas(
   reader: SettingsClient["listHelpcodeSchemas"],
 ): CustomHelpcodeSchema[] {
   const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  const generation = useAsyncGeneration(reader);
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     if (!reader) {
       setSchemas([]);
-      return () => {
-        active = false;
-      };
+      return;
     }
     void reader()
       .then((next) => {
-        if (active) setSchemas(next);
+        if (generation.current === current) setSchemas(next);
       })
       .catch(() => {
-        if (active) setSchemas([]);
+        if (generation.current === current) setSchemas([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [reader]);
+  }, [reader, generation]);
   return schemas;
 }
 
