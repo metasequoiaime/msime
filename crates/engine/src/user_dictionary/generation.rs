@@ -68,7 +68,7 @@ pub fn prepare_runtime_paths(
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
         replay_into(&result, &result.dictionaries)?;
         // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
-        index_reverse_lookup(&result.dictionaries)?;
+        index_reverse_lookup(&result.dictionaries);
         stage_generation_copies(resources, &result.dictionaries, false)?;
         return Ok(result);
     }
@@ -90,7 +90,7 @@ pub fn prepare_runtime_paths(
         }
         stage_generation_copies(resources, &stage, true)?;
         replay_into(&result, &stage)?;
-        index_reverse_lookup(&stage)?;
+        index_reverse_lookup(&stage);
         fs::write(
             stage.join(assets::GENERATION_READY),
             format!("{content_id}\n"),
@@ -133,12 +133,20 @@ fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
 }
 
 /// 给代次里每个词库副本补上五笔反查索引（见 `wubi::provider::ensure_reverse_indexes`）。代次是用户可写的副本，资源目录保持只读、原样；索引不进日志，也不影响词库状态的摘要。
-fn index_reverse_lookup(generation: &Path) -> Result<()> {
+///
+/// 只是提速，从不失败：建索引要写盘（约 1.3 MB 加回滚日志），磁盘满、文件只读或被别的进程长时间锁住时记一条日志、照常用没有索引的副本，反查仍然正确，只是慢。这里报错会让宿主起不来。新词库在 dict-builder 里就带着同名索引，这里只为旧词库和旧代次补建。
+fn index_reverse_lookup(generation: &Path) {
     for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
-        let connection = open_database(&generation.join(name), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        ensure_reverse_indexes(&connection)?;
+        let database = generation.join(name);
+        let indexed = open_database(&database, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .and_then(|connection| ensure_reverse_indexes(&connection).map_err(Into::into));
+        if let Err(error) = indexed {
+            eprintln!(
+                "msime: wubi reverse lookup index unavailable in {}, lookups stay unindexed: {error}",
+                database.display()
+            );
+        }
     }
-    Ok(())
 }
 
 /// Copy through the SQLite backup API, which includes committed WAL content that a plain file copy of a live database would lose (RP:38-55).
@@ -631,8 +639,18 @@ mod tests {
             original
         );
 
-        // 旧版本准备的代次没有这个索引：再次打开同一代次时补上。
         sql(&main, "DROP INDEX idx_wubi86_value;");
+        // 补建索引只是提速：副本写不进去（磁盘满、只读、被锁）时照常打开代次，只是没有索引。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o444)).unwrap();
+            let reopened = prepare_runtime_paths(&resources, &user, &cache, "v1");
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o644)).unwrap();
+            reopened.unwrap();
+            assert!(reverse_indexes(&main).is_empty());
+        }
+        // 旧版本准备的代次没有这个索引：再次打开同一代次时补上。
         prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
         assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
         // 已有索引时什么也不改。
