@@ -6,7 +6,7 @@
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `sources/stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
+//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `sources/stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验；带 `--dictionary` 时从该 checkout 读取，它是 rime-stroke 的原样文件，所以仍须与锁文件记录的大小与 SHA-256 一致，否则构建失败。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -119,9 +119,11 @@ pub struct Dictionary {
     pub entries: BTreeMap<(String, String), i64>,
 }
 
-/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `msime-stroke.db`，粤拼与注音词库照常构建和发布。
+/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它、或给了 `--dictionary`，就按 `Sources::pinned` 取（锁文件路径下载，或从 msime-dictionary checkout 读）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `msime-stroke.db`，粤拼与注音词库照常构建和发布。
 pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
-    if sources.lock.files.iter().any(|file| file.path == SOURCE) {
+    if sources.lock.files.iter().any(|file| file.path == SOURCE)
+        || sources.checkout_file(SOURCE).is_some()
+    {
         return sources.pinned(SOURCE).map(Some);
     }
     let cached = sources.cache.join(SOURCE);
@@ -546,6 +548,7 @@ mod tests {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache: dir.path().to_path_buf(),
             offline: true,
+            dictionary: None,
         };
         assert!(source(&sources).unwrap().is_none());
         let cached = dir.path().join(SOURCE);

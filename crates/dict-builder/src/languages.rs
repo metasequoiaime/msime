@@ -166,6 +166,7 @@ mod tests {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache: root.join("target/dict-cache"),
             offline: false,
+            dictionary: None,
         };
         let out = tempfile::tempdir().unwrap();
         let summaries = build(&sources, &root.join("resources/licenses"), out.path()).unwrap();

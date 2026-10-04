@@ -104,8 +104,8 @@ fn git(repository: &Path, arguments: &[&str]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-/// The msime commit the build came from, and whether the builder or its inputs had uncommitted changes.
-fn provenance(repository: &Path) -> Result<Provenance> {
+/// The msime commit the build came from, and whether the builder or its inputs had uncommitted changes: in the msime checkout, and with `--dictionary` also in the msime-dictionary checkout's `sources/` and `custom/`.
+fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance> {
     let commit = git(repository, &["rev-parse", "HEAD"])?;
     let changes = git(
         repository,
@@ -119,11 +119,34 @@ fn provenance(repository: &Path) -> Result<Provenance> {
             "crates/engine/src/format.rs",
         ],
     )?;
+    let mut dirty = !changes.is_empty();
+    if let Some(checkout) = dictionary {
+        let changes = git(
+            checkout,
+            &["status", "--porcelain", "--", "sources", "custom"],
+        )?;
+        dirty |= !changes.is_empty();
+    }
     Ok(Provenance {
         repository: REPOSITORY,
         path: SOURCE_PATH,
         commit,
-        dirty: !changes.is_empty(),
+        dirty,
+    })
+}
+
+/// The msime-dictionary commit the build read: the lock's reference, or the HEAD of the `--dictionary` checkout the files actually came from.
+fn custom_dictionary_reference(lock: &Lock, dictionary: Option<&Path>) -> Result<Reference> {
+    let pinned = lock
+        .references
+        .get(CUSTOM_DICTIONARY)
+        .with_context(|| format!("{CUSTOM_DICTIONARY} is not pinned in the sources lock"))?;
+    Ok(match dictionary {
+        Some(checkout) => Reference {
+            repository: pinned.repository.clone(),
+            commit: git(checkout, &["rev-parse", "HEAD"])?,
+        },
+        None => pinned.clone(),
     })
 }
 
@@ -283,12 +306,16 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool) -> Result<()> {
-    let source = provenance(repository)?;
-    let custom_dictionary = lock
-        .references
-        .get(CUSTOM_DICTIONARY)
-        .with_context(|| format!("{CUSTOM_DICTIONARY} is not pinned in the sources lock"))?;
+/// Writes the manifest and checksums. `dictionary` is the `--dictionary` checkout the msime-dictionary files were read from, if any; the manifest then names its HEAD as the msime-dictionary commit.
+pub fn write_manifest(
+    out: &Path,
+    repository: &Path,
+    dictionary: Option<&Path>,
+    lock: &Lock,
+    complete: bool,
+) -> Result<()> {
+    let source = provenance(repository, dictionary)?;
+    let custom_dictionary = custom_dictionary_reference(lock, dictionary)?;
     let mut files = IndexMap::new();
     for name in SHIPPING_ARTIFACTS {
         let path = out.join(name);
@@ -316,7 +343,14 @@ pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool
         references: lock
             .references
             .iter()
-            .map(|(name, reference)| (name.clone(), reference.clone()))
+            .map(|(name, reference)| {
+                let reference = if name == CUSTOM_DICTIONARY {
+                    custom_dictionary.clone()
+                } else {
+                    reference.clone()
+                };
+                (name.clone(), reference)
+            })
             .collect(),
         mozc_revision: lock.mozc.commit.clone(),
         features: FEATURES,
@@ -349,6 +383,70 @@ pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn git_repository_with_commit(directory: &Path) -> String {
+        let run = |arguments: &[&str]| {
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(directory)
+                .args([
+                    "-c",
+                    "user.name=fixture",
+                    "-c",
+                    "user.email=fixture@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(arguments)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {arguments:?}");
+        };
+        run(&["init", "--quiet"]);
+        std::fs::create_dir_all(directory.join("custom")).unwrap();
+        std::fs::write(directory.join("custom/words.txt"), "词\tci\t1\n").unwrap();
+        run(&["add", "custom/words.txt"]);
+        run(&["commit", "--quiet", "-m", "fixture"]);
+        git(directory, &["rev-parse", "HEAD"]).unwrap()
+    }
+
+    /// With `--dictionary` the manifest names the checkout's HEAD, not the lock's commit, and an uncommitted change to its sources or custom files marks the build dirty; without it the lock's reference is reported unchanged.
+    #[test]
+    fn a_dictionary_checkout_is_the_recorded_provenance() {
+        let msime = tempfile::tempdir().unwrap();
+        let checkout = tempfile::tempdir().unwrap();
+        git_repository_with_commit(msime.path());
+        let head = git_repository_with_commit(checkout.path());
+        let pinned = Reference {
+            repository: "https://github.com/metasequoiaime/msime-dictionary.git".into(),
+            commit: "a".repeat(40),
+        };
+        let lock = Lock {
+            references: BTreeMap::from([(CUSTOM_DICTIONARY.to_owned(), pinned.clone())]),
+            mozc: pinned.clone(),
+            files: Vec::new(),
+        };
+
+        let reference = custom_dictionary_reference(&lock, Some(checkout.path())).unwrap();
+        assert_eq!(reference.commit, head);
+        assert_eq!(reference.repository, pinned.repository);
+        let reference = custom_dictionary_reference(&lock, None).unwrap();
+        assert_eq!(reference.commit, pinned.commit);
+
+        assert!(
+            !provenance(msime.path(), Some(checkout.path()))
+                .unwrap()
+                .dirty
+        );
+        std::fs::write(checkout.path().join("custom/words.txt"), "changed\n").unwrap();
+        assert!(
+            provenance(msime.path(), Some(checkout.path()))
+                .unwrap()
+                .dirty
+        );
+        assert!(!provenance(msime.path(), None).unwrap().dirty);
+    }
 
     #[test]
     fn split_wubi_moves_tables_to_the_named_database() {

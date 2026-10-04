@@ -49,12 +49,54 @@ impl Lock {
     }
 }
 
+/// The raw URL prefix of files pinned from the dictionary source repository: `<RAW><commit>/<path>`.
+const DICTIONARY_RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
+/// Top-level directories of the dictionary source repository the builder reads; with a checkout, a path under them resolves from the checkout even when the lock has no entry for it.
+const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
+/// msime-dictionary files that copy or are generated from an upstream at a commit msime records outside the file itself (a lock reference, the Mozc revision, or the licence texts and notices in `resources/licenses`), as an exact path or a directory prefix, with the upstream's name. The manifest's references and `mozc_revision`, `source_commit` in the language databases and the shipped licence texts all name those commits, so even with `--dictionary` these files must still match the lock's size and SHA-256: replacing one with a newer upstream version needs that record, the lock entry and the licences in msime updated first.
+const UPSTREAM_FILES: [(&str, &str); 12] = [
+    ("sources/pinyin/rime-ice.txt", "rime-ice"),
+    (
+        "sources/pinyin/rime-ice-supplement.txt",
+        "rime-ice-supplement",
+    ),
+    (
+        "sources/english/rime-ice-en-supplement.txt",
+        "rime-ice-supplement",
+    ),
+    ("sources/cantonese/", "rime-cantonese"),
+    ("sources/zhuyin/tsi.csv", "libchewing-data"),
+    ("sources/zhuyin/word.csv", "libchewing-data"),
+    ("sources/zhuyin/mcbopomofo-supplement.txt", "McBopomofo"),
+    ("sources/stroke/", "rime-stroke"),
+    ("sources/japanese/", "mozc"),
+    ("sources/korean/", "libhangul"),
+    ("sources/wubi/wubi98.txt", "98wubi-tables"),
+    ("sources/wubi/wubi98-fcitx.txt", "fcitx5-table-extra"),
+];
+
+/// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any.
+fn upstream_reference(path: &str) -> Option<&'static str> {
+    UPSTREAM_FILES
+        .iter()
+        .find(|(upstream, _)| {
+            if upstream.ends_with('/') {
+                path.starts_with(upstream)
+            } else {
+                path == *upstream
+            }
+        })
+        .map(|(_, reference)| *reference)
+}
+
 /// Resolves the inputs a stage reads: hand-maintained files from the repository, pinned files from the cache (downloading them unless offline).
 pub struct Sources {
     pub lock: Lock,
     pub repository_inputs: PathBuf,
     pub cache: PathBuf,
     pub offline: bool,
+    /// A msime-dictionary checkout (`--dictionary`). Files the lock pins from that repository, and paths under `sources/` or `custom/` the lock does not pin, are read from it instead of the cache; its Git commit pins their content, so the lock's size and SHA-256 are not checked, except for the upstream data in `UPSTREAM_FILES`, which must still match the lock.
+    pub dictionary: Option<PathBuf>,
 }
 
 impl Sources {
@@ -67,8 +109,40 @@ impl Sources {
         Ok(resolved)
     }
 
-    /// A pinned input, verified and cached.
+    /// Where `path` is read from in the `--dictionary` checkout, or `None` when it comes from the lock (no checkout given, or the lock pins it from another repository).
+    pub fn checkout_file(&self, path: &str) -> Option<PathBuf> {
+        let checkout = self.dictionary.as_ref()?;
+        let from_checkout = match self.lock.files.iter().find(|file| file.path == path) {
+            Some(file) => file.url.starts_with(DICTIONARY_RAW),
+            None => DICTIONARY_DIRECTORIES
+                .iter()
+                .any(|directory| path.starts_with(directory)),
+        };
+        from_checkout.then(|| checkout.join(path))
+    }
+
+    /// A pinned input, verified and cached; with `--dictionary`, a msime-dictionary file read from the checkout (upstream data still checked against the lock).
     pub fn pinned(&self, path: &str) -> Result<PathBuf> {
+        if let Some(resolved) = self.checkout_file(path) {
+            if !resolved.is_file() {
+                bail!(
+                    "{path} is not in the dictionary checkout at {}",
+                    resolved.display()
+                );
+            }
+            if let Some(upstream) = upstream_reference(path) {
+                let file = self.lock.file(path).with_context(|| {
+                    format!("{path} is {upstream} data, which the dictionary checkout cannot add without a lock entry")
+                })?;
+                if !matches(&resolved, file)? {
+                    bail!(
+                        "{path} in the dictionary checkout at {} differs from the size and SHA-256 the sources lock pins; it is {upstream} data at an upstream commit msime records, so update that commit (the lock reference or Mozc revision and resources/licenses), the lock entry and the licence texts in msime before building from this checkout",
+                        resolved.display()
+                    );
+                }
+            }
+            return Ok(resolved);
+        }
         let file = self.lock.file(path)?;
         let target = self.cache.join(&file.path);
         if target.is_file() && matches(&target, file)? {
@@ -228,6 +302,7 @@ mod tests {
             repository_inputs: cache.path().into(),
             cache: cache.path().into(),
             offline: true,
+            dictionary: None,
         };
         assert_eq!(
             good.pinned("cn/a.txt").unwrap(),
@@ -241,6 +316,158 @@ mod tests {
         };
         let error = stale.pinned("cn/a.txt").unwrap_err().to_string();
         assert!(error.contains("--offline"), "{error}");
+    }
+
+    fn dictionary_file(path: &str, sha256: &str) -> PinnedFile {
+        PinnedFile {
+            path: path.into(),
+            url: format!("{DICTIONARY_RAW}{}/{path}", "a".repeat(40)),
+            sha256: sha256.into(),
+            size: 1,
+        }
+    }
+
+    /// With `--dictionary`, a file the lock pins from msime-dictionary is read from the checkout even though its content no longer matches the pin, and nothing is downloaded; a file pinned from elsewhere still goes through the cache.
+    #[test]
+    fn a_checkout_overrides_files_pinned_from_the_dictionary_repository() {
+        let checkout = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(checkout.path().join("custom")).unwrap();
+        std::fs::write(checkout.path().join("custom/words.txt"), b"edited").unwrap();
+        let mut lock = lock_with(dictionary_file("custom/words.txt", &"0".repeat(64)));
+        lock.files.push(PinnedFile {
+            path: "ecdict/ecdict.csv".into(),
+            url: "http://127.0.0.1:9/unreachable".into(),
+            sha256: "0".repeat(64),
+            size: 1,
+        });
+        let sources = Sources {
+            lock,
+            repository_inputs: cache.path().into(),
+            cache: cache.path().into(),
+            offline: true,
+            dictionary: Some(checkout.path().into()),
+        };
+        assert_eq!(
+            sources.pinned("custom/words.txt").unwrap(),
+            checkout.path().join("custom/words.txt")
+        );
+        assert!(!cache.path().join("custom/words.txt").exists());
+        let error = sources.pinned("ecdict/ecdict.csv").unwrap_err().to_string();
+        assert!(error.contains("--offline"), "{error}");
+        assert_eq!(sources.checkout_file("ecdict/ecdict.csv"), None);
+    }
+
+    /// With `--dictionary`, a new file under `sources/` or `custom/` resolves from the checkout without a lock entry; a pinned file missing from the checkout is an error rather than a fallback to the cache.
+    #[test]
+    fn a_checkout_resolves_dictionary_paths_the_lock_does_not_pin() {
+        let checkout = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(checkout.path().join("sources/pinyin")).unwrap();
+        std::fs::write(checkout.path().join("sources/pinyin/new.txt"), b"new").unwrap();
+        std::fs::create_dir_all(cache.path().join("custom")).unwrap();
+        std::fs::write(cache.path().join("custom/words.txt"), b"w").unwrap();
+        let sources = Sources {
+            lock: lock_with(dictionary_file(
+                "custom/words.txt",
+                &hex::encode(Sha256::digest(b"w")),
+            )),
+            repository_inputs: cache.path().into(),
+            cache: cache.path().into(),
+            offline: true,
+            dictionary: Some(checkout.path().into()),
+        };
+        assert_eq!(
+            sources.pinned("sources/pinyin/new.txt").unwrap(),
+            checkout.path().join("sources/pinyin/new.txt")
+        );
+        let error = sources
+            .pinned("sources/pinyin/gone.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not in the dictionary checkout"), "{error}");
+        let error = sources.pinned("custom/words.txt").unwrap_err().to_string();
+        assert!(error.contains("not in the dictionary checkout"), "{error}");
+        let error = sources.pinned("places/areas.csv").unwrap_err().to_string();
+        assert!(error.contains("not pinned in the sources lock"), "{error}");
+    }
+
+    /// With `--dictionary`, upstream data (here rime-cantonese's) is read from the checkout only while it matches the lock: a replaced file, or a new one the lock does not pin, fails instead of shipping under the old upstream commit.
+    #[test]
+    fn a_checkout_cannot_change_upstream_data_the_lock_pins() {
+        let checkout = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let directory = checkout.path().join("sources/cantonese");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("essay-cantonese.txt"), b"e").unwrap();
+        std::fs::write(directory.join("new.txt"), b"n").unwrap();
+        let mut file = dictionary_file(
+            "sources/cantonese/essay-cantonese.txt",
+            &hex::encode(Sha256::digest(b"e")),
+        );
+        let mut sources = Sources {
+            lock: lock_with(dictionary_file(
+                "sources/cantonese/essay-cantonese.txt",
+                &hex::encode(Sha256::digest(b"e")),
+            )),
+            repository_inputs: cache.path().into(),
+            cache: cache.path().into(),
+            offline: true,
+            dictionary: Some(checkout.path().into()),
+        };
+        assert_eq!(
+            sources
+                .pinned("sources/cantonese/essay-cantonese.txt")
+                .unwrap(),
+            directory.join("essay-cantonese.txt")
+        );
+        let error = format!(
+            "{:#}",
+            sources.pinned("sources/cantonese/new.txt").unwrap_err()
+        );
+        assert!(error.contains("not pinned in the sources lock"), "{error}");
+
+        file.sha256 = "0".repeat(64);
+        sources.lock = lock_with(file);
+        let error = sources
+            .pinned("sources/cantonese/essay-cantonese.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("rime-cantonese"), "{error}");
+        assert!(!cache.path().join("sources/cantonese").exists());
+        assert_eq!(upstream_reference("sources/pinyin/places.txt"), None);
+        assert_eq!(upstream_reference("custom/words.txt"), None);
+        assert_eq!(upstream_reference("sources/japanese/id.def"), Some("mozc"));
+    }
+
+    /// Without `--dictionary` a path the lock does not pin is still an error, even under `sources/`, and pinned files come from the cache.
+    #[test]
+    fn without_a_checkout_unpinned_dictionary_paths_are_rejected() {
+        let cache = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(cache.path().join("custom")).unwrap();
+        std::fs::write(cache.path().join("custom/words.txt"), b"w").unwrap();
+        std::fs::create_dir_all(cache.path().join("sources/pinyin")).unwrap();
+        std::fs::write(cache.path().join("sources/pinyin/new.txt"), b"new").unwrap();
+        let sources = Sources {
+            lock: lock_with(dictionary_file(
+                "custom/words.txt",
+                &hex::encode(Sha256::digest(b"w")),
+            )),
+            repository_inputs: cache.path().into(),
+            cache: cache.path().into(),
+            offline: true,
+            dictionary: None,
+        };
+        assert_eq!(sources.checkout_file("sources/pinyin/new.txt"), None);
+        let error = sources
+            .pinned("sources/pinyin/new.txt")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not pinned in the sources lock"), "{error}");
+        assert_eq!(
+            sources.pinned("custom/words.txt").unwrap(),
+            cache.path().join("custom/words.txt")
+        );
     }
 
     #[test]

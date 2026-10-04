@@ -217,7 +217,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | --- | --- | --- |
 | [rime/rime-stroke](https://github.com/rime/rime-stroke) 的 `stroke.dict.yaml`，提交 `1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48` | LGPL-3.0（仓库的 `LICENSE`；`AUTHORS` 记载四季的風、雪齋、Kunki Chou 整理的主码表依 CNS11643 资料的授权声明以 LGPL 再发布，扩展至 Ext J 的数据来自宋天，同为 LGPL）。主码表源自 CNS11643 全字库，该资料按「政府資料開放授權條款－第1版」要求署名：數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw。附码表源自北大中文論壇（孙海峰、徐孟罗、唐捺之、谢振斌整理）。全文、署名与固定提交的源码地址在 `resources/licenses/rime-stroke-LGPL-3.0.txt` | 转换成 `msime-stroke.db`：每行 `字<TAB>笔顺码` 原样成为一条，键就是笔顺字母串；一个字的多个笔顺（大陆规范与台湾 CNS11643 笔顺并列）各成一条。上游没有权重，排序用 `sources/pinyin/single-chars.txt`（rime-ice，GPL-3.0-only）里每个字各读音权重之和，不在表里的字权重为 0；数据库 `license` 元数据因此记为 `LGPL-3.0-only AND GPL-3.0-only`。只有单字，不含词组。上游数据原样未改时，随附许可证全文和固定提交的源码地址即满足 LGPL 的源码提供义务；若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。这一判断未经法务审阅 |
 
-msime-dictionary 原样收录了 `stroke.dict.yaml`，`resources/dictionary-sources.lock.json` 固定它的 `sources/stroke/stroke.dict.yaml`；`msime-dict-build languages` 从锁文件固定的 msime-dictionary 提交下载这个文件，并按锁文件记录的大小与 SHA-256 校验。`crates/dict-builder/src/stroke.rs` 里的 `COMMIT`、`SOURCE_SIZE`、`SOURCE_SHA256` 只在锁文件没有这一条时作为兜底，用来校验手动放进 `--cache` 目录的上游文件；锁文件里的 `rime-stroke` 引用必须仍是上面的提交。许可证文本走与上一节相同的全部通知渠道，`scripts/test-language-data-notices.py` 一并检查。
+msime-dictionary 原样收录了 `stroke.dict.yaml`，`resources/dictionary-sources.lock.json` 固定它的 `sources/stroke/stroke.dict.yaml`；`msime-dict-build languages` 从锁文件固定的 msime-dictionary 提交下载这个文件（带 `--dictionary` 时改从该 checkout 读取），两种情况都按锁文件记录的大小与 SHA-256 校验。`crates/dict-builder/src/stroke.rs` 里的 `COMMIT`、`SOURCE_SIZE`、`SOURCE_SHA256` 只在锁文件没有这一条时作为兜底，用来校验手动放进 `--cache` 目录的上游文件；锁文件里的 `rime-stroke` 引用必须仍是上面的提交。许可证文本走与上一节相同的全部通知渠道，`scripts/test-language-data-notices.py` 一并检查。
 
 ## 编译进共享库的数据
 

@@ -3,11 +3,12 @@
 //! ```text
 //! msime-dict-build --cache <dir> --out <dir>                 every stage, then the manifest
 //! msime-dict-build --cache <dir> --out <dir> --skip ngram    a quick local build without the corpus pass
+//! msime-dict-build --cache <dir> --out <dir> --dictionary <msime-dictionary checkout>
 //! msime-dict-build --list
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
 //! msime-dict-build places-supplement --cache <dir> --out <places.txt> [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
-//! msime-dict-build languages --cache <dir> [--out <dir>] [--offline]
+//! msime-dict-build languages --cache <dir> [--out <dir>] [--offline] [--dictionary <msime-dictionary checkout>]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
@@ -126,6 +127,9 @@ struct Arguments {
     /// The msime checkout the manifest's provenance is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files) must still match the lock.
+    #[arg(long, value_name = "PATH")]
+    dictionary: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -165,6 +169,7 @@ fn build_places(arguments: &Places) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: None,
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let places = places::build(
@@ -204,6 +209,7 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: None,
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let (provinces, cities, areas) = (
@@ -304,6 +310,7 @@ fn build_hanja(arguments: &Hanja) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: None,
     };
     let readings = hanja::build(&text::read(&sources.pinned(hanja::SOURCE)?)?)?;
     hanja::write(&readings, &arguments.out)?;
@@ -334,6 +341,9 @@ struct Languages {
     /// The msime checkout the sources lock and licence texts are read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files) must still match the lock.
+    #[arg(long, value_name = "PATH")]
+    dictionary: Option<PathBuf>,
 }
 
 fn build_languages(arguments: &Languages) -> Result<()> {
@@ -343,6 +353,7 @@ fn build_languages(arguments: &Languages) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: arguments.dictionary.clone(),
     };
     for summary in languages::build(&sources, &root.join("resources/licenses"), &arguments.out)? {
         eprintln!("[done] {summary}");
@@ -785,6 +796,7 @@ fn main() -> Result<()> {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache,
             offline: arguments.offline,
+            dictionary: arguments.dictionary.clone(),
         },
         out,
         complete,
@@ -834,7 +846,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
     product::verify(&build.out, complete)?;
-    product::write_manifest(&build.out, root, &build.sources.lock, complete)?;
+    product::write_manifest(
+        &build.out,
+        root,
+        build.sources.dictionary.as_deref(),
+        &build.sources.lock,
+        complete,
+    )?;
     eprintln!(
         "[product] verified; wrote {} and msime-SHA256SUMS.txt",
         product::MANIFEST
