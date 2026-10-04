@@ -1434,7 +1434,7 @@ export function VoicePanel({
   const [submitting, setSubmitting] = useState(false);
   const [copying, setCopying] = useState(false);
   const submittingRef = useRef(false);
-  const submissionRevision = useRef(0);
+  const submissionRevision = useAsyncGeneration();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [stopping, setStopping] = useState(false);
