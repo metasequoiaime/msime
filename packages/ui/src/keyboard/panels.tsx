@@ -888,7 +888,7 @@ export function HandwritingPanel({
     running: boolean;
     pending: { revision: number; strokes: InkStroke[] } | null;
   }>({ active: true, running: false, pending: null });
-  const submissionRevision = useRef(0);
+  const submissionRevision = useAsyncGeneration();
   const closingRef = useRef(false);
   const [closing, setClosing] = useState(false);
   const submittingRef = useRef(false);
