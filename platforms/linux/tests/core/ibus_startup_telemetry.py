@@ -75,9 +75,18 @@ def stop(process):
 def run_host(host, registration_bus, scratch, recovered):
     """Start the host against a fresh bus and endpoint; returns (registration time, main loop probe, endpoint, host process, cleanup)."""
     bus_socket = scratch / "bus"
+    # 自带一份最小的会话总线配置，与 GTestDBus 的做法相同：`--session` 读的是本机的 session.conf，
+    # 没有 /etc 的环境（Nix 构建沙箱）里它不存在，总线起不来。stderr 不再丢掉，起不来时原因能看到。
+    config = scratch / "bus.conf"
+    config.write_text(
+        "<busconfig><type>session</type>"
+        f"<listen>unix:path={bus_socket}</listen>"
+        '<policy context="default"><allow send_destination="*" eavesdrop="true"/>'
+        '<allow eavesdrop="true"/><allow own="*"/></policy></busconfig>'
+    )
     daemon = subprocess.Popen(
-        ["dbus-daemon", "--session", "--nofork", "--print-address=1", f"--address=unix:path={bus_socket}"],
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        ["dbus-daemon", f"--config-file={config}", "--nofork", "--print-address=1"],
+        stdout=subprocess.PIPE, text=True,
     )
     processes = [daemon]
     endpoint = HangingEndpoint()

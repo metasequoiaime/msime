@@ -47,7 +47,11 @@ if(MSIME_BADGE_WAYLAND_FOUND AND MSIME_BADGE_WAYLAND_SCANNER)
     DEPENDS ../data/wayland/wlr-layer-shell-unstable-v1.xml)
   # layer-shell 的协议引用了 xdg_popup，所以 xdg-shell 的生成代码必须一起编进来，
   # 否则插件链接得过、加载时报 undefined symbol: xdg_popup_interface。
+  # wayland-protocols 的 .pc 给出它的数据目录；只搜 /usr/share 的话，装在别处的（例如 Nix store）
+  # 找不到，Wayland 浮层被静默跳过。原有路径留作没有 .pc 时的退路。
+  pkg_get_variable(MSIME_WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
   find_path(MSIME_BADGE_XDG_SHELL_DIR NAMES xdg-shell.xml
+            HINTS "${MSIME_WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell"
             PATHS /usr/share/wayland-protocols/stable/xdg-shell
                   /usr/local/share/wayland-protocols/stable/xdg-shell)
   if(MSIME_BADGE_XDG_SHELL_DIR)
