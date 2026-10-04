@@ -1345,7 +1345,13 @@ final class NineKeyKeyboardTests: XCTestCase {
 
   func testKeyLayoutsKeepNineKeyHeight() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previous
+    }
+    // 粤拼、注音、笔画等是要用户自己启用的方案，全新模拟器上默认不在启用列表里；不先全部启用，下面选不上它们，各自的布局分支就永远走不到。
+    InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     for width in [320.0, 414.0] {
       InputSchemePreference.scheme = .nineKey
       let controller = KeyboardViewController()
@@ -1359,8 +1365,12 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases
       where scheme != .handwriting && scheme != .japaneseNineKey {
         InputSchemePreference.scheme = scheme
-        // 笔画只在测试宿主带了 stroke.db 时才能选上；没带时上面的赋值落到别的方案，那个方案已经单独测过。
-        if scheme == .stroke && InputSchemePreference.scheme != .stroke { continue }
+        // 笔画和注音只在测试宿主带了 stroke.db、zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
+        if [.stroke, .zhuyin].contains(scheme) && InputSchemePreference.scheme != scheme { continue }
+        // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），键盘为这一行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
+        let keyboardHeight = 260 + KeyboardViewController.stripExtraHeight(
+          glossLines: KeyboardViewController.stripGlossLines(scheme: scheme, fullAccess: false, onlineRoute: false))
+        controller.view.frame.size.height = keyboardHeight
         controller.viewWillAppear(false)
         for symbols in [false, true] {
           if symbols { try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered) }
@@ -1384,7 +1394,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertTrue(shown(try button("nineKeyDelete", in: controller)))
             XCTAssertEqual(try button("layoutToggleButton", in: controller).configuration?.title, symbols ? "笔画" : "123")
           }
-          XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
+          XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, keyboardHeight, "\(scheme)")
           if !symbols && [.nineKey, .quanpin].contains(scheme) {
             let selector = try button("schemeButton", in: controller)
             XCTAssertGreaterThanOrEqual(selector.bounds.width, 44)

@@ -6,6 +6,7 @@ A valid Tencent credential file stays on disk after the user picks another servi
 import importlib.machinery
 import importlib.util
 import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import sys
 import tempfile
@@ -114,6 +115,50 @@ class TranslationProviderSelection(unittest.TestCase):
             result, urls = self.contacted({"provider": "none", "translation_account": True})
         self.assertEqual(result, [{"text": "测试", "translation": "synthetic account"}])
         self.assertEqual(urls, ["https://api.msime.app/v1/translate"])
+
+    def test_account_login_and_refresh_run_through_the_http_worker(self):
+        tokens = {
+            "access_token": "a" * 64, "refresh_token": "b" * 64,
+            "token_type": "Bearer", "expires_in": 3600,
+            "user": {"id": "synthetic-user"},
+        }
+        contacted = []
+
+        class AccountHandler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                contacted.append(self.path)
+                response = ({"challenge_id": "synthetic-challenge"}
+                            if self.path == "/v1/auth/challenges" else tokens)
+                payload = json.dumps(response).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        http = HTTPServer(("127.0.0.1", 0), AccountHandler)
+        worker = threading.Thread(target=http.serve_forever, kwargs={"poll_interval": 0.01})
+        worker.start()
+        try:
+            with tempfile.TemporaryDirectory(prefix="msime-account-http-") as directory:
+                server = provider.anonymous_server(Path(directory))
+                origin = "http://127.0.0.1:" + str(http.server_port)
+                with mock.patch.object(provider, "ANONYMOUS_ACCOUNT_ORIGIN", origin):
+                    self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(contacted, ["/v1/auth/challenges", "/v1/auth/login"])
+                    provider._write_anonymous_private(
+                        server.anonymous_session_path,
+                        {"tokens": tokens, "expires_at_unix_ms": 0})
+                    self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(contacted[-1], "/v1/auth/refresh")
+                    self.assertEqual(len(contacted), 3)
+        finally:
+            http.shutdown()
+            worker.join()
+            http.server_close()
 
     def test_account_identity_is_generated_owner_only_and_stable(self):
         with tempfile.TemporaryDirectory(prefix="msime-anonymous-account-") as directory:

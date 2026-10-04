@@ -8,14 +8,16 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** The named custom skins shared by the Android settings surface and keyboard host. */
 public final class CustomSkinLibrary {
-    private static final long MAX_LIBRARY_BYTES = 1_048_576;
+    private static final long MAX_LIBRARY_BYTES = 9_000_000;
     private static final int MAX_DESIGNS = 12;
     private static final int MAX_NAME_LENGTH = 32;
 
@@ -40,7 +42,7 @@ public final class CustomSkinLibrary {
             throw new IOException("Invalid custom skin library");
         String document;
         try (InputStream input = Files.newInputStream(file)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_LIBRARY_BYTES);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
             int count;
             while ((count = input.read(buffer)) != -1) {
@@ -62,7 +64,7 @@ public final class CustomSkinLibrary {
             String id = item.optString("id", "");
             String name = item.optString("name", "").trim();
             JSONObject design = item.optJSONObject("design");
-            if (id.isEmpty() || name.isEmpty() || name.length() > MAX_NAME_LENGTH || design == null) continue;
+            if (id.isEmpty() || !boundedName(name) || design == null) continue;
             result.add(new Item(id, name, design));
         }
         return List.copyOf(result);
@@ -81,7 +83,7 @@ public final class CustomSkinLibrary {
             throws IOException {
         if (id == null || id.isEmpty() || name == null || design == null) return false;
         String bounded = name.trim();
-        if (bounded.isEmpty() || bounded.length() > MAX_NAME_LENGTH) return false;
+        if (!boundedName(bounded)) return false;
         Path root = checkedRoot(preferencesDirectory);
         ensureSafeDirectory(root);
         List<Item> existing = read(root);
@@ -137,5 +139,27 @@ public final class CustomSkinLibrary {
             throw new IllegalStateException(error);
         }
         return item;
+    }
+
+    /** Match the shared Rust store's 32 extended-grapheme name bound. */
+    private static boolean boundedName(String value) {
+        if (value == null || value.isEmpty()) return false;
+        BreakIterator iterator = BreakIterator.getCharacterInstance(Locale.ROOT);
+        iterator.setText(value);
+        int count = 0;
+        iterator.first();
+        int boundary;
+        while ((boundary = iterator.next()) != BreakIterator.DONE) {
+            if (!joinedByZeroWidthJoiner(value, boundary)
+                    && ++count > MAX_NAME_LENGTH) return false;
+        }
+        return true;
+    }
+
+    /** Some JDK Unicode tables split an emoji ZWJ sequence at the joiner; Android ICU does not. */
+    private static boolean joinedByZeroWidthJoiner(String value, int boundary) {
+        int before = value.codePointBefore(boundary);
+        int after = boundary < value.length() ? value.codePointAt(boundary) : -1;
+        return before == 0x200D || after == 0x200D;
     }
 }

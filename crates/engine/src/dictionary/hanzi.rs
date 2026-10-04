@@ -2,10 +2,12 @@
 
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
+use lru::LruCache;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OpenFlags};
 
@@ -13,8 +15,11 @@ use super::column_text;
 
 /// The longest text the bridge looks up (bridge.cpp:750).
 const MAXIMUM_CHARACTERS: usize = 128;
+const HANZI_CACHE_CAPACITY: usize = 8;
 
 type HanziReadings = HashMap<String, String>;
+
+static HANZI_CACHE: OnceLock<Mutex<LruCache<PathBuf, Arc<HanziReadings>>>> = OnceLock::new();
 
 /// The highest-weighted key whose value is exactly `text`, over every `tbl_<len>_<c>`; failing that, each character's first key from the single-character tables joined with `'`. Empty unless `text` is 1..=128 Han characters and every one has a reading. Never errors. The per-character map is built once per database path for the process.
 pub fn hanzi_to_pinyin(main_db: &Path, text: &str) -> String {
@@ -153,8 +158,11 @@ fn single_hanzi_sql(initial: u8) -> String {
 
 /// The single-character scan walks about twenty thousand rows with no index to sort by, and the personal dictionary validation calls this once per word for up to a thousand words, so the map is built once per dictionary path (bridge.cpp:257-284). Keyed by path because two sessions may point at different dictionaries. It is built outside the lock: two callers arriving together may both scan, the first to finish wins, and no caller waits behind another's scan.
 fn cached_single_hanzi_map(connection: &Connection, path: &Path) -> Arc<HanziReadings> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<HanziReadings>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
+    let cache = HANZI_CACHE.get_or_init(|| {
+        Mutex::new(LruCache::new(
+            NonZeroUsize::new(HANZI_CACHE_CAPACITY).unwrap(),
+        ))
+    });
     if let Some(found) = cache
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -168,13 +176,12 @@ fn cached_single_hanzi_map(connection: &Connection, path: &Path) -> Arc<HanziRea
     if !complete {
         return built;
     }
-    Arc::clone(
-        cache
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(path.to_path_buf())
-            .or_insert(built),
-    )
+    let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(found) = cache.get(path) {
+        return Arc::clone(found);
+    }
+    cache.put(path.to_path_buf(), built);
+    Arc::clone(cache.get(path).expect("inserted hanzi cache entry"))
 }
 
 #[cfg(test)]
@@ -296,6 +303,25 @@ mod tests {
         assert_eq!(hanzi_to_pinyin(&path, "你"), "");
         assert!(!path.exists());
         assert_eq!(hanzi_to_pinyin(Path::new(""), "你"), "");
+    }
+
+    #[test]
+    fn the_single_character_cache_is_bounded_across_database_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=HANZI_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("msime.db");
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute_batch(&format!(
+                    "CREATE TABLE tbl_1_n(key TEXT,value TEXT,weight INTEGER); INSERT INTO tbl_1_n VALUES('ni','合成{index}',1);"
+                ))
+                .unwrap();
+            assert_eq!(hanzi_to_pinyin(&path, "猫"), "");
+            directories.push(directory);
+        }
+        let cache = HANZI_CACHE.get().unwrap().lock().unwrap();
+        assert!(cache.len() <= HANZI_CACHE_CAPACITY);
     }
 
     #[test]

@@ -67,6 +67,11 @@ public final class CloudClipboardPanelPolicy {
         return requestGeneration == currentGeneration;
     }
 
+    /** Whether an upload completion still belongs to the visible panel that started it. */
+    public static boolean acceptsUploadResult(long requestGeneration, long currentGeneration) {
+        return accepts(requestGeneration, currentGeneration);
+    }
+
     /** Whether the cloud list should be drawn as entries rather than a single status line. */
     public static boolean showsItems(Status status) {
         return status == Status.READY;

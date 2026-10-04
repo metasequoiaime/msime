@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { randomUuid } from "../core/random-id";
+import { formatZhNumber } from "../core/format-number";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
 import {
@@ -17,6 +18,7 @@ import { CommunityMetrics } from "./community-metrics";
 import { CommunitySearchForm } from "./community-search-form";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
 import { CommunityDetailHeader } from "./community-detail-header";
+import { CommunityRatingMetrics } from "./community-rating-metrics";
 import {
   CommunityReportSection,
   communityReportedNotice,
@@ -42,6 +44,8 @@ import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
+import { communityPublishFields } from "./community-publish-validation";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -131,8 +135,8 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复模板")}
       </span>
       <span className={style.cardMetrics}>
-        ☆ {communityRating(item.rating_count, item.rating_average)} ·{" "}
-        {item.saves.toLocaleString("zh-CN")} 人收藏
+        ☆ {communityRating(item.rating_count, item.rating_average)} · {formatZhNumber(item.saves)}{" "}
+        人收藏
       </span>
     </CommunityCard>
   );
@@ -163,18 +167,9 @@ function ResourceEditor({
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { clientGeneration, actionRunning, isCurrent } = useCommunityClientLifecycle(client);
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
     setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
   }, [client]);
   const addEntry = () => {
     const value = { kind: entryKind, code: code.trim(), word, weight: Number(weight) };
@@ -199,12 +194,11 @@ function ResourceEditor({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || actionRunning.current) return;
-    const normalizedName = name.trim();
-    const normalizedDescription = description.trim();
+    const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+      communityPublishFields(name, description);
     const valid =
-      normalizedName.length > 0 &&
-      [...normalizedName].length <= 32 &&
-      [...normalizedDescription].length <= 280 &&
+      nameValid &&
+      descriptionValid &&
       (kind === "reply"
         ? prompt.trim().length > 0 && [...prompt].length <= 2000
         : entries.length > 0) &&
@@ -223,7 +217,7 @@ function ResourceEditor({
       actionRunning,
       setBusy,
       setError,
-      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      isCurrent: () => isCurrent(generation),
       formatError: resourceMessage,
       operation: async (isCurrent) => {
         await client.publish(
@@ -366,9 +360,12 @@ function ResourceDetail({
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionBusyRef = useRef(false);
+  const {
+    mounted,
+    clientGeneration,
+    actionRunning: actionBusyRef,
+    isCurrent,
+  } = useCommunityClientLifecycle(client, initial.id);
   const renderGeneration = clientGeneration.current;
   const run = async (action: (generation: number) => Promise<void>) => {
     if (actionBusyRef.current || busy) return;
@@ -381,16 +378,14 @@ function ResourceDetail({
       setBusy,
       setError,
       setNotice,
-      isCurrent: () => mounted.current && generation === clientGeneration.current,
+      isCurrent: () => isCurrent(generation),
       formatError: resourceMessage,
       operation: () => action(generation),
     });
   };
   useEffect(() => {
     let active = true;
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionBusyRef.current = false;
+    const generation = clientGeneration.current;
     setBusy(false);
     void client
       .detail(initial.id)
@@ -403,8 +398,6 @@ function ResourceDetail({
       });
     return () => {
       active = false;
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, initial.id]);
   const save = () =>
@@ -499,11 +492,12 @@ function ResourceDetail({
         moderation={item.moderation}
         description={item.description}
       />
-      <CommunityMetrics>
-        {item.saves.toLocaleString("zh-CN")} 人收藏 ·{" "}
-        {communityRating(item.rating_count, item.rating_average)} ·{" "}
-        {item.rating_count.toLocaleString("zh-CN")} 人评分
-      </CommunityMetrics>
+      <CommunityRatingMetrics
+        count={item.saves}
+        countLabel="收藏"
+        ratingCount={item.rating_count}
+        ratingAverage={item.rating_average}
+      />
       {item.kind === "dictionary" ? (
         <>
           <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>
@@ -627,35 +621,32 @@ export function CommunityResourcesPage({
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<CommunityResource | null>(null);
   const [editing, setEditing] = useState(false);
-  const generation = useRef(0);
+  const { mounted, clientGeneration } = useCommunityClientLifecycle(client, kind, scope);
   const activeSearch = useRef("");
   const load = async (append = false, query = activeSearch.current) => {
-    const current = ++generation.current;
+    const current = ++clientGeneration.current;
     setBusy(true);
     setError("");
     const offset = append ? items.length : 0;
     try {
       const page = await client.list(kind, scope, query, offset);
-      if (current !== generation.current) return;
+      if (!mounted.current || current !== clientGeneration.current) return;
       setItems((value) => (append ? appendUniqueById(value, page.items) : page.items));
       setMore(page.has_more);
       if (!append) activeSearch.current = query;
     } catch (loadError) {
-      if (current === generation.current) {
+      if (mounted.current && current === clientGeneration.current) {
         setError(resourceMessage(loadError));
         // The existing rows belong to the previous query or scope. Do not let
         // their continuation offset be used with the failed fresh request.
         if (!append) setMore(false);
       }
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (mounted.current && current === clientGeneration.current) setBusy(false);
     }
   };
   useEffect(() => {
     void load();
-    return () => {
-      generation.current += 1;
-    };
   }, [client, kind, scope]);
   const openDetail = (item: CommunityResource) => {
     if (mobile && typeof window !== "undefined") {

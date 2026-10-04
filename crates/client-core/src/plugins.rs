@@ -680,6 +680,15 @@ fn list_files(directory: &Path) -> Result<PackFiles, String> {
 
 /// One plain file name: ASCII letters, digits, `_`, `-` and dots, starting with a letter or digit.
 pub(crate) fn valid_file_name(name: &str) -> bool {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && stem.as_bytes()[3].is_ascii_digit());
     name.len() <= 64
         && name
             .as_bytes()
@@ -687,6 +696,7 @@ pub(crate) fn valid_file_name(name: &str) -> bool {
             .is_some_and(u8::is_ascii_alphanumeric)
         && crate::skin::catalog::safe_resource(name, 64)
         && !name.contains('/')
+        && !reserved
 }
 
 /// 数据文件按行切开：整个文件必须是 UTF-8（开头可以有 BOM），按 `\n` 分行，每行去掉一个行尾的 `\r`；其余位置的 `\r` 和别的控制字符一样留给各类型的行规则拒绝。返回从 1 开始的行号和行内容。

@@ -191,6 +191,7 @@ enum KeyboardEmojiCatalog {
         guard let text = row["text"] as? String, validText(text) else { throw KeyboardEmojiCatalogError.invalidPage }
         if seen.insert(text).inserted { symbols.append(text) }
       }
+      guard symbols.count <= maximumSymbols else { throw KeyboardEmojiCatalogError.invalidPage }
       if complete { return symbols }
       guard next <= maximumSymbols else { throw KeyboardEmojiCatalogError.invalidPage }
       offset = next

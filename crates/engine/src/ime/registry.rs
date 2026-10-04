@@ -158,6 +158,14 @@ impl ProviderRegistry {
         }
     }
 
+    /// 为候选展示查询完整五笔编码；反查结果与候选一一对应，查不到时保留空字符串。
+    pub fn reverse_wubi_codes(&mut self, candidates: &[WordItem]) -> Vec<String> {
+        candidates
+            .iter()
+            .map(|candidate| self.wubi.reverse_code(&candidate.word).unwrap_or_default())
+            .collect()
+    }
+
     /// Either pinyin scheme resets both pinyin engines (pinyin_candidate_provider.cpp:44-48).
     pub fn reset_cache(&mut self, scheme: SchemeType) {
         match scheme {

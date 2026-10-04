@@ -8,6 +8,7 @@ import {
   SettingsStatusMessages,
   type SettingsStatusMessagesProps,
 } from "./settings-status-messages";
+import { StatusMessage } from "../core/status-message";
 
 export interface SettingsPageStatusProps
   extends
@@ -43,7 +44,7 @@ export function SettingsPageStatus({
             onError={onError}
           />
         )}
-      {busy && !draft && <p role="status">正在读取设置…</p>}
+      {busy && !draft && <StatusMessage role="status">正在读取设置…</StatusMessage>}
     </>
   );
 }

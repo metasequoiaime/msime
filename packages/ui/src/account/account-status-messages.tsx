@@ -5,6 +5,7 @@ export interface AccountStatusMessagesProps {
 }
 
 import { ErrorAlert } from "../core/error-alert";
+import { StatusMessage } from "../core/status-message";
 
 /** Shared error and success messages used by account surfaces. */
 export function AccountStatusMessages({
@@ -16,9 +17,9 @@ export function AccountStatusMessages({
     <>
       {error && <ErrorAlert>{error}</ErrorAlert>}
       {notice && (
-        <p role="status" className={noticeClassName}>
+        <StatusMessage role="status" className={noticeClassName}>
           {notice}
-        </p>
+        </StatusMessage>
       )}
     </>
   );

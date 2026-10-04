@@ -10,6 +10,7 @@ import {
   type ValidatedUpdate,
 } from "./update-manifest";
 import { UPDATE_CHECK_TIMEOUT_MS, clientReleasesUrl, updateManifestUrl } from "./app-resources";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface UseUpdateCheckOptions {
   clientHostedPlatform: boolean;
@@ -28,18 +29,19 @@ export function useUpdateCheck({
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [available, setAvailable] = useState<ValidatedUpdate | null>(null);
-  const requestGeneration = useRef(0);
   const actionRunning = useRef(false);
+  const requestGeneration = useAsyncGeneration(
+    clientHostedPlatform,
+    currentAppVersion,
+    releasePageUrl,
+    releasePlatform,
+  );
 
   useEffect(() => {
-    requestGeneration.current += 1;
     actionRunning.current = false;
     setStatus("");
     setBusy(false);
     setAvailable(null);
-    return () => {
-      requestGeneration.current += 1;
-    };
   }, [clientHostedPlatform, currentAppVersion, releasePageUrl, releasePlatform]);
 
   async function checkForUpdate() {

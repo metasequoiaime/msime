@@ -175,8 +175,16 @@ class AiRequestBudget(unittest.TestCase):
         self.assertEqual(sent["connect_timeout"], 2.5)
         alarm.assert_called_once_with(provider.signal.ITIMER_REAL, 8.0)
 
+    def test_worker_accepts_the_anonymous_account_budget(self):
+        code, sent, alarm = run_worker({"url": "https://account.invalid/", "timeout": 10.0,
+                                        "body": None})
+        self.assertEqual(code, 0)
+        self.assertEqual(sent["timeout"], provider.ANONYMOUS_ACCOUNT_TIMEOUT)
+        alarm.assert_called_once_with(provider.signal.ITIMER_REAL,
+                                      provider.ANONYMOUS_ACCOUNT_TIMEOUT)
+
     def test_worker_rejects_deadlines_outside_the_budget(self):
-        for request in ({"timeout": 8.5}, {"timeout": 0}, {"timeout": "8"},
+        for request in ({"timeout": 10.5}, {"timeout": 0}, {"timeout": "8"},
                         {"timeout": 2.0, "connect_timeout": 2.5},
                         {"timeout": 8.0, "connect_timeout": 0},
                         {"timeout": 8.0, "connect_timeout": "2.5"}):

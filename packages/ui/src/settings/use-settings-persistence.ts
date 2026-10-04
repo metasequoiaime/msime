@@ -147,10 +147,12 @@ export function useSettingsPersistence({
       current
         ? applyPreferenceChanges(value.preferences, preferenceChanges(sent, current))
         : value.preferences;
+    const nextDraft = keepNewer(draftRef.current);
     snapshotRef.current = value;
-    draftRef.current = keepNewer(draftRef.current);
+    draftRef.current = nextDraft;
+    if (!mounted.current) return;
     setSnapshot(value);
-    setDraft(keepNewer);
+    setDraft(nextDraft);
   };
 
   // Moves the local edits made since `base` onto `latest`, another writer's newer revision. A field both changed keeps the local value; the result says whether that happened.
@@ -161,10 +163,12 @@ export function useSettingsPersistence({
         : latest.preferences;
     const local = preferenceChanges(base.preferences, draftRef.current);
     const remote = preferenceChanges(base.preferences, latest.preferences);
+    const nextDraft = onto(draftRef.current);
     snapshotRef.current = latest;
-    draftRef.current = onto(draftRef.current);
+    draftRef.current = nextDraft;
+    if (!mounted.current) return preferenceChangesCollide(local, remote, latest.preferences);
     setSnapshot(latest);
-    setDraft(onto);
+    setDraft(nextDraft);
     return preferenceChangesCollide(local, remote, latest.preferences);
   };
 
@@ -300,7 +304,8 @@ export function useSettingsPersistence({
     let failed = false;
     let conflicts = 0;
     try {
-      while (mounted.current && savePending()) {
+      // 即使设置页在请求期间卸载，也继续写完这段时间产生的编辑。卸载后 refs 和 client 仍可用，只有 React 状态更新停止。
+      while (savePending()) {
         const base = snapshotRef.current;
         const sent = draftRef.current;
         if (!base || !sent || !validCandidateFonts(sent)) break;
@@ -313,27 +318,23 @@ export function useSettingsPersistence({
             conflicts += 1;
             // Another window saved first: take its revision, put this window's edits on top, and save again.
             const latest = await client.load();
-            if (!mounted.current) return;
-            if (rebase(latest, base)) setNotice(mergedNotice);
+            if (rebase(latest, base) && mounted.current) setNotice(mergedNotice);
             continue;
           }
-          if (!mounted.current) return;
           adoptSaved(value, sent);
         }
         // The native macOS preferences follow the shared document, in the order the save button used to write them.
         if (shuangpinPending() && saveMacosShuangpinKeymap) {
           const enabled = nativeRef.current.shuangpin === true;
           await saveMacosShuangpinKeymap(enabled);
-          if (!mounted.current) return;
           nativeRef.current = { ...nativeRef.current, savedShuangpin: enabled };
-          setSavedMacosShuangpinKeymap(enabled);
+          if (mounted.current) setSavedMacosShuangpinKeymap(enabled);
         }
         if (wubiPending() && saveMacosWubiAutoCommitUnique) {
           const enabled = nativeRef.current.wubi === true;
           await saveMacosWubiAutoCommitUnique(enabled);
-          if (!mounted.current) return;
           nativeRef.current = { ...nativeRef.current, savedWubi: enabled };
-          setSavedMacosWubiAutoCommitUnique(enabled);
+          if (mounted.current) setSavedMacosWubiAutoCommitUnique(enabled);
         }
       }
     } catch (reason) {

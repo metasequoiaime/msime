@@ -1,7 +1,6 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { boundedGraphemes } from "../core/text";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import {
@@ -40,6 +39,8 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
   CommunitySkinCategorySelect,
@@ -141,13 +142,10 @@ function CommunitySkinPublishDialog({
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, library);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     let active = true;
-    actionRunning.current = false;
     setBusy(true);
     void library
       .load()
@@ -170,7 +168,6 @@ function CommunitySkinPublishDialog({
       });
     return () => {
       active = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, library]);
 
@@ -179,15 +176,9 @@ function CommunitySkinPublishDialog({
     event.preventDefault();
     if (busy || actionRunning.current || !selected) return;
     const generation = clientGeneration.current;
-    const normalizedName = name.trim();
-    const normalizedDescription = description.trim();
-    if (
-      !normalizedName ||
-      boundedGraphemes(normalizedName, 32) !== normalizedName ||
-      [...normalizedName].length > 32 ||
-      [...normalizedDescription].length > 280 ||
-      !agreed
-    ) {
+    const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
+      communityPublishFields(name, description);
+    if (!nameValid || !descriptionValid || !agreed) {
       setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
       return;
     }

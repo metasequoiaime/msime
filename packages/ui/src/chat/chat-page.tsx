@@ -5,6 +5,7 @@ import { ActionButton } from "../core/action-button";
 import * as chat from "./chat-style";
 import { boundedHistory, chatMessageByteLength, MAX_MESSAGE_BYTES } from "./chat-history";
 import { chatError } from "./chat-errors";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -50,7 +51,7 @@ export function ChatPage({
   const [loginNeeded, setLoginNeeded] = useState(false);
   const generation = useRef(0);
   const modelGeneration = useRef(0);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const sendingRef = useRef(false);
   const modelsRunning = useRef(false);
   const nextMessageId = useRef(1);
@@ -82,10 +83,8 @@ export function ChatPage({
   };
 
   useEffect(() => {
-    mounted.current = true;
     void loadModels();
     return () => {
-      mounted.current = false;
       modelGeneration.current += 1;
       generation.current += 1;
       sendingRef.current = false;

@@ -109,8 +109,11 @@ impl StrokeScheme {
     }
 
     /// 组合的候选，每个字只列一次：
-    /// 1. 笔画码与键入完全相同的字（通配符匹配任意一笔），重的在前；
-    /// 2. 然后是以键入笔画开头、笔画更多的字，重的在前。
+    /// 1. 有字频、笔画码与键入完全相同的字（通配符匹配任意一笔），重的在前；
+    /// 2. 有字频、以键入笔画开头、笔画更多的字，重的在前；
+    /// 3. 没有字频的字（权重为 0 的生僻字），同样精确匹配在前、补全在后。
+    ///
+    /// 笔数恰好打满时，生僻字的精确匹配不再挡在常用字的补全前面。
     pub fn candidates(&self, dictionary: &LanguageDictionary) -> Result<Vec<StrokeCandidate>> {
         let input = self.input.as_str();
         if input.is_empty() {
@@ -144,6 +147,8 @@ impl StrokeScheme {
                 });
             }
         }
+        // 稳定排序：只把没有字频的字移到后面，其余顺序不变。
+        candidates.sort_by_key(|candidate| candidate.weight <= 0);
         Ok(candidates)
     }
 }
@@ -287,6 +292,16 @@ mod tests {
         assert_eq!(candidates[1].key, "hsh");
         assert!(texts(&typed("zzzz"), dictionary).is_empty());
         assert!(texts(&StrokeScheme::new(), dictionary).is_empty());
+    }
+
+    #[test]
+    fn characters_without_a_frequency_follow_every_weighted_one() {
+        let fixture = fixture();
+        let dictionary = &fixture.dictionary;
+        // 乚 的笔画码正好是 sz，但没有字频，排在笔画更多、有字频的 口 后面。
+        assert_eq!(texts(&typed("sz"), dictionary), ["口", "乚"]);
+        // 通配符同样如此。
+        assert_eq!(texts(&typed("sx"), dictionary), ["口", "乚"]);
     }
 
     #[test]

@@ -62,8 +62,8 @@ pub(crate) mod fixture {
         FORMAT_VERSION, METADATA_FORMAT_VERSION, METADATA_LICENSE, METADATA_SOURCE_COMMIT, SCHEMA,
     };
 
-    /// `土` 有两个笔画码，用来检查同一个字只列一次。
-    pub(crate) const ENTRIES: [(&str, &str, i64); 11] = [
+    /// `土` 有两个笔画码，用来检查同一个字只列一次；`乚` 没有字频，用来检查它排在有字频的补全后面。
+    pub(crate) const ENTRIES: [(&str, &str, i64); 12] = [
         ("h", "一", 9000),
         ("hh", "二", 5000),
         ("hhh", "三", 4000),
@@ -75,6 +75,7 @@ pub(crate) mod fixture {
         ("hpn", "大", 5500),
         ("pn", "人", 6000),
         ("szh", "口", 3500),
+        ("sz", "乚", 0),
     ];
 
     pub(crate) fn build(path: &Path) {

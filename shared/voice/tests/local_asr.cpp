@@ -34,6 +34,14 @@ int main() {
     assert(!is_local_model_dir((root / "model").u8string()));
     std::ofstream(root / "model" / std::string(local_model_manifest)) << R"({"kind":"offline_sense_voice","files":{}})";
     assert(is_local_model_dir((root / "model").u8string()));
+    assert(!local_model_uses_pinyin_hotwords((root / "model").u8string()));
+    std::ofstream(root / "model" / std::string(local_model_manifest))
+        << R"({"kind":"offline_sense_voice","files":{},"hotwords":"pinyin"})";
+    assert(local_model_uses_pinyin_hotwords((root / "model").u8string()));
+    std::ofstream(root / "model" / std::string(local_model_manifest))
+        << R"({"kind":"offline_sense_voice","files":{},"hotwords":")"
+        << std::string(256 * 1024, 'x') << R"("})";
+    assert(!local_model_uses_pinyin_hotwords((root / "model").u8string()));
 
 #if defined(__linux__)
     // Linux distributions may keep `/bin` as a root-owned system link (for

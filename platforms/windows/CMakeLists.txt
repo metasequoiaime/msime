@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.25)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/common" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
+# vcpkg-style dependency prefixes ship a Release variant under bin/ and a Debug
+# variant under debug/bin/ for each imported target. This Client builds with
+# --config RelWithDebInfo, which carries no imported configuration of its own, so
+# without a mapping an imported DLL target such as CURL::libcurl resolves to its
+# Debug variant: the Server then imports libcurl-d.dll while
+# Copy-RuntimeDependencies.ps1 only stages the Release libcurl.dll from bin/, and
+# the Server fails to start on the missing DLL. Map the debug-info and
+# size-optimized configurations onto Release so the link matches the staged
+# Release runtime.
+set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release "")
+set(CMAKE_MAP_IMPORTED_CONFIG_MINSIZEREL Release "")
 # State the Windows this targets instead of taking whatever the toolchain
 # happens to default to. The code already requires 1703: per-monitor v2 DPI
 # awareness and ID2D1DeviceContext5 both arrive there, and the latter sits

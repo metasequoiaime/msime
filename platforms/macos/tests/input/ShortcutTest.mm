@@ -3544,6 +3544,34 @@ static void TestUnreadablePreferencesAreRecoveredOnce() {
         assert(controller.readCalls == 2);
         assert(controller.recoverCalls == 1);
     }
+
+    // 进程长期运行时，旧的偏好目录应当从恢复去重表中淘汰，不能让用户切换配置目录的次数决定常驻内存。
+    RecoveringPreferencesController *evicted = [RecoveringPreferencesController alloc];
+    evicted.appliedPreferences = [NSMutableArray array];
+    [evicted setValue:prefs forKey:@"appearance"];
+    [evicted setValue:[ShortcutClient new] forKey:@"activeClient"];
+    NSString *evictedDirectory = [@"/synthetic-recovery-eviction-" stringByAppendingString:NSUUID.UUID.UUIDString];
+    [evicted setValue:evictedDirectory forKey:@"preferencesDirectory"];
+    [evicted reloadPreferences];
+    WaitForRecoveringCompletions(evicted, 1);
+    assert(evicted.recoverCalls == 1);
+
+    for (NSUInteger index = 0; index < 65; ++index) {
+        RecoveringPreferencesController *other = [RecoveringPreferencesController alloc];
+        other.appliedPreferences = [NSMutableArray array];
+        [other setValue:prefs forKey:@"appearance"];
+        [other setValue:[ShortcutClient new] forKey:@"activeClient"];
+        NSString *directory = [NSString stringWithFormat:@"/synthetic-recovery-capacity-%@-%lu",
+                               NSUUID.UUID.UUIDString, (unsigned long)index];
+        [other setValue:directory forKey:@"preferencesDirectory"];
+        [other reloadPreferences];
+        WaitForRecoveringCompletions(other, 1);
+        assert(other.recoverCalls == 1);
+    }
+
+    [evicted reloadPreferences];
+    WaitForRecoveringCompletions(evicted, 2);
+    assert(evicted.recoverCalls == 2);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 

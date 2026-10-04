@@ -14,6 +14,7 @@ import { SettingsExternalMeta } from "../settings/settings-external-meta";
 import { SettingsGroupBlock } from "../settings/settings-group-block";
 import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
+import { StatusMessage } from "../core/status-message";
 import { subscribeSkinCatalogChanges } from "./skin-catalog-changes";
 import {
   customCandidateStyle,
@@ -314,14 +315,14 @@ export function ExternalSkinCard({
         )}
       </SkinPreviewSurface>
       {paletteFailed && (
-        <p role="status" className={note}>
+        <StatusMessage role="status" className={note}>
           当前浏览器无法隐藏皮肤的选中条，其余配色照常预览。
-        </p>
+        </StatusMessage>
       )}
       {(image?.failed || decodeFailed || background.failed) && (
-        <p role="status" className={note}>
+        <StatusMessage role="status" className={note}>
           皮肤图片加载失败，保留基础预览。可刷新皮肤重试。
-        </p>
+        </StatusMessage>
       )}
       {(decoration || skin.background) && !readImage && (
         <p className={note}>当前宿主不支持皮肤图片预览。</p>
@@ -330,14 +331,14 @@ export function ExternalSkinCard({
         <p className={note}>当前宿主不支持外部工具栏样式。</p>
       )}
       {toolbarState === "failed" && (
-        <p role="status" className={note}>
+        <StatusMessage role="status" className={note}>
           工具栏样式加载失败，保留基础预览。可刷新皮肤重试。
-        </p>
+        </StatusMessage>
       )}
       {toolbarState === "partial" && (
-        <p role="status" className={note}>
+        <StatusMessage role="status" className={note}>
           已应用工具栏基础样式；关联资源及部分规则尚未支持。
-        </p>
+        </StatusMessage>
       )}
     </article>
   );

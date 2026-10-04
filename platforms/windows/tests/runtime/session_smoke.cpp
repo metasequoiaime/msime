@@ -707,6 +707,24 @@ int main(int argc, char **argv) {
       auto conflicting = Json::parse(latest);
       conflicting["preferences"] = first_preferences;
       const auto conflicting_snapshot = load_snapshot(conflicting.dump());
+      {
+        FocusGate maintenance_gate;
+        InputQueue maintenance_queue(maintenance_gate, 1, 2, options.dump());
+        PipeTicket maintenance_ticket{314, {41, 42, 43}};
+        auto maintenance = maintenance_queue.submit(
+            [&](InputState &state) {
+              require(state.connected(maintenance_ticket).accepted,
+                      "Maintenance preference client failed");
+              require(state.quiesce_dictionaries() == 1,
+                      "Maintenance did not release the session");
+              state.publish_preferences(latest_snapshot);
+              require(state.resume_dictionaries() == 1,
+                      "Maintenance did not rebuild the session");
+            });
+        require(maintenance && maintenance->get() == InputTaskStatus::Completed,
+                "Preference publication during maintenance failed");
+        maintenance_queue.stop();
+      }
       rejected([&] { load_snapshot("broken"); });
       auto invalid = Json::parse(latest);
       invalid["preferences"]["candidate_page_size"] = 0;

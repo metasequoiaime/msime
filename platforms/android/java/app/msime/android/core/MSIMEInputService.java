@@ -6078,12 +6078,12 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 CloudClipboardPanelPolicy.Status result = failure;
                 main.post(() -> {
+                    if (!CloudClipboardPanelPolicy.acceptsUploadResult(
+                            generation, cloudClipboardGeneration) || !clipboardPanelOpen()) return;
                     Toast.makeText(this, result == null ? "已发到云剪贴板"
                         : result == CloudClipboardPanelPolicy.Status.SIGNED_OUT
                             ? CloudClipboardPanelPolicy.SIGNED_OUT_MESSAGE
                             : "未能发到云剪贴板，请稍后重试", Toast.LENGTH_SHORT).show();
-                    if (!CloudClipboardPanelPolicy.accepts(generation, cloudClipboardGeneration)
-                            || !clipboardPanelOpen()) return;
                     // Re-read rather than splice the entry in: the service deduplicates and orders the list.
                     refreshCloudClipboard();
                 });
@@ -7686,8 +7686,9 @@ public final class MSIMEInputService extends InputMethodService {
         options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         final PopupWindow[] holder = new PopupWindow[1];
+        // 弹窗不能取焦点：输入法里一个可取焦点的窗口会把焦点从宿主的输入框抢走，编辑器一失焦系统就收起整个键盘。点外面关闭由 `setOutsideTouchable` 负责。
         PopupWindow popup = new PopupWindow(options, options.getMeasuredWidth(),
-            options.getMeasuredHeight(), true);
+            options.getMeasuredHeight(), false);
         holder[0] = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);

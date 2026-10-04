@@ -52,6 +52,10 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         &text::read(&sources.pinned(zhuyin::PHRASES)?)?,
     )?;
     rows.extend(zhuyin::parse(
+        zhuyin::SUPPLEMENT,
+        &text::read(&sources.pinned(zhuyin::SUPPLEMENT)?)?,
+    )?);
+    rows.extend(zhuyin::parse(
         zhuyin::CHARACTERS,
         &text::read(&sources.pinned(zhuyin::CHARACTERS)?)?,
     )?);

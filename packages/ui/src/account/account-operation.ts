@@ -1,5 +1,6 @@
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { runAsyncAction, type AsyncActionState } from "../core/async-action";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 
 export type AccountOperationState = Omit<AsyncActionState, "setNotice"> & {
   setNotice: (message: string) => void;
@@ -14,4 +15,58 @@ export async function runAccountOperation(
     formatError: accountMessage,
     ignoreError: isAccountCancellation,
   });
+}
+
+export interface AccountActionState {
+  busy: boolean;
+  mounted: MutableRefObject<boolean>;
+  clientGeneration: MutableRefObject<number>;
+  perform: (
+    operation: () => Promise<void>,
+    options?: { allowBusy?: boolean },
+  ) => Promise<void> | undefined;
+}
+
+/** Shares busy, client-generation, and late-result protection across account surfaces. */
+export function useAccountAction(
+  client: unknown,
+  setError: (message: string) => void,
+  setNotice: (message: string) => void,
+  ...owners: readonly unknown[]
+): AccountActionState {
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+  const clientGeneration = useRef(0);
+  const actionRunning = useRef(false);
+
+  useEffect(() => {
+    const generation = ++clientGeneration.current;
+    mounted.current = true;
+    actionRunning.current = false;
+    setBusy(false);
+    return () => {
+      mounted.current = false;
+      if (generation === clientGeneration.current) clientGeneration.current++;
+    };
+  }, [client, ...owners]);
+
+  const perform = (operation: () => Promise<void>, options: { allowBusy?: boolean } = {}) => {
+    if (actionRunning.current || (busy && !options.allowBusy)) return undefined;
+    const generation = clientGeneration.current;
+    actionRunning.current = true;
+    return runAccountOperation(
+      {
+        busy: options.allowBusy ? false : busy,
+        isCurrent: () => mounted.current && generation === clientGeneration.current,
+        setBusy,
+        setError,
+        setNotice,
+      },
+      operation,
+    ).finally(() => {
+      if (generation === clientGeneration.current) actionRunning.current = false;
+    });
+  };
+
+  return { busy, mounted, clientGeneration, perform };
 }

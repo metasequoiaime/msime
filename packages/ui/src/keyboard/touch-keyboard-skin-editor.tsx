@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { StatusMessage } from "../core/status-message";
+import { ErrorAlert } from "../core/error-alert";
 import { runAsyncAction } from "../core/async-action";
 import { aiSkinMessage, libraryError } from "./touch-keyboard-skin-errors";
 import { createAiSkinPrompt } from "./touch-keyboard-skin-ai";
@@ -37,6 +39,7 @@ import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
 import { ActionButton } from "../core/action-button";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
@@ -70,14 +73,7 @@ function AiSkinGeneration({
   const generateRunning = useRef(false);
   const saveRunning = useRef(false);
   const requestRef = useRef("");
-  const mounted = useRef(true);
-
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const mounted = useMountedRef();
 
   useEffect(() => {
     requestRef.current = requestId;
@@ -245,16 +241,16 @@ function AiSkinGeneration({
           AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。
         </p>
         {busy && (
-          <p role="status">
+          <StatusMessage role="status">
             主题插画已完成 {completed}/3，可能需要几分钟…{" "}
             <ActionButton
               action={() => client.cancel(requestRef.current)}
               className="secondary"
               label="取消"
             />
-          </p>
+          </StatusMessage>
         )}
-        {message && <p role="status">{message}</p>}
+        {message && <StatusMessage role="status">{message}</StatusMessage>}
         <div className={doc.cardList}>
           {proposals.map((proposal) => {
             const item = saved[proposal.name];
@@ -407,17 +403,15 @@ export function TouchKeyboardSkinEditor({
   const [skinName, setSkinName] = useState("");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const libraryGeneration = useRef(0);
   const libraryActionBusy = useRef(false);
-  useEffect(
-    () => () => {
-      mounted.current = false;
+  useEffect(() => {
+    return () => {
       libraryGeneration.current += 1;
       libraryActionBusy.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   useEffect(() => {
     const generation = ++libraryGeneration.current;
     if (!library) return;
@@ -768,11 +762,7 @@ export function TouchKeyboardSkinEditor({
                   }}
                 />
               </label>
-              {photoError && (
-                <p role="alert" className={skin.warning}>
-                  {photoError}
-                </p>
-              )}
+              {photoError && <ErrorAlert className={skin.warning}>{photoError}</ErrorAlert>}
               {design.photo && (
                 <div className={skin.formGrid}>
                   <label>

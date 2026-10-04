@@ -29,7 +29,7 @@ const WRITE_FAILED: &str = "Personal context could not be written to the journal
 /// Bumped by `release_all`: every store's model is stale until it reloads from the file now at its path.
 static STORE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// Stores are never freed: sessions on other threads and the flush thread keep using them (NS:39-48).
+/// 注册表保留仍被会话或刷新线程使用的 store；下次打开 journal 时会回收只有注册表自身引用的旧路径。
 static STORES: LazyLock<Mutex<HashMap<PathBuf, Arc<PersonalNgramStore>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -74,6 +74,7 @@ const NEVER_LOADED: u64 = u64::MAX;
 impl PersonalNgramStore {
     pub fn for_journal(user_db: &Path) -> Arc<PersonalNgramStore> {
         let mut stores = lock(&STORES);
+        stores.retain(|_, store| Arc::strong_count(store) > 1);
         Arc::clone(stores.entry(user_db.to_path_buf()).or_insert_with(|| {
             Arc::new(PersonalNgramStore {
                 model: RwLock::new(PersonalNgram::new(PersonalNgramOptions::default())),
@@ -694,6 +695,29 @@ mod tests {
         let dir = Dir::new();
         let store = PersonalNgramStore::for_journal(&dir.journal());
         assert!(lock(&store.pending).capacity() >= FLUSH_BATCH);
+    }
+
+    #[test]
+    fn a_new_journal_releases_an_unused_store() {
+        let directory = Dir::new();
+        let first = PersonalNgramStore::for_journal(&directory.journal());
+        let released = Arc::downgrade(&first);
+        drop(first);
+        let other = Dir::new();
+        let _next = PersonalNgramStore::for_journal(&other.journal());
+        assert!(released.upgrade().is_none(), "空闲仓库仍被注册表永久持有");
+    }
+
+    #[test]
+    fn a_new_journal_keeps_a_store_used_by_another_session() {
+        let directory = Dir::new();
+        let first = PersonalNgramStore::for_journal(&directory.journal());
+        let other = Dir::new();
+        let _next = PersonalNgramStore::for_journal(&other.journal());
+        assert!(Arc::ptr_eq(
+            &first,
+            &PersonalNgramStore::for_journal(&directory.journal()),
+        ));
     }
 
     #[test]

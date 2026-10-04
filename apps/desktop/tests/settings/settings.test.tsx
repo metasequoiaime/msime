@@ -2,6 +2,7 @@
 import { testHost } from "../support/host";
 import { settingsFormReady, saveSettingsNow } from "../support/settings-form";
 import { afterEach, expect, test, vi } from "vitest";
+import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import minimizeIcon from "../../../../packages/ui/src/assets/minimize.svg";
 import maximizeIcon from "../../../../packages/ui/src/assets/maximize.svg";
@@ -4596,15 +4597,17 @@ test("Android AI skin draw prepares artwork, saves a proposal and continues edit
     },
   ]);
   render(
-    <SettingsPage
-      client={{
-        load: async () => initial,
-        save: vi.fn(),
-        customTouchKeyboardSkins: true,
-        aiSkins,
-        customSkinLibrary: { load: async () => [], mutate },
-      }}
-    />,
+    <StrictMode>
+      <SettingsPage
+        client={{
+          load: async () => initial,
+          save: vi.fn(),
+          customTouchKeyboardSkins: true,
+          aiSkins,
+          customSkinLibrary: { load: async () => [], mutate },
+        }}
+      />
+    </StrictMode>,
   );
   fireEvent.click(await screen.findByRole("button", { name: "主题" }));
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
@@ -8214,6 +8217,35 @@ test("a late preference save is ignored after settings unmounts", async () => {
     preferences: { ...initial.preferences, candidate_page_size: 9 },
   });
   await Promise.resolve();
+});
+
+test("an edit made during a preference save is written before settings unmounts", async () => {
+  const finishes: ((snapshot: Snapshot) => void)[] = [];
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(
+      (revision, preferences) =>
+        new Promise<Snapshot>((resolve) => {
+          finishes.push(() => resolve({ ...initial, revision: revision + 1, preferences }));
+        }),
+    ),
+  };
+  const view = render(<SettingsPage initialPage="appearance" client={client} />);
+  const size = await screen.findByLabelText("每页候选项数量");
+  fireEvent.change(size, { target: { value: "9" } });
+  saveSettingsNow();
+  fireEvent.change(screen.getByLabelText("字号"), { target: { value: "20" } });
+  view.unmount();
+
+  expect(client.save).toHaveBeenCalledOnce();
+  await act(async () => finishes[0](initial));
+  await waitFor(() => expect(client.save).toHaveBeenCalledTimes(2));
+  expect(client.save).toHaveBeenLastCalledWith(8, {
+    ...initial.preferences,
+    candidate_page_size: 9,
+    candidate_font_size: 20,
+  });
+  await act(async () => finishes[1](initial));
 });
 
 test("macOS offers the same candidate page sizes as every other host and keeps the saved one", async () => {

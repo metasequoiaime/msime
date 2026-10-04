@@ -892,6 +892,20 @@ fn installed_manifest_ignores_symlinks_and_oversized_files() {
     assert_eq!(installed_manifest(root.path(), "../pack"), None);
 }
 
+#[cfg(unix)]
+#[test]
+fn installed_manifest_rejects_a_symlinked_root() {
+    let parent = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let pack = outside.path().join("pack");
+    fs::create_dir(&pack).unwrap();
+    fs::write(pack.join(MANIFEST_FILE), b"{}").unwrap();
+    let linked = parent.path().join("models");
+    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+
+    assert_eq!(installed_manifest(&linked, "pack"), None);
+}
+
 /// Downloads the real default model once. Not run in CI; run by hand with
 /// `MSIME_LOCAL_MODEL_ROOT=/tmp/msime-models-rs cargo test -p msime-client-core --lib real_install -- --ignored --nocapture`.
 #[test]

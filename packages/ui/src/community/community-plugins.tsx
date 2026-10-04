@@ -47,10 +47,12 @@ import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
+import { useCommunityInstallState } from "./community-install-state";
 
 /** The kinds a pack can be shared as; effect packs stay local for now. Mirrors `client-core::plugins::community::PUBLISHABLE_KINDS`. */
 export type CommunityPluginKind = Exclude<PluginKind, "effect">;
@@ -231,9 +233,9 @@ export function CommunityPluginsPage({
   } = gallery;
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<CommunityPluginKind | null>(null);
-  const [installed, setInstalled] = useState(false);
-  const [confirmReplace, setConfirmReplace] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const { installed, setInstalled, confirmReplace, setConfirmReplace, closeDetail } =
+    useCommunityInstallState(actionBusy, closeGalleryDetail);
 
   const changeKind = async (next: CommunityPluginKind | null) => {
     const previous = kindFilter.current;
@@ -246,13 +248,6 @@ export function CommunityPluginsPage({
       kindFilter.current = previous;
       setKind(previous);
     }
-  };
-
-  const closeDetail = () => {
-    if (actionBusy) return;
-    closeGalleryDetail();
-    setInstalled(false);
-    setConfirmReplace(false);
   };
 
   const install = async (replace: boolean) => {
@@ -527,14 +522,11 @@ export function CommunityPluginPublishDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
-  const clientGeneration = useRef(0);
+  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localPlugins);
   const packGeneration = useRef(0);
-  const actionRunning = useRef(false);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     let active = true;
-    actionRunning.current = false;
     setBusy(false);
     setOptionsLoading(true);
     void localPlugins()
@@ -564,7 +556,6 @@ export function CommunityPluginPublishDialog({
       });
     return () => {
       active = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, localPlugins]);
 

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { usePanelAction } from "../../../../packages/ui/src/keyboard/use-panel-action";
 
@@ -42,5 +43,19 @@ test("maps an action failure while the revision is current", async () => {
   });
 
   await waitFor(() => expect(notices).toEqual(["操作失败"]));
+  expect(result.current.busy).toBe(false);
+});
+
+test("accepts actions after StrictMode effect replay", async () => {
+  const action = vi.fn(async () => {});
+  const { result } = renderHook(() => usePanelAction(() => {}), {
+    wrapper: StrictMode,
+  });
+
+  await act(async () => {
+    await result.current.run(action, "操作失败");
+  });
+
+  expect(action).toHaveBeenCalledOnce();
   expect(result.current.busy).toBe(false);
 });

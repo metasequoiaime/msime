@@ -281,6 +281,28 @@ fn replaying_a_batched_import_writes_nothing_again() {
 }
 
 #[test]
+fn an_overflowing_batch_report_is_rejected_without_panicking() {
+    let text = phrases(5000, &[]);
+    let action = json!({
+        "operation": "import",
+        "kind": "quick_phrase",
+        "format": "standard",
+        "text": text,
+        "request_id": "ui-overflow"
+    });
+    let result = send_dictionary_action(&options(), &action, |_bytes| {
+        Ok(json!({
+            "applied": u64::MAX,
+            "failed": 0,
+            "truncated": false,
+            "swapped": false,
+            "first_failures": []
+        }))
+    });
+    assert_eq!(result, Err("invalid dictionary report".to_owned()));
+}
+
+#[test]
 fn a_rime_header_longer_than_one_batch_is_never_read_as_rows() {
     let mut host = FakeHost::new();
     let mut text = String::from(
@@ -513,6 +535,11 @@ fn batches_are_cut_at_line_ends_within_both_host_bounds() {
         json_escaped_len("\"\\\u{1}\u{8}é你"),
         serde_json::to_string("\"\\\u{1}\u{8}é你").unwrap().len() - 2
     );
+}
+
+#[test]
+fn zero_batch_budget_is_rejected_before_reserving_batches() {
+    assert!(split_import("", false, 0).is_none());
 }
 
 #[test]

@@ -134,7 +134,14 @@ public final class CommunityRequest {
     public static boolean validReport(String reason, String detail) {
         if (reason == null || !REPORT_REASONS.contains(reason)) return false;
         String text = detail == null ? "" : detail;
-        return text.codePointCount(0, text.length()) <= MAX_REPORT_DETAIL;
+        if (text.codePointCount(0, text.length()) > MAX_REPORT_DETAIL) return false;
+        for (int index = 0; index < text.length();) {
+            int codePoint = text.codePointAt(index);
+            if (Character.isISOControl(codePoint)
+                    && codePoint != '\n' && codePoint != '\t') return false;
+            index += Character.charCount(codePoint);
+        }
+        return true;
     }
 
     /** 作者修改自己皮肤的分类：`PATCH` 这条路径，回来的是改过之后的条目，所以同样带上 `include=category`。 */

@@ -4,12 +4,15 @@ import { errorCode } from "../core/error-code";
 import { SettingsServiceRow } from "./settings-service-row";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
+import { useMountedRef } from "./use-mounted-ref";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsNotice } from "./settings-notice";
+import { StatusMessage } from "../core/status-message";
+import { ErrorAlert } from "../core/error-alert";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -234,18 +237,16 @@ export function McpConnectSection({
   const [preferred, setPreferred] = useState<McpFlag[]>(savedFlags);
   // 已连接的助手页上，开关先显示它现有条目的权限；用户改过之后记在这里，直到写入。
   const [drafts, setDrafts] = useState<Partial<Record<McpClientId, McpFlag[]>>>({});
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const refreshGeneration = useRef(0);
   const clientGeneration = useRef(0);
   const actionRunning = useRef(false);
 
   useEffect(() => {
     const generation = ++clientGeneration.current;
-    mounted.current = true;
     actionRunning.current = false;
     setBusy(undefined);
     return () => {
-      mounted.current = false;
       refreshGeneration.current += 1;
       if (generation === clientGeneration.current) clientGeneration.current++;
     };
@@ -383,7 +384,7 @@ export function McpConnectSection({
           MCP
           在本机运行，不联网。助手还能做什么由下面两个开关决定，默认都开；复制的命令、配置和一键写入都带上开着的权限。两个都关时只读，除了开关诊断日志不改动任何设置。
         </SettingsManagerNote>
-        {loadFailed && <p role="alert">无法读取 MCP 服务器的状态。</p>}
+        {loadFailed && <ErrorAlert>无法读取 MCP 服务器的状态。</ErrorAlert>}
         {server &&
           (server.config ? (
             <>
@@ -474,7 +475,7 @@ export function McpConnectSection({
                   {copyButton("json", "复制配置", configWithFlags(server.config, flags))}
                 </>
               )}
-              {result && <p role="status">{result}</p>}
+              {result && <StatusMessage role="status">{result}</StatusMessage>}
               {permissionFlags.map((permission) => (
                 <SettingsServiceRow key={permission.flag}>
                   <span>

@@ -5,7 +5,9 @@
 // so the same ABI assertions can run on every platform and on x86/x64 Windows.
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "ipc_protocol_limits.h"
 #ifdef _WIN32
@@ -24,6 +26,44 @@ inline constexpr uint32_t FANY_IME_TSF_DIAGNOSTIC_VERSION = 1;
 inline constexpr size_t FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES = 16 * 1024;
 inline constexpr uint64_t FANY_IME_UNSOLICITED_REQUEST_ID = 0;
 inline constexpr uint64_t FANY_IME_NO_REQUEST_ID = UINT64_MAX;
+
+// TSF diagnostics are assembled as UTF-16 records, but the Server log and
+// diagnostic batch contract use UTF-8. Keep the conversion here so both sides
+// share the same surrogate and size semantics without depending on a platform
+// conversion API.
+inline std::optional<std::string> diagnostic_utf8(std::u16string_view text) {
+    std::string result;
+    result.reserve(text.size());
+    for (size_t index = 0; index < text.size(); ++index) {
+        uint32_t scalar = text[index];
+        if (scalar >= 0xd800 && scalar <= 0xdbff) {
+            if (index + 1 >= text.size())
+                return std::nullopt;
+            const uint32_t low = text[++index];
+            if (low < 0xdc00 || low > 0xdfff)
+                return std::nullopt;
+            scalar = 0x10000 + ((scalar - 0xd800) << 10) + (low - 0xdc00);
+        } else if (scalar >= 0xdc00 && scalar <= 0xdfff) {
+            return std::nullopt;
+        }
+        if (scalar <= 0x7f) {
+            result.push_back(static_cast<char>(scalar));
+        } else if (scalar <= 0x7ff) {
+            result.push_back(static_cast<char>(0xc0 | (scalar >> 6)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        } else if (scalar <= 0xffff) {
+            result.push_back(static_cast<char>(0xe0 | (scalar >> 12)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        } else {
+            result.push_back(static_cast<char>(0xf0 | (scalar >> 18)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 12) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | ((scalar >> 6) & 0x3f)));
+            result.push_back(static_cast<char>(0x80 | (scalar & 0x3f)));
+        }
+    }
+    return result;
+}
 
 inline const std::vector<std::wstring> FANY_IME_EVENT_ARRAY = {
     L"FanyImeKeyEvent",           // Event sent to UI process to notify time to update UI by new pinyin_string
@@ -164,6 +204,7 @@ struct FanyImeTsfDiagnosticBatchHeader
     uint32_t magic = FANY_IME_TSF_DIAGNOSTIC_MAGIC;
     uint32_t version = FANY_IME_TSF_DIAGNOSTIC_VERSION;
     uint32_t header_size = 28;
+    // UTF-8 bytes immediately following this header.
     uint32_t payload_bytes = 0;
     uint32_t record_count = 0;
     uint32_t dropped_count = 0;

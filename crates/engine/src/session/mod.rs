@@ -365,6 +365,14 @@ impl Session {
         }
     }
 
+    /// 返回候选词的完整五笔编码，仅供宿主显示反查结果；九宫格会话不沿用旧的普通候选反查。
+    pub fn candidate_wubi_code(&self, word: &str) -> Option<&str> {
+        if self.nine_key.active() {
+            return None;
+        }
+        self.input.engine.candidate_wubi_code(word)
+    }
+
     /// Byte offsets into `editing_text` for pinyin-unit editing; empty when idle, in local modes, for non-pinyin schemes and during nine-key input. Read-only.
     pub fn segment_raw_boundaries(&self) -> Vec<usize> {
         if self.nine_key.active() {

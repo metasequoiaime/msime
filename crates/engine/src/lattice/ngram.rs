@@ -2,11 +2,12 @@
 //!
 //! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for bigram.bin/trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
+use lru::LruCache;
 use memmap2::{Mmap, MmapOptions};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 pub const SENTENCE_START: &str = "\u{1}";
 /// An entry count past any plausible table: a truncated or foreign file that happens to carry the magic must not turn into a nonsense allocation (NG:29-31).
 pub const MAX_ENTRIES: usize = 40_000_000;
+const SHARED_CACHE_CAPACITY: usize = 8;
 
 const MAGIC: &[u8; 4] = b"MSNG";
 const VERSION: u32 = 1;
@@ -34,6 +36,8 @@ pub struct NgramTable {
     /// `index[b]` 是第一个高位桶号不小于 `b` 的键的下标，`index[b + 1]` 是这个桶的结尾；末项等于 `count`。键有序，所以整张表上的 `lower_bound` 一定落在键所在桶的这段区间里，查到的结果和全表二分完全一样。
     index: Vec<u32>,
 }
+
+static SHARED: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<NgramTable>>>>> = OnceLock::new();
 
 impl NgramTable {
     /// `None` for a missing, short, wrong-magic, wrong-version, oversized or unsorted file; the decoder then runs without the table.
@@ -84,17 +88,22 @@ impl NgramTable {
         Some(table)
     }
 
-    /// One table per path for the process, remembering a missing file too, so a generation without tables is not probed on every query (NG:138-147).
+    /// Cache recent tables by path, remembering a missing file too, so a generation without tables is not probed on every query (NG:138-147).
     pub fn shared(path: &Path) -> Option<Arc<NgramTable>> {
-        static LOADED: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<NgramTable>>>>> = OnceLock::new();
-        let mut loaded = LOADED
-            .get_or_init(|| Mutex::new(HashMap::new()))
+        let mut loaded = SHARED
+            .get_or_init(|| {
+                Mutex::new(LruCache::new(
+                    NonZeroUsize::new(SHARED_CACHE_CAPACITY).unwrap(),
+                ))
+            })
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        loaded
-            .entry(path.to_path_buf())
-            .or_insert_with(|| NgramTable::load(path).map(Arc::new))
-            .clone()
+        if let Some(cached) = loaded.get(path) {
+            return cached.clone();
+        }
+        let table = NgramTable::load(path).map(Arc::new);
+        loaded.put(path.to_path_buf(), table.clone());
+        table
     }
 
     #[cfg(test)]
@@ -451,6 +460,20 @@ pub(super) mod tests {
         let first = NgramTable::shared(&present).expect("loads");
         let second = NgramTable::shared(&present).expect("cached");
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn the_shared_cache_is_bounded_across_database_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=SHARED_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(format!("table-{index}.bin"));
+            write_table(&path, &[], MAGIC, VERSION);
+            assert!(NgramTable::shared(&path).is_some());
+            directories.push(directory);
+        }
+        let cache = SHARED.get().unwrap().lock().unwrap();
+        assert!(cache.len() <= SHARED_CACHE_CAPACITY);
     }
 
     /// 分桶查找必须和整张表上的 `lower_bound` 给出同样的答案：桶边界两侧的键、首尾的键、重复键（取第一条）和落在两键之间的未命中都覆盖到。

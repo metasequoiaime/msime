@@ -49,6 +49,16 @@ int main() {
         require([MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, @{}, files) isEqual:configured],
                 "explicit host options path was not read");
 
+        NSDictionary *oversizedOptions = @{
+            @"voice_provider_socket" : configured,
+            @"padding" : [@"x" stringByPaddingToLength:2 * 1024 * 1024 withString:@"x" startingAtIndex:0]
+        };
+        NSData *oversizedData = [NSJSONSerialization dataWithJSONObject:oversizedOptions options:0 error:nil];
+        require(oversizedData.length > 2 * 1024 * 1024, "oversized runtime options fixture was not oversized");
+        [oversizedData writeToFile:optionsPath atomically:YES];
+        require(MSIMEVoiceProviderSocketFromOptionsPath(optionsPath, @{}, files) == nil,
+                "oversized runtime options were read without a bound");
+
         // Without an explicit path the input method reads the options in app.msime.macos.
         SupportRootFileManager *support = [SupportRootFileManager new];
         support.supportRoot = [root stringByAppendingPathComponent:@"Application Support"];
