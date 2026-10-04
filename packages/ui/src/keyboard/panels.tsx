@@ -3771,7 +3771,7 @@ export function EmojiPanel({
   const [clipboardLoadFailed, setClipboardLoadFailed] = useState(false);
   const [clipboardRefresh, setClipboardRefresh] = useState(0);
   const [activationMode, setActivationMode] = useState<"copy" | "input">("copy");
-  const operationRevision = useRef(0);
+  const operationRevision = useAsyncGeneration();
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardMutation = useRef(false);
   const clipboardGeneration = useRef(0);
