@@ -20,7 +20,6 @@ depends=(
   'glib2'
   'glibc'
   'gtk3'
-  'harfbuzz'
   'hicolor-icon-theme'
   # IBus 守护进程负责拉起 IBus engine；libibus 只是它链接的库。
   'ibus'

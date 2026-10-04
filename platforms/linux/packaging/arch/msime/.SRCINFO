@@ -26,7 +26,6 @@ pkgbase = msime
 	depends = glib2
 	depends = glibc
 	depends = gtk3
-	depends = harfbuzz
 	depends = hicolor-icon-theme
 	depends = ibus
 	depends = libgcc
