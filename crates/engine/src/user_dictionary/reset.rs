@@ -230,6 +230,45 @@ mod tests {
         }
     }
 
+    /// 拆分发布布局：`msime-pinyin.db` 没有五笔表，重置后的工作主词库要把 `msime-wubi.db` 的码表并回来，五笔学习与删词才有表可写。
+    #[test]
+    fn reset_merges_the_split_wubi_tables_into_the_fresh_working_copy() {
+        let temporary = tempfile::tempdir().unwrap();
+        let paths = paths(temporary.path());
+        sql(
+            &paths.resource(assets::MAIN_DICTIONARY),
+            "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",
+        );
+        sql(
+            &paths.resource(assets::WUBI_DICTIONARY),
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+             INSERT INTO wubi86 VALUES('aaaa','工',200);
+             CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);",
+        );
+        sql(
+            &paths.resource(assets::ENGLISH_DICTIONARY),
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
+        );
+
+        reset_learned_data(&paths).unwrap();
+
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT weight FROM wubi86 WHERE key='aaaa'"
+            ),
+            Some(200)
+        );
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::MAIN_DICTIONARY),
+                "SELECT count(*) FROM wubi98"
+            ),
+            Some(0)
+        );
+        assert!(!paths.dictionary(assets::WUBI_DICTIONARY).exists());
+    }
+
     // engine-bridge tests.rs `reset_learned_data_restores_packaged_dictionaries_and_clears_journal`, for an ASCII root and one carrying Chinese characters.
     #[test]
     fn reset_restores_packaged_dictionaries_and_clears_the_journal() {
