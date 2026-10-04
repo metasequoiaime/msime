@@ -41,6 +41,14 @@ public final class CandidateGlossModelSmoke {
         expectFailure(() -> new CandidateGlossPolicy.Token(0, 7, 3));
         expectFailure(() -> new CandidateGlossPolicy.Token(11, -1, 3));
 
+        check(CandidateGlossPolicy.strictInteger(Integer.valueOf(7)) == 7,
+            "JSON integer values are accepted");
+        check(CandidateGlossPolicy.strictInteger(Long.valueOf(Long.MAX_VALUE)) == Long.MAX_VALUE,
+            "large JSON integer values retain precision");
+        expectFailure(() -> CandidateGlossPolicy.strictInteger(Double.valueOf(7.5)));
+        expectFailure(() -> CandidateGlossPolicy.strictInteger(Boolean.TRUE));
+        expectFailure(() -> CandidateGlossPolicy.strictInteger("7"));
+
         System.out.println("Android candidate gloss model: bounds, priority and stale guards passed");
     }
 
