@@ -4,6 +4,7 @@ import type {
   MobileKeyboardFeedbackClient,
 } from "./mobile-keyboard-feedback-section";
 import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface UseMobileKeyboardFeedbackOptions {
   mobile: boolean;
@@ -19,19 +20,17 @@ export function useMobileKeyboardFeedback({
 }: UseMobileKeyboardFeedbackOptions) {
   const [value, setValue] = useState<MobileKeyboardFeedback>();
   const [busy, setBusy] = useState(false);
-  const generation = useRef(0);
   const saveRunning = useRef(false);
   const mounted = useMountedRef();
+  const generation = useAsyncGeneration(client, mobile, onError);
 
   useEffect(() => {
-    const current = ++generation.current;
+    const current = generation.current;
     saveRunning.current = false;
     setBusy(false);
     if (!mobile || !client) {
       setValue(undefined);
-      return () => {
-        if (generation.current === current) generation.current++;
-      };
+      return;
     }
     void client
       .load()
@@ -42,9 +41,6 @@ export function useMobileKeyboardFeedback({
         if (mounted.current && generation.current === current)
           onError("无法读取按键反馈设置，请重试。");
       });
-    return () => {
-      if (generation.current === current) generation.current++;
-    };
   }, [client, mobile, onError, mounted]);
 
   async function save(next: MobileKeyboardFeedback) {
