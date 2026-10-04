@@ -7,6 +7,16 @@ private func letterCode(_ prefix: String, _ index: Int) -> String {
 }
 
 final class PersonalDictionaryStoreTests: XCTestCase {
+  func testTauriPagingRejectsBooleanIntegers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let request = try JSONSerialization.data(withJSONObject: [
+      "operation": "list", "offset": true, "limit": 1,
+    ])
+    XCTAssertThrowsError(try TauriPersonalDictionaryBridge.request(
+      request, store: PersonalDictionaryStore(directory: root)))
+  }
+
   func testReadRejectsASymlinkedPersonalDictionaryDirectory() throws {
     #if canImport(Darwin)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-directory-link-\(UUID().uuidString)")

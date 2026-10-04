@@ -37,6 +37,7 @@
 		0B896805E43DBC46D1337F0E /* CompositionCaretTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D2AF7D9CDAF99A50F22E7A /* CompositionCaretTests.swift */; };
 		0BC6B1DF3B24C3357B538EB8 /* BackendCandidateClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F8DF30A61A7F6604ED4032 /* BackendCandidateClient.swift */; };
 		0BD1F00F1D2A7A58E0150CB8 /* GeneratedKeyboardSkin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC587235772F54E138C05322 /* GeneratedKeyboardSkin.swift */; };
+		0C64366D8235DB74722CDF2B /* TauriPersonalDictionaryBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F9E503D2C75695EE14BD53 /* TauriPersonalDictionaryBridge.swift */; };
 		0C7581B2FA1570AE118946C6 /* GlobalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0CE1B2A79B2393496CDEF85 /* GlobalTheme.swift */; };
 		0E5748497621F9DB0A50993D /* EnglishSuggestionsPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10FD906BDEA9610C563DF699 /* EnglishSuggestionsPreference.swift */; };
 		0E5CD7B56ADA89FEFF0C41B7 /* DiagnosticLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53CF49EF428CBDDE70EB9A2F /* DiagnosticLog.swift */; };
@@ -2512,6 +2513,7 @@
 				F6D208B84BC0CB049FE90F9E /* PersonalDictionaryImport.swift in Sources */,
 				205411022BE471A14B5D492B /* PersonalDictionaryStore.swift in Sources */,
 				F68E8C5C0C8511B717605E72 /* PersonalDictionaryStoreTests.swift in Sources */,
+				0C64366D8235DB74722CDF2B /* TauriPersonalDictionaryBridge.swift in Sources */,
 				EA0FD183320D7EEBBE1BDE67 /* PersonalWordBridge.swift in Sources */,
 				806236E18B072DD8CBEECF38 /* PunctuationSettingsTests.swift in Sources */,
 				66B9A29BDCE2CE866AE53C6F /* ReplyKeyboardView.swift in Sources */,
