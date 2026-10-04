@@ -85,7 +85,10 @@ Requires:       procps
 %else
 Requires:       procps-ng
 %endif
+# openSUSE 把 hicolor-icon-theme 当作 branding 包，rpmlint 不许无版本地依赖它；那里由 filesystem 一类的包提供图标目录。
+%if !0%{?suse_version}
 Requires:       hicolor-icon-theme
+%endif
 # 语音：豆包流式识别要 websockets 15 起的同步客户端，录音要 parec、pw-cat 或 arecord 之一。没有它们语音服务照样起来，只是用到的请求失败，所以是 Recommends。
 Recommends:     python3-websockets >= 15
 %if 0%{?suse_version}
@@ -115,6 +118,10 @@ find vendor/cargo -type f -name '*.rs' -perm /111 -exec chmod a-x {} +
 %{?set_build_flags}
 export CFLAGS="${CFLAGS:-%{optflags}}" CXXFLAGS="${CXXFLAGS:-%{optflags}}"
 export CARGO_HOME="$PWD/.cargo-home" CARGO_NET_OFFLINE=true PYTHONDONTWRITEBYTECODE=1
+%if 0%{?suse_version}
+# Fedora 的 set_build_flags 会给 RUSTFLAGS 带上调试信息，openSUSE 不会；Release 配置默认又不带，find-debuginfo 就既不拆出调试信息也不剥离 Rust 编译的三个程序。只带行号表，与 debian/rules 相同。
+export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only
+%endif
 %{?_smp_build_ncpus:export CARGO_BUILD_JOBS=%{_smp_build_ncpus}}
 mkdir -p "$CARGO_HOME"
 sed 's|^directory = .*|directory = "'"$PWD"'/vendor/cargo"|' vendor/cargo-config.toml > "$CARGO_HOME/config.toml"
@@ -145,6 +152,9 @@ cmake -S platforms/linux -B build/cmake \
   -DCMAKE_INSTALL_SYSCONFDIR=%{_sysconfdir} \
   -DCMAKE_SKIP_RPATH=OFF \
   -DCMAKE_SKIP_INSTALL_RPATH=OFF \
+%if 0%{?suse_version}
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+%endif
   -DMSIME_ENABLE_PACKAGING=ON \
   -DMSIME_ENABLE_FCITX5=ON \
   -DMSIME_PACKAGE_VERSION=%{version} \
@@ -165,8 +175,14 @@ DESTDIR=%{buildroot} cmake --install build/cmake
 # CPack 的 RPM 把 Debian 维护脚本翻译后内联；这里把 CMake 由同一份模板配置出的脚本装进包里，%%post/%%preun 再按 dpkg 的参数调用，单元列表和清理逻辑只维护在 platforms/linux/cmake/deb-*.in 一处。
 install -Dm755 build/cmake/debian/postinst %{buildroot}%{_libexecdir}/msime-client/postinst
 install -Dm755 build/cmake/debian/prerm %{buildroot}%{_libexecdir}/msime-client/prerm
-# CMake 用 install(FILES) 装包内私有库，权限是 0644；find-debuginfo 只处理带可执行位的 ELF，不改就既不剥离也不拆出调试信息。
-chmod 0755 %{buildroot}%{_libdir}/msime-client/*.so
+# CMake 用 install(FILES) 装包内私有库，权限是 0644；find-debuginfo 只处理带可执行位的 ELF，不改就既不剥离也不拆出调试信息。只改本包编译的 Host API：sherpa-onnx 与 ONNX Runtime 是上游预构建库，没有 build-id，Fedora 的 find-debuginfo --strict-build-id 会因此失败，它们按原样安装。
+chmod 0755 %{buildroot}%{_libdir}/msime-client/libmsime_host_api.so
+%if 0%{?suse_version}
+# Fedora 的 brp-mangle-shebangs 会把 `#!/usr/bin/env` 改成解释器的绝对路径，openSUSE 没有这一步，rpmlint 按 env-script-interpreter 记错。只改装出去的副本，源码树里的模板保持原样（settings_launcher_contract 测试核对它）。
+for script in $(grep -lIE '^#!/usr/bin/env (python3|sh)$' %{buildroot}%{_bindir}/*); do
+  sed -i -e '1s|^#!/usr/bin/env python3$|#!/usr/bin/python3|' -e '1s|^#!/usr/bin/env sh$|#!/bin/sh|' "$script"
+done
+%endif
 
 %check
 export PYTHONDONTWRITEBYTECODE=1
