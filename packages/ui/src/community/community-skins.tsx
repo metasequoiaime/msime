@@ -40,6 +40,7 @@ import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useCommunityDetailHistory } from "./use-community-detail-history";
 import { communityPublishFields } from "./community-publish-validation";
 import {
   CommunitySkinCategoryFilter,
@@ -423,16 +424,12 @@ export function CommunitySkinsPage({
     openGallery(skin);
   };
 
-  useEffect(() => {
-    if (!mobile || typeof window === "undefined") return;
-    const onPopState = (event: PopStateEvent) => {
-      const detail = event.state?.communityDetail;
-      if (selected && !(detail?.kind === "skin" && detail.id === selected.id))
-        void closeDetail(true);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [mobile, selected, closeDetail]);
+  useCommunityDetailHistory({
+    mobile,
+    kind: "skin",
+    selectedId: selected?.id ?? null,
+    onClose: () => void closeDetail(true),
+  });
 
   const download = async () => {
     if (!selected) return;

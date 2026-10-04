@@ -46,6 +46,7 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { communityPublishFields } from "./community-publish-validation";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useCommunityDetailHistory } from "./use-community-detail-history";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type { CommunityResourceScope } from "./community-resource-scope-buttons";
@@ -661,15 +662,12 @@ export function CommunityResourcesPage({
     }
     setSelected(null);
   };
-  useEffect(() => {
-    if (!mobile || typeof window === "undefined") return;
-    const onPopState = (event: PopStateEvent) => {
-      const detail = event.state?.communityDetail;
-      if (selected && !(detail?.kind === kind && detail.id === selected.id)) setSelected(null);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [mobile, kind, selected]);
+  useCommunityDetailHistory({
+    mobile,
+    kind,
+    selectedId: selected?.id ?? null,
+    onClose: () => setSelected(null),
+  });
   if (selected)
     return (
       <ResourceDetail

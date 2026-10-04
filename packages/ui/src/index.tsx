@@ -1342,6 +1342,10 @@ export {
   type CommunityClientLifecycle,
 } from "./community/use-community-client-lifecycle";
 export {
+  useCommunityDetailHistory,
+  type CommunityDetailHistoryOptions,
+} from "./community/use-community-detail-history";
+export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
 } from "./community/community-rights-agreement";
