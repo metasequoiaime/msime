@@ -3765,13 +3765,17 @@ export function EmojiPanel({
     }
   });
   const [clipboard, setClipboard] = useState<string[]>([]);
-  const [clipboardBusy, setClipboardBusy] = useState(false);
+  const {
+    busy: clipboardBusy,
+    busyRef: clipboardMutation,
+    revisionRef: operationRevision,
+    run: runOperation,
+    invalidate,
+  } = usePanelAction(setNotice);
   const [clipboardLoadFailed, setClipboardLoadFailed] = useState(false);
   const [clipboardRefresh, setClipboardRefresh] = useState(0);
   const [activationMode, setActivationMode] = useState<"copy" | "input">("copy");
-  const operationRevision = useAsyncGeneration();
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
-  const clipboardMutation = useRef(false);
   const clipboardGeneration = useAsyncGeneration();
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
     null,
@@ -3806,31 +3810,13 @@ export function EmojiPanel({
   useEffect(() => {
     clipboardMutation.current = false;
     deletedRowFocus.current = null;
-    setClipboardBusy(false);
     setNotice("");
     return () => {
-      operationRevision.current++;
+      invalidate();
       if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
       noticeTimer.current = null;
     };
-  }, [client]);
-
-  async function runOperation(action: (revision: number) => Promise<void>, failure: string) {
-    if (clipboardMutation.current) return;
-    const revision = ++operationRevision.current;
-    clipboardMutation.current = true;
-    setClipboardBusy(true);
-    try {
-      await action(revision);
-    } catch {
-      if (revision === operationRevision.current) setNotice(failure);
-    } finally {
-      if (revision === operationRevision.current) {
-        clipboardMutation.current = false;
-        setClipboardBusy(false);
-      }
-    }
-  }
+  }, [client, invalidate]);
 
   useEffect(() => {
     try {
