@@ -27,6 +27,7 @@ import {
   LocalModelPlan
 } from '../keyboard/input/LocalAsrPolicy';
 import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
 import { utf8Length } from '../keyboard/Utf8';
 
 /**
@@ -70,29 +71,18 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
   workerPort.postMessage(message);
 }
 
-const TEXT_READ_CHUNK_BYTES: number = 64 * 1024;
+const textReaderApi: LocalAsrTextReaderApi = {
+  open: (path: string, mode: number): { fd: number } => {
+    const file: fs.File = fs.openSync(path, mode);
+    return { fd: file.fd };
+  },
+  read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
+  close: (file: { fd: number }): void => fs.closeSync(file.fd),
+  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
+};
 
-/** Read only the bounded text prefix the worker needs, without an unbounded readTextSync allocation. */
 function readText(path: string, maximumBytes: number): string {
-  let file: fs.File | undefined = undefined;
-  try {
-    file = fs.openSync(path, fs.OpenMode.READ_ONLY);
-    const bytes: Uint8Array = new Uint8Array(maximumBytes + 1);
-    let total: number = 0;
-    while (total < bytes.length) {
-      const size: number = Math.min(TEXT_READ_CHUNK_BYTES, bytes.length - total);
-      const chunk: ArrayBuffer = new ArrayBuffer(size);
-      const count: number = fs.readSync(file.fd, chunk);
-      if (count < 0 || count > size) throw new Error('本地语音模型文本文件读取失败');
-      if (count === 0) break;
-      bytes.set(new Uint8Array(chunk, 0, count), total);
-      total += count;
-      if (total > maximumBytes) throw new Error('本地语音模型文本文件过大');
-    }
-    return util.TextDecoder.create('utf-8').decode(new Uint8Array(bytes.buffer, 0, total));
-  } finally {
-    if (file !== undefined) fs.closeSync(file);
-  }
+  return LocalAsrTextReader.read(path, maximumBytes, textReaderApi, fs.OpenMode.READ_ONLY);
 }
 
 function lookup(path: string, follow: boolean): PathTrustStat | null {

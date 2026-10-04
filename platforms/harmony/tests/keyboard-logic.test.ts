@@ -16,6 +16,7 @@ import {
   LocalAsrPathTrust,
   PathTrustStat,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPathTrust";
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -12356,6 +12357,45 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
     "spaces around CJK marks, inside initialisms and at the ends go",
   );
+});
+
+group("LocalAsrTextReader", () => {
+  const opened: { fd: number }[] = [];
+  const chunks: Uint8Array[] = [new TextEncoder().encode("model")];
+  const api: LocalAsrTextReaderApi = {
+    open: () => {
+      const file = { fd: 7 };
+      opened.push(file);
+      return file;
+    },
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      const chunk: Uint8Array | undefined = chunks.shift();
+      if (chunk === undefined) return 0;
+      new Uint8Array(buffer).set(chunk);
+      return chunk.length;
+    },
+    close: (file: { fd: number }): void => {
+      opened.splice(opened.indexOf(file), 1);
+    },
+    decode: (bytes: Uint8Array): string => new TextDecoder().decode(bytes),
+  };
+  check(LocalAsrTextReader.read("/model.txt", 16, api, 0) === "model", "reads a short model text file");
+  check(opened.length === 0, "closes the model text file after reading");
+
+  const oversized: LocalAsrTextReaderApi = {
+    ...api,
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      new Uint8Array(buffer).fill(65);
+      return buffer.byteLength;
+    },
+  };
+  let refused = false;
+  try {
+    LocalAsrTextReader.read("/large.txt", 16, oversized, 0);
+  } catch (error) {
+    refused = true;
+  }
+  check(refused && opened.length === 0, "refuses an oversized model text file and closes it");
 });
 
 group("PcmFrameSlicer", () => {
