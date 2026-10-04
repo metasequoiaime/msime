@@ -16,11 +16,11 @@ inherit cargo cmake optfeature python-single-r1 xdg
 
 DESCRIPTION="Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus"
 HOMEPAGE="https://github.com/metasequoiaime/msime"
-# 桌面二进制嵌入的前端（apps/desktop/dist）与它打进去的 npm 包的许可证由发布流程构建并附在 linux-v${PV} 发布里：Portage 构建时不联网，pnpm 依赖无法像 crate 那样逐个列进 SRC_URI。
+# 桌面二进制嵌入的前端（apps/desktop/dist）与它打进去的 npm 包的许可证取自 linux-v${PV} 发布附带的 ${P}-frontend.tar.xz（由 platforms/linux/packaging/make-source-tarballs.sh 生成，与 RPM、Debian 源码包 vendor 包里的前端是同一次构建）：Portage 构建时不联网，pnpm 依赖无法像 crate 那样逐个列进 SRC_URI。
 # 随包资源的文件名带上锁文件里 SHA-256 的前缀，锁更新后同名文件不会与旧版本的 Manifest 冲突。
 SRC_URI="
 	https://github.com/metasequoiaime/msime/archive/refs/tags/linux-v${PV}.tar.gz -> ${P}.tar.gz
-	https://github.com/metasequoiaime/msime/releases/download/linux-v${PV}/msime-linux-${PV}-desktop-frontend.tar.xz
+	https://github.com/metasequoiaime/msime/releases/download/linux-v${PV}/${P}-frontend.tar.xz
 	${CARGO_CRATE_URIS}
 @RESOURCE_SRC_URI@
 "
@@ -118,7 +118,7 @@ src_unpack() {
 }
 
 src_prepare() {
-	local frontend="${WORKDIR}/msime-linux-${PV}-desktop-frontend"
+	local frontend="${WORKDIR}/${P}-frontend"
 	cp -r "${frontend}/dist" apps/desktop/dist || die
 	mkdir -p "${WORKDIR}/notices" || die
 	cp "${frontend}/frontend-npm-NOTICES.txt" "${WORKDIR}/notices/" || die
@@ -160,6 +160,7 @@ src_compile() {
 	# MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全），不跑 CPack。
 	local mycmakeargs=(
 		-DBUILD_TESTING=$(usex test)
+		-DMSIME_EDITION=full
 		-DMSIME_ENABLE_PACKAGING=ON
 		-DMSIME_ENABLE_FCITX5=$(usex fcitx5)
 		-DMSIME_PACKAGE_VERSION="${PV}"

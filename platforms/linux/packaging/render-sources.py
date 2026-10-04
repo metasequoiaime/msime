@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SPEC = HERE / "msime.spec"
+SPEC = HERE / "rpm" / "msime.spec"
 MAINTAINER = "Metasequoia IME <metasequoiaime@gmail.com>"
 
 

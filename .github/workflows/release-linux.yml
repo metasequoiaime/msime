@@ -110,23 +110,67 @@ jobs:
           name: msime-linux-rpm-${{ steps.version.outputs.value }}
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
+  # 发行版源码构建（COPR、OBS、PPA、AUR 的 msime 与 Gentoo）要的 tarball：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
+  distro-sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - id: version
+        env: {REQUESTED: "${{ inputs.version }}"}
+        run: |
+          version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+      # 文件名都用 .tar.xz：应用内更新检查在发布里按包名挑 .deb，没有时找 .tar.gz，不能让它们混进去。
+      - name: Build distro source tarballs
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        run: |
+          corepack enable
+          bash platforms/linux/packaging/make-source-tarballs.sh "$VERSION" target/distro-sources
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-linux-sources-${{ steps.version.outputs.value }}
+          path: target/distro-sources/
+          if-no-files-found: error
   publish:
-    needs: [deb, rpm]
+    needs: [deb, rpm, distro-sources]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
+      # 只取要发布的三个产物（msime-linux-deb/rpm/sources-VERSION）。
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with: {path: dist, merge-multiple: true}
+        with:
+          pattern: msime-linux-*-${{ needs.deb.outputs.version }}
+          path: dist
+          merge-multiple: true
       # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
       - name: Publish independent Linux release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
           # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
-          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz > SHA256SUMS)
+          (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
           start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
           tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           python3 scripts/generate-release-notes.py --platform linux --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+  # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页地址取文件，SHA256SUMS 也以发布页上的为准。
+  package-definitions:
+    needs: [deb, publish]
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Render package manager definitions
+        env: {VERSION: "${{ needs.deb.outputs.version }}"}
+        run: bash platforms/linux/packaging/render-definitions.sh "$VERSION" target/package-definitions
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-package-definitions-linux-${{ needs.deb.outputs.version }}
+          path: target/package-definitions/
+          include-hidden-files: true
+          if-no-files-found: error

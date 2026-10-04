@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生成发行版源码包（Fedora COPR、openSUSE OBS 的 RPM 与 Launchpad PPA 的 Debian 源码包）离线构建所需的两个 tarball，随 linux-vVERSION 发布一起上传。
+# 生成各发行版源码包离线构建所需的 tarball，随 linux-vVERSION 发布一起上传：Fedora COPR、openSUSE OBS 的 RPM 与 Launchpad PPA 的 Debian 源码包用前两个，AUR 的 msime 与 Gentoo 的版本 ebuild 用源码 tarball 和前端 tarball。
 #
 # 这些构建农场在构建时都没有网络，而完整版要的东西有一半不在仓库里：Cargo 依赖、由 pnpm 构建并嵌进设置窗口的前端，以及 package-container.sh 构建时下载的语音运行库、手写模型、离线释义和方言词库。这里把它们一次取齐：
 #
@@ -11,12 +11,13 @@
 #     frontend/frontend-npm-NOTICES.txt  collect-notices.py npm 的输出，构建时没有 node_modules 可走。
 #     voice-runtime/linux-x86_64/.archive/、voice-runtime/linux-aarch64/.archive/  按 resources/voice-runtime.lock.json 下载的原始归档。
 #     handwriting-model/、offline-glosses/、language-dictionaries/  各自 fetch 脚本按锁文件取回的文件。
+#   msime-VERSION-frontend.tar.xz  顶层目录 msime-VERSION-frontend/，只有上面 frontend/ 的内容（dist/ 与 frontend-npm-NOTICES.txt）。Gentoo 的 crate 逐个列在 SRC_URI 里、资源按锁文件地址下载，不需要整个 vendor 包，但 pnpm 依赖没法逐个列出，前端只能取这份构建好的。
 #
 # 数据一律经仓库自己的 fetch 脚本取得，构建时再用同一批脚本对着源码树里的锁文件跑一遍：文件已在锁定的摘要上就不联网，对不上就去下载，而构建农场没有网络，于是 vendor 包与源码不一致时构建直接失败。这样哈希只记在锁文件一处，规格文件和 debian/ 里都不另抄一份。语音运行库只留下原始归档，解出的库由构建时的那次 fetch 从归档重新解出。
 #
-# 用法：platforms/linux/packaging/rpm/make-source-tarballs.sh VERSION OUTDIR
+# 用法：platforms/linux/packaging/make-source-tarballs.sh VERSION OUTDIR
 #   需要网络，以及 git、cargo、corepack（pnpm）、python3、GNU tar 和 xz。在仓库检出里运行，打包的是 HEAD 已提交的内容。
-#   最后打印两个文件的 SHA-256。
+#   最后打印三个文件的 SHA-256。
 set -euo pipefail
 
 if [ $# -ne 2 ]; then
@@ -28,7 +29,7 @@ version=$1
   echo "version must be MAJOR.MINOR.PATCH: $version" >&2
   exit 2
 }
-repo_root=$(cd "$(dirname "$0")/../../../.." && pwd)
+repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
 cd "$repo_root"
@@ -76,4 +77,9 @@ python3 scripts/fetch_language_dictionaries.py --out "$vendor/language-dictionar
 tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
   -C "$stage" -cf - "$name-vendor" | xz -T0 -9 > "$out/$name-vendor.tar.xz"
 
-(cd "$out" && sha256sum -- "$name.tar.xz" "$name-vendor.tar.xz")
+mkdir -p "$stage/$name-frontend"
+cp -a "$vendor/frontend/." "$stage/$name-frontend/"
+tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+  -C "$stage" -cf - "$name-frontend" | xz -T0 -9 > "$out/$name-frontend.tar.xz"
+
+(cd "$out" && sha256sum -- "$name.tar.xz" "$name-vendor.tar.xz" "$name-frontend.tar.xz")
