@@ -135,17 +135,26 @@ fn row_count(connection: &Connection, table: &str) -> Result<i64> {
     )
 }
 
-/// Split the Wubi tables out of the pinyin working database. The build stages share one
-/// connection so custom-word checks and n-gram weighting see the complete source, then the
-/// immutable Wubi resource is written separately before the release manifest is produced.
+/// 把五笔码表从拼音工作库拆进单独发布的 `msime-wubi.db`。各阶段共用 `msime-pinyin.db` 一个连接，自定义词检查与 n-gram 权重看到的是完整来源，产品检查与清单之前再拆出只读的五笔资源。只搬这次构建在拼音库里留下的表：`--only`/`--skip` 只跑部分阶段、或拼音库已经拆过时，拼音库里没有五笔表，`msime-wubi.db` 里已有的表原样保留；拼音库不存在时什么也不做。
 pub fn split_wubi_database(out: &Path) -> Result<()> {
     let pinyin_path = out.join("msime-pinyin.db");
-    let wubi_path = out.join("msime-wubi.db");
+    if !pinyin_path.is_file() {
+        return Ok(());
+    }
     let pinyin = Connection::open_with_flags(&pinyin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mut tables = Vec::new();
     for name in ["wubi86", "wubi98"] {
+        let present: bool = pinyin.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [name],
+            |row| row.get(0),
+        )?;
+        if !present {
+            continue;
+        }
+        // 按 rowid 读写：运行时反查五笔编码以 rowid 作最后的排序键，拆分前后顺序要一致。
         let mut statement = pinyin.prepare(&format!(
-            "SELECT \"key\", \"value\", \"weight\" FROM {name}"
+            "SELECT \"key\", \"value\", \"weight\" FROM {name} ORDER BY rowid"
         ))?;
         let rows = statement
             .query_map([], |row| {
@@ -159,14 +168,17 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
         tables.push((name, rows));
     }
     drop(pinyin);
+    if tables.is_empty() {
+        return Ok(());
+    }
 
-    let mut wubi = Connection::open(&wubi_path)?;
+    let mut wubi = Connection::open(out.join("msime-wubi.db"))?;
     wubi.execute_batch("PRAGMA journal_mode=delete; PRAGMA synchronous=off;")?;
     let transaction = wubi.transaction()?;
-    transaction.execute_batch(
-        "DROP TABLE IF EXISTS wubi86; DROP TABLE IF EXISTS wubi98; CREATE TABLE wubi86 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC); CREATE TABLE wubi98 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC);",
-    )?;
     for (name, rows) in &tables {
+        transaction.execute_batch(&format!(
+            "DROP TABLE IF EXISTS {name}; CREATE TABLE {name} (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_{name}_key_weight ON {name}(\"key\", \"weight\" DESC);"
+        ))?;
         let mut insert = transaction.prepare(&format!(
             "INSERT INTO {name} (\"key\", \"value\", \"weight\") VALUES (?, ?, ?)"
         ))?;
@@ -176,13 +188,14 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
     }
     transaction.commit()?;
     crate::sqlite::analyze(&wubi, true)?;
+    crate::sqlite::integrity_check(&wubi)?;
     drop(wubi);
 
     let pinyin = Connection::open(&pinyin_path)?;
-    pinyin.execute_batch("DROP TABLE IF EXISTS wubi86; DROP TABLE IF EXISTS wubi98;")?;
+    for (name, _) in &tables {
+        pinyin.execute_batch(&format!("DROP TABLE {name};"))?;
+    }
     crate::sqlite::integrity_check(&pinyin)?;
-    let wubi = Connection::open_with_flags(&wubi_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    crate::sqlite::integrity_check(&wubi)?;
     Ok(())
 }
 
@@ -373,5 +386,54 @@ mod tests {
             .unwrap(),
             "乙"
         );
+    }
+
+    /// 只跑部分阶段时拼音库里没有、或只有一部分五笔表：已拆出的表原样保留，这次重建的表整张替换，顺序按原 rowid；输出目录里还没有拼音库时不报错。
+    #[test]
+    fn split_wubi_keeps_tables_this_build_did_not_rebuild() {
+        let directory = tempfile::tempdir().unwrap();
+        split_wubi_database(directory.path()).unwrap();
+        assert!(!directory.path().join("msime-wubi.db").exists());
+
+        let pinyin_path = directory.path().join("msime-pinyin.db");
+        Connection::open(&pinyin_path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER); CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER); CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER); INSERT INTO wubi86 VALUES('aaa','甲',10); INSERT INTO wubi98 VALUES('bbb','乙',20);",
+            )
+            .unwrap();
+        split_wubi_database(directory.path()).unwrap();
+        // 再跑一次（例如 `--only emoji`）：拼音库里已经没有五笔表，什么都不变。
+        split_wubi_database(directory.path()).unwrap();
+
+        // `--only wubi` 只重建了 86 表：它被替换，98 表保留。
+        Connection::open(&pinyin_path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER); INSERT INTO wubi86(rowid,key,value,weight) VALUES(9,'ccc','丙',5),(2,'ddd','丁',5);",
+            )
+            .unwrap();
+        split_wubi_database(directory.path()).unwrap();
+
+        let wubi = Connection::open(directory.path().join("msime-wubi.db")).unwrap();
+        let values = |table: &str| -> Vec<String> {
+            wubi.prepare(&format!("SELECT value FROM {table} ORDER BY rowid"))
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<rusqlite::Result<_>>()
+                .unwrap()
+        };
+        assert_eq!(values("wubi86"), ["丁", "丙"]);
+        assert_eq!(values("wubi98"), ["乙"]);
+        let left: i64 = Connection::open(&pinyin_path)
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'wubi%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 }
