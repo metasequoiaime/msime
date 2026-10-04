@@ -345,11 +345,14 @@ public final class CommunityCatalog {
         Object raw = value.opt(primary);
         if ((raw == null || raw == JSONObject.NULL) && fallback != null) raw = value.opt(fallback);
         if (raw == null || raw == JSONObject.NULL) return 0L;
+        return countNumber(raw);
+    }
+
+    static Long countNumber(Object raw) {
         if (!(raw instanceof Number number)) return null;
-        double decimal = number.doubleValue();
+        if (!(raw instanceof Integer) && !(raw instanceof Long)) return null;
         long integer = number.longValue();
-        return Double.isFinite(decimal) && decimal >= 0 && decimal == integer
-            && integer <= MAX_JAVASCRIPT_INTEGER ? integer : null;
+        return integer >= 0 && integer <= MAX_JAVASCRIPT_INTEGER ? integer : null;
     }
 
     private static Double decimal(JSONObject value, String key) {

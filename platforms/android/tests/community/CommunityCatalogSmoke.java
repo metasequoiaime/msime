@@ -63,6 +63,17 @@ public final class CommunityCatalogSmoke {
             "community boolean fields accept booleans");
         check(strictBoolean.invoke(null, "true") == null,
             "community boolean fields reject strings instead of coercing them");
+        Method countNumber = CommunityCatalog.class.getDeclaredMethod("countNumber", Object.class);
+        countNumber.setAccessible(true);
+        check(Long.valueOf(9_007_199_254_740_991L).equals(
+                countNumber.invoke(null, Long.valueOf(9_007_199_254_740_991L))),
+            "community counts retain the largest JavaScript integer");
+        check(Long.valueOf(42L).equals(countNumber.invoke(null, Integer.valueOf(42))),
+            "community counts accept ordinary JSON integers");
+        check(countNumber.invoke(null, Double.valueOf(42.0)) == null,
+            "a JSON decimal is not an integer count");
+        check(countNumber.invoke(null, Double.valueOf("9007199254740991.1")) == null,
+            "a large fractional count cannot pass after Double rounding");
         Method setCategory = CommunityCatalog.class.getDeclaredMethod(
             "setCategory", CommunityCatalog.Item.class, CommunityRequest.Category.class);
         java.lang.reflect.Field unsafeField = Class.forName("sun.misc.Unsafe")
