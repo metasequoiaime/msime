@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 enum KeyboardLayoutPreference {
   static var defaults: UserDefaults { UserDefaults(suiteName: InputSchemePreference.appGroupIdentifier) ?? .standard }
@@ -79,9 +80,34 @@ enum KeyboardLayoutPreference {
     set { defaults.set(newValue, forKey: tabletFullKeysKey) }
   }
   static var geometry: KeyboardGeometry { KeyboardGeometry(keySpacing: keySpacing, rowSpacing: rowSpacing) }
+
+  /// Values from the canonical document are integer tenths/points. Reject booleans and fractions before clamping so malformed synced data cannot silently become a valid geometry setting.
+  static func sharedKeySpacing(_ value: Any?) -> Double? {
+    guard let integer = strictInteger(value) else { return nil }
+    return min(6, max(3, Double(integer) / 10))
+  }
+
+  static func sharedRowSpacing(_ value: Any?) -> Double? {
+    guard let integer = strictInteger(value) else { return nil }
+    return min(10, max(4, Double(integer) / 10))
+  }
+
+  static func sharedHeightAdjustment(_ value: Any?) -> Double? {
+    guard let integer = strictInteger(value) else { return nil }
+    return Double(min(48, max(-12, integer)))
+  }
+
   private static func spacing(key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
     guard let value = defaults.object(forKey: key) as? NSNumber, value.doubleValue.isFinite else { return fallback }
     return min(range.upperBound, max(range.lowerBound, value.doubleValue))
+  }
+
+  private static func strictInteger(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 }
 

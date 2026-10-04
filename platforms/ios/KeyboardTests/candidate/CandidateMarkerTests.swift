@@ -12,6 +12,11 @@ final class CandidateMarkerTests: XCTestCase {
       "generation": 4, "preedit": "ni",
       "candidates": [["text": "你", "id": ["generation": 4, "index": 0.5]]],
     ]))
+    let oversized = NSNumber(value: 1e40)
+    XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
+      "generation": oversized, "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": oversized, "index": 0]]],
+    ]))
   }
 
   func testCandidateSnapshotRejectsFractionalMarkerMetadata() {

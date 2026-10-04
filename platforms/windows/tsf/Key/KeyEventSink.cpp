@@ -49,6 +49,8 @@ struct DeferredShadowState
     size_t caret = 0;
     bool candidateActive = false;
     bool unicodeMode = false;
+    // 网址模式由触发键进入后一直保持，不从缓冲前缀推断，规则与 CCompositionProcessorEngine::IsUrlModeComposition 相同。
+    bool urlMode = false;
     // Korean and Zhuyin: whether the composition's list is open once the keys ahead have run (see project_korean_hanja_key).
     bool koreanHanjaListOpen = false;
     bool projectionValid = true;
@@ -84,6 +86,7 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = 0;
         shadow.candidateActive = false;
         shadow.unicodeMode = false;
+        shadow.urlMode = false;
         shadow.koreanHanjaListOpen = false;
     };
 
@@ -106,11 +109,19 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.rawInput.size() < MAX_PINYIN_LENGTH && wch != L'\0')
         {
+            // 与 AddVirtualKey 一致：网址模式里的 `'` 是网址字符，连续的也不合并。
             const bool duplicateSeparator =
-                wch == L'\'' && ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
-                                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
+                wch == L'\'' && !shadow.urlMode &&
+                ((shadow.caret > 0 && shadow.rawInput[shadow.caret - 1] == L'\'') ||
+                 (shadow.caret < shadow.rawInput.size() && shadow.rawInput[shadow.caret] == L'\''));
             if (!duplicateSeparator)
             {
+                shadow.urlMode =
+                    shadow.urlMode ||
+                    Global::OpensUrlMode(
+                        shadow.rawInput.c_str(), shadow.rawInput.size(), shadow.caret, wch,
+                        msime::windows::scheme::DetectsUrls(Global::InputModeScheme.load(std::memory_order_relaxed)),
+                        Global::DedicatedEnglish.active(GetTickCount64()));
                 shadow.rawInput.insert(shadow.caret, 1, wch);
                 ++shadow.caret;
             }
@@ -125,14 +136,18 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.inputLength = shadow.rawInput.size();
         shadow.candidateActive = false;
         shadow.unicodeMode = (wch == L'U');
+        shadow.urlMode = false;
         shadow.koreanHanjaListOpen = false;
         break;
     case FUNCTION_BACKSPACE:
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.caret > 0)
         {
+            const WCHAR removed = shadow.rawInput[shadow.caret - 1];
             shadow.rawInput.erase(shadow.caret - 1, 1);
             --shadow.caret;
+            shadow.urlMode =
+                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
@@ -167,7 +182,10 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
         shadow.caret = min(shadow.caret, shadow.rawInput.size());
         if (shadow.caret < shadow.rawInput.size())
         {
+            const WCHAR removed = shadow.rawInput[shadow.caret];
             shadow.rawInput.erase(shadow.caret, 1);
+            shadow.urlMode =
+                Global::UrlModeAfterDeletion(shadow.urlMode, shadow.rawInput.c_str(), shadow.rawInput.size(), removed);
         }
         shadow.inputLength = shadow.rawInput.size();
         if (shadow.inputLength == 0)
@@ -1276,6 +1294,8 @@ void CMetasequoiaIME::_EnsureDeferredKeyProjection()
     _deferredProjectedCandidateActive = _candidateMode == CANDIDATE_ORIGINAL;
     _deferredProjectedUnicodeMode =
         _pCompositionProcessorEngine && _pCompositionProcessorEngine->IsUnicodeModeComposition() != FALSE;
+    _deferredProjectedUrlMode =
+        _pCompositionProcessorEngine && _pCompositionProcessorEngine->IsUrlModeComposition() != FALSE;
     _deferredProjectedKoreanHanjaListOpen =
         msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
         _IsKoreanHanjaListOpen();
@@ -1293,6 +1313,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     shadow.caret = _deferredProjectedCaret;
     shadow.candidateActive = _deferredProjectedCandidateActive;
     shadow.unicodeMode = _deferredProjectedUnicodeMode;
+    shadow.urlMode = _deferredProjectedUrlMode;
     shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
     ApplyDeferredKeyState(shadow, keyState, wch, code);
     if (!shadow.projectionValid)
@@ -1303,6 +1324,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         return;
     }
@@ -1311,6 +1333,7 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     _deferredProjectedCaret = shadow.caret;
     _deferredProjectedCandidateActive = shadow.candidateActive;
     _deferredProjectedUnicodeMode = shadow.unicodeMode;
+    _deferredProjectedUrlMode = shadow.urlMode;
     _deferredProjectedKoreanHanjaListOpen = shadow.koreanHanjaListOpen;
     if (keyState.Function == FUNCTION_BACKSPACE && shadow.inputLength == 0)
         _backspaceHoldArmed = true;
@@ -1334,6 +1357,7 @@ void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(REFGUID preservedKey)
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         break;
     case CCompositionProcessorEngine::PreservedKeyAction::ToggleDoubleSingleByteMode:
@@ -1535,6 +1559,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         shadow.caret = _deferredProjectedCaret;
         shadow.candidateActive = _deferredProjectedCandidateActive;
         shadow.unicodeMode = _deferredProjectedUnicodeMode;
+        shadow.urlMode = _deferredProjectedUrlMode;
         shadow.koreanHanjaListOpen = _deferredProjectedKoreanHanjaListOpen;
     }
     else
@@ -1554,6 +1579,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             min(static_cast<size_t>(_pCompositionProcessorEngine->GetCaretPosition()), shadow.rawInput.size());
         shadow.candidateActive = _candidateMode == CANDIDATE_ORIGINAL;
         shadow.unicodeMode = _pCompositionProcessorEngine->IsUnicodeModeComposition() != FALSE;
+        shadow.urlMode = _pCompositionProcessorEngine->IsUrlModeComposition() != FALSE;
         shadow.koreanHanjaListOpen =
             msime::windows::scheme::OpensCandidateList(Global::InputModeScheme.load(std::memory_order_relaxed)) &&
             _IsKoreanHanjaListOpen();
@@ -1686,7 +1712,7 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         if (Global::IsExpressionModeComposition(shadow.rawInput.c_str(), shadow.rawInput.size(),
                                                 Global::ExpressionModeEnabled.load(std::memory_order_relaxed)))
         {
-            switch (Global::ClassifyExpressionKey(*classifiedCode, *classifiedWch))
+            switch (Global::ClassifyModeKey(Global::ExpressionSpellingSymbols, *classifiedCode, *classifiedWch))
             {
             case Global::ExpressionKey::Input:
                 return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
@@ -1695,6 +1721,25 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             case Global::ExpressionKey::Unclaimed:
                 break;
             }
+        }
+        // 与普通路径一致：触发词后的触发键打开网址模式，之后网址的数字和符号排在翻页、标点和数字选词之前作为输入。
+        const bool detectsUrls = msime::windows::scheme::DetectsUrls(scheme);
+        if (shadow.urlMode)
+        {
+            switch (Global::ClassifyModeKey(Global::UrlSpellingSymbols, *classifiedCode, *classifiedWch))
+            {
+            case Global::ExpressionKey::Input:
+                return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
+            case Global::ExpressionKey::SelectByNumber:
+                return setKeyState(CATEGORY_CANDIDATE, FUNCTION_SELECT_BY_NUMBER);
+            case Global::ExpressionKey::Unclaimed:
+                break;
+            }
+        }
+        else if (Global::OpensUrlMode(shadow.rawInput.c_str(), shadow.rawInput.size(), shadow.caret, *classifiedWch,
+                                      detectsUrls, Global::DedicatedEnglish.active(GetTickCount64())))
+        {
+            return setKeyState(CATEGORY_COMPOSING, FUNCTION_INPUT);
         }
         const bool candidateKey = shadow.candidateActive;
         switch (*classifiedCode)
@@ -2100,6 +2145,7 @@ void CMetasequoiaIME::_ClearDeferredKeyDowns()
     _deferredProjectedCaret = 0;
     _deferredProjectedCandidateActive = false;
     _deferredProjectedUnicodeMode = false;
+    _deferredProjectedUrlMode = false;
     _deferredProjectedKoreanHanjaListOpen = false;
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
@@ -2132,6 +2178,7 @@ void CMetasequoiaIME::_CompleteDeferredKeyReplay(uint64_t replayToken)
         _deferredProjectedCaret = 0;
         _deferredProjectedCandidateActive = false;
         _deferredProjectedUnicodeMode = false;
+        _deferredProjectedUrlMode = false;
         _deferredProjectedKoreanHanjaListOpen = false;
         (void)_RefreshDeferredRecoveryPrefix(context);
         _deferredKeyInFlight = {};

@@ -49,7 +49,7 @@ public final class AccountSessionProvider extends ContentProvider {
             case LEGACY_READ_ONLY -> {
                 String token = AccountSessionRoutingPolicy.legacyToken(
                     legacy.getJSONObject("tokens").optString("access_token", ""),
-                    legacy.optLong("expires_at_unix_ms", 0), System.currentTimeMillis());
+                    AccountTokenPolicy.strictLong(legacy.opt("expires_at_unix_ms"), 0), System.currentTimeMillis());
                 // Still signed in, but only the Rust client may refresh this session, and it does so when the app runs; say "not now" rather than "signed out".
                 if (token.isEmpty()) throw new IllegalStateException("account session needs the app");
                 yield token;

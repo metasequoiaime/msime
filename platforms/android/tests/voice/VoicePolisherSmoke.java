@@ -1,4 +1,5 @@
 import app.msime.android.VoicePolisher;
+import java.lang.reflect.Method;
 import java.util.Map;
 
 /** Cancellation is checked before opening a network connection. */
@@ -23,6 +24,17 @@ public final class VoicePolisherSmoke {
         check("Bearer fixture-token".equals(compatible.get("Authorization"))
                 && !compatible.containsKey("x-api-key"),
             "OpenAI-compatible polishing keeps bearer authentication");
+        Method content;
+        try {
+            content = VoicePolisher.class.getDeclaredMethod("strictContent", Object.class);
+            content.setAccessible(true);
+            check("polished".equals(content.invoke(null, "polished")),
+                "voice polish accepts string content");
+            check("".equals(content.invoke(null, 42)),
+                "voice polish rejects numeric content instead of coercing it");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("voice polish response parser unavailable", error);
+        }
         System.out.println("Android voice polisher cancellation passed");
     }
 }

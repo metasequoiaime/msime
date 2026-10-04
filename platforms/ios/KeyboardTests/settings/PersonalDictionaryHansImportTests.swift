@@ -113,6 +113,14 @@ final class PersonalDictionaryHansImportTests: XCTestCase {
     }) { XCTAssertEqual($0.localizedDescription, "键盘词典暂时无法读取，请稍后再试。") }
   }
 
+  func testImportNoticeIgnoresNonIntegerFailureMetadata() {
+    let report: [String: Any] = [
+      "failed": 1.5,
+      "first_failures": [["line": true]],
+    ]
+    XCTAssertEqual(PersonalDictionaryImport.notice(report), "")
+  }
+
   func testEditedWeightIsQueuedAsWritten() throws {
     XCTAssertEqual(PersonalWord.weightRange, 1...100_000_000)
     XCTAssertEqual(PersonalWord(key: "ni hao", value: "你好").weight, PersonalWord.defaultWeight)

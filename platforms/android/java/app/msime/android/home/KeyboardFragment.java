@@ -18,6 +18,7 @@ import android.widget.LinearLayout;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.InputFeatureToggle;
+import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
@@ -379,7 +380,7 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     private String keysSummary(@Nullable JSONObject preferences) {
         if (preferences == null) return !loaded ? "读取中…" : prepared ? "读取失败" : "尚未准备";
-        int height = preferences.optInt("touch_keyboard_height_adjustment", 0);
+        int height = KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", 0);
         return height == 0 ? "标准高度" : "高度 " + (height > 0 ? "+" : "") + height;
     }
 

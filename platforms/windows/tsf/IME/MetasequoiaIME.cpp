@@ -488,6 +488,7 @@ CMetasequoiaIME::CMetasequoiaIME()
     _deferredProjectedCaret = 0;
     _deferredProjectedCandidateActive = false;
     _deferredProjectedUnicodeMode = false;
+    _deferredProjectedUrlMode = false;
     _deferredProjectedKoreanHanjaListOpen = false;
     _deferredKeyFocusGeneration = 1;
     _deferredKeyDrainPosted = false;

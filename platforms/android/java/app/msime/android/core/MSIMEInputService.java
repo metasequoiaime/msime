@@ -1295,19 +1295,20 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 共享的 `candidate_layout` 是桌面候选窗的横排/竖排，默认竖排；触屏候选条只有一行高，竖排时每个候选占满整行往下排，一屏只露出第一个。和 iOS 一样，触屏键盘始终横排，更多候选在展开面板里看。
         candidateHorizontal = true;
-        candidateFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        candidateFontSize = CandidateAppearance.fontSize(
+            KeyboardGeometry.strictInt(preferences, "candidate_font_size", 16));
         candidatePreeditFontSize = CandidateAppearance.fontSize(
-            preferences.optInt("candidate_preedit_font_size", candidateFontSize));
+            KeyboardGeometry.strictInt(preferences, "candidate_preedit_font_size", candidateFontSize));
     }
 
     private void applyTouchGeometry(JSONObject preferences) {
         touchKeySpacingTenths = KeyboardGeometry.keySpacing(preferences == null ? -1
-            : preferences.optInt("touch_key_spacing_tenths", -1));
+            : KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
-            : preferences.optInt("touch_row_spacing_tenths", -1));
+            : KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
         touchKeyboardHeightAdjustment = KeyboardGeometry.heightAdjustment(preferences == null
-            ? Integer.MIN_VALUE : preferences.optInt("touch_keyboard_height_adjustment",
-                Integer.MIN_VALUE));
+            ? Integer.MIN_VALUE : KeyboardGeometry.strictInt(preferences,
+                "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
     }
@@ -1528,15 +1529,16 @@ public final class MSIMEInputService extends InputMethodService {
         CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
             preferences, surfaceSkin(preferences, "candidate_theme"));
         boolean nextHorizontal = true;
-        int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        int nextFontSize = CandidateAppearance.fontSize(
+            KeyboardGeometry.strictInt(preferences, "candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
-            preferences.optInt("candidate_preedit_font_size", nextFontSize));
+            KeyboardGeometry.strictInt(preferences, "candidate_preedit_font_size", nextFontSize));
         int nextKeySpacing = KeyboardGeometry.keySpacing(
-            preferences.optInt("touch_key_spacing_tenths", -1));
+            KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
-            preferences.optInt("touch_row_spacing_tenths", -1));
+            KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
         int nextHeightAdjustment = KeyboardGeometry.heightAdjustment(
-            preferences.optInt("touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+            KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -2198,7 +2200,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject aiQuery = new JSONObject(aiDocument);
             JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
             int limit = OnlineCandidatePolicy.aiCandidateLimit(
-                aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
+                aiAssistant == null ? 0 : KeyboardGeometry.strictInt(aiAssistant, "candidate_limit", 0));
             if (!requestsAi(aiQuery) || limit == 0) {
                 aiComplete = true;
                 return;
@@ -3050,12 +3052,19 @@ public final class MSIMEInputService extends InputMethodService {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
         }
-        // Shift belongs to the policy rather than to this condition: which face of the number row
-        // picks a candidate depends on the local mode, because in U mode the plain digits are the
-        // code point and the pick moves to the shifted face.
+        // 组字中或本地模式里 Engine 列为拼写的字符是输入，要在数字选词、翻页键和标点之前送给 Engine：网址模式的 `.` `=` 和数字、`www` 之后的 `.`、V 模式的运算符。
+        if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
+                && !event.isMetaPressed() && NumberRowSelectionPolicy.engineSpells(
+                    view.optString("local_mode", "none"), view.optString("editing_text", ""),
+                    view.optString("spelling_symbols", ""), event.getUnicodeChar())) {
+            return character(event.getUnicodeChar(), event.isShiftPressed())
+                || super.onKeyDown(keyCode, event);
+        }
+        // 哪一面数字键选词由策略决定：Engine 把数字列为拼写时（U、V、网址模式）裸数字是输入，选词移到 Shift 那一面。
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
             event.isShiftPressed(), numberRowSelection,
-            view == null ? "none" : view.optString("local_mode", "none"));
+            view == null ? "none" : view.optString("local_mode", "none"),
+            view == null ? "" : view.optString("spelling_symbols", ""), event.getUnicodeChar());
         if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
                 && view != null
@@ -5577,12 +5586,12 @@ public final class MSIMEInputService extends InputMethodService {
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
         if (!reset && acceptedPreferences != null
-                && KeyboardGeometry.keySpacing(acceptedPreferences.optInt(
-                    "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
-                && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
-                    "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && KeyboardGeometry.heightAdjustment(acceptedPreferences.optInt(
-                    "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
+                && KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
+                && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
+                && KeyboardGeometry.heightAdjustment(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
                     == touchKeyboardHeightAdjustment
                 && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
                     == touchVoiceShortcutEnabled) return;

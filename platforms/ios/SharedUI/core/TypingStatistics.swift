@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CoreFoundation
 
 enum TypingSource: String, CaseIterable {
   case quanpin, nineKey, shuangpin, ziranma, microsoft, shoudao, wubi, japanese, korean, cantonese, zhuyin, vietnamese, tibetan, stroke, handwriting, english, local, ai, reply, voice, unknown
@@ -682,8 +683,24 @@ struct TypingStatisticsStore {
   func recordKeys(_ keys: [String: Int], day: String) throws -> Int {
     guard !keys.isEmpty else { return 0 }
     let value = try call(["operation": "record_keys", "day": day, "keys": keys])
-    guard let recorded = (value as? [String: Any])?["recorded"] as? NSNumber else { throw TypingStatisticsError.invalidResponse }
-    return recorded.intValue
+    let maximum = keys.values.filter { $0 > 0 }.reduce(0) { partial, count in
+      partial > Int.max - count ? Int.max : partial + count
+    }
+    guard let recorded = Self.strictRecordedCount((value as? [String: Any])?["recorded"], maximum: maximum) else {
+      throw TypingStatisticsError.invalidResponse
+    }
+    return recorded
+  }
+
+  /// Native JSON must return a non-negative integral count that cannot exceed the submitted batch.
+  static func strictRecordedCount(_ value: Any?, maximum: Int) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          integer >= 0,
+          integer <= maximum,
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   /// Whether the user has statistics on. The keyboard asks once per appearance so that, while they are off, it does not even keep key counts in memory.

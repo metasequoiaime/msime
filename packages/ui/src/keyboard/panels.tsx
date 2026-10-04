@@ -69,6 +69,7 @@ import {
   cloudClipboardItems,
   cloudDictionaryCatalogEntries,
   cloudDictionaryEntries,
+  cloudResponseInteger,
   cloudResponseRequest,
   cloudResponseText,
 } from "./cloud-response";
@@ -2094,7 +2095,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }
     if (!isCurrent(revision)) return;
     setEntries(cloudDictionaryEntries<CloudDictionaryEntry>(result));
-    setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
+    setOffset(cloudResponseInteger(result.offset) ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
   }
 
@@ -3010,9 +3011,9 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }
     if (!isCurrent(current)) return;
     setEntries(cloudDictionaryCatalogEntries<CloudDictionaryCatalogEntry>(result));
-    setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
+    setOffset(cloudResponseInteger(result.offset) ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
-    setRevision(typeof result.revision === "number" ? result.revision : 0);
+    setRevision(cloudResponseInteger(result.revision) ? result.revision : 0);
     setNormalized(typeof result.normalized === "string" ? result.normalized : query.code);
     setConfirmed(query);
   }
@@ -3306,7 +3307,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     // (or make a fast query appear to have timed out on touch hosts).
     setCandidates(nextCandidates);
     setContext(typeof result.context === "string" ? result.context : "");
-    setRevision(typeof result.revision === "number" ? result.revision : 0);
+    setRevision(cloudResponseInteger(result.revision) ? result.revision : 0);
     setPositions([]);
     setQuery(nextQuery);
     if (nextQuery.kind !== "quick" && typeof result.context === "string" && result.context) {

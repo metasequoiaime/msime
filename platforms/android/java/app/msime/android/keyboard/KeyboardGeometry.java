@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.util.Locale;
+import org.json.JSONObject;
 
 /** Apple-compatible touch-keyboard spacing contract; input algorithms remain in Engine. */
 public final class KeyboardGeometry {
@@ -34,6 +35,17 @@ public final class KeyboardGeometry {
     public static int heightAdjustment(int value) {
         if (value == Integer.MIN_VALUE) return DEFAULT_HEIGHT_ADJUSTMENT_DP;
         return bounded(value, MIN_HEIGHT_ADJUSTMENT_DP, MAX_HEIGHT_ADJUSTMENT_DP);
+    }
+
+    /** Read an integer-valued JSON preference without optInt's fractional truncation. */
+    public static int strictInt(JSONObject object, String key, int fallback) {
+        if (object == null) return fallback;
+        Object raw = object.opt(key);
+        if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        double value = ((Number) raw).doubleValue();
+        if (!Double.isFinite(value) || value != Math.rint(value)
+                || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) return fallback;
+        return (int) value;
     }
 
     /** Divide the total adjustment across rows without losing a density-independent pixel. */

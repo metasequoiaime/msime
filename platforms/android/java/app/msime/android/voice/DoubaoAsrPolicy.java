@@ -26,6 +26,11 @@ public final class DoubaoAsrPolicy {
         return PROVIDER.equals(provider);
     }
 
+    /** A streaming response carries text; reject non-string JSON values before display. */
+    static String strictText(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
+
     static boolean validEndpoint(String endpoint) {
         return TextPolicy.validAuthority(endpoint, "wss://", 2048);
     }

@@ -4,6 +4,12 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testSharedFrequencyPreferenceRejectsFractionalAndBooleanCounts() {
+    XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 2.5), range: 1...10))
+    XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: true), range: 1...10))
+    XCTAssertEqual(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 4), range: 1...10), 4)
+  }
+
   // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
   // whatever the app group was left holding. See InputSchemeTestSupport.
   private var savedKeyboardPreferences: [String: Any] = [:]

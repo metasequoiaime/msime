@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Comparator;
 import java.util.stream.Stream;
+import java.lang.reflect.Method;
 
 /** When this host runs on-device recognition, and the hotword list it hands the native session. */
 public final class LocalAsrPolicySmoke {
@@ -117,6 +118,16 @@ public final class LocalAsrPolicySmoke {
         check(!LocalAsrPolicy.suppliedHotword("水\n杉", "shui shan") && !LocalAsrPolicy.suppliedHotword("水杉", "shui\nshan"), "a control character is dropped");
         check(!LocalAsrPolicy.suppliedHotword("字".repeat(LocalAsrPolicy.MAX_HOTWORD_TEXT_LENGTH + 1), "zi"), "an overlong word is dropped");
         check(!LocalAsrPolicy.suppliedHotword("水杉", "a".repeat(LocalAsrPolicy.MAX_HOTWORD_PINYIN_LENGTH + 1)), "an overlong pinyin is dropped");
+        try {
+            Method strictText = LocalAsrPolicy.class.getDeclaredMethod("strictText", Object.class);
+            strictText.setAccessible(true);
+            check("synthetic transcript".equals(strictText.invoke(null, "synthetic transcript")),
+                "local ASR accepts string correction text");
+            check(strictText.invoke(null, 42) == null,
+                "local ASR rejects numeric correction text instead of coercing it");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("local ASR response parser unavailable", error);
+        }
         System.out.println("LocalAsrPolicySmoke passed");
     }
 }

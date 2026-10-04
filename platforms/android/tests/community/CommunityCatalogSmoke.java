@@ -49,6 +49,20 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER), "a dictionary carries no category");
         check((boolean) validCategory.invoke(null, CommunityRequest.Kind.REPLY, null),
             "a reply set without a category is valid");
+        Method strictString = CommunityCatalog.class.getDeclaredMethod("strictString", Object.class);
+        strictString.setAccessible(true);
+        check("synthetic name".equals(strictString.invoke(null, "synthetic name")),
+            "community string fields accept strings");
+        check(strictString.invoke(null, 42) == null,
+            "community string fields reject numbers instead of coercing them");
+        check(strictString.invoke(null, Boolean.TRUE) == null,
+            "community string fields reject booleans instead of coercing them");
+        Method strictBoolean = CommunityCatalog.class.getDeclaredMethod("strictBoolean", Object.class);
+        strictBoolean.setAccessible(true);
+        check(Boolean.TRUE.equals(strictBoolean.invoke(null, Boolean.TRUE)),
+            "community boolean fields accept booleans");
+        check(strictBoolean.invoke(null, "true") == null,
+            "community boolean fields reject strings instead of coercing them");
         Method setCategory = CommunityCatalog.class.getDeclaredMethod(
             "setCategory", CommunityCatalog.Item.class, CommunityRequest.Category.class);
         java.lang.reflect.Field unsafeField = Class.forName("sun.misc.Unsafe")

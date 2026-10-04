@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreImage
+import CoreFoundation
 import UIKit
 
 private final class KeyboardBrandButton: UIButton {
@@ -1890,18 +1891,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
 
-    // Unicode mode reads a hexadecimal code point, so while it is open its digits are input rather
-    // than candidate numbers. Its letters already reach the session through handleCharacter.
-    if session.isInUnicodeMode, symbol.count == 1, symbol >= "0", symbol <= "9" {
-      render(session.handleCharacter(symbol))
-      return
-    }
-
     // Zhuyin spells with the digit row and with , . / ; -, so the symbol panel cannot hand its keys to the Engine: they would type ㄅ or ㄝ or pick a list row. The panel commits the conversion and types the mark itself, as the key draws it: the Chinese face for an ASCII mark that has one while Chinese punctuation is on, the ASCII mark otherwise.
     if typesZhuyin {
       render(session.finishComposition())
       insertDirectText(Self.zhuyinSymbolText(symbol, chinesePunctuation: zhuyinWritesChinesePunctuation))
       return
+    }
+
+    // 组字中或本地模式里 Engine 列为拼写的符号是输入，要在数字选候选和标点路由之前作为字符交给会话：U 模式的十六进制数字、网址模式的数字和网址符号、`www` 之后的 `.`。注音在上面单独处理，面板上的键对它不是注音键。
+    // 会话不收时（例如粤拼紧跟在 `'` 之后的第二个 `'`）以未处理返回、不带上屏，继续走下面的标点路由，与藏文和 `'` 分支一致。
+    if session.engineSpellsWhileComposing(symbol) {
+      let spellingSnapshot = session.handleCharacter(symbol)
+      if spellingSnapshot.isHandled || spellingSnapshot.commitText?.isEmpty == false {
+        render(spellingSnapshot)
+        return
+      }
     }
 
     // 韩语、越南语和藏文的数字作为字符交给会话。汉字列表打开时数字 1-9 从当前页选字，以已处理返回并把汉字作为上屏；VNI 数字给正在拼的越南语单词加符号；其余情况下数字结束正在拼的音节或单词，以未处理按键的上屏返回，随后再把数字打进去。藏文的数字保持原样，不转成藏文数字。
@@ -2809,18 +2813,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
     let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
-    if let spacing = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
-      KeyboardLayoutPreference.keySpacing = spacing / 10
+    if let spacing = KeyboardLayoutPreference.sharedKeySpacing(preferences["touch_key_spacing_tenths"]) {
+      KeyboardLayoutPreference.keySpacing = spacing
     }
-    if let spacing = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
-      KeyboardLayoutPreference.rowSpacing = spacing / 10
+    if let spacing = KeyboardLayoutPreference.sharedRowSpacing(preferences["touch_row_spacing_tenths"]) {
+      KeyboardLayoutPreference.rowSpacing = spacing
     }
     if let voice = preferences["touch_voice_shortcut"] as? Bool {
       KeyboardLayoutPreference.voiceShortcutEnabled = voice
     }
-    if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
-       adjustment.isFinite {
-      sharedKeyboardHeightAdjustment = CGFloat(min(48, max(-12, adjustment)))
+    if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
+      sharedKeyboardHeightAdjustment = CGFloat(adjustment)
     }
 
     var selectedScheme: ChineseInputScheme?
@@ -2840,17 +2843,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  private static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
-    let integer: Int?
-    if let value = value as? Int {
-      integer = value
-    } else if let value = value as? NSNumber {
-      integer = value.intValue
-    } else {
-      integer = nil
-    }
-    if let integer, range.contains(integer) { return integer }
-    return nil
+  static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          range.contains(integer) else { return nil }
+    return integer
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on

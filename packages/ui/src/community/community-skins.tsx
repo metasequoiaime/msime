@@ -145,12 +145,12 @@ function CommunitySkinPublishDialog({
   const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, library);
 
   useEffect(() => {
-    let active = true;
+    const generation = clientGeneration.current;
     setBusy(true);
     void library
       .load()
       .then((items) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         setSaved(items);
         const first = items[0];
         if (first) {
@@ -159,17 +159,14 @@ function CommunitySkinPublishDialog({
         }
       })
       .catch((loadError) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         setError(communitySkinPublishMessage(loadError));
         setSignInRequired(communityNeedsSignIn(loadError));
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (generation === clientGeneration.current) setBusy(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client, library]);
+  }, [client, clientGeneration, library]);
 
   const selected = saved.find((item) => item.id === selectedId) ?? null;
   const submit = async (event: FormEvent) => {

@@ -1,6 +1,7 @@
 #import "DictionaryWindowController.h"
 #import "MSIMEClientSession.h"
 #import "../core/ClientDictionaryRuntime.h"
+#import "../core/BoundedFileReader.h"
 #import "../core/EditionIdentity.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "../../../common/DictionaryQuiesceLease.h"
@@ -270,7 +271,7 @@ static NSDictionary *MSIMEQuiescedDictionaryRequest(NSDictionary *request, NSErr
         if (!controller) return;
         NSURL *sourceURL = [panel.URL copy];
         NSError *error = nil;
-        NSData *data = [NSData dataWithContentsOfURL:sourceURL options:0 error:&error];
+        NSData *data = MSIMEReadFileUpTo(sourceURL, 65536, &error);
         if (!data || data.length == 0 || data.length > 65536) {
             [controller showMessage:@"文件需为不超过 64 KiB 的 UTF-8 文本。"];
             return;

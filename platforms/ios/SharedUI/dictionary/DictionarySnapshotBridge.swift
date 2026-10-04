@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 private typealias SnapshotByte = UInt8
 private typealias SnapshotNext = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<SnapshotByte>?, Int) -> Int
@@ -77,13 +78,21 @@ enum DictionarySnapshotBridge {
       try decode(msimeClientSnapshotPrepare(bytes.bindMemory(to: SnapshotByte.self).baseAddress,
                                             UInt(data.count), snapshotNext, opaque))
     }
-    guard let handle = (response["handle"] as? NSNumber)?.uint64Value,
+    guard let handle = unsignedIntegerValue(response["handle"]),
           let sourceVersion = response["source_version"] as? String else {
       throw SnapshotBridgeFailure.invalid
     }
     lock.lock(); handles[identifier] = handle; lock.unlock()
     _ = contentIdentifier
     return MSIMEPreparedDictionarySnapshot(handle: handle, identifier: identifier, sourceVersion: sourceVersion)
+  }
+
+  static func unsignedIntegerValue(_ value: Any?) -> UInt64? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = UInt64(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   private static func snapshotOptions(resources: URL, user: URL) -> [String: Any] {

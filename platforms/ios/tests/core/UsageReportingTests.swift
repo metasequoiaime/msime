@@ -21,6 +21,17 @@ final class UsageReportingTests: XCTestCase {
     XCTAssertEqual(UsageReporting.frames(fromCallStackTree: Data("[]".utf8)), "")
   }
 
+  func testCallStackTreeIgnoresNonIntegerOffsets() throws {
+    let tree: [String: Any] = [
+      "callStacks": [["callStackRootFrames": [[
+        "binaryName": "MSIMEApp", "offsetIntoBinaryTextSegment": true,
+        "subFrames": [["binaryName": "Engine", "offsetIntoBinaryTextSegment": 1.5]],
+      ]]]],
+    ]
+    let data = try JSONSerialization.data(withJSONObject: tree)
+    XCTAssertEqual(UsageReporting.frames(fromCallStackTree: data), "0 MSIMEApp + 0\n1 Engine + 0")
+  }
+
   func testCrashDiagnosticIsWrittenAsAPrivateRecordWithOneSummaryLine() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: directory) }

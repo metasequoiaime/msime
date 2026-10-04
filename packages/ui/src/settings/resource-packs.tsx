@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { useAsyncGeneration } from "./use-async-generation";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionRow } from "./action-row";
 import type { LocalVoiceModelProgress } from "../voice/local-models";
@@ -77,6 +78,7 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
   const [progress, setProgress] = useState<ResourcePacks["progress"]>({});
   const [errors, setErrors] = useState<ResourcePacks["errors"]>({});
   const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const activeClient = useRef(client);
   activeClient.current = client;
   const statusesRef = useRef(statuses);
@@ -105,6 +107,7 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
     });
 
   useEffect(() => {
+    const generation = clientGeneration.current;
     running.current = new Set();
     setStatuses(undefined);
     setProgress({});
@@ -112,7 +115,6 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
     if (!client) return;
     void refresh(client);
     let unlisten: (() => void) | undefined;
-    let cancelled = false;
     void client
       .onProgress((event) => {
         if (!current(client)) return;
@@ -126,15 +128,14 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
         setProgress((existing) => ({ ...existing, [id]: event }));
       })
       .then((stop) => {
-        if (cancelled) stop();
+        if (generation !== clientGeneration.current) stop();
         else unlisten = stop;
       })
       .catch(() => undefined);
     return () => {
-      cancelled = true;
       unlisten?.();
     };
-  }, [client, refresh]);
+  }, [client, clientGeneration, refresh]);
 
   const install = (id: ResourcePackId) => {
     const expected = client;

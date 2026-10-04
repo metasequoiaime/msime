@@ -2881,6 +2881,14 @@ fn local_modes_never_ask_for_online_candidates() {
         }
         session.command(Command::Cancel);
     }
+    // 网址模式从组字进入，不在上面的入口键里。
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
+    assert!(session.online_query().is_none(), "Url on entry");
+    type_text(&mut session, "github");
+    assert!(session.online_query().is_none(), "Url after typing");
+    assert!(session.command_translation_query().is_none());
 }
 
 #[test]
@@ -3976,4 +3984,381 @@ fn temporary_japanese_needs_japanese_in_the_enabled_set() {
         pinyin.input.engine.current_scheme_type(),
         SchemeType::Quanpin
     );
+}
+
+// ---- 网址模式 ----
+
+/// 五笔码表里 `www` 是“众”的简码，`http` 没有词。
+const URL_WUBI_FIXTURE: &str = "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+INSERT INTO wubi86 VALUES('www','众',100);";
+
+fn wubi_session(fixture: &Fixture) -> Session {
+    fixture.session_with(|options| options.scheme = SchemeType::Wubi)
+}
+
+/// 依次送入网址的各个字符：字母和数字走 `character`，符号走 `punctuation`，与宿主把符号报成标点时一样。
+fn type_url(session: &mut Session, text: &str) {
+    for byte in text.bytes() {
+        let result = if byte.is_ascii_alphanumeric() {
+            session.character(byte, byte.is_ascii_uppercase())
+        } else {
+            session.punctuation(byte)
+        };
+        assert!(
+            result.handled && result.commit.is_none(),
+            "{:?} of {text:?}: {result:?}",
+            byte as char
+        );
+    }
+}
+
+#[test]
+fn url_www_dot_opens_url_mode_in_wubi() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "www");
+    assert_eq!(words(&session), ["众"]);
+    assert_eq!(session.snapshot().spelling_symbols, ".");
+
+    let dot = session.punctuation(b'.');
+    assert!(dot.handled && dot.commit.is_none(), "{dot:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "www.");
+    assert_eq!(snapshot.editing_text, "www.");
+    assert_eq!(
+        snapshot.spelling_symbols,
+        crate::local::url::SPELLING_SYMBOLS
+    );
+    assert_eq!(snapshot.candidate_sources, [CandidateSource::Fallback]);
+
+    type_url(&mut session, "google.com");
+    assert_eq!(words(&session), ["www.google.com"]);
+    let committed = session.select(0);
+    assert_eq!(committed.commit.as_deref(), Some("www.google.com"));
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert!(snapshot.preedit.is_empty());
+}
+
+#[test]
+fn url_scheme_colon_in_quanpin_and_shuangpin() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    for scheme in [SchemeType::Quanpin, SchemeType::Shuangpin] {
+        let mut session = fixture.session_with(|options| options.scheme = scheme);
+        type_text(&mut session, "https");
+        assert_eq!(session.snapshot().spelling_symbols, ":", "{scheme:?}");
+        type_url(&mut session, "://github.com/a?b=1");
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
+        let committed = session.command(Command::CommitRaw);
+        assert_eq!(
+            committed.commit.as_deref(),
+            Some("https://github.com/a?b=1"),
+            "{scheme:?}"
+        );
+        assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+        // `ftp` 用 `.` 和 `:` 都能进入。
+        for key in *b".:" {
+            type_text(&mut session, "ftp");
+            assert!(session.punctuation(key).handled);
+            assert_eq!(session.snapshot().preedit, format!("ftp{}", key as char));
+            session.command(Command::Cancel);
+        }
+    }
+}
+
+#[test]
+fn url_wubi_https_opens_on_the_fifth_letter() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "http");
+    assert_eq!(session.snapshot().spelling_symbols, ":");
+    // 五笔码长上限是 4，别的第 5 个字母照旧被拒。
+    assert!(!session.character(b't', false).handled);
+    assert_eq!(session.snapshot().preedit, "http");
+
+    let s = session.character(b's', false);
+    assert!(s.handled && s.commit.is_none(), "{s:?}");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https");
+    type_url(&mut session, "://x.com");
+    assert_eq!(session.snapshot().preedit, "https://x.com");
+}
+
+#[test]
+fn url_mark_outside_the_url_ends_it() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    type_url(&mut session, ".a.com");
+    // 网址不收的键作为字符时交还宿主，组字不变；runtime 接着走标点路径。
+    let typed = session.character(b'"', false);
+    assert!(!typed.handled && typed.commit.is_none(), "{typed:?}");
+    assert_eq!(session.snapshot().preedit, "www.a.com");
+    let quote = session.punctuation(b'"');
+    assert!(quote.handled);
+    assert_eq!(quote.commit.as_deref(), Some("www.a.com\u{201c}"));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+
+    // 空格也不是网址的一部分。
+    type_text(&mut session, "www");
+    type_url(&mut session, ".a");
+    assert!(!session.character(b' ', false).handled);
+    assert_eq!(session.snapshot().preedit, "www.a");
+}
+
+#[test]
+fn url_backspace_past_the_trigger_restores_the_code() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "www");
+    type_url(&mut session, ".a");
+    // 删掉字母时仍在网址模式。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "www.");
+    assert_eq!(words(&session), ["www."]);
+
+    // 删掉触发键后退回组字，误触发时还能选回“众”。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "www");
+    assert_eq!(snapshot.editing_text, "www");
+    assert_eq!(words(&session), ["众"]);
+    assert_eq!(session.select(0).commit.as_deref(), Some("众"));
+}
+
+#[test]
+fn url_wubi_backspace_never_clips_the_letters_and_undoes_the_s() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "http");
+    assert!(session.character(b's', false).handled);
+    type_url(&mut session, ":");
+    // 删掉 `:` 剩 5 个字母，五笔码长装不下，留在网址模式，`s` 不能丢。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https");
+    assert_eq!(words(&session), ["https"]);
+    type_url(&mut session, ":");
+    assert_eq!(session.snapshot().preedit, "https:");
+    assert!(session.command(Command::Backspace).handled);
+
+    // 删掉进入网址模式的那个 `s`，退回五笔组字 `http`。
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "http");
+    assert_eq!(snapshot.spelling_symbols, ":");
+}
+
+#[test]
+fn url_caret_delete_of_the_trigger_restores_the_code() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = wubi_session(&fixture);
+    type_text(&mut session, "www");
+    type_url(&mut session, ".");
+    assert!(session.command(Command::MoveLeft).handled);
+    assert_eq!(session.snapshot().caret_position, 3);
+    // 光标处删掉触发键与行末退格同一条规则：退回组字，还能选回“众”。
+    assert!(session.command(Command::DeleteForward).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "www");
+    assert_eq!(snapshot.spelling_symbols, ".");
+    assert_eq!(words(&session), ["众"]);
+}
+
+/// 五笔开混拼时码长不再限 4，`http` 加 `s` 仍直接进入网址模式；`https:` 删掉 `:` 能退回组字 `https`。
+#[test]
+fn url_wubi_mixed_pinyin_reverts_https_colon_to_the_composition() {
+    let fixture = Fixture::new(URL_WUBI_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut session, "http");
+    assert!(session.character(b's', false).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "https");
+    type_url(&mut session, ":");
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert_eq!(snapshot.preedit, "https");
+    assert_eq!(snapshot.spelling_symbols, ":");
+}
+
+/// 退回组字只是进入的逆操作：删掉中间的 `.` 后剩下的 `wwwexample` 不是触发词，留在网址模式。
+#[test]
+fn url_deleting_a_middle_dot_keeps_the_mode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    type_url(&mut session, ".example");
+    for _ in 0.."example".len() {
+        assert!(session.command(Command::MoveLeft).handled);
+    }
+    assert_eq!(session.snapshot().caret_position, 4);
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "wwwexample");
+}
+
+/// 光标在中间且网址已到长度上限时，网址收的键被吞掉而不是交还宿主；网址不收的键照旧交还。
+#[test]
+fn url_caret_insert_at_the_limit_is_swallowed() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+    while session.snapshot().preedit.len() < crate::local::url::INPUT_LIMIT {
+        assert!(session.character(b'a', false).handled);
+    }
+    assert!(session.command(Command::MoveLeft).handled);
+    let before = session.snapshot().preedit;
+    let digit = session.character(b'1', false);
+    assert!(digit.handled && digit.commit.is_none(), "{digit:?}");
+    assert!(session.punctuation(b'/').handled);
+    assert_eq!(session.snapshot().preedit, before);
+    assert!(!session.character(b'|', false).handled);
+}
+
+#[test]
+fn url_backspace_keeps_the_mode_when_the_rest_is_not_lowercase_letters() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    type_url(&mut session, ".A.");
+    assert!(session.command(Command::Backspace).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::Url);
+    assert_eq!(snapshot.preedit, "www.A");
+}
+
+#[test]
+fn url_digits_and_uppercase_are_kept() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+    assert!(session.character(b'1', false).handled);
+    assert!(session.character(b'G', true).handled);
+    assert_eq!(session.snapshot().preedit, "www.1G");
+    // Shift+数字行的符号全是输入，不选候选。
+    type_url(&mut session, "!@#$%^&*()");
+    assert_eq!(session.snapshot().preedit, "www.1G!@#$%^&*()");
+    // 数字作为选候选键时同样是输入。
+    assert!(session.character(b'2', false).handled);
+    assert_eq!(session.snapshot().preedit, "www.1G!@#$%^&*()2");
+}
+
+#[test]
+fn url_input_stops_at_the_limit() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    assert!(session.punctuation(b'.').handled);
+    for _ in 0..600 {
+        assert!(session.character(b'a', false).handled);
+    }
+    assert_eq!(
+        session.snapshot().preedit.len(),
+        crate::local::url::INPUT_LIMIT
+    );
+}
+
+#[test]
+fn url_spelling_symbols_follow_the_composition() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    for (raw, keys) in [
+        ("www", "."),
+        ("ftp", ".:"),
+        ("http", ":"),
+        ("https", ":"),
+        ("ni", ""),
+        ("wwww", ""),
+        // 大写的辅助码不算触发词。
+        ("wwW", ""),
+    ] {
+        type_text(&mut session, raw);
+        assert_eq!(session.snapshot().spelling_symbols, keys, "{raw}");
+        session.command(Command::Cancel);
+    }
+    // 空闲时不变：生成类模式默认关闭，没有任何符号。
+    assert!(session.snapshot().spelling_symbols.is_empty());
+
+    // 光标不在末尾时不发布，按下的 `.` 也不进入网址模式（列出的键必须正是接受的键）。
+    type_text(&mut session, "www");
+    session.command(Command::MoveLeft);
+    assert!(session.snapshot().spelling_symbols.is_empty());
+    assert!(!session.character(b'.', false).handled);
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+    session.command(Command::Cancel);
+
+    // 专用英文不识别网址。
+    session.set_dedicated_english(true);
+    type_text(&mut session, "www");
+    assert!(session.snapshot().spelling_symbols.is_empty());
+    session.set_dedicated_english(false);
+
+    // 不识别网址的方案不发布。
+    let mut korean = fixture.session_with(|options| options.scheme = SchemeType::Korean);
+    korean.character(b'd', false);
+    assert!(!korean.snapshot().spelling_symbols.contains('.'));
+}
+
+#[test]
+fn plain_pinyin_period_is_still_chinese() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "nihao");
+    assert_eq!(session.punctuation(b'.').commit.as_deref(), Some("你好。"));
+    // 触发词后面的其他标点照旧结束组字。
+    type_text(&mut session, "www");
+    let comma = session.punctuation(b',');
+    assert!(comma.handled);
+    assert!(comma
+        .commit
+        .as_deref()
+        .is_some_and(|text| text.ends_with('，')));
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::None);
+}
+
+#[test]
+fn url_caret_editing_reaches_the_first_character_and_an_empty_url_leaves_the_mode() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session();
+    type_text(&mut session, "www");
+    // 删掉 `.` 时剩下的不是触发词，留在网址模式，才能删到空。
+    type_url(&mut session, ".A");
+    session.command(Command::MoveHome);
+    assert_eq!(session.snapshot().caret_position, 0);
+    // 光标在中间时插入同样按网址规则：数字、符号接受，网址不收的键交还。
+    assert!(session.character(b'1', false).handled);
+    assert!(session.character(b'\'', false).handled);
+    assert!(session.character(b'\'', false).handled);
+    assert!(!session.character(b'|', false).handled);
+    assert_eq!(session.snapshot().preedit, "1''www.A");
+    session.command(Command::MoveHome);
+    for _ in 0..7 {
+        assert!(session.command(Command::DeleteForward).handled);
+    }
+    assert_eq!(session.snapshot().local_mode, LocalInputMode::Url);
+    assert_eq!(session.snapshot().preedit, "A");
+    assert!(session.command(Command::DeleteForward).handled);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.local_mode, LocalInputMode::None);
+    assert!(snapshot.preedit.is_empty());
+    assert!(snapshot.spelling_symbols.is_empty());
+    // 退出后数字不再被吞掉。
+    assert!(!session.character(b'1', false).handled);
 }

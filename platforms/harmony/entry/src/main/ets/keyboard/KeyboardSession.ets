@@ -85,6 +85,7 @@ import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
@@ -3913,6 +3914,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(url, {
@@ -3950,6 +3952,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
@@ -4374,6 +4377,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || !TextPolicy.validSecureAuthority(descriptor.url, allowHttp)) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.translationRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
@@ -4877,6 +4881,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return [];
     }
     const requestHttp = http.createHttp();
+    installNoRedirectGuard(requestHttp);
     this.replyRequest = requestHttp;
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {

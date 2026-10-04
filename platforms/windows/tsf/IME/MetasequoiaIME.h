@@ -735,6 +735,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     size_t _deferredProjectedCaret;
     bool _deferredProjectedCandidateActive;
     bool _deferredProjectedUnicodeMode;
+    bool _deferredProjectedUrlMode;
     bool _deferredProjectedKoreanHanjaListOpen;
     uint64_t _deferredKeyFocusGeneration;
     bool _deferredKeyDrainPosted;

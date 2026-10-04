@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export interface CommunityClientLifecycle {
   mounted: MutableRefObject<boolean>;
@@ -12,17 +14,14 @@ export function useCommunityClientLifecycle(
   client: unknown,
   ...owners: readonly unknown[]
 ): CommunityClientLifecycle {
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client, ...owners);
   const actionRunning = useRef(false);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
     actionRunning.current = false;
     return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
+      actionRunning.current = false;
     };
   }, [client, ...owners]);
 

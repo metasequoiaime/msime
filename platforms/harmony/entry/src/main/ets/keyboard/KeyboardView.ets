@@ -31,6 +31,7 @@ import { ZhuyinLayout } from './input/ZhuyinLayout';
 import { StrokeKey, StrokeLayout } from './input/StrokeLayout';
 import { SchemeCompositionPolicy } from './input/SchemeCompositionPolicy';
 import { SchemeTraits } from './SchemeTraits';
+import { HardwareKeyRouter } from './HardwareKeyRouter';
 import { KoreanCompositionPolicy } from './input/KoreanCompositionPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
@@ -1864,6 +1865,11 @@ struct KeyboardView {
       } else {
         KeyboardSession.shared.commitThenType(character);
       }
+      return;
+    }
+    // 组字中 Engine 列为拼写的符号走字符路由；标点入口拒收数字，网址里的数字会被丢掉。
+    if (HardwareKeyRouter.touchSpells(KeyboardSession.shared.hardwareSpelling(), character)) {
+      KeyboardSession.shared.press(character, false);
       return;
     }
     KeyboardSession.shared.punctuation(character);

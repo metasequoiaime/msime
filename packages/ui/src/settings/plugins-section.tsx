@@ -16,6 +16,7 @@ import { PluginListView } from "./plugin-list-view";
 import { MissingPluginView, PluginDetailView } from "./plugin-detail-view";
 import { PluginSoundEffectsView } from "./plugin-sound-effects-view";
 import { mentionListIssue, PluginMentionsView } from "./plugin-mentions-view";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export type {
   MentionEntry,
@@ -114,7 +115,7 @@ export function PluginsSection({
   const [view, setView] = useState<PluginView>(listView);
   const mentionsEditable = triggers && Boolean(client);
   const actionRunning = useRef(false);
-  const clientGeneration = useRef(0);
+  const clientGeneration = useAsyncGeneration(active, client, mentionsEditable);
   // The page stays mounted while hidden, so a reload on the next visit must not overwrite edits that were never saved.
   const mentionsDirtyRef = useRef(false);
   const root = useRef<HTMLDivElement>(null);
@@ -124,19 +125,18 @@ export function PluginsSection({
 
   useEffect(() => {
     if (!active || !client) return;
-    const generation = ++clientGeneration.current;
-    let current = true;
+    const generation = clientGeneration.current;
     // A read after a failed one shows as loading again; once a catalog is listed it stays on screen while it is reread.
     setCatalogState((state) => (state === "loaded" ? state : "loading"));
     void client
       .catalog()
       .then((next) => {
-        if (!current) return;
+        if (generation !== clientGeneration.current) return;
         setCatalog(next);
         setCatalogState("loaded");
       })
       .catch((error: unknown) => {
-        if (!current) return;
+        if (generation !== clientGeneration.current) return;
         setCatalogState((state) => (state === "loaded" ? state : "failed"));
         onError(pluginErrorMessage(error, "无法读取插件列表，请重试。"));
       });
@@ -144,18 +144,15 @@ export function PluginsSection({
       void client
         .loadMentions()
         .then((next) => {
-          if (!current) return;
+          if (generation !== clientGeneration.current) return;
           if (!mentionsDirtyRef.current) setMentions(next);
           setSavedMentions(next);
         })
         .catch((error: unknown) => {
-          if (current) onError(pluginErrorMessage(error, "无法读取 @ 名单，请重试。"));
+          if (generation === clientGeneration.current)
+            onError(pluginErrorMessage(error, "无法读取 @ 名单，请重试。"));
         });
     }
-    return () => {
-      current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
     // `onError` is the page's setter and stable; the effect reloads on a visit, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, client, mentionsEditable]);

@@ -110,6 +110,9 @@ constexpr bool WidensFullWidth(int scheme)
 // `shows_glosses`: candidates may carry translation glosses.
 constexpr bool ShowsGlosses(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Korean; }
 
+// `detects_urls`：组字中键入 `www.`、`http:` 这类触发词会进入网址模式。TIP 把全拼、双拼、五笔都记成 quanpin（mode_scheme），三者都检测网址，所以 TIP 用 InputModeScheme 判断不会看错。
+constexpr bool DetectsUrls(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
+
 // ---- The input mode the Server tells the TIP about ----
 
 // The scheme family the TIP has to know before its host session answers a key, carried as one character in FanyImeWorkerReplyType::InputModeChanged (shared/contracts/windows_ipc.h). The three pinyin and shape schemes share Chinese: the TIP keys them alike. Stroke has a code of its own: its traits are not quanpin's (ScriptConversionApplies, ShowsGlosses) and the TIP hands most letters to the application while it is idle (LetterPassesWhileIdle). The values are the wire codes and never change; a DLL that predates a mode compares against '1' and '2' only, so it reads a newer code as Chinese.

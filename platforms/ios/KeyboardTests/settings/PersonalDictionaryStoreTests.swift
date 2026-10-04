@@ -7,6 +7,16 @@ private func letterCode(_ prefix: String, _ index: Int) -> String {
 }
 
 final class PersonalDictionaryStoreTests: XCTestCase {
+  func testTauriPagingRejectsBooleanIntegers() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let request = try JSONSerialization.data(withJSONObject: [
+      "operation": "list", "offset": true, "limit": 1,
+    ])
+    XCTAssertThrowsError(try TauriPersonalDictionaryBridge.request(
+      request, store: PersonalDictionaryStore(directory: root)))
+  }
+
   func testReadRejectsASymlinkedPersonalDictionaryDirectory() throws {
     #if canImport(Darwin)
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("msime-personal-directory-link-\(UUID().uuidString)")
@@ -128,6 +138,12 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     let word = try PersonalWord(key: "NI HAO", value: "拟好").validated()
     XCTAssertEqual(word.key, "ni'hao")
     XCTAssertEqual(try PersonalWord(bridgeValue: word.bridgeValue), word)
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: 2.5),
+    ]))
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: true),
+    ]))
     XCTAssertThrowsError(try PersonalWord(key: "nihao", value: "你好").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni'hao", value: "你").validated())
     XCTAssertThrowsError(try PersonalWord(kind: .wubi, key: "abcde", value: "词").validated())

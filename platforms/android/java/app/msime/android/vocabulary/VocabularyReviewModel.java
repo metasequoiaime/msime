@@ -16,6 +16,16 @@ import java.util.List;
  * everything the page reasons about can be exercised by `check-host.sh`.
  */
 public final class VocabularyReviewModel {
+    /** Read a non-negative JSON count without org.json's lossy numeric coercion. */
+    public static int strictCount(Object value) {
+        if (!(value instanceof Integer) && !(value instanceof Long))
+            throw new IllegalArgumentException("Expected JSON review count");
+        long count = ((Number) value).longValue();
+        if (count < 0 || count > Integer.MAX_VALUE)
+            throw new IllegalArgumentException("JSON review count is out of range");
+        return (int) count;
+    }
+
     /** One word list the session can draw from. */
     public record Wordbook(String id, String name, int total, boolean builtin) {}
 

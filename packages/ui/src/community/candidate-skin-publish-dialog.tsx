@@ -123,7 +123,7 @@ export function CandidateSkinPublishDialog({
   const namedSkin = useRef("");
 
   useEffect(() => {
-    let active = true;
+    const generation = clientGeneration.current;
     drawOwner.current++;
     drawRunning.current = false;
     licenseOwner.current++;
@@ -135,7 +135,7 @@ export function CandidateSkinPublishDialog({
       setOptionsLoading(true);
       void localSkins()
         .then((catalog) => {
-          if (!active) return;
+          if (generation !== clientGeneration.current) return;
           const loaded = catalog.packages.map((item) => ({
             id: item.id,
             name: item.name,
@@ -147,16 +147,13 @@ export function CandidateSkinPublishDialog({
           );
         })
         .catch(() => {
-          if (active) setError("读取本地皮肤失败，请重试。");
+          if (generation === clientGeneration.current) setError("读取本地皮肤失败，请重试。");
         })
         .finally(() => {
-          if (active) setOptionsLoading(false);
+          if (generation === clientGeneration.current) setOptionsLoading(false);
         });
     }
-    return () => {
-      active = false;
-    };
-  }, [client, localSkins]);
+  }, [client, clientGeneration, localSkins]);
 
   useEffect(() => {
     const generation = ++packGeneration.current;

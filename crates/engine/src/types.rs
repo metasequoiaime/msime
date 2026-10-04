@@ -232,6 +232,20 @@ impl SchemeType {
         }
     }
 
+    /// 组字中键入 `www.`、`http:` 等时进入网址模式。
+    pub const fn detects_urls(self) -> bool {
+        match self {
+            Self::Quanpin | Self::Shuangpin | Self::Wubi => true,
+            Self::JapaneseRomaji
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
+        }
+    }
+
     /// Selections adjust frequencies and store sentences in the main dictionary and journal.
     pub const fn learns_into_main_dictionary(self) -> bool {
         match self {
@@ -905,6 +919,8 @@ pub enum LocalInputMode {
     Command,
     /// `@`: the names and places of the host's mention list.
     Mention,
+    /// 在全拼、双拼、五笔的组字中键入 `www.`、`http:` 等之后：原样输入的 ASCII 网址。
+    Url,
 }
 
 impl LocalInputMode {
@@ -923,6 +939,7 @@ impl LocalInputMode {
             Self::Expression => "expression",
             Self::Command => "command",
             Self::Mention => "mention",
+            Self::Url => "url",
         }
     }
 
@@ -941,6 +958,7 @@ impl LocalInputMode {
             Self::Expression,
             Self::Command,
             Self::Mention,
+            Self::Url,
         ]
         .into_iter()
         .find(|mode| mode.name() == name)
@@ -951,6 +969,7 @@ impl LocalInputMode {
         match self {
             Self::Unicode => "0123456789",
             Self::Expression => crate::local::expression::SPELLING_SYMBOLS,
+            Self::Url => crate::local::url::SPELLING_SYMBOLS,
             _ => "",
         }
     }
@@ -1373,6 +1392,55 @@ mod tests {
                 assert_eq!(predicate(scheme), want, "{name} for {scheme:?}");
             }
         }
+    }
+
+    #[test]
+    fn only_the_chinese_typing_schemes_detect_urls() {
+        for code in 0..=9 {
+            let scheme = SchemeType::from_u8(code).expect("scheme code");
+            let expected = matches!(
+                scheme,
+                SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+            );
+            assert_eq!(scheme.detects_urls(), expected, "{scheme:?}");
+        }
+    }
+
+    #[test]
+    fn local_input_mode_names_round_trip() {
+        use super::LocalInputMode;
+        // 穷举 match：新增变体时这里编译不过，提醒把它接进链条，`from_name` 的手写数组漏掉它时下面的断言就会失败。
+        fn next(mode: LocalInputMode) -> Option<LocalInputMode> {
+            Some(match mode {
+                LocalInputMode::None => LocalInputMode::Unicode,
+                LocalInputMode::Unicode => LocalInputMode::DateTime,
+                LocalInputMode::DateTime => LocalInputMode::QuickPhrase,
+                LocalInputMode::QuickPhrase => LocalInputMode::Emoji,
+                LocalInputMode::Emoji => LocalInputMode::Kaomoji,
+                LocalInputMode::Kaomoji => LocalInputMode::SuperJianpin,
+                LocalInputMode::SuperJianpin => LocalInputMode::TemporaryEnglish,
+                LocalInputMode::TemporaryEnglish => LocalInputMode::TemporaryJapanese,
+                LocalInputMode::TemporaryJapanese => LocalInputMode::Expression,
+                LocalInputMode::Expression => LocalInputMode::Command,
+                LocalInputMode::Command => LocalInputMode::Mention,
+                LocalInputMode::Mention => LocalInputMode::Url,
+                LocalInputMode::Url => return None,
+            })
+        }
+        let mut names = Vec::new();
+        let mut mode = Some(LocalInputMode::None);
+        while let Some(current) = mode {
+            assert_eq!(
+                LocalInputMode::from_name(current.name()),
+                Some(current),
+                "{current:?}"
+            );
+            names.push(current.name());
+            mode = next(current);
+        }
+        assert_eq!(names.len(), 13);
+        assert!(names.contains(&"url"));
+        assert_eq!(LocalInputMode::from_name("unknown"), None);
     }
 
     #[test]

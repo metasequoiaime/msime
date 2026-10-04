@@ -53,6 +53,10 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     invalid["items"] = [["text": "", "annotation": "fixture", "group": category.group]]
     XCTAssertThrowsError(
       try KeyboardEmojiCatalog.decodePage(invalid, category: category, requestedOffset: 0))
+    invalid = value
+    invalid["next_offset"] = true
+    XCTAssertThrowsError(
+      try KeyboardEmojiCatalog.decodePage(invalid, category: category, requestedOffset: 0))
   }
 
   func testRecentsAreDeduplicatedValidatedAndBounded() {
@@ -106,6 +110,12 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     }, "游标不前进时不能死循环")
     XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { _ in
       ["items": [["text": ""]], "next_offset": 1, "complete": true]
+    })
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { _ in
+      ["items": [["text": "+"]], "next_offset": true, "complete": true]
+    })
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { _ in
+      ["items": [["text": "+"]], "next_offset": 1.5, "complete": true]
     })
   }
 

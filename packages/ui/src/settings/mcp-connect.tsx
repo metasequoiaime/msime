@@ -13,6 +13,7 @@ import { SettingsManagerBlock } from "./settings-manager-block";
 import { SettingsNotice } from "./settings-notice";
 import { StatusMessage } from "../core/status-message";
 import { ErrorAlert } from "../core/error-alert";
+import { useAsyncGeneration } from "./use-async-generation";
 
 /** The assistants the host can write the entry for. */
 export type McpClientId = "claude_desktop" | "cursor";
@@ -239,16 +240,14 @@ export function McpConnectSection({
   const [drafts, setDrafts] = useState<Partial<Record<McpClientId, McpFlag[]>>>({});
   const mounted = useMountedRef();
   const refreshGeneration = useRef(0);
-  const clientGeneration = useRef(0);
+  const clientGeneration = useAsyncGeneration(status, install, copyText);
   const actionRunning = useRef(false);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     actionRunning.current = false;
     setBusy(undefined);
     return () => {
       refreshGeneration.current += 1;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [status, install, copyText]);
 

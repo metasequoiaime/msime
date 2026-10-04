@@ -751,9 +751,9 @@ function AccountDetailsPage({
   };
 
   useEffect(() => {
-    let active = true;
+    const generation = clientGeneration.current;
     void Promise.allSettled([client.status(), client.providers()]).then(async (results) => {
-      if (!active) return;
+      if (!mounted.current || generation !== clientGeneration.current) return;
       const [status, available] = results;
       if (available.status === "fulfilled") setProviders(available.value);
       else if (!isAccountCancellation(available.reason)) setError(accountMessage(available.reason));
@@ -764,21 +764,22 @@ function AccountDetailsPage({
           setName(nextUser.displayName);
           try {
             const value = await client.profile();
-            if (active) applyProfile(value);
+            if (mounted.current && generation === clientGeneration.current) applyProfile(value);
           } catch (profileError) {
-            if (active && !isAccountCancellation(profileError))
+            if (
+              mounted.current &&
+              generation === clientGeneration.current &&
+              !isAccountCancellation(profileError)
+            )
               setError(accountMessage(profileError));
           }
         }
       } else {
         if (!isAccountCancellation(status.reason)) setError(accountMessage(status.reason));
       }
-      if (active) setLoading(false);
+      if (mounted.current && generation === clientGeneration.current) setLoading(false);
     });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, clientGeneration, mounted]);
 
   useEffect(() => {
     if (!challenge) return;

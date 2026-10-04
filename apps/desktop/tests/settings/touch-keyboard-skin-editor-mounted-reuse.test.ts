@@ -13,5 +13,7 @@ test("touch skin editor reuses the shared mounted lifecycle hook", () => {
   )[0];
 
   expect(source).toContain("useMountedRef()");
+  expect(source).toContain("useAsyncGeneration(client, requestId)");
+  expect(source).not.toContain("let active = true");
   expect(source).not.toContain("const mounted = useRef(true)");
 });

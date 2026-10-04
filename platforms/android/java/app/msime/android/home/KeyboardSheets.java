@@ -297,20 +297,22 @@ public final class KeyboardSheets {
 
         slider(context, sheet, "按键间距",
             KeyboardGeometry.MIN_KEY_SPACING_TENTHS, KeyboardGeometry.MAX_KEY_SPACING_TENTHS,
-            KeyboardGeometry.keySpacing(preferences.optInt("touch_key_spacing_tenths", -1)),
+            KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
+                preferences, "touch_key_spacing_tenths", -1)),
             KeyboardGeometry::display,
             value -> save(fragment, snapshot, "touch_key_spacing_tenths", value, status, null,
                 changed));
         slider(context, sheet, "行间距",
             KeyboardGeometry.MIN_ROW_SPACING_TENTHS, KeyboardGeometry.MAX_ROW_SPACING_TENTHS,
-            KeyboardGeometry.rowSpacing(preferences.optInt("touch_row_spacing_tenths", -1)),
+            KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
+                preferences, "touch_row_spacing_tenths", -1)),
             KeyboardGeometry::display,
             value -> save(fragment, snapshot, "touch_row_spacing_tenths", value, status, null,
                 changed));
         slider(context, sheet, "键盘高度",
             KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_DP, KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_DP,
             KeyboardGeometry.heightAdjustment(
-                preferences.optInt("touch_keyboard_height_adjustment", Integer.MIN_VALUE)),
+                KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE)),
             KeyboardGeometry::displayHeight,
             value -> save(fragment, snapshot, "touch_keyboard_height_adjustment", value, status,
                 null, changed));

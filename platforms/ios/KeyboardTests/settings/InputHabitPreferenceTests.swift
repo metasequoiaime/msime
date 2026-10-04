@@ -81,6 +81,17 @@ final class InputHabitPreferenceTests: XCTestCase {
     XCTAssertEqual(settings.secondaryLanguage, -1, "an unknown second language shows as none, as the keyboard mirrors it")
   }
 
+  func testFractionalAndBooleanCountsKeepTheFallback() {
+    let fallback = InputHabitSettings(learning: true, frequencyMode: .halve, triggerCount: 3, linearStep: 4,
+                                      glossEnabled: true, onlineTranslations: true, primaryLanguage: 1, secondaryLanguage: 2)
+    let document: [String: Any] = [
+      "frequency": ["trigger_count": NSNumber(value: 2.5), "linear_step": NSNumber(value: true)],
+    ]
+    let settings = InputHabitPreference.settings(in: document, fallback: fallback)
+    XCTAssertEqual(settings.triggerCount, 3)
+    XCTAssertEqual(settings.linearStep, 4)
+  }
+
   func testFrequencyWriteKeepsFieldsThePageDoesNotShow() throws {
     var document: [String: Any] = ["frequency": ["mode": "pin", "trigger_count": 2, "linear_step": 2, "future": true]]
     InputHabitPreference.write(InputHabitPreference.settings(in: document), into: &document)

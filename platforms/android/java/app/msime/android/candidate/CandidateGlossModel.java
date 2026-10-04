@@ -38,10 +38,10 @@ public final class CandidateGlossModel {
             JSONObject candidate = candidates.optJSONObject(index);
             if (candidate == null) throw new IllegalArgumentException("Invalid candidate entry");
             String text = candidate.optString("text", "");
-            int source = candidate.optInt("source", -1);
+            long source = CandidateGlossPolicy.strictInteger(candidate.opt("source"));
             if (!CandidateGlossPolicy.validEntry(text) || source < 0 || source > 255)
                 throw new IllegalArgumentException("Invalid candidate entry");
-            copied.put(new JSONObject().put("text", text).put("source", source));
+            copied.put(new JSONObject().put("text", text).put("source", (int) source));
         }
         JSONObject envelope = new JSONObject().put("generation", generation)
             .put("candidates", copied);
@@ -60,7 +60,7 @@ public final class CandidateGlossModel {
         JSONObject envelope = new JSONObject(response);
         if (!envelope.optBoolean("ok", false)) throw new JSONException("Candidate gloss failed");
         JSONObject value = envelope.getJSONObject("value");
-        long generation = value.getLong("generation");
+        long generation = CandidateGlossPolicy.strictInteger(value.get("generation"));
         JSONArray entries = value.getJSONArray("translations");
         if (generation < 0 || entries.length() > MAX_CANDIDATES)
             throw new IllegalArgumentException("Invalid candidate gloss response");
