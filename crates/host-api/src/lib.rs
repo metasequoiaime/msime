@@ -1232,7 +1232,7 @@ fn prepare_shipped_host_configuration(
     let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);
     let state_root = std::path::absolute(state_root)?;
     verify_resources_once(&resources, specification, &state_root, on_demand)?;
-    // 代次按本版本的方案准备：不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime.db，代次里也没有它；full 的方案是全部，与以前相同。
+    // 代次按本版本的方案准备：不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime-pinyin.db，代次里也没有它；full 的方案是全部，与以前相同。
     let prepared = msime_engine::host::prepare_options_for(
         resources.to_str().ok_or("non-UTF-8 resource path")?,
         state_root
@@ -1566,7 +1566,7 @@ pub(crate) fn invalid_dictionary_entry(reason: &str) -> String {
 pub(crate) const NO_CHINESE_DICTIONARY: &str =
     "this edition of the input method has no Chinese dictionary; only English words can be edited";
 
-/// `kind` 的词能不能在 `options` 的版本里编辑。不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime.db，拼音、五笔和快捷短语都无处可存，只有英文词能编辑（`SchemeSet::reads_main_dictionary`）。在加锁之前就拒绝，把原因告诉调用方，而不是让 Engine 拒绝后报成笼统的「dictionary edit rejected」。
+/// `kind` 的词能不能在 `options` 的版本里编辑。不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime-pinyin.db，拼音、五笔和快捷短语都无处可存，只有英文词能编辑（`SchemeSet::reads_main_dictionary`）。在加锁之前就拒绝，把原因告诉调用方，而不是让 Engine 拒绝后报成笼统的「dictionary edit rejected」。
 pub(crate) fn require_dictionary_kind(
     options: &EngineOptions,
     kind: msime_engine::host::DictionaryKind,

@@ -1,15 +1,15 @@
 {
-  "source_commit": "f661d8d44d12d24c46f9fb83af693b6d6fd68706",
+  "source_commit": "42256e7924c2dc91d0f3f7849d68b3bef2ea9a2b",
   "artifacts": [
     {
-      "name": "dict_japanese.dat",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/dict_japanese.dat",
+      "name": "msime-japanese.dat",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.6/msime-japanese.dat",
       "sha256": "8baafcfc3881d0280cdda8bda7cf3968d8f8fbc94243fea94847cff2b6e2cd66",
       "size": 66538457
     },
     {
-      "name": "mozc_dictionary_oss_README.txt",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/mozc_dictionary_oss_README.txt",
+      "name": "msime-mozc_dictionary_oss_README.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.6/msime-mozc_dictionary_oss_README.txt",
       "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
       "size": 5750
     }

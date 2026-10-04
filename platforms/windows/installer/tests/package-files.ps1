@@ -374,7 +374,7 @@ try {
     }
     Write-Fixture 'windows/build32-release/Release/msime_host_api_wubi.dll' 'synthetic x86 wubi host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_wubi.dll' 'synthetic x64 wubi host'
-    $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime.db', 'english.db', 'others.db', 'dictionary-manifest.json') })
+    $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/wubi.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $wubiArtifacts
     } | ConvertTo-Json -Depth 5)
@@ -399,7 +399,7 @@ try {
     # 越南文版没有中文方案（版本表 features.handwriting 和 features.offline_glosses 为 false）：手写模型和非英文离线释义都不装，即使构建目录里有它们。
     Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'
-    $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('english.db', 'others.db', 'dictionary-manifest.json') })
+    $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-english.db', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/vietnamese.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $vietnameseArtifacts
     } | ConvertTo-Json -Depth 5)

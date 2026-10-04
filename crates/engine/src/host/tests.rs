@@ -2522,13 +2522,13 @@ fn only_generated_modes_are_left_out_of_typing_statistics() {
     }
 }
 
-/// 只有日文、越南文或藏文的方案集合不读 msime.db：资源目录里只有 `english.db` 也能准备代次、建会话、打字，代次里始终没有 msime.db。个人词库只收英文词，拼音和快捷短语直接说明没有中文词库；重置和快照导入都只换回、回放英文词库。
+/// 只有日文、越南文或藏文的方案集合不读 msime-pinyin.db：资源目录里只有 `msime-english.db` 也能准备代次、建会话、打字，代次里始终没有 msime-pinyin.db。个人词库只收英文词，拼音和快捷短语直接说明没有中文词库；重置和快照导入都只换回、回放英文词库。
 #[test]
 fn schemes_without_the_main_dictionary_run_on_english_alone() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).unwrap();
-    Connection::open(resources.join("english.db"))
+    Connection::open(resources.join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA} INSERT INTO english_words VALUES('word','word',100);"
@@ -2557,8 +2557,8 @@ fn schemes_without_the_main_dictionary_run_on_english_alone() {
         .unwrap();
         assert_eq!(prepared.enabled_schemes, set);
         let dictionaries = Path::new(&prepared.dictionaries).to_owned();
-        assert!(dictionaries.join("english.db").is_file());
-        assert!(!dictionaries.join("msime.db").exists());
+        assert!(dictionaries.join("msime-english.db").is_file());
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
         // 集合外的方案（缺省的全拼）建不了会话；本版本的方案照常。
         assert!(Session::new(&prepared).is_err());
         prepared.scheme = code;
@@ -2572,7 +2572,7 @@ fn schemes_without_the_main_dictionary_run_on_english_alone() {
             assert_eq!(snapshot.preedit, preedit, "{content_id}");
         }
         drop(session);
-        assert!(!dictionaries.join("msime.db").exists());
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
 
         let entry = |kind, key: &str, value: &str| DictionaryEntry {
             kind,
@@ -2642,8 +2642,8 @@ fn schemes_without_the_main_dictionary_run_on_english_alone() {
         )
         .unwrap();
         let staged_dictionaries = Path::new(&staged.dictionaries);
-        assert!(!staged_dictionaries.join("msime.db").exists());
-        let restored: i64 = Connection::open(staged_dictionaries.join("english.db"))
+        assert!(!staged_dictionaries.join("msime-pinyin.db").exists());
+        let restored: i64 = Connection::open(staged_dictionaries.join("msime-english.db"))
             .unwrap()
             .query_row(
                 "SELECT weight FROM english_words WHERE word='zzrestored' AND display='Zzrestored'",
@@ -2667,6 +2667,6 @@ fn schemes_without_the_main_dictionary_run_on_english_alone() {
             .unwrap()
             .entries
             .is_empty());
-        assert!(!dictionaries.join("msime.db").exists());
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
     }
 }

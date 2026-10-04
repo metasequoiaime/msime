@@ -78,7 +78,7 @@
           "required": ["components"],
           "properties": {
             "components": {
-              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。提供全拼、双拼或五笔的版本必须包含 chinese-main（msime.db）；三者都不提供的版本（日文、越南文、藏文）不能包含 chinese-main 和 ngram：Engine 为它们准备的代次里没有 msime.db，用户词库只收英文词。",
+              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。提供全拼、双拼或五笔的版本必须包含 chinese-main（msime-pinyin.db）；三者都不提供的版本（日文、越南文、藏文）不能包含 chinese-main 和 ngram：Engine 为它们准备的代次里没有 msime-pinyin.db，用户词库只收英文词。",
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
@@ -111,7 +111,7 @@
           }
         },
         "language_dictionaries": {
-          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 cantonese.db，含 zhuyin 的必须列出 zhuyin.db，含 stroke 的必须列出 stroke.db，不需要的不能列。",
+          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 msime-cantonese.db，含 zhuyin 的必须列出 msime-zhuyin.db，含 stroke 的必须列出 msime-stroke.db，不需要的不能列。",
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string" }

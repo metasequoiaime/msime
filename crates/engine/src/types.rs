@@ -530,7 +530,7 @@ impl SchemeSet {
             .fold(Self::EMPTY, |set, scheme| set.with(*scheme))
     }
 
-    /// 集合里是否有读 `msime.db` 的方案：全拼、双拼和五笔的候选、学习和用户词都在它里面（五笔混拼的拼音行也是）。没有这三个方案的集合（例如只有日文、越南文或藏文的版本）随包不带 `msime.db`：代次里没有它的工作副本，用户词库只剩英文词。
+    /// 集合里是否有读 `msime-pinyin.db` 的方案：全拼、双拼和五笔的候选、学习和用户词都在它里面（五笔混拼的拼音行也是）。没有这三个方案的集合（例如只有日文、越南文或藏文的版本）随包不带 `msime-pinyin.db`：代次里没有它的工作副本，用户词库只剩英文词。
     pub const fn reads_main_dictionary(self) -> bool {
         self.contains(SchemeType::Quanpin)
             || self.contains(SchemeType::Shuangpin)

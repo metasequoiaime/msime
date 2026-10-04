@@ -25,12 +25,12 @@ pub fn replay(user_db: &Path, main_db: &Path, english_db: &Path) -> ReplayResult
     replay_with(user_db, Some(main_db), english_db)
 }
 
-/// 没有 `msime.db` 的代次（方案集合不读它，见 `SchemeSet::reads_main_dictionary`）：只把英文行回放进 `english_db`。拼音、五笔和快捷短语的行在这里没有能写的表，计入 `skipped` 而不是 `failed`，所以它们（例如从别的版本恢复来的快照）不会让这个代次被拒；行本身留在日志里不动。
+/// 没有 `msime-pinyin.db` 的代次（方案集合不读它，见 `SchemeSet::reads_main_dictionary`）：只把英文行回放进 `english_db`。拼音、五笔和快捷短语的行在这里没有能写的表，计入 `skipped` 而不是 `failed`，所以它们（例如从别的版本恢复来的快照）不会让这个代次被拒；行本身留在日志里不动。
 pub fn replay_english(user_db: &Path, english_db: &Path) -> ReplayResult {
     replay_with(user_db, None, english_db)
 }
 
-/// 不带 `msime.db` 时代替它的连接：一个内存库，`english.db` 和日志照常 attach 上去，写进去的只有 attach 的那几个库。等待锁的时间与 `open_database` 打开的连接相同。
+/// 不带 `msime-pinyin.db` 时代替它的连接：一个内存库，`msime-english.db` 和日志照常 attach 上去，写进去的只有 attach 的那几个库。等待锁的时间与 `open_database` 打开的连接相同。
 pub(super) fn open_without_main_dictionary() -> rusqlite::Result<Connection> {
     let connection = Connection::open_in_memory_with_flags(
         OpenFlags::SQLITE_OPEN_READ_WRITE
@@ -643,7 +643,7 @@ pub(super) mod tests {
         assert_eq!(result.applied, 0);
     }
 
-    /// 没有 `msime.db` 的代次只回放英文行：拼音、五笔和快捷短语的行跳过，不算失败，也不会去碰（或创建）`msime.db`。
+    /// 没有 `msime-pinyin.db` 的代次只回放英文行：拼音、五笔和快捷短语的行跳过，不算失败，也不会去碰（或创建）`msime-pinyin.db`。
     #[test]
     fn without_the_main_dictionary_only_english_rows_are_replayed() {
         let fixture = fixture();

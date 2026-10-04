@@ -246,7 +246,7 @@ pub fn stage_dictionary_state(
     )
 }
 
-/// [`stage_dictionary_state`]，词库按 `schemes` 准备（`prepare_runtime_paths_for`）：不读 `msime.db` 的集合只复制 `english.db`，记录照收，回放时只有英文行写进词库。
+/// [`stage_dictionary_state`]，词库按 `schemes` 准备（`prepare_runtime_paths_for`）：不读 `msime-pinyin.db` 的集合只复制 `msime-english.db`，记录照收，回放时只有英文行写进词库。
 pub fn stage_dictionary_state_for(
     resources: &Path,
     generation: &Path,

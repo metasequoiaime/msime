@@ -12,7 +12,7 @@
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
 - 只认中文的功能：非英文离线释义（`features.offline_glosses`）和手写（`features.handwriting`）都只对中文候选、汉字有用，所以两者必须等于本版本是否提供中文方案（与 client-core 的 `ChineseScheme::of` 是同一组方案，这里另外核对那组方案没有变）；日文、越南文和藏文版两者都是 false，各平台的打包和设置据此不带这些数据、不提供这些入口；
-- 数据依赖：用到 msime.db 的方案（全拼、双拼、五笔，与 Engine 的 `SchemeSet::reads_main_dictionary` 相同）要带 chinese-main，反过来没有这些方案的版本（日文、越南文、藏文）不带 chinese-main 和 ngram——Engine 给它们准备的代次里本来就没有 msime.db，带上也没人读；功能开关要带对应组件，粤语、注音和笔画要列出对应语言词库；
+- 数据依赖：用到 msime-pinyin.db 的方案（全拼、双拼、五笔，与 Engine 的 `SchemeSet::reads_main_dictionary` 相同）要带 chinese-main，反过来没有这些方案的版本（日文、越南文、藏文）不带 chinese-main 和 ngram——Engine 给它们准备的代次里本来就没有 msime-pinyin.db，带上也没人读；功能开关要带对应组件，粤语、注音和笔画要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
 - Linux 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的安装前缀不能嵌在另一个版本的前缀里，由包名推出的 systemd 用户单元、图标和 /usr/bin 命令名也两两不同；不是 full 的版本按版本 id 推出（`msime-linux-<id>`、`/opt/msime-linux-<id>`、`msime-client-<id>`、`msime-<id>`、`app.msime.linux.<id>`）；full 的值等于今天的包名（packaging.cmake 从版本表取）、IBus 组件、Fcitx5 配置、msime-linux-setup 和 tauri.linux.conf.json 里的值；
@@ -55,9 +55,9 @@ LINUX_ROOT = ROOT / "platforms/linux"
 
 FULL = "full"
 PLATFORMS = ["macos", "windows", "linux", "android", "ios", "harmony"]
-# 这些方案的候选来自 msime.db（拼音表和五笔码表），五笔混拼也走全拼引擎。与 Engine 的 `SchemeSet::reads_main_dictionary` 是同一组方案：没有这些方案的版本，Engine 准备的代次里没有 msime.db。
+# 这些方案的候选来自 msime-pinyin.db（拼音表和五笔码表），五笔混拼也走全拼引擎。与 Engine 的 `SchemeSet::reads_main_dictionary` 是同一组方案：没有这些方案的版本，Engine 准备的代次里没有 msime-pinyin.db。
 CHINESE_MAIN_SCHEMES = {"quanpin", "shuangpin", "wubi"}
-# 只有读 msime.db 的方案才用得上的组件：n-gram 表给拼音整句的词格用。
+# 只有读 msime-pinyin.db 的方案才用得上的组件：n-gram 表给拼音整句的词格用。
 CHINESE_ONLY_COMPONENTS = ["chinese-main", "ngram"]
 ENGINE_TYPES = ROOT / "crates/engine/src/types.rs"
 # 写中文的方案，与 client-core 的 `ChineseScheme::of` 是同一组。非英文离线释义按中文候选查，手写模型只认汉字，所以只有提供其中任何一个方案的版本才有这两个功能。
@@ -68,7 +68,7 @@ CHINESE_FEATURES = ["offline_glosses", "handwriting"]
 # 功能开关和它依赖的资源组件。
 FEATURE_COMPONENTS = {"temporary_japanese": "japanese", "neural_keyboard": "sentence-model"}
 # 方案和它依赖的语言词库。
-SCHEME_LANGUAGE_DICTIONARIES = {"cantonese": "cantonese.db", "zhuyin": "zhuyin.db", "stroke": "stroke.db"}
+SCHEME_LANGUAGE_DICTIONARIES = {"cantonese": "msime-cantonese.db", "zhuyin": "msime-zhuyin.db", "stroke": "msime-stroke.db"}
 # 版本默认值只对含某个方案的版本有意义。
 PREFERENCE_DEFAULT_SCHEMES = {"wubi_mixed_pinyin": "wubi"}
 # full 今天写死在 macOS 各处的标识。改了其中任何一个，已安装的用户就会被当成另一个产品：输入源、偏好域、状态目录、钥匙串条目、cask 和更新资产都对不上。
@@ -317,7 +317,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
         if "core" not in chosen:
             errors.append(f"{where}: resources.components must include core")
         if CHINESE_MAIN_SCHEMES & set(schemes) and "chinese-main" not in chosen:
-            errors.append(f"{where}: {sorted(CHINESE_MAIN_SCHEMES & set(schemes))} read msime.db, so resources.components must include chinese-main")
+            errors.append(f"{where}: {sorted(CHINESE_MAIN_SCHEMES & set(schemes))} read msime-pinyin.db, so resources.components must include chinese-main")
         if not CHINESE_MAIN_SCHEMES & set(schemes):
             for component in CHINESE_ONLY_COMPONENTS:
                 if component in chosen:

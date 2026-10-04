@@ -846,19 +846,20 @@ mod tests {
         }
     }
 
-    /// 五笔版不带临时日文和整句重排模型，带五笔混拼要用的 msime.db 和整句词格要用的 n-gram 表。
+    /// 五笔版不带临时日文和整句重排模型，带五笔码表 msime-wubi.db、五笔混拼要用的 msime-pinyin.db 和整句词格要用的 n-gram 表。
     #[test]
     fn the_wubi_lock_leaves_out_japanese_and_the_sentence_model() {
         let set = Edition::by_id("wubi").unwrap().resource_set().unwrap();
         assert_eq!(
             artifact_names(&set),
             BTreeSet::from([
-                "bigram.bin",
-                "dictionary-manifest.json",
-                "english.db",
-                "msime.db",
-                "others.db",
-                "trigram.bin",
+                "msime-bigram.bin",
+                "msime-dictionary-manifest.json",
+                "msime-english.db",
+                "msime-pinyin.db",
+                "msime-others.db",
+                "msime-trigram.bin",
+                "msime-wubi.db",
             ])
         );
         assert_ne!(
@@ -871,12 +872,16 @@ mod tests {
         );
     }
 
-    /// 日文、越南文和藏文版只带核心资源（英文词库、符号表和清单），日文版另带日文词典；三者都不带 msime.db、n-gram 表和整句模型。
+    /// 日文、越南文和藏文版只带核心资源（英文词库、符号表和清单），日文版另带日文词典；三者都不带 msime-pinyin.db、msime-wubi.db、n-gram 表和整句模型。
     #[test]
     fn the_language_edition_locks_carry_no_chinese_dictionary() {
-        let core = BTreeSet::from(["dictionary-manifest.json", "english.db", "others.db"]);
+        let core = BTreeSet::from([
+            "msime-dictionary-manifest.json",
+            "msime-english.db",
+            "msime-others.db",
+        ]);
         let mut japanese = core.clone();
-        japanese.extend(["dict_japanese.dat", "mozc_dictionary_oss_README.txt"]);
+        japanese.extend(["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]);
         let full_generation = Edition::full()
             .resource_set()
             .unwrap()

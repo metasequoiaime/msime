@@ -107,7 +107,7 @@ pub fn prepare_options(
     prepare_options_for(resources, user_data, cache, content_id, SchemeSet::ALL)
 }
 
-/// [`prepare_options`] 按会话允许的方案准备，`enabled_schemes` 也填它。集合不读 `msime.db`（`SchemeSet::reads_main_dictionary`，例如只有日文、越南文或藏文的版本）时，资源目录里不需要 `msime.db`，代次里也没有它（`prepare_runtime_paths_for`）；读它的集合与 [`prepare_options`] 准备出的代次相同。
+/// [`prepare_options`] 按会话允许的方案准备，`enabled_schemes` 也填它。集合不读 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`，例如只有日文、越南文或藏文的版本）时，资源目录里不需要 `msime-pinyin.db`，代次里也没有它（`prepare_runtime_paths_for`）；读它的集合与 [`prepare_options`] 准备出的代次相同。
 pub fn prepare_options_for(
     resources: &str,
     user_data: &str,

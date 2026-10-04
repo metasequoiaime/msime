@@ -6860,7 +6860,7 @@ fn the_c_abi_repairs_and_reloads_a_non_full_state_root_to_its_own_defaults() {
     );
 }
 
-/// 按 `edition` 的资源锁合成一个资源目录：文件名取自真实的版本锁，内容是小 fixture，清单按实际内容计算长度与 SHA-256。`msime-pinyin.db` 带 `nihao` 的拼音行和 `wq` 的五笔行，`msime-english.db` 带一个英文词，`msime-bigram.bin`、`msime-trigram.bin` 不是合法的表（Engine 会当作没有表），其余文件只要存在。
+/// 按 `edition` 的资源锁合成一个资源目录：文件名取自真实的版本锁，内容是小 fixture，清单按实际内容计算长度与 SHA-256。`msime-pinyin.db` 带 `nihao` 的拼音行，`msime-wubi.db` 带 `wq` 的五笔行（与词库发布的拆分布局相同，准备代次时并回工作主词库），`msime-english.db` 带一个英文词，`msime-bigram.bin`、`msime-trigram.bin` 不是合法的表（Engine 会当作没有表），其余文件只要存在。
 fn synthetic_edition_lock(edition: &Edition, resources: &Path) -> ResourceSet {
     std::fs::create_dir_all(resources).unwrap();
     let pinned = edition.resource_set().unwrap();
@@ -6875,10 +6875,15 @@ fn synthetic_edition_lock(edition: &Edition, resources: &Path) -> ResourceSet {
                     .execute_batch(
                         "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
                          INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100),('ni''hao','nh','拟好',80);
-                         CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
-                         INSERT INTO wubi86 VALUES('wq','你',100),('wqvb','你好',90);
                          CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
                          CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+                    )
+                    .unwrap(),
+                "msime-wubi.db" => rusqlite::Connection::open(&path)
+                    .unwrap()
+                    .execute_batch(
+                        "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                         INSERT INTO wubi86 VALUES('wq','你',100),('wqvb','你好',90);",
                     )
                     .unwrap(),
                 "msime-english.db" => rusqlite::Connection::open(&path)

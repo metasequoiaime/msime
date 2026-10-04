@@ -211,7 +211,7 @@ pub fn edit_bundled_dictionary_entry(
     edit_bundled_dictionary_entry_with(paths, true, previous, weight, request_id)
 }
 
-/// [`edit_bundled_dictionary_entry`]，`main_dictionary` 说明代次里有没有 `msime.db`。没有时只有英文词库的行能改，其余种类以 `NO_CHINESE_DICTIONARY` 失败。
+/// [`edit_bundled_dictionary_entry`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`。没有时只有英文词库的行能改，其余种类以 `NO_CHINESE_DICTIONARY` 失败。
 pub fn edit_bundled_dictionary_entry_with(
     paths: &RuntimePaths,
     main_dictionary: bool,

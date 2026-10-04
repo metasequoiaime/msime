@@ -65,7 +65,7 @@ pub(super) const STORAGE_UNAVAILABLE: &str = "Cannot access personal dictionary 
 pub(super) const INVALID_PAGE: &str = "Invalid personal dictionary page";
 pub(super) const DICTIONARY_NOT_READ: &str = "Cannot read personal dictionary";
 pub(super) const PAGE_READ_UNFINISHED: &str = "Cannot finish reading personal dictionary";
-/// 没有 `msime.db` 的代次（方案集合不读它）只收英文词：拼音、五笔和快捷短语都写在 `msime.db` 里。
+/// 没有 `msime-pinyin.db` 的代次（方案集合不读它）只收英文词：拼音、五笔和快捷短语都写在 `msime-pinyin.db` 里。
 pub(super) const NO_CHINESE_DICTIONARY: &str =
     "This input method has no Chinese dictionary; only English words can be edited";
 
@@ -175,7 +175,7 @@ pub fn edit_personal_dictionary(
     edit_personal_dictionary_with(paths, true, previous, replacement, request_id)
 }
 
-/// [`edit_personal_dictionary`]，`main_dictionary` 说明代次里有没有 `msime.db`（`SchemeSet::reads_main_dictionary`）。没有时只能编辑英文词，其余种类的增删改都以 `NO_CHINESE_DICTIONARY` 失败，什么也不写。
+/// [`edit_personal_dictionary`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`）。没有时只能编辑英文词，其余种类的增删改都以 `NO_CHINESE_DICTIONARY` 失败，什么也不写。
 pub fn edit_personal_dictionary_with(
     paths: &RuntimePaths,
     main_dictionary: bool,
@@ -285,7 +285,7 @@ pub fn personal_dictionary_entries(
     personal_dictionary_entries_with(paths, true, offset, limit, include_learned_pinyin)
 }
 
-/// [`personal_dictionary_entries`]，`main_dictionary` 为假（代次里没有 `msime.db`）时只列英文词：别的种类的行（例如从别的版本恢复来的快照）在这里既用不上也改不了，所以不列出。
+/// [`personal_dictionary_entries`]，`main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时只列英文词：别的种类的行（例如从别的版本恢复来的快照）在这里既用不上也改不了，所以不列出。
 pub fn personal_dictionary_entries_with(
     paths: &RuntimePaths,
     main_dictionary: bool,
@@ -341,7 +341,7 @@ pub fn personal_dictionary_entries_with(
     Ok(page)
 }
 
-/// The main dictionary opened for writing with the journal attached as `personal_journal` and the English dictionary as `replay_english`, both prepared first (J:1822-1836). `main_dictionary` 为假（代次里没有 `msime.db`）时以一个内存库代替它，只有 attach 的日志和英文词库可写。
+/// The main dictionary opened for writing with the journal attached as `personal_journal` and the English dictionary as `replay_english`, both prepared first (J:1822-1836). `main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时以一个内存库代替它，只有 attach 的日志和英文词库可写。
 pub(super) fn open_edit_connection(
     paths: &RuntimePaths,
     main_dictionary: bool,

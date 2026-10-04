@@ -20,7 +20,7 @@ pub use crate::user_dictionary::state::DictionaryStateRecord;
 #[error("Snapshot record stream failed")]
 pub struct SnapshotReadError;
 
-/// 代次里有没有 `msime.db`：会话允许的方案里有读它的方案时才有（`SchemeSet::reads_main_dictionary`）。没有它的版本，个人词库只收英文词。
+/// 代次里有没有 `msime-pinyin.db`：会话允许的方案里有读它的方案时才有（`SchemeSet::reads_main_dictionary`）。没有它的版本，个人词库只收英文词。
 fn main_dictionary(options: &EngineOptions) -> bool {
     options.enabled_schemes.reads_main_dictionary()
 }
@@ -115,7 +115,7 @@ pub fn dictionary_edit(
     ))
 }
 
-/// Refuses to reset the packaged bundle in place and needs both packaged dictionaries. 方案集合不读 `msime.db` 时只需要、也只换回 `english.db`。
+/// Refuses to reset the packaged bundle in place and needs both packaged dictionaries. 方案集合不读 `msime-pinyin.db` 时只需要、也只换回 `msime-english.db`。
 pub fn reset_learned_data(options: &EngineOptions) -> Result<()> {
     released(reset::reset_learned_data_with(
         &runtime_paths(options),
