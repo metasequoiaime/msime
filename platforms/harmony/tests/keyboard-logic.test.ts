@@ -9529,6 +9529,7 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
   };
   const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] =
     [];
+  let catalogRevision = 12;
   const transport: AccountTransport = {
     request: async (method, path, token, body) => {
       calls.push({ method, path, token, body });
@@ -9544,9 +9545,14 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
           }),
         };
       if (path.includes("/dictionaries/quick/catalog"))
-        return { status: 200, body: '{"revision":12}' };
-      if (path.endsWith("/apply"))
-        return { status: 200, body: '{"revision":14,"imported":2,"resource_revision":3}' };
+        return { status: 200, body: JSON.stringify({ revision: catalogRevision }) };
+      if (path.endsWith("/apply")) {
+        const revision = Number(body?.dictionary_revision ?? 0);
+        return {
+          status: 200,
+          body: JSON.stringify({ revision: revision + 2, imported: 2, resource_revision: 3 }),
+        };
+      }
       if (path === "/v1/community/resources")
         return {
           status: 200,
@@ -9609,6 +9615,17 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
           "and it carries the revision the catalog just reported",
         );
         check(applied?.body?.resource_revision === 3, "together with the resource revision");
+        catalogRevision = Number.MAX_SAFE_INTEGER + 1;
+        return resources({ resource_operation: "apply", id, resource_revision: 3 });
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_unavailable",
+          "an unsafe dictionary revision is unavailable",
+        );
+        check(
+          calls.filter((call) => call.path.endsWith("/apply")).length === 1,
+          "an unsafe dictionary revision is rejected before the apply request",
+        );
       });
 
       // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared

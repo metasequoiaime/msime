@@ -1564,7 +1564,7 @@ export class AccountCloudBridge {
       if (parsed.ok !== true) return catalog;
       const value = parsed.value as Action;
       const revision = value.revision;
-      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) {
+      if (!safeInteger(revision) || revision < 0) {
         return error("community_unavailable");
       }
       dictionaryRevision = revision;
