@@ -11,6 +11,7 @@ extension BackendAccountClient {
     let items: [ClipboardItem]
   }
   func clipboard(token: String, search: String = "") async throws -> ClipboardPage {
+    guard Self.validClipboardSearch(search) else { throw Failure(status: 400) }
     var components = URLComponents()
     components.path = "/v1/users/me/clipboard"
     components.queryItems = [URLQueryItem(name: "q", value: search)]
@@ -46,6 +47,11 @@ extension BackendAccountClient {
       && !text.unicodeScalars.contains { scalar in
         scalar.properties.generalCategory == .control && ![9, 10, 13].contains(scalar.value)
       }
+  }
+
+  private static func validClipboardSearch(_ search: String) -> Bool {
+    search.utf8.count <= 1024
+      && !search.unicodeScalars.contains { $0.properties.generalCategory == .control }
   }
 
   private static func validClipboardItem(_ item: ClipboardItem) -> Bool {

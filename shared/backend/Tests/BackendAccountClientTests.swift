@@ -220,6 +220,16 @@ final class BackendAccountClientTests: XCTestCase {
     try await client().setClipboardEnabled(false, token: "session")
     try await client().deleteClipboard(token: "session")
   }
+  func testClipboardSearchRejectsOversizedAndUnsafeValues() async throws {
+    for search in [String(repeating: "a", count: 1025), "safe\u{0007}query"] {
+      do {
+        _ = try await client().clipboard(token: "session", search: search)
+        XCTFail("unsafe search")
+      } catch let error as BackendAccountClient.Failure {
+        XCTAssertEqual(error.status, 400)
+      }
+    }
+  }
   func testClipboardRejectsOversizedUTF16AndUnsafeID() async throws {
     do { _ = try await client().addClipboard(String(repeating: "😀", count: 2001), token: "session"); XCTFail("too long") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
