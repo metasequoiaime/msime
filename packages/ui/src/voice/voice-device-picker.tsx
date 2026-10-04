@@ -3,6 +3,7 @@ import { StatusMessage } from "../core/status-message";
 import { runAsyncAction } from "../core/async-action";
 import { ActionButton } from "../core/action-button";
 import { SettingActionHeader } from "../settings/setting-action-header";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type VoiceCaptureDevice = {
   backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
@@ -26,22 +27,19 @@ export function VoiceDevicePicker({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("点击刷新读取可用录音设备");
   const pending = useRef(false);
-  const revision = useRef(0);
+  const generation = useAsyncGeneration(read);
   useEffect(() => {
     pending.current = false;
     setBusy(false);
     setDevices([]);
-    return () => {
-      revision.current++;
-    };
   }, [read]);
   async function refresh() {
     if (pending.current) return;
-    const current = ++revision.current;
+    const current = generation.current;
     void runAsyncAction(
       {
         busy: pending.current,
-        isCurrent: () => current === revision.current,
+        isCurrent: () => current === generation.current,
         setBusy: (value) => {
           pending.current = value;
           setBusy(value);
