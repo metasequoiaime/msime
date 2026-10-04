@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 enum KeyboardEmojiCatalogError: Error {
   case invalidPage
@@ -87,16 +88,14 @@ enum KeyboardEmojiCatalog {
   ) throws -> Page {
     guard requestedOffset >= 0, requestedOffset <= maximumCursor,
           let rows = value["items"] as? [[String: Any]], rows.count <= pageSize,
-          let nextNumber = value["next_offset"] as? NSNumber,
+          let nextOffset = integerCursor(value["next_offset"]),
           let complete = value["complete"] as? Bool else {
       throw KeyboardEmojiCatalogError.invalidPage
     }
-    let nextOffset64 = nextNumber.int64Value
-    guard nextNumber.doubleValue == Double(nextOffset64),
-          nextOffset64 >= Int64(requestedOffset),
-          nextOffset64 <= Int64(requestedOffset + pageSize),
-          nextOffset64 <= Int64(maximumCursor),
-          complete || nextOffset64 > Int64(requestedOffset) else {
+    guard nextOffset >= requestedOffset,
+          nextOffset <= requestedOffset + pageSize,
+          nextOffset <= maximumCursor,
+          complete || nextOffset > requestedOffset else {
       throw KeyboardEmojiCatalogError.invalidPage
     }
     let items = try rows.map { row -> Item in
@@ -109,7 +108,7 @@ enum KeyboardEmojiCatalog {
       }
       return Item(text: text, annotation: annotation, group: group)
     }
-    return Page(items: items, nextOffset: Int(nextOffset64), complete: complete)
+    return Page(items: items, nextOffset: nextOffset, complete: complete)
   }
 
   /// Chinese names for the Engine's symbol parents; a parent the catalog adds later shows under its own name.
@@ -182,7 +181,7 @@ enum KeyboardEmojiCatalog {
     while true {
       let value = try page(offset)
       guard let rows = value["items"] as? [[String: Any]], rows.count <= 255,
-            let next = (value["next_offset"] as? NSNumber)?.intValue,
+            let next = integerCursor(value["next_offset"]),
             let complete = value["complete"] as? Bool,
             complete || next > offset else {
         throw KeyboardEmojiCatalogError.invalidPage
@@ -196,6 +195,15 @@ enum KeyboardEmojiCatalog {
       guard next <= maximumSymbols else { throw KeyboardEmojiCatalogError.invalidPage }
       offset = next
     }
+  }
+
+  private static func integerCursor(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          integer >= 0,
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   static func validRecent(_ value: String) -> Bool {
