@@ -28,6 +28,7 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -1440,31 +1441,26 @@ export function VoicePanel({
   const recognitionRevision = useRef(0);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
+  const voiceGeneration = useAsyncGeneration(client);
 
   useEffect(() => {
-    let active = true;
+    const generation = voiceGeneration.current;
     if (!client.loadVoiceLanguage) return;
     void client
       .loadVoiceLanguage()
       .then((next) => {
-        if (active && validVoiceLanguage(next)) setLanguage(next);
+        if (generation === voiceGeneration.current && validVoiceLanguage(next)) setLanguage(next);
       })
       .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   useEffect(() => {
-    let active = true;
+    const generation = voiceGeneration.current;
     if (!client.rememberInputTarget) return;
     void client.rememberInputTarget().catch(() => {
-      if (active) setNotice("未能记录前台输入窗口");
+      if (generation === voiceGeneration.current) setNotice("未能记录前台输入窗口");
     });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   useEffect(() => {
     submittingRef.current = false;
@@ -1485,11 +1481,11 @@ export function VoicePanel({
 
   useEffect(() => {
     if (!client.onVoiceUpdate) return;
-    let active = true;
+    const generation = voiceGeneration.current;
     let unlisten: (() => void) | undefined;
     void client
       .onVoiceUpdate((update) => {
-        if (!active || !busyRef.current) return;
+        if (generation !== voiceGeneration.current || !busyRef.current) return;
         if (update.level !== undefined) {
           if (
             !stoppingRef.current &&
@@ -1526,15 +1522,14 @@ export function VoicePanel({
         );
       })
       .then((stop) => {
-        if (active) unlisten = stop;
+        if (generation === voiceGeneration.current) unlisten = stop;
         else stop();
       })
       .catch(() => undefined);
     return () => {
-      active = false;
       unlisten?.();
     };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   async function recognize() {
     if (busyRef.current || submittingRef.current) return;
