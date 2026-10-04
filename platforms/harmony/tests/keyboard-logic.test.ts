@@ -233,6 +233,11 @@ import {
 } from "../entry/src/main/ets/telemetry/TelemetryPolicy";
 import { NoticePolicy } from "../entry/src/main/ets/notices/NoticePolicy";
 import {
+  HttpRequestLike,
+  installNoRedirectGuard,
+  noRedirectOptions,
+} from "../entry/src/main/ets/network/HarmonyHttpSecurity";
+import {
   CLOUD_CLIPBOARD_EMPTY,
   CLOUD_CLIPBOARD_FAILED,
   CLOUD_CLIPBOARD_LOADING,
@@ -7313,6 +7318,33 @@ group("a clipboard history document is not trusted because we wrote it", () => {
   );
   const good = ClipboardHistoryStore.parse('[{"text":"a","at":1,"pinned":false}]');
   check(good.length === 1 && good[0].text === "a", "a sound document round-trips");
+});
+
+group("Harmony HTTP requests stop before following redirects", () => {
+  let redirectCallback: ((headers: Object) => void) | undefined;
+  let destroyed = 0;
+  const request: HttpRequestLike = {
+    on: (_type: "headersReceive", callback: (headers: Object) => void) => {
+      redirectCallback = callback;
+    },
+    destroy: () => {
+      destroyed += 1;
+    },
+  };
+  installNoRedirectGuard(request);
+  redirectCallback?.({ Location: "https://synthetic.invalid/" });
+  check(destroyed === 1, "a Location response destroys the request before the redirect");
+
+  destroyed = 0;
+  redirectCallback?.({ location: "https://synthetic.invalid/" });
+  check(destroyed === 1, "redirect detection is case insensitive");
+
+  destroyed = 0;
+  redirectCallback?.({ "content-type": "application/json" });
+  check(destroyed === 0, "ordinary response headers keep the request alive");
+
+  const options = noRedirectOptions({ readTimeout: 1000 });
+  check(options.maxRedirects === 0, "the native redirect limit is also set to zero when available");
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {

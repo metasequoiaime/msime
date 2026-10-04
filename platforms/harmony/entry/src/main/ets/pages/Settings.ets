@@ -8,6 +8,7 @@ import font from '@ohos.font';
 import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
@@ -1674,6 +1675,7 @@ class SettingsBridge {
     let cursor: string = '';
     for (let pageNumber: number = 0; pageNumber < 10; pageNumber += 1) {
       const httpRequest = http.createHttp();
+      installNoRedirectGuard(httpRequest);
       try {
         const headers: AiModelHeaders = anthropic
           ? {
@@ -1749,6 +1751,7 @@ class SettingsBridge {
     const header: Record<string, string> = AiAuthenticationPolicy.headers(endpoint, token);
     header['Content-Type'] = 'application/json';
     const httpRequest = http.createHttp();
+    installNoRedirectGuard(httpRequest);
     try {
       const response: http.HttpResponse = await httpRequest.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -1835,6 +1838,7 @@ class SettingsBridge {
     };
     if (apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -1880,6 +1884,7 @@ class SettingsBridge {
     const authorization: string = await tencentAuthorization(
       secretId, secretKey, timestamp, date, bodyDocument);
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request('https://tmt.tencentcloudapi.com', {
         method: http.RequestMethod.POST,
@@ -1929,6 +1934,7 @@ class SettingsBridge {
       `authStr=${encodeURIComponent(authStr)}`
     ].join('&');
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(
         'https://api.niutrans.com/v2/text/translate', {
@@ -1975,6 +1981,7 @@ class SettingsBridge {
     if (provider === 'deepseek') body.thinking = { type: 'disabled' };
     if (provider === 'siliconflow') body.enable_thinking = false;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,
@@ -2015,6 +2022,7 @@ class SettingsBridge {
     const boundary: string = '----MSIMEHarmonyCredentialProbe';
     const body: ArrayBuffer = this.silentMultipart(boundary, model);
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
         method: http.RequestMethod.POST,

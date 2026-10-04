@@ -10,7 +10,7 @@
     },
     "msime-dictionary": {
       "repository": "https://github.com/metasequoiaime/msime-dictionary.git",
-      "commit": "06008c4af76671dd5ca38b427cddfe87589d0c1a"
+      "commit": "592626145d3dd3447c130165f03cc00c479a1791"
     },
     "rime-cantonese": {
       "repository": "https://github.com/rime/rime-cantonese.git",
