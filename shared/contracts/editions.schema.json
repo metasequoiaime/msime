@@ -78,7 +78,7 @@
           "required": ["components"],
           "properties": {
             "components": {
-              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。",
+              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。提供全拼、双拼或五笔的版本必须包含 chinese-main（msime.db）；三者都不提供的版本（日文、越南文、藏文）不能包含 chinese-main 和 ngram：Engine 为它们准备的代次里没有 msime.db，用户词库只收英文词。",
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,

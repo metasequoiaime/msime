@@ -259,6 +259,15 @@ impl Edition {
             )),
             "pinyin" => Some(include_str!("../../../resources/editions/pinyin.lock.json")),
             "wubi" => Some(include_str!("../../../resources/editions/wubi.lock.json")),
+            "japanese" => Some(include_str!(
+                "../../../resources/editions/japanese.lock.json"
+            )),
+            "vietnamese" => Some(include_str!(
+                "../../../resources/editions/vietnamese.lock.json"
+            )),
+            "tibetan" => Some(include_str!(
+                "../../../resources/editions/tibetan.lock.json"
+            )),
             _ => None,
         }
     }
@@ -551,7 +560,17 @@ mod tests {
             .iter()
             .map(|edition| edition.id.as_str())
             .collect();
-        assert_eq!(ids, ["full", "pinyin", "wubi"]);
+        assert_eq!(
+            ids,
+            [
+                "full",
+                "pinyin",
+                "wubi",
+                "japanese",
+                "vietnamese",
+                "tibetan"
+            ]
+        );
         assert_eq!(ids.iter().collect::<BTreeSet<_>>().len(), ids.len());
     }
 
@@ -600,6 +619,47 @@ mod tests {
         assert_eq!(wubi.display_name.en, "MSIME Wubi");
     }
 
+    /// 日文、越南文和藏文各是只有一个方案的版本：默认方案就是它，不带临时日文和键盘神经联想，也没有任何版本默认值。
+    #[test]
+    fn the_language_editions_offer_one_scheme_each() {
+        for (id, scheme, zh_hans, en) in [
+            (
+                "japanese",
+                InputScheme::Japanese,
+                "水杉日语",
+                "MSIME Japanese",
+            ),
+            (
+                "vietnamese",
+                InputScheme::Vietnamese,
+                "水杉越南语",
+                "MSIME Vietnamese",
+            ),
+            ("tibetan", InputScheme::Tibetan, "水杉藏文", "MSIME Tibetan"),
+        ] {
+            let edition = Edition::by_id(id).unwrap();
+            assert_eq!(edition.input_schemes, [scheme], "{id}");
+            assert_eq!(edition.default_scheme, scheme, "{id}");
+            assert_eq!(
+                edition.preference_defaults,
+                PreferenceDefaults::default(),
+                "{id}"
+            );
+            assert_eq!(
+                edition.features,
+                EditionFeatures {
+                    temporary_japanese: false,
+                    neural_keyboard: false
+                },
+                "{id}"
+            );
+            assert!(edition.language_dictionaries.is_empty(), "{id}");
+            assert_eq!(edition.display_name.zh_hans, zh_hans);
+            assert_eq!(edition.display_name.en, en);
+            assert_eq!(edition.mcp_server_name(), format!("msime-{id}"));
+        }
+    }
+
     #[test]
     fn every_edition_defaults_to_a_scheme_it_offers() {
         for edition in Edition::all() {
@@ -632,6 +692,9 @@ mod tests {
         assert_eq!(of(json!({ "edition": "full" })), Some("full"));
         assert_eq!(of(json!({ "edition": "wubi" })), Some("wubi"));
         assert_eq!(of(json!({ "edition": "pinyin" })), Some("pinyin"));
+        assert_eq!(of(json!({ "edition": "japanese" })), Some("japanese"));
+        assert_eq!(of(json!({ "edition": "vietnamese" })), Some("vietnamese"));
+        assert_eq!(of(json!({ "edition": "tibetan" })), Some("tibetan"));
         assert_eq!(of(json!({ "edition": "klingon" })), None);
         assert_eq!(of(json!({ "edition": 3 })), None);
     }
@@ -664,6 +727,15 @@ mod tests {
             offered,
             [TouchKeyboardScheme::Wubi, TouchKeyboardScheme::Handwriting]
         );
+        let japanese = Edition::by_id("japanese").unwrap();
+        let offered: Vec<_> = TouchKeyboardScheme::ALL
+            .into_iter()
+            .filter(|scheme| japanese.offers_touch_scheme(*scheme))
+            .collect();
+        assert!(offered.contains(&TouchKeyboardScheme::Japanese));
+        assert!(offered.contains(&TouchKeyboardScheme::Handwriting));
+        assert!(!offered.contains(&TouchKeyboardScheme::Quanpin));
+        assert!(!offered.contains(&TouchKeyboardScheme::Wubi));
     }
 
     fn artifact_names(set: &ResourceSet) -> BTreeSet<&str> {
@@ -744,6 +816,33 @@ mod tests {
                 .generation()
                 .unwrap()
         );
+    }
+
+    /// 日文、越南文和藏文版只带核心资源（英文词库、符号表和清单），日文版另带日文词典；三者都不带 msime.db、n-gram 表和整句模型。
+    #[test]
+    fn the_language_edition_locks_carry_no_chinese_dictionary() {
+        let core = BTreeSet::from(["dictionary-manifest.json", "english.db", "others.db"]);
+        let mut japanese = core.clone();
+        japanese.extend(["dict_japanese.dat", "mozc_dictionary_oss_README.txt"]);
+        let full_generation = Edition::full()
+            .resource_set()
+            .unwrap()
+            .generation()
+            .unwrap();
+        let mut generations = BTreeSet::new();
+        for (id, expected) in [
+            ("japanese", japanese),
+            ("vietnamese", core.clone()),
+            ("tibetan", core.clone()),
+        ] {
+            let set = Edition::by_id(id).unwrap().resource_set().unwrap();
+            assert_eq!(artifact_names(&set), expected, "{id}");
+            let generation = set.generation().unwrap();
+            assert_ne!(generation, full_generation, "{id}");
+            generations.insert(generation);
+        }
+        // 越南文和藏文的文件清单相同，代次也相同；它们的状态目录各自独立，所以不会共用一个代次目录。
+        assert_eq!(generations.len(), 2);
     }
 
     #[test]
@@ -895,22 +994,19 @@ mod tests {
         assert_eq!(full.dmg_prefix, "msime-macos");
         let wubi = Edition::by_id("wubi").unwrap().macos().unwrap();
         assert_eq!(wubi.input_method_bundle_name(), "水杉五笔.app");
-        let bundles: BTreeSet<_> = Edition::all()
+        // 还没有 macOS 段的版本（值为 null）不参与比较，由引入该平台的阶段补齐。
+        let sections: Vec<_> = Edition::all().iter().filter_map(Edition::macos).collect();
+        assert!(sections.len() >= 3);
+        let bundles: BTreeSet<_> = sections
             .iter()
-            .map(|edition| {
-                edition
-                    .macos()
-                    .unwrap()
-                    .input_method_bundle_id
-                    .to_lowercase()
-            })
+            .map(|section| section.input_method_bundle_id.to_lowercase())
             .collect();
-        assert_eq!(bundles.len(), Edition::all().len());
-        let states: BTreeSet<_> = Edition::all()
+        assert_eq!(bundles.len(), sections.len());
+        let states: BTreeSet<_> = sections
             .iter()
-            .map(|edition| edition.macos().unwrap().settings_bundle_id.to_lowercase())
+            .map(|section| section.settings_bundle_id.to_lowercase())
             .collect();
-        assert_eq!(states.len(), Edition::all().len());
+        assert_eq!(states.len(), sections.len());
     }
 
     #[test]
@@ -939,16 +1035,19 @@ mod tests {
             r"\\.\pipe\FanyImeAuxNamedPipe.wubi"
         );
         assert_eq!(wubi.state_directory, "MSIME-Client-wubi");
-        let pipes: BTreeSet<_> = Edition::all()
+        // 还没有 Windows 段的版本（值为 null）不参与比较，由引入该平台的阶段补齐。
+        let sections: Vec<_> = Edition::all().iter().filter_map(Edition::windows).collect();
+        assert!(sections.len() >= 3);
+        let pipes: BTreeSet<_> = sections
             .iter()
-            .map(|edition| edition.windows().unwrap().pipe_name("FanyImeNamedPipe"))
+            .map(|section| section.pipe_name("FanyImeNamedPipe"))
             .collect();
-        assert_eq!(pipes.len(), Edition::all().len());
-        let clsids: BTreeSet<_> = Edition::all()
+        assert_eq!(pipes.len(), sections.len());
+        let clsids: BTreeSet<_> = sections
             .iter()
-            .map(|edition| edition.windows().unwrap().clsid.to_uppercase())
+            .map(|section| section.clsid.to_uppercase())
             .collect();
-        assert_eq!(clsids.len(), Edition::all().len());
+        assert_eq!(clsids.len(), sections.len());
     }
 
     #[test]
@@ -974,11 +1073,14 @@ mod tests {
             "msime-linux-wubi-voice.socket"
         );
         assert_eq!(wubi.setup_program(), "msime-linux-wubi-setup");
-        let directories: std::collections::HashSet<_> = Edition::all()
+        // 还没有 Linux 段的版本（值为 null）不参与比较，由引入该平台的阶段补齐。
+        let sections: Vec<_> = Edition::all().iter().filter_map(Edition::linux).collect();
+        assert!(sections.len() >= 3);
+        let directories: std::collections::HashSet<_> = sections
             .iter()
-            .map(|edition| edition.linux().unwrap().client_directory.clone())
+            .map(|section| section.client_directory.clone())
             .collect();
-        assert_eq!(directories.len(), Edition::all().len());
+        assert_eq!(directories.len(), sections.len());
     }
 
     #[test]

@@ -3802,3 +3802,62 @@ fn a_store_built_from_a_directory_follows_the_recorded_edition() {
     .unwrap();
     assert!(store.edition().is_full());
 }
+
+/// 日文、越南文和藏文版第一次运行时：方案就是本版本唯一的方案，没有可回到的中文方案，其余偏好与 full 相同；触屏键盘只有本方案的入口和手写，排在手写后面的越南文、藏文入口被选中，第一次打开键盘不是手写。
+#[test]
+fn language_editions_first_run_defaults_to_their_own_scheme() {
+    for (id, scheme, touch, selected) in [
+        (
+            "japanese",
+            InputScheme::Japanese,
+            vec![
+                TouchKeyboardScheme::JapaneseNineKey,
+                TouchKeyboardScheme::Japanese,
+            ],
+            None,
+        ),
+        (
+            "vietnamese",
+            InputScheme::Vietnamese,
+            vec![TouchKeyboardScheme::Vietnamese],
+            Some(TouchKeyboardScheme::Vietnamese),
+        ),
+        (
+            "tibetan",
+            InputScheme::Tibetan,
+            vec![TouchKeyboardScheme::Tibetan],
+            Some(TouchKeyboardScheme::Tibetan),
+        ),
+    ] {
+        let edition = crate::edition::Edition::by_id(id).unwrap();
+        let defaults = Preferences::for_edition(edition);
+        assert_eq!(defaults.scheme, scheme, "{id}");
+        assert_eq!(defaults.last_chinese_scheme, None, "{id}");
+        assert!(!defaults.wubi_mixed_pinyin, "{id}");
+        let mut expected: std::collections::BTreeSet<_> = touch.into_iter().collect();
+        expected.insert(TouchKeyboardScheme::Handwriting);
+        assert_eq!(defaults.touch_keyboard_schemes.enabled, expected, "{id}");
+        assert_eq!(defaults.touch_keyboard_schemes.selected, selected, "{id}");
+        defaults.validate().unwrap();
+        assert_eq!(
+            Preferences {
+                scheme: InputScheme::Quanpin,
+                touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
+                ..defaults.clone()
+            },
+            Preferences::default(),
+            "{id}"
+        );
+
+        // 没有偏好文件时读到的就是这份默认值；写进文件再读回来不变。
+        let directory = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::for_edition(directory.path(), edition);
+        assert_eq!(store.edition().id, id);
+        let first = store.load().unwrap();
+        assert_eq!(first.revision, 0);
+        assert_eq!(first.preferences, defaults, "{id}");
+        let saved = store.save(0, defaults.clone()).unwrap();
+        assert_eq!(saved.preferences, defaults, "{id}");
+        assert_eq!(store.load().unwrap().preferences, defaults, "{id}");
+    }
+}

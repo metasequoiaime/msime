@@ -6612,6 +6612,16 @@ fn engine_schemes_follow_the_documents_edition() {
     assert_eq!(enabled(None), SchemeSet::ALL);
     assert_eq!(enabled(Some("full")), SchemeSet::ALL);
     assert_eq!(enabled(Some("wubi")), SchemeSet::of(&[SchemeType::Wubi]));
+    // 日文、越南文和藏文版只有各自的方案：不带临时日文，不读 msime.db。
+    for (id, scheme) in [
+        ("japanese", SchemeType::JapaneseRomaji),
+        ("vietnamese", SchemeType::Vietnamese),
+        ("tibetan", SchemeType::Tibetan),
+    ] {
+        let set = enabled(Some(id));
+        assert_eq!(set, SchemeSet::of(&[scheme]), "{id}");
+        assert!(!set.reads_main_dictionary(), "{id}");
+    }
     assert_eq!(
         enabled(Some("pinyin")),
         SchemeSet::of(&[
@@ -6941,6 +6951,279 @@ fn wubi_resources_type_mixed_pinyin_and_wubi_codes() {
         Some("你"),
         "{code}"
     );
+}
+
+/// 日文、越南文和藏文版用各自的资源集准备宿主：资源目录只有核心资源（日文版另有日文词典），没有 msime.db、n-gram 表和整句模型，按 full 的清单校验不过。准备出的代次里没有 msime.db；第一次运行的偏好就是本版本唯一的方案；即使偏好写着全拼（例如从 full 同步来的），Engine 跑的仍是本版本的方案，也只构造这一个方案。
+#[test]
+fn language_editions_prepare_and_type_with_only_their_own_resources() {
+    let root = tempfile::tempdir().unwrap();
+    for (id, scheme, code, input) in [
+        ("japanese", SchemeType::JapaneseRomaji, 3, &b"ka"[..]),
+        ("vietnamese", SchemeType::Vietnamese, 7, &b"tieengs"[..]),
+        ("tibetan", SchemeType::Tibetan, 8, &b"bkra"[..]),
+    ] {
+        let edition = Edition::by_id(id).unwrap();
+        let resources = root.path().join(id).join("resources");
+        let specification = synthetic_edition_lock(edition, &resources);
+        for absent in [
+            "msime.db",
+            "bigram.bin",
+            "trigram.bin",
+            "sentence-model.safetensors",
+        ] {
+            assert!(!resources.join(absent).exists(), "{id}: {absent}");
+        }
+        assert_eq!(
+            resources.join("dict_japanese.dat").exists(),
+            id == "japanese",
+            "{id}"
+        );
+        assert!(
+            ResourceStore::new(&resources)
+                .verify(&resources, &Edition::full().resource_set().unwrap())
+                .is_err(),
+            "{id}"
+        );
+        let state = root.path().join(id).join("state");
+        let prepare = || -> Value {
+            serde_json::from_str(
+                &prepare_shipped_host_configuration(
+                    &resources,
+                    &state,
+                    &specification,
+                    ON_DEMAND_ARTIFACTS,
+                    edition,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let mut prepared = prepare();
+        assert_eq!(prepared["edition"], id);
+        assert_eq!(prepared["preferences"]["scheme"], id);
+        assert!(
+            prepared["preferences"]["last_chinese_scheme"].is_null(),
+            "{id}"
+        );
+        let dictionaries = PathBuf::from(prepared["dictionaries"].as_str().unwrap());
+        assert!(dictionaries.join("english.db").is_file(), "{id}");
+        assert!(!dictionaries.join("msime.db").exists(), "{id}");
+        assert_eq!(
+            Edition::recorded_in(&state).map(|e| e.id.as_str()),
+            Some(id)
+        );
+        // 第二次准备（例如重启或升级后）遇到的是已经准备好的代次，同样不要求 msime.db。
+        assert_eq!(prepare()["dictionaries"], prepared["dictionaries"], "{id}");
+
+        let options = HostOptions::from_document(prepared.clone())
+            .unwrap()
+            .into_engine_options();
+        assert_eq!(options.scheme, code, "{id}");
+        assert_eq!(options.enabled_schemes, SchemeSet::of(&[scheme]), "{id}");
+        assert!(!options.enabled_schemes.reads_main_dictionary(), "{id}");
+        assert!(!options.local_temporary_japanese, "{id}");
+        assert!(!options.sentence_association.neural_keyboard, "{id}");
+
+        // 偏好写着全拼：回退到本版本的方案。
+        prepared["preferences"]["default_ime_mode"] = json!("chinese");
+        prepared["preferences"]["scheme"] = json!("quanpin");
+        prepared["preferences"]["last_chinese_scheme"] = json!("quanpin");
+        let document = prepared.to_string();
+        let created = read(unsafe { msime_client_create(document.as_ptr(), document.len()) });
+        assert_eq!(created["ok"], true, "{id}: {created}");
+        let handle = created["value"]["session"].as_u64().unwrap();
+        SESSIONS.with(|sessions| {
+            let session = &sessions.borrow()[&handle];
+            assert_eq!(session.edition.id, id);
+            assert_eq!(session.options.scheme, code, "{id}");
+        });
+        assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+        let mut view = Value::Null;
+        for byte in input {
+            let response = read(msime_client_character(handle, *byte, false));
+            assert_eq!(response["ok"], true, "{id}: {response}");
+            assert_eq!(response["value"]["handled"], true, "{id}: {response}");
+            view = response["value"]["view"].clone();
+        }
+        assert_eq!(view["scheme"], code, "{id}: {view}");
+        match id {
+            "japanese" => {
+                assert_eq!(view["reading"], "か", "{view}");
+                let committed = read(msime_client_command(handle, 11));
+                assert_eq!(committed["value"]["commit"], "か", "{committed}");
+            }
+            "vietnamese" => assert_eq!(view["preedit"], "tiếng", "{view}"),
+            _ => assert_eq!(view["preedit"], "བཀྲ", "{view}"),
+        }
+        assert_eq!(read(msime_client_destroy(handle))["ok"], true);
+        // 打字之后代次里仍然没有 msime.db。
+        assert!(!dictionaries.join("msime.db").exists(), "{id}");
+    }
+}
+
+/// 没有中文词库的版本里，词库工具只管英文词：英文词照常添加、列出、改权重和删除，重新准备代次后还在；拼音、五笔和快捷短语的编辑和导入直接说明本版本没有中文词库，列表是空的；候选查询说明本版本没有拼音和五笔，什么也不写。
+#[test]
+#[cfg(not(target_os = "android"))]
+fn dictionary_tools_keep_only_english_words_without_the_chinese_dictionary() {
+    let root = tempfile::tempdir().unwrap();
+    let japanese = Edition::by_id("japanese").unwrap();
+    let resources = root.path().join("resources");
+    let specification = synthetic_edition_lock(japanese, &resources);
+    let state = root.path().join("state");
+    let prepare = || -> Value {
+        serde_json::from_str(
+            &prepare_shipped_host_configuration(
+                &resources,
+                &state,
+                &specification,
+                ON_DEMAND_ARTIFACTS,
+                japanese,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    let prepared = prepare();
+    let options = DictionaryOptions::from_host_document(prepared.clone()).unwrap();
+    let new_word = |code: &str, word: &str| NewWord {
+        code: Some(code.into()),
+        word: word.into(),
+        weight: None,
+    };
+
+    edit_dictionary_word(
+        &options,
+        &WordEdit::Add(WordKind::English, new_word("zzfixture", "Zzfixture")),
+        "add-english",
+    )
+    .unwrap();
+    let listed = |options: &DictionaryOptions| {
+        dictionary_words(options, WordKind::English, "", false, 0, 10)
+            .unwrap()
+            .words
+    };
+    let words = listed(&options);
+    assert_eq!(words.len(), 1, "{words:?}");
+    assert_eq!(words[0].code, "zzfixture");
+    assert_eq!(words[0].word, "Zzfixture");
+    assert!(!words[0].bundled);
+    edit_dictionary_word(
+        &options,
+        &WordEdit::SetWeight {
+            kind: WordKind::English,
+            code: "zzfixture".into(),
+            word: "Zzfixture".into(),
+            weight: 77,
+        },
+        "weigh-english",
+    )
+    .unwrap();
+    assert_eq!(listed(&options)[0].weight, 77);
+
+    // 拼音、五笔和快捷短语在这里无处可存：编辑、导入都直接说明原因。
+    let refused = crate::NO_CHINESE_DICTIONARY;
+    assert_eq!(
+        edit_dictionary_word(
+            &options,
+            &WordEdit::Add(WordKind::Pinyin, new_word("ni'hao", "你好")),
+            "add-pinyin",
+        )
+        .unwrap_err(),
+        refused
+    );
+    assert_eq!(
+        edit_dictionary_word(
+            &options,
+            &WordEdit::Remove {
+                kind: WordKind::Wubi,
+                code: "wq".into(),
+                word: "你".into(),
+            },
+            "remove-wubi",
+        )
+        .unwrap_err(),
+        refused
+    );
+    assert_eq!(
+        import_dictionary_words(
+            &options,
+            WordKind::Wubi98,
+            &[new_word("wq", "你")],
+            "import-wubi"
+        )
+        .unwrap_err(),
+        refused
+    );
+    assert_eq!(
+        edit_user_quick_phrase(
+            &options,
+            &QuickPhraseEdit::Add(QuickPhrase {
+                code: "dh".into(),
+                text: "电话".into(),
+            }),
+            "add-quick",
+        )
+        .unwrap_err(),
+        refused
+    );
+    let quick = user_quick_phrases(&options, "", 0, 10).unwrap();
+    assert!(quick.phrases.is_empty() && !quick.has_more);
+    for kind in [WordKind::Pinyin, WordKind::Wubi, WordKind::Wubi98] {
+        assert!(dictionary_words(&options, kind, "ni", true, 0, 10)
+            .unwrap()
+            .words
+            .is_empty());
+    }
+
+    // 英文词可以批量导入。
+    let imported = import_dictionary_words(
+        &options,
+        WordKind::English,
+        &[
+            new_word("zzother", "Zzother"),
+            new_word("zzfixture", "Zzfixture"),
+        ],
+        "import-english",
+    )
+    .unwrap();
+    assert_eq!((imported.added, imported.existing), (1, 1));
+    assert!(imported.rejected.is_empty(), "{:?}", imported.rejected);
+
+    // 候选查询只认拼音和五笔，本版本两样都没有。
+    assert_eq!(
+        lookup_candidates(&options, None, "ka", 5).unwrap_err(),
+        "candidates can only be looked up in pinyin, double pinyin or wubi"
+    );
+    assert_eq!(
+        lookup_candidates(&options, Some(LookupScheme::Quanpin), "nihao", 5).unwrap_err(),
+        "this edition does not offer that scheme"
+    );
+
+    // 重新准备已有的代次会再回放一次日志：英文词还在，代次里仍然没有 msime.db。
+    let again = prepare();
+    assert_eq!(again["dictionaries"], prepared["dictionaries"]);
+    let dictionaries = PathBuf::from(again["dictionaries"].as_str().unwrap());
+    assert!(!dictionaries.join("msime.db").exists());
+    let options = DictionaryOptions::from_host_document(again).unwrap();
+    let words = listed(&options);
+    assert_eq!(
+        words
+            .iter()
+            .map(|word| (word.code.as_str(), word.weight))
+            .collect::<Vec<_>>(),
+        [("zzfixture", 77), ("zzother", 10)]
+    );
+    edit_dictionary_word(
+        &options,
+        &WordEdit::Remove {
+            kind: WordKind::English,
+            code: "zzother".into(),
+            word: "Zzother".into(),
+        },
+        "remove-english",
+    )
+    .unwrap();
+    assert_eq!(listed(&options).len(), 1);
 }
 
 /// Linux 的 Fcitx5 只有一个进程，两个版本的插件会把宿主库加载进同一个进程（`RTLD_LOCAL` 下各自一份，但也可能被系统合并成一份）。这里在同一个进程、同一个线程里同时开着 full 和五笔版两个状态目录的会话，交替输入、选词和更新偏好，确认它们互不影响：方案各按各的版本，学习只写进自己的用户词库，一边更新偏好不改另一边的会话。进程级的静态缓存要么按路径做键（词库连接、n-gram、整句模型、用户日志），要么与状态目录无关（单位换算的 rink 上下文、拼音音节表），所以两个状态目录可以并存。

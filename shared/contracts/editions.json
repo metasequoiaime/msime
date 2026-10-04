@@ -52,6 +52,39 @@
         "windows": {"langid": "0x0804", "clsid": "{FD41CA20-BA49-41FE-96BE-923DCCA191DA}", "profile_guid": "{A71F3691-11A8-4F74-A6B1-900ED1DBB740}", "tsf_guids": {"preserve_key_ime_mode": "{2B354D4C-4648-4F4F-8A2B-89F524CF1456}", "preserve_key_ime_mode_02": "{61CACDB3-B22B-416B-98AE-E20785994770}", "preserve_key_ime_mode_03": "{7AE09187-9916-426F-806F-6FE91981CA6E}", "preserve_key_english_input_mode": "{4B78043C-CD1B-4D67-B296-35133699BCC2}", "preserve_key_double_single_byte": "{9CDEAF62-54C7-4F61-A4E7-F101B11E9813}", "preserve_key_punctuation": "{1EB8C375-367D-441C-8384-4BCF54590B51}", "compartment_double_single_byte": "{9F28BD81-7544-4BC5-A722-DC91C6306F7F}", "compartment_punctuation": "{567B1B7F-B1F9-4BB0-BDF7-69726519E32E}", "langbar_ime_mode": "{A2DE3247-4D1E-422E-B812-1A0CE91CC98D}", "langbar_double_single_byte": "{A7494FD0-2025-4C6C-8FE8-9281C700045B}", "langbar_punctuation": "{E01B25C6-717C-4724-B257-B65E2683F8A7}", "display_attribute_input": "{976DCE4E-381F-4924-99F6-69BEF6BFC790}", "display_attribute_converted": "{5D29017A-37B3-4A9E-B012-5371D18509BF}", "candidate_ui_element": "{578E5D98-9FAC-440C-B6A7-B938B63C2563}"}, "inno_app_id": "{FF5943BF-0F4B-4999-8504-15235E4516C6}", "app_name": "Metasequoia IME 水杉五笔", "text_service_description": "Metasequoia 水杉五笔", "install_dir": "metasequoiaime-wubi", "registry_key": "Software\\Metasequoia\\MetasequoiaIME-Wubi", "state_directory": "MSIME-Client-wubi", "user_data_directory": "MSIME-wubi", "data_dir_environment_variable": "METASEQUOIA_IME_WUBI_DATA_DIR", "name_suffix": ".wubi", "watchdog_task": "Metasequoia IME Watchdog (Wubi)", "host_dll": "msime_host_api_wubi.dll", "tauri_identifier": "app.msime.windows.wubi", "installer_base_name": "MetasequoiaIME-Wubi_Setup"},
         "linux": {"package": "msime-linux-wubi", "install_prefix": "/opt/msime-linux-wubi", "client_directory": "msime-client-wubi", "ibus_engine": "msime-linux-wubi", "fcitx5_addon": "msime-wubi", "tauri_identifier": "app.msime.linux.wubi"}, "android": { "application_id": "app.msime.android.wubi", "apk_name": "msime-client-wubi" }, "ios": null, "harmony": null
       }
+    },
+    {
+      "id": "japanese",
+      "display_name": { "zh-Hans": "水杉日语", "en": "MSIME Japanese" },
+      "input_schemes": ["japanese"],
+      "default_scheme": "japanese",
+      "preference_defaults": {},
+      "resources": { "components": ["core", "japanese"] },
+      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "language_dictionaries": [],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+    },
+    {
+      "id": "vietnamese",
+      "display_name": { "zh-Hans": "水杉越南语", "en": "MSIME Vietnamese" },
+      "input_schemes": ["vietnamese"],
+      "default_scheme": "vietnamese",
+      "preference_defaults": {},
+      "resources": { "components": ["core"] },
+      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "language_dictionaries": [],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+    },
+    {
+      "id": "tibetan",
+      "display_name": { "zh-Hans": "水杉藏文", "en": "MSIME Tibetan" },
+      "input_schemes": ["tibetan"],
+      "default_scheme": "tibetan",
+      "preference_defaults": {},
+      "resources": { "components": ["core"] },
+      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "language_dictionaries": [],
+      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
     }
   ]
 }

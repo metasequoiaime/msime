@@ -1226,7 +1226,8 @@ fn prepare_shipped_host_configuration(
     let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);
     let state_root = std::path::absolute(state_root)?;
     verify_resources_once(&resources, specification, &state_root, on_demand)?;
-    let prepared = msime_engine::host::prepare_options(
+    // 代次按本版本的方案准备：不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime.db，代次里也没有它；full 的方案是全部，与以前相同。
+    let prepared = msime_engine::host::prepare_options_for(
         resources.to_str().ok_or("non-UTF-8 resource path")?,
         state_root
             .join("user")
@@ -1238,6 +1239,7 @@ fn prepare_shipped_host_configuration(
             .ok_or("non-UTF-8 cache path")?,
         // 代次按完整锁文件计算，不随发布包是否内置日文词典而变：user/dictionaries/<generation> 和 refreshed_host_options 都保持原样，升级后不会重新准备，仍在运行的旧版输入法也不会。
         &specification.generation()?,
+        engine_schemes(edition),
     )?;
     // 先记下状态目录属于哪个版本：之后只拿到这个目录的偏好存储（各平台的 C ABI、设置应用）靠它取本版本的默认偏好。full 什么也不写。
     edition.record_in(&state_root)?;
@@ -1554,6 +1556,24 @@ pub(crate) fn invalid_dictionary_entry(reason: &str) -> String {
     format!("{INVALID_DICTIONARY_ENTRY}: {reason}")
 }
 
+/// 本版本没有中文词库时编辑拼音、五笔或快捷短语的拒绝原因。
+pub(crate) const NO_CHINESE_DICTIONARY: &str =
+    "this edition of the input method has no Chinese dictionary; only English words can be edited";
+
+/// `kind` 的词能不能在 `options` 的版本里编辑。不含全拼、双拼、五笔的版本（日文、越南文、藏文）随包不带 msime.db，拼音、五笔和快捷短语都无处可存，只有英文词能编辑（`SchemeSet::reads_main_dictionary`）。在加锁之前就拒绝，把原因告诉调用方，而不是让 Engine 拒绝后报成笼统的「dictionary edit rejected」。
+pub(crate) fn require_dictionary_kind(
+    options: &EngineOptions,
+    kind: msime_engine::host::DictionaryKind,
+) -> Result<(), String> {
+    if kind == msime_engine::host::DictionaryKind::English
+        || options.enabled_schemes.reads_main_dictionary()
+    {
+        Ok(())
+    } else {
+        Err(NO_CHINESE_DICTIONARY.into())
+    }
+}
+
 /// Edit only after every participating host has destroyed its sessions.
 /// Busy is retryable without cancelling any composition. The host must recreate
 /// sessions after success; no native/Tauri management command is exposed yet.
@@ -1565,6 +1585,9 @@ pub fn edit_personal_dictionary(
     replacement: Option<&msime_engine::host::DictionaryEntry>,
     request_id: &str,
 ) -> Result<(), String> {
+    for entry in previous.iter().chain(replacement.iter()) {
+        require_dictionary_kind(options, entry.kind)?;
+    }
     // The previous row is one the list returned, whose weight learning may have lifted past the ceiling a new entry is held to.
     for entry in previous.iter() {
         msime_engine::host::dictionary_validate_previous(entry)
