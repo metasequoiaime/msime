@@ -128,6 +128,12 @@ final class PersonalDictionaryStoreTests: XCTestCase {
     let word = try PersonalWord(key: "NI HAO", value: "拟好").validated()
     XCTAssertEqual(word.key, "ni'hao")
     XCTAssertEqual(try PersonalWord(bridgeValue: word.bridgeValue), word)
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: 2.5),
+    ]))
+    XCTAssertThrowsError(try PersonalWord(bridgeValue: [
+      "kind": "pinyin", "key": "ni", "value": "你好", "weight": NSNumber(value: true),
+    ]))
     XCTAssertThrowsError(try PersonalWord(key: "nihao", value: "你好").validated())
     XCTAssertThrowsError(try PersonalWord(key: "ni'hao", value: "你").validated())
     XCTAssertThrowsError(try PersonalWord(kind: .wubi, key: "abcde", value: "词").validated())
