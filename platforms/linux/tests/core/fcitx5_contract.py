@@ -157,11 +157,11 @@ assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source
 # Only main-lexicon candidates of the user dictionary sources carry candidate actions; the shared policy decides it for both hosts.
-assert 'candidate_dictionary_actions_available(state_.view_.value("scheme", 0u), item->source())' in source
+assert 'candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source())' in source
 assert 'candidate_dictionary_actions_available(scheme, item->source())' in source
-assert 'source_(candidate.value("source", 0u))' in source
+assert 'source_(msime::linux_host::strict_json_value(candidate, "source", uint64_t{}))' in source
 assert 'text_(candidate.at("text").get<std::string>())' in source
-assert 'fixed_position_(candidate.value("fixed_position", 0u))' in source
+assert 'fixed_position_(msime::linux_host::strict_json_value(candidate, "fixed_position", uint8_t{}))' in source
 assert 'item->text()))' in source
 assert 'item->fixedPosition()' in source
 assert 'state_.session_ != item->session()' in source
@@ -173,7 +173,7 @@ assert 'voice_preedit_' in source and 'voice_transcript_' in source
 assert 'msime_voice_result_or_transcript(' in source
 assert 'clipboard_generation_' in source
 assert 'result.value("_path", std::string{}) == clipboard_path_' in source
-assert 'result.value("_generation", uint64_t{}) == clipboard_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == clipboard_generation_' in source
 assert 'const auto generation = clipboard_generation_' in source
 assert 'cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_' in source
@@ -205,16 +205,16 @@ assert 'fcitx_global_input_mode' in source
 assert 'ic_.program()' in source
 assert 'restoreInputMode' in source
 assert 'result.value("_socket", std::string{}) == cloud_clipboard_socket_' in source
-assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = result.value("enabled", true)' in source
 # The provider relays the account API page as is, so the list is `items` ([{id,text,updated_at}]) like the shared panel reads it; `entries` is the cloud dictionary's shape.
 assert 'result.value("items", Json::array())' in source
 assert 'result.value("entries", Json::array())' not in source[source.index('void refreshCloudClipboard()'):source.index('bool pasteCloudClipboard(')]
 assert 'if (!cloud_clipboard_enabled_) return false;' in source
 assert 'emoji_generation_' in source
-assert 'result.value("_generation", uint64_t{}) == emoji_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == emoji_generation_' in source
 assert 'result["_generation"] = generation' in source
-assert 'item.value("source", 255u) == source' in source
+assert 'msime::linux_host::strict_json_value(item, "source", uint64_t{255}) == source' in source
 assert 'Json candidates = Json::array();' in source
 assert 'std::string panelPreview(const std::string &text)' in source
 assert 'fcitx::utf8::nextNChar(text.begin(), 40)' in source
