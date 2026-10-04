@@ -136,7 +136,11 @@ endif()
 target_sources(msime-fcitx5 PRIVATE ../../common/Telemetry.cpp)
 target_include_directories(msime-fcitx5 PRIVATE ../../common)
 target_compile_definitions(msime-fcitx5 PRIVATE MSIME_FCITX5_TELEMETRY MSIME_LINUX_VERSION="${MSIME_LINUX_VERSION}")
-file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${CMAKE_INSTALL_PREFIX}/${MSIME_FCITX5_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
+# 插件目录可能是绝对路径（CMAKE_INSTALL_LIBDIR 传成绝对路径时它跟着是，nixpkgs 的 cmake 钩子就这样传）。
+# 直接拼在前缀后面会多出整段前缀，RUNPATH 算成 $ORIGIN/../../../../../lib/msime-client，插件加载时找不到 Host API。
+cmake_path(ABSOLUTE_PATH MSIME_FCITX5_ADDON_DIR BASE_DIRECTORY "${CMAKE_INSTALL_PREFIX}" NORMALIZE
+           OUTPUT_VARIABLE MSIME_FCITX5_FULL_ADDON_DIR)
+file(RELATIVE_PATH MSIME_FCITX5_HOST_RELATIVE "${MSIME_FCITX5_FULL_ADDON_DIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
 set_target_properties(msime-fcitx5 PROPERTIES INSTALL_RPATH "$ORIGIN/${MSIME_FCITX5_HOST_RELATIVE}")
 install(TARGETS msime-fcitx5 LIBRARY DESTINATION "${MSIME_FCITX5_ADDON_DIR}")
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
