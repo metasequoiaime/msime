@@ -16,6 +16,7 @@ import { Row } from "../core/platform-controls";
 import { ActionButton } from "../core/action-button";
 import { StatusMessage } from "../core/status-message";
 import { subscribeSkinCatalogChanges } from "./skin-catalog-changes";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
   customCandidateStyle,
   normalizedColor,
@@ -375,7 +376,7 @@ export function useSkinCatalog(
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const generation = useRef(0);
+  const generation = useAsyncGeneration(scan);
   const pending = useRef(false);
   // 扫描进行中又收到目录改动的通知：进行中的那次可能读不到新皮肤，结束后再补扫一次。
   const queued = useRef(false);
@@ -383,15 +384,13 @@ export function useSkinCatalog(
   const latest = useRef<SkinCatalog | null>(null);
   const [opening, setOpening] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
-  const openGeneration = useRef(0);
+  const openGeneration = useAsyncGeneration(openDirectory);
   const openPending = useRef(false);
   useEffect(() => {
-    openGeneration.current++;
     openPending.current = false;
     setOpening(false);
     setOpenFailed(false);
     return () => {
-      openGeneration.current++;
       openPending.current = false;
     };
   }, [openDirectory]);
@@ -415,7 +414,6 @@ export function useSkinCatalog(
     }
   }
   useEffect(() => {
-    generation.current++;
     pending.current = false;
     queued.current = false;
     latest.current = null;
@@ -425,7 +423,6 @@ export function useSkinCatalog(
     // Scan as the page opens, as the native fallback page (SkinSettingsView) does. Waiting for a manual refresh left the carousel without the package in use, so the skin in use looked missing.
     void run(true);
     return () => {
-      generation.current++;
       pending.current = false;
       queued.current = false;
     };
