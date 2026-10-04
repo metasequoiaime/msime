@@ -22,6 +22,8 @@ import {
   withUnknown,
   type TypingBreakdown,
 } from "./typing-speed";
+import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 export type { TypingBreakdown } from "./typing-speed";
 import {
   dayLabel,
@@ -1331,8 +1333,8 @@ export function TypingStatisticsPage({
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -1340,27 +1342,19 @@ export function TypingStatisticsPage({
   const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), []);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
+  useEffect(
+    () => () => {
       requestRef.current = null;
-    };
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     requestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
     setBusy(false);
     setError("");
-    return () => {
-      if (generation === clientGeneration.current) {
-        clientGeneration.current++;
-        requestRef.current = null;
-      }
-    };
   }, [client]);
 
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
