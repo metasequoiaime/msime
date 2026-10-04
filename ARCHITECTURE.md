@@ -65,7 +65,7 @@ Linux 的原生宿主也一样，由 `platforms/linux/build-container.sh` 在同
 git config core.hooksPath .githooks
 ```
 
-三个钩子分工明确。`pre-commit` 是亚秒级的，只检查冲突标记和暂存 Rust 文件的格式——编译得起来的检查放在后面两个里，因为耗时一分钟的提交钩子会被关掉，然后一个都不剩。`pre-merge-commit` 在合并提交产生的那一刻跑 `--quick`，`pre-push` 作为没走合并路径的提交的兜底。曾有六次编译中断因为「合并了但没构建合并结果」进入 `develop`，`--quick` 正是为此存在。
+三个钩子分工明确。`pre-commit` 是亚秒级的，只检查冲突标记和暂存 Rust 文件的格式——编译得起来的检查放在后面两个里，因为耗时一分钟的提交钩子会被关掉，然后一个都不剩。`pre-merge-commit` 在合并提交产生的那一刻跑 `--quick`，`pre-push` 作为没走合并路径的提交的兜底。`--quick` 会按改动范围跳过碰不到的平台阶段（依据是整个分支相对 `origin/develop` 的改动加上工作区，合并时进来的文件也在其中），并为每个跳过的阶段打印原因；`MSIME_VERIFY_ALL=1` 强制全部运行。曾有六次编译中断因为「合并了但没构建合并结果」进入 `develop`，`--quick` 正是为此存在。
 
 Rust 改动另需 `cargo fmt` 与 `cargo clippy`；UI 改动另需类型检查和构建。
 

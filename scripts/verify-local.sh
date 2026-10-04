@@ -124,39 +124,92 @@ compare() {
 }
 
 # ---- scope ----
-# Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), the commits on HEAD since it left its upstream (origin/develop when it has none), and whatever is modified or untracked in the work tree, because that is what the phases build. When any of that cannot be worked out every phase runs.
+# Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: everything the branch changes since it left origin/develop (`origin/develop...HEAD`), the commits on HEAD since it left its upstream, the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), and whatever is modified, staged or untracked in the work tree, because that is what the phases build. The origin/develop part is what makes a skip safe: a phase is skipped only when nothing the whole branch changes reaches it, so it never leans on an earlier push having been verified (a push that ran on a machine without docker, NDK or hvigor, a --no-verify push, or a manual --quick on a branch already pushed). Under pre-merge-commit the merged-in files are staged and so arrive through the work-tree part. When any of that cannot be worked out every phase runs.
 #
-# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the hooks, .github, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), and the crates every native host links (path-trust, client-core, engine, input-runtime, host-api) all run everything, as does any deletion or rename and any path the table below does not know. Files under resources/ reach only the CMake hosts that name them (platforms/linux and platforms/macos read the lock files at configure time); the Rust crates take them in through include_str!/include_bytes!, which cannot fail on a changed file, and a deleted one runs everything. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
+# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, .github, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), and the crates every native host links (path-trust, client-core, engine, input-runtime, host-api) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
 scope_all=1
 scope_why="full run"
 scope_areas=" "
 scope_count=0
 
-# The areas a path reaches, or "all", or nothing at all for a path no platform phase builds from.
+# The trees each area builds from, as area:pathspec, searched by scope_named_by for files one tree takes from another.
+scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-core all:crates/engine all:crates/input-runtime all:crates/host-api"
+
+# What a tree names $1 by, one "<kind><TAB><text>" per line: F for the file itself, D for one of its directories, which counts only where the name is not followed by a deeper path (a directory handed to an include path, a copy or a define, as in `audios"`), and M for a Python module under scripts/, which counts in an import. A path under platforms/<os>/ is looked for without the platforms/ prefix, since sibling hosts reach it as ../<os>/...; directories are taken no shallower than platforms/<os>/<dir>, resources/<dir> and the like, because shallower ones name whole hosts.
+scope_needles() {
+  local path="$1" short dir slashes min=1
+  short="${path#platforms/}"
+  [ "$short" = "$path" ] || min=2
+  printf 'F\t%s\n' "$short"
+  dir="$short"
+  while case "$dir" in */*) true ;; *) false ;; esac; do
+    dir="${dir%/*}"
+    slashes="${dir//[!\/]/}"
+    [ "${#slashes}" -ge "$min" ] || break
+    printf 'D\t%s\n' "$dir"
+  done
+  case "$path" in
+    scripts/*.py) printf 'M\t%s\n' "$(basename "$path" .py)" ;;
+  esac
+}
+
+# The files in the trees above that name anything in the needles $1 (scope_needles lines). git grep -F finds candidate lines in one pass over the trees and awk keeps the ones where a needle really names the file; comment lines and Markdown are left out, since a comment or a README that names a file is not an input. git grep exits 1 for no match; anything else means the search itself failed, and this fails too so that every phase runs.
+scope_named_by() {
+  local spec="" tree lines
+  for tree in $scope_trees; do spec="$spec ${tree#*:}"; done
+  # shellcheck disable=SC2086 # the pathspecs are words on purpose
+  lines="$(set -f; git grep -I -n -F -f <(printf '%s\n' "$1" | cut -f2) -- $spec ':(exclude)*.md')" || return $(( $? == 1 ? 0 : 1 ))
+  printf '%s\n' "$lines" | awk -F'\t' '
+    NR == FNR { kind[NR] = $1; text[NR] = $2; count = NR; next }
+    {
+      i = index($0, ":"); file = substr($0, 1, i - 1); rest = substr($0, i + 1)
+      line = substr(rest, index(rest, ":") + 1)
+      if (line ~ /^[[:space:]]*(\/\/|# |#$|\/?\*)/) next
+      for (n = 1; n <= count; n++) {
+        t = text[n]
+        if (kind[n] == "F" && index(line, t)) { print file; next }
+        if (kind[n] == "M" && line ~ ("(import|from)[[:space:]]+" t "([^A-Za-z0-9_]|$)")) { print file; next }
+        if (kind[n] == "D") {
+          s = line
+          while ((j = index(s, t)) > 0) {
+            s = substr(s, j + length(t))
+            if (substr(s, 1, 1) != "/") { print file; next }
+          }
+        }
+      }
+    }' <(printf '%s\n' "$1") - | sort -u
+}
+
+# The areas a tree file belongs to.
+scope_tree_areas() {
+  local tree
+  for tree in $scope_trees; do
+    # shellcheck disable=SC2254 # the pathspec is a glob on purpose
+    case "$1" in ${tree#*:} | ${tree#*:}/*) echo "${tree%%:*}" ;; esac
+  done
+}
+
+# The areas a path reaches, or "all", or nothing at all for a path no platform phase builds from; "named" sends the path to scope_named_by as well.
 scope_classify() {
   case "$1" in
-    scripts/verify-local.sh | scripts/run-checks.sh | .githooks/* | .github/* | \
+    scripts/verify-local.sh | scripts/run-checks.sh | scripts/known-failures.txt | .githooks/* | .github/* | \
       Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
       CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
       crates/path-trust/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/*)
       echo all ;;
-    platforms/windows/* | scripts/test-windows-*.py) echo windows ;;
+    platforms/windows/* | scripts/test-windows-*.py) echo windows; echo named ;;
     crates/host-windows/*) echo windows desktop ;;
     crates/host-macos/*) echo macos desktop ;;
     apps/desktop/* | crates/tauri-mobile-platform/* | crates/ios-native-ffi/*) echo desktop ;;
     packages/ui/*) echo desktop harmony ;;
-    platforms/harmony/* | apps/harmony/* | scripts/test-harmony-*.py) echo harmony ;;
-    platforms/android/* | scripts/test-android-*.py) echo android ;;
-    platforms/linux/*) echo linux ;;
-    platforms/macos/*) echo macos ;;
-    resources/*)
-      grep -rqF -- "$1" platforms/linux && echo linux
-      grep -rqF -- "$1" platforms/macos && echo macos
-      ;;
+    platforms/harmony/* | apps/harmony/* | scripts/test-harmony-*.py) echo harmony; echo named ;;
+    platforms/android/* | scripts/test-android-*.py) echo android; echo named ;;
+    platforms/linux/*) echo linux; echo named ;;
+    platforms/macos/*) echo macos; echo named ;;
+    platforms/ios/* | resources/* | scripts/* | tools/*) echo named ;;
     # Built by no --quick phase: the contract checks and the Rust workspace check, which always run, cover these.
-    docs/* | scripts/* | tools/* | platforms/ios/* | \
-      crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | \
+    docs/* | crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | \
       *.md | LICENSE | .editorconfig) ;;
     *) echo all ;;
   esac
@@ -180,8 +233,12 @@ scope_changes() {
       git diff --name-status --no-renames "$base...$local_sha" || return 1
     done
   fi
-  upstream="$(git rev-parse --verify -q '@{upstream}' 2>/dev/null || git rev-parse --verify -q origin/develop)" || return 1
-  git diff --name-status --no-renames "$upstream...HEAD" || return 1
+  # The whole branch against develop, not just what this push adds: see "scope" above.
+  git rev-parse --verify -q origin/develop >/dev/null || return 1
+  git diff --name-status --no-renames origin/develop...HEAD || return 1
+  if upstream="$(git rev-parse --verify -q '@{upstream}' 2>/dev/null)"; then
+    git diff --name-status --no-renames "$upstream...HEAD" || return 1
+  fi
   git diff --name-status --no-renames HEAD || return 1
   git ls-files --others --exclude-standard | awk '{ print "A\t" $0 }'
 }
@@ -195,22 +252,46 @@ elif [ "$quick" -eq 1 ]; then
     scope_all=0
     # The same file can arrive from more than one of the sources above; it is counted once.
     scope_count="$(printf '%s\n' "$scope_list" | cut -f2 | grep . | sort -u | wc -l | tr -d ' ')"
+    scope_named=""
     while IFS="$(printf '\t')" read -r scope_status scope_path; do
       [ -n "$scope_path" ] || continue
       case "$scope_status" in
         D*) scope_all=1; scope_why="$scope_path is deleted"; break ;;
       esac
       for scope_area in $(scope_classify "$scope_path"); do
-        if [ "$scope_area" = all ]; then
-          scope_all=1
-          scope_why="$scope_path is an input every phase shares"
-          break 2
-        fi
-        case "$scope_areas" in *" $scope_area "*) ;; *) scope_areas="$scope_areas$scope_area " ;; esac
+        case "$scope_area" in
+          all)
+            scope_all=1
+            scope_why="$scope_path is an input every phase shares"
+            break 2
+            ;;
+          named) scope_named="$scope_named$(scope_needles "$scope_path")"$'\n' ;;
+          *) case "$scope_areas" in *" $scope_area "*) ;; *) scope_areas="$scope_areas$scope_area " ;; esac ;;
+        esac
       done
     done <<EOF_SCOPE
-$scope_list
+$(printf '%s\n' "$scope_list" | sort -u)
 EOF_SCOPE
+    if [ "$scope_all" -eq 0 ] && [ -n "$scope_named" ]; then
+      if scope_users="$(scope_named_by "$(printf '%s' "$scope_named" | sort -u)")"; then
+        while read -r scope_user; do
+          [ -n "$scope_user" ] || continue
+          for scope_area in $(scope_tree_areas "$scope_user"); do
+            if [ "$scope_area" = all ]; then
+              scope_all=1
+              scope_why="$scope_user, which every phase shares, names a changed file"
+              break 2
+            fi
+            case "$scope_areas" in *" $scope_area "*) ;; *) scope_areas="$scope_areas$scope_area " ;; esac
+          done
+        done <<EOF_SCOPE
+$scope_users
+EOF_SCOPE
+      else
+        scope_all=1
+        scope_why="searching for the files that name the change failed"
+      fi
+    fi
   fi
 fi
 if [ "$quick" -eq 1 ]; then
