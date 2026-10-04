@@ -45,6 +45,7 @@ public final class KeyboardGeometry {
 
     public static int strictInt(Object raw, int fallback) {
         if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        if (raw instanceof Double || raw instanceof Float) return fallback;
         try {
             return new BigDecimal(raw.toString()).intValueExact();
         } catch (NumberFormatException | ArithmeticException error) {
@@ -54,6 +55,7 @@ public final class KeyboardGeometry {
 
     public static long strictLong(Object raw, long fallback) {
         if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        if (raw instanceof Double || raw instanceof Float) return fallback;
         try {
             return new BigDecimal(raw.toString()).longValueExact();
         } catch (NumberFormatException | ArithmeticException error) {
