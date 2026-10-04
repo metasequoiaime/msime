@@ -8983,9 +8983,12 @@ group("applying writes only what the schema declares", () => {
   );
 });
 
-// 与 shared/contracts/editions.json 里的拼音版、五笔版相同：方案和默认方案。
+// 与 shared/contracts/editions.json 里的拼音版、五笔版、日文版、越南文版和藏文版相同：方案和默认方案。
 const pinyinEdition = AppEdition.of("pinyin", ["quanpin", "shuangpin"], "quanpin");
 const wubiEdition = AppEdition.of("wubi", ["wubi"], "wubi");
+const japaneseEdition = AppEdition.of("japanese", ["japanese"], "japanese");
+const vietnameseEdition = AppEdition.of("vietnamese", ["vietnamese"], "vietnamese");
+const tibetanEdition = AppEdition.of("tibetan", ["tibetan"], "tibetan");
 
 group("an edition declaration is complete or refused", () => {
   check(AppEdition.current() === AppEdition.FULL, "the only HarmonyOS product today is full");
@@ -9120,6 +9123,60 @@ group("keyboard scheme fallbacks follow the edition's default", () => {
   check(
     KeyboardScheme.mapping(KeyboardScheme.HANDWRITING, null, null).scheme === "quanpin",
     "full handwriting still writes quanpin",
+  );
+});
+
+group("the language editions offer only their own scheme and no handwriting", () => {
+  check(
+    !japaneseEdition.offersSchemeChoice() &&
+      !vietnameseEdition.offersSchemeChoice() &&
+      !tibetanEdition.offersSchemeChoice(),
+    "each language edition has one scheme",
+  );
+  for (const edition of [japaneseEdition, vietnameseEdition, tibetanEdition]) {
+    check(
+      !KeyboardScheme.offeredBy(KeyboardScheme.HANDWRITING, edition),
+      `${edition.id} has no handwriting, which writes Chinese characters`,
+    );
+  }
+  check(
+    KeyboardScheme.offeredBy(KeyboardScheme.HANDWRITING) &&
+      KeyboardScheme.offeredBy(KeyboardScheme.HANDWRITING, pinyinEdition) &&
+      KeyboardScheme.offeredBy(KeyboardScheme.HANDWRITING, wubiEdition),
+    "the Chinese editions keep handwriting",
+  );
+  const japaneseCards = KeyboardScheme.enabledFromPreferenceIds(null, japaneseEdition);
+  check(
+    japaneseCards.length === 2 &&
+      japaneseCards[0] === KeyboardScheme.JAPANESE_NINE_KEY &&
+      japaneseCards[1] === KeyboardScheme.JAPANESE,
+    "a japanese device that never chose shows the two Japanese keyboards",
+  );
+  const vietnameseCards = KeyboardScheme.enabledFromPreferenceIds(null, vietnameseEdition);
+  check(
+    vietnameseCards.length === 1 && vietnameseCards[0] === KeyboardScheme.VIETNAMESE,
+    "a vietnamese device that never chose shows Vietnamese, though full makes the user turn it on",
+  );
+  const tibetanCards = KeyboardScheme.enabledFromPreferenceIds(null, tibetanEdition);
+  check(
+    tibetanCards.length === 1 && tibetanCards[0] === KeyboardScheme.TIBETAN,
+    "and a tibetan one shows Tibetan",
+  );
+  check(
+    KeyboardScheme.fallback(japaneseEdition) === KeyboardScheme.JAPANESE &&
+      KeyboardScheme.fallback(vietnameseEdition) === KeyboardScheme.VIETNAMESE &&
+      KeyboardScheme.fallback(tibetanEdition) === KeyboardScheme.TIBETAN,
+    "each falls back to its own scheme",
+  );
+  check(
+    KeyboardScheme.enabledFromPreferenceIds(["quanpin", "handwriting"], tibetanEdition)[0] ===
+      KeyboardScheme.TIBETAN,
+    "a list carried over from full, handwriting included, falls back to the edition's scheme",
+  );
+  check(
+    KeyboardScheme.fromPreferences("nonsense", null, "twenty_six_key", vietnameseEdition) ===
+      KeyboardScheme.VIETNAMESE,
+    "an unknown scheme reads as the edition's default",
   );
 });
 

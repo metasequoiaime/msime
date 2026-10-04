@@ -67,8 +67,14 @@ enum ChineseInputScheme: String, CaseIterable {
     }
   }
 
-  /// 本版本是否提供这个入口：入口背后的方案在本版本里时提供，手写在每个版本都有。与 client-core 的 `Edition::offers_touch_scheme` 一致。
-  var isOfferedByEdition: Bool { self == .handwriting || MSIMEAppEdition.offers(engineScheme) }
+  /// 本版本是否提供这个入口：入口背后的方案在本版本里时提供。手写面板写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 一致。
+  var isOfferedByEdition: Bool {
+    guard self == .handwriting else { return MSIMEAppEdition.offers(engineScheme) }
+    return Self.chineseEngineSchemes.contains(where: MSIMEAppEdition.offers)
+  }
+
+  /// 写中文的方案（版本表里的方案名），与 client-core 的 `ChineseScheme::of` 相同；提供其中任何一个的版本才有手写。
+  static let chineseEngineSchemes = ["quanpin", "shuangpin", "wubi", "cantonese", "zhuyin", "stroke"]
 
   /// 偏好里的方案本版本没有、或一个入口都没剩下时退回的入口：本版本默认方案的 26 键入口。full 是全拼 26 键，与引入版本之前相同。
   static var editionFallback: ChineseInputScheme { ChineseInputScheme(rawValue: MSIMEAppEdition.defaultScheme) ?? .quanpin }
@@ -189,9 +195,13 @@ enum InputSchemePreference {
 
   static var enabledSchemes: [ChineseInputScheme] {
     get {
-      // 本版本不提供的入口（比如 full 那边存下的拼音落到五笔版）不算启用，一个都不剩时退回本版本的默认入口。
+      // 本版本不提供的入口（比如 full 那边存下的拼音落到五笔版）不算启用，一个都不剩时退回本版本的默认入口。没存过列表时，要用户自己打开的那几个不启用；只有一个方案的版本例外，越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。
       guard let stored = defaults.stringArray(forKey: enabledSchemesKey) else {
-        return ChineseInputScheme.allCases.filter { !ChineseInputScheme.optInSchemes.contains($0) && $0.isOfferedByEdition }
+        let optInEnabled = (MSIMEAppEdition.inputSchemes?.count ?? .max) <= 1
+        let initial = ChineseInputScheme.allCases.filter {
+          (optInEnabled || !ChineseInputScheme.optInSchemes.contains($0)) && $0.isOfferedByEdition
+        }
+        return initial.isEmpty ? [.editionFallback] : initial
       }
       let enabled = ChineseInputScheme.allCases.filter { stored.contains($0.rawValue) && $0.isOfferedByEdition }
       return enabled.isEmpty ? [.editionFallback] : enabled

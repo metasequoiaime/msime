@@ -188,6 +188,15 @@ const HANDWRITING: SchemeDefinition = {
   glyph: "写",
   badge: "手",
 };
+// 写中文的方案（版本表里的方案名），与 client-core 的 `ChineseScheme::of` 相同；提供其中任何一个的版本才有手写。
+const CHINESE_ENGINE_SCHEMES: string[] = [
+  "quanpin",
+  "shuangpin",
+  "wubi",
+  "cantonese",
+  "zhuyin",
+  "stroke",
+];
 
 export class KeyboardScheme {
   static readonly QUANPIN: SchemeDefinition = QUANPIN;
@@ -264,9 +273,14 @@ export class KeyboardScheme {
     return scheme.badge;
   }
 
-  /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供，手写在每个版本都有。与 client-core 的 `Edition::offers_touch_scheme` 和 Android 的 `KeyboardScheme.offeredBy` 一致。 */
+  /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供。手写面板写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 和 Android 的 `KeyboardScheme.offeredBy` 一致。 */
   static offeredBy(scheme: SchemeDefinition, edition: AppEdition = AppEdition.current()): boolean {
-    return scheme === HANDWRITING || edition.offers(scheme.engineScheme);
+    if (scheme !== HANDWRITING) {
+      return edition.offers(scheme.engineScheme);
+    }
+    return CHINESE_ENGINE_SCHEMES.some((engineScheme: string): boolean =>
+      edition.offers(engineScheme),
+    );
   }
 
   /** 选中这个入口时写进偏好 `scheme`、交给 Engine 的方案。手写写的是本版本的默认方案（full 是全拼）：识别由平台识别器完成，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退。 */
@@ -297,15 +311,17 @@ export class KeyboardScheme {
     return offered.length > 0 ? offered[0] : HANDWRITING;
   }
 
-  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。 */
+  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
   static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
+    const optInEnabled: boolean = !edition.offersSchemeChoice();
     return KeyboardScheme.SCHEMES.filter(
       (candidate: SchemeDefinition): boolean =>
-        candidate !== CANTONESE &&
-        candidate !== ZHUYIN &&
-        candidate !== VIETNAMESE &&
-        candidate !== TIBETAN &&
-        candidate !== STROKE &&
+        (optInEnabled ||
+          (candidate !== CANTONESE &&
+            candidate !== ZHUYIN &&
+            candidate !== VIETNAMESE &&
+            candidate !== TIBETAN &&
+            candidate !== STROKE)) &&
         KeyboardScheme.offeredBy(candidate, edition),
     );
   }
