@@ -141,6 +141,15 @@ int main() {
     require(page_for_route("") == default_page);
     require(page_for_route("nonexistent") == default_page);
     require(find_page(default_page) != nullptr);
+    // 手写页只在提供手写的版本里：没有手写的版本（日文、越南文和藏文版）不列出它，指向它的路由打开默认页；其他页面每个版本都有。
+    for (const auto &page : pages) {
+      require(page_offered(page.id, true));
+      require(page_offered(page.id, false) == (page.id != "hand"));
+    }
+    require(offered_page_for_route("handwriting", true) == "hand");
+    require(offered_page_for_route("handwriting", false) == default_page);
+    require(offered_page_for_route("hand", false) == default_page);
+    require(offered_page_for_route("voice", false) == "voice");
   } catch (const std::exception &error) {
     std::fputs(error.what(), stderr);
     std::fputs("\n", stderr);

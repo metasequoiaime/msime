@@ -54,6 +54,9 @@ $resourceLock = if ($Edition -eq 'full') {
 $languageDictionaryNames = @($editionEntry[0].language_dictionaries)
 # 落定重排模型只给中文整句重排，不带中文主词库（版本表 resources.components 没有 chinese-main）的版本，例如日文、越南文和藏文版，用不上它，也不装它。
 $editionUsesSettledModel = @($editionEntry[0].resources.components) -contains 'chinese-main'
+# 手写模型（Zinnia handwriting-zh_CN.model）只认汉字，非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义；两者都只给提供中文方案的版本（版本表 features.handwriting 和 features.offline_glosses，scripts/test-editions.py 检查它们等于版本是否提供中文方案）。日文、越南文和藏文版两样都不装。
+$editionHandwriting = [bool]$editionEntry[0].features.handwriting
+$editionOfflineGlosses = [bool]$editionEntry[0].features.offline_glosses
 $editionBuild = "target/windows-$Edition"
 if (-not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
     $DesktopExecutable = "$editionBuild/x64/bin/msime-client-settings.exe"
@@ -239,7 +242,7 @@ if 'weight' not in names or pk != ['word', 'display']:
     $defaultConfig = $defaultConfig.TrimEnd("`r", "`n") + "`r`n"
 }
 
-$hasHandwritingModel = Test-Path -LiteralPath $handwritingModel -PathType Leaf
+$hasHandwritingModel = $editionHandwriting -and (Test-Path -LiteralPath $handwritingModel -PathType Leaf)
 if ($hasHandwritingModel) {
     Assert-PathExists -LiteralPath $handwritingLicense -Description '手写模型随附声明'
 }
@@ -386,7 +389,9 @@ $glossesTarget = Join-Path $targetServer 'offline-glosses'
 if (Test-Path -LiteralPath $glossesTarget) {
     Remove-Item -LiteralPath $glossesTarget -Recurse -Force
 }
-if (-not $Light) {
+if (-not $editionOfflineGlosses) {
+    Write-Host "版本 $Edition 不提供中文方案，不装非英文离线释义"
+} elseif (-not $Light) {
     $glossFiles = @()
     $glossNotice = Join-Path $glossesSource 'offline-glosses-NOTICE.txt'
     if (Test-Path -LiteralPath $glossNotice -PathType Leaf) {
@@ -453,6 +458,8 @@ if ($hasHandwritingModel) {
     New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
     Copy-Item -LiteralPath $handwritingModel -Destination $targetHandwriting -Force
     Copy-Item -LiteralPath $handwritingLicense -Destination $targetHandwriting -Force
+} elseif (-not $editionHandwriting) {
+    Write-Host "版本 $Edition 不提供手写，不装手写模型"
 } else {
     Write-Host "未找到手写模型，跳过：$handwritingModel"
 }

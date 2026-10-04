@@ -54,7 +54,9 @@ try {
         'resources/helpcodes/helpcode.txt',
         'resources/helpcodes/NOTICE.md',
         'resources/sound-packs/default/plugin.toml',
-        'resources/sound-packs/default/key.wav'
+        'resources/sound-packs/default/key.wav',
+        'target/offline-glosses/zh-fr.db',
+        'target/offline-glosses/offline-glosses-NOTICE.txt'
     )) { Write-Fixture $file }
     Write-Fixture 'windows/build32-release/Release/msime_host_api.dll' 'synthetic x86 host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
@@ -116,6 +118,8 @@ try {
                          'server_exe/RestartAgent.exe',
                          'server_exe/handwriting/handwriting-zh_CN.model',
                          'server_exe/handwriting/HandwritingModel-LICENSE.txt',
+                         'server_exe/offline-glosses/zh-fr.db',
+                         'server_exe/offline-glosses/offline-glosses-NOTICE.txt',
                          'app_data/helpcodes/helpcode.txt',
                          'app_data/sound-packs/default/plugin.toml', 'app_data/sound-packs/default/key.wav',
                          'THIRD_PARTY_NOTICES.txt', 'LICENSE.txt')) {
@@ -388,13 +392,28 @@ try {
             throw "Edition host DLL not packaged under its own name ($arch)"
         }
     }
+    # 五笔版提供中文方案，手写模型和非英文离线释义照常装。
+    foreach ($file in @('server_exe/handwriting/handwriting-zh_CN.model', 'server_exe/offline-glosses/zh-fr.db')) {
+        if (-not (Test-Path (Join-Path $installer $file))) { throw "Chinese edition lost $file" }
+    }
+    # 越南文版没有中文方案（版本表 features.handwriting 和 features.offline_glosses 为 false）：手写模型和非英文离线释义都不装，即使构建目录里有它们。
+    Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
+    Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'
+    $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('english.db', 'others.db', 'dictionary-manifest.json') })
+    Write-Fixture 'resources/editions/vietnamese.lock.json' (@{
+        source_commit = ('a' * 40); artifacts = $vietnameseArtifacts
+    } | ConvertTo-Json -Depth 5)
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition vietnamese
+    foreach ($absent in @('server_exe/handwriting', 'server_exe/offline-glosses', 'server_exe/language-dictionaries')) {
+        if (Test-Path (Join-Path $installer $absent)) { throw "Edition without a Chinese scheme packaged $absent" }
+    }
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition klingon }
     catch { $rejected = $_.Exception.Message -match 'klingon' }
     if (-not $rejected) { throw 'Unknown edition accepted' }
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     if (Test-Path (Join-Path $installer 'server_exe/edition.json')) { throw 'Full package carries an edition declaration' }
-    Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition package passed'
+    Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition packages passed'
 } finally {
     if (Test-Path $fixture) { Remove-Item $fixture -Recurse -Force }
 }

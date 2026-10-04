@@ -165,6 +165,8 @@ def header_text(table: dict) -> str:
             ("MSIME_EDITION_WUBI_MIXED_PINYIN_DEFAULT", "1" if entry["preference_defaults"].get("wubi_mixed_pinyin", False) else "0"),
             ("MSIME_EDITION_INPUT_SCHEMES", ", ".join(narrow(scheme) for scheme in entry["input_schemes"])),
             ("MSIME_EDITION_TEMPORARY_JAPANESE", "1" if entry["features"]["temporary_japanese"] else "0"),
+            # 手写模型只认汉字：为 0 的版本（日文、越南文和藏文版）托盘菜单、悬浮工具栏和原生设置窗口都不提供手写。
+            ("MSIME_EDITION_HANDWRITING", "1" if entry["features"]["handwriting"] else "0"),
         ]
         lines += [f"#define {name} {value}" for name, value in definitions]
     lines.append("#endif")

@@ -119,4 +119,15 @@ constexpr std::string_view page_for_route(std::string_view route) {
   return default_page;
 }
 
+// 本次构建是否提供这个页面。手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0）没有「手写输入」页，其他页面每个版本都有。版本的开关由调用方传进来，这个头文件因此不依赖版本宏，主机上的单元测试也能把两种答案都查到。
+constexpr bool page_offered(std::string_view id, bool handwriting) {
+  return id != "hand" || handwriting;
+}
+
+// 传入的路由在本次构建里打开的页面：与 `page_for_route` 相同，只是本版本不提供的页面改为打开默认页。
+constexpr std::string_view offered_page_for_route(std::string_view route, bool handwriting) {
+  const auto page = page_for_route(route);
+  return page_offered(page, handwriting) ? page : default_page;
+}
+
 } // namespace msime::settings

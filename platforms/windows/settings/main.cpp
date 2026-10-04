@@ -256,7 +256,7 @@ std::string route_page() {
     }
     LocalFree(argv);
   }
-  return std::string(nav::page_for_route(page.value_or(std::string())));
+  return std::string(nav::offered_page_for_route(page.value_or(std::string()), MSIME_EDITION_HANDWRITING != 0));
 }
 
 // The runtime options file the Server hands this window, or the one in the state directory when started from the Start menu. None before the input method is set up.
@@ -1426,6 +1426,8 @@ private:
     // 每组以标题开头；`SettingsNavigation.h` 的页面按组排序，所以组一变就该插入标题。
     std::optional<std::size_t> group;
     for (const auto &page : nav::pages) {
+      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
+        continue;
       if (page.group != group) {
         group = page.group;
         NavigationViewItemHeader header;
@@ -1513,6 +1515,8 @@ private:
     indexing_ = true;
     const auto saved_page = current_page_;
     for (const auto &page : nav::pages) {
+      if (!nav::page_offered(page.id, MSIME_EDITION_HANDWRITING != 0))
+        continue;
       current_page_ = std::string(page.id);
       StackPanel scratch;
       build_page(page.id, scratch);

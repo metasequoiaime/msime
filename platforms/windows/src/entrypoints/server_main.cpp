@@ -1283,7 +1283,8 @@ int wmain(int argc, wchar_t **argv) {
     });
     TrayMenuCapabilities menu_capabilities;
     menu_capabilities.emoji_panel = preview_shell.has_value();
-    menu_capabilities.handwriting_panel = preview_shell.has_value();
+    // 手写模型只认汉字，不提供手写的版本（日文、越南文和藏文版）托盘菜单里没有手写，安装包里也没有手写模型。
+    menu_capabilities.handwriting_panel = preview_shell.has_value() && MSIME_EDITION_HANDWRITING != 0;
     menu_capabilities.keyboard_panel = preview_shell.has_value();
     menu_capabilities.voice_input = true;
     menu_capabilities.settings = settings_shell.has_value();
