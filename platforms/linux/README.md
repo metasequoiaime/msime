@@ -110,7 +110,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ## 多版本（水杉拼音、水杉五笔、水杉日语、水杉越南语、水杉藏文）
 
-除了现有的水杉输入法（full），版本表 `shared/contracts/editions.json` 还定义了水杉拼音（`pinyin`，全拼与双拼，带临时日文）、水杉五笔（`wubi`，只有五笔，混拼默认打开，不带临时日文），以及只有一个方案的水杉日语（`japanese`）、水杉越南语（`vietnamese`）和水杉藏文（`tibetan`）。三个语言版本只带英文词库、`others.db` 和清单（日文版另带日文词典），不带中文主词库、n-gram 和落定重排模型。几个版本是各自独立的包，可以同时安装、同时启用，互不覆盖：
+除了现有的水杉输入法（full），版本表 `shared/contracts/editions.json` 还定义了水杉拼音（`pinyin`，全拼与双拼，带临时日文）、水杉五笔（`wubi`，只有五笔，混拼默认打开，不带临时日文），以及只有一个方案的水杉日语（`japanese`）、水杉越南语（`vietnamese`）和水杉藏文（`tibetan`）。三个语言版本只带英文词库、`others.db` 和清单（日文版另带日文词典），不带中文主词库、n-gram 和落定重排模型；它们也没有手写和非英文离线释义（版本表 `features.handwriting`、`features.offline_glosses` 为 false），安装包里没有 `handwriting-zh_CN.model` 和 `offline-glosses/`，IBus 与 Fcitx5 菜单里没有手写识别板。几个版本是各自独立的包，可以同时安装、同时启用，互不覆盖：
 
 - full 仍是今天的 `msime-linux`，装在 `/usr` 下，包结构、文件、IBus 引擎 `msime-linux`、Fcitx5 条目 `msime`、状态目录 `~/.config/msime-client` 和用户服务都与引入版本之前相同；
 - 其他版本是 `msime-linux-<id>`，程序、词库、宿主库和文档整个装在 `/opt/msime-linux-<id>` 下；系统按名字查找的那几样装到系统目录，名字都带版本：IBus 组件 `/usr/share/ibus/component/msime-linux-<id>.xml`（引擎 `msime-linux-<id>`）、Fcitx5 插件 `libmsime-<id>-fcitx5.so` 与条目 `msime-<id>`、systemd 用户单元 `msime-linux-<id>-{online,voice}.socket` 等、桌面入口与自启动项、图标 `msime-linux-<id>`（与 full 同一张图），以及 `/usr/bin/msime-linux-<id>-setup` 和 `/usr/bin/msime-linux-<id>-settings`；

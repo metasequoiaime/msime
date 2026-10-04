@@ -540,7 +540,13 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
 # The zinnia model `msime-linux-handwriting --local` recognises with, and its LGPL-2.1 license. At 26.8 MB it is not committed: scripts/fetch_handwriting_model.py downloads what resources/handwriting-model.lock.json pins into target/handwriting-model, which is picked up when present, and every file is checked against the lock here. Packaging requires it, because a package without it would offer an offline recognizer that fails on the first stroke; a development install without it only leaves --local reporting that no model is installed.
-if(NOT MSIME_HANDWRITING_MODEL_DIR AND
+# 模型只认汉字：不提供手写的版本（版本表 `features.handwriting` 为 false 的日文、越南文和藏文版）即使下载或指定了模型，也既不装模型也不装它的许可证，打包时也不要求有模型。
+if(NOT MSIME_EDITION_HANDWRITING)
+  if(MSIME_HANDWRITING_MODEL_DIR)
+    message(STATUS "Edition ${MSIME_EDITION} offers no handwriting; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
+  endif()
+  set(MSIME_HANDWRITING_MODEL_DIR "")
+elseif(NOT MSIME_HANDWRITING_MODEL_DIR AND
    EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../target/handwriting-model/handwriting-zh_CN.model")
   get_filename_component(MSIME_HANDWRITING_MODEL_DIR
                          "${CMAKE_CURRENT_SOURCE_DIR}/../../target/handwriting-model" ABSOLUTE)
@@ -579,7 +585,7 @@ if(MSIME_HANDWRITING_MODEL_DIR)
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/handwriting")
   endforeach()
   install(FILES "${MSIME_HANDWRITING_LOCK_FILE}" DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
-elseif(MSIME_ENABLE_PACKAGING)
+elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING)
   message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py (package-container.sh does)")
 endif()
 if(MSIME_EMOJI_RESOURCES)
@@ -695,7 +701,10 @@ if(MSIME_SETTLED_MODEL)
 endif()
 # Offline glosses for non-English translation targets, one zh-<lang>.db per language built by `scripts/build_offline_glosses.py`, installed as a sibling of the resource bundle for the same reason as the settled model; the Engine looks for them there. Optional: without them the candidate glosses stay English only. Their notice is required with them, since the databases are CC BY-SA and must travel with their attribution.
 set(MSIME_OFFLINE_GLOSSES "" CACHE PATH "Offline gloss databases with their notice, e.g. target/offline-glosses")
-if(MSIME_OFFLINE_GLOSSES)
+# 离线释义按中文候选查：不提供中文方案的版本（版本表 `features.offline_glosses` 为 false 的日文、越南文和藏文版）即使指定了 `MSIME_OFFLINE_GLOSSES` 也不装。
+if(MSIME_OFFLINE_GLOSSES AND NOT MSIME_EDITION_OFFLINE_GLOSSES)
+  message(STATUS "Edition ${MSIME_EDITION} offers no Chinese scheme; not installing the offline glosses in ${MSIME_OFFLINE_GLOSSES}")
+elseif(MSIME_OFFLINE_GLOSSES)
   if(NOT EXISTS "${MSIME_OFFLINE_GLOSSES}/offline-glosses-NOTICE.txt")
     message(FATAL_ERROR "MSIME_OFFLINE_GLOSSES has no offline-glosses-NOTICE.txt: ${MSIME_OFFLINE_GLOSSES}")
   endif()

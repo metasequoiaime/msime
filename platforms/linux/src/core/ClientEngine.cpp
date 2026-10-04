@@ -1418,6 +1418,11 @@ constexpr DesktopPanelAction desktop_panel_actions[] = {
     {"DesktopTools/Feedback", "feedback", "反馈", false},
 };
 
+// 本版本是否提供这个面板。手写识别器只认汉字，不提供手写的版本（日文、越南文和藏文版的 `MSIME_EDITION_HANDWRITING` 为 0，它们的安装包里也没有手写模型）既不在菜单里列出，也不打开手写识别板。
+constexpr bool desktop_panel_offered(const DesktopPanelAction &action) {
+  return MSIME_EDITION_HANDWRITING != 0 || std::string_view(action.panel) != "handwriting";
+}
+
 // A menu separator. ibus-ui-gtk3 draws it as a rule and ends the radio group before it; keys must stay unique because panels find properties by key.
 IBusProperty *menu_separator(const char *key) {
   return ibus_property_new(key, PROP_TYPE_SEPARATOR, ibus_text_new_from_static_string(""), "",
@@ -1475,7 +1480,8 @@ IBusProperty *desktop_tools_property(IBusEngine *engine) {
           !directory.empty() && directory.front() == '/',
       TRUE, toolbar_enabled ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   for (const auto &action : desktop_panel_actions)
-    if (!action.design_menu) ibus_prop_list_append(items, desktop_panel_property(engine, action));
+    if (!action.design_menu && desktop_panel_offered(action))
+      ibus_prop_list_append(items, desktop_panel_property(engine, action));
   ibus_prop_list_append(items, ibus_property_new(
       "DesktopTools/VoiceEnabled", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("启用语音输入"), "",
@@ -4774,6 +4780,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     }
     for (const auto &action : desktop_panel_actions) {
       if (property_name == action.property) {
+        if (!desktop_panel_offered(action)) return;
         if (!launch_desktop_panel(action.panel))
           g_warning("Cannot start MSIME desktop panel launcher");
         return;

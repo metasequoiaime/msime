@@ -5476,7 +5476,8 @@ public:
     cloud_clipboard_menu_.addAction(&cloud_clipboard_item5_);
     toolbar_action_.setMenu(&toolbar_menu_);
     desktop_tools_action_.setMenu(&desktop_tools_menu_);
-    desktop_tools_menu_.addAction(&handwriting_action_);
+    // 手写识别板只认汉字，不提供手写的版本（日文、越南文和藏文版，LinuxEdition.h 的 MSIME_EDITION_HANDWRITING 为 0）菜单里没有它。
+    if (MSIME_EDITION_HANDWRITING != 0) desktop_tools_menu_.addAction(&handwriting_action_);
     desktop_tools_menu_.addAction(&keyboard_action_);
     desktop_tools_menu_.addAction(&desktop_emoji_action_);
     desktop_tools_menu_.addAction(&desktop_clipboard_action_);

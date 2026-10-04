@@ -107,7 +107,7 @@ docker run --rm --init \
       *) echo "no pinned voice runtime for $(uname -m)" >&2; exit 2 ;;
     esac
     python3 scripts/fetch_voice_runtime.py --platform "$voice_platform" --out /build/voice-runtime
-    # The zinnia model msime-linux-handwriting --local recognises with, pinned by resources/handwriting-model.lock.json.
+    # `msime-linux-handwriting --local` 识别用的 Zinnia 模型，由 resources/handwriting-model.lock.json 固定。它和下面的离线释义交给每个版本的 configure；不提供中文方案的版本（版本表 features.handwriting 和 features.offline_glosses 为 false）由 cmake/Edition.cmake 和 CMakeLists.txt 把两者都去掉，所以日文、越南文和藏文版的安装包里两样都没有。
     python3 scripts/fetch_handwriting_model.py --out /build/handwriting-model
     # Non-English candidate glosses from scripts/fetch_offline_glosses.py, installed only when the databases and their NOTICE are both there; without them the package glosses offline in English only.
     glosses_args=()

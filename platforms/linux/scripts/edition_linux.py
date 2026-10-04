@@ -262,6 +262,8 @@ def header_text(table: dict) -> str:
             ("DEFAULT_SCHEME", narrow(entry["default_scheme"])),
             ("INPUT_SCHEMES", ", ".join(narrow(scheme) for scheme in entry["input_schemes"])),
             ("TEMPORARY_JAPANESE", "1" if entry["features"]["temporary_japanese"] else "0"),
+            # 手写模型只认汉字：为 0 的版本（日文、越南文和藏文版）IBus 菜单里没有手写识别板。
+            ("HANDWRITING", "1" if entry["features"]["handwriting"] else "0"),
         ]
         lines += [f"#define MSIME_EDITION_{name} {value}" for name, value in values]
     lines += ["#endif", ""]

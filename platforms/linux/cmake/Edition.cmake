@@ -64,6 +64,17 @@ if(msime_edition_component_count GREATER 0)
     endif()
   endforeach()
 endif()
+# 本版本是否提供手写、是否带非英文离线释义（版本表 features.handwriting、features.offline_glosses）。手写模型只认汉字，离线释义按中文候选查，两者都只给提供中文方案的版本；日文、越南文和藏文版不装手写模型和离线释义数据库。
+foreach(msime_edition_feature handwriting offline_glosses)
+  string(TOUPPER "${msime_edition_feature}" msime_edition_feature_variable)
+  string(JSON msime_edition_feature_value GET "${msime_editions_json}"
+         editions ${msime_edition_index_found} features ${msime_edition_feature})
+  if(msime_edition_feature_value)
+    set(MSIME_EDITION_${msime_edition_feature_variable} ON)
+  else()
+    set(MSIME_EDITION_${msime_edition_feature_variable} OFF)
+  endif()
+endforeach()
 # 本版本是否用到粤语、注音和笔画词库；不用的版本不装它们。
 if(msime_edition_language_dictionaries GREATER 0)
   set(MSIME_EDITION_LANGUAGE_DICTIONARIES ON)

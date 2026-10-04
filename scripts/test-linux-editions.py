@@ -11,6 +11,7 @@
 - 每个版本装的 Host API 库文件名（`cmake/Edition.cmake` 的 `MSIME_HOST_LIBRARY_STEM`）两两不同，full 仍是 `libmsime_host_api.so`：库没有 SONAME，插件的 DT_NEEDED 就是这个文件名，同名时同一个 fcitx5 进程里后加载的插件会复用先加载的那个版本的库；
 - 每个版本登记在它的默认方案所属的语言下：IBus 组件文件的 `<language>`、IBus 宿主注册引擎时的语言（`MSIME_EDITION_IBUS_LANGUAGE`）和 Fcitx5 输入法条目的 `LangCode`。中文的版本是 `zh` / `zh_CN`，日文、越南文、藏文版是 `ja`、`vi`、`bo`；
 - 不带中文主词库（`resources.components` 没有 `chinese-main`）的版本不装落定重排模型：`cmake/Edition.cmake` 按版本表算出 `MSIME_EDITION_CHINESE_MAIN`，CMakeLists.txt 据它清空 `MSIME_SETTLED_MODEL`；
+- 不提供中文方案（版本表 `features.handwriting`、`features.offline_glosses` 为 false）的版本不装手写模型和非英文离线释义：`cmake/Edition.cmake` 按版本表算出 `MSIME_EDITION_HANDWRITING` 和 `MSIME_EDITION_OFFLINE_GLOSSES`，CMakeLists.txt 据前者清空 `MSIME_HANDWRITING_MODEL_DIR`（模型和它的许可证都不装，打包也不再要求模型），据后者跳过 `MSIME_OFFLINE_GLOSSES`；IBus 和 Fcitx5 的菜单按 `LinuxEdition.h` 的 `MSIME_EDITION_HANDWRITING` 不列手写识别板；
 - C++ 源码不再自己写 full 的每用户目录、IBus 引擎名和设置命令，CMake 不再自己写 `msime-client` 子目录，否则那一处在其他版本里仍指向 full。
 """
 
@@ -143,6 +144,25 @@ def main() -> int:
     # 落定重排模型只装给带中文主词库的版本。
     if "set(MSIME_EDITION_CHINESE_MAIN ON)" not in edition_cmake or not re.search(r'if\(NOT MSIME_EDITION_CHINESE_MAIN\)\n(?:  #.*\n|  if\(MSIME_SETTLED_MODEL\)\n.*\n  endif\(\)\n)*  set\(MSIME_SETTLED_MODEL ""\)', (LINUX / "CMakeLists.txt").read_text(encoding="utf-8")):
         errors.append("cmake/Edition.cmake and CMakeLists.txt no longer keep the settled model out of editions without chinese-main; update this check")
+
+    # 手写模型和非英文离线释义只装给提供中文方案的版本，菜单里的手写识别板也只给它们。
+    linux_cmake = (LINUX / "CMakeLists.txt").read_text(encoding="utf-8")
+    if "foreach(msime_edition_feature handwriting offline_glosses)" not in edition_cmake:
+        errors.append("cmake/Edition.cmake no longer derives MSIME_EDITION_HANDWRITING and MSIME_EDITION_OFFLINE_GLOSSES from the edition table; update this check")
+    if not re.search(r'if\(NOT MSIME_EDITION_HANDWRITING\)\n(?:  .*\n)*?  set\(MSIME_HANDWRITING_MODEL_DIR ""\)', linux_cmake) or "elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING)" not in linux_cmake:
+        errors.append("CMakeLists.txt no longer keeps the handwriting model out of editions without handwriting; update this check")
+    if "if(MSIME_OFFLINE_GLOSSES AND NOT MSIME_EDITION_OFFLINE_GLOSSES)" not in linux_cmake:
+        errors.append("CMakeLists.txt no longer keeps the offline glosses out of editions without a Chinese scheme; update this check")
+    header = (LINUX / "src/core/LinuxEdition.h").read_text(encoding="utf-8")
+    for entry in editions:
+        block = re.search(rf"defined\(MSIME_EDITION_{entry['id'].upper()}\)\n(.*?)(?:#elif|#endif)", header, re.S)
+        expected_flag = "1" if entry["features"]["handwriting"] else "0"
+        if not block or f"#define MSIME_EDITION_HANDWRITING {expected_flag}" not in block.group(1):
+            errors.append(f"edition {entry['id']}: LinuxEdition.h does not define MSIME_EDITION_HANDWRITING as {expected_flag}")
+    if "desktop_panel_offered(action)" not in (LINUX / "src/core/ClientEngine.cpp").read_text(encoding="utf-8"):
+        errors.append("src/core/ClientEngine.cpp no longer filters the IBus desktop panels by MSIME_EDITION_HANDWRITING; update this check")
+    if "if (MSIME_EDITION_HANDWRITING != 0) desktop_tools_menu_.addAction(&handwriting_action_);" not in FCITX_ENGINE.read_text(encoding="utf-8"):
+        errors.append("fcitx5/FcitxEngine.cpp no longer leaves handwriting out of the Fcitx5 menu of editions without it; update this check")
 
     # CMake 里每个 msime_edition_source 的文件都要有规则。路径里的 ${变量} 来自同一个文件的 foreach：脚本按 foreach 列出的名字展开，其余按通配展开到实际存在的文件。
     rules = set(generator.RULES)
