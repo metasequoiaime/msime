@@ -237,7 +237,7 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 开发密钥是 Android SDK 的调试密钥 `~/.android/debug.keystore`，不在仓库或 `target/` 里，不得用于正式发行。正式包由 `release-android.yml` 用仓库 secrets `ANDROID_RELEASE_KEYSTORE_BASE64`（PKCS12，别名 `msime-release`）与 `ANDROID_RELEASE_KEYSTORE_PASSWORD` 签名，`build-apk.sh` 在设置了 `MSIME_ANDROID_RELEASE_KEYSTORE` 与 `MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD` 时改用它；发布密钥不能更换，更换后已安装的用户无法覆盖升级。所有 worktree 与 Tauri、Android Studio 的调试构建共用它，所以换一个 worktree 构建也能直接覆盖安装。删除该文件会改变后续开发签名，之后不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 
-用户打开启动页并点击“准备词库”后，后台任务在私有目录解包资源，调用共享 Rust/C++ 校验与工作数据准备，成功后通过 AtomicFile 发布配置。已有配置一律不覆盖，失败可重试；不支持在线升级已运行的词库。解包和工作词库复制需要额外存储空间。启动页只提供手动进入系统设置/选择器的按钮，不自动启用或切换输入法。
+用户打开启动页并点击“准备词库”后，后台任务在私有目录解包资源，调用共享 Rust/C++ 校验与工作数据准备，成功后通过 AtomicFile 发布配置。已有配置不会被重新准备覆盖，失败可重试。安装包换了词库版本时，`Bootstrap.prepare` 的共享刷新报 `dictionary_outdated`，如果配置记录的资源目录就是 `files/bootstrap/resources`，它把 APK 里的词库重新解包到这个目录（删掉锁里没有的旧文件，`helpcodes/` 不动），再刷新一次，由 Engine 准备新代次并回放用户词库；失败时配置保持原样，输入法继续用原来的代次，下次启动再试。解包和工作词库复制需要额外存储空间。启动页只提供手动进入系统设置/选择器的按钮，不自动启用或切换输入法。
 
 APK 包结构、双 ABI、启动 Activity、IME 声明、签名与对齐均由脚本自身校验；API 35 arm64 专用模拟器覆盖安装、首次准备、已有配置不覆盖，以及软键盘通过系统 InputConnection 上屏、退格和密码直接输入。工具契约参考 [d8](https://developer.android.com/tools/d8)、[zipalign](https://developer.android.com/tools/zipalign) 与 [apksigner](https://developer.android.com/tools/apksigner)。
 
