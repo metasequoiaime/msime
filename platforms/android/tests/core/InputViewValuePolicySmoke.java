@@ -13,6 +13,10 @@ public final class InputViewValuePolicySmoke {
             "boolean scheme is rejected");
         check(InputViewValuePolicy.schemeValue("4", -1) == -1,
             "string scheme is rejected");
+        check(InputViewValuePolicy.integer(null, "missing", 7) == 7,
+            "missing integer uses fallback");
+        check(InputViewValuePolicy.integer(46, 0) == 46, "ASCII replacement is preserved");
+        check(InputViewValuePolicy.integer(46.5, 0) == 0, "fractional ASCII is rejected");
         System.out.println("Android input view integer fields passed");
     }
 }

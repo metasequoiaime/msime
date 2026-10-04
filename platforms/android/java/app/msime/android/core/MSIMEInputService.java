@@ -2533,7 +2533,7 @@ public final class MSIMEInputService extends InputMethodService {
                 view.optString("spelling_symbols", "")) && character(' ', false)) return;
         JSONObject spaceDecision = smartPunctuationDecision(' ', getTextBeforeCursor());
         if (spaceDecision != null && !spaceDecision.isNull("space_ascii")) {
-            int ascii = spaceDecision.optInt("space_ascii", 0);
+            int ascii = InputViewValuePolicy.integer(spaceDecision, "space_ascii", 0);
             if (ascii >= 32 && ascii <= 126 && deleteBeforeCursor(1)) {
                 smartSpaceSnapshot = null;
                 commitText(String.valueOf((char) ascii));
@@ -2545,7 +2545,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONArray candidates = view.optJSONArray("candidates");
             int count = candidates == null ? 0 : candidates.length();
             JSONObject first = count > 0 ? candidates.optJSONObject(0) : null;
-            int firstSource = first == null ? -1 : first.optInt("source", -1);
+            int firstSource = InputViewValuePolicy.integer(first, "source", -1);
             if (!editingText.isEmpty() && JapaneseSpacePolicy.converts(count, firstSource)) {
                 if (japaneseConversionIndex == null
                         || !editingText.equals(japaneseConversionEditingText)) {
@@ -7021,7 +7021,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void openCandidatePanel() {
-        if (session == 0 || view == null || view.optInt("page_count", 0) <= 1) return;
+        if (session == 0 || view == null || strictCandidatePage(view, "page_count") <= 1) return;
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(session));
             if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
@@ -8693,7 +8693,7 @@ public final class MSIMEInputService extends InputMethodService {
             japaneseConversionEditingText = "";
         }
         String page = "";
-        if (view != null && view.optInt("page_count", 0) > 0) {
+        if (view != null && strictCandidatePage(view, "page_count") > 0) {
             int currentPage = strictCandidatePage(view, "page");
             int pageCount = strictCandidatePage(view, "page_count");
             if (currentPage >= 0 && pageCount > 0)
@@ -8980,7 +8980,8 @@ public final class MSIMEInputService extends InputMethodService {
                         : LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT));
             }
-            if (!hasDiagnostic && view.optInt("page_count", 0) > 1 && expandCandidates != null)
+            if (!hasDiagnostic && strictCandidatePage(view, "page_count") > 1
+                    && expandCandidates != null)
                 expandCandidates.setVisibility(View.VISIBLE);
         }
         int visibleSlots = entries == null ? 0 : entries.length();

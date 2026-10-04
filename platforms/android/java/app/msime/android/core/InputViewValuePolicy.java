@@ -12,7 +12,15 @@ public final class InputViewValuePolicy {
     }
 
     public static int scheme(JSONObject view, String key, int fallback) {
-        return KeyboardGeometry.strictInt(view == null ? null : view.opt(key), fallback);
+        return integer(view, key, fallback);
+    }
+
+    public static int integer(JSONObject object, String key, int fallback) {
+        return KeyboardGeometry.strictInt(object == null ? null : object.opt(key), fallback);
+    }
+
+    public static int integer(Object raw, int fallback) {
+        return KeyboardGeometry.strictInt(raw, fallback);
     }
 
     public static int schemeValue(Object raw, int fallback) {
