@@ -59,6 +59,10 @@ public final class BackendAccountResponseSmoke {
         check(BackendAccount.requiredBooleanField(Boolean.TRUE), "enabled=true is accepted");
         check(!BackendAccount.requiredBooleanField(Boolean.FALSE), "enabled=false is accepted");
 
+        check(!BackendAccount.validClipboardItem(new BackendAccount.ClipboardItem(
+            "a".repeat(64), "safe\u0000hidden", "2026-10-04T00:00:00Z")),
+            "add clipboard rejects control characters in the returned text");
+
         System.out.println("Android account response bounds and fields passed");
     }
 

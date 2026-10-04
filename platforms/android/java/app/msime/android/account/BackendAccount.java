@@ -296,9 +296,7 @@ public final class BackendAccount {
             String id = item.optString("id", "");
             String text = item.optString("text", "");
             String updated = item.optString("updated_at", "");
-            if (!id.matches("[0-9a-f]{64}") || !CloudClipboardTextPolicy.valid(text)
-                    || updated.isEmpty() || updated.length() > 128
-                    || TextPolicy.hasControl(updated))
+            if (!validClipboardItem(new ClipboardItem(id, text, updated)))
                 throw new IllegalStateException("invalid clipboard response");
             items.add(new ClipboardItem(id, text, updated));
         }
@@ -322,10 +320,19 @@ public final class BackendAccount {
             throw new IllegalStateException("invalid clipboard request");
         JSONObject item = request("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
         String id = item.optString("id", "");
+        String returnedText = item.optString("text", text);
         String updated = item.optString("updated_at", "");
-        if (!id.matches("[0-9a-f]{64}") || updated.isEmpty() || updated.length() > 128)
+        ClipboardItem result = new ClipboardItem(id, returnedText, updated);
+        if (!validClipboardItem(result))
             throw new IllegalStateException("invalid clipboard response");
-        return new ClipboardItem(id, item.optString("text", text), updated);
+        return result;
+    }
+
+    static boolean validClipboardItem(ClipboardItem item) {
+        return item != null && item.id() != null && item.id().matches("[0-9a-f]{64}")
+            && CloudClipboardTextPolicy.valid(item.text()) && item.updatedAt() != null
+            && !item.updatedAt().isEmpty() && TextPolicy.utf8Length(item.updatedAt()) <= 128
+            && !TextPolicy.hasControl(item.updatedAt());
     }
 
     public void deleteClipboard(String id) throws Exception {
