@@ -54,22 +54,41 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             if (connection.getResponseCode() != 200) throw new IllegalStateException("Translation unavailable");
             byte[] bytes;
             try (InputStream input = connection.getInputStream()) { bytes = readBounded(input); }
-            JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-            if (response.optInt("code", -1) != 200) throw new IllegalStateException("Translation failed");
-            JSONArray values = response.getJSONArray("data");
-            if (values.length() != texts.size()) throw new IllegalStateException("Translation response mismatch");
-            java.util.ArrayList<String> result = new java.util.ArrayList<>(values.length());
-            for (int index = 0; index < values.length(); index++) {
-                String value = values.optString(index, "").trim();
-                if (value.isEmpty() || TextPolicy.utf8Length(value) > 4096
-                        || value.chars().anyMatch(ch -> ch == '\n' || ch == '\r' || (ch < 0x20 && ch != '\t')))
-                    throw new IllegalStateException("Invalid translation response");
-                result.add(value);
-            }
+            List<String> result = parseResponse(bytes, texts.size());
+            if (result == null) throw new IllegalStateException("Invalid translation response");
             return result;
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    /** Decode the response without allowing org.json to coerce nulls or non-strings to text. */
+    static List<String> parseResponse(byte[] bytes, int expectedCount) throws Exception {
+        JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
+        if (response.optInt("code", -1) != 200) return null;
+        Object data = response.opt("data");
+        if (!(data instanceof JSONArray)) return null;
+        JSONArray values = (JSONArray) data;
+        java.util.ArrayList<Object> rawValues = new java.util.ArrayList<>(values.length());
+        for (int index = 0; index < values.length(); index++) {
+            rawValues.add(values.opt(index));
+        }
+        return parseValues(rawValues, expectedCount);
+    }
+
+    /** Validate already-decoded values without org.json's coercing accessors. */
+    static List<String> parseValues(List<?> values, int expectedCount) {
+        if (values == null || values.size() != expectedCount) return null;
+        java.util.ArrayList<String> result = new java.util.ArrayList<>(values.size());
+        for (Object raw : values) {
+            if (!(raw instanceof String)) return null;
+            String value = ((String) raw).trim();
+            if (value.isEmpty() || TextPolicy.utf8Length(value) > 4096
+                    || value.chars().anyMatch(ch -> ch == '\n' || ch == '\r' || (ch < 0x20 && ch != '\t')))
+                return null;
+            result.add(value);
+        }
+        return result;
     }
 
     private String accessToken() throws Exception {
