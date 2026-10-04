@@ -1515,6 +1515,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
         JSONObject accepted = new JSONObject(snapshot.toString());
+        long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
+        if (revision < 0) throw new JSONException("Invalid preferences revision");
+        accepted.put("revision", revision);
         JSONObject preferences = accepted.getJSONObject("preferences");
         KeyboardSkin nextSkin = keyboardSkin(preferences);
         JSONObject nextLocalModes = preferences.optJSONObject("local_modes");
@@ -4657,7 +4660,8 @@ public final class MSIMEInputService extends InputMethodService {
         final JSONObject preferences;
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = pending.getLong("revision");
+            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             preferences = pending.getJSONObject("preferences");
             String current = preferences.optString("global_theme", "system");
             if (design == null) {
@@ -4710,9 +4714,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
             long currentRevision = preferencesSnapshot == null
-                ? -1 : preferencesSnapshot.optLong("revision", -1);
-            if (PreferencesSavePolicy.shouldApplyResponse(
-                    currentRevision, saved.getLong("revision"))) {
+                ? -1 : PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1);
+            long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+            if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
+            if (PreferencesSavePolicy.shouldApplyResponse(currentRevision, savedRevision)) {
                 applyPreferencesSnapshot(saved);
                 showKeyboardSkinStatus("皮肤已切换");
             } else {
@@ -4755,7 +4760,8 @@ public final class MSIMEInputService extends InputMethodService {
         final long expectedRevision;
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = pending.getLong("revision");
+            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             pending.getJSONObject("preferences")
                 .put("traditional_chinese_output", targetTraditional);
@@ -4795,9 +4801,11 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
-            long savedRevision = saved.getLong("revision");
+            long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+            if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (preferencesSnapshot != null
-                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                    && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
+                        > savedRevision) {
                 applyChineseOutputPreference(preferencesSnapshot.optJSONObject("preferences"));
                 preferencesNotice = "";
             } else {
@@ -5588,7 +5596,8 @@ public final class MSIMEInputService extends InputMethodService {
         final long expectedRevision;
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = pending.getLong("revision");
+            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
             if (reset) {
@@ -5652,9 +5661,11 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
-            long savedRevision = saved.getLong("revision");
+            long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+            if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (preferencesSnapshot != null
-                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                    && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
+                        > savedRevision) {
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
                 applyKeyboardGeometry();
                 preferencesNotice = "";
@@ -5821,7 +5832,8 @@ public final class MSIMEInputService extends InputMethodService {
             if (session != targetSession || preferencesSnapshot == null
                     || !targetDirectory.equals(preferencesDirectory)) return;
             pending = new JSONObject(preferencesSnapshot.toString());
-            expectedRevision = pending.getLong("revision");
+            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
             String currentScheme = preferences.optString("scheme", "quanpin");
@@ -5880,9 +5892,11 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             if (response == null) throw new JSONException("Preferences save unavailable");
             JSONObject saved = value(response);
-            long savedRevision = saved.getLong("revision");
+            long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+            if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (preferencesSnapshot != null
-                    && preferencesSnapshot.optLong("revision", -1) > savedRevision) {
+                    && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
+                        > savedRevision) {
                 preferencesNotice = "";
             } else {
                 applyPreferencesSnapshot(saved);
