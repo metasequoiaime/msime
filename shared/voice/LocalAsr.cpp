@@ -45,6 +45,31 @@ constexpr int kSampleRate = 16000;
 constexpr int32_t kVadWindow = 512;
 constexpr size_t kMaxManifestBytes = 256 * 1024;
 
+nlohmann::json read_manifest(const fs::path &directory) {
+  std::ifstream input(directory / fs::u8path(std::string(local_model_manifest)),
+                      std::ios::binary);
+  if (!input)
+    throw VoiceError("Not an installed local speech model");
+  std::array<char, 8192> buffer{};
+  std::string payload;
+  while (input) {
+    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto count = input.gcount();
+    if (count <= 0)
+      continue;
+    const auto bytes = static_cast<size_t>(count);
+    if (payload.size() > kMaxManifestBytes - bytes)
+      throw VoiceError("Local speech model manifest is too large");
+    payload.append(buffer.data(), bytes);
+  }
+  if (!input.eof())
+    throw VoiceError("Local speech model manifest could not be read");
+  auto manifest = nlohmann::json::parse(payload, nullptr, false);
+  if (manifest.is_discarded())
+    throw VoiceError("Local speech model manifest is malformed");
+  return manifest;
+}
+
 // ---- runtime loading ----
 
 #define MSIME_SHERPA_FUNCTIONS(X)                                                                   \
@@ -339,24 +364,8 @@ struct ModelDescription {
 ModelDescription read_model(const std::string &directory) {
   ModelDescription model;
   model.directory = fs::u8path(directory);
-  std::ifstream input(model.directory / fs::u8path(std::string(local_model_manifest)), std::ios::binary);
-  if (!input)
-    throw VoiceError("Not an installed local speech model");
-  std::array<char, 8192> buffer{};
-  std::string payload;
-  while (input) {
-    input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
-    if (count <= 0) continue;
-    const auto bytes = static_cast<size_t>(count);
-    if (payload.size() > kMaxManifestBytes - bytes)
-      throw VoiceError("Local speech model manifest is too large");
-    payload.append(buffer.data(), bytes);
-  }
-  if (!input.eof())
-    throw VoiceError("Local speech model manifest could not be read");
   try {
-    const auto manifest = nlohmann::json::parse(payload);
+    const auto manifest = read_manifest(model.directory);
     const auto kind = manifest.at("kind").get<std::string>();
     if (kind == "online_transducer")
       model.kind = ModelKind::OnlineTransducer;
@@ -865,6 +874,21 @@ bool is_local_model_dir(std::string_view path) {
   if (error || !fs::is_regular_file(manifest_status))
     return false;
   return fs::file_size(manifest, error) <= kMaxManifestBytes && !error;
+}
+
+bool local_model_uses_pinyin_hotwords(std::string_view path) {
+  if (!is_local_model_dir(path))
+    return false;
+  try {
+    const auto manifest = read_manifest(fs::u8path(std::string(path)));
+    if (!manifest.is_object())
+      return false;
+    const auto hotwords = manifest.find("hotwords");
+    return hotwords != manifest.end() && hotwords->is_string() &&
+           hotwords->get<std::string>() == "pinyin";
+  } catch (const VoiceError &) {
+    return false;
+  }
 }
 
 std::string recognize_local_model(const std::vector<float> &samples, const LocalAsrOptions &options,

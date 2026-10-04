@@ -16,6 +16,7 @@ msime-path-trust = { path = "../path-trust" }
 msime-engine = { path = "../engine" }
 msime-input-runtime = { path = "../input-runtime" }
 hex = "0.4"
+lru = "0.18"
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

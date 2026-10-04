@@ -50,7 +50,8 @@ void DebugLog(const std::string &message)
     }
 
     DWORD written = 0;
-    WriteFile(file, buffer, static_cast<DWORD>(count), &written, nullptr);
+    const std::size_t length = DebugLogWriteLength(count, sizeof(buffer));
+    WriteFile(file, buffer, static_cast<DWORD>(length), &written, nullptr);
     CloseHandle(file);
 }
 } // namespace msimeui

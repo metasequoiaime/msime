@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { useMountedRef } from "./use-mounted-ref";
 import { ActionRow } from "./action-row";
 import type { LocalVoiceModelProgress } from "../voice/local-models";
 import {
@@ -75,7 +76,7 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
   const [statuses, setStatuses] = useState<ResourcePackStatus[]>();
   const [progress, setProgress] = useState<ResourcePacks["progress"]>({});
   const [errors, setErrors] = useState<ResourcePacks["errors"]>({});
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const activeClient = useRef(client);
   activeClient.current = client;
   const statusesRef = useRef(statuses);
@@ -104,7 +105,6 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
     });
 
   useEffect(() => {
-    mounted.current = true;
     running.current = new Set();
     setStatuses(undefined);
     setProgress({});
@@ -131,7 +131,6 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
       })
       .catch(() => undefined);
     return () => {
-      mounted.current = false;
       cancelled = true;
       unlisten?.();
     };

@@ -1893,7 +1893,7 @@ fn helpcode_display_toggle_keeps_candidates_and_filtering_enabled() {
 }
 
 #[test]
-fn wubi_reverse_codes_are_shown_for_quanpin_and_mixed_wubi_candidates() {
+fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
     let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
 
     let quanpin_root = tempfile::tempdir().unwrap();
@@ -1907,7 +1907,8 @@ fn wubi_reverse_codes_are_shown_for_quanpin_and_mixed_wubi_candidates() {
         .iter()
         .position(|word| word == "你好")
         .unwrap();
-    assert!(view.candidate_annotations[index].contains("wqvb"));
+    // 全拼方案不附五笔反查码。
+    assert!(!view.candidate_annotations[index].contains("wqvb"));
 
     let mixed_root = tempfile::tempdir().unwrap();
     let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
@@ -1948,6 +1949,9 @@ fn wubi_reverse_codes_follow_the_selected_profile() {
         "",
     );
     options.wubi_profile = 1;
+    // 反查只在五笔方案里显示，所以用五笔混输拼音来看拼音候选按所选版本反查。
+    options.scheme = SchemeType::Wubi as u8;
+    options.wubi_mixed_pinyin = true;
     let mut session = Session::new(&options).unwrap();
     type_text(&mut session, b"nihao");
     let view = session.snapshot().unwrap();

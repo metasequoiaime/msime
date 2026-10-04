@@ -14,7 +14,7 @@ import { SettingToggle } from "./setting-toggle";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { StatusMessage } from "../core/status-message";
-import { formatZhNumber } from "../core/format-number";
+import { formatZhNumber, formatZhPercent } from "../core/format-number";
 import { SettingsEmptyMessage } from "./settings-empty-message";
 import {
   charactersPerMinute,
@@ -22,6 +22,8 @@ import {
   withUnknown,
   type TypingBreakdown,
 } from "./typing-speed";
+import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 export type { TypingBreakdown } from "./typing-speed";
 import {
   dayLabel,
@@ -30,25 +32,31 @@ import {
   longestStreak,
   mobileTrendLength,
   recentDays,
+  statisticDayKeys,
   statisticsHeatmapWeeks,
   sumStatisticValues,
 } from "./typing-statistics-helpers";
+import {
+  StatisticsMetric,
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+} from "./typing-statistics-overview";
 export {
   addDays,
   currentStreak,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
 } from "./typing-statistics-helpers";
+export {
+  statisticsOverviewDetails,
+  statisticsOverviewMetrics,
+  type StatisticsOverviewMetric,
+} from "./typing-statistics-overview";
 
 const heading = "m-0 [font-size:var(--p-row-fs)] font-semibold [color:var(--p-text)]";
 // 摘要在标签行上方，切换标签时保持不动，所以压成紧凑的 3 × 2 网格，单位和数字放在同一行；会随标签变化的内容都放在标签下方。
 const metricGrid = "grid grid-cols-3 gap-x-6 gap-y-[18px] max-phone:grid-cols-2 max-phone:gap-x-3";
-const metric = "flex min-w-0 flex-col gap-1 [&>span]:text-xs [&>span]:[color:var(--p-sub)]";
-const metricLine =
-  "flex min-w-0 flex-wrap items-baseline gap-x-1 [&>small]:text-xs [&>small]:[color:var(--p-sub)]";
-const metricValue =
-  "text-[22px] font-[650] leading-tight break-anywhere tabular-nums [color:var(--p-accent-text)]";
-const metricNote = "text-xs [color:var(--p-sub)]";
 const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed [color:var(--p-sub)]";
 const privacy = "mt-4 mb-0 text-xs leading-[1.7] [color:var(--p-sub)]";
 const overviewPollMs = 5_000;
@@ -319,9 +327,7 @@ export type ActivityMetrics = {
  * arguments alone.
  */
 export function activityMetrics(statistics: TypingStatistics, todayKey: string): ActivityMetrics {
-  const recorded = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
-    .sort();
+  const recorded = statisticDayKeys(statistics.days);
   const activeByDay = statistics.dailyActiveMs ?? {};
   let totalActiveMs = 0;
   let totalReadable = 0;
@@ -445,9 +451,8 @@ export function dailyDetailRows(
   todayKey: string,
   days = DETAIL_DAYS,
 ): DailyDetailRow[] {
-  const keys = Object.keys(statistics.days)
-    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key) && key <= todayKey)
-    .sort()
+  const keys = statisticDayKeys(statistics.days)
+    .filter((key) => key <= todayKey)
     .slice(-days)
     .reverse();
   return keys.map((key) => {
@@ -986,9 +991,6 @@ function StatisticsTrendLine({
  */
 type DistributionVariant = "donut" | "rank";
 
-const shareText = (count: number, total: number) =>
-  total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`;
-
 function ShapeChart({
   title,
   slices,
@@ -1010,7 +1012,7 @@ function ShapeChart({
             className={`${rankRow} animate-row-reveal motion-reduce:animate-none`}
             style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
             key={slice.id}
-            aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+            aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
           >
             <span>{slice.title}</span>
             <div className={rankTrack}>
@@ -1020,7 +1022,7 @@ function ShapeChart({
               />
             </div>
             <strong>{formatZhNumber(slice.count)}</strong>
-            <small>{shareText(slice.count, total)}</small>
+            <small>{formatZhPercent(slice.count, total)}</small>
           </div>
         ))}
       </div>
@@ -1106,7 +1108,7 @@ function Distribution({
                   className={legendRow}
                   style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
                   key={slice.id}
-                  aria-label={`${slice.title} ${slice.count} 字符，${shareText(slice.count, total)}`}
+                  aria-label={`${slice.title} ${slice.count} 字符，${formatZhPercent(slice.count, total)}`}
                 >
                   <span
                     className={legendDot}
@@ -1117,7 +1119,7 @@ function Distribution({
                   </span>
                   <span>{slice.title}</span>
                   <strong>{formatZhNumber(slice.count)}</strong>
-                  <small>{shareText(slice.count, total)}</small>
+                  <small>{formatZhPercent(slice.count, total)}</small>
                 </div>
               ))}
             </div>
@@ -1154,7 +1156,6 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
     })),
     { id: "beyond", label: "第 10 条以后", count: beyond },
   ];
-  const share = (count: number) => (total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`);
   return (
     <section className="section m-0" aria-labelledby="statistics-candidate-ranks">
       <h2 className={heading} id="statistics-candidate-ranks">
@@ -1162,7 +1163,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
       </h2>
       <p className="mt-3.5 mb-1 flex items-baseline gap-2">
         <strong className="text-[30px] leading-[1.1] tabular-nums" aria-label="首选命中率">
-          {total === 0 ? "—" : `${((ranks[0] / total) * 100).toFixed(1)}%`}
+          {formatZhPercent(ranks[0], total)}
         </strong>
         <span className="text-[13px] text-secondary" aria-hidden="true">
           首选命中率
@@ -1181,7 +1182,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
             <div
               className={rankRow}
               key={row.id}
-              aria-label={`${row.label}：${row.count} 次，${share(row.count)}`}
+              aria-label={`${row.label}：${row.count} 次，${formatZhPercent(row.count, total)}`}
             >
               <span>{row.label}</span>
               <div className={rankTrack}>
@@ -1191,7 +1192,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
                 />
               </div>
               <strong>{formatZhNumber(row.count)}</strong>
-              <small>{share(row.count)}</small>
+              <small>{formatZhPercent(row.count, total)}</small>
             </div>
           ))}
         </div>
@@ -1332,8 +1333,8 @@ export function TypingStatisticsPage({
   const requestStartedAtRef = useRef(0);
   const lastRequestAtRef = useRef(0);
   const statusSignatureRef = useRef("");
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const mobileTrendDays = useMemo(
     () => recentDays(mobileTrendLength(status?.statistics.days ?? {})),
     [status?.statistics.days],
@@ -1341,27 +1342,19 @@ export function TypingStatisticsPage({
   const desktopTrendDays = useMemo(() => recentDays(DESKTOP_TREND_DAYS), []);
   const trendDays = mobile ? mobileTrendDays : desktopTrendDays;
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
+  useEffect(
+    () => () => {
       requestRef.current = null;
-    };
-  }, []);
+    },
+    [],
+  );
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     requestRef.current = null;
     requestStartedAtRef.current = 0;
     lastRequestAtRef.current = 0;
     setBusy(false);
     setError("");
-    return () => {
-      if (generation === clientGeneration.current) {
-        clientGeneration.current++;
-        requestRef.current = null;
-      }
-    };
   }, [client]);
 
   async function update(operation: () => Promise<TypingStatisticsStatus>, overview = false) {
@@ -1474,6 +1467,7 @@ export function TypingStatisticsPage({
   const keyScopeLabel = selectedLabel ?? "累计";
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
   const activity = activityMetrics(statistics, today.key);
+  const overviewDetails = statisticsOverviewDetails(activity);
   // The reference line is the average of the window's recorded days, the same "日均" the rhythm card uses, so empty days do not drag it down.
   const trendRecorded = trendDays
     .map((day) => statistics.days[day.key] ?? 0)
@@ -1662,77 +1656,19 @@ export function TypingStatisticsPage({
       )}
       <section className="section m-0" aria-label="统计概览">
         <div className={metricGrid}>
-          <div className={metric}>
-            <span>今日输入</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日输入字符数">
-                {formatZhNumber(statistics.days[today.key] ?? 0)}
-              </strong>
-              <small>字符</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>{scopeTitle}</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="当前范围输入字符数">
-                {formatZhNumber(scopeTotal)}
-              </strong>
-              <small>字符</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span title="连续打字的时间">今日活跃</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日活跃时长">
-                {formatActiveTime(activity.todayActiveMs)}
-              </strong>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>今日速度</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="今日输入速度">
-                {formatZhNumber(Math.round(activity.todaySpeed))}
-              </strong>
-              <small>字 / 分钟</small>
-            </div>
-          </div>
-          <div className={metric}>
-            <span>平均速度</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="平均输入速度">
-                {formatZhNumber(Math.round(activity.averageSpeed))}
-              </strong>
-              <small>字 / 分钟</small>
-            </div>
-            {activity.hasActivity && (
-              <small className={metricNote}>共 {formatActiveTime(activity.totalActiveMs)}</small>
-            )}
-          </div>
-          <div className={metric}>
-            <span>连续天数</span>
-            <div className={metricLine}>
-              <strong className={metricValue} aria-label="连续输入天数">
-                {formatZhNumber(activity.currentStreak)}
-              </strong>
-              <small>天</small>
-            </div>
-            <small className={metricNote}>最长 {formatZhNumber(activity.longestStreak)} 天</small>
-          </div>
+          {statisticsOverviewMetrics({
+            statistics,
+            todayKey: today.key,
+            scopeTitle,
+            scopeTotal,
+            activity,
+          }).map((metric) => (
+            <StatisticsMetric key={metric.ariaLabel} metric={metric} />
+          ))}
         </div>
         <div className={`${axis} flex-wrap gap-x-4`}>
-          <span>
-            日均 {formatZhNumber(Math.round(activity.averagePerDay))} 字符 ·{" "}
-            {formatZhNumber(activity.recordedDays)} 天有记录
-          </span>
-          <span>
-            {activity.bestDay
-              ? `最多 ${dayLabel(activity.bestDay)}，${formatZhNumber(activity.bestDayCharacters)} 字符`
-              : "还没有记录"}
-            {activity.fastestDay
-              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${formatZhNumber(Math.round(activity.fastestSpeed))} 字 / 分钟`
-              : ""}
-          </span>
+          <span>{overviewDetails.summary}</span>
+          <span>{overviewDetails.best}</span>
         </div>
         <p className={footerNote}>
           {activity.hasActivity

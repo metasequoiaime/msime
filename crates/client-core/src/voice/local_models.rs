@@ -698,6 +698,9 @@ pub(crate) fn install_files_with(
 
 /// 读取 `<root>/<id>/msime-model.json`。只接受不超过 64 KiB 的普通文件，符号链接、目录或无法解析的内容都视为没有。
 pub fn installed_manifest(root: &Path, id: &str) -> Option<Value> {
+    if check_root(root).is_err() {
+        return None;
+    }
     if single_component(id).is_none_or(|single| single != id) || id.starts_with('.') {
         return None;
     }

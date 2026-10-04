@@ -81,3 +81,12 @@ TEST_CASE(composition_target_refreshes_dpi_when_reused)
 {
     CheckReusedTargetDpi(true);
 }
+
+TEST_CASE(text_format_falls_back_for_an_empty_family)
+{
+    HiddenWindow window;
+    msimeui::DeviceResources resources;
+    REQUIRE(resources.EnsureFactories());
+    REQUIRE(resources.GetTextFormat(L"", 16.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+                                    DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_NO_WRAP) != nullptr);
+}

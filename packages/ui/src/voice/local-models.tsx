@@ -13,6 +13,7 @@ import {
   visibleLocalModels,
 } from "./local-model-helpers";
 import { StatusMessage } from "../core/status-message";
+import { useMountedRef } from "../settings/use-mounted-ref";
 export {
   formatModelBytes,
   localModelErrorMessage,
@@ -99,7 +100,7 @@ export function LocalModelManager({
   const [progress, setProgress] = useState<Record<string, LocalVoiceModelProgress>>({});
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const activeClient = useRef(client);
   activeClient.current = client;
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
@@ -120,7 +121,6 @@ export function LocalModelManager({
   };
 
   useEffect(() => {
-    mounted.current = true;
     void refresh();
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -135,7 +135,6 @@ export function LocalModelManager({
       })
       .catch(() => undefined);
     return () => {
-      mounted.current = false;
       cancelled = true;
       unlisten?.();
     };

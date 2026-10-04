@@ -4,16 +4,26 @@ import { preferredAccountName } from "./account-labels";
 import * as account from "./account-style";
 
 /** Images already fetched, by avatar URL, so the profile card and the edit dialog showing the same avatar ask the host once. A failed load is dropped, so the next mount tries again. */
+const AVATAR_CACHE_CAPACITY = 16;
 const loaded = new Map<string, Promise<string | null>>();
 
 function loadAvatar(url: string, load: () => Promise<string | null>): Promise<string | null> {
   const cached = loaded.get(url);
-  if (cached) return cached;
-  const pending = load().catch(() => {
+  if (cached) {
     loaded.delete(url);
+    loaded.set(url, cached);
+    return cached;
+  }
+  const pending = load().catch(() => {
+    if (loaded.get(url) === pending) loaded.delete(url);
     return null;
   });
   loaded.set(url, pending);
+  while (loaded.size > AVATAR_CACHE_CAPACITY) {
+    const oldest = loaded.keys().next().value;
+    if (oldest === undefined) break;
+    loaded.delete(oldest);
+  }
   return pending;
 }
 

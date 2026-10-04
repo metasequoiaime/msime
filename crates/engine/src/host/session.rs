@@ -216,8 +216,10 @@ impl Session {
                     annotation = compute_helpcodes(&candidate.word, uppercase_all, keymap);
                 }
             }
+            // 五笔反查只服务五笔方案：混输拼音的候选虽然来自全拼，也一样附上五笔码；全拼和双拼方案本身不显示，那里的注释位留给辅助码和纠错提示。
             if value.local_mode == LocalInputMode::None
                 && !value.dedicated_english
+                && value.scheme == SchemeType::Wubi
                 && matches!(
                     candidate.scheme,
                     SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi

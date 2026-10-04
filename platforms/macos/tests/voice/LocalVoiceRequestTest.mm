@@ -112,6 +112,18 @@ int main(int argc, char **argv) {
         }
         assert(MSIMELocalVoiceModelDirectory(native));
 
+        NSString *oversized = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:oversized withIntermediateDirectories:YES attributes:nil error:nil]);
+        NSDictionary *oversizedManifest = @{
+            @"id" : @"fixture",
+            @"hotwords" : @"pinyin",
+            @"padding" : [@"x" stringByPaddingToLength:64 * 1024 withString:@"x" startingAtIndex:0]
+        };
+        NSData *oversizedData = [NSJSONSerialization dataWithJSONObject:oversizedManifest options:0 error:nil];
+        assert(oversizedData.length > 64 * 1024);
+        assert([oversizedData writeToFile:[oversized stringByAppendingPathComponent:@"msime-model.json"] atomically:YES]);
+        assert(!MSIMELocalVoiceModelDirectory(oversized));
+
         // Streaming: partial text as audio arrives, then one final; the start carries the model and language and, with no dictionary to read, no hotwords.
         {
             MSIMELocalVoiceRequest *request = [[MSIMELocalVoiceRequest alloc] initWithOptions:@{@"asr_model_path" : native, @"language" : @"zh-cn"} hostOptions:nil error:nil];

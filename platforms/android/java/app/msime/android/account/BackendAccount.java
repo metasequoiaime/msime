@@ -30,7 +30,8 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
 public final class BackendAccount {
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
-    private static final int MAX_RESPONSE_BYTES = 64 * 1024;
+    /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
+    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     private static final long MAX_SESSION_MILLISECONDS = AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L;
     private static final Object SESSION_LOCK = new Object();
     private static FutureTask<String> refreshFlight;
@@ -275,7 +276,7 @@ public final class BackendAccount {
         org.json.JSONArray choices = response.optJSONArray("choices");
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
-        String content = message == null ? "" : message.optString("content", "");
+        String content = message == null ? "" : requiredStringField(message.opt("content"));
         if (content.isEmpty() || content.length() > 10_000) throw new IllegalStateException("invalid chat response");
         return content;
     }
@@ -295,13 +296,21 @@ public final class BackendAccount {
             String id = item.optString("id", "");
             String text = item.optString("text", "");
             String updated = item.optString("updated_at", "");
-            if (!id.matches("[0-9a-f]{64}") || !CloudClipboardTextPolicy.valid(text)
-                    || updated.isEmpty() || updated.length() > 128
-                    || TextPolicy.hasControl(updated))
+            if (!validClipboardItem(new ClipboardItem(id, text, updated)))
                 throw new IllegalStateException("invalid clipboard response");
             items.add(new ClipboardItem(id, text, updated));
         }
-        return new ClipboardPage(response.optBoolean("enabled", false), List.copyOf(items));
+        return new ClipboardPage(requiredBooleanField(response.opt("enabled")), List.copyOf(items));
+    }
+
+    static boolean requiredBooleanField(Object value) {
+        if (!(value instanceof Boolean)) throw new IllegalStateException("invalid clipboard response");
+        return (Boolean) value;
+    }
+
+    static String requiredStringField(Object value) {
+        if (!(value instanceof String)) throw new IllegalStateException("invalid chat response");
+        return (String) value;
     }
 
     public void setClipboardEnabled(boolean enabled) throws Exception {
@@ -316,10 +325,19 @@ public final class BackendAccount {
             throw new IllegalStateException("invalid clipboard request");
         JSONObject item = request("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
         String id = item.optString("id", "");
+        String returnedText = item.optString("text", text);
         String updated = item.optString("updated_at", "");
-        if (!id.matches("[0-9a-f]{64}") || updated.isEmpty() || updated.length() > 128)
+        ClipboardItem result = new ClipboardItem(id, returnedText, updated);
+        if (!validClipboardItem(result))
             throw new IllegalStateException("invalid clipboard response");
-        return new ClipboardItem(id, item.optString("text", text), updated);
+        return result;
+    }
+
+    static boolean validClipboardItem(ClipboardItem item) {
+        return item != null && item.id() != null && item.id().matches("[0-9a-f]{64}")
+            && CloudClipboardTextPolicy.valid(item.text()) && item.updatedAt() != null
+            && !item.updatedAt().isEmpty() && TextPolicy.utf8Length(item.updatedAt()) <= 128
+            && !TextPolicy.hasControl(item.updatedAt());
     }
 
     public void deleteClipboard(String id) throws Exception {

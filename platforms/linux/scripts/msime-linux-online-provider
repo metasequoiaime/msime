@@ -45,10 +45,12 @@ ANONYMOUS_ACCOUNT_ORIGIN = "https://api.msime.app"
 ANONYMOUS_ACCOUNT_MAX_BYTES = 16 * 1024
 ANONYMOUS_ACCOUNT_SUBJECT_LENGTH = 16
 ANONYMOUS_ACCOUNT_SECRET_LENGTH = 48
+ANONYMOUS_ACCOUNT_TIMEOUT = 10.0
 CLOUD_REQUEST_TIMEOUT = 2.0
-# Windows ai_assistant.cpp gives model inference CURLOPT_TIMEOUT_MS 8000 and CURLOPT_CONNECTTIMEOUT_MS 2500, the same numbers client-core's AI descriptor carries. This is also the longest deadline an HTTP worker accepts, so no caller can ask for a budget the worker would silently refuse.
+# AI 推理与 Windows、client-core 保持 8 秒总预算和 2.5 秒连接预算；匿名账号认证另用 10 秒，HTTP worker 必须接受两者。
 AI_REQUEST_TIMEOUT = 8.0
 AI_CONNECT_TIMEOUT = 2.5
+HTTP_WORKER_MAX_TIMEOUT = max(AI_REQUEST_TIMEOUT, ANONYMOUS_ACCOUNT_TIMEOUT)
 # One request line from client-core. UnixSocketProvider::ai_test lets a polish test carry an 8192-byte prompt and an 8192-byte sample in a request up to 32768 bytes, so that kind alone gets the larger limit; every other request keeps the 16384-byte one.
 REQUEST_LINE_LIMIT = 16384
 AI_TEST_REQUEST_LINE_LIMIT = 32768
@@ -160,7 +162,7 @@ def http_request_worker():
             return 1
         request = json.loads(raw)
         timeout = request.get("timeout")
-        if type(timeout) not in (int, float) or not 0 < timeout <= AI_REQUEST_TIMEOUT:
+        if type(timeout) not in (int, float) or not 0 < timeout <= HTTP_WORKER_MAX_TIMEOUT:
             return 1
         connect_timeout = request.get("connect_timeout")
         if connect_timeout is not None and (
@@ -501,19 +503,19 @@ def anonymous_access_token(server):
             saved = None
         refresh = saved.get("tokens", {}).get("refresh_token") if isinstance(saved, dict) else None
         if isinstance(refresh, str) and len(refresh) == 64 and all(ch in string.hexdigits for ch in refresh):
-            refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", 10,
+            refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", ANONYMOUS_ACCOUNT_TIMEOUT,
                                {"refresh_token": refresh})
             tokens = _validated_anonymous_tokens(refreshed)
             if tokens and _write_anonymous_private(
                     server.anonymous_session_path,
                     {"tokens": tokens, "expires_at_unix_ms": int(time.time() * 1000) + tokens["expires_in"] * 1000}):
                 return tokens["access_token"]
-        challenge = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges", 10,
+        challenge = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges", ANONYMOUS_ACCOUNT_TIMEOUT,
                            {"provider": "anonymous", "target": subject, "purpose": "login"})
         challenge_id = challenge.get("challenge_id") if isinstance(challenge, dict) else None
         if not isinstance(challenge_id, str) or not challenge_id:
             return None
-        logged_in = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login", 10,
+        logged_in = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login", ANONYMOUS_ACCOUNT_TIMEOUT,
                            {"challenge_id": challenge_id, "credential": secret})
         tokens = _validated_anonymous_tokens(logged_in)
         if not tokens or not _write_anonymous_private(

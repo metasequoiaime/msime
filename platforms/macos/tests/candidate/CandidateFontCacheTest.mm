@@ -31,6 +31,31 @@ static bool SpinUntil(bool (^condition)(void)) {
     return condition();
 }
 
+static void TestUnavailableFamilyKeysAreReleased() {
+    // 不运行主循环、也不变更系统字体集，单独验证配置持续换名时缓存本身会回收旧 key。
+    [NSNotificationCenter.defaultCenter postNotificationName:NSFontSetChangedNotification object:nil];
+    __weak NSString *oldFamily;
+    @autoreleasepool {
+        NSString *family = [[NSString alloc] initWithFormat:@"MSIME Synthetic Cache Capacity Family %lu", (unsigned long)0];
+        oldFamily = family;
+        assert(!MSIMEInstalledFontFamilyDescriptor(family));
+    }
+    assert(oldFamily != nil);
+
+    __weak NSString *newestFamily;
+    for (NSUInteger index = 1; index <= 128; ++index) {
+        @autoreleasepool {
+            NSString *family = [[NSString alloc] initWithFormat:@"MSIME Synthetic Cache Capacity Family %lu", (unsigned long)index];
+            newestFamily = family;
+            assert(!MSIMEInstalledFontFamilyDescriptor(family));
+        }
+    }
+    assert(oldFamily == nil && "旧的字体族名仍被缓存永久持有");
+    assert(newestFamily != nil);
+    [NSNotificationCenter.defaultCenter postNotificationName:NSFontSetChangedNotification object:nil];
+    assert(newestFamily == nil);
+}
+
 int main() {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -73,6 +98,8 @@ int main() {
         // Menlo was dropped with everything else and matches again.
         assert([MSIMEInstalledFontFamilyDescriptor(@"Menlo") isEqual:menlo]);
         [NSFileManager.defaultManager removeItemAtURL:directory error:nil];
+
+        TestUnavailableFamilyKeysAreReleased();
 
         // Lookups and clears from many threads at once neither crash nor return a wrong family.
         NSFontDescriptor *helvetica = MSIMEInstalledFontFamilyDescriptor(@"Helvetica");

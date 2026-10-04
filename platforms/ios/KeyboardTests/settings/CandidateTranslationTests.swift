@@ -66,6 +66,17 @@ private final class FlakyTranslationService: CandidateTranslationService, @unche
 
 @MainActor
 final class CandidateTranslationTests: XCTestCase {
+  func testOfflineGlossBridgeRejectsFractionalSourceAndGeneration() {
+    XCTAssertThrowsError(try CandidateGlossModel.request(
+      generation: 1,
+      candidates: [["text": "你好", "source": NSNumber(value: 1.5)]]))
+
+    XCTAssertThrowsError(try CandidateGlossModel.decode([
+      "generation": NSNumber(value: 2.5),
+      "translations": [["text": "你好", "translation": "hello"]],
+    ]))
+  }
+
   func testOnlyCandidatesWithHanCharactersGoOutToTheNetwork() {
     XCTAssertTrue(CandidateTranslationStore.translatable("你好"))
     XCTAssertTrue(CandidateTranslationStore.translatable("啊"))

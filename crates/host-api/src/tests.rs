@@ -8434,6 +8434,41 @@ fn voice_hotword_correction_rewrites_homophones() {
 }
 
 #[test]
+fn voice_hotword_correction_rejects_unbounded_work() {
+    let hotwords = (0..1_001)
+        .map(|_| json!({"text": "明天", "pinyin": "ming tian"}))
+        .collect::<Vec<_>>();
+    let too_many_hotwords = json!({ "text": "名天", "hotwords": hotwords }).to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_voice_hotword_correct(too_many_hotwords.as_ptr(), too_many_hotwords.len())
+        })["ok"],
+        false,
+        "the correction boundary must cap hotword count"
+    );
+
+    let too_long_text = json!({ "text": "中".repeat(65_537), "hotwords": [] }).to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_voice_hotword_correct(too_long_text.as_ptr(), too_long_text.len())
+        })["ok"],
+        false,
+        "the correction boundary must cap transcript size"
+    );
+
+    let too_long_pinyin =
+        json!({ "text": "名天", "hotwords": [{"text": "明天", "pinyin": "m".repeat(1_025)}] })
+            .to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_voice_hotword_correct(too_long_pinyin.as_ptr(), too_long_pinyin.len())
+        })["ok"],
+        false,
+        "the correction boundary must cap each hotword field"
+    );
+}
+
+#[test]
 fn voice_local_models_list_install_cancel_and_remove_validate_their_requests() {
     let root = tempfile::tempdir().unwrap();
     let request = json!({ "root": root.path() }).to_string();

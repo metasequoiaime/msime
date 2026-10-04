@@ -57,6 +57,18 @@ uint32_t diagnosticLogDroppedCount = 0;
 bool diagnosticFlushScheduled = false;
 std::atomic<uint64_t> issue47Sequence{0};
 
+std::optional<std::string> diagnostic_record_utf8(std::wstring_view record)
+{
+    static_assert(sizeof(wchar_t) == sizeof(char16_t));
+    std::u16string utf16;
+    utf16.reserve(record.size());
+    for (const wchar_t unit : record)
+    {
+        utf16.push_back(static_cast<char16_t>(unit));
+    }
+    return diagnostic_utf8(utf16);
+}
+
 void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE, PVOID);
 
 // The pipe names are machine-global, so another logged-on user can create them
@@ -93,7 +105,7 @@ void ScheduleDiagnosticFlushLocked()
     }
 }
 
-bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const std::wstring &payload)
+bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const std::string &payload)
 {
     HANDLE pipe = INVALID_HANDLE_VALUE;
     for (int attempt = 0; attempt < 2; ++attempt)
@@ -119,7 +131,7 @@ bool SendDiagnosticBatch(const FanyImeTsfDiagnosticBatchHeader &header, const st
         return false;
     }
 
-    const size_t payloadBytes = payload.size() * sizeof(wchar_t);
+    const size_t payloadBytes = payload.size();
     std::vector<unsigned char> frame(sizeof(header) + payloadBytes);
     memcpy(frame.data(), &header, sizeof(header));
     if (payloadBytes != 0)
@@ -138,10 +150,9 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
     Sleep(DiagnosticFlushDelayMs);
 
     FanyImeTsfDiagnosticBatchHeader header;
-    std::vector<std::wstring> batchRecords;
+    std::vector<std::string> batchRecords;
     batchRecords.reserve(MaxDiagnosticRecordCount);
-    size_t batchUnits = 0;
-    std::wstring payload;
+    size_t batchBytes = 0;
     bool loggingDisabled = false;
     {
         std::lock_guard lock(diagnosticLogMutex);
@@ -155,21 +166,38 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
         }
         else
         {
-            const size_t maxPayloadUnits =
-                (FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES - sizeof(FanyImeTsfDiagnosticBatchHeader)) / sizeof(wchar_t);
+            const size_t maxPayloadBytes =
+                FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES - sizeof(FanyImeTsfDiagnosticBatchHeader);
             while (!diagnosticLogRecords.empty())
             {
                 const std::wstring &record = diagnosticLogRecords.front();
-                if (!batchRecords.empty() && batchUnits + record.size() > maxPayloadUnits)
+                const auto recordUnits = record.size();
+                const auto encoded = diagnostic_record_utf8(record);
+                if (!encoded)
                 {
+                    diagnosticLogRecords.pop_front();
+                    diagnosticLogQueuedUnits -= recordUnits;
+                    ++diagnosticLogDroppedCount;
+                    continue;
+                }
+                if (encoded->size() > maxPayloadBytes ||
+                    (!batchRecords.empty() && batchBytes + encoded->size() > maxPayloadBytes))
+                {
+                    if (encoded->size() > maxPayloadBytes)
+                    {
+                        diagnosticLogRecords.pop_front();
+                        diagnosticLogQueuedUnits -= recordUnits;
+                        ++diagnosticLogDroppedCount;
+                        continue;
+                    }
                     break;
                 }
-                batchUnits += (std::min)(record.size(), maxPayloadUnits - batchUnits);
+                batchBytes += encoded->size();
                 diagnosticLogQueuedUnits -= record.size();
-                batchRecords.push_back(std::move(diagnosticLogRecords.front()));
+                batchRecords.push_back(*encoded);
                 diagnosticLogRecords.pop_front();
                 ++header.record_count;
-                if (batchUnits == maxPayloadUnits)
+                if (batchBytes == maxPayloadBytes)
                 {
                     break;
                 }
@@ -184,12 +212,13 @@ void CALLBACK FlushTsfDiagnosticLogs(PTP_CALLBACK_INSTANCE instance, PVOID conte
         return;
     }
 
-    payload.reserve(batchUnits);
-    for (const std::wstring &record : batchRecords)
+    std::string payload;
+    payload.reserve(batchBytes);
+    for (const std::string &record : batchRecords)
     {
-        payload.append(record.data(), (std::min)(record.size(), batchUnits - payload.size()));
+        payload += record;
     }
-    header.payload_bytes = static_cast<uint32_t>(payload.size() * sizeof(wchar_t));
+    header.payload_bytes = static_cast<uint32_t>(payload.size());
 
     const bool sent = header.record_count != 0 && SendDiagnosticBatch(header, payload);
     {

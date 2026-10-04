@@ -1,8 +1,7 @@
-import { communityRating } from "./community-helpers";
 import { CommunityMetrics } from "./community-metrics";
 import { CommunityActionNotice } from "./community-action-notice";
 import { StatusMessage } from "../core/status-message";
-import { formatZhNumber } from "../core/format-number";
+import { CommunityRatingMetrics } from "./community-rating-metrics";
 
 export interface CommunityDetailStatusProps {
   downloads: number;
@@ -25,10 +24,12 @@ export function CommunityDetailStatus({
 }: CommunityDetailStatusProps) {
   return (
     <>
-      <CommunityMetrics>
-        {formatZhNumber(downloads)} 人下载 · {communityRating(ratingCount, ratingAverage)} ·{" "}
-        {formatZhNumber(ratingCount)} 人评分
-      </CommunityMetrics>
+      <CommunityRatingMetrics
+        count={downloads}
+        countLabel="下载"
+        ratingCount={ratingCount}
+        ratingAverage={ratingAverage}
+      />
       {myRating > 0 && <CommunityMetrics>我的评分：{myRating} 星</CommunityMetrics>}
       {detailBusy && <StatusMessage role="status">{loadingText}</StatusMessage>}
       {actionNotice && <CommunityActionNotice>{actionNotice}</CommunityActionNotice>}

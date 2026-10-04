@@ -256,6 +256,42 @@ test("cards load their preview lazily and the detail reuses it", async () => {
   expect(screen.getByText(/7 人下载 · 4.5 分 · 2 人评分/)).not.toBeNull();
 });
 
+test("分页浏览后会淘汰过旧的候选皮肤预览", async () => {
+  const skins = Array.from({ length: 17 }, (_, index) =>
+    skin(`synthetic-candidate-skin-${index}`, `合成皮肤 ${index}`),
+  );
+  const preview = vi.fn(async (id: string) => ({
+    dataUrl: `data:image/png;base64,${id}`,
+  }));
+  const list = vi.fn().mockImplementation(async (offset: number, search: string) => {
+    if (search === "reset") return { skins: [skins[1]], has_more: false };
+    if (search === "first") return { skins: [skins[0]], has_more: false };
+    return { skins: [skins[offset]], has_more: offset < skins.length - 1 };
+  });
+  const communityClient = client({ list, preview });
+  render(<CommunityCandidateSkinsPage client={communityClient} />);
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" });
+
+  for (let index = 1; index < skins.length; index++) {
+    fireEvent.click(await screen.findByRole("button", { name: "加载更多" }));
+    await screen.findByRole("button", { name: `查看候选窗口皮肤 合成皮肤 ${index}` });
+  }
+  await waitFor(() => expect(preview).toHaveBeenCalledWith(skins[0].id));
+
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
+    target: { value: "reset" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 1" });
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索候选窗口皮肤" }), {
+    target: { value: "first" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+  await screen.findByRole("button", { name: "查看候选窗口皮肤 合成皮肤 0" });
+
+  expect(preview.mock.calls.filter(([id]) => id === skins[0].id)).toHaveLength(2);
+});
+
 test("一键安装 installs, reports it, and 去启用 opens the theme page", async () => {
   const communityClient = client();
   const onOpenSkinPage = vi.fn();

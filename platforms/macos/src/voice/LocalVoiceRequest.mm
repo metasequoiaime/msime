@@ -2,8 +2,10 @@
 #import "VoiceFailureMessages.h"
 #include "msime_client.h"
 #include <atomic>
+#include <array>
 #include <cerrno>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -15,6 +17,8 @@ namespace {
 NSString *const LocalVoiceDomain = @"app.msime.client.voice.local";
 // A protocol line is a few kilobytes of base64 audio or a sentence of text; anything this long is a helper gone wrong, not a message to keep buffering.
 constexpr NSUInteger MaximumHelperLine = 4 * 1024 * 1024;
+// 安装器拒绝超过 64 KiB 的模型清单；读取时也必须限制累计字节数，避免检查后文件膨胀。
+constexpr NSUInteger MaximumModelManifestBytes = 64 * 1024;
 
 NSError *LocalVoiceFailure(NSString *detail = nil) {
     NSMutableDictionary *info = [@{NSLocalizedDescriptionKey : @"本地语音识别失败，请检查模型或重试"} mutableCopy];
@@ -55,6 +59,36 @@ NSString *CorrectedText(NSString *text, NSArray<NSDictionary *> *hotwords) {
     return [corrected isKindOfClass:NSString.class] ? corrected : text;
 }
 
+NSData *BoundedModelManifestData(NSString *path) {
+    const int descriptor = open(path.fileSystemRepresentation, O_RDONLY | O_NOFOLLOW);
+    if (descriptor < 0) return nil;
+    struct stat fileStat = {};
+    if (fstat(descriptor, &fileStat) != 0 || !S_ISREG(fileStat.st_mode) ||
+        fileStat.st_size < 0 ||
+        static_cast<uint64_t>(fileStat.st_size) > MaximumModelManifestBytes) {
+        close(descriptor);
+        return nil;
+    }
+    NSMutableData *data = [NSMutableData dataWithCapacity:static_cast<NSUInteger>(fileStat.st_size)];
+    std::array<uint8_t, 8192> buffer{};
+    for (;;) {
+        const ssize_t count = read(descriptor, buffer.data(), buffer.size());
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            close(descriptor);
+            return nil;
+        }
+        if (data.length > MaximumModelManifestBytes - static_cast<NSUInteger>(count)) {
+            close(descriptor);
+            return nil;
+        }
+        [data appendBytes:buffer.data() length:static_cast<NSUInteger>(count)];
+    }
+    close(descriptor);
+    return data;
+}
+
 NSDictionary *ModelManifest(NSString *path) {
     if (!path.isAbsolutePath) return nil;
     struct stat directoryStat = {};
@@ -62,7 +96,7 @@ NSDictionary *ModelManifest(NSString *path) {
     NSString *manifestPath = [path stringByAppendingPathComponent:@"msime-model.json"];
     struct stat manifestStat = {};
     if (lstat(manifestPath.fileSystemRepresentation, &manifestStat) != 0 || !S_ISREG(manifestStat.st_mode)) return nil;
-    NSData *data = [NSData dataWithContentsOfFile:manifestPath];
+    NSData *data = BoundedModelManifestData(manifestPath);
     id manifest = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
     return [manifest isKindOfClass:NSDictionary.class] ? manifest : nil;
 }

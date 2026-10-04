@@ -183,11 +183,15 @@ struct Budget {
 
 impl Budget {
     fn take(&mut self, bytes: u64) -> Result<(), PluginError> {
-        self.files += 1;
-        self.bytes += bytes;
-        if self.files > MAX_PACK_FILES || bytes > MAX_FILE_BYTES || self.bytes > MAX_TOTAL_BYTES {
+        let total = self.bytes.checked_add(bytes);
+        if self.files >= MAX_PACK_FILES
+            || bytes > MAX_FILE_BYTES
+            || total.is_none_or(|total| total > MAX_TOTAL_BYTES)
+        {
             return Err(PluginError::Invalid("插件太大".into()));
         }
+        self.files += 1;
+        self.bytes = total.expect("the total was checked above");
         Ok(())
     }
 }
@@ -240,6 +244,12 @@ fn extract(source: &Path, staging: &Path) -> Result<(), PluginError> {
     let mut members: Vec<(usize, Vec<String>)> = Vec::with_capacity(archive.len());
     for index in 0..archive.len() {
         let member = archive.by_index_raw(index).map_err(archive_error)?;
+        if !plain_archive_name(member.name()) {
+            return Err(PluginError::Archive(format!(
+                "{} 不是普通的相对文件路径",
+                member.name()
+            )));
+        }
         let path = member
             .enclosed_name()
             .ok_or_else(|| PluginError::Archive(format!("{} 指向了压缩包之外", member.name())))?;
@@ -353,6 +363,15 @@ fn plain_components(path: &Path) -> Option<Vec<String>> {
     (!parts.is_empty()).then_some(parts)
 }
 
+/// 在 `zip` 规范化之前检查原始名称，拒绝绝对路径、盘符和 `..`。
+/// `enclosed_name` 会去掉绝对前缀并解析父目录组件，仅检查它的结果会漏掉这些非法名称。
+fn plain_archive_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(['/', '\\'])
+        && !name.contains(':')
+        && !name.split(['/', '\\']).any(|component| component == "..")
+}
+
 fn plain_component_capacity(path: &Path) -> usize {
     path.components().count()
 }
@@ -386,6 +405,15 @@ fn write_member(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn budget_rejects_an_oversized_member_without_overflowing() {
+        let mut budget = Budget {
+            files: 0,
+            bytes: u64::MAX - 1,
+        };
+        assert!(budget.take(2).is_err());
+    }
 
     #[test]
     fn plain_component_capacity_matches_path_components() {

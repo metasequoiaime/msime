@@ -120,6 +120,7 @@ export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 function validUuid(value: unknown): value is string {
   return (
     typeof value === "string" &&
+    value.toLowerCase() !== "00000000-0000-0000-0000-000000000000" &&
     /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
   );
 }

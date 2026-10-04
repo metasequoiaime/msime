@@ -963,6 +963,16 @@ fn import_follows_no_symbolic_link() {
     assert!(fs::read_dir(outside.path()).unwrap().next().is_none());
 }
 
+#[test]
+fn plugin_file_names_refuse_windows_device_names_on_every_platform() {
+    for name in [
+        "CON", "con.txt", "PRN.md", "AUX", "NUL", "COM1.wav", "lpt9.tsv",
+    ] {
+        assert!(!valid_file_name(name), "{name} must be refused");
+    }
+    assert!(valid_file_name("COM10.wav"));
+}
+
 /// An archive member: `(name, Some(bytes))` for a file, `(name, None)` for a directory.
 type Member<'a> = (&'a str, Option<&'a [u8]>);
 
@@ -1136,6 +1146,88 @@ fn hostile_archives_are_refused_before_anything_is_installed() {
         .filter(|name| name != import::LOCK_FILE)
         .collect();
     assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[test]
+fn archives_with_absolute_wrapped_paths_are_refused() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let wav = wav();
+    for prefix in ["/", "\\", "C:/", "C:", "//synthetic/share/"] {
+        let archive = files.path().join("absolute-wrapped.zip");
+        let manifest = format!("{prefix}typewriter/plugin.toml");
+        let key = format!("{prefix}typewriter/key.wav");
+        let space = format!("{prefix}typewriter/space.wav");
+        zip_file(
+            &archive,
+            &[
+                (&manifest, Some(SOUND.as_bytes())),
+                (&key, Some(&wav)),
+                (&space, Some(&wav)),
+            ],
+        );
+        assert!(
+            matches!(validate(&archive), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(
+            matches!(import(&archive, &root), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(!root.join("sound/typewriter").exists());
+    }
+}
+
+#[test]
+fn archives_with_normalized_parent_paths_are_refused() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let root = state.path().join("plugins");
+    let wav = wav();
+    let archive = files.path().join("normalized-parent.zip");
+    for prefix in ["typewriter/../typewriter/", "typewriter\\..\\typewriter\\"] {
+        let key = format!("{prefix}key.wav");
+        let space = format!("{prefix}space.wav");
+        zip_file(
+            &archive,
+            &[
+                ("typewriter/plugin.toml", Some(SOUND.as_bytes())),
+                (&key, Some(&wav)),
+                (&space, Some(&wav)),
+            ],
+        );
+        assert!(
+            matches!(validate(&archive), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(
+            matches!(import(&archive, &root), Err(PluginError::Archive(_))),
+            "{prefix}"
+        );
+        assert!(!root.join("sound/typewriter").exists());
+    }
+}
+
+#[test]
+fn archives_with_current_directory_prefixes_still_install() {
+    let files = tempdir().unwrap();
+    let state = tempdir().unwrap();
+    let wav = wav();
+    let archive = files.path().join("current-directory.zip");
+    zip_file(
+        &archive,
+        &[
+            ("./typewriter/plugin.toml", Some(SOUND.as_bytes())),
+            ("./typewriter/./key.wav", Some(&wav)),
+            ("./typewriter/space.wav", Some(&wav)),
+        ],
+    );
+    assert_eq!(validate(&archive).unwrap().id, "typewriter");
+    assert_eq!(
+        import(&archive, &state.path().join("plugins")).unwrap().id,
+        "typewriter"
+    );
 }
 
 #[cfg(unix)]

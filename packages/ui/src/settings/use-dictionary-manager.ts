@@ -26,6 +26,7 @@ import {
 import type { DictionaryClient, DictionaryFailure, DictionaryImportResult } from "../index";
 import type { DictionaryPhraseForm } from "./dictionary-entries";
 import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface DictionaryManagerClient {
   dictionary?: DictionaryClient;
@@ -59,11 +60,15 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
-  const clientGeneration = useRef(0);
   const phraseActionBusy = useRef(false);
   const phraseActionOwner = useRef(0);
   const phraseListRef = useRef<HTMLUListElement>(null);
   const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(
+    client.dictionary,
+    client.resetLearnedData,
+    client.saveExport,
+  );
 
   useEffect(
     () => () => {
@@ -83,13 +88,9 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   }, [client.dictionary]);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     phraseActionOwner.current += 1;
     phraseActionBusy.current = false;
     setPhraseBusy(false);
-    return () => {
-      if (clientGeneration.current === generation) clientGeneration.current++;
-    };
   }, [client.dictionary, client.resetLearnedData, client.saveExport]);
 
   async function runPhraseAction(

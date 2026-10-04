@@ -475,6 +475,9 @@ export {
   dailySpeeds,
   formatActiveTime,
   longestStreak,
+  statisticDayKeys,
+  statisticsOverviewMetrics,
+  statisticsOverviewDetails,
   usualHours,
   type ActivityMetrics,
   type DailyDetailRow,
@@ -482,6 +485,7 @@ export {
   type TypingStatistics,
   type TypingStatisticsClient,
   type TypingStatisticsStatus,
+  type StatisticsOverviewMetric,
 } from "./settings/typing-statistics";
 export {
   keyboardHeatmapLayout,
@@ -542,7 +546,12 @@ export {
   type AccountStatusMessagesProps,
 } from "./account/account-status-messages";
 export { copyAccountId, type AccountIdCopyOptions } from "./account/account-id-copy";
-export { runAccountOperation, type AccountOperationState } from "./account/account-operation";
+export {
+  runAccountOperation,
+  useAccountAction,
+  type AccountActionState,
+  type AccountOperationState,
+} from "./account/account-operation";
 export {
   runAsyncAction,
   type AsyncActionOptions,
@@ -1191,6 +1200,10 @@ export {
   type CommunityDetailStatusProps,
 } from "./community/community-detail-status";
 export {
+  CommunityRatingMetrics,
+  type CommunityRatingMetricsProps,
+} from "./community/community-rating-metrics";
+export {
   CommunityDetailFrame,
   type CommunityDetailFrameProps,
 } from "./community/community-detail-frame";
@@ -1311,7 +1324,8 @@ export {
 } from "./settings/settings-input-description";
 export { SettingsWarning, type SettingsWarningProps } from "./settings/settings-warning";
 export { ErrorAlert, type ErrorAlertProps } from "./core/error-alert";
-export { formatZhNumber } from "./core/format-number";
+export { formatZhDate, formatZhMonthDay } from "./core/format-date";
+export { formatZhNumber, formatZhPercent } from "./core/format-number";
 export { StatusMessage, type StatusMessageProps } from "./core/status-message";
 export { SettingsNotice, type SettingsNoticeProps } from "./settings/settings-notice";
 export {
@@ -1322,6 +1336,10 @@ export {
   useCommunityPublicationDraft,
   type CommunityPublicationDraft,
 } from "./community/use-community-publication-draft";
+export {
+  useCommunityClientLifecycle,
+  type CommunityClientLifecycle,
+} from "./community/use-community-client-lifecycle";
 export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,

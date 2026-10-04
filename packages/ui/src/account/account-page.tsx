@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
 import { ActionButton } from "../core/action-button";
 import { errorCode } from "../core/error-code";
 import { GroupList, Row } from "../core/platform-controls";
 import * as doc from "../settings/document-style";
 import * as account from "./account-style";
 import { AccountAvatar } from "./account-avatar";
-import { preferredAccountName } from "./account-labels";
+import { isValidAccountName, normalizeAccountName, preferredAccountName } from "./account-labels";
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { AccountConfirmation } from "./account-confirmation";
 import { AccountNicknameField } from "./account-nickname-field";
@@ -16,7 +15,7 @@ import { AccountIdentityDetails } from "./account-identity-details";
 import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
-import { runAccountOperation } from "./account-operation";
+import { useAccountAction } from "./account-operation";
 
 export type AccountUser = {
   id: string;
@@ -130,52 +129,20 @@ function MobileAccountProfilePage({
   onProfileUpdated: (profile: AccountProfile) => void;
 }) {
   const [name, setName] = useState(user.displayName);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmation, setConfirmation] = useState<
     "logout" | "logout-all" | "relogin" | "delete" | null
   >(null);
   const [copied, setCopied] = useState(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
-  const normalizedName = name.trim();
-  const validName =
-    Boolean(normalizedName) &&
-    [...normalizedName].length <= 64 &&
-    !/[\u0000-\u001f\u007f]/.test(normalizedName);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setError,
+    setNotice,
+  );
+  const normalizedName = normalizeAccountName(name);
+  const validName = isValidAccountName(name);
 
-  useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
-    setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
-  }, [client]);
-
-  const perform = async (operation: () => Promise<void>) => {
-    if (actionRunning.current) return;
-    const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAccountOperation(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
-  };
   const rename = () =>
     void perform(async () => {
       const generation = clientGeneration.current;
@@ -335,59 +302,53 @@ function AppIconSettingsCard({
   const [info, setInfo] = useState<AppIconInfo | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const mounted = useRef(true);
-  const generation = useRef(0);
-  const changeRunning = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(client, setError, () => {});
 
   useEffect(() => {
-    let active = true;
-    const current = ++generation.current;
-    mounted.current = true;
-    changeRunning.current = false;
     setInfo(null);
     setError("");
-    void client
-      .info()
-      .then((value) => {
-        if (active && mounted.current && generation.current === current) setInfo(value);
-      })
-      .catch(() => {
-        if (active && mounted.current && generation.current === current)
-          setError("暂时无法读取 App 图标状态，请稍后重试。");
-      });
-    return () => {
-      active = false;
-      mounted.current = false;
-    };
+    void perform(
+      async () => {
+        const current = clientGeneration.current;
+        try {
+          const value = await client.info();
+          if (mounted.current && clientGeneration.current === current) setInfo(value);
+        } catch {
+          if (mounted.current && clientGeneration.current === current)
+            setError("暂时无法读取 App 图标状态，请稍后重试。");
+        }
+      },
+      { allowBusy: true },
+    );
   }, [client]);
 
-  const choose = async (style: string) => {
-    if (!info?.supported || pending || changeRunning.current || info.selected === style) return;
-    const current = generation.current;
-    changeRunning.current = true;
+  const choose = (style: string) => {
+    if (!info?.supported || pending || busy || info.selected === style) return;
+    const current = clientGeneration.current;
     setPending(style);
     setError("");
-    try {
-      const updated = await client.set(style);
-      if (!mounted.current || generation.current !== current) return;
-      setInfo(updated);
-      if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
-    } catch {
-      // Android launchers and the iOS Simulator can report an error after
-      // applying the icon. Read the OS state again before showing a failure.
+    void perform(async () => {
       try {
-        const updated = await client.info();
-        if (!mounted.current || generation.current !== current) return;
+        const updated = await client.set(style);
+        if (!mounted.current || clientGeneration.current !== current) return;
         setInfo(updated);
         if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
       } catch {
-        if (mounted.current && generation.current === current)
-          setError("图标未能更换，请稍后重试。");
+        // Android launchers and the iOS Simulator can report an error after
+        // applying the icon. Read the OS state again before showing a failure.
+        try {
+          const updated = await client.info();
+          if (!mounted.current || clientGeneration.current !== current) return;
+          setInfo(updated);
+          if (updated.selected !== style) setError("图标未能更换，请稍后重试。");
+        } catch {
+          if (mounted.current && clientGeneration.current === current)
+            setError("图标未能更换，请稍后重试。");
+        }
+      } finally {
+        if (mounted.current && clientGeneration.current === current) setPending(null);
       }
-    } finally {
-      if (generation.current === current) changeRunning.current = false;
-      if (mounted.current && generation.current === current) setPending(null);
-    }
+    });
   };
 
   return (
@@ -450,107 +411,62 @@ function AppIconSettingsCard({
 function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
   const [schema, setSchema] = useState<AccountPreferenceSchema | null>(null);
   const [cloud, setCloud] = useState<AccountPreferences | null>(null);
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState<"upload" | "apply" | null>(null);
-  const mounted = useRef(true);
-  const generation = useRef(0);
-  const actionBusy = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setMessage,
+    setMessage,
+    userId,
+  );
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const load = async () => {
-    if (busy || !mounted.current || actionBusy.current) return;
-    const current = generation.current;
-    actionBusy.current = true;
-    setBusy(true);
-    setMessage("");
-    try {
+  const load = () => {
+    if (busy || !mounted.current) return;
+    void perform(async () => {
+      const current = clientGeneration.current;
       const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
-      if (!mounted.current || generation.current !== current) return;
+      if (!mounted.current || clientGeneration.current !== current) return;
       setSchema(nextSchema);
       setCloud(nextCloud);
-    } catch (error) {
-      if (mounted.current && generation.current === current && !isAccountCancellation(error))
-        setMessage(accountMessage(error));
-    } finally {
-      if (mounted.current && generation.current === current) {
-        actionBusy.current = false;
-        setBusy(false);
-      }
-    }
+    });
   };
 
   useEffect(() => {
-    let active = true;
-    const current = ++generation.current;
     setSchema(null);
     setCloud(null);
     setMessage("");
-    setBusy(true);
-    void Promise.all([client.schema(), client.load()])
-      .then(([nextSchema, nextCloud]) => {
-        if (!active || !mounted.current || generation.current !== current) return;
+    void perform(
+      async () => {
+        const current = clientGeneration.current;
+        const [nextSchema, nextCloud] = await Promise.all([client.schema(), client.load()]);
+        if (!mounted.current || clientGeneration.current !== current) return;
         setSchema(nextSchema);
         setCloud(nextCloud);
-      })
-      .catch((error) => {
-        if (
-          active &&
-          mounted.current &&
-          generation.current === current &&
-          !isAccountCancellation(error)
-        )
-          setMessage(accountMessage(error));
-      })
-      .finally(() => {
-        if (active && mounted.current && generation.current === current) setBusy(false);
-      });
-    return () => {
-      active = false;
-      actionBusy.current = false;
-    };
+      },
+      { allowBusy: true },
+    );
   }, [client, userId]);
 
-  const runConfirmed = async () => {
-    if (!cloud || !schema || !confirmation || busy || actionBusy.current) return;
-    const current = generation.current;
+  const runConfirmed = () => {
+    if (!cloud || !schema || !confirmation || busy) return;
     const operation = confirmation;
     setConfirmation(null);
-    actionBusy.current = true;
-    await runAsyncAction(
-      {
-        busy: false,
-        isCurrent: () => mounted.current && generation.current === current,
-        setBusy: (value) => {
-          actionBusy.current = value;
-          setBusy(value);
-        },
-        setError: setMessage,
-      },
-      async (isCurrent) => {
-        if (operation === "upload") {
-          const next = await client.upload();
-          if (!isCurrent()) return;
-          setCloud(next);
-        } else {
-          await client.apply(userId, cloud);
-          if (!isCurrent()) return;
-        }
-        setMessage(
-          operation === "upload"
-            ? "本机设置已上传。"
-            : "已应用云端设置。请重新打开键盘使部分设置生效。",
-        );
-      },
-      { formatError: accountMessage, ignoreError: isAccountCancellation },
-    );
-    if (generation.current === current) actionBusy.current = false;
+    void perform(async () => {
+      const current = clientGeneration.current;
+      if (operation === "upload") {
+        const next = await client.upload();
+        if (!mounted.current || clientGeneration.current !== current) return;
+        setCloud(next);
+      } else {
+        await client.apply(userId, cloud);
+        if (!mounted.current || clientGeneration.current !== current) return;
+      }
+      setMessage(
+        operation === "upload"
+          ? "本机设置已上传。"
+          : "已应用云端设置。请重新打开键盘使部分设置生效。",
+      );
+    });
   };
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
@@ -772,7 +688,6 @@ function AccountDetailsPage({
   const mobile =
     mobileOverride ?? (platform === "android" || platform === "ios" || platform === "harmony");
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [providers, setProviders] = useState<AccountProviders>({ email: false, phone: false });
@@ -792,21 +707,15 @@ function AccountDetailsPage({
   const [copiedAccountId, setCopiedAccountId] = useState(false);
   const [googleWaiting, setGoogleWaiting] = useState(false);
   const googleWaitingRef = useRef(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
-  const actionRunning = useRef(false);
+  const { busy, mounted, clientGeneration, perform } = useAccountAction(
+    client,
+    setError,
+    setNotice,
+  );
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
-    actionRunning.current = false;
     googleWaitingRef.current = false;
     setGoogleWaiting(false);
-    setBusy(false);
-    return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
-    };
   }, [client]);
 
   const cancelGoogle = () => {
@@ -876,26 +785,6 @@ function AccountDetailsPage({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [challenge]);
-
-  const perform = async (operation: () => Promise<void>) => {
-    if (actionRunning.current) return;
-    const generation = clientGeneration.current;
-    actionRunning.current = true;
-    try {
-      await runAccountOperation(
-        {
-          busy,
-          isCurrent: () => mounted.current && generation === clientGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-      );
-    } finally {
-      if (generation === clientGeneration.current) actionRunning.current = false;
-    }
-  };
 
   const chooseChannel = (value: Channel) => {
     cancelGoogle();
@@ -980,9 +869,8 @@ function AccountDetailsPage({
   const rename = () =>
     void perform(async () => {
       const generation = clientGeneration.current;
-      const normalized = name.trim();
-      if (!normalized || [...normalized].length > 64 || /[\u0000-\u001f\u007f]/.test(normalized))
-        throw { code: "account_invalid" };
+      const normalized = normalizeAccountName(name);
+      if (!isValidAccountName(name)) throw { code: "account_invalid" };
       const updated = await client.rename(normalized);
       if (!mounted.current || generation !== clientGeneration.current) return;
       applyProfile(updated);
@@ -1382,7 +1270,7 @@ function AccountDetailsPage({
                   setEditingProfile(false);
                 }}
                 className={account.primary}
-                disabled={busy || name.trim() === user.displayName}
+                disabled={busy || normalizeAccountName(name) === user.displayName}
                 label="保存修改"
               />
               <ActionButton
