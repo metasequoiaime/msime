@@ -50,7 +50,7 @@ export function useAsyncActionRunner(
       options,
     );
     return promise.finally(() => {
-      running.current = false;
+      if (current === generation.current) running.current = false;
     });
   }
 
