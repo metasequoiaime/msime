@@ -190,15 +190,13 @@ fn reverse_code(
     profile: WubiProfileKind,
     word: &str,
 ) -> rusqlite::Result<Option<String>> {
+    // 每次刷新会对几十到几百个候选逐个反查；有了索引后单次查询只要几微秒，重复解析 SQL 反而成了大头，所以复用已准备的语句。
     connection
-        .query_row(
-            match profile {
-                WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
-                WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
-            },
-            [word],
-            |row| row.get(0),
-        )
+        .prepare_cached(match profile {
+            WubiProfileKind::Wubi86 => REVERSE_QUERY_SQL_86,
+            WubiProfileKind::Wubi98 => REVERSE_QUERY_SQL_98,
+        })?
+        .query_row([word], |row| row.get(0))
         .optional()
 }
 
