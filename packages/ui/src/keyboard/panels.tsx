@@ -3247,7 +3247,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
   const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
-  const textRef = useRef("");
+  const textRef = useLatestRef(text);
 
   useEffect(() => {
     invalidate();
@@ -3459,7 +3459,6 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           queryDisabled={!text.trim()}
           onKindChange={changeKind}
           onQueryChange={(value) => {
-            textRef.current = value;
             setText(value);
           }}
           onQuery={() => void queryCandidates()}
