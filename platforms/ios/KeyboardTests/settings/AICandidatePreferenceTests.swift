@@ -29,6 +29,18 @@ final class AICandidatePreferenceTests: XCTestCase {
     XCTAssertEqual(AICandidatePreference.limit(nil), 3)
   }
 
+  func testLimitIgnoresNonIntegerDocumentValues() throws {
+    let value: [String: Any] = ["ai_assistant": ["candidate_limit": true]]
+    let boolDocument = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: value)) as? [String: Any])
+    XCTAssertEqual(AICandidatePreference.limit(boolDocument), AICandidatePreference.defaultLimit)
+
+    let fractional: [String: Any] = ["ai_assistant": ["candidate_limit": 3.5]]
+    let fractionalDocument = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: fractional)) as? [String: Any])
+    XCTAssertEqual(AICandidatePreference.limit(fractionalDocument), AICandidatePreference.defaultLimit)
+  }
+
   func testTheKeyIsOnlyHandedOverForTheDocumentsOwnEndpoint() {
     let endpoint = "https://api.deepseek.com/chat/completions"
     let preferences: [String: Any] = ["ai_assistant": ["enabled": true, "endpoint": endpoint]]
