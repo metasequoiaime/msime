@@ -4,6 +4,10 @@
 #
 # Version 与 %%changelog 由 render-sources.py 按发布版本改写；仓库里的值只是上一次渲染的样子。
 #
+# 发布（以 0.9.1 为例，均需各平台自己的账号）：
+#   COPR：rpmbuild -bs 渲染后的规格文件（_sourcedir 里放好 Source0、Source1 和 msime-rpmlintrc），再 `copr-cli build <owner>/msime msime-0.9.1-1.*.src.rpm`；项目的 chroot 选 fedora-*-x86_64 与 fedora-*-aarch64。
+#   OBS：`osc checkout home:<user>/msime`，放入渲染后的 msime.spec、msime-rpmlintrc 和两个 tarball，`osc addremove && osc commit`；仓库选 openSUSE_Tumbleweed、openSUSE_Leap_16.0 与 Fedora_*。
+#
 # 编译器用发行版自己的 rust/cargo，不用 rust-toolchain.toml 钉住的版本：构建农场取不到 rustup，而 Cargo.toml 的 rust-version（1.89）才是代码声明支持的下限。
 
 # 包内私有目录里的 Host API 与 sherpa-onnx 运行库按 RUNPATH 加载，既不能向系统要，也不能当作系统库对外提供；与 packaging.cmake 给 CPack 的设置相同。
