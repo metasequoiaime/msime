@@ -3774,7 +3774,7 @@ export function EmojiPanel({
   const operationRevision = useAsyncGeneration();
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardMutation = useRef(false);
-  const clipboardGeneration = useRef(0);
+  const clipboardGeneration = useAsyncGeneration();
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
     null,
   );
