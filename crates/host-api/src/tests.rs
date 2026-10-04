@@ -6943,7 +6943,7 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
             full_names.artifacts.push(artifact.clone());
         }
     }
-    assert_eq!(full_names.artifacts.len(), 9);
+    assert_eq!(full_names.artifacts.len(), 10);
     assert!(ResourceStore::new(&resources)
         .verify(&resources, &full_names)
         .is_err());
