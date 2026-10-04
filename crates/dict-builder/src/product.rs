@@ -164,7 +164,7 @@ pub fn split_wubi_database(out: &Path) -> Result<()> {
     wubi.execute_batch("PRAGMA journal_mode=delete; PRAGMA synchronous=off;")?;
     let transaction = wubi.transaction()?;
     transaction.execute_batch(
-        "CREATE TABLE wubi86 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC); CREATE TABLE wubi98 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC);",
+        "DROP TABLE IF EXISTS wubi86; DROP TABLE IF EXISTS wubi98; CREATE TABLE wubi86 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC); CREATE TABLE wubi98 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC);",
     )?;
     for (name, rows) in &tables {
         let mut insert = transaction.prepare(&format!(
