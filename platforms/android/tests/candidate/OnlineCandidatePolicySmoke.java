@@ -10,6 +10,11 @@ public final class OnlineCandidatePolicySmoke {
     }
 
     public static void main(String[] args) {
+        check(OnlineCandidatePolicy.sessionId(7L, -1) == 7);
+        check(OnlineCandidatePolicy.sessionId(7.5, -1) == -1);
+        check(OnlineCandidatePolicy.sessionId(true, -1) == -1);
+        check(OnlineCandidatePolicy.sessionId("7", -1) == -1);
+        check(OnlineCandidatePolicy.sessionId(0L, -1) == -1);
         // Only a query the provider could actually answer is asked at all.
         check(OnlineCandidatePolicy.requestsCloud(true, true));
         check(!OnlineCandidatePolicy.requestsCloud(false, true));

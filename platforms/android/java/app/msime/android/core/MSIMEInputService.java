@@ -2147,8 +2147,13 @@ public final class MSIMEInputService extends InputMethodService {
             invalidateOnlineProviders();
             return;
         }
+        long querySession = OnlineCandidatePolicy.sessionId(query.opt("session_id"), -1);
+        if (querySession < 0) {
+            invalidateOnlineProviders();
+            return;
+        }
         JSONObject assistant = query.optJSONObject("ai_assistant");
-        String signature = OnlineCandidatePolicy.signature(query.optLong("session_id", 0),
+        String signature = OnlineCandidatePolicy.signature(querySession,
             query.optString("cache_key", ""), query.optString("identity", ""),
             query.optBoolean("cloud_candidates", false),
             assistant != null && assistant.optBoolean("enabled", false) ? assistant.toString() : "");
