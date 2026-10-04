@@ -1426,7 +1426,7 @@ export function VoicePanel({
   const [text, setText] = useState("");
   const exceedsSubmitLimit =
     client.maxSubmitBytes !== undefined && utf8ByteLength(text) > client.maxSubmitBytes;
-  const textRevision = useRef(0);
+  const textRevision = useAsyncGeneration();
   function updateText(value: string) {
     textRevision.current++;
     setText(value);
