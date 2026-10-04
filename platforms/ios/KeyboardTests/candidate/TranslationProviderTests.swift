@@ -88,6 +88,18 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertFalse(a.contains("one"), "the scope never carries a secret in clear")
   }
 
+  func testURLRequestIgnoresNonIntegerTransportLimits() throws {
+    let descriptor: [String: Any] = [
+      "url": "https://example.com/translate",
+      "timeout_ms": true,
+      "max_response_bytes": 1.5,
+    ]
+    let request = try XCTUnwrap(TranslationProviderClient.urlRequest(descriptor))
+    XCTAssertEqual(request.connectTimeout, 2.5)
+    XCTAssertEqual(request.timeout, 2.5)
+    XCTAssertEqual(request.maxBytes, 1_048_576)
+  }
+
   func testTencentSignsOneBatchAndSendsTheSignedBytes() async throws {
     let transport = RecordingTransport { _ in
       Data(#"{"Response":{"TargetTextList":["hello","world"],"RequestId":"r"}}"#.utf8)

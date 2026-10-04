@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Where candidate glosses come from: nowhere online (the default), a service the user signed up for with their own credentials, or the 水杉 account's translation API. The three provider objects live in the shared preference document (`niutrans`, `custom_translation`, `tencent_tmt`) so the choice follows the same precedence as the other hosts: NiuTrans first, then the custom endpoint, then Tencent TMT when both of its secrets are usable. The account is used only when the user explicitly chose it (`translation_account`) and none of their own services applies; it is never a fallback. A chosen provider that is not usable yields no online glosses at all rather than sending the words somewhere the user did not pick.
 enum TranslationProvider: String, CaseIterable, Sendable {
@@ -179,9 +180,18 @@ struct TranslationProviderClient: Sendable {
     for (name, value) in descriptor["headers"] as? [String: String] ?? [:] {
       request.setValue(value, forHTTPHeaderField: name)
     }
-    let milliseconds = (descriptor["timeout_ms"] as? NSNumber)?.intValue ?? 2500
+    let milliseconds = integer(descriptor["timeout_ms"]) ?? 2500
     let timeout = TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
-    let maxBytes = min(1_048_576, max(1, (descriptor["max_response_bytes"] as? NSNumber)?.intValue ?? 1_048_576))
+    let maxBytes = min(1_048_576, max(1, integer(descriptor["max_response_bytes"]) ?? 1_048_576))
     return OnlineCandidateRequest(urlRequest: request, connectTimeout: timeout, timeout: timeout, maxBytes: maxBytes)
+  }
+
+  private static func integer(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          integer >= 0,
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 }
