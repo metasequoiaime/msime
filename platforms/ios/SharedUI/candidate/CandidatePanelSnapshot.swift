@@ -50,10 +50,20 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
             CandidateGlossModel.isBounded(annotation, allowingEmpty: true) else {
         throw Failure.invalidResponse
       }
+      let source = try optionalInteger(candidate["source"])
+      let fixedPosition = try optionalInteger(candidate["fixed_position"])
       return Entry(text: text, code: code, translation: translation, annotation: annotation,
-                   source: (candidate["source"] as? NSNumber)?.intValue ?? 0,
-                   fixedPosition: (candidate["fixed_position"] as? NSNumber)?.intValue ?? 0, index: index)
+                   source: source, fixedPosition: fixedPosition, index: index)
     }
     return CandidatePanelSnapshot(generation: generation, preedit: preedit, entries: entries)
+  }
+
+  private static func optionalInteger(_ value: Any?) throws -> Int {
+    guard let value else { return 0 }
+    guard let number = value as? NSNumber,
+          let integer = CandidateGlossModel.integerValue(number, maximum: UInt64(Int.max)) else {
+      throw Failure.invalidResponse
+    }
+    return Int(integer)
   }
 }

@@ -14,6 +14,28 @@ final class CandidateMarkerTests: XCTestCase {
     ]))
   }
 
+  func testCandidateSnapshotRejectsFractionalMarkerMetadata() {
+    XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
+      "generation": 4, "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": 4, "index": 0], "source": 2.5]],
+    ]))
+    XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
+      "generation": 4, "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": 4, "index": 0], "fixed_position": 1.5]],
+    ]))
+  }
+
+  func testCandidateSnapshotAcceptsIntegerZeroAndOneValues() throws {
+    let snapshot = try CandidatePanelSnapshot.decode([
+      "generation": 1, "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": 1, "index": 0], "source": 1,
+                      "fixed_position": 0]],
+    ])
+    XCTAssertEqual(snapshot.generation, 1)
+    XCTAssertEqual(snapshot.entries.first?.index, 0)
+    XCTAssertEqual(snapshot.entries.first?.source, 1)
+  }
+
   func testOnlyNetworkSourcesAndPinnedWordsAreMarked() {
     XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 0), [])
     XCTAssertEqual(CandidateMarker.markers(source: 1, fixedPosition: 0), [], "a user word is still a dictionary word")

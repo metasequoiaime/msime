@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Bounded request/response validation for the session-free offline gloss worker.
 enum CandidateGlossModel {
@@ -53,7 +54,7 @@ enum CandidateGlossModel {
   }
 
   static func integerValue(_ value: NSNumber, maximum: UInt64) -> UInt64? {
-    guard !(value is Bool), value.doubleValue.isFinite,
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite,
           value.doubleValue.rounded(.towardZero) == value.doubleValue,
           value.doubleValue >= 0 else { return nil }
     let integer = value.uint64Value
