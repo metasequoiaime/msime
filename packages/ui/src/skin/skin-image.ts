@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { validSkinAssetBytes } from "./skin-asset";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type SkinImage = { contentType: string; bytes: number[] };
 export type SkinImageReader = (id: string, relative: string) => Promise<SkinImage>;
@@ -34,23 +35,22 @@ export function useSkinImage(
 ) {
   const [result, setResult] = useState<{ key: object; url?: string; failed?: boolean }>();
   const key = useMemo(() => ({}), [read, id, relative, revision]);
+  const generation = useAsyncGeneration(read, id, relative, revision);
   useEffect(() => {
     const current = key;
-    let active = true;
+    const requestGeneration = generation.current;
     setResult(undefined);
     if (read && relative) {
       void (async () => {
         try {
           const image = await read(id, relative);
-          if (active) setResult({ key: current, url: skinImageUrl(image) });
+          if (generation.current === requestGeneration)
+            setResult({ key: current, url: skinImageUrl(image) });
         } catch {
-          if (active) setResult({ key: current, failed: true });
+          if (generation.current === requestGeneration) setResult({ key: current, failed: true });
         }
       })();
     }
-    return () => {
-      active = false;
-    };
-  }, [read, id, relative, key]);
+  }, [read, id, relative, key, generation]);
   return result?.key === key ? result : undefined;
 }
