@@ -12201,6 +12201,11 @@ group("LocalAsrPathTrust", () => {
 
 group("LocalAsrPolicy", () => {
   check(
+    LocalAsrPolicy.textFileLimit("manifest") === 256 * 1024 &&
+      LocalAsrPolicy.textFileLimit("tokens") === 8 * 1024 * 1024,
+    "local model text files use bounded manifest and token limits",
+  );
+  check(
     LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
     "an absolute directory under the local provider is a model",
   );

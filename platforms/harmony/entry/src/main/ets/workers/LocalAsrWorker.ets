@@ -1,5 +1,6 @@
 import { ErrorEvent, MessageEvents, ThreadWorkerGlobalScope, worker } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import {
   OfflineRecognizer,
   OfflineRecognizerConfig,
@@ -69,8 +70,29 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
   workerPort.postMessage(message);
 }
 
-function readText(path: string): string {
-  return fs.readTextSync(path);
+const TEXT_READ_CHUNK_BYTES: number = 64 * 1024;
+
+/** Read only the bounded text prefix the worker needs, without an unbounded readTextSync allocation. */
+function readText(path: string, maximumBytes: number): string {
+  let file: fs.File | undefined = undefined;
+  try {
+    file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+    const bytes: Uint8Array = new Uint8Array(maximumBytes + 1);
+    let total: number = 0;
+    while (total < bytes.length) {
+      const size: number = Math.min(TEXT_READ_CHUNK_BYTES, bytes.length - total);
+      const chunk: ArrayBuffer = new ArrayBuffer(size);
+      const count: number = fs.readSync(file.fd, chunk);
+      if (count < 0 || count > size) throw new Error('本地语音模型文本文件读取失败');
+      if (count === 0) break;
+      bytes.set(new Uint8Array(chunk, 0, count), total);
+      total += count;
+      if (total > maximumBytes) throw new Error('本地语音模型文本文件过大');
+    }
+    return util.TextDecoder.create('utf-8').decode(new Uint8Array(bytes.buffer, 0, total));
+  } finally {
+    if (file !== undefined) fs.closeSync(file);
+  }
 }
 
 function lookup(path: string, follow: boolean): PathTrustStat | null {
@@ -111,7 +133,10 @@ function readPlan(directory: string): LocalModelPlan {
   if (!trustedDirectory(directory) || !realFile(manifest)) {
     throw new Error('所选路径不是已安装的本地语音模型');
   }
-  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(directory, readText(manifest));
+  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(
+    directory,
+    readText(manifest, LocalAsrPolicy.textFileLimit('manifest')),
+  );
   if (plan === null) throw new Error('本地语音模型清单无效或不受支持');
   const files: string[] = LocalAsrPolicy.requiredFiles(plan);
   if (LocalAsrPolicy.transducerNativeHotwords(plan)) files.push(plan.bpeVocab);
@@ -123,7 +148,10 @@ function readPlan(directory: string): LocalModelPlan {
 
 function transducerHotwords(plan: LocalModelPlan, words: string[]): string {
   if (!LocalAsrPolicy.transducerNativeHotwords(plan) || words.length === 0) return '';
-  return LocalAsrPolicy.transducerHotwords(words, LocalAsrPolicy.tokenSet(readText(plan.tokens)));
+  return LocalAsrPolicy.transducerHotwords(
+    words,
+    LocalAsrPolicy.tokenSet(readText(plan.tokens, LocalAsrPolicy.textFileLimit('tokens'))),
+  );
 }
 
 function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): OnlineRecognizer {
