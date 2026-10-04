@@ -15,6 +15,7 @@ import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 import { SettingsManagerBlock } from "./settings-manager-block";
 import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { SettingsNotice } from "./settings-notice";
@@ -47,17 +48,12 @@ export function PersonalDictionaryImportCard({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const mounted = useMountedRef();
-  const dictionaryGeneration = useRef(0);
   const actionRunning = useRef(false);
+  const dictionaryGeneration = useAsyncGeneration(dictionary);
 
   useEffect(() => {
-    dictionaryGeneration.current++;
     actionRunning.current = false;
     setBusy(false);
-    return () => {
-      actionRunning.current = false;
-      dictionaryGeneration.current++;
-    };
   }, [dictionary]);
 
   async function runDictionaryAction(
