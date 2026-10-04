@@ -2813,18 +2813,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     GlobalThemePreference.mirror(preferences)
     let previousTheme = KeyboardTheme.current
     let skinChanged = KeyboardTheme.reload(preferences) != previousTheme
-    if let spacing = (preferences["touch_key_spacing_tenths"] as? NSNumber)?.doubleValue {
-      KeyboardLayoutPreference.keySpacing = spacing / 10
+    if let spacing = KeyboardLayoutPreference.sharedKeySpacing(preferences["touch_key_spacing_tenths"]) {
+      KeyboardLayoutPreference.keySpacing = spacing
     }
-    if let spacing = (preferences["touch_row_spacing_tenths"] as? NSNumber)?.doubleValue {
-      KeyboardLayoutPreference.rowSpacing = spacing / 10
+    if let spacing = KeyboardLayoutPreference.sharedRowSpacing(preferences["touch_row_spacing_tenths"]) {
+      KeyboardLayoutPreference.rowSpacing = spacing
     }
     if let voice = preferences["touch_voice_shortcut"] as? Bool {
       KeyboardLayoutPreference.voiceShortcutEnabled = voice
     }
-    if let adjustment = (preferences["touch_keyboard_height_adjustment"] as? NSNumber)?.doubleValue,
-       adjustment.isFinite {
-      sharedKeyboardHeightAdjustment = CGFloat(min(48, max(-12, adjustment)))
+    if let adjustment = KeyboardLayoutPreference.sharedHeightAdjustment(preferences["touch_keyboard_height_adjustment"]) {
+      sharedKeyboardHeightAdjustment = CGFloat(adjustment)
     }
 
     var selectedScheme: ChineseInputScheme?
