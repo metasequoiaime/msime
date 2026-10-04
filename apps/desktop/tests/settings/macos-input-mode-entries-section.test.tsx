@@ -193,6 +193,30 @@ test("full keeps the table and each edition lists only its own entries under its
     ["Shuangpin", "水杉拼音 · 双"],
     ["Roman", "水杉拼音 · 英"],
   ]);
+  // 日文、越南文、藏文版的主模式是本版本方案的字，主模式和「英」都登记在这个方案的语言下；五笔版仍在「简体中文」下。
+  for (const [id, display_name, mark, language] of [
+    ["japanese", "水杉日语", "日", "日语"],
+    ["vietnamese", "水杉越南语", "越", "越南语"],
+    ["tibetan", "水杉藏文", "藏", "藏语"],
+  ] as const) {
+    expect(
+      macosInputModeEntriesFor({
+        ...wubiEdition,
+        id,
+        display_name,
+        input_schemes: [id],
+        default_scheme: id,
+        wubi_mixed_pinyin_default: false,
+      }).map((entry) => [entry.mode, entry.name, entry.language]),
+    ).toEqual([
+      ["Hans", `${display_name} · ${mark}`, language],
+      ["Roman", `${display_name} · 英`, language],
+    ]);
+  }
+  expect(macosInputModeEntriesFor(wubiEdition).map(({ language }) => language)).toEqual([
+    "简体中文",
+    "简体中文",
+  ]);
 });
 
 test("an edition whose entries are all in the list says so under its own name", async () => {

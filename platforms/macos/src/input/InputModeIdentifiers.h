@@ -156,7 +156,20 @@ static inline NSString *MSIMEInputModeMenuName(NSString *identifier) {
     };
     return identifier ? names[identifier] : nil;
 }
-static inline NSString *MSIMEInputModeAddDialogLanguage(NSString *identifier) {
+// 不是 full 的版本按 bundle 里这个模式的 TISIntendedLanguage 说语言：日文、越南文、藏文版的主模式和「英」登记在 ja、vi、bo 下（scripts/edition_bundle.py），模式标识符本身看不出来。
+static inline NSString *MSIMEInputModeAddDialogLanguageIn(NSDictionary *info, NSString *identifier) {
+    if (!MSIMEEditionIsFullIn(info)) {
+        id component = info[@"ComponentInputModeDict"];
+        id modes = [component isKindOfClass:NSDictionary.class] ? component[@"tsInputModeListKey"] : nil;
+        id mode = identifier && [modes isKindOfClass:NSDictionary.class] ? modes[identifier] : nil;
+        id language = [mode isKindOfClass:NSDictionary.class] ? mode[@"TISIntendedLanguage"] : nil;
+        NSDictionary<NSString *, NSString *> *names = @{
+            @"zh-Hans": @"简体中文", @"zh-Hant": @"繁体中文", @"yue-Hant": @"粤语", @"ja": @"日语",
+            @"ko": @"韩语", @"vi": @"越南语", @"bo": @"藏语",
+        };
+        NSString *name = [language isKindOfClass:NSString.class] ? names[language] : nil;
+        if (name) return name;
+    }
     if ([identifier isEqualToString:MSIMECantoneseInputModeID]) return @"粤语";
     if ([identifier isEqualToString:MSIMEZhuyinInputModeID]) return @"繁体中文";
     if ([identifier isEqualToString:MSIMEJapaneseInputModeID]) return @"日语";
@@ -165,6 +178,7 @@ static inline NSString *MSIMEInputModeAddDialogLanguage(NSString *identifier) {
     if ([identifier isEqualToString:MSIMETibetanInputModeID]) return @"藏语";
     return @"简体中文";
 }
+static inline NSString *MSIMEInputModeAddDialogLanguage(NSString *identifier) { return MSIMEInputModeAddDialogLanguageIn(MSIMEEditionInfo(), identifier); }
 
 static inline BOOL MSIMEIsInputModeID(id value) {
     return [value isKindOfClass:NSString.class] &&

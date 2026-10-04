@@ -62,7 +62,10 @@
       "resources": { "components": ["core", "japanese"] },
       "features": { "temporary_japanese": false, "neural_keyboard": false },
       "language_dictionaries": [],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.japanese", "input_method_name": "水杉日语", "settings_bundle_id": "app.msime.macos.japanese", "keychain_service": "com.metasequoia.msime.japanese.account", "cask": "msime-japanese", "dmg_prefix": "msime-macos-japanese" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     },
     {
       "id": "vietnamese",
@@ -73,7 +76,10 @@
       "resources": { "components": ["core"] },
       "features": { "temporary_japanese": false, "neural_keyboard": false },
       "language_dictionaries": [],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.vietnamese", "input_method_name": "水杉越南语", "settings_bundle_id": "app.msime.macos.vietnamese", "keychain_service": "com.metasequoia.msime.vietnamese.account", "cask": "msime-vietnamese", "dmg_prefix": "msime-macos-vietnamese" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     },
     {
       "id": "tibetan",
@@ -84,7 +90,10 @@
       "resources": { "components": ["core"] },
       "features": { "temporary_japanese": false, "neural_keyboard": false },
       "language_dictionaries": [],
-      "platforms": { "macos": null, "windows": null, "linux": null, "android": null, "ios": null, "harmony": null }
+      "platforms": {
+        "macos": { "input_method_bundle_id": "app.msime.inputmethod.tibetan", "input_method_name": "水杉藏文", "settings_bundle_id": "app.msime.macos.tibetan", "keychain_service": "com.metasequoia.msime.tibetan.account", "cask": "msime-tibetan", "dmg_prefix": "msime-macos-tibetan" },
+        "windows": null, "linux": null, "android": null, "ios": null, "harmony": null
+      }
     }
   ]
 }

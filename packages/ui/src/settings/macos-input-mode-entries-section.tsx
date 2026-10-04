@@ -37,7 +37,7 @@ export const macosInputModeEntries: readonly ModeEntry[] = [
 const fullName = "水杉输入法";
 
 /**
- * 本版本的菜单栏入口，与 `platforms/macos/scripts/edition_bundle.py` 生成的 Info.plist 一致：本版本的方案对应的模式加上「英」，中文主模式 `Hans` 总在。版本不含全拼时，`Hans` 显示默认方案的字（五笔版是「五」），默认方案自己的模式不再单列。名字的前缀是版本的产品名。full（`edition` 缺省）就是上面这张表。
+ * 本版本的菜单栏入口，与 `platforms/macos/scripts/edition_bundle.py` 生成的 Info.plist 一致：本版本的方案对应的模式加上「英」，主模式 `Hans` 总在。版本不含全拼时，`Hans` 显示默认方案的字（五笔版是「五」，日文版是「日」），默认方案自己的模式不再单列；默认方案不在「简体中文」下时（日文、越南文、藏文版），`Hans` 和「英」都登记在那个方案的语言下。名字的前缀是版本的产品名。full（`edition` 缺省）就是上面这张表。
  */
 export function macosInputModeEntriesFor(edition?: EditionInfo): readonly ModeEntry[] {
   if (!edition) return macosInputModeEntries;
@@ -49,7 +49,11 @@ export function macosInputModeEntriesFor(edition?: EditionInfo): readonly ModeEn
     if (primary && entry.mode === primary.mode) return [];
     if (entry.scheme !== null && !edition.input_schemes.includes(entry.scheme)) return [];
     const source = entry.mode === "Hans" && primary ? primary : entry;
-    return [{ ...entry, name: source.name.replace(fullName, name) }];
+    const language =
+      (entry.mode === "Hans" || entry.mode === "Roman") && primary
+        ? primary.language
+        : entry.language;
+    return [{ ...entry, name: source.name.replace(fullName, name), language }];
   });
 }
 

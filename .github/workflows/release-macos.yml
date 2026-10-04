@@ -20,7 +20,7 @@ jobs:
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
     env:
       # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 DMG、一个 cask，可以同时安装。full 的 DMG 名、cask 和 bundle id 与引入版本之前相同。
-      MACOS_EDITIONS: full,wubi,pinyin
+      MACOS_EDITIONS: full,wubi,pinyin,japanese,vietnamese,tibetan
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
       MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
@@ -144,7 +144,7 @@ jobs:
           flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           python3 scripts/generate-release-notes.py --platform macos --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           gh release create "$tag" dist/*.dmg dist/SHA256SUMS --target "$(git rev-parse HEAD)" --title "macOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"
-      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
+      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease }}
         env: {GH_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}", VERSION: "${{ steps.version.outputs.value }}"}

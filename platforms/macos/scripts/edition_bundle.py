@@ -8,7 +8,8 @@ full 是现有产品本身：对 full，这里的每个输出都与输入逐字�
 其他版本的 Info.plist 由 full 的模板变换而来：
 
 - `CFBundleIdentifier`、`CFBundleExecutable`、`CFBundleName`、`CFBundleDisplayName` 换成版本表里的值，`InputMethodConnectionName` 是新 bundle id 加 `_Connection`（imklaunchagent 只认这种形式，见 Info.plist.in）；
-- 输入模式只留下本版本的方案对应的模式，再加上「英」（Roman）。中文主模式 `.Hans` 总是在：输入控制器把它当作任何方案都能退回的模式。版本不含全拼时，`.Hans` 换上默认方案的图标和名字，默认方案自己的模式不再单列，所以五笔版的菜单里只有「五」和「英」；
+- 输入模式只留下本版本的方案对应的模式，再加上「英」（Roman）。主模式 `.Hans` 总是在：输入控制器把它当作任何方案都能退回的模式，安装时它总被启用（粤、注、越、藏、笔这些按需模式安装时不启用）。版本不含全拼时，`.Hans` 换上默认方案的图标和名字，默认方案自己的模式不再单列，所以五笔版的菜单里只有「五」和「英」，日文版只有「日」和「英」；
+- 默认方案不是中文方案时（日文、越南文、藏文版），`.Hans` 还换上默认方案模式的语言、字符集和脚本（`TISIntendedLanguage` 是 ja、vi 或 bo），「英」的 `TISIntendedLanguage` 也随之改成这个语言，系统设置的「添加」对话框把整个输入法列在这个语言下，而不是「简体中文」；
 - 加上 `MSIMEEdition`、`MSIMEInputSchemes`、`MSIMEDefaultScheme`、`MSIMESettingsBundleIdentifier`、`MSIMEKeychainService`，以及版本表 `preference_defaults` 里的 `MSIMEWubiMixedPinyinDefault`；
 - 去掉模板里的 XML 注释：它们描述的是 full 的十个模式。
 
@@ -51,9 +52,11 @@ SCHEME_MODES = {
 }
 PRIMARY = "Hans"
 ENGLISH = "Roman"
-# 可以充当中文主模式的模式：它们和 .Hans 一样归在「简体中文」下。
+# 和 .Hans 一样归在「简体中文」下的模式：主模式借用它们时只换图标和名字。
 SIMPLIFIED_CHINESE_MODES = {"Hans", "Shuangpin", "Wubi"}
 ICON_KEYS = ("tsInputModeMenuIconFileKey", "tsInputModePaletteIconFileKey")
+# 主模式借用一个不是简体中文的模式时，连同这几个键一起借：它们决定系统把模式归在哪个语言下、按什么文字处理。默认启用和 tsInputModePrimaryInScriptKey 仍是主模式自己的，所以这个模式照样装好就启用。
+LANGUAGE_KEYS = ("TISIntendedLanguage", "tsInputModeCharacterRepertoireKey", "tsInputModeScriptKey")
 
 
 def load_table() -> dict:
@@ -77,12 +80,7 @@ def full_entry(table: dict | None = None) -> dict:
 def mode_plan(entry: dict) -> dict[str, str]:
     """本版本声明的模式：模式后缀到它取图标和名字的模板模式后缀，顺序按模板的可见顺序另行决定。"""
     schemes = entry["input_schemes"]
-    if "quanpin" in schemes:
-        primary_source = PRIMARY
-    else:
-        primary_source = SCHEME_MODES[entry["default_scheme"]]
-        if primary_source not in SIMPLIFIED_CHINESE_MODES:
-            raise SystemExit(f"edition {entry['id']}: the default scheme {entry['default_scheme']} cannot stand in for the Chinese mode")
+    primary_source = PRIMARY if "quanpin" in schemes else SCHEME_MODES[entry["default_scheme"]]
     plan = {PRIMARY: primary_source}
     for scheme in schemes:
         suffix = SCHEME_MODES[scheme]
@@ -132,6 +130,18 @@ def edition_keys(entry: dict) -> str:
     return "".join(line + "\n" for line in lines)
 
 
+PLIST_VALUE = r"(?:<string>[^<]*</string>|<array>.*?</array>|<true/>|<false/>)"
+
+
+def copy_value(body: str, source: str, key: str) -> str:
+    """把 source 模式里 key 的值（字符串、数组或布尔）抄到 body 里同一个 key 上。两边都必须恰好声明一次。"""
+    pattern = re.compile(rf"<key>{key}</key>{PLIST_VALUE}", re.S)
+    found = pattern.findall(source)
+    if len(found) != 1 or len(pattern.findall(body)) != 1:
+        raise SystemExit(f"a template input mode must declare {key} exactly once")
+    return pattern.sub(lambda match: found[0], body)
+
+
 MODE_BLOCK = re.compile(r"    <key>(?P<id>[^<]+)</key>\n    <dict>\n(?P<body>.*?)\n    </dict>\n", re.S)
 VISIBLE = re.compile(r"(<key>tsVisibleInputModeOrderedArrayKey</key>\n  <array>)(.*?)(</array>)", re.S)
 
@@ -167,14 +177,19 @@ def info_plist(template: str, edition_id: str, table: dict | None = None) -> str
     if missing:
         raise SystemExit(f"the template declares no {missing} mode")
 
+    primary_source = plan[PRIMARY]
+    language_source = None if primary_source in SIMPLIFIED_CHINESE_MODES else template_bodies[primary_source]
+
     def body_for(suffix: str) -> str:
         body = template_bodies[suffix].replace(f"{prefix}{suffix}<", f"{bundle}.{suffix}<")
         source = plan[suffix]
         if source != suffix:
-            # 主模式借用默认方案模式的图标；其余键（语言、脚本、默认启用）仍是主模式自己的。
-            for key in ICON_KEYS:
-                icon = re.search(rf"<key>{key}</key><string>([^<]*)</string>", template_bodies[source]).group(1)
-                body = re.sub(rf"(<key>{key}</key><string>)[^<]*(</string>)", lambda match: match.group(1) + icon + match.group(2), body)
+            # 主模式借用默认方案模式的图标；默认方案不是简体中文时还借它的语言、字符集和脚本。默认启用仍是主模式自己的。
+            for key in ICON_KEYS + (LANGUAGE_KEYS if language_source else ()):
+                body = copy_value(body, template_bodies[source], key)
+        elif suffix == ENGLISH and language_source:
+            # 「英」与主模式归在同一个语言下，输入法在「添加」对话框里只出现在这个语言下。
+            body = copy_value(body, language_source, "TISIntendedLanguage")
         return body
 
     first = min(match.start() for match in blocks.values())
@@ -333,11 +348,18 @@ def cask(template: str, edition_id: str, version: str, sha256: str) -> str:
     text = "".join(output)
     names = {"quanpin": "pinyin", "shuangpin": "shuangpin", "wubi": "wubi"}
     offered = [names[scheme] for scheme in entry["input_schemes"] if scheme in names]
-    described = offered[0] if len(offered) == 1 else ", ".join(offered[:-1]) + " and " + offered[-1]
+    if offered:
+        described = "Chinese input method for " + (offered[0] if len(offered) == 1 else ", ".join(offered[:-1]) + " and " + offered[-1])
+    else:
+        # 不含中文方案的版本只有一个语言的方案，按语言称呼。
+        languages = {"japanese": "Japanese", "vietnamese": "Vietnamese", "tibetan": "Tibetan"}
+        if len(entry["input_schemes"]) != 1 or entry["input_schemes"][0] not in languages:
+            raise SystemExit(f"edition {edition_id}: no cask description for the schemes {entry['input_schemes']}")
+        described = f"{languages[entry['input_schemes'][0]]} input method"
     replacements = [
         (f"# Casks/{full_macos['cask']}.rb ", f"# Casks/{macos['cask']}.rb "),
         (f'cask "{full_macos["cask"]}"', f'cask "{macos["cask"]}"'),
-        ('desc "Chinese input method for pinyin, shuangpin and wubi"', f'desc "Chinese input method for {described}"'),
+        ('desc "Chinese input method for pinyin, shuangpin and wubi"', f'desc "{described}"'),
         (f"/{full_macos['dmg_prefix']}-#{{version}}", f"/{macos['dmg_prefix']}-#{{version}}"),
         (f'name "{full["display_name"]["en"]}"', f'name "{entry["display_name"]["en"]}"'),
         (f'name "{full["display_name"]["zh-Hans"]}"', f'name "{entry["display_name"]["zh-Hans"]}"'),

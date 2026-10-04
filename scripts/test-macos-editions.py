@@ -5,7 +5,8 @@
 
 - full 的 Info.plist、两种语言的 InfoPlist.strings 和 Homebrew cask 与生成前逐字节相同，full 不带版本声明文件，Tauri 配置只有版本号；
 - 每个版本的 Info.plist 是合法的属性列表，bundle id、可执行文件名、显示名、连接名（`<bundle id>_Connection`）和版本键都对；
-- 模式恰好是本版本的方案对应的模式加「英」，主模式 `.Hans` 总在，不含全拼的版本里它用默认方案的图标，模式标识符与 TISInputSourceID、可见顺序一致；
+- 模式恰好是本版本的方案对应的模式加「英」，主模式 `.Hans` 总在且装好就启用，不含全拼的版本里它用默认方案的图标，模式标识符与 TISInputSourceID、可见顺序一致；
+- 主模式和「英」登记在主模式所借模式的语言下：中文的版本是 zh-Hans，日文、越南文、藏文版是 ja、vi、bo，主模式的字符集和脚本也是那个模式的；
 - 任何一个版本的 bundle id 都不出现在另一个版本的 Info.plist 和 InfoPlist.strings 里（设置应用按子串认 bundle）；
 - platforms/macos/tests/settings/info_plist_names.py 对每个版本的 plist 和 strings 通过：每个模式在每种语言下都有名字且互不相同，源码里的标识字面量都属于某个版本；
 - 生成器的模式后缀与 src/input/InputModeIdentifiers.h 一致。
@@ -28,6 +29,8 @@ LOCALES = ["zh-Hans", "en"]
 CASK = MACOS / "homebrew/msime.rb.in"
 MODE_HEADER = MACOS / "src/input/InputModeIdentifiers.h"
 NAMES_CHECK = MACOS / "tests/settings/info_plist_names.py"
+# 默认方案是这些语言方案的版本，在系统里登记在这个语言下。
+LANGUAGE_EDITION_LANGUAGES = {"japanese": "ja", "vietnamese": "vi", "tibetan": "bo"}
 
 
 def load_generator():
@@ -124,6 +127,21 @@ def check_edition(errors: list[str], generator, table: dict, entry: dict, others
         icon = template_modes[f"{full_bundle}.{source}"]["tsInputModeMenuIconFileKey"]
         if body.get("tsInputModeMenuIconFileKey") != icon:
             errors.append(f"{where}: mode {suffix} should show the {source} icon {icon}")
+    # 系统设置「添加」对话框按 TISIntendedLanguage 分组：主模式和「英」都在主模式所借模式的语言下（日文版 ja、越南文版 vi、藏文版 bo，中文的版本 zh-Hans），主模式装好就启用。
+    primary = template_modes[f"{full_bundle}.{plan['Hans']}"]
+    language = primary["TISIntendedLanguage"]
+    for suffix in ("Hans", "Roman"):
+        body = modes.get(f"{bundle}.{suffix}", {})
+        if body.get("TISIntendedLanguage") != language:
+            errors.append(f"{where}: mode {suffix} is filed under {body.get('TISIntendedLanguage')!r}, expected {language!r}")
+    hans = modes.get(f"{bundle}.Hans", {})
+    for key in ("tsInputModeCharacterRepertoireKey", "tsInputModeScriptKey"):
+        if hans.get(key) != primary[key]:
+            errors.append(f"{where}: the primary mode's {key} is {hans.get(key)!r}, expected {primary[key]!r} from the {plan['Hans']} mode")
+    if hans.get("tsInputModeDefaultStateKey") is not True:
+        errors.append(f"{where}: the primary mode must be enabled on install")
+    if edition_id != "full" and entry["default_scheme"] in LANGUAGE_EDITION_LANGUAGES and language != LANGUAGE_EDITION_LANGUAGES[entry["default_scheme"]]:
+        errors.append(f"{where}: registers under {language!r}, expected {LANGUAGE_EDITION_LANGUAGES[entry['default_scheme']]!r}")
 
     for other in others:
         if other == bundle:

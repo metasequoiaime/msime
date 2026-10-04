@@ -301,6 +301,26 @@ int main() {
         require([MSIMEInputModeMenuName(MSIMEStrokeInputModeID) isEqualToString:@"水杉输入法 · 笔"] &&
                     [MSIMEInputModeAddDialogLanguage(MSIMEStrokeInputModeID) isEqualToString:@"简体中文"],
                 "The Stroke mode's menu name or Add dialog language is wrong.");
+        // 日文、越南文、藏文版的 中（.Hans）和 英 登记在本版本的语言下，设置窗口按 bundle 里的 TISIntendedLanguage 说去哪个语言下添加；五笔版的仍在「简体中文」下。
+        for (NSArray<NSString *> *edition in @[@[@"japanese", @"ja", @"日语"], @[@"vietnamese", @"vi", @"越南语"], @[@"tibetan", @"bo", @"藏语"],
+                                               @[@"wubi", @"zh-Hans", @"简体中文"]]) {
+            NSDictionary *info = @{@"MSIMEEdition": edition[0], @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+                MSIMEChineseInputModeID: @{@"TISIntendedLanguage": edition[1]}, MSIMEEnglishInputModeID: @{@"TISIntendedLanguage": edition[1]}}}};
+            require([MSIMEInputModeAddDialogLanguageIn(info, MSIMEChineseInputModeID) isEqualToString:edition[2]] &&
+                        [MSIMEInputModeAddDialogLanguageIn(info, MSIMEEnglishInputModeID) isEqualToString:edition[2]],
+                    "A single-language edition's modes are not looked for under its own language.");
+        }
+        require([MSIMEInputModeAddDialogLanguageIn(@{}, MSIMEEnglishInputModeID) isEqualToString:@"简体中文"] &&
+                    [MSIMEInputModeAddDialogLanguageIn(@{}, MSIMEJapaneseInputModeID) isEqualToString:@"日语"],
+                "full's Add dialog languages changed.");
+        // 只有一个语言方案的版本：中（.Hans）就是这个方案的模式，方案自己的模式不存在。选中 中 留在这个方案上，不会去找一个本版本没有的中文方案。
+        gJapaneseModeEnabled = NO;
+        gEnglishModeEnabled = NO;
+        for (NSString *scheme in @[@"japanese", @"vietnamese", @"tibetan"])
+            require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, scheme, scheme, Available) isEqualToString:scheme],
+                    "中 in a single-language edition left its only scheme.");
+        gJapaneseModeEnabled = YES;
+        gEnglishModeEnabled = YES;
 
         // 中 from Vietnamese goes back to the Chinese scheme it was entered from, like Japanese and Korean; 中 picked over 粤, 注 or 笔 means quanpin, like over 双 or 五.
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available) isEqualToString:@"quanpin"] &&
