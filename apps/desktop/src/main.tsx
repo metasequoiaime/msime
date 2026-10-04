@@ -82,6 +82,7 @@ import {
   type PluginClient,
   type PluginPackage,
   UNBATCHED_DICTIONARY_FILE_BYTES,
+  StatusMessage,
 } from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
@@ -1072,7 +1073,7 @@ function DesktopCloudDictionarySurface() {
       active = false;
     };
   }, []);
-  if (host === undefined) return <p role="status">正在连接云词库…</p>;
+  if (host === undefined) return <StatusMessage role="status">正在连接云词库…</StatusMessage>;
   const capabilities = cloudDictionaryCapabilities(host?.platform);
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
@@ -1130,7 +1131,7 @@ function DesktopEmojiPanel({
   return emojiClient ? (
     <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
   ) : (
-    <p role="status">正在连接面板…</p>
+    <StatusMessage role="status">正在连接面板…</StatusMessage>
   );
 }
 

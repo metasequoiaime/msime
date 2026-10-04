@@ -129,7 +129,7 @@ enum Command {
     CheckWords(CheckWords),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
-    /// Write the Korean Hanja table (crates/engine/src/korean/hanja.tsv) from the libhangul hanja.txt pinned under hanja/ in the sources lock.
+    /// 从 sources lock 固定的 libhangul `ko/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
     /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db, stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
     Languages(Languages),
@@ -381,6 +381,9 @@ impl Build {
                     // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
                     (vec![self.sources.pinned("cn/BaseDictIceV1.txt")?], None)
                 };
+                let supplement = self.sources.pinned("cn/RimeIceSupplementV1.txt")?;
+                let mut phrases = phrases;
+                phrases.push(supplement);
                 let inputs = msime::QuanpinInputs {
                     single_chars: &single_chars,
                     whitelist,
@@ -410,9 +413,11 @@ impl Build {
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
             Stage::Wubi98 => {
-                let (imported, skipped) = msime::build_wubi98(
+                let supplement = self.sources.pinned("cn/Wubi98Fcitx.txt")?;
+                let (imported, skipped) = msime::build_wubi98_sources(
                     &mut self.database("msime.db")?,
                     &self.sources.pinned("cn/Wubi98.txt")?,
+                    &[supplement.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
@@ -432,9 +437,17 @@ impl Build {
                 } else {
                     Default::default()
                 };
-                let base = english::parse_base_dict_words(&text::read(
+                let mut base = english::parse_base_dict_words(&text::read(
                     &self.sources.pinned("en/BaseDictIceEn.txt")?,
                 )?)?;
+                let supplement = english::parse_base_dict_words(&text::read(
+                    &self.sources.pinned("en/RimeIceEnglishSupplementV1.txt")?,
+                )?)?;
+                let supplement_added = supplement
+                    .keys()
+                    .filter(|word| !base.contains_key(*word))
+                    .count();
+                base.extend(supplement);
                 let counts = english::parse_google_counts(&text::read(
                     &self.sources.pinned("en/google_count_1_w.txt")?,
                 )?);
@@ -449,8 +462,9 @@ impl Build {
                     &custom,
                 )?;
                 Ok(format!(
-                    "{} words, {} custom rows: {} added, {} replacing a base row",
+                    "{} words ({} from rime-ice supplement), {} custom rows: {} added, {} replacing a base row",
                     rows.base,
+                    supplement_added,
                     custom.len(),
                     rows.custom_added,
                     rows.custom_replaced

@@ -180,7 +180,7 @@ public final class CommunityCatalog {
      * <p>要求登录水杉账号：匿名身份发布不了皮肤，也就不可能是作者。服务端回显的分类和请求的不一致，说明修改没有生效，按失败处理。
      */
     public Update setCategory(Item item, CommunityRequest.Category category) {
-        if (item.kind() != CommunityRequest.Kind.SKIN || category == null) {
+        if (item == null || item.kind() != CommunityRequest.Kind.SKIN || category == null) {
             return new Update(null, "这类作品没有分类。");
         }
         String token = new BackendAccount(context).accessToken();

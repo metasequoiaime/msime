@@ -7693,8 +7693,9 @@ public final class MSIMEInputService extends InputMethodService {
         options.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         final PopupWindow[] holder = new PopupWindow[1];
+        // 弹窗不能取焦点：输入法里一个可取焦点的窗口会把焦点从宿主的输入框抢走，编辑器一失焦系统就收起整个键盘。点外面关闭由 `setOutsideTouchable` 负责。
         PopupWindow popup = new PopupWindow(options, options.getMeasuredWidth(),
-            options.getMeasuredHeight(), true);
+            options.getMeasuredHeight(), false);
         holder[0] = popup;
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         popup.setOutsideTouchable(true);

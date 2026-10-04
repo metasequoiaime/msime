@@ -109,6 +109,19 @@ final class KeyboardEmojiCatalogTests: XCTestCase {
     })
   }
 
+  func testSymbolPagesRejectACompletePageThatExceedsTheCumulativeLimit() {
+    let pageSize = 255
+    XCTAssertThrowsError(try KeyboardEmojiCatalog.collectSymbols { offset in
+      let page = offset / pageSize
+      let items = (0..<pageSize).map { ["text": "fixture-symbol-\(page * pageSize + $0)"] }
+      return [
+        "items": items,
+        "next_offset": offset + pageSize,
+        "complete": page == 8,
+      ]
+    })
+  }
+
   func testSharedBridgeReadsPackagedSymbolCatalog() throws {
     let state = FileManager.default.temporaryDirectory
       .appendingPathComponent("msime-symbol-catalog-\(UUID().uuidString)", isDirectory: true)

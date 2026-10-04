@@ -3,6 +3,7 @@ import type {
   CandidateSkinCommunityClient,
   CandidateSkinSyncReport,
 } from "./community-candidate-skins";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 
 export type CandidateSkinSyncState = {
   busy: boolean;
@@ -22,11 +23,11 @@ export function useCandidateSkinSync(
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<CandidateSkinSyncReport | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const generation = useRef(0);
   const running = useRef(false);
   const queued = useRef(false);
   const changed = useRef(onChanged);
   changed.current = onChanged;
+  const { clientGeneration, isCurrent } = useCommunityClientLifecycle(client);
 
   const start = async (current: number) => {
     if (!client) return;
@@ -35,15 +36,15 @@ export function useCandidateSkinSync(
     setBusy(true);
     try {
       const result = await client.sync();
-      if (current !== generation.current) return;
+      if (!isCurrent(current)) return;
       setReport(result);
       setError(null);
       if (result.downloaded.length || result.deleted_local.length) changed.current();
     } catch (failure) {
-      if (current !== generation.current) return;
+      if (!isCurrent(current)) return;
       setError(failure);
     } finally {
-      if (current === generation.current) {
+      if (isCurrent(current)) {
         running.current = false;
         if (queued.current) void start(current);
         else setBusy(false);
@@ -52,21 +53,18 @@ export function useCandidateSkinSync(
   };
 
   useEffect(() => {
-    const current = ++generation.current;
+    const current = clientGeneration.current;
     running.current = false;
     queued.current = false;
     setReport(null);
     setError(null);
     setBusy(false);
     void start(current);
-    return () => {
-      generation.current++;
-    };
   }, [client]);
 
   const run = () => {
     if (running.current) queued.current = true;
-    else void start(generation.current);
+    else void start(clientGeneration.current);
   };
 
   return { busy, report, error, run };

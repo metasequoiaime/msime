@@ -1,4 +1,5 @@
 import { clamp } from "../core/number";
+import { formatZhMonthDay } from "../core/format-date";
 
 export function dayKey(date: Date): string {
   const year = date.getFullYear();
@@ -12,14 +13,19 @@ export function recentDays(length: number, today = new Date()): { key: string; l
   return Array.from({ length }, (_, index) => {
     const date = new Date(start);
     date.setDate(start.getDate() - (length - index - 1));
-    return { key: dayKey(date), label: `${date.getMonth() + 1}月${date.getDate()}日` };
+    return { key: dayKey(date), label: formatZhMonthDay(date) };
   });
 }
 
-export function mobileTrendLength(days: Record<string, number>): number {
-  const earliest = Object.keys(days)
+/** Returns well-formed recorded day keys in chronological order, ignoring malformed host entries. */
+export function statisticDayKeys(days: Record<string, number>): string[] {
+  return Object.keys(days)
     .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
-    .sort()[0];
+    .sort();
+}
+
+export function mobileTrendLength(days: Record<string, number>): number {
+  const earliest = statisticDayKeys(days)[0];
   if (!earliest) return 30;
   const start = new Date(`${earliest}T00:00:00`);
   if (Number.isNaN(start.getTime())) return 30;
@@ -63,7 +69,7 @@ export function statisticsHeatmapWeeks(
       const key = dayKey(date);
       return {
         key,
-        label: `${date.getMonth() + 1}月${date.getDate()}日`,
+        label: formatZhMonthDay(date),
         count: days[key] ?? 0,
         future: date > current,
       };

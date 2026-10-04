@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 /** Host failures may contain private paths or data; display only fixed UI messages. */
 export function HostActionButton({
@@ -17,13 +18,7 @@ export function HostActionButton({
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<"success" | "error" | null>(null);
   const [errorMessage, setErrorMessage] = useState("操作失败，请重试。");
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
+  const mounted = useMountedRef();
   async function run() {
     if (!action || running.current || !mounted.current) return;
     running.current = true;

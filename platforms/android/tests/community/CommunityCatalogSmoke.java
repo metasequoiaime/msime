@@ -1,6 +1,7 @@
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.util.UUID;
 
 public final class CommunityCatalogSmoke {
@@ -48,6 +49,22 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER), "a dictionary carries no category");
         check((boolean) validCategory.invoke(null, CommunityRequest.Kind.REPLY, null),
             "a reply set without a category is valid");
+        Method setCategory = CommunityCatalog.class.getDeclaredMethod(
+            "setCategory", CommunityCatalog.Item.class, CommunityRequest.Category.class);
+        java.lang.reflect.Field unsafeField = Class.forName("sun.misc.Unsafe")
+            .getDeclaredField("theUnsafe");
+        unsafeField.setAccessible(true);
+        Object catalog = unsafeField.get(null);
+        Method allocate = catalog.getClass().getMethod("allocateInstance", Class.class);
+        CommunityCatalog uninitialized = (CommunityCatalog) allocate.invoke(catalog, CommunityCatalog.class);
+        try {
+            CommunityCatalog.Update update = (CommunityCatalog.Update) setCategory.invoke(
+                uninitialized, null, CommunityRequest.Category.OTHER);
+            check(update.failed() && !update.failure().isEmpty(),
+                "a missing item must return a category update failure");
+        } catch (InvocationTargetException error) {
+            throw new AssertionError("a missing item must not throw", error.getCause());
+        }
         System.out.println("Android community catalogue bounds passed");
     }
 

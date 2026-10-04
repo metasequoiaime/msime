@@ -4,6 +4,7 @@
 #include "msimeui/Fonts.h"
 #include "msimeui/Theme.h"
 #include "msimeui/Window.h"
+#include "msimeui/LruCache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -181,6 +182,7 @@ ComPtr<IDWriteTextLayout> CreateCachedTextLayout(IDWriteFactory *factory, const 
     ComPtr<IDWriteTextFormat> format;
     struct TextFormatKey
     {
+        IDWriteFactory *factory = nullptr;
         std::wstring family;
         std::vector<std::wstring> fallbackFamilies;
         float size = 0.0f;
@@ -189,17 +191,27 @@ ComPtr<IDWriteTextLayout> CreateCachedTextLayout(IDWriteFactory *factory, const 
         DWRITE_PARAGRAPH_ALIGNMENT paragraphAlignment = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
         DWRITE_WORD_WRAPPING wordWrapping = DWRITE_WORD_WRAPPING_NO_WRAP;
         ComPtr<IDWriteTextFormat> format;
-    };
-    static std::vector<TextFormatKey> formatCache;
-    for (auto &entry : formatCache)
-    {
-        if (entry.family == fontFamily && entry.fallbackFamilies == fallbackFamilies && entry.size == fontSize &&
-            entry.weight == fontWeight && entry.textAlignment == textAlignment &&
-            entry.paragraphAlignment == paragraphAlignment && entry.wordWrapping == wordWrapping && entry.format)
+
+        bool operator==(const TextFormatKey &other) const
         {
-            format = entry.format;
-            break;
+            return factory == other.factory && family == other.family && fallbackFamilies == other.fallbackFamilies &&
+                   size == other.size && weight == other.weight && textAlignment == other.textAlignment &&
+                   paragraphAlignment == other.paragraphAlignment && wordWrapping == other.wordWrapping;
         }
+    };
+    static LruCache<TextFormatKey, ComPtr<IDWriteTextFormat>> formatCache(kTextFormatCacheCapacity);
+    TextFormatKey key;
+    key.factory = factory;
+    key.family = fontFamily;
+    key.fallbackFamilies = fallbackFamilies;
+    key.size = fontSize;
+    key.weight = fontWeight;
+    key.textAlignment = textAlignment;
+    key.paragraphAlignment = paragraphAlignment;
+    key.wordWrapping = wordWrapping;
+    if (ComPtr<IDWriteTextFormat> *cached = formatCache.Find(key); cached && *cached)
+    {
+        format = *cached;
     }
     if (!format)
     {
@@ -216,16 +228,7 @@ ComPtr<IDWriteTextLayout> CreateCachedTextLayout(IDWriteFactory *factory, const 
         format->SetParagraphAlignment(paragraphAlignment);
         format->SetWordWrapping(wordWrapping);
         ApplyFontFallback(factory, format.Get(), fallbackFamilies);
-        TextFormatKey entry;
-        entry.fallbackFamilies = fallbackFamilies;
-        entry.family = fontFamily;
-        entry.size = fontSize;
-        entry.weight = fontWeight;
-        entry.textAlignment = textAlignment;
-        entry.paragraphAlignment = paragraphAlignment;
-        entry.wordWrapping = wordWrapping;
-        entry.format = format;
-        formatCache.push_back(std::move(entry));
+        formatCache.Insert(std::move(key), format);
     }
 
     if (FAILED(factory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format.Get(), width, height,

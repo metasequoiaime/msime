@@ -26,6 +26,7 @@ import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
+import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -112,9 +113,8 @@ export function CandidateSkinPublishDialog({
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
-  const clientGeneration = useRef(0);
+  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localSkins);
   const packGeneration = useRef(0);
-  const actionRunning = useRef(false);
   const drawRunning = useRef(false);
   const drawOwner = useRef(0);
   const licenseRunning = useRef(false);
@@ -123,9 +123,7 @@ export function CandidateSkinPublishDialog({
   const namedSkin = useRef("");
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
     let active = true;
-    actionRunning.current = false;
     drawOwner.current++;
     drawRunning.current = false;
     licenseOwner.current++;
@@ -157,7 +155,6 @@ export function CandidateSkinPublishDialog({
     }
     return () => {
       active = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
     };
   }, [client, localSkins]);
 

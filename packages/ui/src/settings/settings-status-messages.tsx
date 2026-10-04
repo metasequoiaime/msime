@@ -1,4 +1,4 @@
-import { unreadablePreferencesMessage } from "./preferences-recovery-message";
+import { unreadablePreferencesMessage } from "../core/error-message";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { SettingsNotice } from "./settings-notice";

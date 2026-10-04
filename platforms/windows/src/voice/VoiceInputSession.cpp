@@ -17,8 +17,6 @@
 #include <condition_variable>
 #include <cstring>
 #include <exception>
-#include <filesystem>
-#include <fstream>
 #include <nlohmann/json.hpp>
 #include <type_traits>
 
@@ -63,21 +61,6 @@ nlohmann::json local_hotwords(const VoiceInputConfig &config) {
   if (hotwords == value->end() || !hotwords->is_array())
     return none;
   return *hotwords;
-}
-
-// Whether the installed model's manifest asks the host to correct the final text against the hotwords by pinyin, because the model cannot take them itself.
-bool local_model_corrects_by_pinyin(const std::string &model_path) {
-  std::ifstream input(std::filesystem::u8path(model_path) /
-                          std::string(msime::voice::local_model_manifest),
-                      std::ios::binary);
-  if (!input)
-    return false;
-  const auto manifest = nlohmann::json::parse(input, nullptr, false);
-  if (!manifest.is_object())
-    return false;
-  const auto hotwords = manifest.find("hotwords");
-  return hotwords != manifest.end() && hotwords->is_string() &&
-         hotwords->get<std::string>() == "pinyin";
 }
 
 // The text with near-miss spellings of the user's words replaced. Best-effort: any failure keeps what the recognizer produced.
@@ -303,7 +286,7 @@ public:
         }
       }
       if (!cancelled_->load() && !text.empty() && !hotwords.empty() &&
-          local_model_corrects_by_pinyin(config.asr_model_path))
+          msime::voice::local_model_uses_pinyin_hotwords(config.asr_model_path))
         text = correct_with_hotwords(text, hotwords);
     } catch (...) {
       error = std::current_exception();
@@ -958,7 +941,7 @@ std::string VoiceInputSession::recognize_local(
                                   config.language, cancelled,
                                   hotword_texts(hotwords));
   if (!text.empty() && !hotwords.empty() &&
-      local_model_corrects_by_pinyin(config.asr_model_path))
+      msime::voice::local_model_uses_pinyin_hotwords(config.asr_model_path))
     text = correct_with_hotwords(text, hotwords);
   return text;
 }

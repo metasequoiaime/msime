@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { errorCode } from "../core/error-code";
 import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface DataDirectoryClient {
   status(): Promise<{ path: string; isDefault: boolean }>;
@@ -33,18 +34,15 @@ export function useDataDirectory({ client, enabled, confirm }: UseDataDirectoryO
   }>();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState("");
-  const generation = useRef(0);
   const actionRunning = useRef(false);
   const mounted = useMountedRef();
+  const generation = useAsyncGeneration(client, enabled);
 
   useEffect(() => {
-    const current = ++generation.current;
+    const current = generation.current;
     actionRunning.current = false;
     setBusy(false);
-    if (!enabled || !client)
-      return () => {
-        if (generation.current === current) generation.current++;
-      };
+    if (!enabled || !client) return;
     void client
       .status()
       .then((value) => {
@@ -53,9 +51,6 @@ export function useDataDirectory({ client, enabled, confirm }: UseDataDirectoryO
       .catch(() => {
         if (mounted.current && generation.current === current) setResult("无法读取当前数据目录。");
       });
-    return () => {
-      if (generation.current === current) generation.current++;
-    };
   }, [client, enabled, mounted]);
 
   async function choose() {

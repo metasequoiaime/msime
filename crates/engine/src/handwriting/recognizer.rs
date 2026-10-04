@@ -1,12 +1,13 @@
 //! Offline recognition of one handwritten character: the C++ `metasequoia::handwriting::Recognizer` (`handwriting.cpp`) and the bridge entry that fed it (`bridge.cpp` `handwriting_recognize`), over a Rust port of zinnia.
 //!
-//! The reference constructed a recognizer, and so re-mapped the model, on every call. Here a model is mapped and parsed once per path and kept for the life of the process: host-api classifies each character cell of a written line separately, and re-parsing the labels for every cell is wasted work. The mapping is read-only, as zinnia's was, so the weights stay clean, file-backed pages the system can evict; it is sound because the model is a packaged file installed by replacement and never edited in place while the host runs. A failed load is not remembered, so a model installed later is picked up.
+//! The reference constructed a recognizer, and so re-mapped the model, on every call. Here recent model paths are mapped and parsed once while they stay in a bounded cache: host-api classifies each character cell of a written line separately, and re-parsing the labels for every cell is wasted work. The mapping is read-only, as zinnia's was, so the weights stay clean, file-backed pages the system can evict; it is sound because the model is a packaged file installed by replacement and never edited in place while the host runs. A failed load is not remembered, so a model installed later is picked up.
 
-use std::collections::HashMap;
 use std::fs::File;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 
+use lru::LruCache;
 use memmap2::Mmap;
 
 use super::features::{self, InkStroke};
@@ -29,8 +30,13 @@ const INK_BOX: f32 = 800.0;
 const INK_CENTRE: f32 = 500.0;
 /// How many classes are scored into the candidate list before `order_handwriting_candidates`.
 const NBEST: usize = 12;
+const MODEL_CACHE_CAPACITY: usize = 8;
 
-static MODELS: LazyLock<Mutex<HashMap<PathBuf, Arc<Model>>>> = LazyLock::new(Default::default);
+static MODELS: LazyLock<Mutex<LruCache<PathBuf, Arc<Model>>>> = LazyLock::new(|| {
+    Mutex::new(LruCache::new(
+        NonZeroUsize::new(MODEL_CACHE_CAPACITY).unwrap(),
+    ))
+});
 
 /// Recognise one character drawn as `strokes` of `(x, y)` points on a `width` by `height` canvas, returning up to 12 candidates ordered by `order_handwriting_candidates`. `model_path` is a trusted packaged zinnia model such as `handwriting-zh_CN.model`.
 ///
@@ -63,7 +69,7 @@ fn load(path: &Path) -> Result<Arc<Model>> {
     // SAFETY: a mapping is only sound while nothing changes the file underneath it. The model is a packaged, read-only file installed by replacement and never written in place (module doc), so the mapped inode keeps its bytes for as long as the map lives.
     let bytes = unsafe { Mmap::map(&file) }.map_err(|_| EngineError::failed(CANNOT_OPEN))?;
     let model = Arc::new(Model::parse(bytes).map_err(|_| EngineError::failed(CANNOT_OPEN))?);
-    models.insert(path.to_owned(), Arc::clone(&model));
+    models.put(path.to_owned(), Arc::clone(&model));
     Ok(model)
 }
 
@@ -374,6 +380,20 @@ mod tests {
             )),
             CANNOT_OPEN
         );
+    }
+
+    #[test]
+    fn the_model_cache_is_bounded_across_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=MODEL_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(format!("model-{index}.model"));
+            std::fs::write(&path, encode(&[("甲", 0.0, &[(0, 1.0)])])).unwrap();
+            assert!(load(&path).is_ok());
+            directories.push(directory);
+        }
+        let cache = MODELS.lock().unwrap();
+        assert!(cache.len() <= MODEL_CACHE_CAPACITY);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! `zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `tw/` 下，锁文件按 `tw/` 路径从它的 `sources-v*` release 附件固定。
 //!
-//! Two files are read, both `text,frequency,reading` CSV with `#` header lines: `tsi.csv` (phrases and characters with their use counts) and `word.csv` (every character with each of its readings, all at frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character weighs 0 unless `tsi.csv` gives the same character and reading a count.
+//! Three files are read, all `text,frequency,reading` CSV: `tsi.csv` (phrases and characters with their use counts), `word.csv` (every character with each of its readings, all at frequency 0), and the McBopomofo phrase supplement (frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character and a supplement phrase weigh 0 unless `tsi.csv` gives the same combination a count.
 //!
 //! The syllable inventory is every syllable some key uses. A syllable must be at most one initial, one medial and one rime in that order, then an optional tone mark, because that is all the Dachen editor can compose; anything else fails the build. The only rows left out are the four tone marks listed as their own text and reading, which have no letters to type.
 
@@ -16,6 +16,7 @@ use crate::sqlite;
 
 pub const PHRASES: &str = "tw/tsi.csv";
 pub const CHARACTERS: &str = "tw/word.csv";
+pub const SUPPLEMENT: &str = "tw/McBopomofoSupplement.txt";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "libchewing-data";
 /// The SPDX identifier recorded as the database's `license`, as the CSV headers declare it.
@@ -428,7 +429,7 @@ mod tests {
             })
             .collect();
         pinned.sort_unstable();
-        assert_eq!(pinned, [PHRASES, CHARACTERS]);
+        assert_eq!(pinned, [SUPPLEMENT, PHRASES, CHARACTERS]);
     }
 
     fn written(dictionary: &Dictionary) -> (tempfile::TempDir, std::path::PathBuf) {

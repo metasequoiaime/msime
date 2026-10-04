@@ -4296,11 +4296,7 @@ fn external_url_is_safe(url: &str) -> bool {
     url.len() <= 4096
         && msime_client_core::is_bounded_text(url, 4096)
         && !url.bytes().any(|byte| {
-            byte <= b' '
-                || matches!(
-                    byte,
-                    b'"' | b'\'' | b'`' | b'&' | b'|' | b'<' | b'>' | b'\\'
-                )
+            byte <= b' ' || matches!(byte, b'"' | b'\'' | b'`' | b'|' | b'<' | b'>' | b'\\')
         })
         && url
             .strip_prefix("https://")
@@ -4352,7 +4348,7 @@ fn open_external_url_blocking(url: &str) -> Result<(), HostActionError> {
     launch_external_url(url)
 }
 
-/// Hands an https URL the caller has already validated to the default browser. None of the launch paths goes through a shell (`open` and `xdg-open` receive it as one argument, Windows uses ShellExecuteW), which is what lets the Google sign-in pass an authorization URL with `&`-separated query parameters that `external_url_is_safe` refuses for page-supplied links.
+/// Hands an https URL the caller has already validated to the default browser. None of the launch paths goes through a shell (`open` and `xdg-open` receive it as one argument, Windows uses ShellExecuteW), so encoded query parameters such as the feedback form's `&`-separated title and body are safe to pass through.
 #[cfg(not(target_os = "android"))]
 fn launch_external_url(url: &str) -> Result<(), HostActionError> {
     #[cfg(target_os = "macos")]

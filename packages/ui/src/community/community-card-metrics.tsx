@@ -1,5 +1,6 @@
 import { communityRating } from "./community-helpers";
 import * as style from "./community-style";
+import { formatZhNumber } from "../core/format-number";
 
 export interface CommunityCardMetricsProps {
   downloads: number;
@@ -15,7 +16,7 @@ export function CommunityCardMetrics({
 }: CommunityCardMetricsProps) {
   return (
     <span className={style.cardMetrics}>
-      <span>↓ {downloads.toLocaleString("zh-CN")}</span>
+      <span>↓ {formatZhNumber(downloads)}</span>
       <span>☆ {communityRating(ratingCount, ratingAverage)}</span>
     </span>
   );

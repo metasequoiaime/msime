@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that the licences of the Cantonese, Zhuyin and Stroke data travel through every platform's notice channel.
 
-The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0) and libchewing-data (LGPL-2.1-or-later), and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
+The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and the BSD-derived McBopomofo supplement, and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
 许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `stroke/` 等 msime-dictionary 发布后以同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
 """
@@ -17,7 +17,7 @@ DICTIONARY_RELEASES = "https://github.com/metasequoiaime/msime-dictionary/releas
 LICENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (
         "rime/rime-cantonese",
-        "259f0e48bba840c3a2e0d117539e96937f3d89bc",
+        "ac277184f161f297c2031b497588975234019f9d",
         "yue/",
         ("CanCLID", "Linguistic Society of Hong Kong", "Attribution 4.0 International", "tone digits are removed", "jyut6ping3.maps.dict.yaml (released under the Open Data Commons Open Database License 1.0)", "jyut6ping3.phrase.dict.yaml"),
     ),

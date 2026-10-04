@@ -4520,14 +4520,16 @@ static NSString *MSIMESessionUnavailableReason(NSDictionary *options) {
     return [MSIMEClientSession recoverPreferencesInDirectory:directory error:error];
 }
 
-// The Windows source repairs an unparseable config.toml as the IME starts (InitImeConfig before LoadImeConfig). Here the document is polled by every controller from a background queue, so the repair is claimed once per directory per process under a lock: a document that cannot be repaired, or a read that keeps failing for another reason, is not retried every second or once more for each client application.
+// Windows 源码在输入法启动时修复无法解析的 config.toml（InitImeConfig 位于 LoadImeConfig 之前）。这里的文档由每个控制器从后台队列轮询，因此在锁下按目录记录一次恢复尝试；目录表有上限，长期运行的输入法不会因用户切换配置目录而持续增长。
 static BOOL MSIMEClaimPreferenceRecovery(NSString *directory) {
-    static NSMutableSet<NSString *> *claimed;
+    static const NSUInteger kMaxClaimedPreferenceDirectories = 64;
+    static NSMutableOrderedSet<NSString *> *claimed;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ claimed = [NSMutableSet set]; });
+    dispatch_once(&once, ^{ claimed = [NSMutableOrderedSet orderedSet]; });
     @synchronized(claimed) {
         if ([claimed containsObject:directory]) return NO;
         [claimed addObject:directory];
+        if (claimed.count > kMaxClaimedPreferenceDirectories) [claimed removeObjectAtIndex:0];
         return YES;
     }
 }

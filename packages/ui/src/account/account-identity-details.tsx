@@ -1,6 +1,7 @@
 import * as account from "./account-style";
 import { accountProviderName } from "./account-labels";
 import { ActionButton } from "../core/action-button";
+import { formatZhDate } from "../core/format-date";
 
 export interface AccountIdentityDetailsProps {
   user: {
@@ -44,7 +45,7 @@ export function AccountIdentityDetails({
       </div>
       <div>
         <dt>加入水杉</dt>
-        <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
+        <dd>{formatZhDate(user.createdAt)}</dd>
       </div>
     </dl>
   );

@@ -114,10 +114,44 @@ public final class CandidateTranslationStoreSmoke {
         } finally {
             collisionWorker.shutdownNow();
         }
+
+        CountDownLatch firstCapacityResponse = new CountDownLatch(1);
+        FakeScheduler capacityScheduler = new FakeScheduler() {
+            @Override public void post(Runnable action) {
+                super.post(action);
+                firstCapacityResponse.countDown();
+            }
+        };
+        ExecutorService capacityWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger capacityCalls = new AtomicInteger();
+        CountDownLatch firstCapacityCall = new CountDownLatch(1);
+        CountDownLatch secondCapacityCall = new CountDownLatch(1);
+        List<String> capacityWords = new java.util.ArrayList<>();
+        for (int index = 0; index < 257; index++) capacityWords.add("合成词" + index);
+        CandidateTranslationStore capacityStore = new CandidateTranslationStore(
+            (texts, target) -> {
+                if (capacityCalls.incrementAndGet() == 1) firstCapacityCall.countDown();
+                else secondCapacityCall.countDown();
+                return texts.stream().map(text -> text + " translation").toList();
+            }, capacityWorker, capacityScheduler, generation -> { });
+        try {
+            capacityStore.refresh(capacityWords, List.of("en"), 7);
+            capacityScheduler.runDelayed();
+            check(firstCapacityCall.await(2, TimeUnit.SECONDS), "capacity request started");
+            check(firstCapacityResponse.await(2, TimeUnit.SECONDS), "capacity response posted");
+            capacityScheduler.runPosted();
+            capacityStore.refresh(List.of(capacityWords.get(0)), List.of("en"), 8);
+            capacityScheduler.runDelayed();
+            check(secondCapacityCall.await(2, TimeUnit.SECONDS),
+                "evicted translation can be requested again");
+        } finally {
+            capacityWorker.shutdownNow();
+        }
+        check(capacityCalls.get() == 2, "translation cache evicts old entries");
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 
-    private static final class FakeScheduler implements CandidateTranslationStore.Scheduler {
+    private static class FakeScheduler implements CandidateTranslationStore.Scheduler {
         private final Queue<Runnable> delayed = new ArrayDeque<>();
         private final Queue<Runnable> posted = new ArrayDeque<>();
 

@@ -33,3 +33,15 @@ test("supports the compact text-only empty message style", () => {
 
   expect(screen.getByText("点击查询后查看词条").className).toBe("text-muted");
 });
+
+test("supports centered content messages with local spacing", () => {
+  render(
+    <SettingsEmptyMessage centered className="mt-3.5">
+      暂无记录
+    </SettingsEmptyMessage>,
+  );
+
+  expect(screen.getByText("暂无记录").className).toBe(
+    "mt-0.5 mb-3.5 text-center text-muted mt-3.5",
+  );
+});

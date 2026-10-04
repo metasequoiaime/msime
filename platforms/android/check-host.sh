@@ -525,6 +525,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTranslationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTranslationStoreSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateTranslationResponseSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/OnlineCandidatePolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/WubiCodeHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
@@ -552,6 +553,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/BackendAccountResponseSmoke.java" \
   "$repo_root/platforms/android/tests/settings/SignInAttemptPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
@@ -605,6 +607,7 @@ java -cp "$output_dir" app.msime.android.KeyboardSkinSmoke
 java -cp "$output_dir" CloudClipboardTextPolicySmoke
 java -cp "$output_dir:$android_jar" CloudClipboardPanelPolicySmoke
 java -cp "$output_dir:$android_jar" app.msime.android.AccountSessionRoutingSmoke
+java -cp "$output_dir:$android_jar" app.msime.android.BackendAccountResponseSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir:$android_jar" app.msime.android.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
@@ -632,6 +635,7 @@ java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke
 java -cp "$output_dir" CandidateTranslationPolicySmoke
 java -cp "$output_dir" app.msime.android.CandidateTranslationStoreSmoke
+java -cp "$output_dir" app.msime.android.CandidateTranslationResponseSmoke
 java -cp "$output_dir" OnlineCandidatePolicySmoke
 java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke

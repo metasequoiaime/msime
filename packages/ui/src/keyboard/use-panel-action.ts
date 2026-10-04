@@ -51,14 +51,14 @@ export function usePanelAction(onFailure: (message: string) => void): PanelActio
     [isCurrent, onFailure],
   );
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
       revisionRef.current++;
       busyRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   return { busy, busyRef, revisionRef, run, invalidate, isCurrent };
 }

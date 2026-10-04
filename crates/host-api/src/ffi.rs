@@ -10,6 +10,8 @@
 //! moving these out of the crate root does not change the ABI.
 
 use crate::*;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 pub(crate) fn serialized_runtime_view(session: &HostSession) -> Result<Value, String> {
     serde_json::to_value(session.runtime.view()).map_err(|error| error.to_string())
@@ -66,6 +68,10 @@ pub(crate) const SETTLED_MODEL_FILE: &str = "sentence-model-desktop.safetensors"
 /// this leaves room for a larger compatible model without allowing an arbitrary configured path to
 /// make startup allocate unbounded memory.
 pub(crate) const MAX_SENTENCE_MODEL_BYTES: u64 = 64 * 1024 * 1024;
+const SENTENCE_MODEL_CACHE_CAPACITY: usize = 8;
+
+static SENTENCE_MODELS: OnceLock<Mutex<LruCache<PathBuf, Option<Arc<SentenceModel>>>>> =
+    OnceLock::new();
 
 /// The candidate reranking model, loaded once per path and shared by every session using it.
 ///
@@ -94,9 +100,12 @@ pub(crate) fn sentence_model(
     resources: &str,
     configured: Option<&str>,
 ) -> Option<Arc<SentenceModel>> {
-    static MODELS: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<SentenceModel>>>>> = OnceLock::new();
     let path = sentence_model_path(resources, configured);
-    let cache = MODELS.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache = SENTENCE_MODELS.get_or_init(|| {
+        Mutex::new(LruCache::new(
+            NonZeroUsize::new(SENTENCE_MODEL_CACHE_CAPACITY).unwrap(),
+        ))
+    });
     let mut cache = cache.lock().ok()?;
     // Keyed by path: two sessions may legitimately be pointed at different models, and a cache that
     // remembered only the first would silently serve one of them the other's weights.
@@ -115,8 +124,27 @@ pub(crate) fn sentence_model(
                 None
             }
         });
-    cache.insert(path, loaded.clone());
+    cache.put(path, loaded.clone());
     loaded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sentence_model_cache_is_bounded_across_paths() {
+        let mut directories = Vec::new();
+        for index in 0..=SENTENCE_MODEL_CACHE_CAPACITY {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join(format!("model-{index}.safetensors"));
+            std::fs::write(&path, b"not a model").unwrap();
+            assert!(sentence_model("", path.to_str()).is_none());
+            directories.push(directory);
+        }
+        let cache = SENTENCE_MODELS.get().unwrap().lock().unwrap();
+        assert!(cache.len() <= SENTENCE_MODEL_CACHE_CAPACITY);
+    }
 }
 
 pub(crate) fn sentence_model_path(resources: &str, configured: Option<&str>) -> PathBuf {

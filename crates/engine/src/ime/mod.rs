@@ -41,6 +41,8 @@ pub struct CompositionState {
     pub preedit: String,
     pub request: QueryRequest,
     pub candidates: Vec<WordItem>,
+    /// 候选对应的完整五笔 86 编码，仅供宿主显示反查提示。
+    pub wubi_codes: Vec<String>,
 }
 
 /// One decode of a request, before it is stored as the live state.
@@ -122,6 +124,15 @@ impl ImeSession {
 
     pub fn candidates(&self) -> &[WordItem] {
         &self.state.candidates
+    }
+
+    pub fn candidate_wubi_code(&self, word: &str) -> Option<&str> {
+        self.state
+            .candidates
+            .iter()
+            .zip(&self.state.wubi_codes)
+            .find(|(candidate, _)| candidate.word == word)
+            .and_then(|(_, code)| (!code.is_empty()).then_some(code.as_str()))
     }
 
     pub fn request(&self) -> &QueryRequest {
@@ -495,8 +506,13 @@ impl ImeSession {
     }
 
     pub fn expand_initial_candidates(&mut self) -> bool {
-        self.registry
-            .expand_initial_candidates(&self.state.request, &mut self.state.candidates)
+        let grew = self
+            .registry
+            .expand_initial_candidates(&self.state.request, &mut self.state.candidates);
+        if grew {
+            self.state.wubi_codes = self.registry.reverse_wubi_codes(&self.state.candidates);
+        }
+        grew
     }
 
     /// Insert online rows for the current request and refresh; false when the provider could not take them.
@@ -520,6 +536,7 @@ impl ImeSession {
             self.pinyin_tail = false;
             self.state.request = request;
             self.state.candidates.clear();
+            self.state.wubi_codes.clear();
             return;
         }
 
@@ -538,6 +555,7 @@ impl ImeSession {
         }
         self.state.request = request;
         self.state.candidates = decoded.candidates;
+        self.state.wubi_codes = self.registry.reverse_wubi_codes(&self.state.candidates);
     }
 
     /// The scheme's request with the session's switches, autocorrect suppression and the shuangpin double-helpcode segmentation applied.

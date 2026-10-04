@@ -24,6 +24,7 @@ static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 pub(super) struct OnlineRequestGuard {
     pub session_id: u64,
     pub generation: u64,
+    exhausted: bool,
 }
 
 impl OnlineRequestGuard {
@@ -31,16 +32,25 @@ impl OnlineRequestGuard {
         Self {
             session_id: NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed),
             generation: 0,
+            exhausted: false,
         }
     }
 
     pub fn invalidate(&mut self) {
-        self.generation += 1;
+        if self.exhausted {
+            return;
+        }
+        let Some(next) = self.generation.checked_add(1) else {
+            self.exhausted = true;
+            return;
+        };
+        self.generation = next;
     }
 
     /// Same session, generation and every query field.
     pub fn matches(&self, live: &OnlineQuery, answered: &OnlineQuery) -> bool {
-        answered.session_id == self.session_id
+        !self.exhausted
+            && answered.session_id == self.session_id
             && answered.generation == self.generation
             && live.scheme == answered.scheme
             && live.identity == answered.identity
@@ -72,6 +82,7 @@ impl InputSession {
     /// input_session.cpp:631-667 over `get_cloud_query_state` (input_session_composition.cpp:913-974).
     pub(super) fn online_query(&self) -> Option<OnlineQuery> {
         if self.dedicated_english
+            || self.online_requests.exhausted
             || self.local_mode != LocalInputMode::None
             || !self.has_composition()
         {
@@ -341,5 +352,15 @@ mod tests {
         let live = stamped(&guard);
         assert!(!guard.matches(&live, &query));
         assert!(guard.matches(&live, &live));
+    }
+
+    #[test]
+    fn generation_exhaustion_does_not_reuse_online_request_identity() {
+        let mut guard = OnlineRequestGuard::new();
+        let old = stamped(&guard);
+        guard.generation = u64::MAX;
+        guard.invalidate();
+        let live = stamped(&guard);
+        assert!(!guard.matches(&live, &old));
     }
 }

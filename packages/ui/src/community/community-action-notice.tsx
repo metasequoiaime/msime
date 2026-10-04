@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { StatusMessage } from "../core/status-message";
 import * as style from "./community-style";
 
 export interface CommunityActionNoticeProps {
@@ -8,8 +9,8 @@ export interface CommunityActionNoticeProps {
 /** Shared status message styling for completed community actions. */
 export function CommunityActionNotice({ children }: CommunityActionNoticeProps) {
   return (
-    <p role="status" className={style.actionNotice}>
+    <StatusMessage role="status" className={style.actionNotice}>
       {children}
-    </p>
+    </StatusMessage>
   );
 }

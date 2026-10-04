@@ -23,6 +23,7 @@ const INVALID_REQUEST_ID: &str = "invalid dictionary request ID";
 
 /// The host's reason when every parsed row of a request was refused by the Engine.
 const IMPORT_REJECTED: &str = "dictionary import rejected";
+const INVALID_REPORT: &str = "invalid dictionary report";
 
 /// Send one dictionary action through `send`, which delivers one serialized request to the host. Every action other than an import, and an import that fits one request, is sent exactly as it was given. A larger import is sent in batches and the host's reports are added up, with each failure's line counted from the start of the whole file.
 pub(crate) fn send_dictionary_action(
@@ -111,7 +112,7 @@ pub(crate) fn send_dictionary_action(
         let bytes = serde_json::to_vec(&json!({ "options": options, "action": template }))
             .map_err(|error| error.to_string())?;
         match send(&bytes) {
-            Ok(report) => total.add_report(&report, batch.lines_before),
+            Ok(report) => total.add_report(&report, batch.lines_before)?,
             // Every row of this batch parsed and the Engine refused them all: part of the file failing row by row, not the file failing. Name those rows as a single request would have.
             Err(reason) if reason == IMPORT_REJECTED => {
                 total.add_refused_batch(rows, &batch.text, batch.rows, batch.lines_before);
@@ -183,6 +184,12 @@ pub(crate) struct ImportBatch {
 ///
 /// A Rime file's YAML header, `---` through `...`, is replaced by empty lines rather than carried: the parser only skips it when it sees the opening `---`, so a batch that began inside it would read the rest as rows. Keeping the lines, empty, keeps every later line at its own number.
 pub(crate) fn split_import(text: &str, rime: bool, budget: usize) -> Option<Vec<ImportBatch>> {
+    // The request envelope itself can consume the whole budget (for example, when a large
+    // preferences document is sent alongside the import). There is no batch that can fit then;
+    // reject before the capacity estimate below turns the input length into a huge allocation.
+    if budget == 0 {
+        return None;
+    }
     let empty = |lines_before| ImportBatch {
         text: String::new(),
         lines_before,
@@ -275,14 +282,21 @@ impl Default for ImportTotal {
 }
 
 impl ImportTotal {
-    fn add_report(&mut self, report: &Value, lines_before: usize) {
-        self.applied += report["applied"].as_u64().unwrap_or(0);
-        self.failed += report["failed"].as_u64().unwrap_or(0);
+    fn add_report(&mut self, report: &Value, lines_before: usize) -> Result<(), String> {
+        self.applied = self
+            .applied
+            .checked_add(report["applied"].as_u64().unwrap_or(0))
+            .ok_or(INVALID_REPORT)?;
+        self.failed = self
+            .failed
+            .checked_add(report["failed"].as_u64().unwrap_or(0))
+            .ok_or(INVALID_REPORT)?;
         self.truncated |= report["truncated"].as_bool() == Some(true);
         self.swapped |= report["swapped"].as_bool() == Some(true);
         let failures: Vec<ImportFailure> =
             serde_json::from_value(report["first_failures"].clone()).unwrap_or_default();
         self.add_failures(failures, lines_before);
+        Ok(())
     }
 
     /// A batch whose rows the Engine refused, every one. The shared parser says which way each row failed, and the rows it could read are the ones the Engine refused.

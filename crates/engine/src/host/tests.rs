@@ -6,6 +6,7 @@ use rusqlite::Connection;
 
 use super::glosses::{candidate_gloss_display, candidate_gloss_key};
 use super::*;
+use crate::types::SchemeType;
 
 fn options(root: &Path) -> EngineOptions {
     let path = |name| {
@@ -1889,6 +1890,78 @@ fn helpcode_display_toggle_keeps_candidates_and_filtering_enabled() {
         );
         assert!(session.character(b'A', true).unwrap().handled);
     }
+}
+
+#[test]
+fn wubi_reverse_codes_are_shown_only_in_the_wubi_scheme() {
+    let extra = "INSERT INTO wubi86 VALUES('wqvb','你好',300);";
+
+    let quanpin_root = tempfile::tempdir().unwrap();
+    let mut quanpin = helpcode_fixture(quanpin_root.path(), extra, "");
+    quanpin.show_helpcode = false;
+    let mut session = Session::new(&quanpin).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    // 全拼方案不附五笔反查码。
+    assert!(!view.candidate_annotations[index].contains("wqvb"));
+
+    let mixed_root = tempfile::tempdir().unwrap();
+    let mut mixed = helpcode_fixture(mixed_root.path(), extra, "");
+    mixed.scheme = SchemeType::Wubi as u8;
+    mixed.wubi_mixed_pinyin = true;
+    let mut session = Session::new(&mixed).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("wqvb"));
+
+    let native_root = tempfile::tempdir().unwrap();
+    let mut native = helpcode_fixture(native_root.path(), extra, "");
+    native.scheme = SchemeType::Wubi as u8;
+    let mut session = Session::new(&native).unwrap();
+    type_text(&mut session, b"wqvb");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("wqvb"));
+}
+
+#[test]
+fn wubi_reverse_codes_follow_the_selected_profile() {
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(
+        root.path(),
+        "CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER);
+         INSERT INTO wubi86 VALUES('wqvb','你好',300);
+         INSERT INTO wubi98 VALUES('abcd','你好',300);",
+        "",
+    );
+    options.wubi_profile = 1;
+    // 反查只在五笔方案里显示，所以用五笔混输拼音来看拼音候选按所选版本反查。
+    options.scheme = SchemeType::Wubi as u8;
+    options.wubi_mixed_pinyin = true;
+    let mut session = Session::new(&options).unwrap();
+    type_text(&mut session, b"nihao");
+    let view = session.snapshot().unwrap();
+    let index = view
+        .candidates
+        .iter()
+        .position(|word| word == "你好")
+        .unwrap();
+    assert!(view.candidate_annotations[index].contains("abcd"));
+    assert!(!view.candidate_annotations[index].contains("wqvb"));
 }
 
 #[test]

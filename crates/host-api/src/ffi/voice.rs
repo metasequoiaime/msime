@@ -3,7 +3,7 @@
 //! Part of the C ABI; see the parent module for what these shims guarantee.
 
 use crate::*;
-use msime_client_core::is_bounded_text;
+use msime_client_core::{is_bounded_chars_without_nul, is_bounded_text};
 
 /// Decode one Doubao v1 response frame for Apple hosts. The returned payload
 /// is UTF-8 JSON text; no frame bytes or credentials are retained.
@@ -363,6 +363,12 @@ pub unsafe extern "C" fn msime_client_voice_provider_stop(
 
 /// Largest request any of the local-model and hotword calls accepts. The hotword correction request carries a transcript and up to a few hundred hotwords.
 const LOCAL_VOICE_REQUEST_LIMIT: usize = 1 << 20;
+/// Keep the pinyin matcher bounded even when a caller invokes the C ABI directly instead of using
+/// the mobile request validator, which applies these same per-field limits.
+const MAX_VOICE_CORRECTION_TEXT_CHARS: usize = 10_000;
+const MAX_VOICE_CORRECTION_HOTWORDS: usize = 1_000;
+const MAX_VOICE_CORRECTION_HOTWORD_TEXT_BYTES: usize = 256;
+const MAX_VOICE_CORRECTION_HOTWORD_PINYIN_BYTES: usize = 1_024;
 
 fn local_voice_request<T: serde::de::DeserializeOwned>(
     request: *const u8,
@@ -453,7 +459,7 @@ pub unsafe extern "C" fn msime_client_voice_hotwords(
     })
 }
 
-/// Apply hotwords to a final transcript by pinyin similarity, for models whose manifest says `"hotwords": "pinyin"`.
+/// Apply hotwords to a final transcript by pinyin similarity, for models whose manifest says `"hotwords": "pinyin"`. The transcript is limited to 10,000 Unicode scalar values, the list to 1,000 entries, and each entry to 256 bytes of text and 1,024 bytes of pinyin.
 ///
 /// Request `{"text": "...", "hotwords": [{"text","pinyin"}]}` (at most 1 MiB); response `{"text": "..."}`. Pure; no state is read.
 ///
@@ -473,6 +479,16 @@ pub unsafe extern "C" fn msime_client_voice_hotword_correct(
         }
         let request: CorrectRequest =
             local_voice_request(request, length, LOCAL_VOICE_REQUEST_LIMIT)?;
+        if !is_bounded_chars_without_nul(&request.text, MAX_VOICE_CORRECTION_TEXT_CHARS)
+            || request.hotwords.len() > MAX_VOICE_CORRECTION_HOTWORDS
+            || request.hotwords.iter().any(|hotword| {
+                hotword.text.trim().is_empty()
+                    || !is_bounded_text(&hotword.text, MAX_VOICE_CORRECTION_HOTWORD_TEXT_BYTES)
+                    || !is_bounded_text(&hotword.pinyin, MAX_VOICE_CORRECTION_HOTWORD_PINYIN_BYTES)
+            })
+        {
+            return Err("invalid voice hotword correction request".into());
+        }
         Ok(json!({
             "text": msime_client_core::voice::hotwords::correct(&request.text, &request.hotwords),
         }))

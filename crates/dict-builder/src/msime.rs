@@ -349,28 +349,55 @@ pub fn build_wubi(connection: &mut Connection, path: &Path) -> Result<(usize, us
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
-pub fn build_wubi98(connection: &mut Connection, path: &Path) -> Result<(usize, usize)> {
+/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。
+pub fn build_wubi98_sources(
+    connection: &mut Connection,
+    path: &Path,
+    supplements: &[&Path],
+) -> Result<(usize, usize)> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
     let lines = text::universal_lines(text::without_bom(&source));
-    let parsed: Vec<Option<(String, &str)>> =
-        lines.iter().map(|line| parse_wubi98_line(line)).collect();
+    let mut parsed = Vec::new();
+    let mut seen = HashSet::new();
+    let mut skipped = 0;
+    for line in lines {
+        match parse_wubi98_line(line) {
+            Some((key, value)) if seen.insert((key.to_owned(), value.to_owned())) => {
+                parsed.push((key.to_owned(), value.to_owned()));
+            }
+            _ => skipped += 1,
+        }
+    }
     let mut remaining: HashMap<&str, i64> = HashMap::new();
-    for (key, _) in parsed.iter().flatten() {
+    for (key, _) in &parsed {
         *remaining.entry(key.as_str()).or_default() += 1;
     }
     let mut weighted = Vec::with_capacity(parsed.len());
-    for row in &parsed {
-        weighted.push(row.as_ref().map(|(key, value)| {
-            let left = remaining
-                .get_mut(key.as_str())
-                .expect("every parsed code was counted");
-            let weight = *left * WUBI98_WEIGHT_STEP;
-            *left -= 1;
-            (key.clone(), *value, weight)
-        }));
+    for (key, value) in &parsed {
+        let left = remaining
+            .get_mut(key.as_str())
+            .expect("every parsed code was counted");
+        let weight = *left * WUBI98_WEIGHT_STEP;
+        *left -= 1;
+        weighted.push(Some((key.clone(), value.clone(), weight)));
     }
-    write_code_table(connection, &WUBI98, weighted.into_iter())
+    for supplement in supplements {
+        let source = text::read(supplement)?;
+        for line in text::universal_lines(&source) {
+            match parse_fcitx_wubi98_line(line) {
+                Some((key, value)) if seen.insert((key.to_owned(), value.to_owned())) => {
+                    weighted.push(Some((key.to_owned(), value, 1)));
+                }
+                _ => skipped += 1,
+            }
+        }
+    }
+    let rows = weighted.iter().map(|row| {
+        row.as_ref()
+            .map(|(key, value, weight)| (key.clone(), value.as_str(), *weight))
+    });
+    write_code_table(connection, &WUBI98, rows).map(|(imported, _)| (imported, skipped))
 }
 
 fn decode_utf16le(bytes: &[u8]) -> Result<String> {
@@ -391,6 +418,17 @@ fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
     };
     let valid_key = (1..=4).contains(&key.len()) && key.bytes().all(|b| (b'a'..=b'y').contains(&b));
     (!value.is_empty() && valid_key).then(|| (key.to_owned(), value))
+}
+
+/// 解析 Fcitx5 table-extra 的 UTF-8 98 五笔表中的“编码 空格 词语”行。表头和规则区忽略，只接受由一到四个小写字母组成的编码。
+fn parse_fcitx_wubi98_line(line: &str) -> Option<(&str, String)> {
+    let (key, value) = line.split_once(' ')?;
+    let key = key.trim();
+    let value = value.trim();
+    let valid = (1..=4).contains(&key.len())
+        && key.bytes().all(|byte| byte.is_ascii_lowercase())
+        && !value.is_empty();
+    valid.then_some((key, value.to_owned()))
 }
 
 /// Builds the quick phrase table, then checks it and refreshes the planner statistics of the whole database (the Python `04verify_db.py` step, which ran after quanpin and wubi).
@@ -583,7 +621,10 @@ mod tests {
         let path = dir.path().join("wubi98.txt");
         std::fs::write(&path, bytes).unwrap();
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi98(&mut connection, &path).unwrap(), (6, 5));
+        assert_eq!(
+            build_wubi98_sources(&mut connection, &path, &[]).unwrap(),
+            (6, 5)
+        );
         let rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi98 order by key, weight desc")
             .unwrap()
@@ -617,7 +658,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
         let mut connection = Connection::open_in_memory().unwrap();
-        assert!(build_wubi98(&mut connection, &path).is_err());
+        assert!(build_wubi98_sources(&mut connection, &path, &[]).is_err());
+    }
+
+    #[test]
+    fn the_98_table_merges_a_complete_fcitx_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = "部门\tukuy\r\n";
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        let primary = dir.path().join("wubi98.txt");
+        std::fs::write(&primary, bytes).unwrap();
+        let supplement = write(
+            dir.path(),
+            "Wubi98Fcitx.txt",
+            "[Data]\nukuy 部门\nukuy 冲凉\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(
+            build_wubi98_sources(&mut connection, &primary, &[&supplement]).unwrap(),
+            (2, 2)
+        );
+        let rows: Vec<(String, String, i64)> = connection
+            .prepare("select key, value, weight from wubi98 order by weight desc")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("ukuy".into(), "部门".into(), 10),
+                ("ukuy".into(), "冲凉".into(), 1)
+            ]
+        );
     }
 
     #[test]

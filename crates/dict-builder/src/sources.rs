@@ -235,6 +235,9 @@ mod tests {
         for file in &lock.files {
             assert_eq!(file.sha256.len(), 64, "{}", file.path);
             assert!(file.url.starts_with("https://"), "{}", file.path);
+            if file.path.starts_with("ja/") || file.path.starts_with("ko/") {
+                assert_dictionary_release_asset(file);
+            }
         }
     }
 }
