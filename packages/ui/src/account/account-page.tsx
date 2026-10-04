@@ -16,6 +16,7 @@ import { pushMobileSettingsState } from "../settings/mobile-navigation";
 import { StatusMessage } from "../core/status-message";
 import { copyAccountId as copyAccountIdToClipboard } from "./account-id-copy";
 import { useAccountAction } from "./account-operation";
+import { useMobilePopState } from "../settings/use-mobile-pop-state";
 
 export type AccountUser = {
   id: string;
@@ -729,15 +730,13 @@ function AccountDetailsPage({
 
   useEffect(() => {
     if (!mobile || typeof window === "undefined") return;
-    const onPopState = (event: PopStateEvent) => {
-      setMobileProfilePage(
-        event.state?.msimeSettings === true && event.state.accountSubpage === "profile",
-      );
-    };
     setMobileProfilePage(window.history.state?.accountSubpage === "profile");
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
   }, [mobile]);
+  useMobilePopState(mobile, (event) => {
+    setMobileProfilePage(
+      event.state?.msimeSettings === true && event.state.accountSubpage === "profile",
+    );
+  });
 
   const applyProfile = (value: AccountProfile) => {
     setProfile(value);

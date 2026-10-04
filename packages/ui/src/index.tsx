@@ -1345,6 +1345,7 @@ export {
   useCommunityDetailHistory,
   type CommunityDetailHistoryOptions,
 } from "./community/use-community-detail-history";
+export { useMobilePopState, type MobilePopStateHandler } from "./settings/use-mobile-pop-state";
 export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,
