@@ -7752,6 +7752,60 @@ group("account sessions reject unbounded lifetimes", () => {
   void persistedBridge.handle('{"operation":"status"}').then((reply) => {
     check(JSON.parse(reply).value.user === null, "an unbounded persisted lifetime is discarded");
   });
+
+  let fractionalStored: string | null = null;
+  const fractionalBridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        if (path === "/v1/auth/login") {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              access_token: "e".repeat(64),
+              refresh_token: "f".repeat(64),
+              token_type: "Bearer",
+              expires_in: 900.5,
+              user: { id: "fractional-user", display_name: "Test", created_at: "2026-01-01" },
+            }),
+          };
+        }
+        return { status: 500, body: "" };
+      },
+    },
+    {
+      load: () => fractionalStored,
+      save: (value) => {
+        fractionalStored = value;
+      },
+      clear: () => {
+        fractionalStored = null;
+      },
+    },
+  );
+  void fractionalBridge
+    .handle(JSON.stringify({ operation: "login", challenge_id: "challenge", credential: "123456" }))
+    .then((reply) => {
+      check(
+        JSON.parse(reply).error === "account_unavailable",
+        "fractional account lifetime is refused",
+      );
+      check(fractionalStored === null, "a fractional account lifetime is never persisted");
+    });
+
+  const fractionalPersisted = JSON.stringify({
+    access_token: "g".repeat(64),
+    refresh_token: "h".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000.5,
+    user: { id: "fractional-persisted", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const fractionalPersistedBridge = new AccountCloudBridge(
+    { request: async () => ({ status: 500, body: "" }) },
+    { load: () => fractionalPersisted, save: () => {}, clear: () => {} },
+  );
+  void fractionalPersistedBridge.handle('{"operation":"status"}').then((reply) => {
+    check(JSON.parse(reply).value.user === null, "a fractional persisted lifetime is discarded");
+  });
 });
 
 group("cloud candidate mutations preserve the service protocol", () => {

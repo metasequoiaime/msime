@@ -693,8 +693,7 @@ function validateSession(value: unknown): value is Session {
     validToken(session.access_token) &&
     validToken(session.refresh_token) &&
     session.token_type === "Bearer" &&
-    typeof session.expires_at === "number" &&
-    Number.isFinite(session.expires_at) &&
+    safeInteger(session.expires_at) &&
     session.expires_at <= Date.now() + MAX_SESSION_MILLISECONDS &&
     validateUser(session.user)
   );
@@ -705,8 +704,7 @@ function sessionFromTokens(value: Action): Session | null {
     !validToken(value.access_token) ||
     !validToken(value.refresh_token) ||
     value.token_type !== "Bearer" ||
-    typeof value.expires_in !== "number" ||
-    !Number.isFinite(value.expires_in) ||
+    !safeInteger(value.expires_in) ||
     value.expires_in <= 0 ||
     value.expires_in > MAX_SESSION_SECONDS ||
     !validateUser(value.user)
