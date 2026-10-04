@@ -687,9 +687,11 @@ public final class MSIMEInputService extends InputMethodService {
                     JSONObject result = new JSONObject(NativeClient.typingStatistics(request));
                     if (!result.getBoolean("ok")) {
                         reportTypingStatisticsFailure(lifecycleGeneration);
-                    } else if (nothingRecorded != null
-                        && result.getJSONObject("value").getLong("recorded") == 0) {
-                        main.post(nothingRecorded);
+                    } else if (nothingRecorded != null) {
+                        JSONObject value = result.getJSONObject("value");
+                        long recorded = KeyboardGeometry.strictLong(value.opt("recorded"), -1);
+                        if (recorded < 0) throw new JSONException("Invalid recorded count");
+                        if (recorded == 0) main.post(nothingRecorded);
                     }
                 } catch (Exception | LinkageError error) {
                     reportTypingStatisticsFailure(lifecycleGeneration);
@@ -4087,10 +4089,16 @@ public final class MSIMEInputService extends InputMethodService {
         }
         try {
             return EmojiCatalogModel.validatePage(items, offset, EmojiCatalogModel.PAGE_SIZE,
-                value.getLong("next_offset"), value.getBoolean("complete"));
+                nextOffset(value), value.getBoolean("complete"));
         } catch (IllegalArgumentException error) {
             throw new JSONException("Invalid emoji catalog cursor");
         }
+    }
+
+    private static long nextOffset(JSONObject value) throws JSONException {
+        long offset = KeyboardGeometry.strictLong(value.opt("next_offset"), -1);
+        if (offset < 0) throw new JSONException("Invalid emoji catalog cursor");
+        return offset;
     }
 
     private void loadEmojiPage() {
