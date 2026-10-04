@@ -583,8 +583,8 @@ mod tests {
         let _ = lock.without(&MACOS_ON_DEMAND_ARTIFACTS);
         let shipped = lock.as_shipped_in(empty.path(), &MACOS_ON_DEMAND_ARTIFACTS);
         assert_eq!(lock.generation().unwrap(), before);
-        assert_eq!(lock.artifacts.len(), 9);
-        assert_eq!(shipped.artifacts.len(), 7);
+        assert_eq!(lock.artifacts.len(), 10);
+        assert_eq!(shipped.artifacts.len(), 8);
     }
 
     #[cfg(unix)]
@@ -745,7 +745,7 @@ mod tests {
         }
         let mut spec = specification();
         let mut duplicate = spec.artifacts[0].clone();
-        duplicate.name = "MSIME.DB".into();
+        duplicate.name = "MSIME-PINYIN.DB".into();
         spec.artifacts.push(duplicate);
         assert!(spec.validate().is_err());
     }
