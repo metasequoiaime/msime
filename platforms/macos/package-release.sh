@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the installable macOS release: the Tauri settings app with the pinned core dictionaries (EngineResources), the licence files and the InputMethodKit bundle 水杉输入法.app embedded as resources, packed into a DMG with a SHA256SUMS beside it.
 #
-# 包里只带装好就能打中文的核心词库（msime-pinyin.db、bigram/trigram、msime-english.db、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
+# 包里只带装好就能打中文的核心词库（msime-pinyin.db、msime-wubi.db、bigram/trigram、msime-english.db、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
 #   japanese              msime-japanese.dat 与 mozc README，用户选日文方案时下载
 #   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
@@ -181,11 +181,11 @@ check_app() {
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。
+  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。dict-v2.0.5 把五笔码表拆进单独的 msime-wubi.db，它与 msime-pinyin.db 合计比 dict-v2.0.2 的 msime.db 大约 5.7 MB，核心文件按锁文件大小合计约 116350 KiB，加上 helpcodes/ 约 116900 KiB；预算在此之上留约 4 MB 余量，与拆分前（约 111000 KiB 对 115000 KiB）相同。
   local engine_kib
   engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  test "$engine_kib" -le 115000 || {
-    echo "EngineResources is ${engine_kib} KiB, over the 115000 KiB core-dictionary budget: $resources_dir/EngineResources" >&2
+  test "$engine_kib" -le 121000 || {
+    echo "EngineResources is ${engine_kib} KiB, over the 121000 KiB core-dictionary budget: $resources_dir/EngineResources" >&2
     exit 1
   }
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"
