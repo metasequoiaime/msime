@@ -292,6 +292,48 @@ test("a previous client's model list cannot replace the active client after a ho
   expect(screen.getByRole("listitem", { name: "快速整句" })).toBeTruthy();
 });
 
+test("returning to a model client ignores progress from its previous subscription", async () => {
+  const first = fakeClient([streaming]);
+  const second = fakeClient([streaming]);
+  const listeners: ((progress: LocalVoiceModelProgress) => void)[] = [];
+  const resolveSubscriptions: ((stop: () => void) => void)[] = [];
+  vi.mocked(first.client.onProgress).mockImplementation((listener) => {
+    listeners.push(listener);
+    return new Promise((resolve) => resolveSubscriptions.push(resolve));
+  });
+  const props = {
+    mobile: false,
+    modelPath: "",
+    onUse: vi.fn(),
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} client={first.client} />);
+  await screen.findByRole("listitem", { name: "中英流式" });
+  view.rerender(<LocalModelManager {...props} client={second.client} />);
+  view.rerender(<LocalModelManager {...props} client={first.client} />);
+
+  const card = within(screen.getByRole("listitem", { name: "中英流式" }));
+  fireEvent.click(card.getByRole("button", { name: /下载/ }));
+  act(() => {
+    listeners[1]({ id: streaming.id, stage: "download", downloaded: 22, total: 100 });
+    listeners[0]({ id: streaming.id, stage: "download", downloaded: 77, total: 100 });
+  });
+  expect(card.getByText("下载中 22%")).toBeTruthy();
+
+  const stopOld = vi.fn();
+  const stopCurrent = vi.fn();
+  await act(async () => {
+    resolveSubscriptions[0](stopOld);
+    resolveSubscriptions[1](stopCurrent);
+  });
+  expect(stopOld).toHaveBeenCalledOnce();
+  expect(stopCurrent).not.toHaveBeenCalled();
+  await first.finish(streaming.path);
+  view.unmount();
+  expect(stopCurrent).toHaveBeenCalledOnce();
+});
+
 test("cancelling a download stops it without an error", async () => {
   const fake = fakeClient([streaming]);
   const { onUse } = renderManager(fake.client);
