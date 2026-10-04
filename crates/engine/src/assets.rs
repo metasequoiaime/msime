@@ -16,6 +16,17 @@ pub const OTHER_DICTIONARY: &str = "msime-others.db";
 pub const JAPANESE_MODEL: &str = "msime-japanese.dat";
 pub const JAPANESE_NOTICE: &str = "msime-mozc_dictionary_oss_README.txt";
 pub const DICTIONARY_MANIFEST: &str = "msime-dictionary-manifest.json";
+/// 统一 `msime-` 前缀之前的文件名，按（现名，旧名）成对列出。升级后还没换成新资源或新代次的目录（Android 已有安装的资源目录、Linux 尚未重新下载的词库、刷新失败时保留的旧代次）里只有旧名文件，`RuntimePaths` 在现名缺席时改用旧名，避免整个输入法没有词库可读。
+pub const LEGACY_NAMES: [(&str, &str); 8] = [
+    (MAIN_DICTIONARY, "msime.db"),
+    (ENGLISH_DICTIONARY, "english.db"),
+    (BIGRAM_TABLE, "bigram.bin"),
+    (TRIGRAM_TABLE, "trigram.bin"),
+    (OTHER_DICTIONARY, "others.db"),
+    (JAPANESE_MODEL, "dict_japanese.dat"),
+    (JAPANESE_NOTICE, "mozc_dictionary_oss_README.txt"),
+    (DICTIONARY_MANIFEST, "dictionary-manifest.json"),
+];
 /// Hand-written translations; copied from user data or resources into the generation as a sidecar.
 pub const TRANSLATIONS: &str = "custom_translations.txt";
 /// The user journal every learning write goes through.

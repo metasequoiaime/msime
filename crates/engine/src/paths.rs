@@ -4,6 +4,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 
@@ -19,17 +20,18 @@ pub struct RuntimePaths {
 }
 
 impl RuntimePaths {
-    /// A file in the resource bundle. Names are the constants in `assets` or a custom helpcode stem that `helpcode::custom_schema_stem` has already reduced to one normal component.
+    /// 资源包里的文件。名字是 `assets` 里的常量，或已被 `helpcode::custom_schema_stem` 化成单个普通路径成分的自定义辅助码名。现名文件缺席、`assets::LEGACY_NAMES` 里的旧名文件在场时返回旧名路径。
     pub fn resource(&self, name: &str) -> PathBuf {
-        join(&self.resources, name)
+        join_current_or_legacy(&self.resources, name)
     }
 
     pub fn user(&self, name: &str) -> PathBuf {
         join(&self.user_data, name)
     }
 
+    /// 与 `resource` 一样，现名缺席而旧名文件在场时返回旧名。
     pub fn dictionary(&self, name: &str) -> PathBuf {
-        join(&self.dictionaries, name)
+        join_current_or_legacy(&self.dictionaries, name)
     }
 
     /// Every root must be absolute; a relative root would resolve against whatever the host's working directory happens to be.
@@ -56,6 +58,20 @@ fn join(root: &Path, name: &str) -> PathBuf {
         return PathBuf::new();
     }
     root.join(name)
+}
+
+/// `join`，但现名不存在而 `assets::LEGACY_NAMES` 中对应的旧名存在时返回旧名路径。两者都不存在时返回现名，读者报告的仍是缺少现名文件。
+fn join_current_or_legacy(root: &Path, name: &str) -> PathBuf {
+    let current = join(root, name);
+    if current.as_os_str().is_empty() || std::fs::symlink_metadata(&current).is_ok() {
+        return current;
+    }
+    assets::LEGACY_NAMES
+        .iter()
+        .find(|(present, _)| *present == name)
+        .map(|(_, legacy)| root.join(legacy))
+        .filter(|legacy| std::fs::symlink_metadata(legacy).is_ok())
+        .unwrap_or(current)
 }
 
 /// 存储路径可以经过的系统链接只在 `msime-path-trust` 里列一次。
@@ -101,5 +117,43 @@ mod tests {
         assert_eq!(paths.user("/abs"), PathBuf::new());
         assert!(join_checked(Path::new("/r"), "helpcodes/../x").is_err());
         assert!(paths.validate().is_err());
+    }
+
+    /// 升级后还没换新的目录里只有旧名文件：现名缺席时读旧名，两者都在时只读现名。
+    #[test]
+    fn a_missing_current_name_falls_back_to_the_legacy_file() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = RuntimePaths {
+            resources: root.path().join("resources"),
+            user_data: root.path().join("user"),
+            cache: root.path().join("cache"),
+            dictionaries: root.path().join("generation"),
+        };
+        std::fs::create_dir_all(&paths.resources).unwrap();
+        std::fs::create_dir_all(&paths.dictionaries).unwrap();
+        assert_eq!(
+            paths.dictionary(assets::MAIN_DICTIONARY),
+            paths.dictionaries.join("msime-pinyin.db")
+        );
+        std::fs::write(paths.dictionaries.join("msime.db"), b"old").unwrap();
+        std::fs::write(paths.resources.join("others.db"), b"old").unwrap();
+        assert_eq!(
+            paths.dictionary(assets::MAIN_DICTIONARY),
+            paths.dictionaries.join("msime.db")
+        );
+        assert_eq!(
+            paths.resource(assets::OTHER_DICTIONARY),
+            paths.resources.join("others.db")
+        );
+        // 没有旧名的文件照常拼接。
+        assert_eq!(
+            paths.resource(assets::WUBI_DICTIONARY),
+            paths.resources.join("msime-wubi.db")
+        );
+        std::fs::write(paths.dictionaries.join("msime-pinyin.db"), b"new").unwrap();
+        assert_eq!(
+            paths.dictionary(assets::MAIN_DICTIONARY),
+            paths.dictionaries.join("msime-pinyin.db")
+        );
     }
 }
