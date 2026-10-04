@@ -29,6 +29,7 @@ import { validVoiceLanguage } from "./voice-panel";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -2327,7 +2328,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     snapshot: CloudDictionarySnapshotMetadata;
     expectedRevision: number;
   } | null>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const lifecycleRevision = useRef(0);
 
   useEffect(() => {
@@ -2341,13 +2342,6 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
   }, [client, invalidate]);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;
