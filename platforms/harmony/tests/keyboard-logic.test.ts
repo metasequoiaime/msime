@@ -20,6 +20,7 @@ import {
   LocalAsrTextReader,
   LocalAsrTextReaderApi,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
+import { CaptureGeneration } from "../entry/src/main/ets/keyboard/input/CaptureGeneration";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -12666,6 +12667,13 @@ group("PcmFrameSlicer", () => {
   slicer.push(new ArrayBuffer(10));
   slicer.reset();
   check(slicer.flush() === null, "reset drops the pending bytes");
+});
+
+group("PcmCapture start is invalidated by a concurrent stop", () => {
+  const generation = new CaptureGeneration();
+  const start = generation.begin();
+  generation.invalidate();
+  check(!generation.isCurrent(start), "a stop during start prevents the pending capture from starting");
 });
 
 group("SpeechSentenceAccumulator", () => {
