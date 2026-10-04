@@ -3803,10 +3803,10 @@ fn a_store_built_from_a_directory_follows_the_recorded_edition() {
     assert!(store.edition().is_full());
 }
 
-/// 日文、越南文和藏文版第一次运行时：方案就是本版本唯一的方案，没有可回到的中文方案，其余偏好与 full 相同；触屏键盘只有本方案的入口和手写，排在手写后面的越南文、藏文入口被选中，第一次打开键盘不是手写。
+/// 日文、越南文和藏文版第一次运行时：方案就是本版本唯一的方案，没有可回到的中文方案，其余偏好与 full 相同；触屏键盘只有本方案的入口（越南文、藏文在 full 里默认停用的入口也启用），没有手写（手写识别器只认汉字），选中留空，第一次打开键盘就是本方案。
 #[test]
 fn language_editions_first_run_defaults_to_their_own_scheme() {
-    for (id, scheme, touch, selected) in [
+    for (id, scheme, touch) in [
         (
             "japanese",
             InputScheme::Japanese,
@@ -3814,19 +3814,16 @@ fn language_editions_first_run_defaults_to_their_own_scheme() {
                 TouchKeyboardScheme::JapaneseNineKey,
                 TouchKeyboardScheme::Japanese,
             ],
-            None,
         ),
         (
             "vietnamese",
             InputScheme::Vietnamese,
             vec![TouchKeyboardScheme::Vietnamese],
-            Some(TouchKeyboardScheme::Vietnamese),
         ),
         (
             "tibetan",
             InputScheme::Tibetan,
             vec![TouchKeyboardScheme::Tibetan],
-            Some(TouchKeyboardScheme::Tibetan),
         ),
     ] {
         let edition = crate::edition::Edition::by_id(id).unwrap();
@@ -3834,10 +3831,9 @@ fn language_editions_first_run_defaults_to_their_own_scheme() {
         assert_eq!(defaults.scheme, scheme, "{id}");
         assert_eq!(defaults.last_chinese_scheme, None, "{id}");
         assert!(!defaults.wubi_mixed_pinyin, "{id}");
-        let mut expected: std::collections::BTreeSet<_> = touch.into_iter().collect();
-        expected.insert(TouchKeyboardScheme::Handwriting);
+        let expected: std::collections::BTreeSet<_> = touch.into_iter().collect();
         assert_eq!(defaults.touch_keyboard_schemes.enabled, expected, "{id}");
-        assert_eq!(defaults.touch_keyboard_schemes.selected, selected, "{id}");
+        assert_eq!(defaults.touch_keyboard_schemes.selected, None, "{id}");
         defaults.validate().unwrap();
         assert_eq!(
             Preferences {

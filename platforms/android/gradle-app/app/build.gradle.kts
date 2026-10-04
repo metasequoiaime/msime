@@ -14,7 +14,7 @@ val releaseVersionParts = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""").matchEn
     ?.groupValues?.drop(1)?.map { it.toInt() }
     ?: error("Android release version must be major.minor.patch, got '$releaseVersion'")
 
-// 产品版本（edition）：版本表 shared/contracts/editions.json 里每个有 Android 段的版本是一个同名的 productFlavor（full、pinyin、wubi），可以同时装在一台设备上。full 的 applicationId、清单和资源与引入版本之前相同；其他版本的 applicationId 加上 `.<id>`，ContentProvider 的 authority 写成 `${applicationId}.<名字>`，随之各不相同。应用名和输入法子类型名取自 platforms/android/editions/<id>/res，图标所有版本相同。
+// 产品版本（edition）：版本表 shared/contracts/editions.json 里每个有 Android 段的版本是一个同名的 productFlavor（full、pinyin、wubi、japanese、vietnamese、tibetan），可以同时装在一台设备上。full 的 applicationId、清单和资源与引入版本之前相同；其他版本的 applicationId 加上 `.<id>`，ContentProvider 的 authority 写成 `${applicationId}.<名字>`，随之各不相同。应用名、输入法子类型名和子类型语言（日文、越南文、藏文版登记在 ja_JP、vi_VN、bo 下）取自 platforms/android/editions/<id>/res，图标所有版本相同。
 data class AndroidEdition(
     val id: String,
     val applicationId: String,

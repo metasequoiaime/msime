@@ -61,9 +61,14 @@ public enum KeyboardScheme {
         return this == HANDWRITING ? edition.defaultScheme() : engineScheme;
     }
 
-    /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供，手写在每个版本都有。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
+    /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供。手写由 ML Kit 的 `zh-Hani-CN` 模型识别，只认汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
     public boolean offeredBy(AppEdition edition) {
-        return this == HANDWRITING || edition.offers(engineScheme);
+        if (this != HANDWRITING) return edition.offers(engineScheme);
+        for (KeyboardScheme candidate : values()) {
+            if (candidate != HANDWRITING && isChineseScheme(candidate.engineScheme)
+                    && edition.offers(candidate.engineScheme)) return true;
+        }
+        return false;
     }
 
     /** 偏好里的方案本版本没有、或一个入口都没剩下时退回的入口：本版本提供全拼时是全拼 26 键（与引入版本之前相同），否则是本版本默认方案的 26 键入口（五笔版是五笔）。 */
@@ -146,12 +151,13 @@ public enum KeyboardScheme {
         return null;
     }
 
-    /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的，也忽略本版本没有的入口。没存过列表时，需要用户自己打开的那几个不启用。 */
+    /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的，也忽略本版本没有的入口。没存过列表时，需要用户自己打开的那几个不启用；只有一个方案的版本例外，越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。 */
     public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids, AppEdition edition) {
         if (ids == null) {
             List<KeyboardScheme> defaults = new ArrayList<>();
             for (KeyboardScheme candidate : values()) {
-                if (!candidate.optIn() && candidate.offeredBy(edition)) defaults.add(candidate);
+                if ((!candidate.optIn() || !edition.offersSchemeChoice()) && candidate.offeredBy(edition))
+                    defaults.add(candidate);
             }
             return defaults.isEmpty() ? List.of(fallback(edition)) : List.copyOf(defaults);
         }

@@ -10,15 +10,15 @@ Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`ca
 
 ## 产品版本
 
-版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
+版本表 `shared/contracts/editions.json` 里每个有 Android 段的版本（full、pinyin、wubi、japanese、vietnamese、tibetan）在 `gradle-app` 里是一个同名的 productFlavor，可以同时装在一台设备上，彼此完全隔离：
 
 - full 就是现有产品：applicationId `app.msime.android`，清单、资源和发布的 `msime-client.apk` 与引入版本之前相同；
 - 其他版本的 applicationId 是 `app.msime.android.<id>`（Gradle 的 `applicationIdSuffix`），APK 叫 `msime-client-<id>.apk`。清单里的 ContentProvider authority 一律写成 `${applicationId}.<名字>`，随之各不相同；
-- 应用名和系统键盘切换器里的子类型名取自 `editions/<id>/res`（水杉五笔、水杉拼音），图标所有版本相同；
-- 每个 flavor 把版本 id、方案列表和默认方案写进 BuildConfig，Java 侧由 `AppEdition` 读取：键盘、设置页和首启引导只列本版本的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。五笔版只有五笔和手写（没有全拼 9 键），混拼默认打开；手写写进偏好的是本版本的默认方案，所以在五笔版里同样可用；高情商回复是工具栏入口，与方案无关，各版本都有。只有一个方案的版本跳过首启引导里选方案那一步；
+- 应用名和系统键盘切换器里的子类型名取自 `editions/<id>/res`（水杉五笔、水杉拼音、水杉日语、水杉越南语、水杉藏文），图标所有版本相同。子类型登记的语言是版本输入的语言：中文的版本是 `zh_CN`，日文、越南文、藏文版是 `ja_JP`、`vi_VN`、`bo`，系统的语言列表把它们列在日语、越南语、藏语下；
+- 每个 flavor 把版本 id、方案列表和默认方案写进 BuildConfig，Java 侧由 `AppEdition` 读取：键盘、设置页和首启引导只列本版本的方案入口，偏好里的方案本版本没有时回退到本版本的默认方案。五笔版只有五笔和手写（没有全拼 9 键），混拼默认打开；手写写进偏好的是本版本的默认方案，所以在五笔版里同样可用；高情商回复是工具栏入口，与方案无关，各版本都有。手写用 ML Kit 的中文模型，只认汉字，所以日文、越南文、藏文版没有手写，键盘只有本版本方案的入口（日文版是日语 9 键和 26 键，越南文、藏文版各一个 26 键）；这三个版本不带 msime.db、n-gram 和整句模型，资源只有英文词库、符号表和清单，日文版另带日文词典。只有一个方案的版本跳过首启引导里选方案那一步；
 - `Bootstrap` 把非 full 的版本 id 交给 `msime_client_prepare_host`，host-api 按本版本的资源锁（`resources/editions/<id>.lock.json`）校验 APK 里的词库，并在状态目录记下版本。
 
-构建某个版本：`MSIME_EDITION=wubi bash platforms/android/build-apk.sh <已锁定词库目录>`，缺省是 full。脚本只暂存本版本资源锁列出的词库和本版本要的语言词库（full 是粤拼、注音和笔画，五笔版和拼音版不带），资源锁在 APK 里仍叫 `desktop-dictionary.lock.json`。`release-android.yml` 按版本矩阵各打一个 APK，全部齐了才发到同一个 `android-v<版本>` 页面，所有版本用同一把发布密钥签名。Google 登录要在 Google Cloud 为每个新包名登记 OAuth client，这一步在仓库之外。
+构建某个版本：`MSIME_EDITION=wubi bash platforms/android/build-apk.sh <已锁定词库目录>`，缺省是 full。脚本只暂存本版本资源锁列出的词库和本版本要的语言词库（full 是粤拼、注音和笔画，其他版本不带），资源锁在 APK 里仍叫 `desktop-dictionary.lock.json`。`release-android.yml` 按版本矩阵各打一个 APK，全部齐了才发到同一个 `android-v<版本>` 页面，所有版本用同一把发布密钥签名。Google 登录要在 Google Cloud 为每个新包名登记 OAuth client，这一步在仓库之外。
 
 ### 手机、大屏与二合一布局边界
 

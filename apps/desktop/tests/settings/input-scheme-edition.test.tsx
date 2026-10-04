@@ -181,3 +181,44 @@ test("the desktop 桌面神经联想 switch is not tied to the keyboard model", 
   await openInputPage(wubiHost);
   expect(screen.getByRole("switch", { name: "桌面神经联想" })).toBeTruthy();
 });
+
+test("a touch host offers 手写 only in an edition with a Chinese scheme", async () => {
+  const vietnameseEdition: EditionInfo = {
+    id: "vietnamese",
+    input_schemes: ["vietnamese"],
+    default_scheme: "vietnamese",
+    temporary_japanese: false,
+    neural_keyboard: false,
+    wubi_mixed_pinyin_default: false,
+  };
+  async function touchSchemes(host: HostCapabilities, scheme: Snapshot["preferences"]["scheme"]) {
+    render(
+      <SettingsPage
+        client={{
+          load: async () => snapshot({ scheme }),
+          save: vi.fn(),
+          host,
+          touchKeyboardSchemes: true,
+        }}
+      />,
+    );
+    await settingsFormReady();
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    await screen.findByRole("group", { name: "输入方案" });
+  }
+
+  // 手写识别器只认汉字：越南文版的键盘只有越南语，没有手写。
+  await touchSchemes(
+    testHost({ platform: "android", input_schemes: ["vietnamese"], edition: vietnameseEdition }),
+    "vietnamese",
+  );
+  expect(screen.getByRole("switch", { name: "显示输入方案 越南语 26 键" })).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "显示输入方案 手写" })).toBeNull();
+  cleanup();
+
+  await touchSchemes(
+    testHost({ platform: "android", input_schemes: ["wubi"], edition: wubiEdition }),
+    "wubi",
+  );
+  expect(screen.getByRole("switch", { name: "显示输入方案 手写" })).toBeTruthy();
+});

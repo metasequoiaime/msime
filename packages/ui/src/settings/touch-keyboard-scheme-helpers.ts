@@ -23,7 +23,7 @@ export type TouchKeyboardSchemePreferences = {
   selected?: TouchKeyboardScheme;
 };
 
-/** 触屏键盘背后的输入方案；手写不属于任何方案（由平台的手写识别器识别），返回 null。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
+/** 触屏键盘背后的输入方案；手写不属于任何方案（由平台的手写识别器识别），返回 null，它只在提供中文方案的版本里有。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
 export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): InputScheme | null {
   switch (scheme) {
     case "handwriting":

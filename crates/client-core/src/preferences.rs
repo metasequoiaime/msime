@@ -486,9 +486,9 @@ impl TouchKeyboardSchemePreferences {
 
     /// `edition` 的触屏键盘还没被用户改过时启用的方案：[`TouchKeyboardScheme::DEFAULT_ENABLED`] 里本版本提供的那些（见 `Edition::offers_touch_scheme`）。full 得到的就是 `Default`。
     ///
-    /// 手写在每个版本都保留。Android 的手写入口目前把偏好的 `scheme` 写成 `quanpin`，在五笔版里 host-api 会把它当作本版本不含的方案回退成五笔：手写识别本身由平台识别器完成，不受影响，受影响的只是手写面板背后那个 Engine 跑的方案。Android 还没有五笔版的构建，P7 引入五笔 flavor 时，让手写入口写入版本的默认方案，并在设备上核对手写之后的联想。
+    /// 手写只在提供中文方案的版本里有（手写识别器只认汉字），手写入口写进偏好的 `scheme` 是本版本的默认方案，五笔版里就是五笔。
     ///
-    /// 只有一个方案的版本启用这个方案的全部触屏入口：越南文和藏文在 full 里默认停用，单独成为一个版本时它们就是这个版本本身。按 `ALL` 顺序排在手写后面的入口（越南文、藏文）同时设为选中，否则第一次打开键盘看到的是手写。五笔版和日文版的入口本来就在缺省集合里、排在手写前面，结果与只取缺省集合相同。
+    /// 只有一个方案的版本启用这个方案的全部触屏入口：越南文和藏文在 full 里默认停用，单独成为一个版本时它们就是这个版本本身。启用的入口按 `ALL` 顺序第一个是手写时，第一个不是手写的入口同时设为选中，否则第一次打开键盘看到的是手写；现有版本里手写要么没有、要么排在本版本的方案后面，选中留空，与只取缺省集合相同。
     pub fn for_edition(edition: &crate::edition::Edition) -> Self {
         let single_scheme = edition.input_schemes.len() == 1;
         let mut preferences = Self {

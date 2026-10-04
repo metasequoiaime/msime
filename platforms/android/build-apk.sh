@@ -64,7 +64,7 @@ languages_source=${MSIME_LANGUAGE_DICTIONARIES:-$repo_root/target/language-dicti
 language_pairs="cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt"
 rm -rf "$assets/language-dictionaries"
 staged_languages=()
-# 只带本版本要的语言词库（版本表的 language_dictionaries）：full 是粤拼、注音和笔画三个，五笔版和拼音版一个也不带。
+# 只带本版本要的语言词库（版本表的 language_dictionaries）：full 是粤拼、注音和笔画三个，其他版本一个也不带。
 for pair in $language_pairs; do
   database=${pair%%:*}
   license=${pair#*:}

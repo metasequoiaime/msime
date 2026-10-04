@@ -5,7 +5,7 @@
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（macOS、Windows 和 Linux）在这里解析，其余平台的段本模块不解析。
 
 use crate::account::AccountPreferenceValue;
-use crate::preferences::{InputScheme, TouchKeyboardScheme};
+use crate::preferences::{ChineseScheme, InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -286,10 +286,15 @@ impl Edition {
         self.input_schemes.contains(&scheme)
     }
 
-    /// 本版本的触屏键盘是否提供这个方案入口：入口背后的输入方案在本版本里时提供。手写不属于任何一个输入方案（识别由平台的手写识别器完成，不经过 Engine 的方案），每个版本都保留它。
+    /// 本版本的触屏键盘是否提供这个方案入口：入口背后的输入方案在本版本里时提供。手写不属于任何一个输入方案（识别由平台的手写识别器完成，不经过 Engine 的方案），但手写面板写出的是汉字（Android 用的是 ML Kit 的 `zh-Hani-CN` 模型），所以只有提供中文方案的版本有手写：full、拼音版和五笔版都有，日文、越南文和藏文版没有。
     pub fn offers_touch_scheme(&self, scheme: TouchKeyboardScheme) -> bool {
         let input = match scheme {
-            TouchKeyboardScheme::Handwriting => return true,
+            TouchKeyboardScheme::Handwriting => {
+                return self
+                    .input_schemes
+                    .iter()
+                    .any(|scheme| ChineseScheme::of(*scheme).is_some())
+            }
             TouchKeyboardScheme::Quanpin | TouchKeyboardScheme::NineKey => InputScheme::Quanpin,
             TouchKeyboardScheme::Xiaohe
             | TouchKeyboardScheme::Ziranma
@@ -713,7 +718,7 @@ mod tests {
     }
 
     #[test]
-    fn touch_scheme_entries_follow_the_input_schemes_and_handwriting_stays() {
+    fn touch_scheme_entries_follow_the_input_schemes_and_handwriting_needs_a_chinese_scheme() {
         let full = Edition::full();
         assert!(TouchKeyboardScheme::ALL
             .into_iter()
@@ -732,10 +737,25 @@ mod tests {
             .into_iter()
             .filter(|scheme| japanese.offers_touch_scheme(*scheme))
             .collect();
-        assert!(offered.contains(&TouchKeyboardScheme::Japanese));
-        assert!(offered.contains(&TouchKeyboardScheme::Handwriting));
-        assert!(!offered.contains(&TouchKeyboardScheme::Quanpin));
-        assert!(!offered.contains(&TouchKeyboardScheme::Wubi));
+        assert_eq!(
+            offered,
+            [
+                TouchKeyboardScheme::JapaneseNineKey,
+                TouchKeyboardScheme::Japanese
+            ]
+        );
+        // 手写识别器只认汉字，没有中文方案的版本不提供手写。
+        for (id, scheme) in [
+            ("vietnamese", TouchKeyboardScheme::Vietnamese),
+            ("tibetan", TouchKeyboardScheme::Tibetan),
+        ] {
+            let edition = Edition::by_id(id).unwrap();
+            let offered: Vec<_> = TouchKeyboardScheme::ALL
+                .into_iter()
+                .filter(|candidate| edition.offers_touch_scheme(*candidate))
+                .collect();
+            assert_eq!(offered, [scheme], "{id}");
+        }
     }
 
     fn artifact_names(set: &ResourceSet) -> BTreeSet<&str> {

@@ -9,6 +9,9 @@ public final class KeyboardSchemeSmoke {
     static final AppEdition FULL = AppEdition.FULL;
     static final AppEdition PINYIN = AppEdition.of("pinyin", "quanpin,shuangpin", "quanpin", true);
     static final AppEdition WUBI = AppEdition.of("wubi", "wubi", "wubi", false);
+    static final AppEdition JAPANESE = AppEdition.of("japanese", "japanese", "japanese", false);
+    static final AppEdition VIETNAMESE = AppEdition.of("vietnamese", "vietnamese", "vietnamese", false);
+    static final AppEdition TIBETAN = AppEdition.of("tibetan", "tibetan", "tibetan", false);
 
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
 
@@ -187,7 +190,7 @@ public final class KeyboardSchemeSmoke {
         System.out.println("Android keyboard schemes: fifteen labels, glyphs, wubi profile titles, opt-in defaults, installed dictionaries, host fallback and shared preference mappings and the per-edition narrowing passed");
     }
 
-    /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在每个版本都有，写进偏好的是本版本的默认方案。 */
+    /** 五笔版和拼音版只列本版本的入口，回退也落在本版本里；手写在有中文方案的版本里都有，写进偏好的是本版本的默认方案。 */
     static void editions() {
         // JVM 冒烟测试里没有 Gradle 生成的 BuildConfig，读到的就是 full。
         check(AppEdition.current() == FULL && FULL.isFull() && FULL.defaultScheme().equals("quanpin"));
@@ -247,5 +250,44 @@ public final class KeyboardSchemeSmoke {
         mapping(PINYIN, KeyboardScheme.HANDWRITING, "wubi", "microsoft", "quanpin", "quanpin", "microsoft");
         check(KeyboardScheme.mappingForRuntimeSelection(
             KeyboardScheme.WUBI, KeyboardScheme.HANDWRITING, "wubi", "xiaohe", WUBI).scheme().equals("wubi"));
+        languageEditions();
+    }
+
+    /** 日文、越南文和藏文版只有本版本方案的入口：手写识别器只认汉字，这三个版本没有手写；越南文和藏文在 full 里要用户自己打开，单独成为一个版本时没存过列表也启用。 */
+    static void languageEditions() {
+        for (AppEdition edition : List.of(JAPANESE, VIETNAMESE, TIBETAN)) {
+            check(!edition.isFull() && !edition.offersSchemeChoice() && !edition.temporaryJapanese());
+            check(!KeyboardScheme.HANDWRITING.offeredBy(edition));
+        }
+        check(KeyboardScheme.HANDWRITING.offeredBy(FULL) && KeyboardScheme.HANDWRITING.offeredBy(PINYIN)
+            && KeyboardScheme.HANDWRITING.offeredBy(WUBI));
+        check(Arrays.stream(KeyboardScheme.values()).filter(value -> value.offeredBy(JAPANESE)).toList().equals(
+            List.of(KeyboardScheme.JAPANESE_NINE_KEY, KeyboardScheme.JAPANESE)));
+        check(Arrays.stream(KeyboardScheme.values()).filter(value -> value.offeredBy(VIETNAMESE)).toList().equals(
+            List.of(KeyboardScheme.VIETNAMESE)));
+        check(Arrays.stream(KeyboardScheme.values()).filter(value -> value.offeredBy(TIBETAN)).toList().equals(
+            List.of(KeyboardScheme.TIBETAN)));
+        check(KeyboardScheme.fallback(JAPANESE) == KeyboardScheme.JAPANESE);
+        check(KeyboardScheme.fallback(VIETNAMESE) == KeyboardScheme.VIETNAMESE);
+        check(KeyboardScheme.fallback(TIBETAN) == KeyboardScheme.TIBETAN);
+        check(KeyboardScheme.enabledFromPreferenceIds(null, JAPANESE).equals(
+            List.of(KeyboardScheme.JAPANESE_NINE_KEY, KeyboardScheme.JAPANESE)));
+        check(KeyboardScheme.enabledFromPreferenceIds(null, VIETNAMESE).equals(List.of(KeyboardScheme.VIETNAMESE)));
+        check(KeyboardScheme.enabledFromPreferenceIds(null, TIBETAN).equals(List.of(KeyboardScheme.TIBETAN)));
+        // 存过的列表（例如 full 那边同步来的）里的手写和别的方案一律丢掉，一个都不剩时回到本版本的方案。
+        check(KeyboardScheme.enabledFromPreferenceIds(List.of("handwriting", "quanpin"), VIETNAMESE)
+            .equals(List.of(KeyboardScheme.VIETNAMESE)));
+        check(KeyboardScheme.installedOf(List.of(KeyboardScheme.values()), "", TIBETAN).equals(
+            List.of(KeyboardScheme.TIBETAN)));
+        // 偏好里是手写布局或别的方案时，与 host-api 一样回到本版本的方案。
+        check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "handwriting", JAPANESE) == KeyboardScheme.JAPANESE);
+        check(KeyboardScheme.fromPreferences("japanese", "xiaohe", "nine_key", JAPANESE) == KeyboardScheme.JAPANESE_NINE_KEY);
+        check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "handwriting", VIETNAMESE) == KeyboardScheme.VIETNAMESE);
+        check(KeyboardScheme.fromPreferences("quanpin", "xiaohe", "twenty_six_key", TIBETAN) == KeyboardScheme.TIBETAN);
+        check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.VIETNAMESE, "handwriting",
+            List.of(KeyboardScheme.VIETNAMESE), VIETNAMESE) == KeyboardScheme.VIETNAMESE);
+        // 本版本没有中文方案，要切回的中文方案仍按引入版本之前的规则落到全拼，host-api 不会跑它（本版本不提供）。
+        mapping(VIETNAMESE, KeyboardScheme.VIETNAMESE, "quanpin", "xiaohe", "vietnamese", "quanpin", "xiaohe");
+        mapping(JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY, "wubi", "xiaohe", "japanese", "quanpin", "xiaohe");
     }
 }

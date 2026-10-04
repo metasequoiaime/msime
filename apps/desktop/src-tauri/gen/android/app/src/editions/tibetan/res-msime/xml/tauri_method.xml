@@ -1,0 +1,4 @@
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" android:supportsSwitchingToNextInputMethod="true" android:settingsActivity="app.msime.android.MainActivity">
+    <!-- 与 src/main/res-msime/xml/tauri_method.xml 相同，只差子类型标签和语言：本版本只输入藏语，子类型登记在 bo 下，系统的语言列表和键盘切换器把它列在藏语下，并按标签与同时装着的其他版本区分。 -->
+    <subtype android:label="@string/app_name" android:imeSubtypeLocale="bo" android:imeSubtypeMode="keyboard" />
+</input-method>
