@@ -29,6 +29,7 @@ import { validVoiceLanguage } from "./voice-panel";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -2327,7 +2328,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     snapshot: CloudDictionarySnapshotMetadata;
     expectedRevision: number;
   } | null>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const lifecycleRevision = useRef(0);
 
   useEffect(() => {
@@ -2341,13 +2342,6 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
   }, [client, invalidate]);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;
@@ -3797,6 +3791,7 @@ export function EmojiPanel({
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const catalogGeneration = useAsyncGeneration(client, catalogRetry);
+  const clipboardLifecycle = useAsyncGeneration(client, page, clipboardRefresh);
 
   function setNotice(message: string, temporary = false) {
     if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
@@ -3887,20 +3882,21 @@ export function EmojiPanel({
       .finally(() => {
         if (generation === catalogGeneration.current) setCatalogLoading(false);
       });
-  }, [client, catalogGeneration]);
+  }, [client, catalogRetry, catalogGeneration]);
 
   useEffect(() => {
     if (!client.clipboard?.list) {
       setClipboardLoadFailed(false);
       return;
     }
-    let active = true;
+    const generation = clipboardLifecycle.current;
+    const isCurrent = () => generation === clipboardLifecycle.current;
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let inFlight = 0;
     let refreshPending = false;
     const refresh = () => {
-      if (!active) return;
+      if (!isCurrent()) return;
       if (inFlight !== 0) {
         refreshPending = true;
         // A newer notification invalidates the current snapshot, but only
@@ -3918,14 +3914,14 @@ export function EmojiPanel({
           ]),
         )
         .then(([value, enabled]) => {
-          if (active && request === clipboardGeneration.current) {
+          if (isCurrent() && request === clipboardGeneration.current) {
             setClipboard(enabled ? value : []);
             setClipboardEnabled(enabled);
             setClipboardLoadFailed(false);
           }
         })
         .catch(() => {
-          if (active && request === clipboardGeneration.current) {
+          if (isCurrent() && request === clipboardGeneration.current) {
             setClipboard([]);
             setClipboardEnabled(null);
             setClipboardLoadFailed(true);
@@ -3933,7 +3929,7 @@ export function EmojiPanel({
         })
         .finally(() => {
           inFlight--;
-          if (active && refreshPending) {
+          if (isCurrent() && refreshPending) {
             refreshPending = false;
             refresh();
           }
@@ -3941,7 +3937,7 @@ export function EmojiPanel({
     };
     const pollVisible = () => {
       if (
-        active &&
+        isCurrent() &&
         document.visibilityState === "visible" &&
         !clipboardMutation.current &&
         inFlight === 0
@@ -3951,7 +3947,7 @@ export function EmojiPanel({
     const start = async () => {
       try {
         const stop = await client.clipboard?.onChanged?.(refresh);
-        if (!active) {
+        if (!isCurrent()) {
           stop?.();
           return;
         }
@@ -3959,7 +3955,7 @@ export function EmojiPanel({
       } catch {
         /* Keep polling if host notification registration fails. */
       }
-      if (!active) return;
+      if (!isCurrent()) return;
       // Close the gap between the initial snapshot and subscription setup.
       refresh();
       if (unsubscribe && poll !== undefined) {
@@ -3977,14 +3973,13 @@ export function EmojiPanel({
     }
     void start();
     return () => {
-      active = false;
       refreshPending = false;
       ++clipboardGeneration.current;
       if (poll !== undefined) clearInterval(poll);
       document.removeEventListener("visibilitychange", pollVisible);
       unsubscribe?.();
     };
-  }, [client, page, clipboardRefresh]);
+  }, [client, page, clipboardLifecycle, clipboardRefresh]);
 
   type DisplayGroup = EmojiCatalogGroup & { moreTarget?: EmojiPage; flow?: boolean };
   const groups =

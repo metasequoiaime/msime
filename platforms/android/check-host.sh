@@ -465,6 +465,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/TelemetryHandlerSmoke.java" \
   "$repo_root/platforms/android/tests/core/PhrasePreeditSmoke.java" \
   "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/InputViewValuePolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
   "$repo_root/platforms/android/tests/core/SelectionEchoTrackerSmoke.java" \
   "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
@@ -541,6 +542,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/FeedbackBodyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/PreferencesRevisionPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountTokenPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
   "$repo_root/platforms/android/tests/settings/TypingStatisticsLifecycleSmoke.java" \
@@ -571,6 +573,7 @@ java -cp "$output_dir:$android_jar" app.msime.android.BootstrapMarkerSmoke
 java -cp "$output_dir:$android_jar" app.msime.android.core.TelemetryHandlerSmoke
 java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
+java -cp "$output_dir:$android_jar" InputViewValuePolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" SelectionEchoTrackerSmoke
 java -cp "$output_dir" PreferencesSmoke
@@ -650,6 +653,7 @@ java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" HostOptionsPolicySmoke
+java -cp "$output_dir" PreferencesRevisionPolicySmoke
 java -cp "$output_dir" AccountTokenPolicySmoke
 java -cp "$output_dir" SignInAttemptPolicySmoke
 java -cp "$output_dir" TypingStatisticsModelSmoke

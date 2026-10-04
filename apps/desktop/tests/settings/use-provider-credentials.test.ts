@@ -120,6 +120,20 @@ test("a credential save from a replaced client is ignored", async () => {
   expect(result.current.providerCredentialMessages.ai).toBeUndefined();
 });
 
+test("clears loaded credentials when the replacement client has no credential capability", async () => {
+  const oldClient = {
+    providerCredentials: { status: vi.fn().mockResolvedValue(savedStatus) } as never,
+  };
+  const { result, rerender } = renderHook(({ client }) => useProviderCredentials({ client }), {
+    initialProps: { client: oldClient },
+  });
+
+  await waitFor(() => expect(result.current.providerCredentials).toEqual(savedStatus));
+  rerender({ client: {} as typeof oldClient });
+
+  await waitFor(() => expect(result.current.providerCredentials).toBeUndefined());
+});
+
 test("a provider credential save in progress ignores another save", async () => {
   let resolve!: (value: ProviderCredentialStatus) => void;
   const pending = new Promise<ProviderCredentialStatus>((accept) => {

@@ -43,6 +43,11 @@ public final class ClipboardHistoryPolicy {
         return text != null && !text.trim().isEmpty();
     }
 
+    public static long timestampValue(Object raw) {
+        long timestamp = KeyboardGeometry.strictLong(raw, 0);
+        return timestamp < 0 ? 0 : timestamp;
+    }
+
     /** The shared store's `reason` turned into the refusal this host words. */
     public static Rejection rejectionFor(String reason) {
         if (REASON_FULL.equals(reason)) return Rejection.FULL;

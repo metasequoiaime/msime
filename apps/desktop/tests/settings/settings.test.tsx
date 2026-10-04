@@ -1767,6 +1767,38 @@ test("the 输入 page offers installed helpcode packs as helpcode schemes", asyn
   expect(within(shuangpin).getByRole("option", { name: "部首码（插件）" })).toBeTruthy();
 });
 
+test("clears helpcode packs when the active host has no plugin catalog", async () => {
+  const catalog = vi.fn().mockResolvedValue({
+    packages: [{ id: "radicals", kind: "helpcode", name: "部首码" }],
+    issues: [],
+  });
+  const withPlugins: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    plugins: {
+      catalog,
+      importPack: vi.fn(),
+      remove: vi.fn(),
+      loadMentions: vi.fn().mockResolvedValue([]),
+      saveMentions: vi.fn(),
+    } as never,
+  };
+  const withoutPlugins: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+  };
+  const view = render(<SettingsPage initialPage="input" client={withPlugins} />);
+  const quanpin = (await view.findByRole("combobox", {
+    name: "全拼辅助码方案",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(within(quanpin).getByRole("option", { name: "部首码（插件）" })));
+
+  view.rerender(<SettingsPage initialPage="input" client={withoutPlugins} />);
+  await waitFor(() =>
+    expect(within(quanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
+  );
+});
+
 test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();

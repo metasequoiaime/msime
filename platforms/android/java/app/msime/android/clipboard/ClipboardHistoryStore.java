@@ -124,7 +124,8 @@ public final class ClipboardHistoryStore {
             if (entry == null) continue;
             String text = entry.optString("text", "");
             if (text.isEmpty()) continue;
-            items.add(new ClipboardHistory.Item(text, entry.optLong("timestampMs", 0),
+            items.add(new ClipboardHistory.Item(text,
+                ClipboardHistoryPolicy.timestampValue(entry.opt("timestampMs")),
                 entry.optBoolean("pinned", false)));
         }
         return items;
