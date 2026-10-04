@@ -9,6 +9,16 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
   private var prepared: UInt64?
   private var stagingRoot: URL?
   init(context: NSDictionary, snapshot: BackendPreparedSnapshot) { self.context = context; self.snapshot = snapshot }
+  static func strictHandle(_ raw: Any?) -> UInt64? {
+    guard !(raw is Bool), let number = raw as? NSNumber else { return nil }
+    switch String(cString: number.objCType) {
+    case "C", "S", "I", "L", "Q": return number.uint64Value
+    case "c", "s", "i", "l", "q":
+      let value = number.int64Value
+      return value >= 0 ? UInt64(value) : nil
+    default: return nil
+    }
+  }
   static func invoke(_ selector: String, _ parameters: NSDictionary? = nil) throws -> NSDictionary {
     guard let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           let result = type.perform(NSSelectorFromString(selector), with: parameters)?.takeUnretainedValue() as? NSDictionary else {
@@ -32,8 +42,10 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
       "expected_version": version, "records": snapshot.envelope.records,
       "activation_id": identifier]
     let result = try Self.invoke("prepareSnapshot:", ["request": request, "nextRecord": next])
-    guard let number = result["handle"] as? NSNumber else { throw BackendAccountClient.Failure(status: 500) }
-    prepared = number.uint64Value
+    guard let handle = Self.strictHandle(result["handle"]) else {
+      throw BackendAccountClient.Failure(status: 500)
+    }
+    prepared = handle
   }
   @MainActor func activate() throws {
     guard let prepared else { throw BackendAccountClient.Failure(status: 400) }
