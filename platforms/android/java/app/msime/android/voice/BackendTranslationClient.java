@@ -78,9 +78,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
 
     /** A successful response status is an integer JSON number, never a coerced fraction or boolean. */
     static boolean successStatusCode(Object value) {
-        if (!(value instanceof Number) || value instanceof Boolean) return false;
-        double number = ((Number) value).doubleValue();
-        return Double.isFinite(number) && number == 200.0;
+        return KeyboardGeometry.strictLong(value, -1) == 200;
     }
 
     /** Validate already-decoded values without org.json's coercing accessors. */
