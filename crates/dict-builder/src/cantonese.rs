@@ -1,4 +1,4 @@
-//! `msime-cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `yue/` 下，锁文件按固定提交读取。
+//! `msime-cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `sources/cantonese/` 下，锁文件按固定提交读取。
 //!
 //! Three files are read: `jyut6ping3.chars.dict.yaml` (one character, its toned reading and an optional `N%` share of that character's use per row), `jyut6ping3.words.dict.yaml` (one word and its toned readings per row) and `essay-cantonese.txt` (Rime's word frequency list, one `text<TAB>count` per line). `jyut6ping3.maps.dict.yaml` is ODbL and `jyut6ping3.phrase.dict.yaml` has no readings and no clear provenance, so neither is pinned or read; neither is `jyut6ping3.lettered.dict.yaml`.
 //!
@@ -17,9 +17,9 @@ use rusqlite::{Connection, OpenFlags};
 
 use crate::sqlite;
 
-pub const CHARACTERS: &str = "yue/jyut6ping3.chars.dict.yaml";
-pub const WORDS: &str = "yue/jyut6ping3.words.dict.yaml";
-pub const ESSAY: &str = "yue/essay-cantonese.txt";
+pub const CHARACTERS: &str = "sources/cantonese/jyut6ping3.chars.dict.yaml";
+pub const WORDS: &str = "sources/cantonese/jyut6ping3.words.dict.yaml";
+pub const ESSAY: &str = "sources/cantonese/essay-cantonese.txt";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "rime-cantonese";
 /// The SPDX identifier recorded as the database's `license`.
@@ -554,7 +554,7 @@ mod tests {
         let mut pinned: Vec<&str> = lock
             .files
             .iter()
-            .filter(|file| file.path.starts_with("yue/"))
+            .filter(|file| file.path.starts_with("sources/cantonese/"))
             .map(|file| {
                 crate::sources::assert_dictionary_repository_file(file);
                 file.path.as_str()

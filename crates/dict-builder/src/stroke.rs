@@ -1,12 +1,12 @@
-//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `cn/SingleCharsAllV1.txt`（rime-ice 字频，GPL-3.0）。
+//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0）。
 //!
-//! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `SingleCharsAllV1.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
+//! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
 //! 只收基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字，其余区段只收在字频表里出现过的字。上游还收了扩展 B 区及以后的七万多个字、西夏文部件、部首与笔画符号，几乎都没有字频；macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
+//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `sources/stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,9 +19,9 @@ use crate::sources::{sha256_file, Sources};
 use crate::sqlite;
 use crate::text;
 
-pub const SOURCE: &str = "stroke/stroke.dict.yaml";
+pub const SOURCE: &str = "sources/stroke/stroke.dict.yaml";
 /// 字频来源，quanpin 阶段也读同一份固定文件。
-pub const FREQUENCIES: &str = "cn/SingleCharsAllV1.txt";
+pub const FREQUENCIES: &str = "sources/pinyin/single-chars.txt";
 /// 锁文件里记录上游提交的引用名；固定之后它的提交就是数据库的 `source_commit`。
 pub const REFERENCE: &str = "rime-stroke";
 pub const REPOSITORY: &str = "https://github.com/rime/rime-stroke";
@@ -188,7 +188,7 @@ pub fn parse(source: &str) -> Result<Vec<Row<'_>>> {
     Ok(rows)
 }
 
-/// `SingleCharsAllV1.txt` 的 `字<TAB>拼音<TAB>权重` 行（CRLF 换行，`#` 行跳过），每个字所有读音的权重之和。
+/// `single-chars.txt` 的 `字<TAB>拼音<TAB>权重` 行（CRLF 换行，`#` 行跳过），每个字所有读音的权重之和。
 pub fn parse_frequencies(source: &str) -> Result<HashMap<&str, i64>> {
     let mut weights: HashMap<&str, i64> = HashMap::new();
     for (index, line) in source.lines().enumerate() {
@@ -568,7 +568,7 @@ mod tests {
         let pinned: Vec<_> = lock
             .files
             .iter()
-            .filter(|file| file.path.starts_with("stroke/"))
+            .filter(|file| file.path.starts_with("sources/stroke/"))
             .collect();
         for file in &pinned {
             crate::sources::assert_dictionary_repository_file(file);

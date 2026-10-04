@@ -140,10 +140,15 @@ pub struct CustomWord {
 
 /// `word<TAB>pinyin<TAB>weight`. A malformed line fails the stage: the file is short and hand-edited, so an error is cheaper than a silently dropped word. A word listed twice keeps its higher weight.
 pub fn parse_custom_words(text: &str) -> Result<Vec<CustomWord>> {
+    parse_word_list(text, "custom/words.txt")
+}
+
+/// A `word<TAB>pinyin<TAB>weight` list read like custom/words.txt (blank and `#` lines skipped, a malformed line an error), with errors located in `path`.
+pub fn parse_word_list(text: &str, path: &str) -> Result<Vec<CustomWord>> {
     let mut entries: IndexMap<(String, String), CustomWord> = IndexMap::new();
     for (number, line) in text::splitlines(text).into_iter().enumerate() {
         let Some(entry) =
-            parse_custom_word(line).with_context(|| format!("custom/words.txt:{}", number + 1))?
+            parse_custom_word(line).with_context(|| format!("{path}:{}", number + 1))?
         else {
             continue;
         };
@@ -671,7 +676,7 @@ mod tests {
         std::fs::write(&primary, bytes).unwrap();
         let supplement = write(
             dir.path(),
-            "Wubi98Fcitx.txt",
+            "wubi98-fcitx.txt",
             "[Data]\nukuy 部门\nukuy 冲凉\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();

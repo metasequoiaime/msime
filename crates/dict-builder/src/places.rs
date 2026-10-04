@@ -17,7 +17,7 @@ pub const CITIES: &str = "places/cities.csv";
 pub const AREAS: &str = "places/areas.csv";
 
 /// Rows of `cities.csv` that group a province's directly administered districts or counties rather than name a city. Their districts take the province as their parent.
-const GROUPING_CITIES: [&str; 4] = [
+pub(crate) const GROUPING_CITIES: [&str; 4] = [
     "市辖区",
     "县",
     "省直辖县级行政区划",
@@ -42,6 +42,8 @@ const READINGS: &[(&str, &str)] = &[
     ("番禺", "pan'yu"),
     ("乐亭", "lao'ting"),
     ("乐清", "yue'qing"),
+    // 新华字典 (as zdic.net quotes it): 乐 lào, 地名用字：河北省乐亭、山东省乐陵.
+    ("乐陵", "lao'ling"),
     ("东阿", "dong'e"),
     ("牟平", "mu'ping"),
     ("穆棱", "mu'ling"),
@@ -59,6 +61,10 @@ const READINGS: &[(&str, &str)] = &[
     ("尉犁", "yu'li"),
     ("蔚县", "yu'xian"),
     ("洪洞", "hong'tong"),
+    // 民政部、教育部、国家语委 2014 年联合批复宕昌县县名读音定为 tàn chāng (cited by zh.wikipedia 宕昌县 from 宕昌县人民政府, 2014-03-31, 国家三部委联合为甘肃省宕昌县正名定音促发展).
+    ("宕昌", "tan'chang"),
+    // 新华字典 (as zdic.net quotes it): 峒 tóng 〔崆峒〕; the district is named after 崆峒山 (Kōngtóng).
+    ("崆峒", "kong'tong"),
     ("单县", "shan'xian"),
     ("繁峙", "fan'shi"),
     ("铅山", "yan'shan"),
@@ -79,7 +85,7 @@ pub struct Place {
     pub parent: String,
 }
 
-fn records(source: &str, path: &str, columns: usize) -> Result<Vec<Vec<String>>> {
+pub(crate) fn records(source: &str, path: &str, columns: usize) -> Result<Vec<Vec<String>>> {
     let mut reader = csv::Reader::from_reader(source.as_bytes());
     let mut rows = Vec::new();
     for (index, record) in reader.records().enumerate() {
@@ -96,6 +102,31 @@ fn records(source: &str, path: &str, columns: usize) -> Result<Vec<Vec<String>>>
     Ok(rows)
 }
 
+/// The `READINGS` entry that applies at the start of `rest`: the longest fragment it starts with.
+fn reading_at(rest: &str) -> Option<(usize, &'static (&'static str, &'static str))> {
+    READINGS
+        .iter()
+        .enumerate()
+        .filter(|(_, (fragment, _))| rest.starts_with(fragment))
+        .max_by_key(|(_, (fragment, _))| fragment.chars().count())
+}
+
+/// Which characters of a place name take their reading from a `READINGS` entry of two or more characters: a reading checked for that place, unlike a single-character default such as `长` chang.
+pub(crate) fn reviewed_positions(name: &str) -> Vec<bool> {
+    let characters: Vec<char> = name.chars().collect();
+    let mut reviewed = vec![false; characters.len()];
+    let mut position = 0;
+    while position < characters.len() {
+        let rest: String = characters[position..].iter().collect();
+        let length = reading_at(&rest).map_or(1, |(_, (fragment, _))| fragment.chars().count());
+        if length >= 2 {
+            reviewed[position..position + length].fill(true);
+        }
+        position += length;
+    }
+    reviewed
+}
+
 /// The pinyin key of a place name, applying `READINGS` and recording which entries were used.
 fn key(name: &str, used: &mut [bool]) -> Result<String> {
     let characters: Vec<char> = name.chars().collect();
@@ -103,12 +134,7 @@ fn key(name: &str, used: &mut [bool]) -> Result<String> {
     let mut position = 0;
     while position < characters.len() {
         let rest: String = characters[position..].iter().collect();
-        let reading = READINGS
-            .iter()
-            .enumerate()
-            .filter(|(_, (fragment, _))| rest.starts_with(fragment))
-            .max_by_key(|(_, (fragment, _))| fragment.chars().count());
-        if let Some((index, (fragment, reading))) = reading {
+        if let Some((index, (fragment, reading))) = reading_at(&rest) {
             used[index] = true;
             syllables.extend(reading.split('\'').map(str::to_owned));
             position += fragment.chars().count();
@@ -265,6 +291,16 @@ mod tests {
         assert_eq!(place(&places, "长子区").key, "zhang'zi'qu");
         assert_eq!(place(&places, "长区").key, "chang'qu");
         assert_eq!(place(&places, "朝阳区").key, "chao'yang'qu");
+        assert_eq!(place(&places, "乐陵区").key, "lao'ling'qu");
+        assert_eq!(place(&places, "崆峒区").key, "kong'tong'qu");
+        assert_eq!(place(&places, "宕昌区").key, "tan'chang'qu");
+    }
+
+    #[test]
+    fn reviewed_positions_cover_multi_character_readings_only() {
+        assert_eq!(reviewed_positions("六合区"), [true, true, false]);
+        assert_eq!(reviewed_positions("长沙"), [false, false]);
+        assert_eq!(reviewed_positions("长子县"), [true, true, false]);
     }
 
     #[test]

@@ -7,16 +7,17 @@
 | 文件 | 上游 | 上游许可 |
 | --- | --- | --- |
 | `source/BaseDict.txt`、`cn/BaseDictV1.txt` | [wuhgit/CustomPinyinDictionary](https://github.com/wuhgit/CustomPinyinDictionary) | **未声明** |
-| `source/BaseDictIce.txt`、`cn/BaseDictIceV1.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 |
-| `cn/RimeIceSupplementV1.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，提交 `3aea6d3694fb3d94ec663641f021f788822897ad` 的开源词条，排除 `BaseDictIceV1.txt` 已有的同词同音行 | GPL-3.0 |
-| `cn/BaseDictAllV1Part1.txt`、`cn/BaseDictAllV1Part2.txt` | 上面两者合并去重 | GPL-3.0 与**未声明**的混合 |
-| `cn/SingleCharsAllV1.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT |
+| `source/BaseDictIce.txt`、`sources/pinyin/rime-ice.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 |
+| `sources/pinyin/rime-ice-supplement.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，提交 `3aea6d3694fb3d94ec663641f021f788822897ad` 的开源词条，排除 `rime-ice.txt` 已有的同词同音行 | GPL-3.0 |
+| `sources/pinyin/places.txt` | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)，提交 `c49d495b40ac73eb1a66f6eeae5f8fd10696f035` 的 `dist/provinces.csv`、`dist/cities.csv`、`dist/areas.csv`，由 `crates/dict-builder` 的 `places-supplement` 子命令生成行政区划全称与简称，只收 `rime-ice.txt`、`rime-ice-supplement.txt` 没有、或权重不超过 10 且低于分层下限的词（已有排名的词不抬升），构建时按只升不降并入 | WTFPL（区划名称，`resources/licenses/Administrative-divisions-of-China-WTFPL.txt`）；读音的证实与权重下限依据 rime-ice 的 `rime-ice.txt`、`rime-ice-supplement.txt`（GPL-3.0） |
+| `sources/unlicensed/custom-pinyin-dictionary-part1.txt`、`sources/unlicensed/custom-pinyin-dictionary-part2.txt` | 上面两者合并去重 | GPL-3.0 与**未声明**的混合 |
+| `sources/pinyin/single-chars.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT |
 | `source/SampleIMESimplifiedQuanPin.txt` | [microsoft/Windows-classic-samples](https://github.com/microsoft/Windows-classic-samples) | MIT |
-| `cn/Wubi86.txt`（`msime-wubi.db` 的 `wubi86` 表） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 |
-| `cn/Wubi98.txt`（`msime-wubi.db` 的 `wubi98` 表） | [yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)（98五笔小组）提交 `6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697` 的 `98五笔含词表-【单义】.txt`，逐字节未改；同一作者 2021 年也把这份表贡献给 [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)（`tables/wubi98.txt`） | Unlicense。权利声明来自数据作者本人；上游没有记录基础单字编码与简码的生成过程，只能确认它们依照 98 版五笔编码规范 |
-| `cn/Wubi98Fcitx.txt`（与 `cn/Wubi98.txt` 合并进入 `msime-wubi.db` 的 `wubi98` 表） | [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)，提交 `dbc7154a7f0b9fc04313160ae8066ed4d8cbc446` 的 `tables/wubi98.txt` | GPL-3.0-or-later（随上游仓库的 `LICENSES/GPL-3.0-or-later.txt`） |
+| `sources/wubi/wubi86-jidian.txt`（`msime-wubi.db` 的 `wubi86` 表） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 |
+| `sources/wubi/wubi98.txt`（`msime-wubi.db` 的 `wubi98` 表） | [yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)（98五笔小组）提交 `6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697` 的 `98五笔含词表-【单义】.txt`，逐字节未改；同一作者 2021 年也把这份表贡献给 [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)（`tables/wubi98.txt`） | Unlicense。权利声明来自数据作者本人；上游没有记录基础单字编码与简码的生成过程，只能确认它们依照 98 版五笔编码规范 |
+| `sources/wubi/wubi98-fcitx.txt`（与 `sources/wubi/wubi98.txt` 合并进入 `msime-wubi.db` 的 `wubi98` 表） | [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)，提交 `dbc7154a7f0b9fc04313160ae8066ed4d8cbc446` 的 `tables/wubi98.txt` | GPL-3.0-or-later（随上游仓库的 `LICENSES/GPL-3.0-or-later.txt`） |
 | `cn/53013_single.txt` | Unicode 收录的汉字单字表 | 数据本身来自 Unicode 标准；不被任何构建阶段读取，因此不进入任何产物 |
-| `cn/SingleCharWhitelist.txt` | **待确认**，见下方「待解决」 | **待确认** |
+| `sources/unlicensed/single-char-whitelist.txt` | **待确认**，见下方「待解决」 | **待确认** |
 | `source/FanyExtDict.txt`、`cn/phrases.txt` | 本项目自建 | 见下方「本项目自建部分」 |
 | `cn/HelpCode.txt` | 规则参考小鹤形码 | 权利归小鹤方案作者 |
 
@@ -30,9 +31,9 @@
 
 | 文件 | 上游 | 上游许可 |
 | --- | --- | --- |
-| `en/BaseDictIceEn.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 |
-| `en/google_count_1_w.txt` | [Google 1/3 million 词频表](https://www.norvig.com/ngrams/count_1w.txt) | 以来源页面说明为准 |
-| `en/oaldpe_words.txt` | 自 oaldpe.mdx 提取的词形列表 | 权利归词典出版方 |
+| `sources/english/rime-ice-en.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 |
+| `sources/english/google-word-counts.txt` | [Google 1/3 million 词频表](https://www.norvig.com/ngrams/count_1w.txt) | 以来源页面说明为准 |
+| `sources/unlicensed/oaldpe-words.txt` | 自 oaldpe.mdx 提取的词形列表 | 权利归词典出版方 |
 | `kaomoji/` | [aoguai/rime_kaomoji_dict](https://github.com/aoguai/rime_kaomoji_dict) | MIT |
 | 候选翻译数据 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) | MIT |
 | `resources/dictionary-sources/pinyin-overrides.txt`（emoji、颜文字与符号关键词的整词读音） | [mozillazg/python-pinyin](https://github.com/mozillazg/python-pinyin) 0.55 的 `lazy_pinyin` 输出 | MIT |
@@ -53,7 +54,7 @@
 
 ## 下游影响
 
-由 `cn/BaseDictAllV1Part1.txt` 与 `cn/BaseDictAllV1Part2.txt` 构建出的 `msime-pinyin.db` 同时包含 rime-ice（GPL-3.0）与 CustomPinyinDictionary（未声明许可）的内容，其 `japanese_lexicon` 表还包含 rime-jp_sela（未声明许可）的内容。使用该数据库的前端本身以 GPL-3.0 分发，与 rime-ice 兼容，但**必须保留对 rime-ice 的署名**。
+由 `sources/unlicensed/custom-pinyin-dictionary-part1.txt` 与 `sources/unlicensed/custom-pinyin-dictionary-part2.txt` 构建出的 `msime-pinyin.db` 同时包含 rime-ice（GPL-3.0）与 CustomPinyinDictionary（未声明许可）的内容，其 `japanese_lexicon` 表还包含 rime-jp_sela（未声明许可）的内容。使用该数据库的前端本身以 GPL-3.0 分发，与 rime-ice 兼容，但**必须保留对 rime-ice 的署名**。
 
 三个前端都分发这份数据，署名各自落在这些文件里：
 
@@ -71,8 +72,8 @@
 
 - [wuhgit/CustomPinyinDictionary](https://github.com/wuhgit/CustomPinyinDictionary) 未声明任何许可，而它是 `msime-pinyin.db` 的主体。
 - [Selaube/rime-jp_sela](https://github.com/Selaube/rime-jp_sela) 未声明任何许可，`msime-pinyin.db` 的 `japanese_lexicon` 表由它构建。
-- `cn/SingleCharWhitelist.txt` 的来源没有记录。它参与 `msime-pinyin.db` 的构建（Rust 构建器 `crates/dict-builder` 的 `quanpin` 阶段在 `--include-unlicensed` 构建里用它过滤单字条目，并补上 `resources/dictionary-sources/cn/SingleCharWhitelist.additions.txt` 里的字），所以需要补上来源；在补上之前不要假定它可以再分发。因此 msime 仓库不存放这份文件，构建时按 `resources/dictionary-sources.lock.json` 固定的版本下载。
-- `en/oaldpe_words.txt` 提取自商业词典。词典本体 `en/oaldpe.mdx` 曾经也在本仓中，现已移除——构建只需要提取好的词形列表，不需要词典本体。需要重新生成词表时，自备 `.mdx` 并作为参数传给 `makecikudb/englishdb/extract_oaldpe_headwords.py`。**注意移除只影响当前版本，该文件仍留在 git 历史中。**改写历史会让所有 fork、clone 以及下游 `product-lock.json` 里锁定的 commit 全部失效，因此暂不改写；是否改写单独决策。
+- `sources/unlicensed/single-char-whitelist.txt` 的来源没有记录。它参与 `msime-pinyin.db` 的构建（Rust 构建器 `crates/dict-builder` 的 `quanpin` 阶段在 `--include-unlicensed` 构建里用它过滤单字条目，并补上 `resources/dictionary-sources/cn/SingleCharWhitelist.additions.txt` 里的字），所以需要补上来源；在补上之前不要假定它可以再分发。因此 msime 仓库不存放这份文件，构建时按 `resources/dictionary-sources.lock.json` 固定的版本下载。
+- `sources/unlicensed/oaldpe-words.txt` 提取自商业词典。词典本体 `en/oaldpe.mdx` 曾经也在本仓中，现已移除——构建只需要提取好的词形列表，不需要词典本体。需要重新生成词表时，自备 `.mdx` 并作为参数传给 `makecikudb/englishdb/extract_oaldpe_headwords.py`。**注意移除只影响当前版本，该文件仍留在 git 历史中。**改写历史会让所有 fork、clone 以及下游 `product-lock.json` 里锁定的 commit 全部失效，因此暂不改写；是否改写单独决策。
 - 辅助码规则参考自小鹤形码，权利归方案作者。
 
 ### 构建默认不再包含这些条目
@@ -81,9 +82,9 @@
 
 | 排除的输入 | 替代 | 后果 |
 | --- | --- | --- |
-| `cn/BaseDictAllV1Part1.txt`、`Part2.txt` | `cn/BaseDictIceV1.txt`（rime-ice，GPL-3.0） | 中文词库召回下降；rime-ice 是合并前的子集，构建不会失败 |
-| `cn/SingleCharWhitelist.txt` | 无 | 不做过滤，`SingleCharsAllV1.txt` 里的单字全部收入 |
-| `en/oaldpe_words.txt` | 无 | 英文词表只来自 `BaseDictIceEn.txt` |
+| `sources/unlicensed/custom-pinyin-dictionary-part1.txt`、`custom-pinyin-dictionary-part2.txt` | `sources/pinyin/rime-ice.txt`（rime-ice，GPL-3.0） | 中文词库召回下降；rime-ice 是合并前的子集，构建不会失败 |
+| `sources/unlicensed/single-char-whitelist.txt` | 无 | 不做过滤，`single-chars.txt` 里的单字全部收入 |
+| `sources/unlicensed/oaldpe-words.txt` | 无 | 英文词表只来自 `rime-ice-en.txt` |
 | `rime-jp_sela` | 无 | Rust 构建器没有 `japanese-lexicon` 阶段，`msime-pinyin.db` 不含该表 |
 
 想构建完整词库（本地开发、评估召回率）用 `--include-unlicensed`，或设环境变量 `MSIME_DICT_INCLUDE_UNLICENSED=1`。**这样构建出来的产物不要附到 release 上。**

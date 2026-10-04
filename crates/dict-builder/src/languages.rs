@@ -156,7 +156,7 @@ mod tests {
         );
     }
 
-    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 12 MB）。锁文件固定 `stroke/stroke.dict.yaml` 之前，要先把 rime-stroke 的原文件放到 `target/dict-cache/stroke/`（见 `stroke::source`）。
+    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 17 MB）。
     #[test]
     #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼、注音与字频源文件"]
     fn builds_from_the_pinned_sources() {

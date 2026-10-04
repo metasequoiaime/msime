@@ -33,16 +33,16 @@ pub fn parse_oaldpe_words(text: &str) -> Result<BTreeSet<String>> {
         let word = text::strip(line);
         if !is_ascii_word(word) || word.bytes().any(|b| b.is_ascii_uppercase()) {
             bail!(
-                "oaldpe_words.txt:{}: expected a lowercase ASCII word, got {word:?}",
+                "oaldpe-words.txt:{}: expected a lowercase ASCII word, got {word:?}",
                 number + 1
             );
         }
         if !words.insert(word.to_owned()) {
-            bail!("oaldpe_words.txt:{}: duplicate word {word:?}", number + 1);
+            bail!("oaldpe-words.txt:{}: duplicate word {word:?}", number + 1);
         }
     }
     if words.is_empty() {
-        bail!("oaldpe_words.txt: file is empty");
+        bail!("oaldpe-words.txt: file is empty");
     }
     Ok(words)
 }
@@ -58,7 +58,7 @@ pub fn parse_base_dict_words(text: &str) -> Result<BTreeMap<String, String>> {
         let mut fields: Vec<&str> = text::split_whitespace(stripped).collect();
         if fields.len() < 2 {
             bail!(
-                "BaseDictIceEn.txt:{}: expected display input-code [weight]",
+                "rime-ice-en.txt:{}: expected display input-code [weight]",
                 number + 1
             );
         }
@@ -75,7 +75,7 @@ pub fn parse_base_dict_words(text: &str) -> Result<BTreeMap<String, String>> {
         }
     }
     if displays.is_empty() {
-        bail!("BaseDictIceEn.txt: no pure English words found");
+        bail!("rime-ice-en.txt: no pure English words found");
     }
     Ok(displays
         .into_iter()
@@ -877,7 +877,7 @@ mod tests {
             "asr asr\nfig fig\nfigure figure\nfigwort figwort\nwebview webview\n",
         )
         .unwrap();
-        // The smallest count is 12711, as in google_count_1_w.txt; figwort and figma were never counted.
+        // The smallest count is 12711, as in google-word-counts.txt; figwort and figma were never counted.
         let counts = parse_google_counts(
             "figure\t9000000\nfig\t400000\nasr\t779429\nwebview\t79275\nzzz\t12711\n",
         );

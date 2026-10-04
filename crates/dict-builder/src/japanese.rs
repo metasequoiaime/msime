@@ -12,21 +12,21 @@ use crate::text;
 
 pub const MAGIC: &[u8; 8] = b"MSJPDT1\0";
 pub const DICTIONARY_FILES: [&str; 10] = [
-    "ja/mozc/dictionary00.txt",
-    "ja/mozc/dictionary01.txt",
-    "ja/mozc/dictionary02.txt",
-    "ja/mozc/dictionary03.txt",
-    "ja/mozc/dictionary04.txt",
-    "ja/mozc/dictionary05.txt",
-    "ja/mozc/dictionary06.txt",
-    "ja/mozc/dictionary07.txt",
-    "ja/mozc/dictionary08.txt",
-    "ja/mozc/dictionary09.txt",
+    "sources/japanese/dictionary00.txt",
+    "sources/japanese/dictionary01.txt",
+    "sources/japanese/dictionary02.txt",
+    "sources/japanese/dictionary03.txt",
+    "sources/japanese/dictionary04.txt",
+    "sources/japanese/dictionary05.txt",
+    "sources/japanese/dictionary06.txt",
+    "sources/japanese/dictionary07.txt",
+    "sources/japanese/dictionary08.txt",
+    "sources/japanese/dictionary09.txt",
 ];
-pub const ID_DEF: &str = "ja/mozc/id.def";
-pub const CONNECTION: &str = "ja/mozc/connection_single_column.txt";
+pub const ID_DEF: &str = "sources/japanese/id.def";
+pub const CONNECTION: &str = "sources/japanese/connection_single_column.txt";
 /// Mozc 的 README 包含模型所依据的 IPAdic、ICOT 与冲绳词典说明，因此随模型一同发布。
-pub const NOTICE: &str = "ja/mozc/README.txt";
+pub const NOTICE: &str = "sources/japanese/README.txt";
 pub const NOTICE_NAME: &str = "msime-mozc_dictionary_oss_README.txt";
 
 const HEADER_SIZE: u64 = 56;

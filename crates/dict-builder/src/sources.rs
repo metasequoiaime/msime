@@ -273,9 +273,32 @@ mod tests {
         for file in &lock.files {
             assert_eq!(file.sha256.len(), 64, "{}", file.path);
             assert!(file.url.starts_with("https://"), "{}", file.path);
-            if file.path.starts_with("ja/") || file.path.starts_with("ko/") {
+            if file.path.starts_with("sources/japanese/")
+                || file.path.starts_with("sources/korean/")
+            {
                 assert_dictionary_repository_file(file);
             }
         }
+    }
+
+    // The manifest reports references["msime-dictionary"].commit as the source commit of a release, so every file fetched from that repository has to come from that same commit.
+    #[test]
+    fn every_dictionary_repository_file_is_pinned_to_the_referenced_commit() {
+        const RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/dictionary-sources.lock.json");
+        let lock = Lock::load(&path).unwrap();
+        let commit = &lock.references["msime-dictionary"].commit;
+        let mut pinned = 0;
+        for file in lock.files.iter().filter(|file| file.url.starts_with(RAW)) {
+            assert_dictionary_repository_file(file);
+            assert!(
+                file.url.starts_with(&format!("{RAW}{commit}/")),
+                "{} is not pinned to the referenced msime-dictionary commit {commit}",
+                file.url
+            );
+            pinned += 1;
+        }
+        assert!(pinned > 0, "no msime-dictionary file is pinned");
     }
 }

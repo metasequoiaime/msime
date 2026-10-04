@@ -4,7 +4,7 @@ Copyright (c) 2025 libchewing Core Team
 
 Used by MSIME: dict/chewing/tsi.csv and dict/chewing/word.csv, each of which declares "dc:license,LGPL-2.1-or-later" in its header. MSIME converts them into its Zhuyin dictionary (msime-zhuyin.db) and derives its bopomofo syllable inventory from them; no other file of libchewing-data is used.
 
-The same Zhuyin dictionary also includes the converted supplement `tw/McBopomofoSupplement.txt`, derived from openvanilla/McBopomofo, commit be6564acad6c4d3265c34a2e1a872d80f9db6068, `Source/Data/BPMFMappings.txt`. The upstream data notes that the multi-character mappings originate from BSD-licensed libtabe with modifications. MSIME converts each row to `text,0,reading` and removes combinations already present in `tsi.csv`; the supplement is distributed under the BSD terms that apply to that upstream data.
+The same Zhuyin dictionary also includes the converted supplement `sources/zhuyin/mcbopomofo-supplement.txt`, derived from openvanilla/McBopomofo, commit be6564acad6c4d3265c34a2e1a872d80f9db6068, `Source/Data/BPMFMappings.txt`. The upstream data notes that the multi-character mappings originate from BSD-licensed libtabe with modifications. MSIME converts each row to `text,0,reading` and removes combinations already present in `tsi.csv`; the supplement is distributed under the BSD terms that apply to that upstream data.
 
 Supplement source: https://github.com/openvanilla/McBopomofo/tree/be6564acad6c4d3265c34a2e1a872d80f9db6068/Source/Data
 

@@ -5,6 +5,7 @@
 //! msime-dict-build --cache <dir> --out <dir> --skip ngram    a quick local build without the corpus pass
 //! msime-dict-build --list
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
+//! msime-dict-build places-supplement --cache <dir> --out <places.txt> [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build languages --cache <dir> [--out <dir>] [--offline]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
@@ -22,6 +23,7 @@ mod ngram;
 mod others;
 mod pinyin;
 mod places;
+mod places_supplement;
 mod product;
 mod sources;
 mod sqlite;
@@ -41,6 +43,8 @@ use crate::sources::{Lock, Sources};
 enum Stage {
     /// Quanpin tables in msime-pinyin.db (tbl_{1..7,others}_{initial})
     Quanpin,
+    /// sources/pinyin/places.txt (pinned from msime-dictionary) merged into the quanpin tables, raising weights only
+    PlacesSupplement,
     /// custom/words.txt (pinned from msime-dictionary) merged into the quanpin tables
     CustomWords,
     /// 86 wubi table in msime-pinyin.db
@@ -68,8 +72,9 @@ enum Stage {
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 13] = [
+const STAGES: [Stage; 14] = [
     Stage::Quanpin,
+    Stage::PlacesSupplement,
     Stage::CustomWords,
     Stage::Wubi,
     Stage::Wubi98,
@@ -129,9 +134,11 @@ enum Command {
     CheckWords(CheckWords),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
-    /// 从 sources lock 固定的 libhangul `ko/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
+    /// Write msime-dictionary's sources/pinyin/places.txt: the administrative place names (full and short) the pinned pinyin sources lack or rank below their level's floor, from the divisions pinned under places/.
+    PlacesSupplement(PlacesSupplement),
+    /// 从 sources lock 固定的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
-    /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
+    /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under sources/cantonese/ and sources/zhuyin/ in the sources lock, rime-stroke's stroke.dict.yaml pinned at sources/stroke/stroke.dict.yaml in the sources lock (stroke.rs's recorded commit, size and SHA-256 only check a file placed in the cache when the lock has no such entry) and the pinned sources/pinyin/single-chars.txt frequencies.
     Languages(Languages),
 }
 
@@ -169,6 +176,106 @@ fn build_places(arguments: &Places) -> Result<()> {
     eprintln!(
         "[done] {} places -> {}",
         places.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct PlacesSupplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/pinyin/places.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let (provinces, cities, areas) = (
+        read(places::PROVINCES)?,
+        read(places::CITIES)?,
+        read(places::AREAS)?,
+    );
+    let (single_chars, base, rime_ice_supplement) = (
+        read(places_supplement::SINGLE_CHARS)?,
+        read(places_supplement::BASE)?,
+        read(places_supplement::RIME_ICE_SUPPLEMENT)?,
+    );
+    let supplement = places_supplement::build(&places_supplement::Inputs {
+        provinces: &provinces,
+        cities: &cities,
+        areas: &areas,
+        single_chars: &single_chars,
+        base: &base,
+        rime_ice_supplement: &rime_ice_supplement,
+    })?;
+    let pinned = |path: &str| {
+        sources
+            .lock
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .with_context(|| format!("{path} is not pinned in the sources lock"))
+    };
+    // The places URLs name the upstream commit: .../Administrative-divisions-of-China/<commit>/dist/areas.csv.
+    let areas_url = &pinned(places::AREAS)?.url;
+    let upstream_commit = areas_url
+        .split('/')
+        .find(|segment| segment.len() == 40 && segment.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .with_context(|| format!("{areas_url} names no commit"))?;
+    let compared = [
+        (
+            places_supplement::BASE,
+            pinned(places_supplement::BASE)?.sha256.as_str(),
+        ),
+        (
+            places_supplement::RIME_ICE_SUPPLEMENT,
+            pinned(places_supplement::RIME_ICE_SUPPLEMENT)?
+                .sha256
+                .as_str(),
+        ),
+    ];
+    let rendered = places_supplement::render(
+        &supplement,
+        &places_supplement::Provenance {
+            upstream_commit,
+            compared: &compared,
+            single_chars: (
+                places_supplement::SINGLE_CHARS,
+                pinned(places_supplement::SINGLE_CHARS)?.sha256.as_str(),
+            ),
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in places_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    let inserted = supplement
+        .entries
+        .iter()
+        .filter(|entry| entry.existing.is_none())
+        .count();
+    eprintln!(
+        "[done] {} entries ({inserted} new, {} raised; {} already ranked or at their floor) -> {}",
+        supplement.entries.len(),
+        supplement.entries.len() - inserted,
+        supplement.already_ranked,
         arguments.out.display()
     );
     Ok(())
@@ -362,7 +469,7 @@ impl Build {
     fn run(&self, stage: Stage) -> Result<String> {
         match stage {
             Stage::Quanpin => {
-                let single_chars = self.sources.pinned("cn/SingleCharsAllV1.txt")?;
+                let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
                 let (phrases, whitelist) = if self.complete {
                     let mut whitelist = msime::parse_whitelist(&text::read(
                         &self.sources.pinned(licensing::SINGLE_CHAR_WHITELIST)?,
@@ -379,9 +486,14 @@ impl Build {
                     )
                 } else {
                     // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
-                    (vec![self.sources.pinned("cn/BaseDictIceV1.txt")?], None)
+                    (
+                        vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
+                        None,
+                    )
                 };
-                let supplement = self.sources.pinned("cn/RimeIceSupplementV1.txt")?;
+                let supplement = self
+                    .sources
+                    .pinned("sources/pinyin/rime-ice-supplement.txt")?;
                 let mut phrases = phrases;
                 phrases.push(supplement);
                 let inputs = msime::QuanpinInputs {
@@ -391,6 +503,21 @@ impl Build {
                 };
                 let rows = msime::build_quanpin(&mut self.database("msime-pinyin.db")?, &inputs)?;
                 Ok(format!("{rows} rows"))
+            }
+            Stage::PlacesSupplement => {
+                let words = msime::parse_word_list(
+                    &text::read(&self.sources.pinned(places_supplement::OUTPUT)?)?,
+                    places_supplement::OUTPUT,
+                )?;
+                let counts =
+                    msime::apply_custom_words(&mut self.database("msime-pinyin.db")?, &words)?;
+                Ok(format!(
+                    "{} entries: {} inserted, {} promoted, {} already at or above their weight",
+                    words.len(),
+                    counts.inserted,
+                    counts.promoted,
+                    counts.unchanged
+                ))
             }
             Stage::CustomWords => {
                 let words = msime::parse_custom_words(&text::read(
@@ -409,15 +536,15 @@ impl Build {
             Stage::Wubi => {
                 let (imported, skipped) = msime::build_wubi(
                     &mut self.database("msime-pinyin.db")?,
-                    &self.sources.pinned("cn/Wubi86.txt")?,
+                    &self.sources.pinned("sources/wubi/wubi86-jidian.txt")?,
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
             Stage::Wubi98 => {
-                let supplement = self.sources.pinned("cn/Wubi98Fcitx.txt")?;
+                let supplement = self.sources.pinned("sources/wubi/wubi98-fcitx.txt")?;
                 let (imported, skipped) = msime::build_wubi98_sources(
                     &mut self.database("msime-pinyin.db")?,
-                    &self.sources.pinned("cn/Wubi98.txt")?,
+                    &self.sources.pinned("sources/wubi/wubi98.txt")?,
                     &[supplement.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
@@ -439,10 +566,12 @@ impl Build {
                     Default::default()
                 };
                 let mut base = english::parse_base_dict_words(&text::read(
-                    &self.sources.pinned("en/BaseDictIceEn.txt")?,
+                    &self.sources.pinned("sources/english/rime-ice-en.txt")?,
                 )?)?;
                 let supplement = english::parse_base_dict_words(&text::read(
-                    &self.sources.pinned("en/RimeIceEnglishSupplementV1.txt")?,
+                    &self
+                        .sources
+                        .pinned("sources/english/rime-ice-en-supplement.txt")?,
                 )?)?;
                 let supplement_added = supplement
                     .keys()
@@ -450,7 +579,9 @@ impl Build {
                     .count();
                 base.extend(supplement);
                 let counts = english::parse_google_counts(&text::read(
-                    &self.sources.pinned("en/google_count_1_w.txt")?,
+                    &self
+                        .sources
+                        .pinned("sources/english/google-word-counts.txt")?,
                 )?);
                 let custom = english::parse_custom_english(&text::read(
                     &self.sources.pinned(english::CUSTOM_ENGLISH)?,
@@ -597,6 +728,9 @@ fn main() -> Result<()> {
     let arguments = Arguments::parse();
     if let Some(Command::Places(places)) = &arguments.command {
         return build_places(places);
+    }
+    if let Some(Command::PlacesSupplement(supplement)) = &arguments.command {
+        return build_places_supplement(supplement);
     }
     if let Some(Command::Hanja(hanja)) = &arguments.command {
         return build_hanja(hanja);
