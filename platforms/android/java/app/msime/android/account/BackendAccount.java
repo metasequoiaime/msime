@@ -276,7 +276,7 @@ public final class BackendAccount {
         org.json.JSONArray choices = response.optJSONArray("choices");
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
-        String content = message == null ? "" : message.optString("content", "");
+        String content = message == null ? "" : requiredStringField(message.opt("content"));
         if (content.isEmpty() || content.length() > 10_000) throw new IllegalStateException("invalid chat response");
         return content;
     }
@@ -306,6 +306,11 @@ public final class BackendAccount {
     static boolean requiredBooleanField(Object value) {
         if (!(value instanceof Boolean)) throw new IllegalStateException("invalid clipboard response");
         return (Boolean) value;
+    }
+
+    static String requiredStringField(Object value) {
+        if (!(value instanceof String)) throw new IllegalStateException("invalid chat response");
+        return (String) value;
     }
 
     public void setClipboardEnabled(boolean enabled) throws Exception {

@@ -59,6 +59,23 @@ public final class BackendAccountResponseSmoke {
         check(BackendAccount.requiredBooleanField(Boolean.TRUE), "enabled=true is accepted");
         check(!BackendAccount.requiredBooleanField(Boolean.FALSE), "enabled=false is accepted");
 
+        rejected = false;
+        try {
+            BackendAccount.requiredStringField(null);
+        } catch (IllegalStateException error) {
+            rejected = true;
+        }
+        check(rejected, "chat responses without string content are rejected");
+        rejected = false;
+        try {
+            BackendAccount.requiredStringField(42);
+        } catch (IllegalStateException error) {
+            rejected = true;
+        }
+        check(rejected, "chat responses with numeric content are rejected");
+        check("synthetic reply".equals(BackendAccount.requiredStringField("synthetic reply")),
+            "chat responses with string content are accepted");
+
         check(!BackendAccount.validClipboardItem(new BackendAccount.ClipboardItem(
             "a".repeat(64), "safe\u0000hidden", "2026-10-04T00:00:00Z")),
             "add clipboard rejects control characters in the returned text");
