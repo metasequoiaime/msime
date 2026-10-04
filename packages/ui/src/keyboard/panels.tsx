@@ -881,7 +881,7 @@ export function HandwritingPanel({
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
-  const recognitionRevision = useRef(0);
+  const recognitionRevision = useAsyncGeneration();
   const [recognizing, setRecognizing] = useState(false);
   const recognitionQueue = useRef<{
     active: boolean;
