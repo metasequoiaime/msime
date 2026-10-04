@@ -3887,7 +3887,7 @@ export function EmojiPanel({
       .finally(() => {
         if (generation === catalogGeneration.current) setCatalogLoading(false);
       });
-  }, [client, catalogGeneration]);
+  }, [client, catalogRetry, catalogGeneration]);
 
   useEffect(() => {
     if (!client.clipboard?.list) {
