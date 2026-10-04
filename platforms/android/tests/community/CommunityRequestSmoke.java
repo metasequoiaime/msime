@@ -77,6 +77,11 @@ public final class CommunityRequestSmoke {
             "the fixed report reasons, in order");
         check(CommunityRequest.validReport("其他", null) && CommunityRequest.validReport("其他", "😀".repeat(1000)),
             "a detail of up to 1000 characters is accepted");
+        check(CommunityRequest.validReport("其他", "换行\n制表\t"),
+            "report details may contain ordinary line breaks and tabs");
+        check(!CommunityRequest.validReport("其他", "bad\u0000detail")
+            && !CommunityRequest.validReport("其他", "bad\u007fdetail"),
+            "report details reject control characters the service cannot store");
         check(!CommunityRequest.validReport("其他", "a".repeat(1001)), "a longer detail is refused");
         check(!CommunityRequest.validReport("不喜欢", ""), "only the fixed reasons are sent");
         check("内容包含不允许发布的词语，请修改后再提交".equals(CommunityRequest.message("blocked_content", 422)),
