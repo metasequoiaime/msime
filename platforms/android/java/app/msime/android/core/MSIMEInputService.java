@@ -54,6 +54,7 @@ import app.msime.android.candidate.EnglishSuggestionModel;
 import app.msime.android.CandidateTranslationPolicy;
 import app.msime.android.keyboard.EnglishSuggestionPolicy;
 import app.msime.android.policy.HostOptionsPolicy;
+import app.msime.android.core.InputViewValuePolicy;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -1446,8 +1447,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private String chineseOutput(String text, JSONObject context) {
         int scheme = context == null
-            ? (view == null ? -1 : view.optInt("scheme", -1))
-            : context.optInt("scheme", -1);
+            ? (view == null ? -1 : InputViewValuePolicy.scheme(view, -1))
+            : InputViewValuePolicy.scheme(context, -1);
         String localMode = context == null
             ? (view == null ? "none" : view.optString("local_mode", "none"))
             : context.optString("local_mode", "none");
@@ -1680,7 +1681,7 @@ public final class MSIMEInputService extends InputMethodService {
             commit = chineseOutput(commit, result.optJSONObject("commit_context"));
         }
         // Korean marks the composing Hangul, not the key letters editing_text holds; a transition may carry the syllable the key finished and the next one together, and the bridge writes the commit first. Zhuyin's editing_text is the Dachen keys too, and it marks the reading (the conversion and the pending bopomofo) by the same rule.
-        int nextViewScheme = next.optInt("scheme", -1);
+        int nextViewScheme = InputViewValuePolicy.scheme(next, -1);
         boolean nextDedicatedEnglish = next.optBoolean("dedicated_english", dedicatedEnglish);
         // 笔画的 editing_text 是字母 hspnzx，reading 才是用户按下的笔画字形（一丨丿丶乛＊），所以同样标记 reading。
         String composing = KoreanInputPolicy.composing(
@@ -1849,7 +1850,7 @@ public final class MSIMEInputService extends InputMethodService {
     private void scheduleCandidateGlosses() {
         if (!candidateEnglishGloss || session == 0 || view == null
                 || candidateGlossResources.isEmpty()
-                || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
+                || !schemeShowsGlosses(InputViewValuePolicy.scheme(view, -1))) return;
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (generation < 0 || (candidateGlossRequestedSession == session
                 && candidateGlossRequestedGeneration == generation)) return;
@@ -1867,7 +1868,7 @@ public final class MSIMEInputService extends InputMethodService {
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
-            if ("none".equals(view.optString("local_mode", "none")) && view.optInt("scheme", -1) != 3) {
+            if ("none".equals(view.optString("local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
                 for (String language : candidateOfflineTargets()) {
                     targetRequests.put(language, CandidateGlossModel.request(generation,
                         snapshot.getJSONArray("candidates"), language));
@@ -1959,7 +1960,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!candidateTranslationAccount || session == 0 || view == null
                 || candidateTranslationStore == null
                 || !"none".equals(view.optString("local_mode", "none"))) return;
-        if (view.optInt("scheme", -1) == 3 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
+        if (InputViewValuePolicy.scheme(view, -1) == 3 || !schemeShowsGlosses(InputViewValuePolicy.scheme(view, -1))) return;
         JSONArray entries = view.optJSONArray("candidates");
         long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
@@ -2368,14 +2369,14 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean helpcodeCompositionEligible() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.eligible(dedicatedEnglish,
-            view.optString("editing_text", ""), view.optInt("scheme", -1),
+            view.optString("editing_text", ""), InputViewValuePolicy.scheme(view, -1),
             view.optString("local_mode", "none"));
     }
 
     private boolean entersHelpcode() {
         if (view == null) return false;
         return ChineseHelpcodePolicy.entersHelpcode(dedicatedEnglish, letterCase.usesUppercase(),
-            view.optString("editing_text", ""), view.optInt("scheme", -1),
+            view.optString("editing_text", ""), InputViewValuePolicy.scheme(view, -1),
             view.optString("local_mode", "none"));
     }
 
@@ -2578,12 +2579,12 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean japaneseSchemeActive() {
-        return view != null && view.optInt("scheme", -1) == 3;
+        return view != null && InputViewValuePolicy.scheme(view, -1) == 3;
     }
 
     private boolean koreanSchemeActive() {
         return view != null
-            && KoreanInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+            && KoreanInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
     }
 
     /** Whether the Hanja list of the composing Korean syllable is on the strip. */
@@ -2596,24 +2597,24 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean zhuyinSchemeActive() {
         return view != null
-            && ZhuyinInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+            && ZhuyinInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
     }
 
     /** A Stroke composition whose glyphs the editor holds as its composing region (apply marks View.reading for Stroke). */
     private boolean strokeCompositionMarked() {
         return view != null && !view.optString("editing_text", "").isEmpty()
-            && StrokeInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish)
+            && StrokeInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish)
             && !view.optBoolean("nine_key", false);
     }
 
     private boolean vietnameseSchemeActive() {
         return view != null
-            && VietnameseInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+            && VietnameseInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
     }
 
     private boolean tibetanSchemeActive() {
         return view != null
-            && TibetanInputPolicy.active(view.optInt("scheme", -1), dedicatedEnglish);
+            && TibetanInputPolicy.active(InputViewValuePolicy.scheme(view, -1), dedicatedEnglish);
     }
 
     /** 越南语或藏文：字母按敲下的大小写写进组字，所以键面显示大小写，和英文键一样，而不是中文键盘的大写键面。 */
@@ -2629,7 +2630,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** 韩语、注音、越南语或藏文（`locks_caret`、`commits_on_blur`）：组字是用户已经写下的文字，里面没有光标，打开列表之前也没有候选列表。 */
     private boolean writtenCompositionActive() {
         return view != null && !dedicatedEnglish
-            && InputSchemeTraits.locksCaret(view.optInt("scheme", -1));
+            && InputSchemeTraits.locksCaret(InputViewValuePolicy.scheme(view, -1));
     }
 
     /** Whether the candidate list of the composing Zhuyin conversion is on the strip. */
@@ -2681,12 +2682,12 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean sendsChinesePunctuation() {
         return view != null && ChineseSymbolFaces.shouldUseChineseFaces(dedicatedEnglish,
-            view.optInt("scheme", -1), view.optString("local_mode", "none"), chinesePunctuation);
+            InputViewValuePolicy.scheme(view, -1), view.optString("local_mode", "none"), chinesePunctuation);
     }
 
     private java.util.List<QuickPunctuationPolicy.Entry> quickPunctuationEntries() {
         return QuickPunctuationPolicy.entries(dedicatedEnglish,
-            view == null ? -1 : view.optInt("scheme", -1),
+            view == null ? -1 : InputViewValuePolicy.scheme(view, -1),
             view == null ? "none" : view.optString("local_mode", "none"));
     }
 
@@ -2740,7 +2741,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateShuangpinKeyHints() {
-        int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
         String profile = view == null ? "" : view.optString("shuangpin_profile", "");
         String localMode = view == null ? "none" : view.optString("local_mode", "none");
         boolean chineseMode = !dedicatedEnglish && !letterCaseSchemeActive();
@@ -2822,7 +2823,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
         return KeyboardLayout.resolveTouchLayout(
             "handwriting".equals(value.optString("touch_keyboard_layout")),
-            value.optBoolean("nine_key", false), value.optInt("scheme", -1),
+            value.optBoolean("nine_key", false), InputViewValuePolicy.scheme(value, -1),
             value.optString("touch_keyboard_layout"));
     }
 
@@ -3941,7 +3942,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean supportsLocalTools() {
         if (view == null) return false;
-        int scheme = view.optInt("scheme", 0);
+        int scheme = InputViewValuePolicy.scheme(view, 0);
         // 韩语没有本地模式：那里 Shift+字母是双辅音。粤拼、注音、越南语、藏文和笔画也没有（`opens_local_modes`）。
         return !dedicatedEnglish && scheme != 2 && scheme != 3
             && scheme != KoreanInputPolicy.KOREAN_SCHEME
@@ -6436,7 +6437,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private boolean traditionalOutputToolAvailable() {
-        int scheme = view == null ? -1 : view.optInt("scheme", -1);
+        int scheme = view == null ? -1 : InputViewValuePolicy.scheme(view, -1);
         // 粤拼和注音本来就写繁体字，笔画的候选就是字本身，越南语和藏文不是中文（`script_conversion_applies`）。
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && (!InputSchemeTraits.known(scheme) || InputSchemeTraits.scriptConversionApplies(scheme))
@@ -6567,7 +6568,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean candidateManagementEnabled() {
         if (view == null || !view.optString("local_mode", "none").equals("none")) return false;
-        int scheme = view.optInt("scheme", 0);
+        int scheme = InputViewValuePolicy.scheme(view, 0);
         // 粤拼、注音、越南语、藏文和笔画的候选不属于拼音用户词库，不能固定、删除或调整顺序。
         return scheme != 2 && scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && scheme != InputSchemeTraits.CANTONESE && scheme != InputSchemeTraits.ZHUYIN
@@ -6657,7 +6658,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean candidateGlossInsertionEnabled() {
         if (view == null || !"none".equals(view.optString("local_mode", "none"))) return false;
-        int scheme = view.optInt("scheme", 0);
+        int scheme = InputViewValuePolicy.scheme(view, 0);
         return scheme != 3 && scheme != KoreanInputPolicy.KOREAN_SCHEME
             && schemeShowsGlosses(scheme);
     }
@@ -6788,7 +6789,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private String wubiCodeHint(JSONObject candidate, JSONObject context, String typed) {
         return WubiCodeHintPolicy.hint(candidate.optString("code", ""), typed, wubiCodeHint,
-            context == null ? -1 : context.optInt("scheme", -1),
+            context == null ? -1 : InputViewValuePolicy.scheme(context, -1),
             context == null ? "none" : context.optString("local_mode", "none"),
             context != null && context.optBoolean("answered_by_pinyin_fallback", false));
     }
@@ -8811,7 +8812,7 @@ public final class MSIMEInputService extends InputMethodService {
                     : selectedScheme == KeyboardScheme.VIETNAMESE ? InputSchemeTraits.VIETNAMESE
                     : selectedScheme == KeyboardScheme.TIBETAN ? InputSchemeTraits.TIBETAN
                     : selectedScheme == KeyboardScheme.STROKE ? InputSchemeTraits.STROKE : -1)
-                : view.optInt("scheme", -1);
+                : InputViewValuePolicy.scheme(view, -1);
             boolean japanese = scheme == 3;
             boolean korean = scheme == KoreanInputPolicy.KOREAN_SCHEME;
             boolean cantonese = scheme == InputSchemeTraits.CANTONESE;
