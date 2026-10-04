@@ -1325,6 +1325,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   private static func snapshot(_ value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     let view = value["view"] as? [String: Any] ?? [:]
     let rows = view["candidates"] as? [[String: Any]] ?? []
+    guard rows.allSatisfy({ $0["text"] is String }) else {
+      throw InputBridgeFailure.invalidResponse
+    }
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",

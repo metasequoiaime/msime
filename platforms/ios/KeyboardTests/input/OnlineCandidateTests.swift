@@ -35,6 +35,16 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(try bridge.snapshot(from: applied).candidates.contains("泥壕云"))
   }
 
+  func testSnapshotRejectsCandidateRowsWithoutText() throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let malformed: [String: Any] = [
+      "view": [
+        "candidates": [["code": "ni", "source": 0], ["text": "你", "code": "ni"]],
+      ],
+    ]
+    XCTAssertThrowsError(try bridge.snapshot(from: malformed))
+  }
+
   func testCloudCandidatesStayOffUntilTheSwitchIsOn() async throws {
     CloudCandidatePreference.enabled = false
     // A document synced from a desktop, where cloud candidates are on.
