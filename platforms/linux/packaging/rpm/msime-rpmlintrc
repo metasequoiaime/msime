@@ -1,0 +1,10 @@
+# OBS 构建后跑 rpmlint，按 badness 判失败；这里过滤的都是与 GitHub 发布页 msime-linux 包相同的上游安装布局，不是打包错误。
+# 语音服务按文件名导入这几个模块，它们与 msime-linux-voice-provider 放在同一目录，本身不是可执行脚本。
+addFilter("script-without-shebang /usr/bin/msime_.*\.py")
+addFilter("non-executable-in-bin /usr/bin/msime_.*\.py")
+# 上游许可证原文（手写模型的 LGPL-2.1），按原样随数据分发。
+addFilter("incorrect-fsf-address .*HandwritingModel-LICENSE.txt")
+# 产品名。
+addFilter("spelling-error .*Metasequoia")
+# 这些入口由输入法、systemd 用户单元和设置窗口调用，上游没有手册页。
+addFilter("no-manual-page-for-binary")

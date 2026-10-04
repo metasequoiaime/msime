@@ -2,7 +2,7 @@
 #
 # 内容与 release-linux.yml 用 CPack 打出的 msime-linux RPM 相同（Fcitx5 插件、IBus engine、msime-linux-setup 等入口、MCP 服务和 Tauri 设置窗口），构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。区别只在依赖来源：COPR（默认）和 OBS 构建时没有网络，所以 Cargo 依赖、设置窗口的前端和需要下载的数据都来自 Source1，即 make-source-tarballs.sh 随每个 linux-v 发布生成的 vendor 包。词库照旧不随包，由用户首次配置时 msime-linux-setup --download 取回。
 #
-# Version 与 %changelog 由 render-spec.py 按发布版本改写；仓库里的值只是上一次渲染的样子。
+# Version 与 %%changelog 由 render-sources.py 按发布版本改写；仓库里的值只是上一次渲染的样子。
 #
 # 编译器用发行版自己的 rust/cargo，不用 rust-toolchain.toml 钉住的版本：构建农场取不到 rustup，而 Cargo.toml 的 rust-version（1.89）才是代码声明支持的下限。
 
@@ -26,6 +26,8 @@ License:        GPL-3.0-only AND Apache-2.0 AND MIT AND BSD-3-Clause AND HPND AN
 URL:            https://github.com/metasequoiaime/msime
 Source0:        %{url}/releases/download/linux-v%{version}/msime-%{version}.tar.xz
 Source1:        %{url}/releases/download/linux-v%{version}/msime-%{version}-vendor.tar.xz
+# OBS 自动读取与包同名的 rpmlintrc；列为 Source 让它也进 .src.rpm。
+Source99:       msime-rpmlintrc
 
 # 语音运行库只为这两个架构钉住了上游构建（resources/voice-runtime.lock.json）。
 ExclusiveArch:  x86_64 aarch64
@@ -60,16 +62,25 @@ BuildRequires:  pkgconfig(javascriptcoregtk-4.1)
 BuildRequires:  pkgconfig(libsoup-3.0)
 BuildRequires:  pkgconfig(gtk+-3.0)
 BuildRequires:  pkgconfig(openssl)
-# %%check：setup_update 测试经 pgrep 确认宿主进程，linux-ibus-startup-telemetry 要起 dbus-daemon，与门禁镜像装 procps 和 dbus 的理由相同。按文件依赖写，Fedora（procps-ng、dbus-daemon）和 openSUSE（procps、dbus-1）的包名不同。
-BuildRequires:  /usr/bin/pgrep
-BuildRequires:  /usr/bin/dbus-daemon
+# %%check：setup_update 测试经 pgrep 确认宿主进程，linux-ibus-startup-telemetry 要起 dbus-daemon，与门禁镜像装 procps 和 dbus 的理由相同。两边包名不同；不写成文件依赖，是因为 zypper 解析不到 /usr/bin/pgrep。
+%if 0%{?suse_version}
+BuildRequires:  procps
+BuildRequires:  dbus-1
+%else
+BuildRequires:  procps-ng
+BuildRequires:  dbus-daemon
+%endif
 BuildRequires:  desktop-file-utils
 
 Requires:       ibus >= 1.5.20
 Requires:       fcitx5 >= 5.0.20
 Requires:       python3 >= 3.9
 # msime-linux-setup 切换词库前用 pgrep 确认输入法是否在运行。
-Requires:       /usr/bin/pgrep
+%if 0%{?suse_version}
+Requires:       procps
+%else
+Requires:       procps-ng
+%endif
 Requires:       hicolor-icon-theme
 # 语音：豆包流式识别要 websockets 15 起的同步客户端，录音要 parec、pw-cat 或 arecord 之一。没有它们语音服务照样起来，只是用到的请求失败，所以是 Recommends。
 Recommends:     python3-websockets >= 15
@@ -78,9 +89,9 @@ Recommends:     (pulseaudio-utils or pipewire-tools or alsa-utils)
 %else
 Recommends:     (pulseaudio-utils or pipewire-utils or alsa-utils)
 %endif
-# GitHub 发布页上 CPack 打的 RPM 叫 msime-linux，文件与本包完全重合。
+# GitHub 发布页上 CPack 打的 RPM 叫 msime-linux，文件与本包完全重合；装本包时把它替换掉。
+Provides:       msime-linux = %{version}-%{release}
 Obsoletes:      msime-linux < %{version}-%{release}
-Conflicts:      msime-linux
 
 %description
 Metasequoia IME (水杉输入法) is a Chinese input method. This package
@@ -92,6 +103,8 @@ included; msime-linux-setup --download fetches them on first use.
 %prep
 %autosetup -n msime-%{version} -a 1
 mv msime-%{version}-vendor vendor
+# 有些 crate 的 .rs 带可执行位，首行又是 `#![...]`；它们随 debugsource 打包时 brp-mangle-shebangs 当成坏的 shebang 报错。Cargo 的校验只看内容，不看权限。
+find vendor/cargo -type f -name '*.rs' -perm /111 -exec chmod a-x {} +
 
 %build
 # openSUSE 的 rpm 不一定定义 set_build_flags，这时退回 optflags。
@@ -146,8 +159,10 @@ cmake --build build/cmake %{?_smp_mflags}
 %install
 DESTDIR=%{buildroot} cmake --install build/cmake
 # CPack 的 RPM 把 Debian 维护脚本翻译后内联；这里把 CMake 由同一份模板配置出的脚本装进包里，%%post/%%preun 再按 dpkg 的参数调用，单元列表和清理逻辑只维护在 platforms/linux/cmake/deb-*.in 一处。
-install -Dm644 build/cmake/debian/postinst %{buildroot}%{_libexecdir}/msime-client/postinst
-install -Dm644 build/cmake/debian/prerm %{buildroot}%{_libexecdir}/msime-client/prerm
+install -Dm755 build/cmake/debian/postinst %{buildroot}%{_libexecdir}/msime-client/postinst
+install -Dm755 build/cmake/debian/prerm %{buildroot}%{_libexecdir}/msime-client/prerm
+# CMake 用 install(FILES) 装包内私有库，权限是 0644；find-debuginfo 只处理带可执行位的 ELF，不改就既不剥离也不拆出调试信息。
+chmod 0755 %{buildroot}%{_libdir}/msime-client/*.so
 
 %check
 export PYTHONDONTWRITEBYTECODE=1
@@ -178,7 +193,8 @@ if [ "$1" = 0 ]; then
 fi
 
 %files
-%license %{_datadir}/doc/msime-client/copyright
+# CMake 把许可证（copyright）与全部第三方声明装在 doc/msime-client，与 .deb 相同；%%license 另放一份项目许可证到发行版的标准位置。
+%license LICENSE
 %{_datadir}/doc/msime-client/
 %{_bindir}/msime-*
 %{_bindir}/msime_*.py
