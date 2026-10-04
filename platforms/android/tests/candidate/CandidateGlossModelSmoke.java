@@ -48,6 +48,12 @@ public final class CandidateGlossModelSmoke {
         expectFailure(() -> CandidateGlossPolicy.strictInteger(Double.valueOf(7.5)));
         expectFailure(() -> CandidateGlossPolicy.strictInteger(Boolean.TRUE));
         expectFailure(() -> CandidateGlossPolicy.strictInteger("7"));
+        check(CandidateGlossPolicy.strictOr(Long.valueOf(9), -1) == 9,
+            "strict fallback preserves exact integers");
+        check(CandidateGlossPolicy.strictOr(Double.valueOf(9.5), -1) == -1,
+            "strict fallback rejects fractions");
+        check(CandidateGlossPolicy.strictOr(Boolean.TRUE, -1) == -1,
+            "strict fallback rejects booleans");
 
         System.out.println("Android candidate gloss model: bounds, priority and stale guards passed");
     }

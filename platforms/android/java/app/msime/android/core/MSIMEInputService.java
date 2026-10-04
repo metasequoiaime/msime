@@ -1845,7 +1845,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!candidateEnglishGloss || session == 0 || view == null
                 || candidateGlossResources.isEmpty()
                 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
-        long generation = view.optLong("generation", -1);
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (generation < 0 || (candidateGlossRequestedSession == session
                 && candidateGlossRequestedGeneration == generation)) return;
         JSONArray visible = view.optJSONArray("candidates");
@@ -1857,8 +1857,8 @@ public final class MSIMEInputService extends InputMethodService {
         final java.util.Map<String, String> targetRequests = new java.util.LinkedHashMap<>();
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
-            if (snapshot.optLong("session") != targetSession
-                    || snapshot.optLong("generation") != generation) return;
+            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
+                    || CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) != generation) return;
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
@@ -1911,7 +1911,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyCandidateGlosses(CandidateGlossPolicy.Token token,
             CandidateGlossModel.Result result,
             java.util.Map<String, java.util.Map<String, String>> offline) {
-        long currentGeneration = view == null ? -1 : view.optLong("generation", -1);
+        long currentGeneration = view == null ? -1
+            : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (!candidateEnglishGloss || result.generation() != token.generation()
                 || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
         String translations = result.translations();
@@ -1926,13 +1927,13 @@ public final class MSIMEInputService extends InputMethodService {
                 token.session(), token.generation(), translations));
             if (!applied.optBoolean("applied", false)) return;
             JSONObject next = applied.getJSONObject("view");
-            if (next.optLong("session") != token.session()
-                    || next.optLong("generation") != token.generation()) return;
+            if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != token.session()
+                    || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != token.generation()) return;
             view = next;
             if (candidatePanelOpen) {
                 JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
-                if (snapshot.optLong("session") == token.session()
-                        && snapshot.optLong("generation") == token.generation()) {
+                if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == token.session()
+                        && CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) == token.generation()) {
                     candidatePanelSnapshot = snapshot;
                 }
             }
@@ -1955,7 +1956,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !"none".equals(view.optString("local_mode", "none"))) return;
         if (view.optInt("scheme", -1) == 3 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
         JSONArray entries = view.optJSONArray("candidates");
-        long generation = view.optLong("generation", -1);
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
         java.util.ArrayList<String> words = new java.util.ArrayList<>();
         for (int index = 0; index < Math.min(entries.length(), 32); index++) {
@@ -1967,7 +1968,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyCandidateTranslations(long generation) {
         if (!candidateTranslationAccount || session == 0 || view == null
-                || view.optLong("generation", -1) != generation) return;
+                || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation) return;
         JSONArray entries = view.optJSONArray("candidates");
         if (entries == null || entries.length() == 0) return;
         JSONArray translations = mergedCandidateGlosses(generation);
@@ -1977,7 +1978,8 @@ public final class MSIMEInputService extends InputMethodService {
                 translations.toString()));
             if (!applied.optBoolean("applied", false)) return;
             JSONObject next = applied.getJSONObject("view");
-            if (next.optLong("session") != session || next.optLong("generation") != generation) return;
+            if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != session
+                    || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != generation) return;
             view = next;
             render();
         } catch (JSONException | RuntimeException | LinkageError ignored) {
