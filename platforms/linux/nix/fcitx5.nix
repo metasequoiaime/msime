@@ -6,6 +6,8 @@
   stdenv,
   coreutils,
   procps,
+  dbus,
+  runtimeShell,
   cmake,
   ninja,
   pkg-config,
@@ -103,7 +105,28 @@ stdenv.mkDerivation {
 
   doCheck = true;
   # msime-linux-setup 切换词库前用 pgrep 确认宿主进程，setup_update 测试会走到这一步。
-  nativeCheckInputs = [ procps ];
+  # 带词库时 ibus-page-number-visibility 用 GTestDBus 起一个 dbus-daemon，与门禁镜像装 dbus 的理由相同。
+  nativeCheckInputs = [
+    procps
+    dbus
+  ];
+  # nixpkgs 的 `dbus-daemon --session` 读 /etc/dbus-1/session.conf，构建沙箱里没有 /etc，
+  # linux-ibus-startup-telemetry 起不来总线（它把 stderr 丢了，只报没打出地址）。只在测试期间
+  # 垫一层，把 --session 换成包里自带的同一份配置；真机上有这个文件，测试本身不用改。
+  preCheck = ''
+    mkdir -p "$TMPDIR/dbus-shim"
+    cat > "$TMPDIR/dbus-shim/dbus-daemon" <<EOF
+    #!${runtimeShell}
+    args=()
+    for arg in "\$@"; do
+      [ "\$arg" = --session ] && arg=--config-file=${dbus}/share/dbus-1/session.conf
+      args+=("\$arg")
+    done
+    exec ${dbus}/bin/dbus-daemon "\''${args[@]}"
+    EOF
+    chmod +x "$TMPDIR/dbus-shim/dbus-daemon"
+    export PATH="$TMPDIR/dbus-shim:$PATH"
+  '';
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
   # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。
