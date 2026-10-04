@@ -1,4 +1,4 @@
-//! `english.db`: the English prefix-candidate table, the bidirectional glosses derived from ECDICT, and the hand-maintained translation overrides.
+//! `msime-english.db`: the English prefix-candidate table, the bidirectional glosses derived from ECDICT, and the hand-maintained translation overrides.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;

@@ -91,7 +91,7 @@ pub struct EngineOptions {
     pub zhuyin_dictionary: String,
     /// Absolute path of `stroke.db`, empty when the host has none; the Stroke scheme is unavailable without it.
     pub stroke_dictionary: String,
-    /// `dict_japanese.dat` 的绝对路径；为空时从资源目录读取。
+    /// `msime-japanese.dat` 的绝对路径；为空时从资源目录读取。
     pub japanese_dictionary: String,
 }
 

@@ -5720,7 +5720,7 @@ group("quietening other applications is off unless asked for", () => {
 
 group("a staged resource copy is trusted only while it matches the package", () => {
   const set: StagedArtifact[] = [
-    { name: "msime.db", size: 107552768 },
+    { name: "msime-pinyin.db", size: 107552768 },
     { name: "others.db", size: 1495040 },
   ];
   const token: string = StagedResourcePolicy.generationToken(set);
@@ -5732,7 +5732,7 @@ group("a staged resource copy is trusted only while it matches the package", () 
   // The defect this replaces: a marker saying only "staged" went on saying so after the package
   // changed, and the shared verification then refused the directory outright.
   const upgraded: StagedArtifact[] = [
-    { name: "msime.db", size: 107552769 },
+    { name: "msime-pinyin.db", size: 107552769 },
     { name: "others.db", size: 1495040 },
   ];
   check(
@@ -5740,7 +5740,7 @@ group("a staged resource copy is trusted only while it matches the package", () 
       true,
     "an artifact that changed size is a different generation",
   );
-  const dropped: StagedArtifact[] = [{ name: "msime.db", size: 107552768 }];
+  const dropped: StagedArtifact[] = [{ name: "msime-pinyin.db", size: 107552768 }];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(dropped)) ===
       true,

@@ -15,11 +15,12 @@ use crate::ngram;
 use crate::sources::{sha256_file, Lock, Reference};
 
 pub const MANIFEST: &str = "dictionary-manifest.json";
-pub const SHIPPING_ARTIFACTS: [&str; 7] = [
-    "msime.db",
-    "english.db",
+pub const SHIPPING_ARTIFACTS: [&str; 8] = [
+    "msime-pinyin.db",
+    "msime-wubi.db",
+    "msime-english.db",
     "others.db",
-    "dict_japanese.dat",
+    "msime-japanese.dat",
     "bigram.bin",
     "trigram.bin",
     japanese::NOTICE_NAME,
@@ -134,15 +135,64 @@ fn row_count(connection: &Connection, table: &str) -> Result<i64> {
     )
 }
 
+/// Split the Wubi tables out of the pinyin working database. The build stages share one
+/// connection so custom-word checks and n-gram weighting see the complete source, then the
+/// immutable Wubi resource is written separately before the release manifest is produced.
+pub fn split_wubi_database(out: &Path) -> Result<()> {
+    let pinyin_path = out.join("msime-pinyin.db");
+    let wubi_path = out.join("msime-wubi.db");
+    let pinyin = Connection::open_with_flags(&pinyin_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut tables = Vec::new();
+    for name in ["wubi86", "wubi98"] {
+        let mut statement = pinyin.prepare(&format!(
+            "SELECT \"key\", \"value\", \"weight\" FROM {name}"
+        ))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        tables.push((name, rows));
+    }
+    drop(pinyin);
+
+    let mut wubi = Connection::open(&wubi_path)?;
+    wubi.execute_batch("PRAGMA journal_mode=delete; PRAGMA synchronous=off;")?;
+    let transaction = wubi.transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE wubi86 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC); CREATE TABLE wubi98 (\"key\" TEXT NOT NULL, \"value\" TEXT NOT NULL, \"weight\" INTEGER NOT NULL DEFAULT 0, UNIQUE(\"key\", \"value\")); CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC);",
+    )?;
+    for (name, rows) in &tables {
+        let mut insert = transaction.prepare(&format!(
+            "INSERT INTO {name} (\"key\", \"value\", \"weight\") VALUES (?, ?, ?)"
+        ))?;
+        for (key, value, weight) in rows {
+            insert.execute(rusqlite::params![key, value, weight])?;
+        }
+    }
+    drop(transaction);
+    crate::sqlite::analyze(&wubi, true)?;
+    drop(wubi);
+
+    let pinyin = Connection::open(&pinyin_path)?;
+    pinyin.execute_batch("DROP TABLE IF EXISTS wubi86; DROP TABLE IF EXISTS wubi98;")?;
+    crate::sqlite::integrity_check(&pinyin)?;
+    let wubi = Connection::open_with_flags(&wubi_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    crate::sqlite::integrity_check(&wubi)?;
+    Ok(())
+}
+
 /// Every shipping table exists with at least a floor number of rows, far below today's counts: these catch a table that came out empty because an input silently changed shape, not ordinary dictionary edits. A licensed build legitimately has fewer rows.
 pub fn verify(out: &Path, complete: bool) -> Result<()> {
-    let floors: [(&str, &[(&str, i64)]); 3] = [
+    let floors: [(&str, &[(&str, i64)]); 4] = [
+        ("msime-wubi.db", &[("wubi86", 50_000), ("wubi98", 50_000)]),
+        ("msime-pinyin.db", &[("quick_parases", 1)]),
         (
-            "msime.db",
-            &[("wubi86", 50_000), ("wubi98", 50_000), ("quick_parases", 1)],
-        ),
-        (
-            "english.db",
+            "msime-english.db",
             &[
                 ("english_words", if complete { 100_000 } else { 15_000 }),
                 ("en_zh_glosses", if complete { 50_000 } else { 15_000 }),
@@ -173,22 +223,24 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
         }
     }
 
-    let msime =
-        Connection::open_with_flags(out.join("msime.db"), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let msime = Connection::open_with_flags(
+        out.join("msime-pinyin.db"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
     let mut quanpin_rows = 0;
     for table in quanpin_tables() {
         quanpin_rows += row_count(&msime, &table)
-            .with_context(|| format!("msime.db: quanpin table {table}"))?;
+            .with_context(|| format!("msime-pinyin.db: quanpin table {table}"))?;
     }
     let minimum = if complete { 1_000_000 } else { 800_000 };
     if quanpin_rows < minimum {
-        bail!("msime.db: quanpin rows total {quanpin_rows}, expected at least {minimum}");
+        bail!("msime-pinyin.db: quanpin rows total {quanpin_rows}, expected at least {minimum}");
     }
 
-    let model = std::fs::read(out.join("dict_japanese.dat"))?;
+    let model = std::fs::read(out.join("msime-japanese.dat"))?;
     if model.len() < 32 * 1024 * 1024 || !model.starts_with(japanese::MAGIC) {
         bail!(
-            "dict_japanese.dat is not a complete MSJPDT1 model ({} bytes)",
+            "msime-japanese.dat is not a complete MSJPDT1 model ({} bytes)",
             model.len()
         );
     }
@@ -210,7 +262,7 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
     for term in ["ipadic", "icot", "okinawa"] {
         if !notice.contains(term) {
             bail!(
-                "{} does not mention {term}; dict_japanese.dat must not ship without it",
+                "{} does not mention {term}; msime-japanese.dat must not ship without it",
                 japanese::NOTICE_NAME
             );
         }

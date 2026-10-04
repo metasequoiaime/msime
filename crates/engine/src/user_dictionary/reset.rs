@@ -321,7 +321,7 @@ mod tests {
             &paths.resource(assets::ENGLISH_DICTIONARY),
             "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);",
         );
-        let external = root.path().join("external-msime.db");
+        let external = root.path().join("external-msime-pinyin.db");
         sql(
             &external,
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);",

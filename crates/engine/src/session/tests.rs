@@ -92,7 +92,7 @@ impl Fixture {
         let directory = tempfile::tempdir().expect("temporary directory");
         Connection::open(directory.path().join(assets::MAIN_DICTIONARY))
             .and_then(|connection| connection.execute_batch(main_sql))
-            .expect("fixture msime.db");
+            .expect("fixture msime-pinyin.db");
         let helpcodes = directory.path().join("helpcodes");
         std::fs::create_dir_all(&helpcodes).expect("helpcode directory");
         std::fs::write(helpcodes.join("helpcode.txt"), "你=ab\n拟=cd\n好=ef\n").expect("helpcodes");
@@ -104,7 +104,7 @@ impl Fixture {
         crate::ensure_english_schema(&path).expect("english schema");
         Connection::open(&path)
             .and_then(|connection| connection.execute_batch(sql))
-            .expect("fixture english.db");
+            .expect("fixture msime-english.db");
         self
     }
 

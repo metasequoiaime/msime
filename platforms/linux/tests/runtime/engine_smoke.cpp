@@ -1538,7 +1538,7 @@ int main(int argc, char **argv) {
       translated["translation_provider_socket"] = socket;
       translated["preferences"]["candidate_translations"] = true;
       translated["preferences"]["candidate_page_size"] = 2;
-      // Not English. The packaged english.db answers 你好 offline with the single
+      // Not English. The packaged msime-english.db answers 你好 offline with the single
       // sense "hello", and an offline hit is shown without ever reaching the
       // provider - which is the documented behaviour and what Windows does. With
       // English as the target, the provider's multi-sense gloss therefore landed

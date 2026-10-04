@@ -59,15 +59,15 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime.db`、`bigram.bin`、`trigram.bin`、`english.db`、`others.db`、`sentence-model.safetensors`、`dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 115000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`bigram.bin`、`trigram.bin`、`msime-english.db`、`others.db`、`sentence-model.safetensors`、`dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 115000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
-- `japanese`：`dict_japanese.dat` 与 `mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
+- `japanese`：`msime-japanese.dat` 与 `mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
 - `language-dictionaries`：`cantonese.db`、`zhuyin.db`、`stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
 - `handwriting`：`handwriting-zh_CN.model` 与 `HandwritingModel-LICENSE.txt`，按 `resources/handwriting-model.lock.json`。第一次打开手写面板时下载。
 
-查找时下载的那份优先，其次是随包内置或旧配置记录的那份（`language_dictionaries` 键指向的目录、资源目录里的 `dict_japanese.dat`、`Contents/Resources/handwriting` 里的模型），两处都没有时对应方案或手写面板显示为不可用，和以前缺数据时一样降级。输入法在输入框获得焦点时重新看一次这几个路径，会话打开后才装好的资源包在下一次输入空闲时生效，不必重启输入法。
+查找时下载的那份优先，其次是随包内置或旧配置记录的那份（`language_dictionaries` 键指向的目录、资源目录里的 `msime-japanese.dat`、`Contents/Resources/handwriting` 里的模型），两处都没有时对应方案或手写面板显示为不可用，和以前缺数据时一样降级。输入法在输入框获得焦点时重新看一次这几个路径，会话打开后才装好的资源包在下一次输入空闲时生效，不必重启输入法。
 
 用户词库的代次仍按完整的 `desktop-dictionary.lock.json` 计算，`user/dictionaries/<代次>` 不会因为包里少了日文词典而变化，所以从内置全部资源的旧版本升级上来不会重新准备工作词库。升级后旧配置里记录的资源目录和语言词库目录如果还在，照常作为兜底；Sparkle 换掉整个 bundle 后包里的那份已经不在，设置应用启动时按已保存的方案补下需要的资源包。
 
@@ -370,7 +370,7 @@ platforms/macos/stage-resources.sh <已校验资源目录>
 
 打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」——但那只是另起一整棵要从头编译、占几个 GB 的产物树，坏掉的 dylib 还留在原处，不要这么做。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
 
-`tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表；缺了它们，Shift 字母仍被当作辅助码却筛不掉任何候选。`package-release.sh` 检查打出的应用里有这几个文件。资源目录缺少 `others.db` 或 `dict_japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
+`tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表；缺了它们，Shift 字母仍被当作辅助码却筛不掉任何候选。`package-release.sh` 检查打出的应用里有这几个文件。资源目录缺少 `others.db` 或 `msime-japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
 
 Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `runtime-options.json`，会从 bundle 内的 `EngineResources` 调用共享 Host API 准备默认用户词库、缓存和配置，并以同目录原子发布配置；已有配置不会被覆盖。`MSIME_CLIENT_HOST_OPTIONS` 显式指定配置时不会触发自动准备，`MSIME_CLIENT_STATE_DIR` 仍可指定偏好与用户状态根目录。资源校验或准备失败会以通用错误终止本次设置宿主启动，不泄露路径、输入或 Host API 诊断内容。
 

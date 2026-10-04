@@ -6,7 +6,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('ab','快捷短语一',20);INSERT INTO quick_parases VALUES('aa','快捷短语二',10);"
+   "msime-pinyin.db": "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);INSERT INTO quick_parases VALUES('ab','快捷短语一',20);INSERT INTO quick_parases VALUES('aa','快捷短语二',10);"
   }
  },
  "options": {},

@@ -73,7 +73,7 @@ pub struct ImeSession {
 }
 
 impl ImeSession {
-    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。
+    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `msime-japanese.dat` 的位置，为空时读资源目录里的那份。
     pub fn new(
         scheme: SchemeType,
         profile: ShuangpinProfileKind,

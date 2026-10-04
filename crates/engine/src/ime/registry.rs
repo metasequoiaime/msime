@@ -42,7 +42,7 @@ pub struct ProviderRegistry {
 }
 
 impl ProviderRegistry {
-    /// Wubi reads the generation's `msime.db`; the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `dict_japanese.dat`。
+    /// Wubi reads the generation's `msime-pinyin.db`; the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `msime-japanese.dat`。
     pub fn new(
         profile_kind: ShuangpinProfileKind,
         paths: &RuntimePaths,
@@ -59,7 +59,21 @@ impl ProviderRegistry {
         Self {
             quanpin: QuanpinEngine::new(paths),
             shuangpin: ShuangpinEngine::new(profile(profile_kind), paths),
-            wubi: WubiProvider::new(&paths.dictionary(assets::MAIN_DICTIONARY)),
+            wubi: WubiProvider::new(&{
+                let split = paths.resource(assets::WUBI_DICTIONARY);
+                if split.is_file() {
+                    split
+                } else if paths.dictionary(assets::WUBI_DICTIONARY).is_file() {
+                    // Fixtures and transitional generations may stage the split beside the mutable dictionaries.
+                    paths.dictionary(assets::WUBI_DICTIONARY)
+                } else if paths.dictionary(assets::MAIN_DICTIONARY).is_file() {
+                    // Older generations kept Wubi tables in the pinyin database.
+                    paths.dictionary(assets::MAIN_DICTIONARY)
+                } else {
+                    // Old releases contain the Wubi tables in the packaged pinyin database.
+                    paths.resource(assets::MAIN_DICTIONARY)
+                }
+            }),
             japanese: JapaneseProvider::new(&japanese_model),
             keymap: None,
             cantonese_path,

@@ -15,7 +15,7 @@ decoder_(paths_.resource(metasequoia::assets::pinyin_model),
          paths_.user(metasequoia::assets::pinyin_user_dictionary)),
 ```
 
-`assets::pinyin_model` 是 `dict_pinyin.dat`（`contracts/assets/assets.h`）。**该文件当时不在锁定的词库发布里**——发布只有 `msime.db`、`english.db`、`others.db`、`dict_japanese.dat` 和两个说明文件。
+`assets::pinyin_model` 是 `dict_pinyin.dat`（`contracts/assets/assets.h`）。**该文件当时不在锁定的词库发布里**——发布只有 `msime-pinyin.db`、`msime-english.db`、`others.db`、`msime-japanese.dat` 和两个说明文件。
 
 `core/pinyin_decoder.cpp` 的 `im_open_decoder` 失败时静默 `return {}`，所以没有任何征兆。文件只有 1.1 MB，一直躺在 Engine 仓库的 `googlepinyinime-rev/data/` 下。
 

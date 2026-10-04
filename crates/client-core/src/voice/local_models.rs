@@ -618,7 +618,7 @@ pub fn install_files(
     )
 }
 
-/// 不变量：已经发布的文件永远不会被重新打开写入。输入法会内存映射 dict_japanese.dat，原地改写会让正在使用的映射读到半新半旧的内容甚至触发 SIGBUS；所以新文件一律写进暂存目录，再整体改名替换旧目录，旧文件只被改名和删除，已打开的句柄仍能读到原来的字节。
+/// 不变量：已经发布的文件永远不会被重新打开写入。输入法会内存映射 msime-japanese.dat，原地改写会让正在使用的映射读到半新半旧的内容甚至触发 SIGBUS；所以新文件一律写进暂存目录，再整体改名替换旧目录，旧文件只被改名和删除，已打开的句柄仍能读到原来的字节。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_files_with(
     root: &Path,

@@ -612,7 +612,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
             fs::create_dir_all(base.join(name)).unwrap();
         }
         for name in ["resources", "dictionaries"] {
-            rusqlite::Connection::open(base.join(name).join("msime.db"))
+            rusqlite::Connection::open(base.join(name).join("msime-pinyin.db"))
                 .unwrap()
                 .execute_batch(fixture)
                 .unwrap();
@@ -743,7 +743,7 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     let specification = crate::tests::synthetic_desktop_lock(&resources);
-    fs::remove_file(resources.join("dict_japanese.dat")).unwrap();
+    fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
     fs::remove_file(resources.join("mozc_dictionary_oss_README.txt")).unwrap();
     for name in ["user", "cache", "dictionaries", "staging"] {
         fs::create_dir_all(root.path().join(name)).unwrap();

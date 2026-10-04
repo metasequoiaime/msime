@@ -467,7 +467,7 @@ int main(int argc, char **argv) {
         const auto outdated = std::filesystem::path(directory) / "outdated";
         std::filesystem::create_directories(outdated / "resources");
         std::filesystem::create_directories(outdated / "state");
-        std::ofstream(outdated / "resources/msime.db") << "previous generation";
+        std::ofstream(outdated / "resources/msime-pinyin.db") << "previous generation";
         const auto outdatedOptions = outdated / "state/runtime-options.json";
         const auto document = Json{{"api_version", 1},
                                    {"resources", (outdated / "resources").string()},

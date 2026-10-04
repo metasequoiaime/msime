@@ -6,7 +6,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('na', 'n', '甲', 5000000);INSERT INTO tbl_1_n VALUES('ne', 'n', '乙', 5000000);INSERT INTO tbl_1_n VALUES('ni', 'n', '丙', 3000000);COMMIT;"
+   "msime-pinyin.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_1_n VALUES('na', 'n', '甲', 5000000);INSERT INTO tbl_1_n VALUES('ne', 'n', '乙', 5000000);INSERT INTO tbl_1_n VALUES('ni', 'n', '丙', 3000000);COMMIT;"
   }
  },
  "options": {

@@ -2,13 +2,13 @@
   "source_commit": "f661d8d44d12d24c46f9fb83af693b6d6fd68706",
   "artifacts": [
     {
-      "name": "msime.db",
+      "name": "msime-pinyin.db",
       "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/msime.db",
       "sha256": "deec10d3cfde129e3f2068689a10759cae1f28c033f20a6c741e3a00dcfd850e",
       "size": 81850368
     },
     {
-      "name": "english.db",
+      "name": "msime-english.db",
       "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/english.db",
       "sha256": "3722ac7d6acccae79365f807f06005dab8af6959b73fcc4939d4f5a315d32dc1",
       "size": 1482752
@@ -32,7 +32,7 @@
       "size": 1314816
     },
     {
-      "name": "dict_japanese.dat",
+      "name": "msime-japanese.dat",
       "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/dict_japanese.dat",
       "sha256": "8baafcfc3881d0280cdda8bda7cf3968d8f8fbc94243fea94847cff2b6e2cd66",
       "size": 66538457

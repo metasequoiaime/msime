@@ -156,7 +156,7 @@ fn learned_glosses_survive_unavailable_packaged_dictionary() {
         candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
         expected
     );
-    let packaged = resources.path().join("english.db");
+    let packaged = resources.path().join("msime-english.db");
     std::fs::write(&packaged, "synthetic damaged database").unwrap();
     assert_eq!(
         candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
@@ -192,7 +192,7 @@ fn learned_glosses_survive_unavailable_packaged_dictionary() {
 fn hand_written_glosses_outrank_learned_and_packaged_ones() {
     let resources = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
-    Connection::open(resources.path().join("english.db"))
+    Connection::open(resources.path().join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
@@ -232,7 +232,7 @@ fn hand_written_glosses_outrank_learned_and_packaged_ones() {
 fn hand_written_glosses_apply_without_a_learned_store() {
     let resources = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
-    Connection::open(resources.path().join("english.db"))
+    Connection::open(resources.path().join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');
@@ -275,7 +275,7 @@ fn learned_glosses_reject_a_symlinked_database() {
     let resources = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     let external = tempfile::tempdir().unwrap();
-    Connection::open(resources.path().join("english.db"))
+    Connection::open(resources.path().join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
@@ -328,7 +328,7 @@ fn saving_learned_glosses_rejects_a_symlinked_database() {
 fn unsafe_learned_glosses_fall_back_to_packaged_values() {
     let resources = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
-    Connection::open(resources.path().join("english.db"))
+    Connection::open(resources.path().join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA} INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');"
@@ -452,7 +452,7 @@ fn reset_learned_data_under_root(component: &str) {
     let value = options(&root);
     let resources = Path::new(&value.resources);
     let dictionaries = Path::new(&value.dictionaries);
-    Connection::open(resources.join("msime.db"))
+    Connection::open(resources.join("msime-pinyin.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -461,7 +461,7 @@ fn reset_learned_data_under_root(component: &str) {
              CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
         )
         .unwrap();
-    Connection::open(resources.join("english.db"))
+    Connection::open(resources.join("msime-english.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
@@ -470,10 +470,14 @@ fn reset_learned_data_under_root(component: &str) {
              INSERT INTO english_words VALUES('word','word',100);",
         )
         .unwrap();
-    std::fs::copy(resources.join("msime.db"), dictionaries.join("msime.db")).unwrap();
     std::fs::copy(
-        resources.join("english.db"),
-        dictionaries.join("english.db"),
+        resources.join("msime-pinyin.db"),
+        dictionaries.join("msime-pinyin.db"),
+    )
+    .unwrap();
+    std::fs::copy(
+        resources.join("msime-english.db"),
+        dictionaries.join("msime-english.db"),
     )
     .unwrap();
     let journal = Path::new(&value.user_data).join("msime_user.db");
@@ -488,14 +492,14 @@ fn reset_learned_data_under_root(component: &str) {
              INSERT INTO candidate_selection_state VALUES('ni''hao','ni''hao','你好',7);",
         )
         .unwrap();
-    Connection::open(dictionaries.join("msime.db"))
+    Connection::open(dictionaries.join("msime-pinyin.db"))
         .unwrap()
         .execute("UPDATE tbl_2_n SET weight=1", [])
         .unwrap();
 
     reset_learned_data(&value).unwrap();
 
-    let weight: i64 = Connection::open(dictionaries.join("msime.db"))
+    let weight: i64 = Connection::open(dictionaries.join("msime-pinyin.db"))
         .unwrap()
         .query_row(
             "SELECT weight FROM tbl_2_n WHERE key='ni''hao'",
@@ -537,7 +541,7 @@ fn prepared_options_disable_quanpin_autocorrect_by_default() {
     let root = tempfile::tempdir().unwrap();
     let resources = root.path().join("resources");
     std::fs::create_dir_all(&resources).unwrap();
-    for name in ["msime.db", "english.db"] {
+    for name in ["msime-pinyin.db", "msime-english.db"] {
         Connection::open(resources.join(name)).unwrap();
     }
     let prepared = prepare_options(
@@ -926,7 +930,7 @@ fn japanese_candidates(value: &EngineOptions) -> Vec<String> {
     session.snapshot().unwrap().candidates
 }
 
-/// `japanese_dictionary` 指向资源目录之外的模型时读那一份；为空时仍读资源目录里的 `dict_japanese.dat`，两处都没有就只给假名行。
+/// `japanese_dictionary` 指向资源目录之外的模型时读那一份；为空时仍读资源目录里的 `msime-japanese.dat`，两处都没有就只给假名行。
 #[test]
 fn the_japanese_model_path_overrides_the_resource_copy() {
     let dir = tempfile::tempdir().unwrap();
@@ -983,7 +987,9 @@ fn real_engine_composes_korean_with_the_hangul_as_its_reading() {
     assert!(result.has_commit);
     assert_eq!(result.commit, "글");
     assert_eq!(result.diagnostic, "");
-    assert!(!Path::new(&value.dictionaries).join("english.db").exists());
+    assert!(!Path::new(&value.dictionaries)
+        .join("msime-english.db")
+        .exists());
 
     // The raw commit without learning behaves the same, and punctuation stays ASCII.
     session.character(b'r', false).unwrap();
@@ -1201,7 +1207,7 @@ fn commit_raw_applies_windows_english_learning_policy() {
     let result = session.command(Command::CommitRaw).unwrap();
     assert_eq!(result.commit, "hello");
     assert_eq!(result.diagnostic, "");
-    let learned: String = Connection::open(Path::new(&value.dictionaries).join("english.db"))
+    let learned: String = Connection::open(Path::new(&value.dictionaries).join("msime-english.db"))
         .unwrap()
         .query_row(
             "SELECT display FROM english_words WHERE word='hello'",
@@ -1212,7 +1218,7 @@ fn commit_raw_applies_windows_english_learning_policy() {
     assert_eq!(learned, "hello");
 }
 
-// The shipped english.db weighs its words by Google unigram counts while the pinyin tables use their own scale, so an English weight says nothing about a Chinese one. Mixed input therefore never seats an English word ahead of the leading Chinese candidate: not on its shipped weight, not after it is committed, not after it is pinned. Pinning only reorders it among the English words.
+// The shipped msime-english.db weighs its words by Google unigram counts while the pinyin tables use their own scale, so an English weight says nothing about a Chinese one. Mixed input therefore never seats an English word ahead of the leading Chinese candidate: not on its shipped weight, not after it is committed, not after it is pinned. Pinning only reorders it among the English words.
 #[test]
 fn mixed_english_never_takes_the_first_seat_from_chinese() {
     const ENGLISH: u8 = 4;
@@ -1222,7 +1228,7 @@ fn mixed_english_never_takes_the_first_seat_from_chinese() {
     value.english_minimum_prefix = 2;
     for directory in [&value.resources, &value.dictionaries] {
         let directory = Path::new(directory);
-        Connection::open(directory.join("msime.db"))
+        Connection::open(directory.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -1232,7 +1238,7 @@ fn mixed_english_never_takes_the_first_seat_from_chinese() {
                  CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
             )
             .unwrap();
-        Connection::open(directory.join("english.db"))
+        Connection::open(directory.join("msime-english.db"))
             .unwrap()
             .execute_batch(&format!(
                 "{ENGLISH_SCHEMA}
@@ -1282,7 +1288,7 @@ fn mixed_english_never_takes_the_first_seat_from_chinese() {
 }
 
 fn english_word_count(value: &EngineOptions, word: &str) -> i64 {
-    let database = Path::new(&value.dictionaries).join("english.db");
+    let database = Path::new(&value.dictionaries).join("msime-english.db");
     if !database.exists() {
         return 0;
     }
@@ -1333,7 +1339,7 @@ fn complete_pinyin_raw_commit_does_not_learn_as_english() {
         assert!(session.character(*character, false).unwrap().handled);
     }
     assert_eq!(session.command(Command::CommitRaw).unwrap().commit, "ni");
-    let database = Path::new(&value.dictionaries).join("english.db");
+    let database = Path::new(&value.dictionaries).join("msime-english.db");
     if database.exists() {
         let count: i64 = Connection::open(database)
             .unwrap()
@@ -1654,7 +1660,7 @@ fn english_completions_validate_and_lowercase_the_prefix() {
         Vec::<String>::new()
     );
     assert_eq!(message("he", 5), "English dictionary unavailable");
-    Connection::open(dir.path().join("english.db"))
+    Connection::open(dir.path().join("msime-english.db"))
         .unwrap()
         .execute_batch(&format!(
             "{ENGLISH_SCHEMA}
@@ -1774,7 +1780,7 @@ fn emoji_catalog_wrappers_page_through_others_db() {
 fn hanzi_to_pinyin_reads_the_generation_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let value = options(dir.path());
-    Connection::open(Path::new(&value.dictionaries).join("msime.db"))
+    Connection::open(Path::new(&value.dictionaries).join("msime-pinyin.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -1790,7 +1796,7 @@ fn helpcode_fixture(root: &Path, extra_sql: &str, helpcodes: &str) -> EngineOpti
     let mut options = options(root);
     for directory in [&options.resources, &options.dictionaries] {
         let directory = Path::new(directory);
-        Connection::open(directory.join("msime.db"))
+        Connection::open(directory.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(&format!(
                 "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -1801,7 +1807,7 @@ fn helpcode_fixture(root: &Path, extra_sql: &str, helpcodes: &str) -> EngineOpti
                  {extra_sql}"
             ))
             .unwrap();
-        crate::ensure_english_schema(&directory.join("english.db")).unwrap();
+        crate::ensure_english_schema(&directory.join("msime-english.db")).unwrap();
     }
     let directory = Path::new(&options.resources).join("helpcodes");
     std::fs::create_dir_all(&directory).unwrap();
@@ -1994,7 +2000,7 @@ fn a_wubi98_session_reads_and_learns_into_wubi98() {
     value.wubi_profile = 1;
     value.learning = true;
     for directory in [&value.resources, &value.dictionaries] {
-        Connection::open(Path::new(directory).join("msime.db"))
+        Connection::open(Path::new(directory).join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
@@ -2038,7 +2044,7 @@ fn dropping_a_session_writes_its_queued_personal_context() {
         ("hao", "寅", 100),
     ];
     for directory in [&value.resources, &value.dictionaries] {
-        let main = Connection::open(Path::new(directory).join("msime.db")).unwrap();
+        let main = Connection::open(Path::new(directory).join("msime-pinyin.db")).unwrap();
         main.execute_batch(
             "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
              CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);",
@@ -2088,7 +2094,7 @@ fn a_failed_personal_context_write_keeps_the_commit_with_a_diagnostic() {
     value.learning = true;
     value.frequency_mode = "disabled".into();
     for directory in [&value.resources, &value.dictionaries] {
-        Connection::open(Path::new(directory).join("msime.db"))
+        Connection::open(Path::new(directory).join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -2117,7 +2123,7 @@ fn a_failed_personal_context_write_keeps_the_commit_with_a_diagnostic() {
     assert!(!result.diagnostic.contains('甲') && !result.diagnostic.contains("ni"));
 }
 
-/// local_database.cpp:34-38,63-66 opened msime's generation dictionary once per local-mode query, so nothing held it after the sessions were gone. A reset or snapshot restore replaces `msime.db` at the same path once every session is dropped (Windows needs the handle closed to rename it), and the next session must read the new file.
+/// local_database.cpp:34-38,63-66 opened msime's generation dictionary once per local-mode query, so nothing held it after the sessions were gone. A reset or snapshot restore replaces `msime-pinyin.db` at the same path once every session is dropped (Windows needs the handle closed to rename it), and the next session must read the new file.
 #[test]
 fn local_mode_reads_follow_a_dictionary_replaced_after_the_sessions_are_gone() {
     let dir = tempfile::tempdir().unwrap();
@@ -2132,8 +2138,11 @@ fn local_mode_reads_follow_a_dictionary_replaced_after_the_sessions_are_gone() {
             ))
             .unwrap();
     };
-    let main = Path::new(&value.dictionaries).join("msime.db");
-    dictionary(&Path::new(&value.resources).join("msime.db"), "旧短语");
+    let main = Path::new(&value.dictionaries).join("msime-pinyin.db");
+    dictionary(
+        &Path::new(&value.resources).join("msime-pinyin.db"),
+        "旧短语",
+    );
     dictionary(&main, "旧短语");
     let phrases = || {
         let mut session = Session::new(&value).unwrap();
@@ -2162,7 +2171,7 @@ fn journal_handles_are_released_when_a_thread_is_done_with_them() {
     let mut value = options(dir.path());
     value.learning = true;
     for directory in [&value.resources, &value.dictionaries] {
-        Connection::open(Path::new(directory).join("msime.db"))
+        Connection::open(Path::new(directory).join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -2213,7 +2222,7 @@ fn a_session_dropped_while_its_thread_exits_does_not_abort() {
     let mut value = options(dir.path());
     value.learning = true;
     for directory in [&value.resources, &value.dictionaries] {
-        Connection::open(Path::new(directory).join("msime.db"))
+        Connection::open(Path::new(directory).join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
@@ -2280,7 +2289,7 @@ fn generated_local_modes_map_through_the_options() {
     let dir = tempfile::tempdir().unwrap();
     let resources = dir.path().join("resources");
     std::fs::create_dir_all(&resources).unwrap();
-    for name in ["msime.db", "english.db"] {
+    for name in ["msime-pinyin.db", "msime-english.db"] {
         Connection::open(resources.join(name)).unwrap();
     }
     let defaults = prepare_options(

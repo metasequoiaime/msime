@@ -37,7 +37,7 @@ use crate::user_dictionary::typo_profile::PersonalTypoProfile;
 use crate::zhuyin;
 use crate::zhuyin::scheme::ZhuyinKey;
 
-/// The weight an English word typed out and committed raw enters `english.db` with (user_dictionary_journal.h:137).
+/// The weight an English word typed out and committed raw enters `msime-english.db` with (user_dictionary_journal.h:137).
 const ENTERED_ENGLISH_WORD_WEIGHT: i64 = 10;
 
 /// A phrase being composed from consecutive partial selections.

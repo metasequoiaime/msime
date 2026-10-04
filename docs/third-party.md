@@ -44,12 +44,12 @@
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
-| `msime.db` | 81.9 MB | 工作词库，含 86 与 98 五笔码表；98 版同时合并 `msime-dictionary` 的开源补充表 |
-| `english.db` | 1.5 MB | Engine 发布的英文词库 |
+| `msime-pinyin.db` | 81.9 MB | 工作词库，含 86 与 98 五笔码表；98 版同时合并 `msime-dictionary` 的开源补充表 |
+| `msime-english.db` | 1.5 MB | Engine 发布的英文词库 |
 | `bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
 | `trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
 | `others.db` | 1.3 MB | Engine 发布的表情等数据 |
-| `dict_japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
+| `msime-japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
 | `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
 | `dictionary-manifest.json` | 2.5 KB | 资源清单 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
@@ -62,7 +62,7 @@
 
 ### 日文词库的分发义务
 
-`dict_japanese.dat` 是 Mozc 的开源版词典，不是 Google 日本語入力所用的那一份。按随附 `mozc_dictionary_oss_README.txt` 的说明，它由四部分构成：
+`msime-japanese.dat` 是 Mozc 的开源版词典，不是 Google 日本語入力所用的那一份。按随附 `mozc_dictionary_oss_README.txt` 的说明，它由四部分构成：
 
 - **IPAdic**（`mecab-ipadic-2.7.0-20070801`），奈良先端科学技術大学院大学 2000–2003 年版权。允许使用、复制和分发，但要求任何副本——无论原样还是修改过——都必须同时包含其版权声明和紧随其后的两段免责声明。
 - **ICOT Free Software**，词条中很大一部分源于此。其条款要求 `NO WARRANTY` 一节**始终**出现在随程序分发的材料中，或附加于其上。
@@ -166,7 +166,7 @@ MPL-2.0 是文件级 copyleft，与本仓库的 GPL-3.0 兼容：这些 crate �
 
 **源文件不进版本库，也不整份随包**。脚本只取 `word`、`phonetic` 和 `translation` 的首行释义——卡片要显示的就这三样——按 `tag` 列（`zk`/`gk`/`cet4`/`cet6`/`ky`/`ielts`/`toefl`/`gre`）分成八本，写成 `client-core::vocabulary::wordbook::Wordbook` 直接能反序列化的 JSON。八本合计约 3 MB，宿主用 serde_json 读，不需要 CSV 解析器或 SQLite 驱动。
 
-考纲归属是 ECDICT 提供的：仓库自带的 `english.db` 有中英释义和语料频次，够做「最常用的一千词」，但不足以断言某个词在四级大纲里。那是已发布的考纲，凭频次给它安一个名字就是编的。
+考纲归属是 ECDICT 提供的：仓库自带的 `msime-english.db` 有中英释义和语料频次，够做「最常用的一千词」，但不足以断言某个词在四级大纲里。那是已发布的考纲，凭频次给它安一个名字就是编的。
 
 词书**放在 `EngineResources/` 的兄弟目录 `wordbooks/`**，不放进去：`ResourceStore::verify` 要求固定资源目录与词库锁逐字节一致，多一个文件就会破坏那道「证明随包词库完整」的检查。`settled-model` 出于同样理由也是兄弟目录。
 
@@ -174,7 +174,7 @@ MPL-2.0 是文件级 copyleft，与本仓库的 GPL-3.0 兼容：这些 crate �
 
 ## 非英语离线释义（`resources/offline-glosses.lock.json`）
 
-候选词释义的目标语言是法语、日语、西班牙语、俄语、德语或韩语时，离线来源是从英文维基词典译文表生成的六个 SQLite 文件。`english.db` 只有中英释义，这几种语言原来只能走在线翻译。
+候选词释义的目标语言是法语、日语、西班牙语、俄语、德语或韩语时，离线来源是从英文维基词典译文表生成的六个 SQLite 文件。`msime-english.db` 只有中英释义，这几种语言原来只能走在线翻译。
 
 | 项 | 值 |
 | --- | --- |
@@ -182,20 +182,20 @@ MPL-2.0 是文件级 copyleft，与本仓库的 GPL-3.0 兼容：这些 crate �
 | 许可 | CC BY-SA 4.0（维基词典按 CC BY-SA 4.0 与 GFDL 双许可，这里取前者）。CC BY-SA 4.0 可单向兼容到 GPL-3.0 |
 | 生成器 | `scripts/build_offline_glosses.py`，只用 Python 标准库；离线测试 `scripts/test-offline-glosses.py` 用真实结构的夹具 `scripts/offline-glosses-fixture.jsonl` |
 | 产物 | `offline-glosses/zh-<lang>.db`，每种语言一个文件，外加 `offline-glosses-NOTICE.txt` |
-| 取词范围 | 同一张译文表（同一个英文义项）里的 Mandarin 行与目标语言行配对；读 `senses[].translations` 和顶层 `translations`；键为简体，用 `msime.db` 的词表校验；每个中文词最多两个义项、每个义项最多两个词 |
+| 取词范围 | 同一张译文表（同一个英文义项）里的 Mandarin 行与目标语言行配对；读 `senses[].translations` 和顶层 `translations`；键为简体，用 `msime-pinyin.db` 的词表校验；每个中文词最多两个义项、每个义项最多两个词 |
 | 锁 | `resources/offline-glosses.lock.json`：`input` 是 kaikki dump，`filtered_input` 是生成时实际读的过滤后 jsonl，`artifacts` 是六个数据库和 NOTICE |
 | 发布位置 | [`metasequoiaime/chinese-ime-lm` 的 `offline-glosses-2026.09.02`](https://github.com/metasequoiaime/chinese-ime-lm/releases/tag/offline-glosses-2026.09.02)，与整句重排模型同一个仓库，不在应用内更新检查读取的 `metasequoiaime/msime/releases` |
 | 获取 | `scripts/fetch_offline_glosses.py` 按锁下载并校验 sha256 与大小，默认写到 `target/offline-glosses` |
 
 Android、iOS、macOS、Windows 与 Linux 的发布工作流在打包前运行 `fetch_offline_glosses.py`，各自的打包脚本发现 `target/offline-glosses` 里有数据库和 NOTICE 时才带上它们。HarmonyOS 的发布工作流还不能在 CI 上出包（缺 DevEco 的 NDK，也不暂存资源），本地按 `platforms/harmony/README.md` 构建时 `stage-resources.sh` 会带上它们。本地构建同样先运行这个脚本，不运行则照常构建、只有英语走离线释义。
 
-kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`，用它加上锁住的 `msime.db` 与 `english.db` 运行 `build_offline_glosses.py build`（`--dump-date`、`--source-revision` 取锁里的值）即可得到逐字节相同的数据库，前提是 SQLite 版本与锁里的 `sqlite_version` 一致。上游已把 postprocessed 的 English jsonl 标为 deprecated，将来可能只剩约 2.9 GB 的 raw dump；生成器两种格式都接受。
+kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`，用它加上锁住的 `msime-pinyin.db` 与 `msime-english.db` 运行 `build_offline_glosses.py build`（`--dump-date`、`--source-revision` 取锁里的值）即可得到逐字节相同的数据库，前提是 SQLite 版本与锁里的 `sqlite_version` 一致。上游已把 postprocessed 的 English jsonl 标为 deprecated，将来可能只剩约 2.9 GB 的 raw dump；生成器两种格式都接受。
 
 **放在 resources 的兄弟目录 `offline-glosses/`**，不放进去，理由与 `settled-model`、`wordbooks` 相同：资源目录必须和词库锁逐字节一致，而且各平台只想带自己需要的语言。
 
 **分发义务**：这些文件是维基词典文本的改编作品，发布时必须随附 `offline-glosses-NOTICE.txt`，并保持 CC BY-SA 4.0。App Store 这类带 DRM 的渠道与 CC BY-SA 4.0 第 2(a)(5) 条「不得附加有效技术措施」之间的关系，和已随包分发的 bigram/trigram 是同一个问题，需要维护者判断。
 
-退出方式：不安装 `offline-glosses/` 即可。释义退回只用 `english.db` 和在线翻译（macOS 26 及以上在没有选择翻译服务时还有系统自带的离线翻译，见 [PRIVACY.md](../PRIVACY.md#候选翻译macos-与-linux-新装默认用水杉账号)），其余功能不受影响。
+退出方式：不安装 `offline-glosses/` 即可。释义退回只用 `msime-english.db` 和在线翻译（macOS 26 及以上在没有选择翻译服务时还有系统自带的离线翻译，见 [PRIVACY.md](../PRIVACY.md#候选翻译macos-与-linux-新装默认用水杉账号)），其余功能不受影响。
 
 ## 粤语与注音的数据（rime-cantonese、libchewing-data）
 
@@ -204,7 +204,7 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
 | [rime/rime-cantonese](https://github.com/rime/rime-cantonese) 的 `jyut6ping3.chars.dict.yaml`、`jyut6ping3.words.dict.yaml`、`essay-cantonese.txt`，提交 `ac277184f161f297c2031b497588975234019f9d` | CC BY 4.0（作者为粤语计算语言学基础建设组 CanCLID；拼写采用香港语言学学会 LSHK 的粤拼方案）。全文、署名与改动说明在 `resources/licenses/rime-cantonese-CC-BY-4.0.txt` | 转换成 `cantonese.db`：去掉声调数字、音节以空格连接，字频与词频取自 `essay-cantonese.txt`。按 ODbL 发布的 `jyut6ping3.maps.dict.yaml`、来源不明且没有读音的 `jyut6ping3.phrase.dict.yaml` 和 `jyut6ping3.lettered.dict.yaml` 都不读取、不分发。CC BY 4.0 要求署名并说明改动，许可证文件已写明两者 |
-| [chewing/libchewing-data](https://github.com/chewing/libchewing-data) 的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，提交 `c44e81aef24b06f1509f19e1be54c99812d0c43f`；以及 [openvanilla/McBopomofo](https://github.com/openvanilla/McBopomofo) 的 `Source/Data/BPMFMappings.txt`，提交 `be6564acad6c4d3265c34a2e1a872d80f9db6068` | libchewing-data 为 LGPL-2.1-or-later（两个文件的文件头 `dc:license` 声明，Copyright (c) 2025 libchewing Core Team）；McBopomofo 多字词表说明其来源为 BSD 授权的 libtabe 并含修改。两者的署名、源码地址和条款在 `resources/licenses/libchewing-data-LGPL-2.1.txt` | 转换成 `zhuyin.db`：`tsi.csv` 按词频排序，`word.csv` 补全单字，McBopomofo 补充表补入其余词语组合并以 0 作为无来源频率。仓库里其他注音文件不使用；注音从不读 `msime.db`，也不经过简繁转换。若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。 |
+| [chewing/libchewing-data](https://github.com/chewing/libchewing-data) 的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，提交 `c44e81aef24b06f1509f19e1be54c99812d0c43f`；以及 [openvanilla/McBopomofo](https://github.com/openvanilla/McBopomofo) 的 `Source/Data/BPMFMappings.txt`，提交 `be6564acad6c4d3265c34a2e1a872d80f9db6068` | libchewing-data 为 LGPL-2.1-or-later（两个文件的文件头 `dc:license` 声明，Copyright (c) 2025 libchewing Core Team）；McBopomofo 多字词表说明其来源为 BSD 授权的 libtabe 并含修改。两者的署名、源码地址和条款在 `resources/licenses/libchewing-data-LGPL-2.1.txt` | 转换成 `zhuyin.db`：`tsi.csv` 按词频排序，`word.csv` 补全单字，McBopomofo 补充表补入其余词语组合并以 0 作为无来源频率。仓库里其他注音文件不使用；注音从不读 `msime-pinyin.db`，也不经过简繁转换。若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。 |
 
 这些文件由 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 原样收在 `yue/`、`tw/` 下（与上游固定提交逐字节一致），`resources/dictionary-sources.lock.json` 按 `yue/`、`tw/` 路径固定它们在 msime-dictionary `sources-v*` release 里的附件（URL、长度与 SHA-256），上游提交记在同一文件的 `rime-cantonese`、`libchewing-data` 引用里。许可证文本经各平台的通知渠道分发，与下一节的 libhangul 汉字表相同：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。除 macOS 外的平台目前不提供这两个方案，也不带数据库，但这些方案的代码随每一份引擎分发，统一一份渠道清单检查起来最简单。`scripts/test-language-data-notices.py` 检查许可证文本和这几处渠道都还在。
 

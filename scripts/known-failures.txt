@@ -69,7 +69,7 @@ native windows-session
 # pass now - the Engine behaviour blamed here really was fixed - and the abort had moved on to emoji, where
 # it was never the Engine at all. Four of the eight modes are gated on a runtime resource as well as on the
 # preference (apply_local_mode_resource_gates: emoji and kaomoji need others.db, temporary English needs
-# english.db, temporary Japanese needs dict_japanese.dat), and the test built an empty resources directory,
+# msime-english.db, temporary Japanese needs msime-japanese.dat), and the test built an empty resources directory,
 # so it asserted something that could not hold. The gate only asks whether the file is there, so the test
 # now creates empty ones - and asserts the gate itself, which nothing on macOS covered: with the resource
 # gone the mode stays off however the preference is set, and the trigger key comes back unhandled rather

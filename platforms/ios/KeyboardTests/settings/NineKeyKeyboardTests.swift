@@ -1830,7 +1830,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(snapshot.candidates.isEmpty, "Provider \(trigger)")
       // Temporary English completes what was typed. This used to ask for more than one answer,
       // which counted rows in the pinned dictionary rather than describing the product: the
-      // release `english.db` now holds exactly one word beginning with "hello", so the count
+      // release `msime-english.db` now holds exactly one word beginning with "hello", so the count
       // moved while the behaviour did not.
       if trigger == "Y" {
         XCTAssertTrue(snapshot.candidates.contains { $0.lowercased().hasPrefix(input) },

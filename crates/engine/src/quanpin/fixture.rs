@@ -1,4 +1,4 @@
-//! Test fixtures: a throwaway runtime directory with a `msime.db` built row by row, in the shape the dictionary builder ships (`key`, `jp`, `value`, `weight`).
+//! Test fixtures: a throwaway runtime directory with a `msime-pinyin.db` built row by row, in the shape the dictionary builder ships (`key`, `jp`, `value`, `weight`).
 
 use std::path::PathBuf;
 

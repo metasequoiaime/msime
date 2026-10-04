@@ -1,6 +1,6 @@
 # msime-dict-builder
 
-`msime-dict-build` builds the dictionary release msime ships (the artifacts `resources/desktop-dictionary.lock.json` pins): `msime.db`, `english.db`, `others.db`, `dict_japanese.dat`, `bigram.bin`, `trigram.bin`, `mozc_dictionary_oss_README.txt`, then `dictionary-manifest.json` and `SHA256SUMS.txt`. It replaces the Python pipeline in MSIME-Engine `dictionary/` (`build_all.py`, `build_profile.py`, `makecikudb/`) and reproduces its desktop output row for row.
+`msime-dict-build` builds the dictionary release msime ships (the artifacts `resources/desktop-dictionary.lock.json` pins): `msime-pinyin.db`, `msime-wubi.db`, `msime-english.db`, `others.db`, `msime-japanese.dat`, `bigram.bin`, `trigram.bin`, `mozc_dictionary_oss_README.txt`, then `dictionary-manifest.json` and `SHA256SUMS.txt`. It replaces the Python pipeline in MSIME-Engine `dictionary/` (`build_all.py`, `build_profile.py`, `makecikudb/`) and reproduces its desktop output row for row.
 
 ```sh
 cargo build --release -p msime-dict-builder
@@ -46,7 +46,7 @@ msime-dict-build check-words \
   [--base <old words.txt> --head <new words.txt>] \
   [--translations-base <old translations.txt> --translations-head <new translations.txt>] \
   [--english-base <old english.txt> --english-head <new english.txt>] \
-  [--msime-db <shipped msime.db>] [--english-db <shipped english.db>] \
+  [--msime-db <shipped msime-pinyin.db>] [--english-db <shipped msime-english.db>] \
   [--json report.json] [--markdown summary.md]
 ```
 

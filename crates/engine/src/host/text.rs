@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::local::catalog::{self, EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
 use crate::shuangpin::hints::ShuangpinKeyHint;
 
-/// Over the generation's working `msime.db`.
+/// Over the generation's working `msime-pinyin.db`.
 pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
     crate::dictionary::hanzi::hanzi_to_pinyin(
         &runtime_paths(options).dictionary(assets::MAIN_DICTIONARY),

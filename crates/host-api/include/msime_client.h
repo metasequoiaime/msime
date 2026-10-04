@@ -432,7 +432,7 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
 /* Resolve copied candidates against the packaged offline English dictionary.
  * JSON request: {generation,candidates:[{text,source}],user_data?,target_language?}; the generation is echoed for the host to pass to apply_translations on the session thread. This function owns no session handle and may run on a worker thread.
- * target_language absent or "en" reads english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
+ * target_language absent or "en" reads msime-english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* Query the packaged English dictionary without creating a session.

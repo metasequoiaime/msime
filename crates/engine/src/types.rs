@@ -563,7 +563,7 @@ impl WubiProfileKind {
         }
     }
 
-    /// `msime.db` 里这一版的码表，表名与 `name` 相同。
+    /// `msime-pinyin.db` 里这一版的码表，表名与 `name` 相同。
     pub fn table(self) -> &'static str {
         self.name()
     }
@@ -1119,7 +1119,7 @@ impl PersonalDictionaryKind {
         matches!(self, Self::Wubi | Self::Wubi98)
     }
 
-    /// 五笔种类对应的 `msime.db` 码表。
+    /// 五笔种类对应的 `msime-pinyin.db` 码表。
     pub fn wubi_table(self) -> Option<&'static str> {
         match self {
             Self::Wubi => Some(WubiProfileKind::Wubi86.table()),

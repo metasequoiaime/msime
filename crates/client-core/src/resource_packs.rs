@@ -328,26 +328,30 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let pack = ResourcePack::Japanese;
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
         let directory = publish_fake(state.path(), pack);
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
-            Some(directory.join("dict_japanese.dat"))
+            installed_file(state.path(), pack, "msime-japanese.dat"),
+            Some(directory.join("msime-japanese.dat"))
         );
         // 不属于该资源包的名字，即便文件存在也不认。
-        fs::write(directory.join("msime.db"), b"bytes").unwrap();
-        assert_eq!(installed_file(state.path(), pack, "msime.db"), None);
+        fs::write(directory.join("msime-pinyin.db"), b"bytes").unwrap();
+        assert_eq!(installed_file(state.path(), pack, "msime-pinyin.db"), None);
         assert_eq!(installed_file(state.path(), pack, MANIFEST_FILE), None);
         assert_eq!(
-            installed_file(state.path(), ResourcePack::Handwriting, "dict_japanese.dat"),
+            installed_file(
+                state.path(),
+                ResourcePack::Handwriting,
+                "msime-japanese.dat"
+            ),
             None
         );
         // 没有 msime-model.json 的目录不算安装完整。
         fs::remove_file(directory.join(MANIFEST_FILE)).unwrap();
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
     }
@@ -368,7 +372,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
     }
@@ -380,10 +384,10 @@ mod tests {
             .join(".staging-japanese-abc")
             .join("model");
         fs::create_dir_all(&staging).unwrap();
-        fs::write(staging.join("dict_japanese.dat"), b"bytes").unwrap();
+        fs::write(staging.join("msime-japanese.dat"), b"bytes").unwrap();
         fs::write(staging.join(MANIFEST_FILE), b"{}").unwrap();
         assert_eq!(
-            installed_file(state.path(), ResourcePack::Japanese, "dict_japanese.dat"),
+            installed_file(state.path(), ResourcePack::Japanese, "msime-japanese.dat"),
             None
         );
     }

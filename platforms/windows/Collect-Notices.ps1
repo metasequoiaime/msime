@@ -14,7 +14,7 @@ $documents = [Collections.Generic.List[string]]::new()
 $documents.Add("MSIME third-party notice collection`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
 # Notices committed with the data and code they cover, plus the handwriting model's LGPL-2.1 text, which scripts/fetch_handwriting_model.py downloads with the model into target/handwriting-model as resources/handwriting-model.lock.json pins. The input engine is the repository's own Rust crate under the root LICENSE, which the package carries as LICENSE.txt, so it has no separate entry.
 foreach ($notice in @(
-    @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime.db, english.db, others.db, bigram.bin, trigram.bin)'),
+    @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-english.db, others.db, bigram.bin, trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
     @('target/handwriting-model/HandwritingModel-LICENSE.txt', 'Tegaki Simplified Chinese handwriting model (handwriting-zh_CN.model), LGPL-2.1'),

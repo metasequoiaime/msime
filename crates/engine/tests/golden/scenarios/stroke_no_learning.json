@@ -81,7 +81,7 @@
   },
   {
    "op": "query",
-   "db": "msime.db",
+   "db": "msime-pinyin.db",
    "arg": "SELECT count(*) FROM sqlite_master"
   }
  ]

@@ -41,7 +41,7 @@
 
 输入引擎是仓库内的 `crates/engine`，不再从外部拉取、也没有锁文件和 overlay 脚本：原先由 overlay 改写的行为都已直接写进对应的 Rust 模块。移植的对照基准在 `crates/engine/tests/golden/`，录制方法见 `tools/engine-golden/README.md`。平台仍在用的非引擎文件随仓库提交：IPC 契约头文件在 `shared/contracts/`，Windows 提示音用的 miniaudio 在 `platforms/windows/third_party/miniaudio/`。
 
-`resources/desktop-dictionary.lock.json` 锁定 9 个词库 artifact（合计约 175 MB，含 `msime.db`、`dict_japanese.dat`、`bigram.bin`/`trigram.bin`、`english.db`、`others.db`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。校验词库目录时 `client-core` 的 `ResourceStore::verify` 要求目录恰好是锁里的产物，唯一的例外是 Engine 的 `helpcodes/` 子目录。
+`resources/desktop-dictionary.lock.json` 锁定 9 个词库 artifact（合计约 175 MB，含 `msime-pinyin.db`、`msime-japanese.dat`、`bigram.bin`/`trigram.bin`、`msime-english.db`、`others.db`、`sentence-model.safetensors`），每项带 sha256 和长度；`resources/neural-model.lock.json` 同时锁定键盘与桌面落定两个神经模型，`scripts/fetch_neural_model.py` 将它们原子下载到 `target/neural-model`；旧的 `resources/settled-model.lock.json` 和 `scripts/fetch_settled_model.py` 仍兼容只准备桌面模型的构建。`resources/eval/` 是四套转换质量数据集及其基线，`resources/helpcodes/` 是辅助码表与其 NOTICE。校验词库目录时 `client-core` 的 `ResourceStore::verify` 要求目录恰好是锁里的产物，唯一的例外是 Engine 的 `helpcodes/` 子目录。
 
 ## 三、共享层的最终形态
 

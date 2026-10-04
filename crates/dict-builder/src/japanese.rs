@@ -1,4 +1,4 @@
-//! `dict_japanese.dat`: the immutable Viterbi model (`MSJPDT1`) the Japanese sentence decoder memory-maps, packed from Mozc's OSS dictionary at a pinned revision.
+//! `msime-japanese.dat`: the immutable Viterbi model (`MSJPDT1`) the Japanese sentence decoder memory-maps, packed from Mozc's OSS dictionary at a pinned revision.
 //!
 //! Layout, little-endian: a 56-byte header (`MSJPDT1\0`, version, token count, connection size, reserved, token/connection/string offsets, string bytes), 20-byte token records (reading offset u32, reading length u16, surface offset u32, surface length u16, left id u16, right id u16, cost i32), the `size * size` connection matrix as i16, then the interned UTF-8 strings.
 

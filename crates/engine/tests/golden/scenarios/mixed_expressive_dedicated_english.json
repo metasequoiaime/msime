@@ -7,8 +7,8 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',200);INSERT INTO tbl_1_n VALUES('ni','n','倪',100);COMMIT;",
-   "english.db": "BEGIN;CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);INSERT INTO english_words VALUES('ni','Ni',300);INSERT INTO english_words VALUES('ninja','Ninja',200);INSERT INTO english_words VALUES('ni','倪',100);COMMIT;",
+   "msime-pinyin.db": "BEGIN;CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',200);INSERT INTO tbl_1_n VALUES('ni','n','倪',100);COMMIT;",
+   "msime-english.db": "BEGIN;CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);INSERT INTO english_words VALUES('ni','Ni',300);INSERT INTO english_words VALUES('ninja','Ninja',200);INSERT INTO english_words VALUES('ni','倪',100);COMMIT;",
    "others.db": "BEGIN;CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);INSERT INTO emoji_pinyin VALUES('ni','Ni',0);INSERT INTO emoji_pinyin VALUES('ni','😀',1);INSERT INTO emoji_pinyin VALUES('ni','😁',2);CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);INSERT INTO kaomoji VALUES('ni','n','😀',0);INSERT INTO kaomoji VALUES('ni','n','(^_^)',1);INSERT INTO kaomoji VALUES('ni','n','(T_T)',2);COMMIT"
   }
  },

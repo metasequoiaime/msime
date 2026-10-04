@@ -93,8 +93,11 @@ mod tests {
             cache: PathBuf::from("/c"),
             dictionaries: PathBuf::new(),
         };
-        assert_eq!(paths.resource("msime.db"), PathBuf::from("/r/msime.db"));
-        assert_eq!(paths.dictionary("msime.db"), PathBuf::new());
+        assert_eq!(
+            paths.resource("msime-pinyin.db"),
+            PathBuf::from("/r/msime-pinyin.db")
+        );
+        assert_eq!(paths.dictionary("msime-pinyin.db"), PathBuf::new());
         assert_eq!(paths.user("/abs"), PathBuf::new());
         assert!(join_checked(Path::new("/r"), "helpcodes/../x").is_err());
         assert!(paths.validate().is_err());

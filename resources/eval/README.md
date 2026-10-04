@@ -35,13 +35,13 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 ### `quanpin-words-v1.tsv` — 25,119 条词级
 
-由 `build_eval_set` 从 microsoft/Windows-classic-samples 的 `SampleIMESimplifiedQuanPin.txt` 固化而来，MIT 授权，本仓库不收录该文件，没有任何构建脚本读它，也不进入 `msime.db`，所以一次性固化进仓库；重新生成需要自备那份源文件。
+由 `build_eval_set` 从 microsoft/Windows-classic-samples 的 `SampleIMESimplifiedQuanPin.txt` 固化而来，MIT 授权，本仓库不收录该文件，没有任何构建脚本读它，也不进入 `msime-pinyin.db`，所以一次性固化进仓库；重新生成需要自备那份源文件。
 
 生成时丢弃 27,561 条单字、1,955 条截断条目，无解析失败。截断过滤用 Engine 自己的 `normalize_full_pinyin` 判断「key 能否恰好切成 gold 字数个音节」，而不是长度阈值——该格式在 12 字符处截断，但 `chulufengma`、`shumenshul` 这类更短的 key 同样被砍，长度阈值漏得掉。
 
 **它测的是词典命中与排序，不是整句能力。** 实测 `gold_source` 几乎全是 `database`，词图一次都没有贡献过正确答案。
 
-**不要用 `msime.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
+**不要用 `msime-pinyin.db` 自身出题。** 它就是解码器查的那张表，等于让系统考自己；而 1–2 音节的排序实现就是 `ORDER BY weight DESC`，拿 weight 当金标准是在考 SQLite。
 
 ### `sentences-v2.tsv` — 310 条收割，带上文
 

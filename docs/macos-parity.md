@@ -60,7 +60,7 @@
 
 第四次按行为核对之后又补了一轮，针对的是「两边都有、但目标这边用户够不着」这一类。找出并修掉两个：
 
-- **#3216** macOS 设置页隐藏了表情、颜文字、临时日语三个本地模式开关，理由写的是「预览包只发 msime.db 和 english.db」。但 `others.db` 与 `dict_japanese.dat` 自 `780a9381b`（2026-09-09）就在 `resources/desktop-dictionary.lock.json` 里，比那条过滤早十天，而 `tauri.macos.conf.json` 整目录打包已校验的资源集——三个能用的模式在设置里没有任何办法打开。同样受资源门控的「临时英文」一直显示着，这个不一致本身就说明前提错了。资源真缺时由 `apply_local_mode_resource_gates` 关掉该模式、触发键原样插入大写字母，比隐藏开关更好。
+- **#3216** macOS 设置页隐藏了表情、颜文字、临时日语三个本地模式开关，理由写的是「预览包只发 msime-pinyin.db 和 msime-english.db」。但 `others.db` 与 `msime-japanese.dat` 自 `780a9381b`（2026-09-09）就在 `resources/desktop-dictionary.lock.json` 里，比那条过滤早十天，而 `tauri.macos.conf.json` 整目录打包已校验的资源集——三个能用的模式在设置里没有任何办法打开。同样受资源门控的「临时英文」一直显示着，这个不一致本身就说明前提错了。资源真缺时由 `apply_local_mode_resource_gates` 关掉该模式、触发键原样插入大写字母，比隐藏开关更好。
 - **#3212** 本地 Whisper 模型只能手填绝对路径，而来源有 `browseVoiceModel:` 文件选择器。webview 的 file input 给的是内容不是路径，所以共享设置页答不了，改为向宿主要一个可选能力（`pickVoiceModelPath`），原生实现放在 `crates/host-macos/native/`，不引入新依赖；宿主不提供就不显示按钮，手填照旧。
 
 本轮核过且确认等价或目标更强的：来源 12 个共享后端文件目标全有（另有 `BackendAiClient`）；四个原生视图（剪贴板、词库、账号、设置同步）文案差集为空；云词库备份视图逐字一致；输入法菜单条目集合一致；引擎选项写入面一致（来源的嵌套字段对应目标的扁平字段，自动纠错来源是一个总开关、目标拆成换位与邻键两项，覆盖引擎仅有的两个位）；`HostSurface` 各能力位 macOS 均已开启，唯一未开的 `number_row_selection` 来源没有该功能；`platforms/macos/tests/settings/preference_coverage.py` 的「不适用」清单双向校验、无陈旧项。

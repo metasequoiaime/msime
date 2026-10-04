@@ -1,4 +1,4 @@
-//! `english.db` (schemes-lang.md §4, data-formats.md §5): prefix completion, the en↔zh gloss tables, the custom translations sidecar and the learned-gloss store. English weights exceed `i32` in the shipped data.
+//! `msime-english.db` (schemes-lang.md §4, data-formats.md §5): prefix completion, the en↔zh gloss tables, the custom translations sidecar and the learned-gloss store. English weights exceed `i32` in the shipped data.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -173,7 +173,7 @@ impl EnglishDictionary {
     }
 }
 
-/// Create or migrate `english_words` to the composite-key, weighted shape, create the gloss tables, `user_version = 3` (english_dictionary.cpp:242-315). The golden harness calls this for fixtures without an `english.db`.
+/// Create or migrate `english_words` to the composite-key, weighted shape, create the gloss tables, `user_version = 3` (english_dictionary.cpp:242-315). The golden harness calls this for fixtures without an `msime-english.db`.
 pub fn ensure_english_schema(path: &Path) -> Result<()> {
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
         if !metadata.file_type().is_file() {
@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn a_missing_or_foreign_file_is_not_ready_and_is_never_created() {
         let directory = tempfile::tempdir().unwrap();
-        let missing = directory.path().join("english.db");
+        let missing = directory.path().join("msime-english.db");
         let dictionary = EnglishDictionary::open(&missing, None, None);
         assert!(!dictionary.ready());
         assert!(dictionary.query_prefix("he", 5).is_empty());
@@ -544,7 +544,7 @@ mod tests {
         assert!(dictionary.query_prefix("ni", 5).is_empty());
     }
 
-    // test_runtime_isolation.cpp:665-705: the sidecar outranks english.db, which outranks the learned store, and a gloss learned after opening is visible to the open dictionary.
+    // test_runtime_isolation.cpp:665-705: the sidecar outranks msime-english.db, which outranks the learned store, and a gloss learned after opening is visible to the open dictionary.
     #[test]
     fn glosses_follow_sidecar_then_dictionary_then_learned_store() {
         let directory = tempfile::tempdir().unwrap();
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn a_dictionary_without_gloss_tables_falls_through_to_the_learned_store() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("english.db");
+        let path = directory.path().join("msime-english.db");
         Connection::open(&path)
             .unwrap()
             .execute_batch(ENGLISH_WORDS_DDL)
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn schema_setup_creates_a_missing_database_and_is_idempotent() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("english.db");
+        let path = directory.path().join("msime-english.db");
         ensure_english_schema(&path).unwrap();
         assert!(path.exists());
         assert_eq!(user_version(&path), 3);
@@ -726,7 +726,7 @@ mod tests {
         assert!(!cache.exists());
         assert!(upsert_gloss(&cache, false, "hello", "你好"));
         assert_eq!(user_version(&cache), 3);
-        // The store carries the full english.db schema, including an empty word table.
+        // The store carries the full msime-english.db schema, including an empty word table.
         assert!(EnglishDictionary::open(&cache, None, None).ready());
         assert!(!upsert_gloss(
             &directory.path().join("no/such/dir.db"),

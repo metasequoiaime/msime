@@ -731,7 +731,7 @@ impl Scenario {
                 None
             }
             "query" => {
-                // Read-only SQL against the live generation copy of a dictionary (msime.db / english.db) or the journal.
+                // Read-only SQL against the live generation copy of a dictionary (msime-pinyin.db / msime-english.db) or the journal.
                 msime_engine::flush_personal_learning();
                 let db = as_str(&step["db"]);
                 let path = if db == USER_JOURNAL {

@@ -1,4 +1,4 @@
-//! Generation staging (core-session.md §12, data-formats.md §3, `runtime_paths.cpp:116-182`): `user_data/dictionaries/<content id>` holds backup-API copies of `msime.db` and `english.db` with the journal replayed, plus the n-gram tables.
+//! Generation staging (core-session.md §12, data-formats.md §3, `runtime_paths.cpp:116-182`): `user_data/dictionaries/<content id>` holds backup-API copies of `msime-pinyin.db` and `msime-english.db` with the journal replayed, plus the n-gram tables.
 
 use std::ffi::OsString;
 use std::fs;
@@ -327,7 +327,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let resources = resources(root.path());
-        let external = root.path().join("external-msime.db");
+        let external = root.path().join("external-msime-pinyin.db");
         fs::rename(resources.join(assets::MAIN_DICTIONARY), &external).unwrap();
         symlink(&external, resources.join(assets::MAIN_DICTIONARY)).unwrap();
 

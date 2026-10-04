@@ -1,4 +1,4 @@
-//! `msime.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
+//! `msime-pinyin.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

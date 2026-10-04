@@ -235,10 +235,10 @@ struct HostSession {
 fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
     let resources = std::path::Path::new(&options.resources);
     let has_emoji_catalog = resources.join("others.db").is_file();
-    let has_english_dictionary = resources.join("english.db").is_file();
+    let has_english_dictionary = resources.join("msime-english.db").is_file();
     // 下载的日文词典写在 `japanese_dictionary` 里；为空时 Engine 读资源目录里的那份。
     let has_japanese_model = if options.japanese_dictionary.is_empty() {
-        resources.join("dict_japanese.dat").is_file()
+        resources.join("msime-japanese.dat").is_file()
     } else {
         Path::new(&options.japanese_dictionary).is_file()
     };
@@ -737,9 +737,9 @@ impl LanguageDictionaries {
     }
 }
 
-/// 已下载的日文资源包里的 `dict_japanese.dat`。`None` 时 Engine 读资源目录里的那份（完整发布包或开发环境内置的）。
+/// 已下载的日文资源包里的 `msime-japanese.dat`。`None` 时 Engine 读资源目录里的那份（完整发布包或开发环境内置的）。
 fn japanese_dictionary(state_root: Option<&Path>) -> Option<PathBuf> {
-    resource_packs::installed_file(state_root?, ResourcePack::Japanese, "dict_japanese.dat")
+    resource_packs::installed_file(state_root?, ResourcePack::Japanese, "msime-japanese.dat")
 }
 
 /// EngineOptions 里的路径文本，没有路径（或路径不是 UTF-8）时为空。
@@ -1002,7 +1002,7 @@ pub fn installed_language_dictionaries(resources: &std::path::Path) -> Option<St
         .and_then(|directory| directory.to_str().map(str::to_owned))
 }
 
-/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged english.db instead.
+/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged msime-english.db instead.
 pub(crate) const OFFLINE_GLOSS_LANGUAGES: [&str; 6] = ["fr", "ja", "es", "ru", "de", "ko"];
 
 /// Drop the `\\?\` prefix Windows canonicalisation adds.

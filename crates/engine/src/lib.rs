@@ -68,7 +68,7 @@ pub use user_dictionary::state::{
 
 pub use local::date_time::LocalDateTime;
 
-/// Create or migrate an `english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.
+/// Create or migrate an `msime-english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.
 pub fn ensure_english_schema(path: &std::path::Path) -> Result<()> {
     dictionary::english::ensure_english_schema(path)
 }

@@ -3,15 +3,17 @@
 pub const CONTRACT_VERSION: i32 = 1;
 
 /// The main dictionary (pinyin tables, `wubi86`, `quick_parases`); a working copy lives in each generation.
-pub const MAIN_DICTIONARY: &str = "msime.db";
+pub const MAIN_DICTIONARY: &str = "msime-pinyin.db";
+/// Separate immutable Wubi tables, split from the pinyin build output.
+pub const WUBI_DICTIONARY: &str = "msime-wubi.db";
 /// The English dictionary; a working copy lives in each generation.
-pub const ENGLISH_DICTIONARY: &str = "english.db";
+pub const ENGLISH_DICTIONARY: &str = "msime-english.db";
 /// Lattice n-gram tables, copied beside each generation.
 pub const BIGRAM_TABLE: &str = "bigram.bin";
 pub const TRIGRAM_TABLE: &str = "trigram.bin";
 /// Emoji, kaomoji and symbol catalogs; read-only resource.
 pub const OTHER_DICTIONARY: &str = "others.db";
-pub const JAPANESE_MODEL: &str = "dict_japanese.dat";
+pub const JAPANESE_MODEL: &str = "msime-japanese.dat";
 pub const JAPANESE_NOTICE: &str = "mozc_dictionary_oss_README.txt";
 pub const DICTIONARY_MANIFEST: &str = "dictionary-manifest.json";
 /// Hand-written translations; copied from user data or resources into the generation as a sidecar.

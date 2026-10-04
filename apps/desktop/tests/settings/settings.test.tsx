@@ -2392,7 +2392,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
   expect(screen.getByRole("switch", { name: /^Unicode/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^超级简拼/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^临时英文/ })).toBeDefined();
-  // others.db 随 macOS 发布包内置，Emoji 和颜文字一直可用；dict_japanese.dat 改为按需下载，临时日语的开关照常显示，词库下载前由运行时关闭这个模式，输入页另有下载入口。同样依赖 english.db 的临时英文从未隐藏过。
+  // others.db 随 macOS 发布包内置，Emoji 和颜文字一直可用；msime-japanese.dat 改为按需下载，临时日语的开关照常显示，词库下载前由运行时关闭这个模式，输入页另有下载入口。同样依赖 msime-english.db 的临时英文从未隐藏过。
   expect(screen.getByRole("switch", { name: /^Emoji/ })).toBeDefined();
   // 颜文字混输 sits on the same page under 候选与联想, so match the local mode alone.
   expect(screen.getByRole("switch", { name: /^颜文字(?!混输)/ })).toBeDefined();

@@ -448,7 +448,7 @@ msime-linux-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 ### 随包候选翻译
 
-IBus 宿主在后台通过共享 Host API 查询随包 `english.db`。目标语言为英语且启用 `preferences.candidate_english_gloss` 时，先显示离线中英双向释义，再把未命中的候选发送给在线 provider；关闭 `preferences.candidate_translations` 也不会关闭这项独立的离线释义。未配置在线服务也能使用离线命中。其他目标语言直接使用在线 provider。日语方案和临时日语模式不请求候选翻译。离线与在线结果均校验会话、候选代次和配置代次，释义只用于显示，不进入选词提交文本。
+IBus 宿主在后台通过共享 Host API 查询随包 `msime-english.db`。目标语言为英语且启用 `preferences.candidate_english_gloss` 时，先显示离线中英双向释义，再把未命中的候选发送给在线 provider；关闭 `preferences.candidate_translations` 也不会关闭这项独立的离线释义。未配置在线服务也能使用离线命中。其他目标语言直接使用在线 provider。日语方案和临时日语模式不请求候选翻译。离线与在线结果均校验会话、候选代次和配置代次，释义只用于显示，不进入选词提交文本。
 
 英语目标的在线短释义还会通过 Engine 写入用户数据目录的 `translation-glosses.db`，后续离线查询先查用户释义，再查发布词库。 两个词库独立检查可用性：发布词库缺失或损坏时仍可读取用户释义；用户词库不可用时回退发布词库；两者均不可用时返回错误。保存沿用 Windows 的规则：仅中英候选、源文本不超过 40 字符、格式化后译文不超过 32 字符且不与原文 ASCII 大小写等价；其他目标语言不保存。读写在后台线程进行，不修改发布资源。重建 IBus 宿主且关闭在线 socket 后仍可读取已保存的释义；候选显示继续检查会话和代次。共享 C API `msime_client_translation_gloss_save` 接受 `{target_language,translations:[{text,translation}]}`，离线候选查询可传入 `user_data` 读取相同用户词库。IBus 在 Ctrl+Enter 遇到多个以分号分隔的译义时显示临时副候选页，空格、数字键、上下键、PageUp/PageDown 和鼠标点击只作用于译义，选择后直接上屏并恢复原 Engine 候选；单译义仍直接提交，译义页不会写入词库。
 

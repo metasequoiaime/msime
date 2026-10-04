@@ -7,7 +7,7 @@
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build languages --cache <dir> [--out <dir>] [--offline]
-//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime.db>] [--english-db <english.db>] [--json <report.json>] [--markdown <summary.md>]
+//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
 mod cantonese;
@@ -39,19 +39,19 @@ use crate::sources::{Lock, Sources};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Stage {
-    /// Quanpin tables in msime.db (tbl_{1..7,others}_{initial})
+    /// Quanpin tables in msime-pinyin.db (tbl_{1..7,others}_{initial})
     Quanpin,
     /// custom/words.txt (pinned from msime-dictionary) merged into the quanpin tables
     CustomWords,
-    /// 86 wubi table in msime.db
+    /// 86 wubi table in msime-pinyin.db
     Wubi,
-    /// 98 wubi table in msime.db
+    /// 98 wubi table in msime-pinyin.db
     Wubi98,
-    /// Quick phrase table in msime.db, then msime.db's planner statistics
+    /// Quick phrase table in msime-pinyin.db, then msime-pinyin.db's planner statistics
     QuickPhrases,
-    /// english_words table in english.db, plus custom/english.txt (pinned from msime-dictionary)
+    /// english_words table in msime-english.db, plus custom/english.txt (pinned from msime-dictionary)
     English,
-    /// Bidirectional gloss tables in english.db, derived from ECDICT (reads msime.db)
+    /// Bidirectional gloss tables in msime-english.db, derived from ECDICT (reads msime-pinyin.db)
     EnglishGlosses,
     /// custom/translations.txt (pinned from msime-dictionary) over the gloss tables
     CustomTranslations,
@@ -61,9 +61,9 @@ enum Stage {
     Kaomoji,
     /// symbol_catalog table in others.db
     Symbols,
-    /// dict_japanese.dat from Mozc OSS data, plus its notice
+    /// msime-japanese.dat from Mozc OSS data, plus its notice
     JapaneseModel,
-    /// bigram.bin and trigram.bin over the pinned zhwiki dump (reads msime.db)
+    /// bigram.bin and trigram.bin over the pinned zhwiki dump (reads msime-pinyin.db)
     Ngram,
 }
 
@@ -274,10 +274,10 @@ struct CheckWords {
     /// custom/english.txt after the change.
     #[arg(long, requires = "english_base")]
     english_head: Option<PathBuf>,
-    /// A shipped msime.db; appended words already in its quanpin tables are rejected.
+    /// A shipped msime-pinyin.db; appended words already in its quanpin tables are rejected.
     #[arg(long)]
     msime_db: Option<PathBuf>,
-    /// A shipped english.db; appended English words whose word and display are already in its english_words are rejected.
+    /// A shipped msime-english.db; appended English words whose word and display are already in its english_words are rejected.
     #[arg(long)]
     english_db: Option<PathBuf>,
     /// Where the JSON report is written.
@@ -389,14 +389,15 @@ impl Build {
                     whitelist,
                     phrases: phrases.iter().map(PathBuf::as_path).collect(),
                 };
-                let rows = msime::build_quanpin(&mut self.database("msime.db")?, &inputs)?;
+                let rows = msime::build_quanpin(&mut self.database("msime-pinyin.db")?, &inputs)?;
                 Ok(format!("{rows} rows"))
             }
             Stage::CustomWords => {
                 let words = msime::parse_custom_words(&text::read(
                     &self.sources.pinned("custom/words.txt")?,
                 )?)?;
-                let counts = msime::apply_custom_words(&mut self.database("msime.db")?, &words)?;
+                let counts =
+                    msime::apply_custom_words(&mut self.database("msime-pinyin.db")?, &words)?;
                 Ok(format!(
                     "{} entries: {} inserted, {} promoted, {} already at or above their weight",
                     words.len(),
@@ -407,7 +408,7 @@ impl Build {
             }
             Stage::Wubi => {
                 let (imported, skipped) = msime::build_wubi(
-                    &mut self.database("msime.db")?,
+                    &mut self.database("msime-pinyin.db")?,
                     &self.sources.pinned("cn/Wubi86.txt")?,
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
@@ -415,7 +416,7 @@ impl Build {
             Stage::Wubi98 => {
                 let supplement = self.sources.pinned("cn/Wubi98Fcitx.txt")?;
                 let (imported, skipped) = msime::build_wubi98_sources(
-                    &mut self.database("msime.db")?,
+                    &mut self.database("msime-pinyin.db")?,
                     &self.sources.pinned("cn/Wubi98.txt")?,
                     &[supplement.as_path()],
                 )?;
@@ -424,7 +425,7 @@ impl Build {
             Stage::QuickPhrases => {
                 let path = self.sources.repository("mix/quick_phrases.txt")?;
                 let (imported, skipped) =
-                    msime::build_quick_phrases(&mut self.database("msime.db")?, &path)?;
+                    msime::build_quick_phrases(&mut self.database("msime-pinyin.db")?, &path)?;
                 Ok(format!(
                     "{imported} rows imported, {skipped} blank, comment or invalid lines"
                 ))
@@ -455,7 +456,7 @@ impl Build {
                     &self.sources.pinned(english::CUSTOM_ENGLISH)?,
                 )?)?;
                 let rows = english::build_english_words(
-                    &mut self.database("english.db")?,
+                    &mut self.database("msime-english.db")?,
                     &oaldpe,
                     &base,
                     &counts,
@@ -471,11 +472,11 @@ impl Build {
                 ))
             }
             Stage::EnglishGlosses => {
-                let msime_path = self.out.join("msime.db");
+                let msime_path = self.out.join("msime-pinyin.db");
                 if !msime_path.is_file() {
-                    bail!("english-glosses weights Chinese terms by msime.db; build quanpin first");
+                    bail!("english-glosses weights Chinese terms by msime-pinyin.db; build quanpin first");
                 }
-                let mut english_db = self.database("english.db")?;
+                let mut english_db = self.database("msime-english.db")?;
                 let glosses = english::derive_glosses(
                     &self.sources.pinned("ecdict/ecdict.csv")?,
                     &english_db,
@@ -492,7 +493,10 @@ impl Build {
                 let entries = english::parse_custom_translations(&text::read(
                     &self.sources.pinned(english::CUSTOM_TRANSLATIONS)?,
                 )?)?;
-                english::apply_custom_translations(&mut self.database("english.db")?, &entries)?;
+                english::apply_custom_translations(
+                    &mut self.database("msime-english.db")?,
+                    &entries,
+                )?;
                 Ok(format!("{} overrides", entries.len()))
             }
             Stage::Emoji => {
@@ -540,7 +544,7 @@ impl Build {
                     &text::read(&self.sources.pinned(japanese::CONNECTION)?)?,
                 )?;
                 japanese::write_model(
-                    &self.out.join("dict_japanese.dat"),
+                    &self.out.join("msime-japanese.dat"),
                     &japanese::pack(&tokens, size, &costs)?,
                 )?;
                 std::fs::copy(
@@ -550,9 +554,9 @@ impl Build {
                 Ok(format!("{} tokens, {size} context ids", tokens.len()))
             }
             Stage::Ngram => {
-                let msime_path = self.out.join("msime.db");
+                let msime_path = self.out.join("msime-pinyin.db");
                 if !msime_path.is_file() {
-                    bail!("ngram segments with msime.db's vocabulary; build quanpin first");
+                    bail!("ngram segments with msime-pinyin.db's vocabulary; build quanpin first");
                 }
                 let vocabulary = ngram::Vocabulary::load(&sqlite::open(&msime_path)?)?;
                 let corpus_file = self
@@ -671,6 +675,8 @@ fn main() -> Result<()> {
             started.elapsed().as_secs_f64()
         );
     }
+
+    product::split_wubi_database(&build.out)?;
 
     for name in product::SHIPPING_ARTIFACTS
         .iter()

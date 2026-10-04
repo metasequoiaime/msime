@@ -1436,7 +1436,7 @@ macOS 对应同一份 `settings_launcher.cpp` 语义，但只对设置窗生效�
 
 增量记录（2026-09-21，Windows 第四十一批：装词库时不许出现「旧的已删、新的没到」的窗口）：接上一批的零覆盖扫描。目标起点 `1e7dbfe3c`。
 
-`DictionaryInstaller.mm` 编进 bundle、导出符号、零覆盖。它校验指纹、跑 `PRAGMA quick_check`、原子写出临时文件——到这里都很稳妥——然后 **先 `removeItemAtURL:` 删掉现有 `msime.db`，再 move 新文件**。这两步之间任何失败（磁盘满、沙箱拒绝、崩溃）都让用户**一个词库都不剩**，而且从这里恢复不了。改成 `replaceItemAtURL:`：原文件一直在，新文件提交不成功就放回去；本来就没装过的情况没有可替换的东西，move 本身就是全部操作。失败路径顺手清掉自己暂存的文件。
+`DictionaryInstaller.mm` 编进 bundle、导出符号、零覆盖。它校验指纹、跑 `PRAGMA quick_check`、原子写出临时文件——到这里都很稳妥——然后 **先 `removeItemAtURL:` 删掉现有 `msime-pinyin.db`，再 move 新文件**。这两步之间任何失败（磁盘满、沙箱拒绝、崩溃）都让用户**一个词库都不剩**，而且从这里恢复不了。改成 `replaceItemAtURL:`：原文件一直在，新文件提交不成功就放回去；本来就没装过的情况没有可替换的东西，move 本身就是全部操作。失败路径顺手清掉自己暂存的文件。
 
 顺带记两条：这个函数当前**没有活的调用方**（两个调用方 `DictionaryRuntime.mm` 与 `MetasequoiaInputController.mm` 都是保留的 Apple 适配器，不参与编译），所以这不是线上缺陷；但它是导出符号又编在 bundle 里，接上就会带着那个窗口，因此按缺陷修而不是按死代码放着。
 
@@ -1462,7 +1462,7 @@ macOS 对应同一份 `settings_launcher.cpp` 语义，但只对设置窗生效�
 
 顺带把重排也量清楚了：`rerank_latency` 的同进程 A/B 显示它 p50 只加 0.02ms，却把 p95 从 2.03ms 抬到 4.68ms、p99 从 2.70 抬到 8.56、最坏 +12.38ms——尾巴几乎全是它。但它在 `chinese-ime-lm`（另一个仓库，按 rev 钉住），而且 483 次按键零次超 16ms 预算；更关键的是 `keystroke_latency` 那条路径根本没挂重排（要 `set_reranker` 显式开启），所以它不是上面那个隆起的原因。
 
-**真正能在本仓动的是启动。** `prepare_host` 实测冷启 1.15s、热态 0.46–0.59s，而它在 Windows 上是 **Server 每次启动都跑**（`src/entrypoints/server_main.cpp:546/575`）。原因是 `ResourceStore::verify` 对整套资源重算 SHA-256，而桌面资源集是 **169MB**（`msime.db` 74MB、日语词典 64MB、三元/二元各 12MB）。也就是每次登录、每次 Server 重启，用户在能打第一个字之前先等半秒钟做一次哈希。
+**真正能在本仓动的是启动。** `prepare_host` 实测冷启 1.15s、热态 0.46–0.59s，而它在 Windows 上是 **Server 每次启动都跑**（`src/entrypoints/server_main.cpp:546/575`）。原因是 `ResourceStore::verify` 对整套资源重算 SHA-256，而桌面资源集是 **169MB**（`msime-pinyin.db` 74MB、日语词典 64MB、三元/二元各 12MB）。也就是每次登录、每次 Server 重启，用户在能打第一个字之前先等半秒钟做一次哈希。
 
 这件事安装时已经做过一次：`install()` 是边复制边校验字节的，而且目录名就是规格的 generation 摘要。启动时重算，是在重新证明已经证明过的事。
 
@@ -2021,7 +2021,7 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 - **悬浮工具栏的中英切换按钮（`floating_toolbar.english_mode`）**：来源的中/英按钮始终显示，没有这个开关；共享设置页提供了它，macOS、Linux 和设置预览都遵守，Windows 只读另外六项。现在 Windows 也读它，缺省为显示，因此不改这项的用户看到的仍是来源的样子。用例：`windows-floating-toolbar-reload`。
 - **屏幕键盘高度（`touch_keyboard_height_adjustment`）**：Windows 的屏幕键盘是 Tauri 面板，固定按 1100×400 打开。现在按设置预览的同一算式 `400 + clamp(调整值, -12, 48)` 决定窗口高度，对设置页命令、托盘菜单启动路由和二次启动三条打开路径都生效；窗口已存在时重新打开会按新高度调整。页面本身按窗口高度伸缩，不需要另外传参。其他宿主不在本次范围内。
 - **每页候选项数量**：见上文 2026-09-21 那条的订正。共享设置页现在对所有宿主列出来源的 3–9；共享偏好仍接受 1–9，文档里存着 1 或 2 时这个值留在列表里并保持选中，保存别的改动不会把它改写掉。
-- **候选英文释义的默认值（`candidate_english_gloss`）**：来源默认显示 `english.db` 的释义，共享默认关闭。这一项**刻意保留差异**，不单独改 Windows 的默认：共享偏好没有按平台区分默认值的机制（`HostCapabilities` 只描述能力，不带偏好默认值），所有宿主都读同一份 `Preferences::default()`，而 Linux、Android、HarmonyOS 的测试和 README 都把「默认关闭」写成了约定。为 Windows 单独翻默认值需要先引入按平台的偏好默认，这属于产品取舍，留给所有者定。
+- **候选英文释义的默认值（`candidate_english_gloss`）**：来源默认显示 `msime-english.db` 的释义，共享默认关闭。这一项**刻意保留差异**，不单独改 Windows 的默认：共享偏好没有按平台区分默认值的机制（`HostCapabilities` 只描述能力，不带偏好默认值），所有宿主都读同一份 `Preferences::default()`，而 Linux、Android、HarmonyOS 的测试和 README 都把「默认关闭」写成了约定。为 Windows 单独翻默认值需要先引入按平台的偏好默认，这属于产品取舍，留给所有者定。
 
 ### Windows 面板、托盘、悬浮工具栏与检查更新的对齐（2026-09-24）
 
