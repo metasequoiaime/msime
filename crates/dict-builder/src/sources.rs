@@ -240,7 +240,7 @@ fn write_pinned_response<R: Read>(
     let mut hasher = Sha256::new();
     let mut written = 0u64;
     let result = (|| {
-        let mut output = File::create(&incoming)?;
+        let mut output = File::create(incoming)?;
         let mut buffer = vec![0u8; 1 << 20];
         loop {
             let read = response.read(&mut buffer)?;
