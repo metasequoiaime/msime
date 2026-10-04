@@ -15,9 +15,10 @@ from pathlib import Path
 CMAKE = sys.argv[1]
 UNINSTALL = Path(sys.argv[2])
 
-# Records its arguments, and that the files it belongs to were still installed when it ran.
+# 记录调用参数，以及运行时它所属的文件是否还在。目录用 ${0%/*} 而不是 dirname 取：下面的 PATH
+# 只有 tools、/usr/bin 和 /bin，Nix 构建沙箱里后两个没有 dirname。
 SETUP = """#!/bin/sh
-other="$(dirname "$0")/../share/msime-client/other.txt"
+other="${0%/*}/../share/msime-client/other.txt"
 printf '%s other=%s\\n' "$*" "$([ -e "$other" ] && echo present || echo removed)" >> "$STUB_LOG"
 exit "${STUB_SETUP_STATUS:-0}"
 """
