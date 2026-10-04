@@ -1,6 +1,6 @@
 # pacman 的安装脚本，对应 .deb 的 postinst/prerm（platforms/linux/cmake/deb-postinst.in、deb-prerm.in）与 .rpm 的 %post/%preun。
 #
-# pacman 替换文件时，已在运行的用户服务继续执行旧程序。安装和升级后，对 logind 知道的每个用户重新加载 systemd 用户管理器、补上匿名翻译账号，并重启正在运行的 MSIME 服务；没在运行的保持停止，socket 单元不重启。卸载前停用并关闭 msime-linux-setup 启用过的用户单元（socket 在它的 service 之前，免得停掉的 service 被再次激活），再以临时单元替每个用户跑 `msime-linux-setup --unregister`，把输入法从 IBus 与 Fcitx5 的列表里撤下来。升级不会调用 pre_remove，单元保持运行，由 post_upgrade 重启到新程序上。
+# pacman 替换文件时，已在运行的用户服务继续执行旧程序。安装和升级后，对 logind 知道的每个用户重新加载 systemd 用户管理器、补上匿名翻译账号，并重启正在运行的 MSIME 服务；没在运行的保持停止，socket 单元不重启。卸载前停用并关闭 msime-linux-setup 启用过的用户单元（socket 在它的 service 之前，免得停掉的 service 被再次激活），再以临时单元替每个用户跑 `msime-linux-setup --unregister`，把输入法从 IBus 与 Fcitx5 的列表里撤下来。全新安装后再替每个配置过的用户跑 `msime-linux-setup --register`，恢复换装时被撤下的单元和列表。升级不会调用 pre_remove，单元保持运行，由 post_upgrade 重启到新程序上。
 #
 # 单元列表与 platforms/linux/CMakeLists.txt 的 MSIME_USER_UNITS 一致，scripts/test-arch-gentoo-packaging.py 核对两者。这里任何失败都不能让 pacman 事务失败；没有 systemctl 或 loginctl（容器、非 systemd 系统）时什么也不做。msime 与 msime-bin 共用同一份内容。
 
@@ -36,8 +36,26 @@ EOF
   return 0
 }
 
+# msime 与 msime-bin 互相冲突，换装时 pacman 先按卸载移除旧的那个，它的 pre_remove 对每个用户停用单元并运行 msime-linux-setup --unregister；装上新的之后替每个用户以临时单元运行 msime-linux-setup --register，把这两样恢复。没配置过的用户（全新安装时就是所有人）它什么也不做；pacman 不告诉安装脚本这次换掉了谁，所以卸载后保留了配置、重新安装的用户同样被恢复。
+_msime_register_users() {
+  local users uid name
+  command -v systemd-run >/dev/null 2>&1 || return 0
+  users=$(_msime_users) || return 0
+  while read -r uid name _; do
+    case "$uid" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    systemd-run --user -M "$uid@" --wait --collect --quiet /usr/bin/msime-linux-setup --register </dev/null >/dev/null 2>&1 ||
+      echo "msime: could not restore MSIME for ${name:-uid $uid}; that user should run: msime-linux-setup --register" >&2
+  done <<EOF
+$users
+EOF
+  return 0
+}
+
 post_install() {
   _msime_restart_services
+  _msime_register_users
   echo "msime: 每个用户首次使用前运行一次 msime-linux-setup --download 取回词库，再在 Fcitx5 或 IBus 的输入法列表里添加 MSIME。"
 }
 

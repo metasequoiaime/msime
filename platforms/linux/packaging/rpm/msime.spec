@@ -210,6 +210,19 @@ if [ "$1" = 0 ]; then
   sh %{_libexecdir}/msime-client/prerm remove || :
 fi
 
+# 以 Obsoletes 替换发布页的 msime-linux 时，rpm 先装本包、跑完上面的 %%post，再按卸载移除 msime-linux：它的 %%preun 对每个已登录用户停用 MSIME 的用户单元并运行 msime-linux-setup --unregister（程序这时由本包提供），输入法从 IBus 与 Fcitx5 的列表里消失。移除完成后（$2 是 msime-linux 剩下的实例数）替每个用户以临时单元运行 msime-linux-setup --register，把单元和列表恢复；没配置过的用户它什么也不做。与 %%preun 一样不能让事务失败。
+%triggerpostun -- msime-linux
+if [ "$2" = 0 ] && command -v loginctl >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1; then
+  loginctl list-users --no-legend 2>/dev/null | while read -r uid name _; do
+    case "$uid" in
+      ''|*[!0-9]*) continue ;;
+    esac
+    systemd-run --user -M "$uid@" --wait --collect --quiet %{_bindir}/msime-linux-setup --register </dev/null >/dev/null 2>&1 ||
+      echo "msime: replacing msime-linux took MSIME out of the input method lists of ${name:-uid $uid}; that user should run: msime-linux-setup --register" >&2
+  done
+fi
+:
+
 %files
 # CMake 把许可证（copyright）与全部第三方声明装在 doc/msime-client，与 .deb 相同；%%license 另放一份项目许可证到发行版的标准位置。
 %license LICENSE

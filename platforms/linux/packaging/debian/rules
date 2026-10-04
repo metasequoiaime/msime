@@ -91,12 +91,12 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	  test "$$(realpath -- "$$resolved")" = "$$(realpath -- $(PRIVATE_LIB)/libonnxruntime.so)"
 endif
 
-# 维护脚本用 CMake 由 platforms/linux/cmake/deb-*.in 配置出的那两份，与发布页的 .deb 是同一份；只在结尾的 exit 0 前给 debhelper 留出插入点。
+# 维护脚本用 CMake 由 platforms/linux/cmake/deb-*.in 配置出的那两份，与发布页的 .deb 是同一份；只在结尾的 exit 0 前给 debhelper 留出插入点。postinst 在那之前再接上 debian/postinst-register：替换掉 msime-linux 之后替每个用户恢复它卸载时撤下的用户单元和输入法列表。
 execute_before_dh_installdeb:
-	for script in postinst prerm; do \
-	  sed '$$s/^exit 0$$/#DEBHELPER#\nexit 0/' $(CMAKE_BUILD)/debian/$$script > debian/msime.$$script; \
-	  grep -q '^#DEBHELPER#$$' debian/msime.$$script; \
-	done
+	test "$$(tail -n 1 $(CMAKE_BUILD)/debian/postinst)" = "exit 0"
+	{ sed '$$d' $(CMAKE_BUILD)/debian/postinst; cat debian/postinst-register; printf '#DEBHELPER#\nexit 0\n'; } > debian/msime.postinst
+	sed '$$s/^exit 0$$/#DEBHELPER#\nexit 0/' $(CMAKE_BUILD)/debian/prerm > debian/msime.prerm
+	grep -q '^#DEBHELPER#$$' debian/msime.prerm
 
 # dh_clean 默认删除源码树里所有 *.orig 文件，而 vendor/cargo 里每个 crate 都带一份 Cargo.toml.orig，并记在 .cargo-checksum.json 里；删掉后 Cargo 校验目录源失败。Launchpad 构建前同样先跑 clean。
 override_dh_clean:

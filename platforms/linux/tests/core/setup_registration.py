@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""msime-linux-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除。
+"""msime-linux-setup 在状态目录就绪后把输入法加入正在运行的宿主的输入法列表，--unregister 在卸载时把它从这些列表里移除，--register 在发行版的包替换另一个包之后把两者都恢复。
 
 用桩代替 pgrep、gdbus、gsettings、ibus、systemctl 和 msime-linux-prepare：桩把收到的调用记进日志，把 Fcitx5 输入法组、dconf 设置和 IBus 已知的引擎存在一份 JSON 里。不需要词库、不联网，也不碰真实的 D-Bus 会话或 dconf。
 """
@@ -226,6 +226,13 @@ class Harness:
         assert "词库" not in result.stdout, result.stdout
         return result
 
+    def register(self, *extra: str, **overrides: str) -> subprocess.CompletedProcess:
+        environment = {key: value for key, value in self.environment.items() if key != "DBUS_SESSION_BUS_ADDRESS"}
+        environment.update(overrides)
+        return subprocess.run(
+            [str(self.setup), "--register", *extra], env=environment, capture_output=True, text=True, timeout=30,
+        )
+
     def run(self, *extra: str) -> subprocess.CompletedProcess:
         # msime-linux-setup refuses to prepare a directory that exists, so every run gets a fresh one.
         self.runs += 1
@@ -343,6 +350,74 @@ def unregistering() -> None:
         harness.world(fcitx5=fcitx5, gsettings=everywhere)
         harness.unregister(XDG_RUNTIME_DIR=str(runtime), DBUS_SESSION_BUS_ADDRESS="unix:path=/session/bus")
         assert {call[1] for call in harness.calls("bus")} == {"unix:path=/session/bus"}
+
+
+def registering_again() -> None:
+    """--register：发行版的包替换掉发布页的 msime-linux（或 AUR 的 msime 与 msime-bin 互换）时，被替换的包按卸载处理，停用了用户单元并运行了 --unregister。新包装好后对每个用户运行 --register，把这两样恢复，不碰词库和状态。"""
+    with tempfile.TemporaryDirectory() as name:
+        harness = Harness(Path(name))
+        state = Path(name) / "config/msime-client"
+        units = ["msime-linux-online.socket", "msime-linux-voice.socket", "msime-linux-clipboard.service"]
+
+        # 还没配置过的用户（新装的机器上就是所有人）：什么也不做，不启用服务、不碰任何列表。
+        harness.world(running=["fcitx5"], fcitx5=fcitx5_world())
+        result = harness.register()
+        assert result.returncode == 0 and "Traceback" not in result.stderr, result
+        assert "还没有完成首次配置" in result.stdout, result.stdout
+        assert harness.log.read_text() == "", harness.log.read_text()
+        assert not state.exists()
+
+        # 配置过的用户：启用首次配置启用的那几个单元，把输入法加回 Fcitx5 当前组；不检查词库，不运行 msime-linux-prepare，状态目录原样。
+        state.mkdir(parents=True)
+        (state / "runtime-options.json").write_text('{"resources": "/synthetic"}')
+        before = {path.name: path.read_bytes() for path in state.iterdir()}
+        fcitx5 = fcitx5_world()
+        harness.world(running=["fcitx5"], fcitx5=fcitx5)
+        result = harness.register()
+        assert result.returncode == 0 and result.stderr == "", result
+        assert harness.calls("systemctl") == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
+        assert "已把「水杉输入法」加入 Fcitx5 当前输入法组「Default」" in result.stdout, result.stdout
+        assert harness.state()["fcitx5"]["groups"]["Default"] == ["us", [["keyboard-us", ""], ["pinyin", ""], ["msime", ""]]]
+        assert harness.calls("msime-linux-prepare") == [], harness.log.read_text()
+        assert "词库" not in result.stdout, result.stdout
+        assert {path.name: path.read_bytes() for path in state.iterdir()} == before
+
+        # 与 --unregister 来回一次：撤下之后再加回来，结果与撤下之前相同；已在列表里时不重复写入。
+        everywhere = {GNOME: {"sources": [["xkb", "us"], ["ibus", "mozc-jp"]]}, IBUS: {"preload-engines": ["xkb:us::eng"]}}
+        harness.world(running=["ibus-daemon"], desktop="GNOME", gsettings=everywhere, ibus={"known": True, "installed": True})
+        harness.register()
+        registered = harness.state()["gsettings"]
+        assert registered[GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"], ["ibus", "msime-linux"]], registered
+        # 不用 harness.unregister：它断言状态目录不存在，这里的用户是配置过的。
+        result = subprocess.run([str(harness.setup), "--unregister"], env=harness.environment, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result
+        assert harness.state()["gsettings"][GNOME]["sources"] == [["xkb", "us"], ["ibus", "mozc-jp"]]
+        result = harness.register()
+        assert harness.state()["gsettings"] == registered, harness.state()["gsettings"]
+        harness.log.write_text("")
+        result = harness.register()
+        assert "「Metasequoia 水杉输入法」已在输入源列表中" in result.stdout, result.stdout
+        assert not any(call[0] == "set" for call in harness.calls("gsettings")), harness.calls("gsettings")
+
+        # 包管理器经 systemd-run 在用户的 systemd 实例里运行它，那里往往没有会话总线地址：与 --unregister 一样按 XDG_RUNTIME_DIR/bus 补上。
+        runtime = Path(name) / "runtime"
+        runtime.mkdir()
+        (runtime / "bus").touch()
+        harness.world(running=["fcitx5"], fcitx5=fcitx5_world())
+        harness.register(XDG_RUNTIME_DIR=str(runtime))
+        assert {call[1] for call in harness.calls("bus")} == {f"unix:path={runtime}/bus"}, harness.calls("bus")
+
+        # 两个宿主都没在跑：服务照样启用，列表无处可加，说明之后怎么补。
+        harness.world()
+        result = harness.register()
+        assert result.returncode == 0, result
+        assert harness.calls("systemctl") == [["--user", "enable", "--now", *units]], harness.calls("systemctl")
+        assert "msime-linux-setup --register" in result.stdout, result.stdout
+        assert harness.calls("gdbus") == [] and harness.calls("gsettings") == [] and harness.calls("ibus") == []
+
+        # 两个方向不能同时要。
+        result = harness.register("--unregister")
+        assert result.returncode == 2 and "不能同时使用" in result.stderr, result
 
 
 def main() -> int:
@@ -473,6 +548,7 @@ def main() -> int:
         assert harness.calls("gdbus") == [] and harness.calls("gsettings") == [] and harness.calls("ibus") == []
 
     unregistering()
+    registering_again()
     print("setup registration tests passed")
     return 0
 

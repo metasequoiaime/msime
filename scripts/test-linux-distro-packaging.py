@@ -6,6 +6,7 @@
 - 传给 CMake 的 -DMSIME_* 选项集合相同（五份定义都比）。package-container.sh 新增一个选项（例如再随包带一类数据）而某个定义没跟上时，它会悄悄打出缺东西的包。
 - 用 cargo build 构建的包与目标（-p 与 --bin）相同（RPM 规格、debian/rules 与 PKGBUILD；ebuild 经 cargo.eclass 的 cargo_src_compile 构建，不在此列）。
 - render-sources.py 渲染出的版本、发布号和更新日志能被正确改写。
+- 替换另一个包的定义在替换之后恢复用户单元和输入法列表：RPM 与 Debian 的 msime 替换发布页的 msime-linux、AUR 的 msime 与 msime-bin 互换时，被替换的包按卸载处理，它的卸载脚本停用每个用户的单元并运行 msime-linux-setup --unregister，新包必须再替每个用户运行 msime-linux-setup --register。
 
 只用标准库，不需要构建环境。
 """
@@ -23,6 +24,10 @@ SPEC = ROOT / "platforms/linux/packaging/rpm/msime.spec"
 RULES = ROOT / "platforms/linux/packaging/debian/rules"
 RENDER = ROOT / "platforms/linux/packaging/render-sources.py"
 PKGBUILD = ROOT / "platforms/linux/packaging/arch/msime/PKGBUILD"
+DEBIAN_REGISTER = ROOT / "platforms/linux/packaging/debian/postinst-register"
+CONTROL = ROOT / "platforms/linux/packaging/debian/control"
+ARCH_INSTALL = ROOT / "platforms/linux/packaging/arch/msime/msime.install"
+SETUP = ROOT / "platforms/linux/scripts/msime-linux-setup"
 # 只比 CMake 选项的定义，以及各自允许不传的选项：live ebuild 跟踪 develop，没有发布版本号，不传 MSIME_PACKAGE_VERSION 时 CMake 取 platforms/linux/version.txt。
 OPTIONS_ONLY = [
     (ROOT / "platforms/linux/packaging/gentoo/app-i18n/msime/msime-9999.ebuild", {"MSIME_PACKAGE_VERSION"}),
@@ -64,6 +69,26 @@ def main() -> int:
         options = cmake_options(path.read_text(encoding="utf-8"))
         if options != expected_options - (optional - options):
             failures.append(f"{path.relative_to(ROOT)}: CMake options differ from package-container.sh; missing {sorted(expected_options - options)}, extra {sorted(options - expected_options)}")
+
+    # 替换之后恢复：先确认这几份定义确实替换别的包，再确认它们在替换之后运行 --register，且 msime-linux-setup 有这个选项。
+    register = 'msime-linux-setup --register </dev/null'
+    if '"--register"' not in SETUP.read_text(encoding="utf-8"):
+        failures.append("platforms/linux/scripts/msime-linux-setup has no --register for the packages to run after a replacement")
+    spec_text = SPEC.read_text(encoding="utf-8")
+    if "\nObsoletes:      msime-linux " in spec_text:
+        trigger = spec_text.split("\n%triggerpostun -- msime-linux\n", 1)
+        if len(trigger) != 2 or register not in trigger[1].split("\n%files\n", 1)[0] or 'if [ "$2" = 0 ]' not in trigger[1]:
+            failures.append("rpm/msime.spec obsoletes msime-linux but has no %triggerpostun -- msime-linux that runs msime-linux-setup --register once it is gone")
+    if "\nReplaces: msime-linux," in CONTROL.read_text(encoding="utf-8"):
+        rules = RULES.read_text(encoding="utf-8")
+        fragment = DEBIAN_REGISTER.read_text(encoding="utf-8")
+        if "cat debian/postinst-register" not in rules or register not in fragment or '[ -z "$2" ]' not in fragment:
+            failures.append("debian/ replaces msime-linux but its postinst does not run msime-linux-setup --register on first configuration")
+    if "\nconflicts=('msime-bin')\n" in PKGBUILD.read_text(encoding="utf-8"):
+        install = ARCH_INSTALL.read_text(encoding="utf-8")
+        post_install = install.split("\npost_install() {\n", 1)[-1].split("\n}\n", 1)[0]
+        if register not in install or "_msime_register_users" not in post_install:
+            failures.append("arch/msime/msime.install: msime and msime-bin replace each other but post_install does not run msime-linux-setup --register")
 
     with tempfile.TemporaryDirectory() as scratch:
         spec_out = Path(scratch) / "msime.spec"

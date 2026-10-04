@@ -1019,15 +1019,19 @@ def restore_panel_settings() -> None:
         print(f"恢复记录保留在 {record_file}，可稍后再次运行 msime-linux-setup --unregister。", file=sys.stderr)
 
 
+def use_runtime_session_bus() -> None:
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
+        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+
+
 def unregister_input_method() -> None:
     """Remove the input method from every list setup may have added it to, one list at a time so a missing tool or bus only skips its own list.
 
     Unlike registering, this does not depend on which host is running or on the desktop: the uninstaller runs it from the user's systemd manager, where XDG_CURRENT_DESKTOP is often unset, and a list can hold the entry from an earlier session under another desktop. Both IBus lists are cleaned whenever their schema is installed.
     """
-    runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS") and runtime and (Path(runtime) / "bus").exists():
-        # A transient unit in the user's systemd manager inherits only what the desktop imported into it; without the session bus address gsettings would write to a throwaway backend and gdbus would find no bus. The user bus of systemd sessions lives at this path.
-        os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={Path(runtime) / 'bus'}"
+    use_runtime_session_bus()
     steps = [unregister_fcitx5]
     try:
         schemas = set(command_output(["gsettings", "list-schemas"]).split())
@@ -1046,6 +1050,34 @@ def unregister_input_method() -> None:
         if removed:
             print(removed)
     restore_panel_settings()
+
+
+def register_again() -> int:
+    """已完成首次配置的用户：重新启用用户服务、链回 Omarchy 的钩子和插件，并把输入法加回正在运行的宿主的输入法列表，即撤销 --unregister 和卸载时停用单元的那两步。
+
+    发行版仓库里的 msime 包替换发布页的 msime-linux 包（或 AUR 的 msime 与 msime-bin 互换）时，被替换的包按卸载处理，它的卸载脚本对每个用户停用单元并运行 --unregister，而文件仍由新包提供；新包装好之后以临时单元替每个用户运行这里。只看默认位置的状态目录（剪贴板监视器和首次配置引导读的也是它）；没有 runtime-options.json 说明这个用户没配置过，什么也不做。不检查、不下载词库，也不改状态目录里的任何文件。
+    """
+    use_runtime_session_bus()
+    state = config_home() / "msime-client"
+    options_file = state / "runtime-options.json"
+    if not options_file.is_file():
+        print(f"{state} 里没有 runtime-options.json，还没有完成首次配置，没有要恢复的。")
+        return 0
+    prefix = install_prefix()
+    enable_services(service_units(state, state))
+    link_omarchy_theme_hook(prefix, options_file)
+    link_omarchy_plugin(prefix)
+    host = active_host()
+    registered = register_input_method(host)
+    if registered:
+        print(registered)
+    elif host == "fcitx5":
+        print(f"下一步：用 fcitx5-configtool 把「{FCITX5_NAME}」（英文界面显示为「MSIME」）加入当前输入法组。")
+    elif host == "ibus":
+        print(f"下一步：ibus restart，再在输入源里添加「{IBUS_NAME}」。")
+    else:
+        print("Fcitx5 和 IBus 都没有在运行，输入法列表没有改动；启动其中一个后再运行 msime-linux-setup --register。")
+    return 0
 
 
 def active_host() -> str | None:
@@ -1158,12 +1190,21 @@ def main() -> int:
         action="store_true",
         help="把水杉输入法从 GNOME 输入源、IBus 预载引擎和 Fcitx5 当前输入法组中移除，恢复被改过的候选面板主题、字体和滚轮翻页设置后退出，不准备状态也不下载；卸载时自动执行",
     )
+    parser.add_argument(
+        "--register",
+        action="store_true",
+        help="已完成首次配置时，重新启用在线、语音和剪贴板服务，并把水杉输入法加回正在运行的 Fcitx5 或 IBus 的输入法列表，不检查词库也不改状态；还没有配置过时什么也不做。发行版仓库的包替换掉另一个同样内容的包（例如 msime 替换发布页的 msime-linux）之后自动执行：被替换的包卸载时撤销了这两样",
+    )
     arguments = parser.parse_args()
+    if arguments.register and arguments.unregister:
+        parser.error("--register 与 --unregister 不能同时使用")
     if arguments.edition and arguments.edition != installed_edition():
         delegate_to_edition(arguments.edition, without_edition_argument(sys.argv[1:]))
     if arguments.unregister:
         unregister_input_method()
         return 0
+    if arguments.register:
+        return register_again()
 
     prefix = install_prefix()
     state = (arguments.state or config_home() / "msime-client").expanduser()
