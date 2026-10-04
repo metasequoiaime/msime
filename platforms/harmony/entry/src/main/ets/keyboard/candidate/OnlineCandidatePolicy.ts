@@ -32,11 +32,11 @@ interface AiEnvelope {
 }
 
 interface AiCandidate {
-  text?: string;
+  text?: unknown;
 }
 
 interface AiContent {
-  candidates?: AiCandidate[];
+  candidates?: unknown[];
 }
 
 /** Bounds and identifies asynchronous cloud/AI results before they return to Engine. */
@@ -82,8 +82,9 @@ export class OnlineCandidatePolicy {
       if (document.candidates === undefined || !Array.isArray(document.candidates)) return null;
       const result: string[] = [];
       for (const candidate of document.candidates) {
-        const text: string | undefined = candidate.text;
-        if (text === undefined || text.trim().length === 0 || utf8Length(text) > 4096
+        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        const text: unknown = (candidate as AiCandidate).text;
+        if (typeof text !== 'string' || text.trim().length === 0 || utf8Length(text) > 4096
           || TextPolicy.hasControl(text)) {
           continue;
         }
