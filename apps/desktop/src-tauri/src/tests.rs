@@ -1044,6 +1044,8 @@ fn dictionary_mutations_quiesce_but_reads_do_not() {
     ));
 }
 
+// The bundle id comes from the edition's macOS identity, which only the macOS build compiles.
+#[cfg(target_os = "macos")]
 #[test]
 fn macos_restart_targets_the_input_method_bundle() {
     assert_eq!(

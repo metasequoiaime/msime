@@ -2680,7 +2680,7 @@ struct HostActionError {
     code: &'static str,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn macos_input_source_restart_args() -> [&'static str; 5] {
     [
         "-n",
