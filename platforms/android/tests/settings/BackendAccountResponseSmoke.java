@@ -76,6 +76,18 @@ public final class BackendAccountResponseSmoke {
         check("synthetic reply".equals(BackendAccount.requiredStringField("synthetic reply")),
             "chat responses with string content are accepted");
 
+        rejected = false;
+        try {
+            BackendAccount.optionalStringField(42, "fallback");
+        } catch (IllegalStateException expected) {
+            rejected = true;
+        }
+        check(rejected, "account responses with numeric string fields are rejected");
+        check("fallback".equals(BackendAccount.optionalStringField(null, "fallback")),
+            "missing optional account string uses its fallback");
+        check("synthetic".equals(BackendAccount.optionalStringField("synthetic", "fallback")),
+            "string account response is accepted");
+
         check(!BackendAccount.validClipboardItem(new BackendAccount.ClipboardItem(
             "a".repeat(64), "safe\u0000hidden", "2026-10-04T00:00:00Z")),
             "add clipboard rejects control characters in the returned text");
