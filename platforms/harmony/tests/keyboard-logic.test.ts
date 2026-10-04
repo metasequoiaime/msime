@@ -12455,15 +12455,15 @@ group("LocalAsrPolicy", () => {
     "local model text files use bounded manifest and token limits",
   );
   check(
-    LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
+    LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer", "/data"),
     "an absolute directory under the local provider is a model",
   );
   check(
-    !LocalAsrPolicy.usesLocalModel("system", "/data/models/zipformer"),
+    !LocalAsrPolicy.usesLocalModel("system", "/data/models/zipformer", "/data"),
     "another provider never loads a local model",
   );
-  check(!LocalAsrPolicy.usesLocalModel("local", ""), "no picked model is not a model");
-  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer"), "a relative path is refused");
+  check(!LocalAsrPolicy.usesLocalModel("local", "", "/data"), "no picked model is not a model");
+  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"), "a relative path is refused");
   check(
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
@@ -12471,6 +12471,33 @@ group("LocalAsrPolicy", () => {
   check(
     LocalAsrPolicy.modelDirectory("/data/files/../outside") === "",
     "model paths cannot escape through parent components",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot(
+      "/data/files/voice-models/zipformer",
+      "/data/files/voice-models",
+    ) === "/data/files/voice-models/zipformer",
+    "a model below the managed voice-model root is accepted",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot("/data/other/zipformer", "/data/files/voice-models") === "",
+    "a model outside the managed voice-model root is refused",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot("/data/files/voice-models", "/data/files/voice-models") === "",
+    "the managed root itself is not a model directory",
+  );
+  check(
+    LocalAsrPolicy.usesLocalModel(
+      "local", "/data/files/voice-models/zipformer", "/data/files/voice-models",
+    ),
+    "local recognition accepts a model only with its managed root",
+  );
+  check(
+    !LocalAsrPolicy.usesLocalModel(
+      "local", "/data/other/zipformer", "/data/files/voice-models",
+    ),
+    "local recognition refuses a model outside its managed root",
   );
   check(
     LocalAsrPolicy.modelDirectory("/data/files/./model") === "",

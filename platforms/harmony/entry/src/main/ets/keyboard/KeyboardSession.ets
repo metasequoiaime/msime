@@ -2559,7 +2559,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   voiceInputConfiguration(): VoiceInputConfiguration {
-    return this.voiceInput;
+    const root: string = this.clipboardRoot();
+    return {
+      ...this.voiceInput,
+      local_model_root: root.length > 0 ? `${root}/voice-models` : ''
+    };
   }
 
   /** The prepared host options the on-device recognizer reads the user's own words through, or null before the host has been prepared. */
