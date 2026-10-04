@@ -9,7 +9,7 @@
 
 走 GitHub 时，GitHub 为每个附件记录的摘要与发布流程放在安装包旁边的 `<安装包>.sha256` 小文件互相核对，再下载安装包本身核对同一个摘要。`--installer` 改为对本地文件求摘要，地址按发布流程发布它的位置推出。
 
-两种来源都要求安装包带有效的 Authenticode 签名，没有就拒绝渲染。release-windows.yml 在 CI 上打出、先行发布的安装包是未签名的：x64 Server 以 uiAccess=true 构建，未签名时系统拒绝启动它，装上之后只能打英文（installer/Sign-InstalledServer-Local.ps1）。能交给包管理器的只有维护者用 installer/Package-SimplySign.ps1 签名后替换上去的那一份，而替换会改变摘要，所以也只能在替换之后渲染。签名在 Windows 上用 Get-AuthenticodeSignature 核对（状态必须是 Valid），其他系统用 osslsigncode verify。
+两种来源都要求安装包带有效的 Authenticode 签名，没有就拒绝渲染。release-windows.yml 在 CI 上打出、先行发布的安装包是未签名的：x64 Server 以 uiAccess=true 构建，未签名时系统拒绝启动它，装上之后只能打英文（installer/Sign-InstalledServer-Local.ps1）。能交给包管理器的只有维护者用 installer/Package-SimplySign.ps1 签名后替换上去的那一份，而替换会改变摘要，所以也只能在替换之后渲染。签名用 Windows 自己的 Get-AuthenticodeSignature 核对（状态必须是 Valid），所以本脚本只能在 Windows 上渲染；其他系统上一律失败，改为手动触发 package-definitions-windows.yml。
 
 输出目录按三个包管理器各自的布局：
 
@@ -228,29 +228,29 @@ def verify_signature(path: pathlib.Path) -> None:
 
     发布页上先出现的是 CI 打的未签名安装包，它的 uiAccess Server 起不来，交给包管理器的用户装上之后只能打英文；签名后的安装包替换它之后才能渲染。这里只看签名是否有效、链到受信任的根，不认具体的证书：证书换代时不需要改这里。
     """
-    if sys.platform == "win32":
-        shell = shutil.which("pwsh") or shutil.which("powershell")
-        if shell is None:
-            raise RenderError("neither pwsh nor powershell is available to check the installer's Authenticode signature")
-        script = "$s = Get-AuthenticodeSignature -LiteralPath $env:MSIME_INSTALLER; Write-Output $s.Status; Write-Output $s.StatusMessage; Write-Output $s.SignerCertificate.Subject"
-        result = subprocess.run(
-            [shell, "-NoProfile", "-NonInteractive", "-Command", script],
-            env={**os.environ, "MSIME_INSTALLER": str(path)}, capture_output=True, text=True, check=False,
-        )
-        lines = [line.strip() for line in result.stdout.splitlines()]
-        if result.returncode != 0 or not lines or lines[0] != "Valid":
-            detail = " / ".join(line for line in lines if line) or result.stderr.strip()
-            raise RenderError(f"{path.name} has no valid Authenticode signature ({detail}); render only after the SimplySign-signed installer has replaced the CI build on the release")
-        print(f"signature ok: {path.name}: {lines[2] if len(lines) > 2 else ''}", file=sys.stderr)
-        return
-    tool = shutil.which("osslsigncode")
-    if tool is None:
-        raise RenderError("cannot check the installer's Authenticode signature: run on Windows, or install osslsigncode")
-    result = subprocess.run([tool, "verify", "-in", str(path)], capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        output = (result.stdout + result.stderr).strip().splitlines()
-        raise RenderError(f"{path.name} has no valid Authenticode signature ({output[-1] if output else f'osslsigncode exited {result.returncode}'}); render only after the SimplySign-signed installer has replaced the CI build on the release")
-    print(f"signature ok: {path.name} (osslsigncode)", file=sys.stderr)
+    check_can_verify()
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if shell is None:
+        raise RenderError("neither pwsh nor powershell is available to check the installer's Authenticode signature")
+    script = "$s = Get-AuthenticodeSignature -LiteralPath $env:MSIME_INSTALLER; Write-Output $s.Status; Write-Output $s.StatusMessage; Write-Output $s.SignerCertificate.Subject"
+    result = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-Command", script],
+        env={**os.environ, "MSIME_INSTALLER": str(path)}, capture_output=True, text=True, check=False,
+    )
+    lines = [line.strip() for line in result.stdout.splitlines()]
+    if result.returncode != 0 or not lines or lines[0] != "Valid":
+        detail = " / ".join(line for line in lines if line) or result.stderr.strip()
+        raise RenderError(f"{path.name} has no valid Authenticode signature ({detail}); render only after the SimplySign-signed installer has replaced the CI build on the release")
+    print(f"signature ok: {path.name}: {lines[2] if len(lines) > 2 else ''}", file=sys.stderr)
+
+
+def check_can_verify() -> None:
+    """在下载安装包之前就确认这台机器能核对签名。
+
+    其他系统上没有等价的检查：osslsigncode 只能对着 TLS 用的 CA 证书包验证，代码签名证书的根常常不在里面，合法的签名也报失败（python.org 的安装包就是这样），而跳过证书链又只剩「有签名」这一条，挡不住自签名。
+    """
+    if sys.platform != "win32":
+        raise RenderError("the installer's Authenticode signature can only be checked on Windows (Get-AuthenticodeSignature); run render.py there, or dispatch .github/workflows/package-definitions-windows.yml")
 
 
 # ---- 渲染 ----
@@ -312,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        check_can_verify()
         if args.version is not None:
             if args.installer is None:
                 parser.error("--version needs --installer")

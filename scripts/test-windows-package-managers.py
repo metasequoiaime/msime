@@ -189,9 +189,10 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
     # --installer：对本地的安装包求摘要，文件名必须是发布时用的那个，签名必须有效。
     fake = output / "MetasequoiaIME_Setup_v1.2.3.exe"
     fake.write_bytes(b"msime")
-    original = render.verify_signature
+    original = (render.verify_signature, render.check_can_verify)
     checked: list[str] = []
     try:
+        render.check_can_verify = lambda: None
         render.verify_signature = lambda path: checked.append(path.name)
         with contextlib.redirect_stdout(io.StringIO()):
             check(render.main(["--version", "1.2.3", "--installer", str(fake), "--release-date", "2026-10-05", "--output", str(output / "local")]) == 0, "render.py --installer failed")
@@ -211,8 +212,8 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
             check(render.main(["--version", "1.2.3", "--installer", str(fake), "--output", str(output / "unsigned")]) == 1, "render.py --installer rendered an unsigned installer")
         check("Authenticode" in stderr.getvalue() and not (output / "unsigned").exists(), "an unsigned installer still produced definitions")
     finally:
-        render.verify_signature = original
-    # 真实的检查：在没有签名的文件上不能通过，不论这台机器有没有能核对签名的工具。
+        render.verify_signature, render.check_can_verify = original
+    # 真实的检查：在没有签名的文件上不能通过（Windows 上 Get-AuthenticodeSignature 报 NotSigned，其他系统上根本不核对、直接拒绝）。
     with contextlib.redirect_stderr(io.StringIO()):
         try:
             render.verify_signature(fake)

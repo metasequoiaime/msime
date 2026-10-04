@@ -38,13 +38,13 @@ Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统�
 
 因此：
 
-- `render.py` 在渲染前核对安装包的 Authenticode 签名，没有有效签名就失败，不写任何文件。Windows 上用 `Get-AuthenticodeSignature`，状态必须是 `Valid`；其他系统用 `osslsigncode verify`（例如 `brew install osslsigncode`、`apt install osslsigncode`），两者都没有时同样失败。走 GitHub 时它会下载安装包本身来核对。
+- `render.py` 在渲染前用 `Get-AuthenticodeSignature` 核对安装包的签名，状态不是 `Valid` 就失败，不写任何文件。走 GitHub 时它会下载安装包本身来核对。这个检查只有 Windows 有：其他系统上的 `osslsigncode verify` 只能对着 TLS 用的 CA 证书包验证，代码签名证书的根常常不在里面，合法签名也报失败（python.org 的安装包实测如此），所以 `render.py` 在 Windows 以外的系统上直接拒绝，在 macOS 或 Linux 上请手动触发 `package-definitions-windows.yml`。
 - 渲染包定义的是单独手动触发的 `package-definitions-windows.yml`，不在 `release-windows.yml` 发布之后自动运行。
 - Scoop 清单不带 `checkver`/`autoupdate`：Scoop 的 Excavator 会在新的 `windows-v*` 发布出现时自动改写 bucket，那时发布页上还是未签名的安装包，而它不经过 `render.py` 的签名检查。
 
 ## 渲染
 
-`render.py` 只用 Python 标准库：
+`render.py` 只用 Python 标准库，在 Windows 上运行（签名检查用 PowerShell 的 `Get-AuthenticodeSignature`）：
 
 ```sh
 # 最新一个已发布、非预发布的 windows-v* 发布
@@ -89,10 +89,10 @@ Chocolatey 用的 nuspec 架构是它自己维护的 NuGet 分支里的那份（
 
 ## 发布步骤
 
-先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME_Setup_v<版本>.exe MetasequoiaIME_Setup_v<版本>.exe.sha256 --clobber`），再渲染；也可以手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
+先把签名的安装包和它的 `.sha256` 替换到发布上（`gh release upload windows-v<版本> MetasequoiaIME_Setup_v<版本>.exe MetasequoiaIME_Setup_v<版本>.exe.sha256 --clobber`），再在 Windows 上渲染；不在 Windows 上时手动触发 `package-definitions-windows.yml` 取它的产物（见下文「工作流」）：
 
 ```sh
-python3 platforms/windows/packaging/render.py --tag windows-v<版本> --output out/package-managers
+python platforms/windows/packaging/render.py --tag windows-v<版本> --output out/package-managers
 ```
 
 ### winget
