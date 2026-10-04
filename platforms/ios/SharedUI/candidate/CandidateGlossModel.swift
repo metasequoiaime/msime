@@ -52,7 +52,7 @@ enum CandidateGlossModel {
     return (generation, translations)
   }
 
-  private static func integerValue(_ value: NSNumber, maximum: UInt64) -> UInt64? {
+  static func integerValue(_ value: NSNumber, maximum: UInt64) -> UInt64? {
     guard !(value is Bool), value.doubleValue.isFinite,
           value.doubleValue.rounded(.towardZero) == value.doubleValue,
           value.doubleValue >= 0 else { return nil }

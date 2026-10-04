@@ -3,6 +3,17 @@ import XCTest
 
 /// Cloud, AI and pinned candidates are marked the way the Windows candidate window marks them.
 final class CandidateMarkerTests: XCTestCase {
+  func testCandidateSnapshotRejectsFractionalGenerationAndIndex() {
+    XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
+      "generation": NSNumber(value: 4.5), "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": 4, "index": 0]]],
+    ]))
+    XCTAssertThrowsError(try CandidatePanelSnapshot.decode([
+      "generation": 4, "preedit": "ni",
+      "candidates": [["text": "你", "id": ["generation": 4, "index": 0.5]]],
+    ]))
+  }
+
   func testOnlyNetworkSourcesAndPinnedWordsAreMarked() {
     XCTAssertEqual(CandidateMarker.markers(source: 0, fixedPosition: 0), [])
     XCTAssertEqual(CandidateMarker.markers(source: 1, fixedPosition: 0), [], "a user word is still a dictionary word")

@@ -23,23 +23,22 @@ struct CandidatePanelSnapshot: Equatable, Sendable {
 
   static func decode(_ value: [String: Any]) throws -> CandidatePanelSnapshot {
     guard let generationValue = value["generation"] as? NSNumber,
-          generationValue.int64Value >= 0,
+          let generation = CandidateGlossModel.integerValue(generationValue, maximum: UInt64.max),
           let preedit = value["preedit"] as? String,
           CandidateGlossModel.isBounded(preedit, allowingEmpty: true),
           let candidates = value["candidates"] as? [[String: Any]],
           candidates.count <= 4096 else { throw Failure.invalidResponse }
-    let generation = generationValue.uint64Value
     var seen = Set<UInt64>()
     let entries = try candidates.map { candidate -> Entry in
       guard let text = candidate["text"] as? String,
             CandidateGlossModel.isBounded(text),
             let identity = candidate["id"] as? [String: Any],
             let identityGeneration = identity["generation"] as? NSNumber,
-            identityGeneration.int64Value >= 0,
-            identityGeneration.uint64Value == generation,
+            CandidateGlossModel.integerValue(identityGeneration, maximum: UInt64.max) == generation,
             let indexValue = identity["index"] as? NSNumber,
-            indexValue.int64Value >= 0 else { throw Failure.invalidResponse }
-      let index = indexValue.uint64Value
+            let index = CandidateGlossModel.integerValue(indexValue, maximum: UInt64.max) else {
+        throw Failure.invalidResponse
+      }
       guard index < UInt64(candidates.count), seen.insert(index).inserted else {
         throw Failure.invalidResponse
       }
