@@ -46,7 +46,7 @@ depends=(
 optdepends=(
   'python-websockets: 豆包流式语音识别'
   'libpulse: 用 parec 录音'
-  'pipewire-audio: 用 pw-cat 录音'
+  'pipewire: 用 pw-cat 录音'
   'alsa-utils: 用 arecord 录音'
 )
 provides=("$_pkgname=$pkgver")

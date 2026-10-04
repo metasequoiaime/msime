@@ -38,6 +38,8 @@ RESOURCE_LOCKS = [
 ]
 # 语音运行库按 Gentoo 架构关键字取锁文件里对应的平台；fetch_voice_runtime.py 从 <out>/.archive/ 下的缓存解包。
 VOICE_PLATFORMS = {"amd64": "linux-x86_64", "arm64": "linux-aarch64"}
+# ebuild 构建的 workspace 成员：msime-host-api、msime-mcp-server 与 msime-desktop。
+CARGO_MEMBERS = ["crates/host-api", "crates/mcp-server", "apps/desktop/src-tauri"]
 
 
 def distfile(artifact: dict) -> str:
@@ -107,8 +109,9 @@ def main() -> None:
         with tempfile.TemporaryDirectory() as scratch:
             staged = Path(scratch) / output.name
             staged.write_text(text, encoding="utf-8")
-            # -i 只改写已有的 CRATES、GIT_CRATES 与「# Dependent crate licenses」下的 LICENSE+=，其余保持模板原样。
-            subprocess.run(["pycargoebuild", "--input", str(staged), "--output", str(output), str(ROOT)], check=True)
+            # -C 把 crate 逐个列进 CRATES；-i 只改写已有的 CRATES、GIT_CRATES 与「# Dependent crate licenses」下的 LICENSE+=，其余保持模板原样；-M 不顺手生成 Manifest，留给发布步骤。pycargoebuild 不接受 workspace 根目录，传入实际构建的三个成员。
+            members = [str(ROOT / member) for member in CARGO_MEMBERS]
+            subprocess.run(["pycargoebuild", "-C", "-M", "--input", str(staged), "--output", str(output), *members], check=True)
     if arguments.out.resolve() != HERE:
         for name in ("metadata.xml",):
             shutil.copyfile(HERE / "app-i18n" / "msime" / name, package_dir / name)

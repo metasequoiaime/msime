@@ -5,6 +5,7 @@
 #   输出目录默认 target/arch-package/<包名>，构建好的 .pkg.tar.zst、.SRCINFO 与日志都留在那里。
 #   需要 docker；Apple Silicon 上经 Rosetta/QEMU 跑 linux/amd64 镜像（archlinux 官方镜像只有 x86_64）。
 #   CARGO_BUILD_JOBS 原样传进容器，用来在共用的 Docker 虚拟机上限制内存。
+#   MSIME_SOURCE_DIR=<检出目录> 只对 msime 有效：不下载标签的源码归档，而是把这个目录（不含 target、node_modules 与 .git）打成同名归档，跳过校验和构建，用来在发版前验证 PKGBUILD 对当前代码仍然成立。
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -23,6 +24,7 @@ docker run --rm --init --platform linux/amd64 \
   -v "$out":/out \
   -v "$out/home":/home/builder \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
+  ${MSIME_SOURCE_DIR:+-v "$(cd "$MSIME_SOURCE_DIR" && pwd)":/source:ro -e MSIME_LOCAL_SOURCE=1} \
   archlinux:latest bash -euo pipefail -c '
     # pacman 7 的下载沙箱要 seccomp 与 Landlock，跨架构模拟的容器里两者都用不了。
     sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
@@ -33,8 +35,16 @@ docker run --rm --init --platform linux/amd64 \
     cp -r /pkg /home/builder/pkg
     chown -R builder: /home/builder/pkg
     cd /home/builder/pkg
+    makepkg_args="-s --noconfirm"
+    if [ "${MSIME_LOCAL_SOURCE:-}" = 1 ]; then
+      pkgver=$(. ./PKGBUILD && echo "$pkgver")
+      tar -C /source --exclude=./target --exclude=./node_modules --exclude=./.git \
+        --transform "s|^\.|msime-linux-v$pkgver|" -czf "msime-$pkgver.tar.gz" .
+      chown builder: "msime-$pkgver.tar.gz"
+      makepkg_args="$makepkg_args --skipchecksums"
+    fi
     # makepkg 拒绝以 root 运行；-s 经 sudo 装 depends/makedepends/checkdepends。
-    su builder -c "makepkg --printsrcinfo > .SRCINFO && makepkg -s --noconfirm 2>&1" | tee /out/makepkg.log
+    su builder -c "makepkg --printsrcinfo > .SRCINFO && makepkg $makepkg_args 2>&1" | tee /out/makepkg.log
     cp .SRCINFO /out/
     pkgfile=$(ls -1 ./*.pkg.tar.zst | grep -v -- "-debug-" | head -1)
     cp ./*.pkg.tar.zst /out/

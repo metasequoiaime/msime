@@ -3,40 +3,53 @@
 #
 # 用法：platforms/linux/packaging/gentoo/check-in-container.sh [VERSION]
 #   VERSION 是拿来渲染版本 ebuild 的版本号，默认 platforms/linux/version.txt；渲染用的是当前检出的 Cargo.lock 与锁文件。
-#   不做完整的 emerge：WebKitGTK、Fcitx5 与 IBus 在容器里都要从源码编译，跨架构模拟下要好几个小时。
-#   需要 docker；依赖尽量从 Gentoo 官方二进制仓库取。
+#   不做完整的 emerge：WebKitGTK、Fcitx5 与 IBus 在容器里都要从源码编译，要好几个小时。
+#   需要 docker；依赖尽量从 Gentoo 官方二进制仓库取。镜像用宿主的原生架构（amd64 或 arm64，ebuild 两者都支持）：跨架构模拟下 Portage 给构建进程开的伪终端不可用，emerge 直接报错。
+#   工具镜像 msime-gentoo-check:<检出哈希> 按检出缓存，用完删掉：docker rmi msime-gentoo-check:<检出哈希>。
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/../../../.." && pwd)
 version=${1:-$(tr -d '[:space:]' < "$repo_root/platforms/linux/version.txt")}
-portage=msime-gentoo-portage-$$
+# 构建目录与 distfile 放在宿主上，不占 Docker 虚拟机自己的磁盘。每次从空目录开始。
+scratch=$repo_root/target/gentoo-check
+rm -rf "$scratch"
+mkdir -p "$scratch/tmp" "$scratch/distfiles"
 
-docker create --platform linux/amd64 --name "$portage" gentoo/portage:latest true >/dev/null
-trap 'docker rm -f "$portage" >/dev/null 2>&1 || true' EXIT
-
-docker run --rm --init --platform linux/amd64 \
-  --volumes-from "$portage" \
-  -v "$repo_root":/src:ro \
-  -e MSIME_VERSION="$version" \
-  gentoo/stage3:latest bash -euo pipefail -c '
-    # 容器里用不了 Portage 的命名空间沙箱。
-    cat >> /etc/portage/make.conf <<EOF
-FEATURES="-ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -sandbox -usersandbox"
-EMERGE_DEFAULT_OPTS="--getbinpkg --quiet-build --jobs=4"
-ACCEPT_KEYWORDS="~amd64"
+# 显式拉取，本地同名标签可能是之前为别的架构拉的。工具（pkgcheck、pycargoebuild、git、rust-bin、nodejs）装进按检出命名的镜像，反复运行时不必每次重装。
+checkout_hash="$(printf %s "$repo_root" | shasum | cut -c1-12)"
+image="msime-gentoo-check:$checkout_hash"
+docker pull -q gentoo/stage3:latest >/dev/null
+docker pull -q gentoo/portage:latest >/dev/null
+docker build -q -t "$image" - >/dev/null <<'EOF'
+FROM gentoo/stage3:latest
+COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+# 容器里用不了 Portage 的命名空间沙箱。只放行本包与 pycargoebuild 的测试关键字；全局放开会把工具链换成二进制仓库里没有的测试版本，整套从源码编译。
+RUN printf '%s\n' 'FEATURES="-ipc-sandbox -mount-sandbox -network-sandbox -pid-sandbox -sandbox -usersandbox"' 'EMERGE_DEFAULT_OPTS="--getbinpkg --quiet-build --jobs=4"' >> /etc/portage/make.conf \
+  && mkdir -p /etc/portage/package.accept_keywords \
+  && printf '%s\n' app-i18n/msime app-portage/pycargoebuild > /etc/portage/package.accept_keywords/msime \
+  && emerge --noreplace dev-util/pkgcheck app-portage/pycargoebuild dev-vcs/git dev-lang/rust-bin net-libs/nodejs \
+  && rm -rf /var/cache/binpkgs/* /var/cache/distfiles/*
 EOF
-    emerge --noreplace dev-util/pkgcheck app-portage/pycargoebuild dev-vcs/git >/dev/null
 
-    # overlay 放到 /var/db/repos/msime，渲染的版本 ebuild 写进同一处。
+docker run --rm --init \
+  -v "$repo_root":/src:ro \
+  -v "$scratch/tmp":/var/tmp/portage \
+  -v "$scratch/distfiles":/var/cache/distfiles \
+  -e MSIME_VERSION="$version" \
+  "$image" bash -euo pipefail -c '
+    # overlay 放到 /var/db/repos/msime，渲染的版本 ebuild 写进同一处。pkgcheck（pkgcore）只读 /etc/portage/repos.conf，建了这个目录就得把 gentoo 也写进去。
     cp -r /src/platforms/linux/packaging/gentoo /var/db/repos/msime
     mkdir -p /etc/portage/repos.conf
+    printf "[DEFAULT]\nmain-repo = gentoo\n\n[gentoo]\nlocation = /var/db/repos/gentoo\n" > /etc/portage/repos.conf/gentoo.conf
     printf "[msime]\nlocation = /var/db/repos/msime\n" > /etc/portage/repos.conf/msime.conf
-    cp -r /src /tmp/source
+    mkdir /tmp/source
+    tar -C /src --exclude=./target --exclude=./node_modules -cf - . | tar -C /tmp/source -xf -
     python3 /tmp/source/platforms/linux/packaging/gentoo/render.py "$MSIME_VERSION" --out /var/db/repos/msime
     ebuild_file=/var/db/repos/msime/app-i18n/msime/msime-$MSIME_VERSION.ebuild
     echo "== rendered $(basename "$ebuild_file"): $(grep -c "^	[a-z0-9_-]*@" "$ebuild_file") crates"
-    grep -n "^GIT_CRATES" -A3 "$ebuild_file" || true
+    grep -n -A3 "GIT_CRATES=" "$ebuild_file"
+    grep -n "^LICENSE+=" "$ebuild_file"
 
     echo "== pkgcheck scan"
     cd /var/db/repos/msime
@@ -44,7 +57,6 @@ EOF
     pkgcheck scan --exit error --keywords=-UnknownManifest,-MissingManifest app-i18n/msime
 
     echo "== live ebuild through src_unpack"
-    emerge --noreplace --oneshot dev-lang/rust-bin net-libs/nodejs >/dev/null
     ebuild /var/db/repos/msime/app-i18n/msime/msime-9999.ebuild clean unpack
     work=/var/tmp/portage/app-i18n/msime-9999/work
     ls "$work"

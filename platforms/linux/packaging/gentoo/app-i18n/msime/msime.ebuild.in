@@ -10,6 +10,7 @@ PYTHON_COMPAT=( python3_{11..14} )
 RUST_MIN_VER="@RUST_MIN_VER@"
 
 CRATES=""
+declare -A GIT_CRATES=()
 
 inherit cargo cmake optfeature python-single-r1 xdg
 
@@ -19,13 +20,13 @@ HOMEPAGE="https://github.com/metasequoiaime/msime"
 # 随包资源的文件名带上锁文件里 SHA-256 的前缀，锁更新后同名文件不会与旧版本的 Manifest 冲突。
 SRC_URI="
 	https://github.com/metasequoiaime/msime/archive/refs/tags/linux-v${PV}.tar.gz -> ${P}.tar.gz
-	https://github.com/metasequoiaime/msime/releases/download/linux-v${PV}/msime-linux-${PV}-desktop-frontend.tar.gz
+	https://github.com/metasequoiaime/msime/releases/download/linux-v${PV}/msime-linux-${PV}-desktop-frontend.tar.xz
 	${CARGO_CRATE_URIS}
 @RESOURCE_SRC_URI@
 "
 S="${WORKDIR}/msime-linux-v${PV}"
 
-# 本项目 GPL-3；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表（BSD）、行政区划（WTFPL-2）。crate 的许可证在下面由 pycargoebuild 填入。
+# 本项目 GPL-3；随包的第三方数据与运行库：sherpa-onnx 与 OpenCC（Apache-2.0）、ONNX Runtime 与 nlohmann/json（MIT）、手写模型与 libchewing-data（LGPL-2.1）、rime-stroke（LGPL-3）、rime-cantonese（CC-BY-4.0）、离线释义（CC-BY-SA-4.0）、libhangul 汉字表（BSD）、行政区划（WTFPL-2）。crate 的许可证在下面由 pycargoebuild 填入；它认不出只给了 license-file 的 vi（MIT 原文），已含在上面的 MIT 里。
 LICENSE="GPL-3 Apache-2.0 BSD CC-BY-4.0 CC-BY-SA-4.0 LGPL-2.1 LGPL-3 MIT WTFPL-2"
 # Dependent crate licenses
 LICENSE+=""
