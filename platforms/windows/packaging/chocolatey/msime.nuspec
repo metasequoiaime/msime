@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release. -->
+<!-- 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。 -->
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>msime</id>
@@ -8,7 +8,7 @@
     <owners>Metasequoia</owners>
     <title>Metasequoia IME (水杉输入法)</title>
     <authors>Metasequoia</authors>
-    <projectUrl>https://msime.app/</projectUrl>
+    <projectUrl>https://github.com/metasequoiaime/msime</projectUrl>
     <iconUrl>https://raw.githubusercontent.com/metasequoiaime/msime/develop/apps/desktop/src-tauri/icons/128x128.png</iconUrl>
     <licenseUrl>https://github.com/metasequoiaime/msime/blob/develop/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -16,7 +16,7 @@
     <docsUrl>https://github.com/metasequoiaime/msime/tree/develop/platforms/windows</docsUrl>
     <bugTrackerUrl>https://github.com/metasequoiaime/msime/issues</bugTrackerUrl>
     <tags>msime metasequoia ime input-method chinese pinyin shuangpin wubi tsf</tags>
-    <summary>A Chinese input method (pinyin, shuangpin and wubi) built on a shared input engine.</summary>
+    <summary>Metasequoia IME (水杉输入法): Chinese input method for Windows</summary>
     <description><![CDATA[Metasequoia IME (水杉输入法, MSIME) is a Chinese input method for Windows, macOS, Linux, Android, iOS and HarmonyOS. On Windows it is a Text Services Framework input method with its own Server process, a native candidate window and a settings app.
 
 MSIME is short for Metasequoia IME; it has nothing to do with Microsoft IME.

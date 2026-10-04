@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
-# Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release.
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
 
 PackageIdentifier: Metasequoia.MetasequoiaIME
 PackageVersion: "@VERSION@"

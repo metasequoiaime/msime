@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -22,6 +23,7 @@ ARCH = PACKAGING / "arch"
 GENTOO = PACKAGING / "gentoo"
 EBUILD_DIR = GENTOO / "app-i18n" / "msime"
 CMAKE = ROOT / "platforms" / "linux" / "CMakeLists.txt"
+EDITIONS = ROOT / "shared" / "contracts" / "editions.json"
 
 failures: list[str] = []
 
@@ -36,13 +38,24 @@ def cmake_units() -> tuple[list[str], list[str]]:
     match = re.search(r"set\(MSIME_USER_UNITS\s+([^)]*)\)", text)
     if not match:
         sys.exit(f"{CMAKE}: no MSIME_USER_UNITS")
-    units = match.group(1).split()
+    # 单元名以版本的包名开头（cmake/Edition.cmake 的 MSIME_EDITION_PACKAGE）；这些包只打 full，full 的包名取自版本表。
+    package = full_linux_package()
+    units = [unit.replace("${MSIME_EDITION_PACKAGE}", package) for unit in match.group(1).split()]
     return units, [unit for unit in units if unit.endswith(".service")]
+
+
+def full_linux_package() -> str:
+    table = json.loads(EDITIONS.read_text(encoding="utf-8"))
+    for entry in table["editions"]:
+        if entry["id"] == "full":
+            return entry["platforms"]["linux"]["package"]
+    sys.exit(f"{EDITIONS}: no full edition")
 
 
 def cmake_cache_options() -> set[str]:
     text = CMAKE.read_text(encoding="utf-8")
-    for extra in (ROOT / "platforms" / "linux").glob("**/CMakeLists.txt"):
+    linux = ROOT / "platforms" / "linux"
+    for extra in [*linux.glob("**/CMakeLists.txt"), *linux.glob("cmake/*.cmake")]:
         text += extra.read_text(encoding="utf-8")
     names = set(re.findall(r"(?:set|option)\((MSIME_[A-Z0-9_]+)\b", text))
     return names | {"BUILD_TESTING", "CMAKE_BUILD_TYPE", "CMAKE_INSTALL_PREFIX"}

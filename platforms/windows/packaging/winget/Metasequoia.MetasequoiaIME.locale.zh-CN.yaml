@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
-# Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release.
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
 
 PackageIdentifier: Metasequoia.MetasequoiaIME
 PackageVersion: "@VERSION@"
@@ -12,7 +12,7 @@ PackageName: 水杉输入法
 PackageUrl: https://github.com/metasequoiaime/msime
 License: GPL-3.0-only
 LicenseUrl: https://github.com/metasequoiaime/msime/blob/develop/LICENSE
-ShortDescription: 使用共享输入引擎的中文输入法，支持全拼、双拼和五笔。
+ShortDescription: 水杉输入法（Metasequoia IME）：Windows 中文输入法
 Description: |-
   水杉输入法（MSIME，Metasequoia IME）是面向 Windows、macOS、Linux、Android、iOS 与 HarmonyOS 的中文输入法。Windows 版是基于文本服务框架（TSF）的输入法，带独立的 Server 进程、原生候选窗和设置程序。
 

@@ -53,7 +53,7 @@ Recommends: pulseaudio-utils | pipewire-bin | alsa-utils,
  python3-websockets (>= 15),
 Conflicts: msime-linux,
 Replaces: msime-linux,
-Description: Metasequoia IME (Chinese input method) for Fcitx5 and IBus
+Description: Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus
  Metasequoia IME (水杉输入法) is a Chinese input method. This package
  contains the native Linux hosts built from source: the Fcitx5 addon, the
  IBus engine, the first-run setup program msime-linux-setup, the provider

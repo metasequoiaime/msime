@@ -112,6 +112,7 @@ build() {
   cmake -S platforms/linux -B "$srcdir/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMSIME_EDITION=full \
     -DMSIME_ENABLE_PACKAGING=ON \
     -DMSIME_ENABLE_FCITX5=ON \
     -DMSIME_PACKAGE_VERSION="$pkgver" \

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The winget, Scoop and Chocolatey definitions must describe the installer the release actually ships.
+"""winget、Scoop 与 Chocolatey 的包定义必须描述发布里实际发出的那个安装包。
 
-platforms/windows/packaging/ holds templates that platforms/windows/packaging/render.py fills from a windows-v release. The facts they repeat about the installer (its AppId and so its uninstall key, publisher, display name, architecture, privilege level, file name and silent switches) live in platforms/windows/installer/msime_setup.iss and release-windows.yml; this check keeps the copies in step, renders every template with fixed inputs, and exercises the GitHub path of render.py on a recorded release without the network.
+platforms/windows/packaging/ 下是由 platforms/windows/packaging/render.py 按 windows-v 发布填写的模板。它们重复了安装包的一些事实（AppId 以及由它得到的卸载键、发布者、显示名、架构、权限级别、文件名和静默参数），这些事实的来源是 platforms/windows/installer/msime_setup.iss、editions.iss、版本表 shared/contracts/editions.json 与 release-windows.yml；本检查让两边保持一致，用固定输入渲染全部模板，并在不联网的情况下用一份录制的发布走一遍 render.py 的 GitHub 路径。
 
-Run bare it uses only the standard library. With `--schema-dir DIR` it also validates the rendered files against the official schemas, which needs PyYAML, jsonschema and lxml; DIR must hold manifest.{version,installer,defaultLocale,locale}.1.12.0.json from microsoft/winget-cli schemas/JSON/manifests/v1.12.0, Scoop's schema.json, and nuspec.xsd from chocolatey/NuGet.Client src/NuGet.Core/NuGet.Packaging/compiler/resources (its targetNamespace is the "{0}" placeholder, which this check fills in). platforms/windows/packaging/README.md gives the commands.
+不带参数时只用标准库。加 `--schema-dir DIR` 时还按官方 schema 校验渲染结果，需要 PyYAML、jsonschema 和 lxml；DIR 里要有 microsoft/winget-cli schemas/JSON/manifests/v1.12.0 的 manifest.{version,installer,defaultLocale,locale}.1.12.0.json、Scoop 的 schema.json，以及 chocolatey/NuGet.Client src/NuGet.Core/NuGet.Packaging/compiler/resources 的 nuspec.xsd（它的 targetNamespace 是占位符「{0}」，本检查会填上）。下载命令见 platforms/windows/packaging/README.md。
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ import xml.etree.ElementTree as ElementTree
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGING = ROOT / "platforms/windows/packaging"
 SETUP = ROOT / "platforms/windows/installer/msime_setup.iss"
+EDITIONS_ISS = ROOT / "platforms/windows/installer/editions.iss"
+EDITIONS = ROOT / "shared/contracts/editions.json"
 SMOKE = ROOT / "platforms/windows/installer/tests/install-smoke.ps1"
 WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
 NUSPEC_NS = "http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd"
@@ -58,23 +60,41 @@ def setup_define(text: str, name: str) -> str:
 
 
 def yaml_scalar(text: str, key: str) -> list[str]:
-    """Every value of `key:` at any indent, quotes removed; enough for the flat fields compared here."""
+    """任意缩进下 `key:` 的每个值，去掉引号；对这里比较的扁平字段够用。"""
     return [value.strip().strip('"') for value in re.findall(rf"(?m)^\s*-?\s*{key}:\s*(.+?)\s*$", text)]
+
+
+def full_edition() -> dict:
+    """版本表里 full 的 Windows 段：各包管理器只发 full 这一个安装包。"""
+    table = json.loads(EDITIONS.read_text(encoding="utf-8"))
+    for entry in table["editions"]:
+        if entry["id"] == "full":
+            return entry["platforms"]["windows"]
+    raise SystemExit(f"{EDITIONS.relative_to(ROOT)} has no full edition")
 
 
 def check_installer_facts(render) -> None:
     setup = SETUP.read_text(encoding="utf-8")
-    # AppId={{GUID} is Inno's escaped brace; the uninstall key and so every package's ProductCode is {GUID}_is1.
-    app_id = setup_value(setup, "AppId")
-    check(app_id.startswith("{{") and app_id.endswith("}"), f"AppId {app_id!r} is not the escaped {{{{GUID}} form this check reads")
-    product_code = "{" + app_id[2:] + "_is1"
-    app_name = setup_define(setup, "MyAppName")
+    editions_iss = EDITIONS_ISS.read_text(encoding="utf-8")
+    full = full_edition()
+    # 安装包的 AppId、显示名和文件名前缀按版本取自 editions.iss，那里的值由版本表生成；包管理器只发 full，所以与版本表 full 的 Windows 段对照。Inno 的卸载键（也就是各包的 ProductCode）是 {GUID}_is1。
+    check(setup_value(setup, "AppId") == "{#MyEditionAppId}", "msime_setup.iss AppId no longer comes from editions.iss MyEditionAppId")
+    full_branch = re.search(r'(?ms)^#if Edition == "full"$(.*?)^#elif', editions_iss)
+    check(full_branch is not None, f"{EDITIONS_ISS.relative_to(ROOT)} has no full branch")
+    full_defines = dict(re.findall(r'(?m)^#define\s+(\w+)\s+"([^"]*)"', full_branch.group(1))) if full_branch else {}
+    app_id = full["inno_app_id"]
+    check(full_defines.get("MyEditionAppId") == "{" + app_id, f"editions.iss full MyEditionAppId is not the escaped form of {app_id}")
+    product_code = app_id + "_is1"
+    app_name = full["app_name"]
+    check(full_defines.get("MyEditionAppName") == app_name, f"editions.iss full MyEditionAppName is not {app_name!r}")
+    check(re.search(r"(?m)^#define\s+MyAppName\s+MyEditionAppName\s*$", setup) is not None, "msime_setup.iss MyAppName no longer comes from MyEditionAppName")
     publisher = setup_define(setup, "MyAppPublisher")
     check(setup_value(setup, "AppName") == "{#MyAppName}" and setup_value(setup, "AppPublisher") == "{#MyAppPublisher}", "AppName/AppPublisher no longer come from MyAppName/MyAppPublisher")
     check(setup_value(setup, "ArchitecturesAllowed") == "x64compatible", "the installer is no longer x64 only; add or drop installers in winget, Scoop and Chocolatey to match")
     check(setup_value(setup, "PrivilegesRequired") == "admin", "the installer is no longer per-machine (PrivilegesRequired=admin); winget Scope and the Scoop notes say machine")
-    check(setup_value(setup, "OutputBaseFilename") == "MetasequoiaIME_Setup_v{#MyAppVersion}{#MyOutputSuffix}", "the installer file name changed; update render.installer_name and the Scoop autoupdate URL")
-    check(render.installer_name("1.2.3") == "MetasequoiaIME_Setup_v1.2.3.exe", "render.installer_name does not follow OutputBaseFilename")
+    check(setup_value(setup, "OutputBaseFilename") == "{#MyEditionInstallerBaseName}_v{#MyAppVersion}{#MyOutputSuffix}", "the installer file name changed; update render.installer_name and the Scoop autoupdate URL")
+    check(full_defines.get("MyEditionInstallerBaseName") == full["installer_base_name"], "editions.iss full MyEditionInstallerBaseName differs from the edition table")
+    check(render.installer_name("1.2.3") == f"{full['installer_base_name']}_v1.2.3.exe", "render.installer_name does not follow the full edition's installer_base_name")
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
     check('tag="windows-v${VERSION}"' in workflow, "release-windows.yml no longer tags windows-v${VERSION}; render.TAG_PREFIX and the Scoop checkver follow it")
@@ -110,7 +130,7 @@ def check_installer_facts(render) -> None:
     choco_uninstall = (PACKAGING / "chocolatey/tools/chocolateyuninstall.ps1").read_text(encoding="utf-8")
     check(all(s in choco_install for s in SILENT) and "url64bit" in choco_install and "url " not in choco_install, "Chocolatey install is not a silent x64-only install")
     check(f"'{product_code}'" in choco_uninstall and all(s in choco_uninstall for s in SILENT), "Chocolatey uninstall does not run the registered Inno uninstaller silently")
-    # Windows PowerShell 5.1 reads a BOM-less script in the ANSI code page, and render.py writes no BOM.
+    # Windows PowerShell 5.1 按 ANSI 代码页读取没有 BOM 的脚本，而 render.py 不写 BOM，所以脚本只能是 ASCII。
     for script in (PACKAGING / "chocolatey/tools").glob("*.ps1"):
         check(script.read_bytes().isascii(), f"{script.name} is not ASCII")
 
@@ -128,7 +148,7 @@ def check_scoop_checkver() -> None:
         {"url": "u", "author": {"login": "bot"}, "tag_name": "windows-v0.2.1", "target_commitish": "abc", "name": "Windows 0.2.1", "draft": False, "immutable": False, "prerelease": False, "assets": [{"name": "a"}]},
         {"url": "u", "author": {"login": "bot"}, "tag_name": "windows-v0.2.0", "name": "Windows 0.2.0", "draft": False, "prerelease": False},
     ]
-    # GitHub's API pretty-prints with two-space indents; check both that and compact output.
+    # GitHub API 的输出带两格缩进；缩进与紧凑两种写法都要能匹配。
     for text in (json.dumps(releases, indent=2), json.dumps(releases, separators=(",", ":"))):
         check(scoop_checkver(scoop, text) == "0.2.1", "Scoop checkver does not pick the newest non-prerelease windows-v release")
 
@@ -169,7 +189,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
     choco_install = (output / "chocolatey/msime/tools/chocolateyinstall.ps1").read_text(encoding="utf-8")
     check(f"url64bit       = '{url}'" in choco_install and f"checksum64     = '{digest}'" in choco_install, "Chocolatey URL or checksum not rendered")
 
-    # --installer: the release job hashes the file it has just built, under the name the release publishes.
+    # --installer：对刚构建出的安装包求摘要，文件名必须是发布时用的那个。
     fake = output / "MetasequoiaIME_Setup_v1.2.3.exe"
     fake.write_bytes(b"msime")
     with contextlib.redirect_stdout(io.StringIO()):
@@ -184,7 +204,7 @@ def check_render(render, output: pathlib.Path) -> list[pathlib.Path]:
 
 
 def check_github_path(render) -> None:
-    """values_from_release on a recorded release, with the sidecar download answered locally."""
+    """用一份录制的发布跑 values_from_release，摘要小文件的下载在本地应答。"""
     digest = "ab" * 32
     name = "MetasequoiaIME_Setup_v0.1.0.exe"
     sidecars = {"https://example.invalid/sidecar": f"{digest}  {name}\n".encode()}
@@ -238,7 +258,7 @@ def validate_schemas(written: list[pathlib.Path], schema_dir: pathlib.Path) -> N
             schema = json.loads((schema_dir / "schema.json").read_text(encoding="utf-8"))
             errors = [error.message for error in jsonschema.Draft7Validator(schema).iter_errors(json.loads(path.read_text(encoding="utf-8")))]
         elif path.suffix == ".nuspec":
-            # The schema is a template whose namespace attributes (targetNamespace, xmlns, xmlns:mstns) all read "{0}".
+            # 这份 schema 是模板，命名空间属性（targetNamespace、xmlns、xmlns:mstns）都写作「{0}」。
             xsd = (schema_dir / "nuspec.xsd").read_text(encoding="utf-8").replace('"{0}"', f'"{NUSPEC_NS}"')
             schema = etree.XMLSchema(etree.fromstring(xsd.encode("utf-8")))
             valid = schema.validate(etree.parse(str(path)))

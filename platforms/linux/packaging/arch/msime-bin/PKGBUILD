@@ -10,7 +10,7 @@ pkgver=0.9.1
 pkgrel=1
 # CPack 生成的 .rpm 的 Release 字段。
 _rpmrel=1
-pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus (prebuilt release package)'
+pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
 arch=('x86_64')
 url='https://github.com/metasequoiaime/msime'
 license=('GPL-3.0-only')

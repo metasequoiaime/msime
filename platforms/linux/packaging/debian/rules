@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 # 水杉输入法 Linux 完整版的 Debian 源码包构建，供 Launchpad PPA 或 OBS 使用。构建步骤照搬 platforms/linux/package-container.sh：Release 的 Host API、MCP 服务和 Tauri 设置窗口，再以 MSIME_ENABLE_PACKAGING=ON 配置 CMake，跑与门禁相同的 ctest。
 #
-# 构建农场没有网络。Cargo 依赖、设置窗口的前端和需要下载的数据来自组件 tarball msime_VERSION.orig-vendor.tar.xz，dpkg-source 把它解到 vendor/；它就是发布页上的 msime-VERSION-vendor.tar.xz，由 platforms/linux/packaging/rpm/make-source-tarballs.sh 生成。
+# 构建农场没有网络。Cargo 依赖、设置窗口的前端和需要下载的数据来自组件 tarball msime_VERSION.orig-vendor.tar.xz，dpkg-source 把它解到 vendor/；它就是发布页上的 msime-VERSION-vendor.tar.xz，由 platforms/linux/packaging/make-source-tarballs.sh 生成。
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export PYTHONDONTWRITEBYTECODE = 1
@@ -57,6 +57,7 @@ override_dh_auto_configure:
 	# Release 与发布页的 .deb 一致：测试目标自带 -UNDEBUG，产品代码的 assert 不进发布构建。
 	dh_auto_configure -- \
 	  -DCMAKE_BUILD_TYPE=Release \
+	  -DMSIME_EDITION=full \
 	  -DMSIME_ENABLE_PACKAGING=ON \
 	  -DMSIME_ENABLE_FCITX5=ON \
 	  -DMSIME_PACKAGE_VERSION=$(DEB_VERSION_UPSTREAM) \

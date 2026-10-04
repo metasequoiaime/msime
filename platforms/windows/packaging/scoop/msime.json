@@ -1,11 +1,11 @@
 {
     "##": [
-        "Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release; checkver and autoupdate keep the rendered manifest current in a bucket afterwards.",
-        "Not portable: an input method has to register its TSF DLLs and COM classes system-wide, so this runs the released Inno Setup installer (machine scope, UAC prompt) and keeps nothing in the Scoop app directory. The installer upgrades in place and keeps the data directory, so the uninstaller script does nothing during 'scoop update'; it runs the Inno uninstaller only for 'scoop uninstall', which also deletes the data directory the installer owns."
+        "模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段；放进 bucket 之后由 checkver 与 autoupdate 跟上新版本。",
+        "不是便携应用：输入法要在系统范围注册 TSF DLL 与 COM 类，所以这里运行发布的 Inno Setup 安装包（按机器安装，会弹 UAC），Scoop 的应用目录里什么也不留。安装包就地升级并保留数据目录，所以卸载脚本在 scoop update 时什么也不做，只在 scoop uninstall 时运行 Inno 卸载程序，后者也会删除安装包拥有的数据目录。"
     ],
     "version": "@VERSION@",
-    "description": "Metasequoia IME (水杉输入法): a Chinese input method (pinyin, shuangpin and wubi). Not related to Microsoft IME.",
-    "homepage": "https://msime.app/",
+    "description": "Metasequoia IME (水杉输入法): Chinese input method for Windows. Not related to Microsoft IME.",
+    "homepage": "https://github.com/metasequoiaime/msime",
     "license": {
         "identifier": "GPL-3.0-only",
         "url": "https://github.com/metasequoiaime/msime/blob/develop/LICENSE"

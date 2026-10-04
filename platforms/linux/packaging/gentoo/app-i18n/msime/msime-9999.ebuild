@@ -138,6 +138,7 @@ src_compile() {
 	# MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全），不跑 CPack。
 	local mycmakeargs=(
 		-DBUILD_TESTING=$(usex test)
+		-DMSIME_EDITION=full
 		-DMSIME_ENABLE_PACKAGING=ON
 		-DMSIME_ENABLE_FCITX5=$(usex fcitx5)
 		-DMSIME_HOST_LIBRARY="${target}/libmsime_host_api.so"

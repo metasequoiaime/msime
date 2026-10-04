@@ -24,7 +24,7 @@
 Name:           msime
 Version:        0.9.0
 Release:        1%{?dist}
-Summary:        Metasequoia IME (水杉输入法) for Fcitx5 and IBus
+Summary:        Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus
 # 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据：Rust crate 与 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。
 License:        GPL-3.0-only AND Apache-2.0 AND MIT AND BSD-3-Clause AND HPND AND LGPL-2.1-or-later AND LGPL-3.0-only AND CC-BY-4.0 AND CC-BY-SA-4.0 AND MPL-2.0 AND WTFPL AND Unicode-3.0 AND ISC AND Zlib
 URL:            https://github.com/metasequoiaime/msime
@@ -152,6 +152,7 @@ cmake -S platforms/linux -B build/cmake \
   -DCMAKE_INSTALL_SYSCONFDIR=%{_sysconfdir} \
   -DCMAKE_SKIP_RPATH=OFF \
   -DCMAKE_SKIP_INSTALL_RPATH=OFF \
+  -DMSIME_EDITION=full \
   -DMSIME_ENABLE_PACKAGING=ON \
   -DMSIME_ENABLE_FCITX5=ON \
   -DMSIME_PACKAGE_VERSION=%{version} \

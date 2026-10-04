@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Render the winget, Scoop and Chocolatey definitions for one Windows release.
+"""把一个 Windows 发布填进 winget、Scoop 与 Chocolatey 的包定义模板。
 
-The templates next to this script hold every fact that does not change between releases (product code, silent switches, dependencies, descriptions); a release only supplies its version, the installer URL, the installer's SHA-256, its date and its release-notes URL, which this script fills into the @...@ fields. It takes them from one of three places:
+本脚本旁边的模板保存发布之间不变的事实（ProductCode、静默参数、依赖、说明）；每个发布只提供版本号、安装包地址、安装包的 SHA-256、发布日期和发布说明地址，由本脚本填进 @...@ 字段。它们有三种来源：
 
-    render.py --latest --output DIR                      newest published windows-v* release on GitHub
-    render.py --tag windows-v0.1.0 --output DIR          that release on GitHub
+    render.py --latest --output DIR                      GitHub 上最新一个已发布、非预发布的 windows-v* 发布
+    render.py --tag windows-v0.1.0 --output DIR          GitHub 上的指定发布
     render.py --version 0.1.0 --installer FILE --output DIR
     render.py --version 0.1.0 --sha256 HEX --output DIR
 
-From GitHub it reads the release metadata only: the installer's digest that GitHub records for each asset, cross-checked against the small `<installer>.sha256` file the release workflow uploads beside it. The installer itself is never downloaded. `--installer` hashes a local file instead, for the release job that has just built it; the URL is then the one the release workflow will publish it under.
+走 GitHub 时只读发布元数据：GitHub 为每个附件记录的摘要，与发布流程放在安装包旁边的 `<安装包>.sha256` 小文件互相核对，从不下载安装包本身。`--installer` 改为对本地文件求摘要，给刚构建出安装包的场合用；地址按发布流程将来发布它的位置推出。
 
-The output directory receives the three package managers' own layouts:
+输出目录按三个包管理器各自的布局：
 
     winget/manifests/m/Metasequoia/MetasequoiaIME/<version>/*.yaml
     scoop/msime.json
     chocolatey/msime/msime.nuspec, chocolatey/msime/tools/*.ps1
 
-Only the Python standard library is used. Set GH_TOKEN or GITHUB_TOKEN to raise the GitHub API rate limit.
+只用 Python 标准库。设置 GH_TOKEN 或 GITHUB_TOKEN 可以提高 GitHub API 限额。
 """
 
 from __future__ import annotations
@@ -37,11 +37,11 @@ HERE = pathlib.Path(__file__).resolve().parent
 DEFAULT_REPO = "metasequoiaime/msime"
 TAG_PREFIX = "windows-v"
 WINGET_ID = "Metasequoia.MetasequoiaIME"
-# release-windows.yml accepts three numeric components only, because Build-Client.ps1 stamps the version into Tauri and Server metadata.
+# release-windows.yml 只接受三段数字的版本号，因为 Build-Client.ps1 要把它写进 Tauri 与 Server 的元数据。
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 PLACEHOLDER_PATTERN = re.compile(r"@[A-Z0-9_]+@")
-# The sidecar holds "<hex>  <name>\n"; anything larger is not one.
+# 摘要小文件的内容是「<hex>  <name>\n」，比这大得多的不是它。
 SIDECAR_LIMIT = 4096
 API_PAGES = 10
 
@@ -51,7 +51,7 @@ class RenderError(Exception):
 
 
 def installer_name(version: str) -> str:
-    # msime_setup.iss: OutputBaseFilename=MetasequoiaIME_Setup_v{#MyAppVersion}; release-windows.yml publishes it under that name.
+    # msime_setup.iss 的 OutputBaseFilename 是 {#MyEditionInstallerBaseName}_v{#MyAppVersion}，full 的前缀是 MetasequoiaIME_Setup（版本表的 installer_base_name）；release-windows.yml 以这个名字发布。
     return f"MetasequoiaIME_Setup_v{version}.exe"
 
 
@@ -117,7 +117,7 @@ def github_json(url: str):
 
 
 def latest_release(repo: str) -> dict:
-    """The highest-versioned published, non-prerelease windows-v release."""
+    """版本号最高的、已发布且非预发布的 windows-v 发布。"""
     found: list[tuple[tuple[int, ...], dict]] = []
     for page in range(1, API_PAGES + 1):
         releases = github_json(f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}")
@@ -196,11 +196,11 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-# ---- rendering ----
+# ---- 渲染 ----
 
 
 def outputs(version: str) -> list[tuple[pathlib.Path, pathlib.Path]]:
-    """(template, path in the output directory) for every file a release renders."""
+    """一个发布要渲染的每个文件的（模板，输出目录里的路径）。"""
     winget_dir = pathlib.Path("winget/manifests/m/Metasequoia/MetasequoiaIME") / version
     pairs = [(template, winget_dir / template.name) for template in sorted((HERE / "winget").glob(f"{WINGET_ID}*.yaml"))]
     pairs.append((HERE / "scoop/msime.json", pathlib.Path("scoop/msime.json")))
@@ -221,7 +221,7 @@ def fill(text: str, values: dict[str, str], source: pathlib.Path) -> str:
 
 
 def check_rendered(path: pathlib.Path, text: str) -> None:
-    """Catch a template that no longer parses once filled; the schema checks live in scripts/test-windows-package-managers.py."""
+    """填完之后解析不了的模板在这里就报错；按官方 schema 的校验在 scripts/test-windows-package-managers.py 里。"""
     if path.suffix == ".json":
         json.loads(text)
     elif path.suffix == ".nuspec":

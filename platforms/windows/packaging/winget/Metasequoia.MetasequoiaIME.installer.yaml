@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
-# Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release.
-# The facts below are read from platforms/windows/installer/msime_setup.iss: AppId (the ProductCode is that GUID plus Inno's "_is1" suffix), PrivilegesRequired=admin, ArchitecturesAllowed=x64compatible, AppName and AppPublisher. A test (scripts/test-windows-package-managers.py) checks they still agree.
+# 模板：platforms/windows/packaging/render.py 按一个 windows-v 发布填写 @...@ 字段。
+# 下面的事实取自 platforms/windows/installer/msime_setup.iss 与它包含的 editions.iss 里 full 的那一份：AppId（ProductCode 是这个 GUID 加上 Inno 的「_is1」后缀）、PrivilegesRequired=admin、ArchitecturesAllowed=x64compatible、AppName 与 AppPublisher。scripts/test-windows-package-managers.py 核对它们仍然一致。
 
 PackageIdentifier: Metasequoia.MetasequoiaIME
 PackageVersion: "@VERSION@"
 InstallerLocale: zh-CN
 Platform:
   - Windows.Desktop
-# The candidate window uses the Per-Monitor V2 DPI context, which needs Windows 10 1703.
+# 候选窗口用 Per-Monitor V2 DPI 上下文，要求 Windows 10 1703 起。
 MinimumOSVersion: 10.0.15063.0
 InstallerType: inno
 Scope: machine
@@ -18,10 +18,10 @@ InstallModes:
 InstallerSwitches:
   Silent: /SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
   SilentWithProgress: /SP- /SILENT /SUPPRESSMSGBOXES /NORESTART
-# The installer upgrades in place and keeps the user's data directory; uninstalling first would delete that directory, because the uninstaller removes the data directory it owns.
+# 安装包就地升级并保留用户的数据目录；先卸载会删掉这个目录，因为卸载程序会删除它拥有的数据目录。
 UpgradeBehavior: install
 ElevationRequirement: elevatesSelf
-# Neither ships in the installer, and a silent install continues without them (msime_setup.iss InitializeSetup only logs what is missing).
+# 安装包不带这两样，静默安装缺了也照样继续（msime_setup.iss 的 InitializeSetup 只把缺的写进日志）。
 Dependencies:
   PackageDependencies:
     - PackageIdentifier: Microsoft.VCRedist.2015+.x64

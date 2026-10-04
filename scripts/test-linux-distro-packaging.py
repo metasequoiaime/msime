@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""核对发行版源码包（platforms/linux/packaging/rpm/msime.spec 与 platforms/linux/packaging/debian/rules）没有和发布页安装包的构建脱节。
+"""核对各发行版的源码构建定义（platforms/linux/packaging 下的 RPM 规格、debian/rules、AUR 的 msime PKGBUILD 与 Gentoo 的两份 ebuild）没有和发布页安装包的构建脱节。
 
-发布页的 .deb/.rpm 由 platforms/linux/package-container.sh 构建；RPM 规格与 debian/rules 照搬它的步骤，但不会跟着它自动变。这里比对三处：
+发布页的 .deb/.rpm 由 platforms/linux/package-container.sh 构建；这些定义照搬它的步骤，但不会跟着它自动变。这里比对三处：
 
-- 传给 CMake 的 -DMSIME_* 选项集合相同。package-container.sh 新增一个选项（例如再随包带一类数据）而两个源码包没跟上时，它们会悄悄打出缺东西的包。
-- 用 cargo build 构建的包与目标（-p 与 --bin）相同。
+- 传给 CMake 的 -DMSIME_* 选项集合相同（五份定义都比）。package-container.sh 新增一个选项（例如再随包带一类数据）而某个定义没跟上时，它会悄悄打出缺东西的包。
+- 用 cargo build 构建的包与目标（-p 与 --bin）相同（RPM 规格、debian/rules 与 PKGBUILD；ebuild 经 cargo.eclass 的 cargo_src_compile 构建，不在此列）。
 - render-sources.py 渲染出的版本、发布号和更新日志能被正确改写。
 
 只用标准库，不需要构建环境。
@@ -21,7 +21,13 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTAINER = ROOT / "platforms/linux/package-container.sh"
 SPEC = ROOT / "platforms/linux/packaging/rpm/msime.spec"
 RULES = ROOT / "platforms/linux/packaging/debian/rules"
-RENDER = ROOT / "platforms/linux/packaging/rpm/render-sources.py"
+RENDER = ROOT / "platforms/linux/packaging/render-sources.py"
+PKGBUILD = ROOT / "platforms/linux/packaging/arch/msime/PKGBUILD"
+# 只比 CMake 选项的定义，以及各自允许不传的选项：live ebuild 跟踪 develop，没有发布版本号，不传 MSIME_PACKAGE_VERSION 时 CMake 取 platforms/linux/version.txt。
+OPTIONS_ONLY = [
+    (ROOT / "platforms/linux/packaging/gentoo/app-i18n/msime/msime-9999.ebuild", {"MSIME_PACKAGE_VERSION"}),
+    (ROOT / "platforms/linux/packaging/gentoo/app-i18n/msime/msime.ebuild.in", set()),
+]
 
 
 def cmake_options(text: str) -> set[str]:
@@ -45,7 +51,7 @@ def main() -> int:
     reference = CONTAINER.read_text(encoding="utf-8")
     expected_options = cmake_options(reference)
     expected_targets = cargo_targets(reference)
-    for path in (SPEC, RULES):
+    for path in (SPEC, RULES, PKGBUILD):
         text = path.read_text(encoding="utf-8")
         name = path.relative_to(ROOT)
         options = cmake_options(text)
@@ -54,6 +60,10 @@ def main() -> int:
         targets = cargo_targets(text)
         if targets != expected_targets:
             failures.append(f"{name}: cargo build targets differ from package-container.sh; missing {sorted(expected_targets - targets)}, extra {sorted(targets - expected_targets)}")
+    for path, optional in OPTIONS_ONLY:
+        options = cmake_options(path.read_text(encoding="utf-8"))
+        if options != expected_options - (optional - options):
+            failures.append(f"{path.relative_to(ROOT)}: CMake options differ from package-container.sh; missing {sorted(expected_options - options)}, extra {sorted(options - expected_options)}")
 
     with tempfile.TemporaryDirectory() as scratch:
         spec_out = Path(scratch) / "msime.spec"
