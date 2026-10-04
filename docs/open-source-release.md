@@ -20,7 +20,7 @@
 - iOS ML Kit 依赖通知在 `platforms/ios/SharedResources/MLKit-NOTICES.txt` 和 `MLKit-Dependencies.txt`。
 - Windows 依赖通知由 `platforms/windows/Collect-Notices.ps1` 生成；使用说明和限制见 `platforms/windows/Notices.md`。生成器不是完整许可证审计，不能用空通知文件代替上游材料。
 - 引擎移植所源自的 C++ MSIME-Engine、每个固定词库和离线模型都必须在发布包中保留对应的版权、许可证和来源说明。资源锁文件只校验内容，不授予额外分发权。
-- 日文词库 `msime-japanese.dat` 的许可证要求是硬性的：IPAdic 与 ICOT 的条款都规定许可证文本必须随词库分发，所以发布物中必须包含 `msime-mozc_dictionary_oss_README.txt`。逐条构成见[第三方组件清单](third-party.md#日文词库的分发义务)。
+- 日文词库 `msime-japanese.dat` 的许可证要求是硬性的：IPAdic 与 ICOT 的条款都规定许可证文本必须随词库分发，所以发布物中必须包含 `msime-mozc_dictionary_oss_README.txt`；Mozc 自身的三条款 BSD 同样要求随二进制附上版权声明，所以也必须包含 `msime-mozc_LICENSE.txt`。`msime-english.db` 含 SCOWL 的词，发布物中还必须包含 `msime-scowl_Copyright.txt`。逐条构成见[第三方组件清单](third-party.md#日文词库的分发义务)。
 - 自带的加加辅助码表 `resources/helpcodes/jiajia_helpcode.txt` 是这份清单里唯一一项带明确再分发限制的随包数据：它在 `crates/engine/src/assets.rs` 的 `HELPCODES` 里登记为第六套方案 `jiajia`，部分条目来自商业软件拼音加加安装包内的数据表，**本仓库的 GPL-3.0 不覆盖它的内容**。每次发布前单独确认它在目标渠道是否可接受；不可接受时从 `HELPCODES` 去掉 `jiajia` 那一行，并让该渠道的资源打包不再带上这张表，设置页会随之少一个选项，其余五套辅助码表不受影响。逐条依据见 [`resources/helpcodes/NOTICE.md`](../resources/helpcodes/NOTICE.md) 与[第三方组件清单](third-party.md#自带辅助码表resourceshelpcodes)。
 - 非英语候选词的离线释义 `offline-glosses/zh-<lang>.db` 改编自英文维基词典，按 CC BY-SA 4.0 提供。随这些文件发布时必须带上生成器同时写出的 `offline-glosses-NOTICE.txt`（署名、dump 日期、Wiktextract 版本和改动说明），每行的来源英文页记在 `source` 列。发布前的准备和限制见[第三方组件清单](third-party.md#非英语离线释义resourcesoffline-glosseslockjson)。
 - 整句重排模型的训练语料署名嵌在 `sentence-model.safetensors` 的 safetensors `__metadata__` 头里。原样分发该文件即满足要求；重新导出、量化或转换权重时必须把 `attribution` 字段带过去，见[第三方组件清单](third-party.md#整句重排模型的署名要求)。

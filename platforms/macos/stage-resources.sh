@@ -9,7 +9,7 @@ source_dir=$(cd "$source_dir" && pwd)
 destination="$repo_root/target/macos/EngineResources"
 
 # Use the shared verifier as the source of truth. The staged directory is ignored build output and is rebuilt as one unit, so a failed copy cannot look complete.
-# MSIME_MACOS_OMIT_ON_DEMAND=1 按发布包的规则只暂存核心词库：日文词典那一对文件（resources.rs 的 MACOS_ON_DEMAND_ARTIFACTS）不进包，由 App 在用户选日文方案时下载到 resource-packs/japanese。默认的开发流程仍暂存全部文件，作为下载之外的内置兜底。
+# MSIME_MACOS_OMIT_ON_DEMAND=1 按发布包的规则只暂存核心词库：日文词典那一组文件（词典与两份 Mozc 许可文本，即 resources.rs 的 MACOS_ON_DEMAND_ARTIFACTS）不进包，由 App 在用户选日文方案时下载到 resource-packs/japanese。默认的开发流程仍暂存全部文件，作为下载之外的内置兜底。
 verify_flags=()
 if [ "${MSIME_MACOS_OMIT_ON_DEMAND:-0}" = 1 ]; then
   verify_flags=(--omit-on-demand)

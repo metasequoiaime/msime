@@ -62,8 +62,9 @@ try {
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
-        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-others.db', 'msime-japanese.dat',
-                            'msime-mozc_dictionary_oss_README.txt', 'msime-dictionary-manifest.json')) {
+        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
+                            'msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt',
+                            'msime-dictionary-manifest.json')) {
             if ($name -ne 'msime-english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
             $path = Join-Path $fixture "target/desktop-resources/$name"
             @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }

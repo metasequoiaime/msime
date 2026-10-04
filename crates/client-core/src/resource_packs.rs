@@ -293,7 +293,7 @@ mod tests {
         let desktop: ResourceSet = serde_json::from_str(DESKTOP_LOCK).unwrap();
         let japanese = ResourcePack::Japanese.set();
         assert_eq!(japanese.source_commit, desktop.source_commit);
-        assert_eq!(japanese.artifacts.len(), 2);
+        assert_eq!(japanese.artifacts.len(), MACOS_ON_DEMAND_ARTIFACTS.len());
         for artifact in &japanese.artifacts {
             assert!(MACOS_ON_DEMAND_ARTIFACTS.contains(&artifact.name.as_str()));
             let locked = desktop

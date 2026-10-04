@@ -59,11 +59,11 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 121000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 124000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
-- `japanese`：`msime-japanese.dat` 与 `msime-mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
+- `japanese`：`msime-japanese.dat`、`msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt`，取自 `resources/desktop-dictionary.lock.json` 的这三项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
 - `language-dictionaries`：`msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `msime-stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
 - `handwriting`：`handwriting-zh_CN.model` 与 `HandwritingModel-LICENSE.txt`，按 `resources/handwriting-model.lock.json`。第一次打开手写面板时下载。
 
