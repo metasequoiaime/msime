@@ -108,6 +108,36 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
 
+### Nix 与 NixOS
+
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务、语音运行库和设置窗口还没有接进 Nix。
+
+```sh
+nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
+nix flake check
+nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
+```
+
+插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以在系统配置里用 overlay 而不是直接取 `packages`：
+
+```nix
+# flake.nix 的 inputs
+msime.url = "github:metasequoiaime/msime";
+
+# NixOS 模块
+nixpkgs.overlays = [ inputs.msime.overlays.default ];
+i18n.inputMethod = {
+  enable = true;
+  type = "fcitx5";
+  fcitx5.addons = [ pkgs.msime-fcitx5 ];
+};
+environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
+```
+
+切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
+
+每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
+
 ## 卸载 CMake 安装
 
 保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板。执行卸载所需权限与原安装相同。对应 Windows 卸载时停止输入法进程并删除登录任务：以普通用户身份卸载时，删除文件前会在当前用户的 systemd 用户实例里逐个 `disable --now` `msime-linux-setup` 启用过的在线、语音和剪贴板服务，免得它们指着已删除的程序反复重启；以 root 或带 `DESTDIR` 卸载时够不到各用户的实例，只打印每个用户需要执行的那条 `systemctl --user disable --now …` 命令。卸载不停止输入法宿主：正在运行的 IBus 宿主继续运行到 `ibus restart` 或注销，不会因程序被删而自行重启；Fcitx5 在下次激活 MSIME 时提示执行 `fcitx5 -r` 或注销后重新登录。

@@ -12,7 +12,9 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
+use crate::user_dictionary::journal::open_database;
 use crate::user_dictionary::replay::replay;
+use crate::wubi::provider::ensure_reverse_indexes;
 
 pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 
@@ -70,6 +72,8 @@ pub fn prepare_runtime_paths(
         merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
         replay_into(&result, &result.dictionaries)?;
+        // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
+        index_reverse_lookup(&result.dictionaries);
         stage_generation_copies(resources, &result.dictionaries, false)?;
         return Ok(result);
     }
@@ -92,6 +96,7 @@ pub fn prepare_runtime_paths(
         merge_split_wubi(resources, &stage.join(assets::MAIN_DICTIONARY))?;
         stage_generation_copies(resources, &stage, true)?;
         replay_into(&result, &stage)?;
+        index_reverse_lookup(&stage);
         fs::write(
             stage.join(assets::GENERATION_READY),
             format!("{content_id}\n"),
@@ -131,6 +136,23 @@ fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// 给代次里每个词库副本补上五笔反查索引（见 `wubi::provider::ensure_reverse_indexes`）。代次是用户可写的副本，资源目录保持只读、原样；索引不进日志，也不影响词库状态的摘要。
+///
+/// 只是提速，从不失败：建索引要写盘（约 1.3 MB 加回滚日志），磁盘满、文件只读或被别的进程长时间锁住时记一条日志、照常用没有索引的副本，反查仍然正确，只是慢。这里报错会让宿主起不来。新词库在 dict-builder 里就带着同名索引，这里只为旧词库和旧代次补建。
+fn index_reverse_lookup(generation: &Path) {
+    for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        let database = generation.join(name);
+        let indexed = open_database(&database, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .and_then(|connection| ensure_reverse_indexes(&connection).map_err(Into::into));
+        if let Err(error) = indexed {
+            eprintln!(
+                "msime: wubi reverse lookup index unavailable in {}, lookups stay unindexed: {error}",
+                database.display()
+            );
+        }
+    }
 }
 
 /// Copy through the SQLite backup API, which includes committed WAL content that a plain file copy of a live database would lose (RP:38-55).
@@ -656,6 +678,66 @@ mod tests {
                 "SELECT weight FROM tbl_1_n WHERE value='妮'"
             ),
             Some(70)
+        );
+    }
+
+    fn reverse_indexes(database: &Path) -> Vec<String> {
+        let connection = Connection::open(database).unwrap();
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_wubi%_value' ORDER BY name")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn generations_get_the_wubi_reverse_index_and_resources_stay_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        // 只有 wubi86：没有的 wubi98 不会凭空建表或建索引。
+        sql(
+            &resources.join(assets::MAIN_DICTIONARY),
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        );
+        let original = fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert!(reverse_indexes(&paths.dictionary(assets::ENGLISH_DICTIONARY)).is_empty());
+        assert_eq!(
+            fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap(),
+            original
+        );
+
+        sql(&main, "DROP INDEX idx_wubi86_value;");
+        // 补建索引只是提速：副本写不进去（磁盘满、只读、被锁）时照常打开代次，只是没有索引。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o444)).unwrap();
+            let reopened = prepare_runtime_paths(&resources, &user, &cache, "v1");
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o644)).unwrap();
+            reopened.unwrap();
+            assert!(reverse_indexes(&main).is_empty());
+        }
+        // 旧版本准备的代次没有这个索引：再次打开同一代次时补上。
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        // 已有索引时什么也不改。
+        let indexed = fs::read(&main).unwrap();
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert_eq!(fs::read(&main).unwrap(), indexed);
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='你好'"),
+            Some(300)
         );
     }
 

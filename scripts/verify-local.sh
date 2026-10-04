@@ -384,7 +384,10 @@ note "compile: linux native host"
 # tests/tools/check-container.sh remains the acceptance run that needs a verified
 # dictionary directory and a live IBus daemon.
 if [ "$(uname -s 2>/dev/null)" = "Linux" ] && pkg-config --exists ibus-1.0 2>/dev/null; then
-  cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
+  # CMake 链接的是 target/debug 下的 Host API，而上面的 Rust 阶段只做 cargo check，不产出它；
+  # 与 build-container.sh 一样先构建，否则配置阶段就报「Build msime-host-api for Linux first」。
+  cargo build -p msime-host-api --locked >/dev/null 2>&1 &&
+    cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
     cmake --build "$root/target/linux-gate" >/dev/null 2>&1 &&
     ctest --test-dir "$root/target/linux-gate" --output-on-failure >/dev/null 2>&1 &&
     echo "linux native host: builds and its tests pass" ||

@@ -124,6 +124,11 @@ export function LocalModelManager({
 
   useEffect(() => {
     const generation = clientGeneration.current;
+    setList(undefined);
+    setNotice("");
+    setProgress({});
+    setInstalling({});
+    setRemoving({});
     void refresh();
     let unlisten: (() => void) | undefined;
     void client

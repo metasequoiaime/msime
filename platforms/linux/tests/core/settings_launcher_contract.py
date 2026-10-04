@@ -37,7 +37,11 @@ with tempfile.TemporaryDirectory() as scratch:
     system_config = scratch / "system/runtime-options.json"
     script = scratch / "bin/msime-linux-settings"
     script.parent.mkdir()
-    script.write_text(launcher.replace("@MSIME_SETTINGS_SYSTEM_CONFIG@", str(system_config)))
+    # 首行换成 /bin/sh：模板的 `#!/usr/bin/env sh` 在没有 FHS 布局的环境（Nix 构建沙箱）里找不到 env，
+    # 装出去的那份由打包时的 patchShebangs 改写；这里测的是脚本内容。
+    body = launcher.replace("@MSIME_SETTINGS_SYSTEM_CONFIG@", str(system_config))
+    assert body.startswith("#!/usr/bin/env sh\n"), body.splitlines()[0]
+    script.write_text("#!/bin/sh\n" + body.split("\n", 1)[1])
     desktop_binary = scratch / "bin/msime-linux-desktop"
     desktop_binary.write_text('#!/bin/sh\nprintf %s "$MSIME_CLIENT_HOST_OPTIONS"\n')
     for path in (script, desktop_binary):

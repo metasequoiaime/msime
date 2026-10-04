@@ -52,7 +52,8 @@ def uninstall(temp: Path, uid: str = "1000", staged: bool = False, setup_status:
     log = temp / "setup.log"
     log.write_text("")
     environment = {
-        "PATH": f"{tools}:/usr/bin:/bin",
+        # 桩目录在前，其余沿用真实 PATH，与同目录的其他测试一致；写死 /usr/bin:/bin 在没有 FHS 布局的环境里找不到 dirname。
+        "PATH": f"{tools}:{os.environ.get('PATH', '/usr/bin:/bin')}",
         "STUB_UID": uid,
         "STUB_LOG": str(log),
         "STUB_SETUP_STATUS": setup_status,

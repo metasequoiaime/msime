@@ -51,7 +51,11 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h")
   set(MSIME_LAYER_SHELL_CODE
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c")
+  # wayland-protocols 的 .pc 给出它的数据目录；只搜 /usr/share 的话，装在别处的（例如 Nix store）
+  # 找不到，Wayland 浮层被静默跳过。原有路径留作没有 .pc 时的退路。
+  pkg_get_variable(MSIME_WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
   find_path(MSIME_XDG_SHELL_DIR NAMES xdg-shell.xml
+            HINTS "${MSIME_WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell"
             PATHS /usr/share/wayland-protocols/stable/xdg-shell
                   /usr/local/share/wayland-protocols/stable/xdg-shell)
   set(MSIME_XDG_SHELL_XML "${MSIME_XDG_SHELL_DIR}/xdg-shell.xml")
