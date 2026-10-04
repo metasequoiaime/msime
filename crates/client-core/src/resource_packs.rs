@@ -18,7 +18,7 @@ const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.l
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 
-/// 读语言词库包里 `<方案>.db` 的输入方案，即偏好里的方案名。
+/// 读语言词库包里 `msime-<方案>.db` 的输入方案，即偏好里的方案名。
 const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -55,7 +55,7 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
     }
 
-    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
+    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `msime-<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
     pub fn schemes(self) -> &'static [&'static str] {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
@@ -65,7 +65,7 @@ impl ResourcePack {
                 LANGUAGE_DICTIONARY_SCHEMES
                     .into_iter()
                     .filter(|scheme| {
-                        let file = format!("{scheme}.db");
+                        let file = format!("msime-{scheme}.db");
                         pinned.iter().any(|artifact| artifact.name == file)
                     })
                     .collect()
@@ -282,7 +282,7 @@ mod tests {
             .set()
             .artifacts
             .iter()
-            .filter_map(|artifact| artifact.name.strip_suffix(".db"))
+            .filter_map(|artifact| artifact.name.strip_prefix("msime-")?.strip_suffix(".db"))
             .collect();
         assert_eq!(ResourcePack::LanguageDictionaries.schemes(), pinned);
         assert!(pinned.contains(&"cantonese") && pinned.contains(&"zhuyin"));
@@ -478,10 +478,11 @@ mod tests {
         );
     }
 
-    /// 资源包只从本项目的固定发布地址下载：GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
+    /// 资源包只从本项目的固定发布地址下载：msime-dictionary 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
     #[test]
     fn every_url_is_immutable() {
-        const RELEASE: &str = "https://github.com/metasequoiaime/msime/releases/download/";
+        const RELEASE: &str =
+            "https://github.com/metasequoiaime/msime-dictionary/releases/download/";
         const ENGINE: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-engine/";
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {
