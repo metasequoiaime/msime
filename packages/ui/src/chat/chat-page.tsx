@@ -50,7 +50,7 @@ export function ChatPage({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [loginNeeded, setLoginNeeded] = useState(false);
-  const generation = useRef(0);
+  const generation = useAsyncGeneration(client);
   const modelGeneration = useAsyncGeneration(client);
   const mounted = useMountedRef();
   const sendingRef = useRef(false);
@@ -86,7 +86,6 @@ export function ChatPage({
   useEffect(() => {
     void loadModels();
     return () => {
-      generation.current += 1;
       sendingRef.current = false;
       modelsRunning.current = false;
     };
