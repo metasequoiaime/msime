@@ -10,7 +10,23 @@ pkgrel=1
 pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
 arch=('x86_64' 'aarch64')
 url='https://github.com/metasequoiaime/msime'
-license=('GPL-3.0-only')
+# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
+license=(
+  'GPL-3.0-only'
+  'Apache-2.0'
+  'MIT'
+  'BSD-3-Clause'
+  'HPND'
+  'LGPL-2.1-or-later'
+  'LGPL-3.0-only'
+  'CC-BY-4.0'
+  'CC-BY-SA-4.0'
+  'MPL-2.0'
+  'WTFPL'
+  'Unicode-3.0'
+  'ISC'
+  'Zlib'
+)
 depends=(
   'alsa-lib'
   'cairo'
@@ -136,6 +152,13 @@ check() {
 
 package() {
   DESTDIR="$pkgdir" cmake --install "$srcdir/build"
+
+  # GPL 之外的许可证（MIT、BSD-3-Clause、CC-BY-SA-4.0 等）在 Arch 上要随包放在 /usr/share/licenses/$pkgname；文本已在 /usr/share/doc/msime-client（与 .deb、.rpm 相同的位置），逐个链过去，不另存一份。
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  local notice
+  for notice in "$pkgdir"/usr/share/doc/msime-client/*; do
+    ln -s "/usr/share/doc/msime-client/${notice##*/}" "$pkgdir/usr/share/licenses/$pkgname/${notice##*/}"
+  done
 
   # ctest 跑的是构建目录，看不到装出去的程序能不能加载。这里在 $pkgdir 里核对：Fcitx5 按插件的 RUNPATH 找 Host API，它必须落在本包自己的 /usr/lib/msime-client；其余 ELF 也不能有解析不到的库。
   local resolved

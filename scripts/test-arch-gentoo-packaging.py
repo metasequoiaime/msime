@@ -5,6 +5,7 @@
 - 两个 PKGBUILD 与两份 ebuild 传给 CMake 的 MSIME_* 选项在 platforms/linux/CMakeLists.txt 里都有定义，调用的 fetch 脚本都存在；
 - 安装脚本与 ebuild 里停用、重启的用户单元与 CMakeLists.txt 的 MSIME_USER_UNITS 一致，msime 与 msime-bin 的安装脚本逐字相同；
 - live ebuild 的 RUST_MIN_VER 等于 rust-toolchain.toml 钉住的版本，版本 ebuild 模板能完整渲染；
+- 两个 PKGBUILD 的 license 与 rpm/msime.spec 的 License 是同一份 SPDX 清单（随包的第三方代码与数据都要列出，不能只写 GPL-3.0-only），并把许可证文本链进 /usr/share/licenses；
 - 提交了 .SRCINFO 时，它的版本与校验值和 PKGBUILD 一致。
 """
 from __future__ import annotations
@@ -107,6 +108,20 @@ def main() -> None:
     for path in [EBUILD_DIR / "msime-9999.ebuild", ARCH / "msime" / "PKGBUILD", ARCH / "msime-bin" / "PKGBUILD", install_scripts[0]]:
         syntax = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
         check(syntax.returncode == 0, f"{path.relative_to(ROOT)} is not valid bash: {syntax.stderr.strip()}")
+
+    # 许可证：PKGBUILD 与 RPM 规格文件描述的是同一批文件，元数据不能一边写全、一边只写项目自己的 GPL。
+    spec = (PACKAGING / "rpm" / "msime.spec").read_text(encoding="utf-8")
+    spec_licenses = re.search(r"^License:\s*(.+)$", spec, re.MULTILINE).group(1).split(" AND ")
+    for name in ("msime", "msime-bin"):
+        pkgbuild = (ARCH / name / "PKGBUILD").read_text(encoding="utf-8")
+        block = re.search(r"^license=\(([^)]*)\)", pkgbuild, re.MULTILINE)
+        licenses = re.findall(r"'([^']+)'", block.group(1)) if block else []
+        check(licenses == spec_licenses, f"arch/{name}/PKGBUILD license={licenses} differs from rpm/msime.spec License {spec_licenses}")
+        check('"$pkgdir/usr/share/licenses/$pkgname' in pkgbuild, f"arch/{name}/PKGBUILD does not put the license texts under /usr/share/licenses/$pkgname")
+        srcinfo = ARCH / name / ".SRCINFO"
+        if srcinfo.is_file():
+            listed = re.findall(r"^\tlicense = (.+)$", srcinfo.read_text(encoding="utf-8"), re.MULTILINE)
+            check(listed == spec_licenses, f"arch/{name}/.SRCINFO licenses {listed} do not match PKGBUILD; rerun render.py")
 
     # .SRCINFO 是 AUR 读的元数据，必须跟着 PKGBUILD 走。
     for name in ("msime", "msime-bin"):
