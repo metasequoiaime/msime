@@ -159,6 +159,30 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))
   }
 
+  func testAIDescriptorRejectsMalformedNumericFields() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"], "timeout_ms": 8000, "connect_timeout_ms": 2500,
+      "max_response_bytes": 1_048_576,
+    ]
+    var fractional = descriptor
+    fractional["timeout_ms"] = 8000.5
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(fractional))
+    var boolean = descriptor
+    boolean["max_response_bytes"] = true
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(boolean))
+    var negative = descriptor
+    negative["connect_timeout_ms"] = -1
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(negative))
+
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": 1.5],
+    ]))
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": true],
+    ]))
+  }
+
   func testTheAIDescriptorIgnoresNonIntegerLimits() {
     let descriptor: [String: Any] = [
       "url": "https://example.invalid/v1/chat/completions", "method": "POST",
