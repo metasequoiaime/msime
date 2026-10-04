@@ -47,6 +47,51 @@ void require(bool condition, const char *message) {
 
 int main() {
     @autoreleasepool {
+        // 版本身份：没有 MSIMEEdition 的 Info.plist（full 的，以及不是 bundle 的测试进程）每个值都是 full 今天的那个；声明了版本的取 plist 里的值。
+        NSDictionary *wubi = @{@"MSIMEEdition": @"wubi", @"CFBundleIdentifier": @"app.msime.inputmethod.wubi",
+                               @"MSIMEInputSchemes": @[@"wubi"], @"MSIMEDefaultScheme": @"wubi",
+                               @"MSIMESettingsBundleIdentifier": @"app.msime.macos.wubi",
+                               @"MSIMEKeychainService": @"com.metasequoia.msime.wubi.account", @"MSIMEWubiMixedPinyinDefault": @YES};
+        require([MSIMEEditionIdentifierIn(@{}) isEqualToString:@"full"] && MSIMEEditionIsFullIn(@{@"CFBundleIdentifier": @"x"}) &&
+                    [MSIMEInputMethodBundleIdentifierIn(@{@"CFBundleIdentifier": @"x"}) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME"] &&
+                    [MSIMESettingsBundleIdentifierIn(@{}) isEqualToString:@"app.msime.macos"] &&
+                    [MSIMEKeychainServiceIn(@{}) isEqualToString:@"com.metasequoia.msime.account"] &&
+                    MSIMEEditionInputSchemesIn(@{}) == nil && [MSIMEEditionDefaultSchemeIn(@{}) isEqualToString:@"quanpin"] &&
+                    !MSIMEEditionWubiMixedPinyinDefaultIn(@{@"MSIMEWubiMixedPinyinDefault": @YES}) &&
+                    [MSIMEEditionNotificationNameIn(@{}, @"N") isEqualToString:@"N"],
+                "An Info.plist without an edition did not read as full.");
+        require([MSIMEEditionIdentifierIn(wubi) isEqualToString:@"wubi"] &&
+                    [MSIMEInputMethodBundleIdentifierIn(wubi) isEqualToString:@"app.msime.inputmethod.wubi"] &&
+                    [MSIMESettingsBundleIdentifierIn(wubi) isEqualToString:@"app.msime.macos.wubi"] &&
+                    [MSIMEKeychainServiceIn(wubi) isEqualToString:@"com.metasequoia.msime.wubi.account"] &&
+                    [MSIMEEditionInputSchemesIn(wubi) isEqualToArray:@[@"wubi"]] && [MSIMEEditionDefaultSchemeIn(wubi) isEqualToString:@"wubi"] &&
+                    MSIMEEditionWubiMixedPinyinDefaultIn(wubi) && [MSIMEEditionNotificationNameIn(wubi, @"N") isEqualToString:@"N.wubi"],
+                "The wubi edition's Info.plist did not give the wubi identity.");
+        // 手写：full 和没写 MSIMEHandwriting 的版本都有；不提供中文方案的版本写了 false 就没有，full 不认这个键。
+        require(MSIMEEditionOffersHandwritingIn(@{}) && MSIMEEditionOffersHandwritingIn(wubi) &&
+                    MSIMEEditionOffersHandwritingIn(@{@"MSIMEHandwriting": @NO}) &&
+                    !MSIMEEditionOffersHandwritingIn(@{@"MSIMEEdition": @"vietnamese", @"MSIMEHandwriting": @NO}) &&
+                    MSIMEEditionOffersHandwritingIn(@{@"MSIMEEdition": @"pinyin", @"MSIMEHandwriting": @YES}),
+                "Handwriting did not follow the edition's MSIMEHandwriting declaration.");
+        // 语音服务凭据和使用统计目录：full 沿用今天的名字，其他版本各有各的，语音服务名正是卸载时删掉的 `<bundle id>.voice`。
+        require([MSIMEVoiceProviderKeychainServiceIn(@{}) isEqualToString:@"app.msime.client.voice.providers"] &&
+                    [MSIMEVoiceProviderKeychainServiceIn(wubi) isEqualToString:[wubi[@"CFBundleIdentifier"] stringByAppendingString:@".voice"]] &&
+                    [MSIMEUsageReportingDirectoryNameIn(@{}) isEqualToString:@"MSIME/telemetry"] &&
+                    [MSIMEUsageReportingDirectoryNameIn(wubi) isEqualToString:@"MSIME/wubi/telemetry"],
+                "The voice provider keychain service or the usage reporting directory did not follow the edition.");
+        // 卸载按 bundle 文件名找要移走的 bundle：五笔版只能是它自己的，名字缺了时宁可不卸载也不退回 full 的。
+        NSMutableDictionary *named = [wubi mutableCopy];
+        named[@"CFBundleExecutable"] = @"水杉五笔";
+        named[@"CFBundleDisplayName"] = @"水杉五笔";
+        require([MSIMEInputMethodBundleNameIn(@{}) isEqualToString:@"水杉输入法.app"] &&
+                    [MSIMEInputMethodBundleNameIn(named) isEqualToString:@"水杉五笔.app"] &&
+                    MSIMEInputMethodBundleNameIn(wubi) == nil &&
+                    [MSIMEEditionDisplayNameIn(@{}) isEqualToString:@"水杉输入法"] &&
+                    [MSIMEEditionDisplayNameIn(named) isEqualToString:@"水杉五笔"],
+                "The bundle file name or the display name did not follow the edition.");
+        require(MSIMEEditionIsFull() && MSIMEEditionOffersScheme(@"tibetan") && !MSIMEEditionOffersScheme(@"klingon") &&
+                    [MSIMEEffectiveInputScheme(@"cantonese", @"klingon", @{}) isEqualToString:@"quanpin"],
+                "The test process, which is full, did not offer every scheme or fall back to quanpin.");
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Hans"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(YES, @"quanpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Roman"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"japanese")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Japanese"] &&
@@ -55,6 +100,15 @@ int main() {
         require([MSIMEInputModeID(MSIMEInputModeFor(NO, @"shuangpin")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Shuangpin"] &&
                     [MSIMEInputModeID(MSIMEInputModeFor(NO, @"wubi")) isEqualToString:@"app.msime.inputmethod.MetasequoiaIME.Wubi"],
                 "The shuangpin and wubi schemes do not map to the modes Info.plist.in declares.");
+        // 五笔版只声明 .Hans 和 .Roman，五笔的名字和图标在 .Hans 上：设置窗口检查菜单栏入口时不能去找一个不存在的 .Wubi，否则提示永远消不掉。full 每个方案仍是它自己的模式。
+        NSDictionary *wubiModes = @{@"MSIMEEdition": @"wubi", @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+            MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+        require(MSIMEInputModeDeclaredIn(@{}, MSIMETibetanInputModeID) && MSIMEInputModeDeclaredIn(wubiModes, MSIMEChineseInputModeID) &&
+                    !MSIMEInputModeDeclaredIn(wubiModes, MSIMEWubiInputModeID) && !MSIMEInputModeDeclaredIn(@{@"MSIMEEdition": @"wubi"}, MSIMEChineseInputModeID) &&
+                    [MSIMEInputModeIDForSchemeIn(wubiModes, @"wubi") isEqualToString:MSIMEChineseInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"wubi") isEqualToString:MSIMEWubiInputModeID] &&
+                    [MSIMEInputModeIDForSchemeIn(@{}, @"shuangpin") isEqualToString:MSIMEShuangpinInputModeID],
+                "The settings window would look for a mode the edition does not declare.");
         require(MSIMEInputModeFor(NO, @"quanpin") == MSIMEInputMode::Chinese && MSIMEInputModeFor(NO, nil) == MSIMEInputMode::Chinese,
                 "Quanpin or an unset scheme did not show 中.");
         require(MSIMEInputModeFor(YES, @"japanese") == MSIMEInputMode::English && MSIMEInputModeFor(YES, @"korean") == MSIMEInputMode::English &&
@@ -253,6 +307,26 @@ int main() {
         require([MSIMEInputModeMenuName(MSIMEStrokeInputModeID) isEqualToString:@"水杉输入法 · 笔"] &&
                     [MSIMEInputModeAddDialogLanguage(MSIMEStrokeInputModeID) isEqualToString:@"简体中文"],
                 "The Stroke mode's menu name or Add dialog language is wrong.");
+        // 日文、越南文、藏文版的 中（.Hans）和 英 登记在本版本的语言下，设置窗口按 bundle 里的 TISIntendedLanguage 说去哪个语言下添加；五笔版的仍在「简体中文」下。
+        for (NSArray<NSString *> *edition in @[@[@"japanese", @"ja", @"日语"], @[@"vietnamese", @"vi", @"越南语"], @[@"tibetan", @"bo", @"藏语"],
+                                               @[@"wubi", @"zh-Hans", @"简体中文"]]) {
+            NSDictionary *info = @{@"MSIMEEdition": edition[0], @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+                MSIMEChineseInputModeID: @{@"TISIntendedLanguage": edition[1]}, MSIMEEnglishInputModeID: @{@"TISIntendedLanguage": edition[1]}}}};
+            require([MSIMEInputModeAddDialogLanguageIn(info, MSIMEChineseInputModeID) isEqualToString:edition[2]] &&
+                        [MSIMEInputModeAddDialogLanguageIn(info, MSIMEEnglishInputModeID) isEqualToString:edition[2]],
+                    "A single-language edition's modes are not looked for under its own language.");
+        }
+        require([MSIMEInputModeAddDialogLanguageIn(@{}, MSIMEEnglishInputModeID) isEqualToString:@"简体中文"] &&
+                    [MSIMEInputModeAddDialogLanguageIn(@{}, MSIMEJapaneseInputModeID) isEqualToString:@"日语"],
+                "full's Add dialog languages changed.");
+        // 只有一个语言方案的版本：中（.Hans）就是这个方案的模式，方案自己的模式不存在。选中 中 留在这个方案上，不会去找一个本版本没有的中文方案。
+        gJapaneseModeEnabled = NO;
+        gEnglishModeEnabled = NO;
+        for (NSString *scheme in @[@"japanese", @"vietnamese", @"tibetan"])
+            require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, scheme, scheme, Available) isEqualToString:scheme],
+                    "中 in a single-language edition left its only scheme.");
+        gJapaneseModeEnabled = YES;
+        gEnglishModeEnabled = YES;
 
         // 中 from Vietnamese goes back to the Chinese scheme it was entered from, like Japanese and Korean; 中 picked over 粤, 注 or 笔 means quanpin, like over 双 or 五.
         require([MSIMESchemeForReportedInputMode(MSIMEInputMode::Chinese, @"vietnamese", @"wubi", Available) isEqualToString:@"quanpin"] &&
@@ -363,6 +437,13 @@ int main() {
                     !MSIMEOptInInputModeToEnable(nil, @"quanpin", YES) && !MSIMEOptInInputModeToEnable(@"zhuyin", @"zhuyin", YES) &&
                     !MSIMEOptInInputModeToEnable(@"quanpin", @"zhuyin", NO) && !MSIMEOptInInputModeToEnable(@"quanpin", @"wubi", YES),
                 "An opt-in mode was enabled at the wrong time.");
+        // 越南文、藏文版的 bundle 只声明 中（.Hans）和 英：方案自己的按需模式不存在，不去启用，第一次同步就能记下这个方案。
+        for (NSString *scheme in @[@"vietnamese", @"tibetan"]) {
+            NSDictionary *info = @{@"MSIMEEdition": scheme, @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+                MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+            require(!MSIMEOptInInputModeToEnableIn(info, nil, scheme, YES) && !MSIMEOptInInputModeToEnableIn(info, @"quanpin", scheme, YES),
+                    "A single-language edition asked for an opt-in mode its bundle does not declare.");
+        }
 
         // A client that cannot switch modes is left alone.
         require(!MSIMESelectSystemInputMode(state, MSIMEEnglishInputModeID, [NSObject new], Available) && [state.current isEqualToString:MSIMEChineseInputModeID],

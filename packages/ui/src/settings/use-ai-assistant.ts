@@ -28,9 +28,9 @@ export function useAiAssistant({
   const [testBusy, setTestBusy] = useState(false);
   const requestGeneration = useAsyncGeneration(client);
   const modelsActionBusy = useRef(false);
-  const modelsActionOwner = useRef(0);
+  const modelsActionOwner = useAsyncGeneration();
   const testActionBusy = useRef(false);
-  const testActionOwner = useRef(0);
+  const testActionOwner = useAsyncGeneration();
   const origin = aiCredentialOrigin(ai.endpoint);
   const token = origin ? (ai.tokens?.[origin] ?? "") : "";
 

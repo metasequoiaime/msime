@@ -1,6 +1,7 @@
 #pragma once
 
 #include "InputSchemeTraits.h"
+#include "LinuxEdition.h"
 
 #include <nlohmann/json.hpp>
 
@@ -16,6 +17,16 @@ namespace msime::linux_host {
 // Every preferences scheme id in Engine order: the index is the number a view reports as `scheme`.
 inline constexpr std::array<std::string_view, 10> kInputSchemeIds = {
     "quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"};
+
+// 本版本提供的方案（版本表的 input_schemes）和回退到的默认方案。不在列表里的方案在本版本中不存在：菜单不列它，偏好里写着它时与宿主库的 effective_scheme 一样回退。
+inline constexpr std::string_view kEditionInputSchemes[] = {MSIME_EDITION_INPUT_SCHEMES};
+inline constexpr std::string_view kEditionDefaultScheme = MSIME_EDITION_DEFAULT_SCHEME;
+
+inline bool edition_offers_scheme(std::string_view id) {
+  for (const auto scheme : kEditionInputSchemes)
+    if (scheme == id) return true;
+  return false;
+}
 
 // The Engine number of a preferences scheme id, or -1 for an id this host does not know.
 inline int scheme_number(std::string_view id) {
@@ -81,22 +92,23 @@ inline LanguageDictionaryAvailability language_dictionary_availability(const nlo
   return {cantonese, zhuyin, stroke};
 }
 
-// Whether a scheme can run with these dictionaries: every known scheme but Cantonese, Zhuyin and Stroke needs no data beyond the resource set.
+// Whether a scheme can run with these dictionaries: every known scheme but Cantonese, Zhuyin and Stroke needs no data beyond the resource set. 本版本不提供的方案一律不能跑。
 inline bool input_scheme_available(std::string_view id, LanguageDictionaryAvailability dictionaries) {
+  if (!edition_offers_scheme(id)) return false;
   if (id == "cantonese") return dictionaries.cantonese;
   if (id == "zhuyin") return dictionaries.zhuyin;
   if (id == "stroke") return dictionaries.stroke;
   return scheme_number(id) >= 0;
 }
 
-// The scheme the Engine actually runs for this preferences scheme, mirroring host-api's `effective_scheme`: a scheme that cannot run here gives way to the last Chinese scheme when that one can, and to quanpin otherwise. The menus check this one and the indicator shows its mode, so neither claims a scheme the user is not typing in.
+// The scheme the Engine actually runs for this preferences scheme, mirroring host-api's `effective_scheme`: a scheme that cannot run here gives way to the last Chinese scheme when that one can, and to the edition's default scheme otherwise (quanpin in full). The menus check this one and the indicator shows its mode, so neither claims a scheme the user is not typing in.
 inline std::string effective_input_scheme(std::string_view id, std::string_view last_chinese_scheme,
                                           LanguageDictionaryAvailability dictionaries) {
   if (input_scheme_available(id, dictionaries)) return std::string(id);
   const int last = scheme_number(last_chinese_scheme);
   if (last >= 0 && scheme::IsChinese(last) && input_scheme_available(last_chinese_scheme, dictionaries))
     return std::string(last_chinese_scheme);
-  return "quanpin";
+  return std::string(kEditionDefaultScheme);
 }
 
 } // namespace msime::linux_host

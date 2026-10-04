@@ -37,6 +37,10 @@ try {
         New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
         [IO.File]::WriteAllText($path, 'synthetic')
     }
+    # Build-Client.ps1 按版本表找本次构建的版本，fixture 用仓库里的那一份。
+    $editionTable = Join-Path $fixture 'shared/contracts/editions.json'
+    New-Item -ItemType Directory -Force (Split-Path $editionTable) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') -Destination $editionTable
     $x64 = Join-Path $fixture 'deps x64'
     $x86 = Join-Path $fixture 'deps x86'
     New-Item -ItemType Directory $x64, $x86 | Out-Null
@@ -146,6 +150,50 @@ try {
     catch { $rejected = $_.Exception.Message -eq 'Expected one Tauri desktop PDB output' }
     if (-not $rejected) { throw 'Ambiguous desktop symbols accepted' }
     Remove-Item -LiteralPath $alternateSymbols
+    # 不是 full 的版本：输出在 target/windows-<id>，host DLL 按版本表改名，并用 lib /DEF 生成同名导入库给原生目标链接；CMake 和设置窗口工程拿到同一个版本。
+    foreach ($arch in @('x86', 'x64')) {
+        foreach ($dll in @('MetasequoiaImeTsf.dll', 'msime_host_api_wubi.dll')) {
+            Write-PEFixture (Join-Path $fixture "target/windows-wubi/$arch/bin/$dll") $arch dll
+        }
+    }
+    foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
+        'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
+        Write-PEFixture (Join-Path $fixture "target/windows-wubi/x64/bin/$exe") x64 exe
+    }
+    foreach ($dll in $voiceRuntimeLibraries) {
+        Write-PEFixture (Join-Path $fixture "target/windows-wubi/x64/bin/$dll") x64 dll
+    }
+    [IO.File]::WriteAllText((Join-Path $fixture 'target/windows-wubi/x64/bin/msime-client-settings.pdb'), 'synthetic WinUI symbols')
+    function global:lib { Invoke-ClientCommandProbe lib $args }
+    $global:ClientBuildCalls.Clear()
+    & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -Edition wubi
+    $calls = @($global:ClientBuildCalls)
+    $definitions = @($calls | Where-Object { $_.Name -eq 'python' -and $_.Values -contains 'host-def' })
+    $libraries = @($calls | Where-Object { $_.Name -eq 'lib' })
+    if ($definitions.Count -ne 2 -or $libraries.Count -ne 2) { throw 'Edition host DLL import libraries were not generated for both architectures' }
+    foreach ($arch in @('x64', 'x86')) {
+        $library = Join-Path $fixture "target/windows-wubi/$arch/msime_host_api_wubi.dll.lib"
+        if (@($libraries | Where-Object { $_.Values -contains "/OUT:$library" }).Count -ne 1) { throw "Edition import library missing for $arch" }
+        $configure = @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains (Join-Path $fixture "target/windows-wubi/$arch") -and $_.Values -contains '-B' })
+        if ($configure.Count -ne 1 -or $configure[0].Values -notcontains '-DMSIME_EDITION=wubi' -or
+            $configure[0].Values -notcontains "-DMSIME_HOST_LIBRARY=$library") { throw "Edition CMake configuration mismatch for $arch" }
+        $copy = @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture "target/windows-wubi/$arch/bin/msime_host_api_wubi.dll") })
+        if ($copy.Count -ne 1) { throw "Edition host DLL was not staged under its own name for $arch" }
+    }
+    $settings = @($calls | Where-Object { $_.Name -eq 'msbuild' })
+    if ($settings.Count -ne 1 -or $settings[0].Values -notcontains '/p:MsimeEdition=wubi' -or
+        $settings[0].Values -notcontains ('/p:HostApiLibrary=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi.dll.lib'))) {
+        throw 'Edition settings build mismatch'
+    }
+    if (@($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture 'target/windows-wubi/x64/bin/MSIME.exe') }).Count -ne 1) {
+        throw 'Edition desktop shell was not staged in the edition output'
+    }
+    $global:ClientBuildCalls.Clear()
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -Edition klingon }
+    catch { $rejected = $_.Exception.Message -like 'Edition klingon has no Windows identifiers*' }
+    if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Unknown edition reached build tools' }
+    Remove-Item Function:/lib
     Write-PEFixture (Join-Path $fixture 'target/windows-full/x64/bin/onnxruntime.dll') x86 dll
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
@@ -163,7 +211,7 @@ try {
     }
     Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'
 } finally {
-    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/msbuild, Function:/python, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
+    Remove-Item Function:/cargo, Function:/cmake, Function:/pnpm, Function:/msbuild, Function:/python, Function:/lib, Function:/Invoke-ClientCommandProbe -ErrorAction SilentlyContinue
     Remove-Variable ClientBuildCalls, ClientBuildFailAt -Scope Global -ErrorAction SilentlyContinue
     if (Test-Path $fixture) { Remove-Item -LiteralPath $fixture -Recurse -Force }
 }

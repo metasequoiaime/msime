@@ -43,7 +43,7 @@ fn builtin_sound_packs(
         use tauri::Manager;
         app.path().resource_dir().ok().map(|resources| {
             resources
-                .join(crate::macos_input_source::INPUT_SOURCE_BUNDLE_NAME)
+                .join(crate::macos_input_source::input_source_bundle_name())
                 .join("Contents/Resources/sound-packs")
         })
     };
@@ -67,14 +67,19 @@ fn builtin_sound_packs(
     directory.filter(|directory| directory.is_dir())
 }
 
-/// `<prefix>/share/msime-client/sound-packs` for an executable installed as `<prefix>/bin/<name>`, where the Linux package installs the built-in packs.
+/// `<prefix>/share/msime-client/sound-packs` for an executable installed as `<prefix>/bin/<name>`, where the Linux package installs the built-in packs. 目录名随本安装包所属的版本（full 是 `msime-client`）。
 #[cfg(any(target_os = "linux", test))]
 fn linux_installed_sound_packs(executable: &Path) -> Option<PathBuf> {
     Some(
         executable
             .parent()?
             .parent()?
-            .join("share/msime-client/sound-packs"),
+            .join("share")
+            .join(
+                &msime_client_core::edition::Edition::linux_package_identity_or_full()
+                    .client_directory,
+            )
+            .join("sound-packs"),
     )
 }
 

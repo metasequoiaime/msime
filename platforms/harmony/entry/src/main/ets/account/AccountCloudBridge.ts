@@ -998,8 +998,8 @@ export class AccountCloudBridge {
       // Under the lock, so a refresh the keyboard is in the middle of cannot write the previous session over this one.
       return await this.locked(async (): Promise<string> => {
         if (generation !== this.generation) return error("account_cancelled");
-        this.session = session;
         this.store.save(JSON.stringify(session));
+        this.session = session;
         return success({ user: session.user });
       });
     } catch {
@@ -1564,7 +1564,7 @@ export class AccountCloudBridge {
       if (parsed.ok !== true) return catalog;
       const value = parsed.value as Action;
       const revision = value.revision;
-      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) {
+      if (!safeInteger(revision) || revision < 0) {
         return error("community_unavailable");
       }
       dictionaryRevision = revision;

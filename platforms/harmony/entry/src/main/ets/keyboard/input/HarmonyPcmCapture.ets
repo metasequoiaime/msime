@@ -1,6 +1,7 @@
 import audio from '@ohos.multimedia.audio';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
+import { CaptureGeneration } from './CaptureGeneration';
 
 export type PcmChunkHandler = (data: ArrayBuffer) => void;
 
@@ -12,18 +13,21 @@ export type PcmChunkHandler = (data: ArrayBuffer) => void;
 export class HarmonyPcmCapture {
   private capturer: audio.AudioCapturer | undefined = undefined;
   private readCallback: ((data: ArrayBuffer) => void) | undefined = undefined;
-  private generation: number = 0;
+  private readonly generations: CaptureGeneration = new CaptureGeneration();
+  private releaseQueue: Promise<void> = Promise.resolve();
 
   isActive(): boolean {
     return this.capturer !== undefined;
   }
 
   async start(backend: string, device: string, onChunk: PcmChunkHandler): Promise<boolean> {
-    await this.stop();
-    const generation: number = ++this.generation;
+    // 先占用启动代数；停止请求若落在下面的 await 期间，不能被本次启动重新覆盖。
+    const generation: number = this.generations.begin();
+    await this.enqueueRelease();
+    if (!this.generations.isCurrent(generation)) return false;
     // Routing is process-wide rather than per stream, so it is asserted before every capturer; a device that has gone away leaves the system default in place.
     await HarmonyVoiceCaptureDevices.select(backend, device);
-    if (generation !== this.generation) return false;
+    if (!this.generations.isCurrent(generation)) return false;
     const options: audio.AudioCapturerOptions = {
       streamInfo: {
         samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_16000,
@@ -37,12 +41,12 @@ export class HarmonyPcmCapture {
       }
     };
     const capturer: audio.AudioCapturer = await audio.createAudioCapturer(options);
-    if (generation !== this.generation) {
+    if (!this.generations.isCurrent(generation)) {
       await capturer.release();
       return false;
     }
     const readCallback: (data: ArrayBuffer) => void = (data: ArrayBuffer): void => {
-      if (generation === this.generation && data.byteLength > 0) onChunk(data);
+      if (this.generations.isCurrent(generation) && data.byteLength > 0) onChunk(data);
     };
     this.capturer = capturer;
     this.readCallback = readCallback;
@@ -53,12 +57,24 @@ export class HarmonyPcmCapture {
       await this.stop();
       throw new Error('Harmony 音频采集启动失败');
     }
-    return generation === this.generation;
+    return this.generations.isCurrent(generation);
   }
 
   /** Stops delivering audio at once and releases the capturer. Safe to call at any time, including while `start` is still pending. */
   async stop(): Promise<void> {
-    this.generation++;
+    this.generations.invalidate();
+    await this.enqueueRelease();
+  }
+
+  /** 串行释放，避免新启动越过仍在等待底层 stop/release 的旧采集器。 */
+  private enqueueRelease(): Promise<void> {
+    const release: Promise<void> = this.releaseQueue.then((): Promise<void> => this.releaseCurrent());
+    this.releaseQueue = release;
+    return release;
+  }
+
+  /** 释放当前采集器，不改变启动代数；启动流程用它清理上一代。 */
+  private async releaseCurrent(): Promise<void> {
     const capturer: audio.AudioCapturer | undefined = this.capturer;
     const readCallback: ((data: ArrayBuffer) => void) | undefined = this.readCallback;
     this.capturer = undefined;

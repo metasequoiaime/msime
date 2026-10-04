@@ -11,38 +11,42 @@ function Get-Block([string]$Begin, [string]$End) {
 }
 
 # ---- processes stopped before files are replaced or removed ----
-# The WinUI 3 settings window and the shared Tauri panel shell are separate processes; both must be stopped before the Server directory is replaced.
+# The WinUI 3 settings window, the shared Tauri panel shell and the MCP server are separate processes outside the Server's process tree; all of them live in the server directory and must be stopped before it is replaced.
 $settings = [regex]::Match($script, '#define MySettingsExeName "([^"]+)"').Groups[1].Value
-if ([regex]::Match($script, '#define MyMcpName +"([^"]+)"').Groups[1].Value -ne 'msime-mcp.exe') {
-    throw 'The installer does not name the MCP server it stops'
-}
 $shell = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../src/system/ShellSurfaces.h') -Raw
 $shellNames = [regex]::Match($shell, 'shell_executable_names\(const ShellSurfaceRequest &request\)\s*\{\s*if \(request\.panel\.empty\(\)\)\s*return\s*\{L"([^"]+)"')
 if (-not $settings -or -not $shellNames.Success -or $shellNames.Groups[1].Value -ne $settings) {
     throw 'The installer does not name the Tauri executable the Server launches'
 }
+# Every edition, full included, stops the processes whose executable is inside its own server directory, not by image name: the editions' processes share names, and taskkill /IM would also stop the other editions installed side by side. The Watchdog stops first, or it restarts the Server.
 $stop = Get-Block 'procedure StopImeProcesses;' 'procedure DeleteWatchdogLogonTask;'
-$order = @("StopProcess('{#MyWatchdogName}')", "StopProcess('{#MyAppExeName}')", "StopProcess('{#MySettingsExeName}')",
-    "StopProcess('MSIME.exe')", "StopProcess('{#MyMcpName}')" |
-    ForEach-Object { $stop.IndexOf($_) })
-if ($order -contains -1) { throw 'StopImeProcesses does not stop the Watchdog, the Server, the WinUI settings window, the Tauri shell and the MCP server' }
-if ($order[0] -gt $order[1]) { throw 'The Watchdog must stop before the Server, or it restarts it' }
+$watchdogFirst = $stop.IndexOf("StopProcessesUnder(ServerDir, 'MetasequoiaImeWatchdog');")
+$rest = $stop.IndexOf("StopProcessesUnder(ServerDir, '');")
+if ($watchdogFirst -lt 0 -or $rest -lt 0 -or $watchdogFirst -gt $rest) {
+    throw 'StopImeProcesses must stop the Watchdog first and then everything else under the server directory'
+}
+if (-not $stop.Contains("ServerDir := ExpandConstant('{commonpf64}\{#MyEditionInstallDir}\server');")) {
+    throw 'StopImeProcesses does not stop processes under its own server directory'
+}
+if ($script.Contains('taskkill.exe') -or $script.Contains('procedure StopProcess(')) {
+    throw 'The installer stops processes by image name, which also stops the other installed editions'
+}
 $prepare = Get-Block 'function PrepareToInstall' 'procedure CurStepChanged'
 $uninstall = Get-Block 'procedure CurUninstallStepChanged' 'else if CurUninstallStep = usPostUninstall'
 foreach ($block in @($prepare, $uninstall)) {
-    if (-not $block.Contains('StopImeProcesses;') -or $block.Contains("StopProcess('")) {
+    if (-not $block.Contains('StopImeProcesses;') -or $block.Contains('StopProcessesUnder(')) {
         throw 'Upgrade or uninstall stops processes outside StopImeProcesses'
     }
 }
 $flatPrepare = $prepare -replace '\s+', ' '
-$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{commonpf64}\metasequoiaime\server'))")
+$serverRemoval = $flatPrepare.IndexOf("TryDeleteTree(ExpandConstant( '{commonpf64}\{#MyEditionInstallDir}\server'))")
 if ($serverRemoval -lt 0 -or $flatPrepare.IndexOf('StopImeProcesses;') -gt $serverRemoval) {
     throw 'Upgrade removes the server directory before stopping its processes'
 }
 
 # ---- the uninstaller removes the data directory it recorded ----
 # DataDir carries uninsdeletevalue, so it is gone by usPostUninstall; reading it there falls back to the default and a custom directory is never removed.
-$initialize = Get-Block 'function InitializeUninstall' 'procedure StopProcess'
+$initialize = Get-Block 'function InitializeUninstall' 'procedure StopProcessesUnder'
 if (-not $initialize.Contains('ResolvePreviousDataDir;')) {
     throw 'InitializeUninstall does not capture DataDir before the registry values are removed'
 }
@@ -50,11 +54,29 @@ $postStart = $script.IndexOf('else if CurUninstallStep = usPostUninstall')
 if ($postStart -lt 0) { throw 'Missing installer block: usPostUninstall' }
 $post = $script.Substring($postStart)
 if (-not $post.Contains('if OwnsDataDir(ResolvePreviousDataDir) then') -or
-    -not $post.Contains('TryDeleteTree(ResolvePreviousDataDir)') -or $post.Contains('GetDataDir(')) {
+    -not $post.Contains("DeleteDataDir(ResolvePreviousDataDir, '')") -or $post.Contains('GetDataDir(')) {
     throw 'usPostUninstall does not remove the data directory captured at uninstall start'
 }
 if ($script -notmatch 'ValueName: "DataDir";[^\r\n]*Flags: uninsdeletevalue') {
     throw 'DataDir registry value is no longer removed on uninstall'
+}
+# Several editions can be installed side by side. Every edition, full included, disowns a directory that carries another edition's marker, even its own default data directory, so it never adopts, cleans or deletes another edition's data.
+$owns = Get-Block 'function OwnsDataDir' 'procedure WriteDataDirMarker'
+if ($script -notmatch "DataDirMarkerPrefix = '\{#MyDataDirMarkerPrefix\}';" -or
+    -not $script.Contains("FindFirst(AddBackslash(Directory) + DataDirMarkerPrefix + '*', FindRec)") -or
+    ([regex]::Matches($owns, [regex]::Escape('(not HasOtherEditionDataDirMarker(Directory)) and'))).Count -ne 2) {
+    throw 'An edition may own a data directory that carries another edition''s marker'
+}
+# The marker check only looks at a directory's top level. One edition's data directory can still sit inside another's, so the installer refuses a data directory that overlaps another edition's (registered or default), and removing a data directory leaves another edition's directory inside it alone.
+$validation = Get-Block 'function DataDirRejectionReason' 'procedure DataDirBrowseClick'
+$remove = Get-Block 'procedure DeleteDataDir' 'function IsMigratedDataItem'
+if (-not $validation.Contains('Overlap := OtherEditionDataDirWithin(Directory);') -or
+    -not $validation.Contains('Overlap := OtherEditionDataDirAround(Directory);') -or
+    -not $remove.Contains("if OtherEditionDataDirAround(Directory) <> '' then") -or
+    -not $remove.Contains("(OtherEditionDataDirWithin(ItemPath) = '')") -or
+    -not $script.Contains("RegistryKeys := '{#MyOtherEditionRegistryKeys}';") -or
+    -not $script.Contains("InstallDirs := '{#MyOtherEditionInstallDirs}';")) {
+    throw 'A data directory may overlap another edition''s, and removing it may delete the other edition''s data'
 }
 # A failed upgrade must not strip the marker that lets a retry or the uninstaller recognise the directory.
 $preserved = Get-Block 'function IsPreservedAppDataItem' 'function InitializeUninstall'

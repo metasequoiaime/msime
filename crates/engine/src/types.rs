@@ -501,6 +501,49 @@ impl SchemeType {
     }
 }
 
+/// 会话允许运行的方案集合，每个方案占 `SchemeType` 序号对应的那一位。缺省是 [`SchemeSet::ALL`]，即全部方案，行为与没有这个集合时完全相同。
+///
+/// 收窄后，`ProviderRegistry` 只为集合里的方案构造 provider（全拼在全拼或五笔任一在集合里时构造，五笔混拼要用它），切换到集合外的方案报 `INPUT_SCHEME_NOT_ENABLED`。临时日文切到的也是日文方案，所以要用临时日文，集合里就得有 `JapaneseRomaji`；没有时临时日文的触发键不会进入这个模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SchemeSet(u16);
+
+impl SchemeSet {
+    /// 序号最大的方案。加方案时改这里，`scheme_set_all_covers_every_scheme` 会在漏改时失败。
+    const LAST: SchemeType = SchemeType::Stroke;
+    /// 全部方案：序号 0 到 [`Self::LAST`] 的每一位。
+    pub const ALL: Self = Self((1 << (Self::LAST as u16 + 1)) - 1);
+    pub const EMPTY: Self = Self(0);
+
+    pub const fn contains(self, scheme: SchemeType) -> bool {
+        self.0 & (1 << scheme as u16) != 0
+    }
+
+    #[must_use]
+    pub const fn with(self, scheme: SchemeType) -> Self {
+        Self(self.0 | (1 << scheme as u16))
+    }
+
+    /// 由方案列表组成的集合，重复的方案只算一次。
+    pub fn of(schemes: &[SchemeType]) -> Self {
+        schemes
+            .iter()
+            .fold(Self::EMPTY, |set, scheme| set.with(*scheme))
+    }
+
+    /// 集合里是否有读 `msime-pinyin.db` 的方案：全拼、双拼和五笔的候选、学习和用户词都在它里面（五笔混拼的拼音行也是）。没有这三个方案的集合（例如只有日文、越南文或藏文的版本）随包不带 `msime-pinyin.db`：代次里没有它的工作副本，用户词库只剩英文词。
+    pub const fn reads_main_dictionary(self) -> bool {
+        self.contains(SchemeType::Quanpin)
+            || self.contains(SchemeType::Shuangpin)
+            || self.contains(SchemeType::Wubi)
+    }
+}
+
+impl Default for SchemeSet {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
 /// Double-pinyin keyboard profile. The ordinal is the host ABI value (`EngineOptions::shuangpin_profile`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(u8)]
@@ -1196,7 +1239,7 @@ impl Default for PersonalDictionaryEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::SchemeType;
+    use super::{SchemeSet, SchemeType};
 
     type Row = (&'static str, fn(SchemeType) -> bool, [bool; 5]);
     type Named = (&'static str, fn(SchemeType) -> bool);
@@ -1740,5 +1783,48 @@ mod tests {
                 assert!(!predicate(scheme), "{name} for {scheme:?}");
             }
         }
+    }
+
+    /// `SchemeSet::ALL` 正好是 `from_u8` 认得的全部方案：加了方案却没改 `SchemeSet::LAST` 时，新方案会落在 `ALL` 之外，full 版的会话就切不到它。
+    #[test]
+    fn scheme_set_all_covers_every_scheme() {
+        for value in 0..=u8::MAX {
+            match SchemeType::from_u8(value) {
+                Some(scheme) => assert!(
+                    SchemeSet::ALL.contains(scheme),
+                    "{scheme:?} is outside SchemeSet::ALL"
+                ),
+                None => assert!(
+                    u32::from(value) >= u16::BITS || SchemeSet::ALL.0 & (1 << value) == 0,
+                    "SchemeSet::ALL sets bit {value}, which names no scheme"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn only_pinyin_and_wubi_read_the_main_dictionary() {
+        assert!(SchemeSet::ALL.reads_main_dictionary());
+        assert!(!SchemeSet::EMPTY.reads_main_dictionary());
+        for value in 0..=u8::MAX {
+            let Some(scheme) = SchemeType::from_u8(value) else {
+                continue;
+            };
+            let reads = matches!(
+                scheme,
+                SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+            );
+            assert_eq!(
+                SchemeSet::of(&[scheme]).reads_main_dictionary(),
+                reads,
+                "{scheme:?}"
+            );
+        }
+        assert!(!SchemeSet::of(&[
+            SchemeType::JapaneseRomaji,
+            SchemeType::Vietnamese,
+            SchemeType::Tibetan,
+        ])
+        .reads_main_dictionary());
     }
 }

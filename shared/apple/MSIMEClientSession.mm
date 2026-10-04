@@ -10,6 +10,26 @@ NSNotificationName const MSIMEClientSessionDidReplaceSnapshotNotification = @"MS
 static void setError(NSError **error, NSString *message) {
     if (error) *error = [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:@{NSLocalizedDescriptionKey: message}];
 }
+static BOOL parseUInt64(id value, NSString *field, uint64_t *result, NSError **error) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) {
+        setError(error, [NSString stringWithFormat:@"%@ 必须是非负整数", field]);
+        return NO;
+    }
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) {
+        setError(error, [NSString stringWithFormat:@"%@ 必须是非负整数", field]);
+        return NO;
+    }
+    uint64_t parsed = number.unsignedLongLongValue;
+    if ([number compare:@(parsed)] != NSOrderedSame) {
+        setError(error, [NSString stringWithFormat:@"%@ 超出范围", field]);
+        return NO;
+    }
+    if (result) *result = parsed;
+    return YES;
+}
 struct VoiceStreamContext { MSIMEVoiceProviderUpdate update; MSIMEVoiceProviderPhase phase; };
 static void VoiceUpdate(const uint8_t *text, size_t length, bool final, void *opaque) { auto *c=(VoiceStreamContext *)opaque; if(!c||!c->update||!text||length>4096)return; NSString *value=[[NSString alloc] initWithBytes:text length:length encoding:NSUTF8StringEncoding]; if(value)c->update(value,final); }
 static void VoicePhase(uint8_t phase, void *opaque) { auto *c=(VoiceStreamContext *)opaque; if(c&&c->phase)c->phase(phase); }
@@ -375,11 +395,16 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)discardSnapshot:(NSDictionary<NSString *, id> *)parameters {
     NSError *error = nil;
-    BOOL discarded = [self discardSnapshotHandle:[parameters[@"handle"] unsignedLongLongValue] error:&error];
+    uint64_t handle = 0;
+    if (!parseUInt64(parameters[@"handle"], @"本地词库准备句柄", &handle, &error) || !handle) {
+        if (!handle && !error) setError(&error, @"本地词库准备句柄无效");
+        return @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+    }
+    BOOL discarded = [self discardSnapshotHandle:handle error:&error];
     return discarded ? @{ @"discarded": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
 + (BOOL)applySnapshotHandle:(uint64_t)handle expectedVersion:(NSString *)version error:(NSError **)error {
-    if (![NSThread isMainThread] || !handle || version.length != 64) { setError(error, @"本地词库应用参数无效"); return NO; }
+    if (![NSThread isMainThread] || !handle || ![version isKindOfClass:NSString.class] || version.length != 64) { setError(error, @"本地词库应用参数无效"); return NO; }
     MSIMEClientSession *session = gActiveSession;
     uint64_t old = session ? session->_handle : 0;
     if (!session || !old) { setError(error, @"输入会话不可用"); return NO; }
@@ -393,8 +418,9 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!result) {
         NSData *restore = [NSJSONSerialization dataWithJSONObject:optionsCopy options:0 error:nil];
         NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(restore.bytes), restore.length), nil);
-        session->_handle = [view[@"session"] unsignedLongLongValue];
-        if (session->_handle != 0) {
+        uint64_t restoredHandle = 0;
+        if (parseUInt64(view[@"session"], @"恢复会话句柄", &restoredHandle, nil) && restoredHandle != 0) {
+            session->_handle = restoredHandle;
             [session restoreLiveModes:nil];
             // Recovery creates a fresh session too; the host must clear the
             // destroyed composition and restore focus even though activation failed.
@@ -406,7 +432,12 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!options) return NO;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(options.bytes), options.length), error);
     if (!view) return NO;
-    session->_handle = [view[@"session"] unsignedLongLongValue];
+    uint64_t newHandle = 0;
+    if (!parseUInt64(view[@"session"], @"输入会话句柄", &newHandle, error) || newHandle == 0) {
+        if (newHandle == 0 && error && !*error) setError(error, @"输入会话句柄无效");
+        return NO;
+    }
+    session->_handle = newHandle;
     if (session->_handle != 0) {
         [session restoreLiveModes:error];
         [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEClientSessionDidReplaceSnapshotNotification object:session];
@@ -415,8 +446,12 @@ static NSDictionary *decode(char *response, NSError **error) {
 }
 + (NSDictionary *)applySnapshot:(NSDictionary<NSString *, id> *)parameters {
     NSError *error = nil;
-    BOOL ok = [self applySnapshotHandle:[parameters[@"handle"] unsignedLongLongValue]
-                        expectedVersion:parameters[@"expectedVersion"] error:&error];
+    uint64_t handle = 0;
+    if (!parseUInt64(parameters[@"handle"], @"本地词库准备句柄", &handle, &error) || !handle) {
+        if (!handle && !error) setError(&error, @"本地词库准备句柄无效");
+        return @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
+    }
+    BOOL ok = [self applySnapshotHandle:handle expectedVersion:parameters[@"expectedVersion"] error:&error];
     return ok ? @{ @"activated": @YES } : @{ @"error": error ?: [NSError errorWithDomain:MSIMEClientErrorDomain code:1 userInfo:nil] };
 }
 + (NSDictionary *)activeHostOptions { return gActiveSession ? [gActiveSession.hostOptions copy] : @{@"error" : [NSError errorWithDomain:MSIMEClientErrorDomain code:503 userInfo:nil]}; }
@@ -491,8 +526,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (!_hostOptions) return nil;
     NSDictionary *view = decode(msime_client_create(static_cast<const uint8_t *>(data.bytes), data.length), error);
     if (!view) return nil;
-    _handle = [view[@"session"] unsignedLongLongValue];
-    if (!_handle) { setError(error, @"输入会话句柄无效"); return nil; }
+    if (!parseUInt64(view[@"session"], @"输入会话句柄", &_handle, error) || !_handle) {
+        if (!_handle && error && !*error) setError(error, @"输入会话句柄无效");
+        return nil;
+    }
     if (!gActiveSession) gActiveSession = self;
     return self;
 }
@@ -645,9 +682,8 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (![self checkThreadAndHandle:error]) return nil;
     id generation = decodeValue(msime_client_voice_start(_handle), error);
     if (!generation) return nil;
-    if (![generation isKindOfClass:NSNumber.class] ||
-        CFGetTypeID((__bridge CFTypeRef)generation) == CFBooleanGetTypeID() ||
-        [generation unsignedLongLongValue] == 0) {
+    uint64_t parsedGeneration = 0;
+    if (!parseUInt64(generation, @"语音代次", &parsedGeneration, error) || parsedGeneration == 0) {
         setError(error, @"语音代次响应格式错误");
         return nil;
     }

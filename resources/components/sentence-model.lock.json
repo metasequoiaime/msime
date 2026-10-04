@@ -1,0 +1,11 @@
+{
+  "source_commit": "607f351a7c354c86e74474d2d381985049435669",
+  "artifacts": [
+    {
+      "name": "sentence-model.safetensors",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model.safetensors",
+      "sha256": "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
+      "size": 4486280
+    }
+  ]
+}

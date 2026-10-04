@@ -50,6 +50,13 @@ const BRANCHES: [&str; 12] = [
 ];
 
 /// The wall clock in the local offset, via `time`; zeros when the offset cannot be determined, as the reference did on a `localtime` failure.
+#[cfg_attr(
+    all(target_family = "wasm", target_os = "unknown", not(test)),
+    expect(
+        dead_code,
+        reason = "wasm 上 `now_local` 会 panic，`Clock::default` 改读宿主注入的 UTC 时钟"
+    )
+)]
 pub fn current_local_date_time() -> LocalDateTime {
     // A clock that cannot be read still yields well-formed rows (date_time_query.cpp:312-328), so there is nothing to report.
     let Ok(now) = OffsetDateTime::now_local() else {

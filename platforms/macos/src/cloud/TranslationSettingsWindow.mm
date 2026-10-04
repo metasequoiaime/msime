@@ -1,6 +1,16 @@
 #import "TranslationSettingsWindow.h"
 #import "MSIMEClientSession.h"
 
+static BOOL MSIMETranslationStrictRevision(id value, uint64_t *result) {
+    if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t revision = number.unsignedLongLongValue;
+    if ([number compare:@(revision)] != NSOrderedSame) return NO;
+    if (result) *result = revision;
+    return YES;
+}
+
 static NSArray *TranslationLanguages() { return @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"]; }
 
 /// Mirrors `usable_credential` in crates/client-core/src/translation.rs.
@@ -24,15 +34,17 @@ static NSDictionary *TranslationPreferencesApplying(NSDictionary *preferences, N
 static NSDictionary *SaveTranslationEdits(NSString *directory, NSDictionary *snapshot, NSDictionary *edits) {
     NSMutableDictionary *next = [snapshot mutableCopy];
     next[@"preferences"] = TranslationPreferencesApplying(snapshot[@"preferences"], edits);
-    uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+    uint64_t revision = 0;
+    if (!MSIMETranslationStrictRevision(snapshot[@"revision"], &revision)) return nil;
     NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:next error:nil];
     if (saved) return saved;
     NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     // The same revision means the document itself was refused (a malformed value), which another attempt cannot fix.
-    if (!latest || [latest[@"revision"] unsignedLongLongValue] == revision) return nil;
+    uint64_t latestRevision = 0;
+    if (!latest || !MSIMETranslationStrictRevision(latest[@"revision"], &latestRevision) || latestRevision == revision) return nil;
     next = [latest mutableCopy];
     next[@"preferences"] = TranslationPreferencesApplying(latest[@"preferences"], edits);
-    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:next error:nil];
+    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:next error:nil];
 }
 
 @interface MSIMETranslationSettingsWindow () <NSTextFieldDelegate>

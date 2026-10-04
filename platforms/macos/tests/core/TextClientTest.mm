@@ -474,6 +474,9 @@ static void TestTrackedMarkedText() {
 
 int main() {
     @autoreleasepool {
+        assert(MSIMEPreeditCaretPosition(@"abc", @"abc", @1) == 1);
+        for (id invalid in @[@YES, @0.5, @1.5])
+            assert(MSIMEPreeditCaretPosition(@"abc", @"abc", invalid) == 3);
         TestTrackedMarkedText();
         FakeTextClient *client = [FakeTextClient new];
         client.events = [NSMutableArray array];
@@ -644,6 +647,14 @@ int main() {
         assert([client.markedString isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
         assert([client.markedString length] == 0 && client.selection.location == 0);
+        MSIMEApplyTransitionWithPreeditStyle(
+            @{ @"view": @{ @"editing_text": @"abc", @"preedit": @"abc", @"caret_position": @0.5 } },
+            client, MSIMEInlinePreeditStyleRaw);
+        assert([client.markedString isEqual:@"abc"] && client.selection.location == 3);
+        MSIMEApplyTransition(
+            @{ @"view": @{ @"editing_text": @"nihon", @"reading": @"にほん", @"caret_position": @0.5 } },
+            client);
+        assert([client.markedString isEqual:@"にほん"] && client.selection.location == 3);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);

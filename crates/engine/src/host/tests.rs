@@ -20,6 +20,7 @@ fn options(root: &Path) -> EngineOptions {
         cache: path("cache"),
         dictionaries: path("dictionaries"),
         scheme: 0,
+        enabled_schemes: crate::types::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -1566,6 +1567,41 @@ fn session_options_map_every_host_field() {
     assert_eq!(mapped.rescoring_context, "上文");
     assert!(!mapped.sentence_alternatives);
     assert!(mapped.personal_context);
+    assert_eq!(mapped.enabled_schemes, crate::SchemeSet::ALL);
+}
+
+/// `enabled_schemes` 原样交给会话。双拼不在其中时双拼键位不校验，不合法的值按小鹤处理；双拼在其中时照旧报错。
+#[test]
+fn session_options_skip_the_shuangpin_profile_without_shuangpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = crate::SchemeType::Wubi as u8;
+    value.shuangpin_profile = 200;
+    assert_eq!(
+        super::options::session_options(&value)
+            .unwrap_err()
+            .to_string(),
+        "Unsupported shuangpin profile"
+    );
+
+    value.enabled_schemes = crate::SchemeSet::of(&[crate::SchemeType::Wubi]);
+    let mapped = super::options::session_options(&value).unwrap();
+    assert_eq!(mapped.enabled_schemes, value.enabled_schemes);
+    assert_eq!(
+        mapped.shuangpin_profile,
+        crate::ShuangpinProfileKind::Xiaohe
+    );
+    let session = Session::new(&value).unwrap();
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.scheme, crate::SchemeType::Wubi as u8);
+    assert_eq!(snapshot.shuangpin_profile, "xiaohe");
+    assert!(!snapshot.microsoft_shuangpin);
+
+    value.scheme = crate::SchemeType::Quanpin as u8;
+    assert_eq!(
+        Session::new(&value).err().unwrap().to_string(),
+        "Input scheme is not enabled"
+    );
 }
 
 #[test]
@@ -1970,6 +2006,37 @@ fn wubi_reverse_codes_follow_the_selected_profile() {
         .unwrap();
     assert!(view.candidate_annotations[index].contains("abcd"));
     assert!(!view.candidate_annotations[index].contains("wqvb"));
+}
+
+#[test]
+fn wubi_reverse_codes_are_looked_up_only_in_the_wubi_scheme() {
+    // 宿主只在五笔方案里显示反查编码，所以全拼方案的刷新连查都不查；五笔混输拼音照查。
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(
+        root.path(),
+        "INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        "",
+    );
+    options.show_helpcode = false;
+    for (scheme, mixed, expected) in [
+        (SchemeType::Quanpin, false, None),
+        (SchemeType::Wubi, true, Some("wqvb")),
+    ] {
+        options.scheme = scheme as u8;
+        options.wubi_mixed_pinyin = mixed;
+        let mut session =
+            crate::session::Session::new(super::options::session_options(&options).unwrap())
+                .unwrap();
+        for byte in b"nihao" {
+            session.character(*byte, false);
+        }
+        assert!(session
+            .snapshot()
+            .candidates
+            .iter()
+            .any(|item| item.word == "你好"));
+        assert_eq!(session.candidate_wubi_code("你好"), expected, "{scheme:?}");
+    }
 }
 
 #[test]
@@ -2452,5 +2519,154 @@ fn only_generated_modes_are_left_out_of_typing_statistics() {
         "",
     ] {
         assert!(local_mode_counts_as_typing(mode), "{mode}");
+    }
+}
+
+/// 只有日文、越南文或藏文的方案集合不读 msime-pinyin.db：资源目录里只有 `msime-english.db` 也能准备代次、建会话、打字，代次里始终没有 msime-pinyin.db。个人词库只收英文词，拼音和快捷短语直接说明没有中文词库；重置和快照导入都只换回、回放英文词库。
+#[test]
+fn schemes_without_the_main_dictionary_run_on_english_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    Connection::open(resources.join("msime-english.db"))
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO english_words VALUES('word','word',100);"
+        ))
+        .unwrap();
+    for (content_id, scheme, code, input, preedit) in [
+        ("japanese", SchemeType::JapaneseRomaji, 3, &b"ka"[..], ""),
+        (
+            "vietnamese",
+            SchemeType::Vietnamese,
+            7,
+            &b"tieengs"[..],
+            "tiếng",
+        ),
+        ("tibetan", SchemeType::Tibetan, 8, &b"bod"[..], "བོད"),
+    ] {
+        let set = crate::types::SchemeSet::of(&[scheme]);
+        let user = root.path().join(content_id).join("user");
+        let mut prepared = prepare_options_for(
+            resources.to_str().unwrap(),
+            user.to_str().unwrap(),
+            root.path().join(content_id).join("cache").to_str().unwrap(),
+            content_id,
+            set,
+        )
+        .unwrap();
+        assert_eq!(prepared.enabled_schemes, set);
+        let dictionaries = Path::new(&prepared.dictionaries).to_owned();
+        assert!(dictionaries.join("msime-english.db").is_file());
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
+        // 集合外的方案（缺省的全拼）建不了会话；本版本的方案照常。
+        assert!(Session::new(&prepared).is_err());
+        prepared.scheme = code;
+        let mut session = Session::new(&prepared).unwrap();
+        type_text(&mut session, input);
+        let snapshot = session.snapshot().unwrap();
+        assert_eq!(snapshot.scheme, code, "{content_id}");
+        if scheme == SchemeType::JapaneseRomaji {
+            assert_eq!(snapshot.reading, "か");
+        } else {
+            assert_eq!(snapshot.preedit, preedit, "{content_id}");
+        }
+        drop(session);
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
+
+        let entry = |kind, key: &str, value: &str| DictionaryEntry {
+            kind,
+            key: key.into(),
+            value: value.into(),
+            weight: 10,
+        };
+        dictionary_edit(
+            &prepared,
+            None,
+            Some(&entry(DictionaryKind::English, "zzfixture", "Zzfixture")),
+            "add-english",
+        )
+        .unwrap();
+        for kind in [DictionaryKind::Pinyin, DictionaryKind::QuickPhrase] {
+            let key = if kind == DictionaryKind::Pinyin {
+                "ni'hao"
+            } else {
+                "dh"
+            };
+            assert_eq!(
+                dictionary_edit(&prepared, None, Some(&entry(kind, key, "你好")), "")
+                    .unwrap_err()
+                    .to_string(),
+                "This input method has no Chinese dictionary; only English words can be edited"
+            );
+        }
+        let listed = dictionary_entries(&prepared, 0, 10).unwrap();
+        assert_eq!(listed.entries.len(), 1);
+        assert_eq!(listed.entries[0].kind, DictionaryKind::English);
+        assert!(
+            dictionary_table_entries(&prepared, DictionaryKind::Pinyin, "nihao", 0, 10)
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+
+        // 快照导入：拼音行收进日志但不回放，英文行回放进新代次的英文词库。
+        let generation = root.path().join(content_id).join("snapshot");
+        let staged = stage_dictionary_state(
+            &prepared,
+            generation.to_str().unwrap(),
+            "restored",
+            10,
+            [
+                DictionaryStateRecord::Entry {
+                    kind: DictionaryKind::Pinyin,
+                    key: "ni'hao".into(),
+                    value: "你好".into(),
+                    weight: 50,
+                    display: String::new(),
+                    deleted: false,
+                    user_inserted: true,
+                },
+                DictionaryStateRecord::Entry {
+                    kind: DictionaryKind::English,
+                    key: "zzrestored".into(),
+                    value: "Zzrestored".into(),
+                    weight: 60,
+                    display: "Zzrestored".into(),
+                    deleted: false,
+                    user_inserted: true,
+                },
+            ]
+            .into_iter()
+            .map(Ok),
+        )
+        .unwrap();
+        let staged_dictionaries = Path::new(&staged.dictionaries);
+        assert!(!staged_dictionaries.join("msime-pinyin.db").exists());
+        let restored: i64 = Connection::open(staged_dictionaries.join("msime-english.db"))
+            .unwrap()
+            .query_row(
+                "SELECT weight FROM english_words WHERE word='zzrestored' AND display='Zzrestored'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, 60);
+        let listed = dictionary_entries(&staged, 0, 10).unwrap();
+        assert_eq!(
+            listed
+                .entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            ["zzrestored"]
+        );
+
+        reset_learned_data(&prepared).unwrap();
+        assert!(dictionary_entries(&prepared, 0, 10)
+            .unwrap()
+            .entries
+            .is_empty());
+        assert!(!dictionaries.join("msime-pinyin.db").exists());
     }
 }

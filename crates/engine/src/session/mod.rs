@@ -45,6 +45,7 @@ impl Session {
             options.frequency,
             options.fuzzy_pinyin,
             options.english,
+            options.enabled_schemes.contains(SchemeType::Quanpin),
         );
         Ok(Session {
             input,

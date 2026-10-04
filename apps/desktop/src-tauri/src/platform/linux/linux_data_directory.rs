@@ -80,7 +80,10 @@ pub(crate) fn default_root() -> Option<PathBuf> {
         std::env::var_os("XDG_CONFIG_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
     )?;
-    Some(base.join("msime-client"))
+    // 目录名随本安装包所属的版本（full 是 msime-client）。
+    Some(base.join(
+        &msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory,
+    ))
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {

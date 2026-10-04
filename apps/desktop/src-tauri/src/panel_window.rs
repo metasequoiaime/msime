@@ -230,6 +230,12 @@ pub(crate) fn open_route_panel(
     state: &tauri::State<'_, PanelInputState>,
     route: SurfaceRoute,
 ) -> Result<(), HostActionError> {
+    // 设置页的按钮和菜单都走这里：本版本没有的面板（不提供手写的版本里的手写面板）一律不开。
+    if !crate::edition_offers_route(crate::package_edition(), route) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     open_surface_panel(app, state, panel_surface(route)?)
 }
 

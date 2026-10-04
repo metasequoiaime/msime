@@ -1,0 +1,4 @@
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" android:supportsSwitchingToNextInputMethod="true" android:settingsActivity="app.msime.android.MainActivity">
+    <!-- 与 src/main/res-msime/xml/tauri_method.xml 相同，只多一个子类型标签：几个版本同时装着时，系统的键盘切换器和语言列表按这个名字区分它们，而不是都显示成「中文（中国）」。 -->
+    <subtype android:label="@string/app_name" android:imeSubtypeLocale="zh_CN" android:imeSubtypeMode="keyboard" />
+</input-method>

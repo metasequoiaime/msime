@@ -32,7 +32,7 @@ export function useMacosSettings({ client, macos, setError }: UseMacosSettingsOp
 
   // Set once the user dismisses the notice, so a later focus refresh does not bring it back in this window.
   const inputSourceDismissed = useRef(false);
-  const inputSourceRequest = useRef(0);
+  const inputSourceRequest = useAsyncGeneration(client, macos);
   const refreshInputSourceStartup = useCallback(async () => {
     const startup = macos ? client.inputSourceStartup : undefined;
     const request = ++inputSourceRequest.current;

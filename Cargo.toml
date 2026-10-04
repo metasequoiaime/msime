@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/path-trust", "crates/client-core", "crates/engine", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "crates/mcp-server", "crates/dict-builder", "crates/pack-tool", "apps/desktop/src-tauri"]
+members = ["crates/path-trust", "crates/client-core", "crates/engine", "crates/engine-wasm", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "crates/mcp-server", "crates/dict-builder", "crates/pack-tool", "apps/desktop/src-tauri"]
 # Everything except the desktop app: a bare `cargo test` should cover the
 # libraries, and msime-desktop needs a built frontend and a packaged platform
 # bundle before its build script will run.
@@ -7,6 +7,7 @@ default-members = [
     "crates/path-trust",
     "crates/client-core",
     "crates/engine",
+    "crates/engine-wasm",
     "crates/input-runtime",
     "crates/host-api",
     "crates/host-windows",
@@ -54,6 +55,19 @@ unsafe_code = "deny"
 [profile.dev]
 debug = 0
 incremental = false
+
+# 网页输入法的 wasm 构建（`scripts/build-web-engine.sh`）：体积优先。wasm 上 panic 只能终止实例，unwind 只会增加体积；模块在浏览器 Worker 里运行，宿主靠 `last_panic` 读出 panic 信息，所以 abort 不丢任何东西。
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# 整句模型的整数点积在每个按键上运行，按 opt-level "z" 编译时 wasm 里的重排比原生慢约七倍，按键延迟 p95 贴着发布门槛；只把这个 crate 换成按速度优化，其余仍按体积优化。
+[profile.wasm-release.package.chinese-ime-lm]
+opt-level = 3
 
 # Local installs of an input method are dev builds (the macOS CMake default links target/debug), and two dependencies sit on the path of every keystroke: the sentence reranker runs on the main thread per key, and every view crosses the host ABI as JSON. Unoptimised, the reranker's integer dot products alone took most of the main thread while typing and stalled the candidate window for seconds. Optimising just these keeps workspace crates quick to rebuild.
 [profile.dev.package.chinese-ime-lm]

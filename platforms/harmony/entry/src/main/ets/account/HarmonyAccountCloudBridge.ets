@@ -12,15 +12,17 @@ import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
-  AccountPreferenceFields,
   AccountPreferences,
   AccountPreferenceSchema,
   AccountPreferenceSettings,
   AppliedPreferences,
   FeedbackValues,
   applyAccountPreferences,
+  accountPreferencesFromDocument,
   localAccountPreferences,
-  mergeAccountPreferences
+  localPreferenceRevision,
+  mergeAccountPreferences,
+  preferenceSchemaFromDocument,
 } from './AccountPreferencePlan';
 import {
   ACCOUNT_ORIGIN, FileSessionStore, HarmonyAccountTransport, responseContentLength, responseContentType
@@ -462,21 +464,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   private schemaOf(document: Record<string, Object>): AccountPreferenceSchema | null {
-    const fields: Object | undefined = document['fields'];
-    const maximumBytes: Object | undefined = document['maximum_bytes'];
-    const updateMode: Object | undefined = document['update_mode'];
-    const revisionRequired: Object | undefined = document['revision_required'];
-    if (fields === undefined || fields === null || typeof fields !== 'object'
-      || typeof maximumBytes !== 'number' || typeof updateMode !== 'string'
-      || typeof revisionRequired !== 'boolean') {
-      return null;
-    }
-    return {
-      fields: fields as AccountPreferenceFields,
-      maximumBytes: maximumBytes,
-      updateMode: updateMode,
-      revisionRequired: revisionRequired
-    };
+    return preferenceSchemaFromDocument(document);
   }
 
   private async preferenceDocument(): Promise<string> {
@@ -490,16 +478,7 @@ export class HarmonyAccountCloudBridge {
   }
 
   private cloudOf(document: Record<string, Object>): AccountPreferences | null {
-    const revision: Object | undefined = document['revision'];
-    const settings: Object | undefined = document['settings'];
-    if (typeof revision !== 'number' || settings === undefined || settings === null
-      || typeof settings !== 'object' || Array.isArray(settings)) {
-      return null;
-    }
-    return {
-      revision: revision,
-      settings: settings as AccountPreferenceSettings
-    };
+    return accountPreferencesFromDocument(document);
   }
 
   /** What the local document says, read the same way the settings page reads it. */
@@ -510,9 +489,9 @@ export class HarmonyAccountCloudBridge {
       if (reply['ok'] !== true) return null;
       const value: Record<string, Object> = reply['value'] as Record<string, Object>;
       const preferences: Object | undefined = value['preferences'];
-      const revision: Object | undefined = value['revision'];
+      const revision: number | null = localPreferenceRevision(value);
       if (preferences === undefined || typeof preferences !== 'object'
-        || typeof revision !== 'number') {
+        || revision === null) {
         return null;
       }
       return value;
@@ -678,9 +657,8 @@ export class HarmonyAccountCloudBridge {
 
   private options(resources: string, stateRoot: string): Object | null {
     try {
-      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify({
-        resources: resources, state_root: stateRoot
-      }))) as SnapshotReply;
+      const reply: SnapshotReply = JSON.parse(client.prepareHost(JSON.stringify(
+        KeyboardSession.prepareRequest(resources, stateRoot)))) as SnapshotReply;
       return reply.ok ? reply.value : null;
     } catch {
       return null;

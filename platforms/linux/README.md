@@ -92,7 +92,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ## 生成 Linux 安装包
 
-发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-linux_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`，以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-linux_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`，以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。
 
 安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-linux_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-client`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，输入法宿主自己换到新程序（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-linux-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-linux-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
 
@@ -107,6 +107,49 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 许可证与第三方声明装在 `${CMAKE_INSTALL_DATADIR}/doc/msime-client/`，普通 `cmake --install` 与安装包相同：`copyright`（本项目 GPL-3.0）、`THIRD_PARTY_NOTICES.txt`（本平台随附组件总览，源文件 `data/THIRD_PARTY_NOTICES.txt`），词库来源声明 `msime-engine-dictionary-NOTICE.md`（从 msime-engine 原样带过来，固定副本在 `resources/licenses/`）、辅助码声明 `msime-engine-helpcode-NOTICE.md`（`resources/helpcodes/ENGINE-NOTICE.md`）与 `msime-helpcode-jiajia-NOTICE.md`（`resources/helpcodes/NOTICE.md`）、离线手写识别所移植的 zinnia 的许可证 `Zinnia-LICENSE.txt`（`resources/licenses/`）、`@` 模式内置地名所取自的 modood/Administrative-divisions-of-China 的许可证 `Administrative-divisions-of-China-WTFPL.txt`（`resources/licenses/`）、韩语汉字转换内置汉字表所取自的 libhangul `data/hanja/hanja.txt` 的许可证 `libhangul-hanja-BSD-3-Clause.txt`（`resources/licenses/`）、引擎粤语与注音方案的数据所取自的 rime-cantonese 与 libchewing-data 的许可证 `rime-cantonese-CC-BY-4.0.txt` 与 `libchewing-data-LGPL-2.1.txt`、笔画方案的笔顺数据所取自的 rime-stroke 的许可证 `rime-stroke-LGPL-3.0.txt`（`resources/licenses/`；装了这些词库时，词库旁还有随数据发布的 `msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt` 与 `msime-rime_stroke_LICENSE.txt`）、藏文方案所用 ewts crate 的许可证 `ewts-MIT.txt`（`resources/licenses/`；这个 crate 没有附许可证文件，按包元数据收集的 `rust-crates-NOTICES.txt` 里只有它声明的许可证表达式）、装了手写模型时随模型的 `HandwritingModel-LICENSE.txt`、OpenCC 词典的许可证，编进原生宿主与 Fcitx5 插件的 nlohmann/json（`nlohmann_json-MIT.txt`，固定副本在 `data/licenses/`）与 Wayland 协议代码（配置时从实际编译的 `wlr-layer-shell-unstable-v1.xml`、`xdg-shell.xml` 取出 `<copyright>` 段，只在找到 `xdg-shell.xml`、协议代码确实编入时安装），以及打包时收集的 `rust-crates-NOTICES.txt` 与 `frontend-npm-NOTICES.txt`。输入引擎是本项目自己的 Rust 代码（`crates/engine`），由同为 GPL-3.0 的 msime-engine 移植而来，由 `copyright` 覆盖，不再单独附 Engine 的许可证；录音采集走 cpal，其许可证在 Rust 汇总里。本项目许可证在这里按 Debian 的要求叫 `copyright`（macOS 是 `GPL-3.0.txt`）。打包配置时任何一份声明的来源缺失（通常是没有传入 Rust/npm 汇总，或没有手写模型）都会直接失败；普通开发配置不要求 Rust/npm 汇总，其余缺失只给出警告并安装剩下的部分。
 
 安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-linux-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。包的内容取决于配置阶段传入了什么：没有传入桌面二进制或资源的构建只打包实际配置的部分，完整包需要同时提供二者。
+
+### Nix 与 NixOS
+
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务、语音运行库和设置窗口还没有接进 Nix。
+
+```sh
+nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
+nix flake check
+nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
+```
+
+插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以在系统配置里用 overlay 而不是直接取 `packages`：
+
+```nix
+# flake.nix 的 inputs
+msime.url = "github:metasequoiaime/msime";
+
+# NixOS 模块
+nixpkgs.overlays = [ inputs.msime.overlays.default ];
+i18n.inputMethod = {
+  enable = true;
+  type = "fcitx5";
+  fcitx5.addons = [ pkgs.msime-fcitx5 ];
+};
+environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
+```
+
+切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
+
+每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
+
+## 多版本（水杉拼音、水杉五笔、水杉日语、水杉越南语、水杉藏文）
+
+除了现有的水杉输入法（full），版本表 `shared/contracts/editions.json` 还定义了水杉拼音（`pinyin`，全拼与双拼，带临时日文）、水杉五笔（`wubi`，只有五笔，混拼默认打开，不带临时日文），以及只有一个方案的水杉日语（`japanese`）、水杉越南语（`vietnamese`）和水杉藏文（`tibetan`）。三个语言版本只带英文词库及其 SCOWL 许可声明、`msime-others.db` 和清单（日文版另带日文词典和两份 Mozc 许可文本），不带中文主词库、n-gram 和落定重排模型；它们也没有手写和非英文离线释义（版本表 `features.handwriting`、`features.offline_glosses` 为 false），安装包里没有 `handwriting-zh_CN.model` 和 `offline-glosses/`，IBus 与 Fcitx5 菜单里没有手写识别板。几个版本是各自独立的包，可以同时安装、同时启用，互不覆盖：
+
+- full 仍是今天的 `msime-linux`，装在 `/usr` 下，包结构、文件、IBus 引擎 `msime-linux`、Fcitx5 条目 `msime`、状态目录 `~/.config/msime-client` 和用户服务都与引入版本之前相同；
+- 其他版本是 `msime-linux-<id>`，程序、词库、宿主库和文档整个装在 `/opt/msime-linux-<id>` 下；系统按名字查找的那几样装到系统目录，名字都带版本：IBus 组件 `/usr/share/ibus/component/msime-linux-<id>.xml`（引擎 `msime-linux-<id>`）、Fcitx5 插件 `libmsime-<id>-fcitx5.so` 与条目 `msime-<id>`、systemd 用户单元 `msime-linux-<id>-{online,voice}.socket` 等、桌面入口与自启动项、图标 `msime-linux-<id>`（与 full 同一张图），以及 `/usr/bin/msime-linux-<id>-setup` 和 `/usr/bin/msime-linux-<id>-settings`；
+- 每个版本登记在默认方案所属的语言下：中文的版本是 IBus `zh`、Fcitx5 `zh_CN`，日文、越南文、藏文版是 `ja`、`vi`、`bo`（IBus 组件与引擎的 `<language>`、Fcitx5 输入法条目的 `LangCode`），GNOME 的输入源对话框和 Fcitx5 的配置工具把它们列在日语、越南语、藏语下；
+- 每个用户的状态目录、运行时目录（`panel-input.sock`、`candidate-panel.json`、各 provider socket）、自行下载的词库和缓存都在 `msime-client-<id>` 下，宿主生成的 Fcitx5 主题、Omarchy 钩子与插件、使用统计目录和设置窗口的 Tauri identifier（`app.msime.linux.<id>`）也按版本分开；随装的词库锁是本版本的锁（`resources/editions/<id>.lock.json`，装成 `<前缀>/share/msime-client-<id>/desktop-dictionary.lock.json`），首次配置只取回本版本需要的词库。
+
+装好之后运行该版本自己的首次配置命令，例如 `msime-linux-wubi-setup --download`；任何一个版本的 `msime-linux-setup` 也可以加 `--edition wubi`，它会转交给 `/usr/bin` 下那个版本的命令，那个版本没装时报错。卸载一个版本只停用、注销它自己的服务和输入法条目，其他版本不受影响。Fcitx5 下两个版本的插件被同一个 fcitx5 进程加载：插件以 `RTLD_LOCAL` 加载，非 full 的插件隐藏全部符号；宿主库在非 full 的版本里改名为 `libmsime_host_api_<id>.so`（full 仍是 `libmsime_host_api.so`），因为动态链接器按插件 DT_NEEDED 里的文件名复用已经加载的库，同名时两个插件会共用先加载的那个版本的宿主库，改名后各用各的那一份；每个插件注册的输入上下文属性也随插件名（full 仍是 `msimeState`），否则后加载的插件拿不到属性槽位；`crates/host-api` 的测试 `two_editions_with_their_own_state_roots_share_one_process` 另外确认，即使两份宿主库被合并成一份，两个状态目录的会话也互不影响。
+
+构建某个版本时给 CMake 传 `-DMSIME_EDITION=<id>`（缺省 `full`），打包时前缀必须是该版本的前缀（`-DCMAKE_INSTALL_PREFIX=/opt/msime-linux-<id>`，`packaging.cmake` 检查）；换成别的前缀的开发安装把所有文件都留在前缀里，不碰系统目录。脚本和数据文件由 `scripts/edition_linux.py` 在配置阶段按版本改写，C++ 侧的名字来自它生成的 `src/core/LinuxEdition.h`；改了版本表之后运行 `python3 platforms/linux/scripts/edition_linux.py gen`。`scripts/test-linux-editions.py` 检查生成文件没有漂移、每个版本都能改写全部文件且不留下 full 的名字、各版本的 Fcitx5 动作名两两不撞、每个版本登记在正确的语言下。`package-container.sh` 缺省按版本表给每个版本各打一个包（`MSIME_PACKAGE_EDITIONS=full,wubi` 可以只打其中几个），单测只在 full 的构建上跑；发布流程逐个版本核对包名与版本，再用 `tests/tools/check-deb-coexistence.sh` 和 `tests/tools/check-rpm-install.sh` 把全部版本一起装进干净容器、逐个卸载，确认卸载一个不带走另一个的文件。
 
 ## 卸载 CMake 安装
 

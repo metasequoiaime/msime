@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("voice device refresh reuses the shared owner generation lifecycle", () => {
+test("voice device refresh reuses the shared async action lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/voice/voice-device-picker.tsx", {
       eager: true,
@@ -9,6 +9,6 @@ test("voice device refresh reuses the shared owner generation lifecycle", () => 
     }),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(read)");
-  expect(source).not.toContain("const revision = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("const pending = useRef(false)");
 });

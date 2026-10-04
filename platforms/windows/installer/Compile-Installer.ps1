@@ -2,6 +2,8 @@
 param(
     [string]$IsccPath,
     [string]$IssPath = (Join-Path $PSScriptRoot 'msime_setup.iss'),
+    # 产品版本，交给 ISCC 的 /DEdition（editions.iss 按它选出 AppId、安装目录、注册表键和安装包名）。full 不传这个定义，编译命令与引入版本之前相同。
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     [switch]$Light
 )
 
@@ -81,6 +83,10 @@ Write-Host "Inno Setup 编译器：$resolvedIsccPath"
 Write-Host "安装脚本：$resolvedIssPath"
 
 $isccArgs = @()
+if ($Edition -ne 'full') {
+    $isccArgs += "/DEdition=$Edition"
+    Write-Host "版本：$Edition"
+}
 if ($Light) {
     $isccArgs += '/DLightPackage=1'
     Write-Host '轻量模式：安装包不含词库，输出文件名带 _light。'

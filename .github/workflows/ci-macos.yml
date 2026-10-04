@@ -259,6 +259,33 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodServerControllerClass' "$plist")" = "MSIMEInputController"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:TISInputSourceID' "$plist")" = "app.msime.inputmethod.MetasequoiaIME.Hans"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.MetasequoiaIME.Hans:tsInputModeScriptKey' "$plist")" = "smSimpChinese"
+          # 发布包把同一个 bundle 改成其他版本（package-release.sh），这里用五笔版走一遍同样的变换：改完仍能签名封装，模式和标识是五笔版的，带的东西与 full 一样齐。
+          wubi="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition wubi bundle_name)"
+          ditto build/水杉输入法.app "$wubi"
+          python3 platforms/macos/scripts/edition_bundle.py apply --edition wubi "$wubi"
+          codesign --force --deep --options runtime --entitlements platforms/macos/resources/VoiceInput.entitlements --sign - "$wubi"
+          codesign --verify --deep --strict --verbose=2 "$wubi"
+          python3 platforms/macos/tests/settings/bundle_contents.py "$wubi" --languages zh-Hans,en
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$wubi/Contents/Info.plist")" = "app.msime.inputmethod.wubi_Connection"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.wubi.Hans:tsInputModeMenuIconFileKey' "$wubi/Contents/Info.plist")" = "MSIMEClientInputMethodMenuIconWubi.tiff"
+          # 日文、越南文、藏文版只有一个语言方案：主模式 .Hans 用这个方案的图标，主模式和「英」都登记在这个语言下（ja、vi、bo），系统设置的「添加」对话框才会把它列在这个语言下。
+          for pair in japanese:ja:Japanese vietnamese:vi:Vietnamese tibetan:bo:Tibetan; do
+            IFS=: read -r edition language icon <<< "$pair"
+            bundle="$RUNNER_TEMP/verify/$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" bundle_name)"
+            ditto build/水杉输入法.app "$bundle"
+            python3 platforms/macos/scripts/edition_bundle.py apply --edition "$edition" "$bundle"
+            codesign --force --deep --options runtime --entitlements platforms/macos/resources/VoiceInput.entitlements --sign - "$bundle"
+            codesign --verify --deep --strict --verbose=2 "$bundle"
+            python3 platforms/macos/tests/settings/bundle_contents.py "$bundle" --languages zh-Hans,en
+            plist="$bundle/Contents/Info.plist"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "app.msime.inputmethod.$edition"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :InputMethodConnectionName' "$plist")" = "app.msime.inputmethod.${edition}_Connection"
+            test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.Hans:tsInputModeMenuIconFileKey" "$plist")" = "MSIMEClientInputMethodMenuIcon$icon.tiff"
+            for mode in Hans Roman; do
+              test "$(/usr/libexec/PlistBuddy -c "Print :ComponentInputModeDict:tsInputModeListKey:app.msime.inputmethod.$edition.$mode:TISIntendedLanguage" "$plist")" = "$language"
+            done
+          done
 
   # MSIME-Linux's ci.yml already reasons this out: "the frontend layer had none -- and that is the
   # layer that parses untrusted input", written after an audit of a sibling frontend turned up a

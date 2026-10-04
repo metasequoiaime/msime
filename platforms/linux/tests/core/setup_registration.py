@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # One stub serves every tool; it dispatches on the name it was invoked as. Arguments the setup script writes are Python literals once GVariant's text form is read back, so the stub parses them with ast rather than reusing the code under test.
-STUB = r'''#!/usr/bin/env python3
-import ast, json, os, sys
+# 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
+STUB = f"#!{sys.executable}\n" + r'''import ast, json, os, sys
 from pathlib import Path
 
 name = Path(sys.argv[0]).name

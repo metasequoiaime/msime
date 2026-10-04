@@ -5,6 +5,7 @@
 //! Every desktop host writes the log beside its preferences when the user turns on `diagnostic_log.server` (or, on Windows, `diagnostic_log.tsf`): `diagnostic.log` on macOS and Linux, `logs\server.log` on Windows, each rotated to a `.1` copy once it grows past a few MiB. The hosts keep to event names, counts, timings and error codes, but the Windows TIP's key-trace records (`[msime][issue47]`) name the key that was pressed; those fields are blanked here before a line is returned, so what the user typed does not reach the agent.
 
 use crate::preferences::{self, PreferencesChange};
+use msime_client_core::edition::Edition;
 use msime_client_core::preferences::PreferencesStore;
 use rmcp::schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -94,8 +95,15 @@ pub struct SwitchView {
 }
 
 /// Turn the log on or off. On Windows the TIP's records go with it: problems with composing text show up there, and the agent should not need to know which half of the input method to ask.
-pub fn set(state_dir: &Path, options: &Path, enabled: bool) -> Result<SwitchView, String> {
-    let revision = PreferencesStore::new(state_dir)
+///
+/// `edition` 是运行时选项记录的版本，见 `preferences::update`。
+pub fn set(
+    state_dir: &Path,
+    options: &Path,
+    edition: &'static Edition,
+    enabled: bool,
+) -> Result<SwitchView, String> {
+    let revision = PreferencesStore::for_edition(state_dir, edition)
         .load()
         .map_err(|error| error.to_string())?
         .revision;
@@ -105,7 +113,7 @@ pub fn set(state_dir: &Path, options: &Path, enabled: bool) -> Result<SwitchView
         diagnostic_log_tsf: cfg!(windows).then_some(enabled),
         ..PreferencesChange::default()
     };
-    let view = preferences::update(state_dir, options, &change)?;
+    let view = preferences::update(state_dir, options, edition, &change)?;
     Ok(SwitchView {
         server_enabled: view.diagnostic_log_server,
         tsf_enabled: cfg!(windows) && view.diagnostic_log_tsf,

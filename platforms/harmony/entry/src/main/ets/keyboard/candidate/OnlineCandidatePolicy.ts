@@ -1,5 +1,5 @@
-import { utf8Length } from '../Utf8';
-import { TextPolicy } from '../TextPolicy';
+import { utf8Length } from "../Utf8";
+import { TextPolicy } from "../TextPolicy";
 
 export interface OnlineAssistantConfig {
   enabled: boolean;
@@ -47,33 +47,55 @@ export class OnlineCandidatePolicy {
 
   /** Whether a cloud reply is bounded before it is handed to the native parser. */
   static acceptsCloudBody(body: string | null | undefined): boolean {
-    return body !== null && body !== undefined && body.length > 0
-      && utf8Length(body) <= OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES;
+    return (
+      body !== null &&
+      body !== undefined &&
+      body.length > 0 &&
+      utf8Length(body) <= OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES
+    );
   }
 
   static signature(query: OnlineQuery): string {
     const assistant: OnlineAssistantConfig | null | undefined = query.ai_assistant;
-    return `${query.session_id}:${query.cache_key}:${query.identity}:`
-      + `${query.cloud_candidates}:${assistant?.enabled === true ? JSON.stringify(assistant) : ''}`;
+    return (
+      `${query.session_id}:${query.cache_key}:${query.identity}:` +
+      `${query.cloud_candidates}:${assistant?.enabled === true ? JSON.stringify(assistant) : ""}`
+    );
   }
 
   /** 判断失败请求是否仍可释放当前签名，让同一输入在下一次渲染时重试。 */
-  static shouldReleaseAfterFailure(requestSignature: string, currentSignature: string,
-    requestEpoch: number, currentEpoch: number, requestHandle: number,
-    currentHandle: number): boolean {
-    return requestEpoch === currentEpoch && requestHandle === currentHandle
-      && requestSignature.length > 0 && requestSignature === currentSignature;
+  static shouldReleaseAfterFailure(
+    requestSignature: string,
+    currentSignature: string,
+    requestEpoch: number,
+    currentEpoch: number,
+    requestHandle: number,
+    currentHandle: number,
+  ): boolean {
+    return (
+      requestEpoch === currentEpoch &&
+      requestHandle === currentHandle &&
+      requestSignature.length > 0 &&
+      requestSignature === currentSignature
+    );
   }
 
   static aiCandidates(body: string, limit: number): string[] | null {
-    if (utf8Length(body) > OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES
-      || !Number.isInteger(limit) || limit < 1 || limit > 10) {
+    if (
+      utf8Length(body) > OnlineCandidatePolicy.MAX_AI_RESPONSE_BYTES ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 10
+    ) {
       return null;
     }
     try {
       const envelope: AiEnvelope = JSON.parse(body) as AiEnvelope;
-      if (envelope.error !== undefined && envelope.error !== null
-        || envelope.choices === undefined || envelope.choices.length === 0) {
+      if (
+        (envelope.error !== undefined && envelope.error !== null) ||
+        envelope.choices === undefined ||
+        envelope.choices.length === 0
+      ) {
         return null;
       }
       const content: string | undefined = envelope.choices[0].message?.content;
@@ -82,10 +104,15 @@ export class OnlineCandidatePolicy {
       if (document.candidates === undefined || !Array.isArray(document.candidates)) return null;
       const result: string[] = [];
       for (const candidate of document.candidates) {
-        if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+        if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate))
+          continue;
         const text: unknown = (candidate as AiCandidate).text;
-        if (typeof text !== 'string' || text.trim().length === 0 || utf8Length(text) > 4096
-          || TextPolicy.hasControl(text)) {
+        if (
+          typeof text !== "string" ||
+          text.trim().length === 0 ||
+          utf8Length(text) > 4096 ||
+          TextPolicy.hasControl(text)
+        ) {
           continue;
         }
         if (!result.includes(text)) result.push(text);

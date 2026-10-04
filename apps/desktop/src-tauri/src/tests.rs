@@ -443,27 +443,22 @@ fn windows_restart_payload_is_exact_utf16_without_terminator() {
 
 #[test]
 fn linux_restart_targets_the_running_input_method_framework() {
+    let command = |fcitx5_running, addon| {
+        let (program, arguments) = super::linux_input_method_restart_command(fcitx5_running, addon);
+        (program, arguments.join(" "))
+    };
     assert_eq!(
-        super::linux_input_method_restart_command(true),
+        command(true, "msime"),
         (
             "gdbus",
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.fcitx.Fcitx5",
-                "--object-path",
-                "/controller",
-                "--method",
-                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
-                "'msime'",
-            ][..]
+            "call --session --dest org.fcitx.Fcitx5 --object-path /controller --method org.fcitx.Fcitx.Controller1.ReloadAddonConfig 'msime'".to_owned()
         )
     );
-    assert_eq!(
-        super::linux_input_method_restart_command(false),
-        ("ibus", &["restart"][..])
-    );
+    // 五笔版只重置自己的插件。
+    assert!(command(true, "msime-wubi")
+        .1
+        .ends_with("ReloadAddonConfig 'msime-wubi'"));
+    assert_eq!(command(false, "msime"), ("ibus", "restart".to_owned()));
 }
 
 #[test]
@@ -1049,6 +1044,8 @@ fn dictionary_mutations_quiesce_but_reads_do_not() {
     ));
 }
 
+// The bundle id comes from the edition's macOS identity, which only the macOS build compiles.
+#[cfg(target_os = "macos")]
 #[test]
 fn macos_restart_targets_the_input_method_bundle() {
     assert_eq!(
@@ -2532,4 +2529,54 @@ fn sway_container_owner_is_read_from_the_matching_view() {
     // A container without a pid, or one that is not in the tree, has no owner to compare against.
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 2), None);
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 9), None);
+}
+
+/// 不提供手写的版本（日文、越南文和藏文版）不打开手写面板和手写设置页，别的界面照常；提供中文方案的版本什么都不少。
+#[test]
+fn editions_without_handwriting_open_no_handwriting_surface() {
+    use msime_client_core::edition::Edition;
+    use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+    let handwriting = [
+        SurfaceRoute::Handwriting,
+        SurfaceRoute::Settings(Some(SettingsCategory::Handwriting)),
+    ];
+    let others = [
+        SurfaceRoute::Keyboard,
+        SurfaceRoute::Emoji,
+        SurfaceRoute::Voice,
+        SurfaceRoute::Settings(None),
+        SurfaceRoute::Settings(Some(SettingsCategory::Input)),
+    ];
+    for edition in Edition::all() {
+        for route in handwriting {
+            assert_eq!(
+                super::edition_offers_route(edition, route),
+                edition.features.handwriting,
+                "{} {route:?}",
+                edition.id
+            );
+        }
+        for route in others {
+            assert!(
+                super::edition_offers_route(edition, route),
+                "{} {route:?}",
+                edition.id
+            );
+        }
+    }
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            !super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
+    for id in ["full", "pinyin", "wubi"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
 }

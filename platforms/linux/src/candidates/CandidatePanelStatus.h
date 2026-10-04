@@ -13,6 +13,7 @@
 #include <system_error>
 
 #include "AtomicWrite.h"
+#include "../core/LinuxEdition.h"
 
 namespace msime::linux_host {
 
@@ -51,7 +52,7 @@ inline std::string candidate_panel_status_document(std::string_view host, Candid
 // $XDG_RUNTIME_DIR/msime-client/candidate-panel.json, beside the panel input socket. A missing or relative runtime directory yields nothing, as it does for the socket.
 inline std::optional<std::filesystem::path> candidate_panel_status_file(const char *runtime) {
   if (!runtime || runtime[0] != '/') return std::nullopt;
-  return std::filesystem::path(runtime) / "msime-client" / "candidate-panel.json";
+  return std::filesystem::path(runtime) / MSIME_EDITION_CLIENT_DIRECTORY / "candidate-panel.json";
 }
 
 // XDG_CURRENT_DESKTOP names GNOME Shell's session ("GNOME", "ubuntu:GNOME"). Desktops built on GNOME that run their own panel, and so draw IBus through ibus-ui-gtk3, list GNOME as well and are excluded by their own name.

@@ -1,3 +1,4 @@
+import { AppEdition } from "../keyboard/AppEdition";
 import { utf8Length } from "../keyboard/Utf8";
 
 /**
@@ -84,6 +85,55 @@ const THEME_BASES = ["system", "shuishan", "light", "paper", "night", "ink"];
 const THEMES = ["dark", "light", "system"];
 const HAPTIC_STRENGTHS = ["light", "medium", "strong"];
 
+// 账号设置里 `input.schema` 认得的取值，即 client-core `InputScheme` 的全部方案。不在这里的取值不归版本过滤管，留给下面的规则处理。
+const ACCOUNT_SCHEMES = SCHEMES.concat(LOCAL_ONLY_SCHEMES);
+// 随 `input.schema` 一起同步的键：它们和方案一起才决定键盘上的那个入口（全拼加九键是全拼 9 键，加手写是手写），方案不同步时它们也不同步，否则 full 那边选的全拼 9 键会把五笔版的键盘换成九键布局。前两个是 client-core 的规则里列出的 iOS、Android 的键，最后一个是本机的同类键。
+const SCHEME_COMPANION_KEYS = [
+  "platform.ios.nine_key",
+  "platform.android.keyboard_layout",
+  "platform.harmony.keyboard_layout",
+];
+
+/** 本版本不同步 `input.schema`（只有一个方案），或它的值是本版本不提供的方案时，去掉它和随它的布局。 */
+function dropUnsyncedScheme(edition: AppEdition, settings: AccountPreferenceSettings): void {
+  const scheme: AccountPreferenceValue | undefined = settings["input.schema"];
+  let keeps: boolean = edition.offersSchemeChoice();
+  if (keeps && typeof scheme === "string" && ACCOUNT_SCHEMES.includes(scheme)) {
+    keeps = edition.offers(scheme);
+  }
+  if (!keeps) {
+    delete settings["input.schema"];
+    for (const key of SCHEME_COMPANION_KEYS) delete settings[key];
+  }
+}
+
+/**
+ * 上传前按版本过滤本机整理出的账号设置，规则与 client-core 的 `filter_uploaded_account_settings`（crates/client-core/src/edition.rs）相同：
+ * - 只有一个方案的版本不上传 `input.schema` 和随它的布局，否则会把 full 等其他版本记在账号里的方案盖掉；
+ * - 有多个方案的版本只上传本版本提供的方案；
+ * - 不提供双拼、五笔的版本不上传双拼方案、五笔版本这两项。
+ *
+ * full 提供全部方案，什么也不去掉。
+ */
+export function filterUploadedAccountSettings(
+  edition: AppEdition,
+  settings: AccountPreferenceSettings,
+): void {
+  dropUnsyncedScheme(edition, settings);
+  if (!edition.offers("shuangpin")) delete settings["input.shuangpin_schema"];
+  if (!edition.offers("wubi")) delete settings["input.wubi_schema"];
+}
+
+/**
+ * 应用前按版本过滤从账号下载的设置，规则与 client-core 的 `filter_downloaded_account_settings` 相同：只有一个方案的版本忽略 `input.schema` 和随它的布局；有多个方案的版本把本版本不提供的方案当作账号里没有这一项，本机方案保持不变，其余设置照常应用。full 什么也不去掉。
+ */
+export function filterDownloadedAccountSettings(
+  edition: AppEdition,
+  settings: AccountPreferenceSettings,
+): void {
+  dropUnsyncedScheme(edition, settings);
+}
+
 function validKey(value: string): boolean {
   if (value.length === 0 || utf8Length(value) > MAX_KEY_BYTES) return false;
   return /^[A-Za-z0-9._-]+$/.test(value);
@@ -101,19 +151,25 @@ function accepts(declared: string, actual: string): boolean {
 }
 
 export function validateAccountPreferences(value: AccountPreferences): void {
-  if (!Number.isInteger(value.revision) || value.revision < 0) refuse("account_unavailable");
+  if (!Number.isSafeInteger(value.revision) || value.revision < 0) refuse("account_unavailable");
   const keys = Object.keys(value.settings);
   if (keys.length > MAX_FIELDS) refuse("account_unavailable");
   for (const key of keys) {
     if (!validKey(key)) refuse("account_unavailable");
     const entry = value.settings[key];
-    if (typeof entry === "number" && !Number.isFinite(entry)) refuse("account_unavailable");
+    if (typeof entry === "boolean") continue;
+    if (typeof entry === "number") {
+      if (!Number.isFinite(entry)) refuse("account_unavailable");
+      continue;
+    }
     if (typeof entry === "string") {
       // eslint-disable-next-line no-control-regex
       if (utf8Length(entry) > MAX_STRING_BYTES || /[\u0000-\u001f\u007f]/.test(entry)) {
         refuse("account_unavailable");
       }
+      continue;
     }
+    refuse("account_unavailable");
   }
 }
 
@@ -140,6 +196,70 @@ export function validatePreferenceSchema(value: AccountPreferenceSchema): void {
       refuse("account_unavailable");
     }
   }
+}
+
+/** Decode the snake_case schema returned by the account service at the native boundary. */
+export function preferenceSchemaFromDocument(document: Document): AccountPreferenceSchema | null {
+  const fields = member(document, "fields");
+  const maximumBytes = member(document, "maximum_bytes");
+  const updateMode = member(document, "update_mode");
+  const revisionRequired = member(document, "revision_required");
+  if (
+    fields === undefined ||
+    fields === null ||
+    typeof fields !== "object" ||
+    Array.isArray(fields) ||
+    typeof maximumBytes !== "number" ||
+    typeof updateMode !== "string" ||
+    typeof revisionRequired !== "boolean"
+  ) {
+    return null;
+  }
+  const schema: AccountPreferenceSchema = {
+    fields: fields as AccountPreferenceFields,
+    maximumBytes,
+    updateMode,
+    revisionRequired,
+  };
+  try {
+    validatePreferenceSchema(schema);
+    return schema;
+  } catch {
+    return null;
+  }
+}
+
+/** Decode and validate the account document before it is shown or merged by a host. */
+export function accountPreferencesFromDocument(document: Document): AccountPreferences | null {
+  const revision = member(document, "revision");
+  const settings = member(document, "settings");
+  if (
+    typeof revision !== "number" ||
+    settings === undefined ||
+    settings === null ||
+    typeof settings !== "object" ||
+    Array.isArray(settings)
+  ) {
+    return null;
+  }
+  const preferences: AccountPreferences = {
+    revision,
+    settings: settings as AccountPreferenceSettings,
+  };
+  try {
+    validateAccountPreferences(preferences);
+    return preferences;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the native preferences revision without allowing JSON numbers to lose precision. */
+export function localPreferenceRevision(document: Document): number | null {
+  const revision = member(document, "revision");
+  return typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : null;
 }
 
 /**
@@ -201,7 +321,7 @@ function flag(value: Object | undefined, fallback: boolean): boolean {
 }
 
 function whole(value: Object | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
 }
 
 /**
@@ -215,6 +335,7 @@ function whole(value: Object | undefined, fallback: number): number {
 export function localAccountPreferences(
   preferences: Document,
   feedback: FeedbackValues,
+  edition: AppEdition = AppEdition.current(),
 ): AccountPreferenceSettings {
   const frequency = record(member(preferences, "frequency")) ?? {};
   const customTheme = record(member(preferences, "custom_theme")) ?? {};
@@ -284,7 +405,11 @@ export function localAccountPreferences(
     ),
   };
   if (!(typeof scheme === "string" && LOCAL_ONLY_SCHEMES.includes(scheme))) {
-    settings["input.schema"] = enumerated(scheme, SCHEMES, "quanpin");
+    // 本机文档里的方案认不出时按本版本的默认方案上传（full 是全拼）。
+    const fallback: string = SCHEMES.includes(edition.defaultScheme)
+      ? edition.defaultScheme
+      : "quanpin";
+    settings["input.schema"] = enumerated(scheme, SCHEMES, fallback);
   }
   // 五笔版本只随五笔方案上传：不在五笔上时本机的缺省 86 不该盖掉账号里别的设备选的 98。
   if (scheme === "wubi") {
@@ -294,6 +419,7 @@ export function localAccountPreferences(
       "wubi86",
     );
   }
+  filterUploadedAccountSettings(edition, settings);
   return settings;
 }
 
@@ -375,6 +501,7 @@ export function applyAccountPreferences(
   cloud: AccountPreferences,
   schema: AccountPreferenceSchema,
   feedback: FeedbackValues,
+  edition: AppEdition = AppEdition.current(),
 ): AppliedPreferences {
   validateAccountPreferences(cloud);
   validatePreferenceSchema(schema);
@@ -384,7 +511,9 @@ export function applyAccountPreferences(
       refuse("account_invalid");
     }
   }
-  const reader = new Reader(cloud.settings, schema);
+  const settings: AccountPreferenceSettings = { ...cloud.settings };
+  filterDownloadedAccountSettings(edition, settings);
+  const reader = new Reader(settings, schema);
   const preferences: Document = { ...local };
 
   const scheme = reader.text("input.schema");

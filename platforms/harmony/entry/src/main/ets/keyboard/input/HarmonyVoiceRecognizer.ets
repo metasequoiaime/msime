@@ -47,7 +47,8 @@ export class HarmonyVoiceRecognizer {
     if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
     const localProvider: boolean = config.asr_provider === 'local';
     if (localProvider && this.local.isActive()) throw new Error('语音识别正在进行');
-    if (localProvider && !LocalAsrPolicy.usesLocalModel(config.asr_provider, config.asr_model_path)) {
+    if (localProvider && !LocalAsrPolicy.usesLocalModel(
+      config.asr_provider, config.asr_model_path, config.local_model_root)) {
       throw new Error('请先在设置中下载并选择本地语音模型');
     }
     // The recognizers all own the same microphone and the keyboard has one recording

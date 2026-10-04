@@ -48,6 +48,7 @@ uint32_t msime_client_abi_version(void);
  * Verifies pinned resources, delegates working data preparation to Engine and
  * returns HostOptions. Maximum 16384 bytes; no session may use state_root during
  * preparation. Caller publishes the returned config atomically after success.
+ * 可选的 edition 是版本 id（shared/contracts/editions.json），缺省为 full；不是 full 时返回的 HostOptions 带 edition 键，未知 id 返回错误。
  */
 char *msime_client_prepare_host(const uint8_t *options, size_t length);
 /* path is an absolute UTF-8 runtime options file path of length bytes; maximum 4096. When its dictionaries directory is not the installed resource generation (after a package upgrade), prepares that generation, replays the user dictionary into it and atomically rewrites resources/dictionaries, keeping every other key. It also keeps language_dictionaries in step with the Cantonese, Zhuyin and Stroke dictionaries installed beside the resources, whatever the generation; only an input method host may call it, because a host older than this library rejects that key. Value is true when the file was rewritten. Call before creating any session from the file. When the recorded resource directory does not match the compiled dictionary lock (downloaded dictionaries an upgrade did not replace) the error text begins with "dictionary_outdated:" and the file is left unchanged; the rest of that text may name private paths. */

@@ -292,6 +292,33 @@ test("a previous client's model list cannot replace the active client after a ho
   expect(screen.getByRole("listitem", { name: "快速整句" })).toBeTruthy();
 });
 
+test("clears the previous client's model list while the replacement loads", async () => {
+  const first = fakeClient([streaming]);
+  let resolveSecond!: (value: { models: LocalVoiceModel[]; default: string; root: string }) => void;
+  const second = fakeClient([sense]);
+  vi.mocked(second.client.list).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+  );
+  const props = {
+    mobile: false,
+    modelPath: "",
+    onUse: vi.fn(),
+    onRemoved: vi.fn(),
+    confirm: vi.fn(async () => true),
+  };
+  const view = render(<LocalModelManager {...props} client={first.client} />);
+  await screen.findByRole("listitem", { name: "中英流式" });
+
+  view.rerender(<LocalModelManager {...props} client={second.client} />);
+  expect(screen.queryByRole("listitem", { name: "中英流式" })).toBeNull();
+
+  resolveSecond({ models: [sense], default: sense.id, root });
+  await screen.findByRole("listitem", { name: "快速整句" });
+});
+
 test("returning to a model client ignores progress from its previous subscription", async () => {
   const first = fakeClient([streaming]);
   const second = fakeClient([streaming]);
@@ -313,7 +340,7 @@ test("returning to a model client ignores progress from its previous subscriptio
   view.rerender(<LocalModelManager {...props} client={second.client} />);
   view.rerender(<LocalModelManager {...props} client={first.client} />);
 
-  const card = within(screen.getByRole("listitem", { name: "中英流式" }));
+  const card = within(await screen.findByRole("listitem", { name: "中英流式" }));
   fireEvent.click(card.getByRole("button", { name: /下载/ }));
   act(() => {
     listeners[1]({ id: streaming.id, stage: "download", downloaded: 22, total: 100 });

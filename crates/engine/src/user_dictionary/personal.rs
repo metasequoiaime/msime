@@ -17,7 +17,9 @@ use crate::user_dictionary::journal::{ensure_user_database, open_database};
 use crate::user_dictionary::ngram_store::{
     delete_personal_ngram_word, flush_journal, forget_journal_rows,
 };
-use crate::user_dictionary::replay::{apply_english, apply_pinyin, apply_simple, attach};
+use crate::user_dictionary::replay::{
+    apply_english, apply_pinyin, apply_simple, attach, open_without_main_dictionary,
+};
 
 pub const MAX_PAGE_LIMIT: usize = 1_000;
 pub const MAX_PAGE_OFFSET: usize = 1_000_000;
@@ -63,6 +65,9 @@ pub(super) const STORAGE_UNAVAILABLE: &str = "Cannot access personal dictionary 
 pub(super) const INVALID_PAGE: &str = "Invalid personal dictionary page";
 pub(super) const DICTIONARY_NOT_READ: &str = "Cannot read personal dictionary";
 pub(super) const PAGE_READ_UNFINISHED: &str = "Cannot finish reading personal dictionary";
+/// 没有 `msime-pinyin.db` 的代次（方案集合不读它）只收英文词：拼音、五笔和快捷短语都写在 `msime-pinyin.db` 里。
+pub(super) const NO_CHINESE_DICTIONARY: &str =
+    "This input method has no Chinese dictionary; only English words can be edited";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PersonalDictionaryPage {
@@ -167,6 +172,17 @@ pub fn edit_personal_dictionary(
     replacement: Option<&PersonalDictionaryEntry>,
     request_id: &str,
 ) -> Result<()> {
+    edit_personal_dictionary_with(paths, true, previous, replacement, request_id)
+}
+
+/// [`edit_personal_dictionary`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`（`SchemeSet::reads_main_dictionary`）。没有时只能编辑英文词，其余种类的增删改都以 `NO_CHINESE_DICTIONARY` 失败，什么也不写。
+pub fn edit_personal_dictionary_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    previous: Option<&PersonalDictionaryEntry>,
+    replacement: Option<&PersonalDictionaryEntry>,
+    request_id: &str,
+) -> Result<()> {
     if !valid_request_id(request_id) {
         return Err(failed(INVALID_REQUEST_ID));
     }
@@ -181,10 +197,18 @@ pub fn edit_personal_dictionary(
         .map(validate_personal_dictionary_entry)
         .transpose()
         .map_err(as_failure)?;
+    if !main_dictionary
+        && [old.as_ref(), new.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|entry| entry.kind != PersonalDictionaryKind::English)
+    {
+        return Err(failed(NO_CHINESE_DICTIONARY));
+    }
 
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
     let journal = paths.user(assets::USER_JOURNAL);
-    let mut connection = open_edit_connection(paths)?;
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
     // A removal below may delete personal context rows, which must include what is still queued in memory. Written before the transaction: the store writes on its own connection (J:1837-1838).
     flush_journal(&journal).map_err(|_| failed(CONTEXT_NOT_WRITTEN))?;
     // Every early return drops the transaction, which rolls the dictionary, the journal and the receipt back together, as the reference's `fail` did.
@@ -258,6 +282,17 @@ pub fn personal_dictionary_entries(
     limit: usize,
     include_learned_pinyin: bool,
 ) -> Result<PersonalDictionaryPage> {
+    personal_dictionary_entries_with(paths, true, offset, limit, include_learned_pinyin)
+}
+
+/// [`personal_dictionary_entries`]，`main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时只列英文词：别的种类的行（例如从别的版本恢复来的快照）在这里既用不上也改不了，所以不列出。
+pub fn personal_dictionary_entries_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    offset: usize,
+    limit: usize,
+    include_learned_pinyin: bool,
+) -> Result<PersonalDictionaryPage> {
     if limit == 0 || limit > MAX_PAGE_LIMIT || offset > MAX_PAGE_OFFSET {
         return Err(failed(INVALID_PAGE));
     }
@@ -271,7 +306,7 @@ pub fn personal_dictionary_entries(
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
     let mut statement = connection
         .prepare(
-            "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2",
+            "SELECT dictionary,key,value,weight FROM user_dictionary_operations WHERE operation='upsert' AND (user_inserted=1 OR (?3 AND dictionary='pinyin')) AND NOT (?3 AND dictionary='pinyin' AND length(value)<=1) AND (?4 OR dictionary='english') ORDER BY dictionary,key,value LIMIT ?1 OFFSET ?2",
         )
         .map_err(|_| failed(DICTIONARY_NOT_READ))?;
     let mut page = PersonalDictionaryPage::default();
@@ -279,7 +314,8 @@ pub fn personal_dictionary_entries(
         let mut rows = statement.query(params![
             page_bind(limit + 1),
             page_bind(offset),
-            i64::from(include_learned_pinyin)
+            i64::from(include_learned_pinyin),
+            i64::from(main_dictionary)
         ])?;
         while let Some(row) = rows.next()? {
             if page.entries.len() == limit {
@@ -305,18 +341,25 @@ pub fn personal_dictionary_entries(
     Ok(page)
 }
 
-/// The main dictionary opened for writing with the journal attached as `personal_journal` and the English dictionary as `replay_english`, both prepared first (J:1822-1836).
-pub(super) fn open_edit_connection(paths: &RuntimePaths) -> Result<Connection> {
+/// The main dictionary opened for writing with the journal attached as `personal_journal` and the English dictionary as `replay_english`, both prepared first (J:1822-1836). `main_dictionary` 为假（代次里没有 `msime-pinyin.db`）时以一个内存库代替它，只有 attach 的日志和英文词库可写。
+pub(super) fn open_edit_connection(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+) -> Result<Connection> {
     let journal = paths.user(assets::USER_JOURNAL);
     let english = paths.dictionary(assets::ENGLISH_DICTIONARY);
     if ensure_user_database(&journal).is_err() || ensure_english_schema(&english).is_err() {
         return Err(failed(STORAGE_NOT_PREPARED));
     }
-    let connection = open_database(
-        &paths.dictionary(assets::MAIN_DICTIONARY),
-        OpenFlags::SQLITE_OPEN_READ_WRITE,
-    )
-    .map_err(|_| failed(DICTIONARY_NOT_OPENED))?;
+    let connection = if main_dictionary {
+        open_database(
+            &paths.dictionary(assets::MAIN_DICTIONARY),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .map_err(|_| failed(DICTIONARY_NOT_OPENED))?
+    } else {
+        open_without_main_dictionary().map_err(|_| failed(DICTIONARY_NOT_OPENED))?
+    };
     for (schema, path) in [("personal_journal", &journal), ("replay_english", &english)] {
         attach(&connection, path, schema).map_err(|_| failed(STORAGE_NOT_ATTACHED))?;
     }

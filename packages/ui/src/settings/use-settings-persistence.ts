@@ -180,7 +180,7 @@ export function useSettingsPersistence({
   // judged against the revision the save is about to replace; the revision check then drops the
   // echo and still applies another window's later write.
   const savingRef = useRef(false);
-  const saveTokenRef = useRef(0);
+  const saveTokenRef = useAsyncGeneration();
   const heldChange = useRef<Snapshot>(undefined);
   const applyPreferencesChange = (value: Snapshot) => {
     const currentSnapshot = snapshotRef.current;

@@ -133,6 +133,8 @@ export interface LocalModesSectionProps {
   mentions?: boolean;
   /** A translation service is chosen, which the / mode's fy command asks. When false, the / row says fy gives nothing; absent where the host offers no choice of service. */
   translationService?: boolean;
+  /** 本版本带临时日文（`HostCapabilities.edition.temporary_japanese`）；为 false 时不列出临时日语开关。缺省为 true。 */
+  temporaryJapanese?: boolean;
   onChange: (preferences: LocalModePreferences) => void;
 }
 
@@ -143,15 +145,19 @@ export function LocalModesSection({
   triggers = false,
   mentions = false,
   translationService,
+  temporaryJapanese = true,
   onChange,
 }: LocalModesSectionProps) {
+  const modeRows = temporaryJapanese
+    ? localModeRows
+    : localModeRows.filter(([key]) => key !== "temporary_japanese");
   const rows = triggers
     ? [
-        ...localModeRows,
+        ...modeRows,
         ...triggerModeRows.filter(([key]) => key !== "mention" || mentions),
         ...(mentions ? [mentionPlacesRow] : []),
       ]
-    : localModeRows;
+    : modeRows;
   return (
     <GroupList title="快捷模式">
       {rows.map(([key, label, description]) => (

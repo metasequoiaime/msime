@@ -44,6 +44,8 @@ export interface VoiceInputConfiguration {
   asr_model: string;
   /** Directory of the installed on-device model the `local` provider loads; absent or empty means none has been picked. */
   asr_model_path?: string;
+  /** 宿主注入的根目录；本地识别只接受 `<filesDir>/voice-models` 下的模型。 */
+  local_model_root?: string;
   /** Download mirror the settings page uses for model installs; the keyboard only carries it through. */
   asr_model_mirror?: string;
   polish_enabled: boolean;

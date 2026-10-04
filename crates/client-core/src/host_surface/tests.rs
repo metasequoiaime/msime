@@ -644,3 +644,108 @@ fn candidate_window_style_is_offered_where_the_host_draws_the_card() {
     assert_eq!(flags(HostPlatform::Android), (false, false, false));
     assert_eq!(flags(HostPlatform::Ios), (false, false, false));
 }
+
+#[test]
+fn full_offers_every_compiled_scheme_and_leaves_the_capabilities_alone() {
+    let full = Edition::full();
+    assert_eq!(offered_input_schemes(full), compiled_input_schemes());
+    for platform in [
+        HostPlatform::Macos,
+        HostPlatform::Windows,
+        HostPlatform::Linux,
+        HostPlatform::Android,
+        HostPlatform::Ios,
+        HostPlatform::Harmony,
+    ] {
+        let before = HostCapabilities::for_platform(platform);
+        let mut after = before.clone();
+        after.narrow_to_edition(full);
+        assert_eq!(after, before);
+        // full 的能力文档里没有 `edition` 键，与引入版本之前逐字节相同。
+        assert!(serde_json::to_value(&after)
+            .unwrap()
+            .get("edition")
+            .is_none());
+    }
+}
+
+#[test]
+fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
+    use crate::preferences::InputScheme;
+    let wubi = Edition::by_id("wubi").unwrap();
+    assert_eq!(offered_input_schemes(wubi), [InputScheme::Wubi]);
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+    capabilities.narrow_to_edition(wubi);
+    assert_eq!(capabilities.input_schemes, [InputScheme::Wubi]);
+    assert_eq!(
+        capabilities.edition,
+        Some(EditionInfo {
+            id: "wubi".into(),
+            display_name: "水杉五笔".into(),
+            input_schemes: vec![InputScheme::Wubi],
+            default_scheme: InputScheme::Wubi,
+            temporary_japanese: false,
+            neural_keyboard: false,
+            offline_glosses: true,
+            handwriting: true,
+            wubi_mixed_pinyin_default: true,
+        })
+    );
+    let document = serde_json::to_value(&capabilities).unwrap();
+    assert_eq!(
+        document["edition"],
+        serde_json::json!({
+            "id": "wubi",
+            "display_name": "水杉五笔",
+            "input_schemes": ["wubi"],
+            "default_scheme": "wubi",
+            "temporary_japanese": false,
+            "neural_keyboard": false,
+            "offline_glosses": true,
+            "handwriting": true,
+            "wubi_mixed_pinyin_default": true,
+        })
+    );
+    assert_eq!(
+        serde_json::from_value::<HostCapabilities>(document).unwrap(),
+        capabilities
+    );
+
+    // 宿主先在运行时去掉了某个方案（这里是双拼），版本再收窄时不会把它加回来；`edition` 里仍列出本版本的全部方案。
+    let pinyin = Edition::by_id("pinyin").unwrap();
+    let mut capabilities = HostCapabilities::for_platform(HostPlatform::Linux);
+    capabilities
+        .input_schemes
+        .retain(|scheme| *scheme != InputScheme::Shuangpin);
+    capabilities.narrow_to_edition(pinyin);
+    assert_eq!(capabilities.input_schemes, [InputScheme::Quanpin]);
+    let edition = capabilities.edition.unwrap();
+    assert_eq!(
+        edition.input_schemes,
+        [InputScheme::Quanpin, InputScheme::Shuangpin]
+    );
+    assert!(edition.temporary_japanese);
+    assert!(!edition.wubi_mixed_pinyin_default);
+}
+
+/// 不提供中文方案的版本（日文、越南文和藏文版）不带离线释义也不提供手写：设置页据此藏起手写页，macOS 悬浮工具栏的手写按钮开关也随之消失。提供中文方案的版本保持原样。
+#[test]
+fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(capabilities.floating_toolbar_handwriting);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(!capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(!edition.handwriting, "{id}");
+        assert!(!edition.offline_glosses, "{id}");
+    }
+    for id in ["pinyin", "wubi"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(edition.handwriting, "{id}");
+        assert!(edition.offline_glosses, "{id}");
+    }
+}

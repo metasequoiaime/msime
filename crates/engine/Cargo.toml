@@ -31,6 +31,10 @@ unicode-segmentation.workspace = true
 vi = "=0.8.0"
 wana_kana = "5"
 
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+# web.rs 通过 rusqlite::ffi::MemVfsUtil 导入词库，依赖这个 feature
+rusqlite = { workspace = true, features = ["bundled", "backup", "ffi-sqlite-wasm-rs"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 

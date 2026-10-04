@@ -110,6 +110,10 @@ int main(int argc, char **argv) {
         validation,
         "(not DirectoryIsEmpty(Directory)) and (not OwnsDataDir(Directory))",
         "Installer may claim and later delete a non-empty foreign directory");
+    contains(validation, "Overlap := OtherEditionDataDirWithin(Directory);",
+             "Data directory may contain another edition's data directory");
+    contains(validation, "Overlap := OtherEditionDataDirAround(Directory);",
+             "Data directory may sit inside another edition's data directory");
     contains(validation, "'msime-write-probe-' + IntToStr(Index)",
              "Fixed probe name can overwrite an existing user file");
     contains(validation, "SaveStringToFile(ProbePath, 'probe', False)",
@@ -147,7 +151,7 @@ int main(int argc, char **argv) {
              "Uninstall does not capture DataDir before its value is removed");
     const auto post_uninstall =
         between(script, "else if CurUninstallStep = usPostUninstall",
-                "TryDeleteTree(ResolvePreviousDataDir);");
+                "DeleteDataDir(ResolvePreviousDataDir, '');");
     contains(post_uninstall, "if OwnsDataDir(ResolvePreviousDataDir) then",
              "Uninstall removes a data directory it did not record");
     if (post_uninstall.find("GetDataDir(") != std::string::npos)
@@ -179,6 +183,8 @@ int main(int argc, char **argv) {
              "Migration does not walk every user item");
     contains(migrate, "(not IsPathInside(NewDir, Source))",
              "Migration copies the new directory into itself");
+    contains(migrate, "(OtherEditionDataDirWithin(Source) = '')",
+             "Migration copies another edition's data directory as user data");
     contains(migrate, "if IsPathInside(OldDir, Destination) then",
              "Migration can write into its own source");
     contains(migrate, "DataDirMigrated := True",
@@ -186,15 +192,26 @@ int main(int argc, char **argv) {
     for (const char *removal : {"TryDeleteTree", "DelTree", "DeleteFile", "/MOVE"})
       if (migrate.find(removal) != std::string::npos)
         throw std::runtime_error("Migration deletes the source before installation succeeds");
+    // Several editions can be installed side by side, and one edition's data directory can end up inside another's. Removing a data directory must never take the other edition's directory, or the new directory, with it.
+    const auto remove = between(script, "procedure DeleteDataDir",
+                                "function IsMigratedDataItem");
+    contains(remove, "if OtherEditionDataDirAround(Directory) <> '' then",
+             "A data directory inside another edition's is removed");
+    contains(remove, "(OtherEditionDataDirWithin(Directory) = '')",
+             "Removing a data directory can delete another edition's inside it");
+    contains(remove, "(not IsPathInside(Keep, Directory))",
+             "Removing the previous directory can delete a new one inside it");
+    contains(remove, "(not IsPathInside(Keep, ItemPath))",
+             "Removing the previous directory can delete a new one inside it");
+    contains(remove, "(OtherEditionDataDirWithin(ItemPath) = '')",
+             "Removing a data directory can delete another edition's inside it");
     const auto finish = between(script, "procedure FinishDataDirMove",
                                 "function PrepareToInstall");
     contains(finish, "if not DataDirMigrated then",
              "Previous directory is removed without a completed copy");
     contains(finish, "(not OwnsDataDir(OldDir))",
              "Previous directory is removed without our ownership marker");
-    contains(finish, "if not IsPathInside(NewDir, OldDir) then",
-             "Removing the previous directory can delete a new one inside it");
-    contains(finish, "if not IsPathInside(NewDir, ItemPath) then",
+    contains(finish, "DeleteDataDir(OldDir, NewDir);",
              "Removing the previous directory can delete a new one inside it");
     const auto post_install = between(script, "if CurStep = ssPostInstall then",
                                       "procedure CurUninstallStepChanged");

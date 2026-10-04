@@ -19,6 +19,8 @@ jobs:
     #   MACOS_NOTARY_APPLE_ID, MACOS_NOTARY_TEAM_ID, MACOS_NOTARY_APP_SPECIFIC_PASSWORD  notarization credentials for xcrun notarytool
     #   HOMEBREW_TAP_TOKEN                       a token that can push to metasequoiaime/homebrew-tap, for the cask update after a release
     env:
+      # 一次发布打出的版本（shared/contracts/editions.json 的 id）：每个版本一个 DMG、一个 cask，可以同时安装。full 的 DMG 名、cask 和 bundle id 与引入版本之前相同。
+      MACOS_EDITIONS: full,wubi,pinyin,japanese,vietnamese,tibetan
       MACOS_CERTIFICATE_P12_BASE64: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}"
       MACOS_CERTIFICATE_PASSWORD: "${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}"
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
@@ -102,7 +104,7 @@ jobs:
           APPLE_ID: "${{ secrets.MACOS_NOTARY_APPLE_ID }}"
           APPLE_TEAM_ID: "${{ secrets.MACOS_NOTARY_TEAM_ID }}"
           APPLE_APP_SPECIFIC_PASSWORD: "${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}"
-        run: bash platforms/macos/package-release.sh "$VERSION" dist
+        run: bash platforms/macos/package-release.sh --editions "$MACOS_EDITIONS" "$VERSION" dist
       - name: Remove signing keychain
         if: ${{ always() && env.MSIME_SIGNING_KEYCHAIN != '' }}
         run: security delete-keychain "$MSIME_SIGNING_KEYCHAIN"
@@ -112,12 +114,20 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           dmgs=(dist/*.dmg)
-          [[ ${#dmgs[@]} -eq 1 ]]
-          [[ "$(basename "${dmgs[0]}")" == "msime-macos-${VERSION}-universal.dmg" ]]
+          IFS=, read -r -a editions <<< "$MACOS_EDITIONS"
+          # 每个版本恰好一个 DMG，名字是该版本的 dmg_prefix 加版本号；full 仍是 msime-macos-VERSION-universal.dmg。
+          [[ ${#dmgs[@]} -eq ${#editions[@]} ]]
+          for edition in "${editions[@]}"; do
+            prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
+            [[ -f "dist/${prefix}-${VERSION}-universal.dmg" ]]
+            grep -q " ${prefix}-${VERSION}-universal.dmg\$" dist/SHA256SUMS
+          done
           [[ -f dist/SHA256SUMS ]]
           (cd dist && shasum -a 256 -c SHA256SUMS)
           ls -l dist
-          echo "- $(basename "${dmgs[0]}"): $(stat -f %z "${dmgs[0]}") bytes" >> "$GITHUB_STEP_SUMMARY"
+          for dmg in "${dmgs[@]}"; do
+            echo "- $(basename "$dmg"): $(stat -f %z "$dmg") bytes" >> "$GITHUB_STEP_SUMMARY"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-macos-${{ steps.version.outputs.value }}
@@ -134,31 +144,39 @@ jobs:
           flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           python3 scripts/generate-release-notes.py --platform macos --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
           gh release create "$tag" dist/*.dmg dist/SHA256SUMS --target "$(git rev-parse HEAD)" --title "macOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"
-      # brew install --cask metasequoiaime/tap/msime. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set.
-      - name: Update the Homebrew cask
+      # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
+      - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease }}
         env: {GH_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}", VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           set -euo pipefail
-          dmg="dist/msime-macos-${VERSION}-universal.dmg"
-          if ! xcrun stapler validate "$dmg"; then
-            echo "::warning::$dmg is not notarized; the Homebrew cask was left at its previous version"
-            exit 0
-          fi
           if [[ -z "$GH_TOKEN" ]]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN is not set; the Homebrew cask was left at its previous version"
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; the Homebrew casks were left at their previous versions"
             exit 0
           fi
-          sha256="$(shasum -a 256 "$dmg" | cut -d' ' -f1)"
           gh auth setup-git
           git clone --depth 1 https://github.com/metasequoiaime/homebrew-tap.git "$RUNNER_TEMP/tap"
           mkdir -p "$RUNNER_TEMP/tap/Casks"
-          sed -e "s/@VERSION@/${VERSION}/g" -e "s/@SHA256@/${sha256}/g" platforms/macos/homebrew/msime.rb.in > "$RUNNER_TEMP/tap/Casks/msime.rb"
+          IFS=, read -r -a editions <<< "$MACOS_EDITIONS"
+          updated=()
+          for edition in "${editions[@]}"; do
+            prefix="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" dmg_prefix)"
+            cask="$(python3 platforms/macos/scripts/edition_bundle.py field --edition "$edition" cask)"
+            dmg="dist/${prefix}-${VERSION}-universal.dmg"
+            if ! xcrun stapler validate "$dmg"; then
+              echo "::warning::$dmg is not notarized; the $cask cask was left at its previous version"
+              continue
+            fi
+            sha256="$(shasum -a 256 "$dmg" | cut -d' ' -f1)"
+            python3 platforms/macos/scripts/edition_bundle.py cask --edition "$edition" --version "$VERSION" --sha256 "$sha256" \
+              --template platforms/macos/homebrew/msime.rb.in > "$RUNNER_TEMP/tap/Casks/${cask}.rb"
+            git -C "$RUNNER_TEMP/tap" add "Casks/${cask}.rb"
+            updated+=("$cask")
+          done
           cd "$RUNNER_TEMP/tap"
-          git add Casks/msime.rb
-          if git diff --cached --quiet; then
-            echo "The cask is already at ${VERSION}"
+          if [[ ${#updated[@]} -eq 0 ]] || git diff --cached --quiet; then
+            echo "The casks are already at ${VERSION}"
             exit 0
           fi
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "msime ${VERSION}"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "${updated[*]} ${VERSION}"
           git push origin HEAD

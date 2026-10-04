@@ -376,31 +376,6 @@ fn plain_component_capacity(path: &Path) -> usize {
     path.components().count()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn budget_rejects_an_oversized_member_without_overflowing() {
-        let mut budget = Budget {
-            files: 0,
-            bytes: u64::MAX - 1,
-        };
-        assert!(budget.take(2).is_err());
-    }
-
-    #[test]
-    fn plain_component_capacity_matches_path_components() {
-        for path in [Path::new("file.txt"), Path::new("folder/file.txt")] {
-            assert_eq!(plain_component_capacity(path), path.components().count());
-            assert_eq!(
-                plain_components(path).unwrap().len(),
-                path.components().count()
-            );
-        }
-    }
-}
-
 /// Write one file of the pack into staging, refusing a name the pack may not use or a second file of the same name, and stopping at the declared size even if the reader has more: a zip's recorded size is the archive's claim, not a bound.
 fn write_member(
     staging: &Path,
@@ -425,4 +400,29 @@ fn write_member(
     }
     output.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_rejects_an_oversized_member_without_overflowing() {
+        let mut budget = Budget {
+            files: 0,
+            bytes: u64::MAX - 1,
+        };
+        assert!(budget.take(2).is_err());
+    }
+
+    #[test]
+    fn plain_component_capacity_matches_path_components() {
+        for path in [Path::new("file.txt"), Path::new("folder/file.txt")] {
+            assert_eq!(plain_component_capacity(path), path.components().count());
+            assert_eq!(
+                plain_components(path).unwrap().len(),
+                path.components().count()
+            );
+        }
+    }
 }

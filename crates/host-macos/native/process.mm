@@ -1,10 +1,10 @@
 #import <AppKit/AppKit.h>
 
-// Stop the separate IMK host before moving its SQLite databases. The settings application has a
-// different bundle identifier, so it is never part of this set.
-extern "C" bool msime_macos_stop_input_method(void) {
-    if (!NSThread.isMainThread) return false;
-    NSString *identifier = @"app.msime.inputmethod.MetasequoiaIME";
+// 搬动 SQLite 数据库之前先停掉独立的 IMK 进程。`bundle_identifier` 是本版本输入法的 bundle id（同时安装的其他版本不受影响）；设置应用的 bundle id 与它不同，所以从不在这个集合里。
+extern "C" bool msime_macos_stop_input_method(const char *bundle_identifier) {
+    if (!NSThread.isMainThread || !bundle_identifier) return false;
+    NSString *identifier = [NSString stringWithUTF8String:bundle_identifier];
+    if (identifier.length == 0) return false;
     NSArray<NSRunningApplication *> *applications =
         [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier];
     for (NSRunningApplication *application in applications) {
