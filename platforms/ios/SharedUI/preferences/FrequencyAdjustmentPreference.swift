@@ -28,14 +28,7 @@ enum FrequencyAdjustmentPreference {
   }
 
   static func resolvedCount(_ stored: Any?) -> Int {
-    let value: Int?
-    if let number = stored as? Int {
-      value = number
-    } else if let number = stored as? NSNumber {
-      value = integer(number)
-    } else {
-      value = nil
-    }
+    let value = (stored as? NSNumber).flatMap(integer)
     guard let value, countRange.contains(value) else { return 1 }
     return value
   }
