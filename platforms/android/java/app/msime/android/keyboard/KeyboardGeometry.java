@@ -50,6 +50,14 @@ public final class KeyboardGeometry {
         return (int) value;
     }
 
+    public static long strictLong(Object raw, long fallback) {
+        if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        double value = ((Number) raw).doubleValue();
+        if (!Double.isFinite(value) || value != Math.rint(value)
+                || value < Long.MIN_VALUE || value > Long.MAX_VALUE) return fallback;
+        return ((Number) raw).longValue();
+    }
+
     /** Divide the total adjustment across rows without losing a density-independent pixel. */
     public static int adjustedRowHeight(int baseHeight, int adjustment, int rowCount, int rowIndex) {
         if (baseHeight <= 0 || rowCount <= 0 || rowIndex < 0 || rowIndex >= rowCount)
