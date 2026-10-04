@@ -2743,7 +2743,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     invalidate,
     isCurrent,
   } = usePanelAction(setNotice);
-  const lifecycleRevision = useAsyncGeneration();
+  const lifecycleRevision = useAsyncGeneration(client);
 
   async function refreshStatus() {
     if (busyRef.current) return;
@@ -2821,7 +2821,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   }
 
   useEffect(() => {
-    const lifecycle = ++lifecycleRevision.current;
     invalidate();
     setPreview(null);
     setPreviewToken(null);
@@ -2830,7 +2829,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       void refreshStatus();
     }, 2000);
     return () => {
-      if (lifecycle === lifecycleRevision.current) lifecycleRevision.current++;
       invalidate();
       window.clearInterval(timer);
     };
