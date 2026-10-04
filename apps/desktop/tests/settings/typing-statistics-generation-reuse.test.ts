@@ -11,6 +11,7 @@ test("typing statistics reuses shared mounted and generation lifecycles", () => 
 
   expect(source).toContain("useMountedRef(");
   expect(source).toContain("useAsyncGeneration(");
+  expect(source).not.toContain("let active = true");
   expect(source).not.toContain("const mounted = useRef(true)");
   expect(source).not.toContain("const clientGeneration = useRef(0)");
 });
