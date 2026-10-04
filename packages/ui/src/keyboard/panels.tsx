@@ -2744,7 +2744,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     invalidate,
     isCurrent,
   } = usePanelAction(setNotice);
-  const lifecycleRevision = useRef(0);
+  const lifecycleRevision = useAsyncGeneration();
 
   async function refreshStatus() {
     if (busyRef.current) return;
