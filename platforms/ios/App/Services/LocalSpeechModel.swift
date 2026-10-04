@@ -291,7 +291,7 @@ enum LocalSpeechModelLocation {
   /// The installed model the stored path names. iOS moves an app's container on update, so a stored path that no longer exists is looked up again by its model id under the current root.
   static func resolve(storedPath: String, root: URL?) -> URL? {
     let trimmed = storedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
+    guard !trimmed.isEmpty, trimmed.hasPrefix("/") else { return nil }
     let stored = URL(fileURLWithPath: trimmed, isDirectory: true)
     guard let root, !rejectsSymlinkAncestors(root) else { return nil }
     let managedRoot = root.resolvingSymlinksInPath().standardizedFileURL
@@ -310,7 +310,7 @@ enum LocalSpeechModelLocation {
   /// Whether `storedPath` points at the model `id`, wherever the container was when it was written.
   static func names(_ storedPath: String, model id: String) -> Bool {
     let trimmed = storedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    return !trimmed.isEmpty && URL(fileURLWithPath: trimmed).lastPathComponent == id
+    return !trimmed.isEmpty && trimmed.hasPrefix("/") && URL(fileURLWithPath: trimmed).lastPathComponent == id
   }
 
   private static func isWithin(_ child: URL, root: URL) -> Bool {

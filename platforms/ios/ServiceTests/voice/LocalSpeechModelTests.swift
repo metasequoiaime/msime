@@ -137,10 +137,12 @@ final class LocalSpeechModelTests: XCTestCase {
     let old = "/private/var/mobile/Containers/Data/Application/OLD/Library/Application Support/voice-models/zipformer"
     XCTAssertEqual(LocalSpeechModelLocation.resolve(storedPath: old, root: root)?.standardizedFileURL, model.standardizedFileURL)
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: old, root: nil))
+    XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: "zipformer", root: root))
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: "", root: root))
     XCTAssertNil(LocalSpeechModelLocation.resolve(storedPath: root.appendingPathComponent("gone").path, root: root))
     XCTAssertTrue(LocalSpeechModelLocation.names(old, model: "zipformer"))
     XCTAssertFalse(LocalSpeechModelLocation.names(old, model: "sense-voice"))
+    XCTAssertFalse(LocalSpeechModelLocation.names("zipformer", model: "zipformer"))
     XCTAssertFalse(LocalSpeechModelLocation.names(" ", model: "zipformer"))
   }
 
