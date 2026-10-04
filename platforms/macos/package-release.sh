@@ -130,6 +130,12 @@ fi
 CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
   cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
 
+# tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.
+MSIME_EDITION=full MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
+mkdir -p target/macos
+find target/macos -maxdepth 1 -name '*.app' -exec rm -rf {} +
+ditto "$built_bundle" "target/macos/$(python3 "$edition_tool" field --edition full bundle_name)"
+
 # ---- Settings app executable ----
 # 所有版本共用这一个可执行文件，编进去的是 full 的 Tauri 配置；不是 full 的版本在运行时按 Contents/Resources/edition.json 换上自己的 identifier 和 productName（apply_edition_to_config），打包时 tauri bundle --config 写进包里的是同样的值。
 pnpm install --frozen-lockfile
