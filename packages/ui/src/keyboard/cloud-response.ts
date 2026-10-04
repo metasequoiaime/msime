@@ -15,6 +15,10 @@ export type CloudDictionaryCatalogEntryShape = {
 };
 export type CloudCandidateShape = { code: string; canonical_pinyin?: string | null };
 
+export function cloudResponseInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value);
+}
+
 export function cloudResponseText(value: {
   text?: unknown;
   content?: unknown;
@@ -60,8 +64,8 @@ export function cloudDictionaryEntries<
           typeof (entry as T).kind === "string" &&
           typeof (entry as T).code === "string" &&
           typeof (entry as T).word === "string" &&
-          typeof (entry as T).weight === "number" &&
-          typeof (entry as T).revision === "number",
+          cloudResponseInteger((entry as T).weight) &&
+          cloudResponseInteger((entry as T).revision),
       )
     : [];
 }
@@ -77,7 +81,7 @@ export function cloudDictionaryCatalogEntries<
           typeof (entry as T).kind === "string" &&
           typeof (entry as T).code === "string" &&
           typeof (entry as T).word === "string" &&
-          typeof (entry as T).weight === "number",
+          cloudResponseInteger((entry as T).weight),
       )
     : [];
 }
