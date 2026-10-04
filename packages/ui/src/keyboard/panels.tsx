@@ -2329,7 +2329,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     expectedRevision: number;
   } | null>(null);
   const mounted = useMountedRef();
-  const lifecycleRevision = useRef(0);
+  const lifecycleRevision = useAsyncGeneration();
 
   useEffect(() => {
     const current = ++lifecycleRevision.current;
