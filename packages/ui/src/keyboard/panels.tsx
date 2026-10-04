@@ -30,6 +30,7 @@ import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
+import { useLatestRef } from "../core/use-latest-ref";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -1810,7 +1811,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     invalidate,
   } = usePanelAction(setNotice);
   const draftRevision = useAsyncGeneration();
-  const searchRef = useRef("");
+  const searchRef = useLatestRef(search);
   const cloudGeneration = useAsyncGeneration(client);
 
   async function load(revision: number, nextSearch: string) {
@@ -1972,7 +1973,6 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
             aria-label="搜索云端历史"
             value={search}
             onChange={(event) => {
-              searchRef.current = event.target.value;
               setSearch(event.target.value);
             }}
             onKeyDown={(event) => {
