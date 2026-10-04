@@ -1965,6 +1965,37 @@ fn wubi_reverse_codes_follow_the_selected_profile() {
 }
 
 #[test]
+fn wubi_reverse_codes_are_looked_up_only_in_the_wubi_scheme() {
+    // 宿主只在五笔方案里显示反查编码，所以全拼方案的刷新连查都不查；五笔混输拼音照查。
+    let root = tempfile::tempdir().unwrap();
+    let mut options = helpcode_fixture(
+        root.path(),
+        "INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        "",
+    );
+    options.show_helpcode = false;
+    for (scheme, mixed, expected) in [
+        (SchemeType::Quanpin, false, None),
+        (SchemeType::Wubi, true, Some("wqvb")),
+    ] {
+        options.scheme = scheme as u8;
+        options.wubi_mixed_pinyin = mixed;
+        let mut session =
+            crate::session::Session::new(super::options::session_options(&options).unwrap())
+                .unwrap();
+        for byte in b"nihao" {
+            session.character(*byte, false);
+        }
+        assert!(session
+            .snapshot()
+            .candidates
+            .iter()
+            .any(|item| item.word == "你好"));
+        assert_eq!(session.candidate_wubi_code("你好"), expected, "{scheme:?}");
+    }
+}
+
+#[test]
 fn hiding_helpcode_restores_correction_annotations() {
     let root = tempfile::tempdir().unwrap();
     let mut options = helpcode_fixture(
