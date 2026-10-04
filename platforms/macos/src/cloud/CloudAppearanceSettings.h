@@ -5,8 +5,11 @@
 #import "../core/EditionIdentity.h"
 
 static inline BOOL MSIMECloudAppearanceIntegerInRange(id value, NSInteger minimum, NSInteger maximum) {
-    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID()) return NO;
+    if (CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSInteger integer = [value integerValue];
+    return integer >= minimum && integer <= maximum;
 }
 
 // The whole range the shared preferences accept, not the three sizes this platform's window used to

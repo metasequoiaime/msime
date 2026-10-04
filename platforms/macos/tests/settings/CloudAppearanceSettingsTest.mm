@@ -129,14 +129,18 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(bad, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (id invalid in @[@YES, @11, @33, @18.5, @"18", NSNull.null]) {
+    for (id invalid in @[@YES, @11, @33, @18.5,
+                         [NSDecimalNumber decimalNumberWithString:@"18.0000000000000001"],
+                         @"18", NSNull.null]) {
       values[@"platform.macos.candidate_font_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
     // 1 and 6 are sizes the shared preferences accept, so a snapshot carrying either is applied rather
     // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..9.
-    for (id invalid in @[@YES, @0, @10, @1.5, @"5", NSNull.null]) {
+    for (id invalid in @[@YES, @0, @10, @1.5,
+                         [NSDecimalNumber decimalNumberWithString:@"5.0000000000000001"],
+                         @"5", NSNull.null]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
