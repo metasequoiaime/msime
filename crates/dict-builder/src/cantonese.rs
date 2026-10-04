@@ -1,4 +1,4 @@
-//! `cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `yue/` 下，锁文件按 `yue/` 路径从它的 `sources-v*` release 附件固定。
+//! `cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `yue/` 下，锁文件按固定提交读取。
 //!
 //! Three files are read: `jyut6ping3.chars.dict.yaml` (one character, its toned reading and an optional `N%` share of that character's use per row), `jyut6ping3.words.dict.yaml` (one word and its toned readings per row) and `essay-cantonese.txt` (Rime's word frequency list, one `text<TAB>count` per line). `jyut6ping3.maps.dict.yaml` is ODbL and `jyut6ping3.phrase.dict.yaml` has no readings and no clear provenance, so neither is pinned or read; neither is `jyut6ping3.lettered.dict.yaml`.
 //!
@@ -556,7 +556,7 @@ mod tests {
             .iter()
             .filter(|file| file.path.starts_with("yue/"))
             .map(|file| {
-                crate::sources::assert_dictionary_release_asset(file);
+                crate::sources::assert_dictionary_repository_file(file);
                 file.path.as_str()
             })
             .collect();

@@ -100,30 +100,31 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// 断言 `file` 是 msime-dictionary 某个 `sources-vX.Y.Z` release 的附件：附件是平铺的，URL 末段就是锁文件路径的文件名。
+/// 断言 `file` 是固定提交中的 msime-dictionary 仓库文件。
 #[cfg(test)]
-pub(crate) fn assert_dictionary_release_asset(file: &PinnedFile) {
-    const RELEASES: &str =
-        "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v";
-    let rest = file.url.strip_prefix(RELEASES).unwrap_or_else(|| {
+pub(crate) fn assert_dictionary_repository_file(file: &PinnedFile) {
+    const RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
+    let rest = file.url.strip_prefix(RAW).unwrap_or_else(|| {
         panic!(
-            "{} is not a msime-dictionary sources release asset",
+            "{} is not a pinned msime-dictionary repository file",
             file.url
         )
     });
-    let (version, name) = rest
+    let (commit, path) = rest
         .split_once('/')
         .unwrap_or_else(|| panic!("{}", file.url));
-    let parts: Vec<&str> = version.split('.').collect();
+    assert_eq!(
+        commit.len(),
+        40,
+        "{} must pin a full commit, not a release tag",
+        file.url
+    );
     assert!(
-        parts.len() == 3
-            && parts
-                .iter()
-                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
+        commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
         "{}",
         file.url
     );
-    assert_eq!(Some(name), file.path.rsplit('/').next(), "{}", file.url);
+    assert_eq!(path, file.path, "{}", file.url);
 }
 
 fn matches(path: &Path, file: &PinnedFile) -> Result<bool> {
@@ -236,7 +237,7 @@ mod tests {
             assert_eq!(file.sha256.len(), 64, "{}", file.path);
             assert!(file.url.starts_with("https://"), "{}", file.path);
             if file.path.starts_with("ja/") || file.path.starts_with("ko/") {
-                assert_dictionary_release_asset(file);
+                assert_dictionary_repository_file(file);
             }
         }
     }

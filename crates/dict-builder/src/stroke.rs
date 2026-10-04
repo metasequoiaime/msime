@@ -6,7 +6,7 @@
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! 在 msime-dictionary 发布收录这份文件的 `sources-v*` release、`resources/dictionary-sources.lock.json` 固定 `stroke/stroke.dict.yaml` 之前，构建从 `--cache` 目录下同一路径读取手动放入的上游文件，并按这里记下的大小与 SHA-256 校验；锁文件一旦固定它，就改走锁文件。
+//! `stroke.db` 在 msime-dictionary 的固定提交中读取 `stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -571,7 +571,7 @@ mod tests {
             .filter(|file| file.path.starts_with("stroke/"))
             .collect();
         for file in &pinned {
-            crate::sources::assert_dictionary_release_asset(file);
+            crate::sources::assert_dictionary_repository_file(file);
             assert_eq!(file.path, SOURCE);
             assert_eq!(file.size, SOURCE_SIZE);
             assert_eq!(file.sha256, SOURCE_SHA256);

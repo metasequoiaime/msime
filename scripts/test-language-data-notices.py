@@ -3,7 +3,7 @@
 
 The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and the BSD-derived McBopomofo supplement, and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
-许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的 `sources-v*` release 附件固定这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `stroke/` 等 msime-dictionary 发布后以同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
+许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `yue/`、`tw/` 下，resources/dictionary-sources.lock.json 从它的固定 Git 提交读取这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `stroke/` 也按同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
 """
 import json
 import sys
@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
-# 粤拼、注音与笔画的源文件只从 msime-dictionary 的 sources release 附件取用。
-DICTIONARY_RELEASES = "https://github.com/metasequoiaime/msime-dictionary/releases/download/sources-v"
+# 粤拼、注音与笔画的源文件直接从 msime-dictionary 的固定提交取用。
+DICTIONARY_RAW = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/"
 # 每个许可证文件对应的上游仓库、它覆盖的提交、锁文件里这份数据所在的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
 LICENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (
@@ -99,7 +99,8 @@ def main() -> int:
         check(references == [commit], f"the sources lock references {repository} at {references}, the notices cover {commit}; update {relative} and the channels together with the pin")
         check(bool(files), f"the sources lock references {repository} but pins no file under {directory}")
         for url in files:
-            check(url.startswith(DICTIONARY_RELEASES), f"the sources lock pins {url} under {directory}, which is not a msime-dictionary sources release asset")
+            expected = DICTIONARY_RAW + lock["references"]["msime-dictionary"]["commit"] + "/"
+            check(url.startswith(expected) and url[len(expected):] == next(entry["path"] for entry in lock["files"] if entry["url"] == url), f"the sources lock pins {url} under {directory}, which is not the fixed msime-dictionary repository file")
         check(not any(f"/{repository}/" in entry["url"] for entry in lock["files"]), f"the sources lock still downloads from {repository} directly; pin msime-dictionary's {directory} assets instead")
 
     vi_licence = ROOT / VI_LICENCE
