@@ -102,6 +102,7 @@ jobs:
           ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION
       - name: Collect third-party notices
         shell: pwsh
+        env: {EDITION: "${{ matrix.edition }}"}
         run: |
           $deps = Join-Path $env:RUNNER_TEMP 'msime-deps'
           # The Rust crates linked into the host DLL, the MCP server and the settings binary, and the npm packages bundled into its frontend, carry notices the vcpkg prefixes do not. Run on this runner, cargo resolves the Windows dependency graph.
@@ -118,7 +119,7 @@ jobs:
             if (-not $count -or [int]$count -eq 0) { throw "No packages collected into $notice" }
             Write-Output "$([IO.Path]::GetFileName($notice)): $count packages"
           }
-          ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows') -SupplementalNotices $rust, $frontend
+          ./platforms/windows/Collect-Notices.ps1 -DependencyPrefixes (Join-Path $deps 'x64-windows/x64-windows'), (Join-Path $deps 'x86-windows/x86-windows') -SupplementalNotices $rust, $frontend -Edition $env:EDITION
       - name: Stage package files
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
