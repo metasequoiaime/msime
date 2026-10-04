@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -342,6 +343,19 @@ IJsonValue lookup(JsonObject const &root, std::wstring_view key) {
   return object.HasKey(name) ? object.Lookup(name) : nullptr;
 }
 
+uint64_t strict_revision(JsonObject const &object, std::wstring_view key,
+                         uint64_t fallback) {
+  if (!object.HasKey(hstring(key))) return fallback;
+  const auto value = object.Lookup(hstring(key));
+  if (value.ValueType() != JsonValueType::Number) throw std::runtime_error("invalid revision");
+  const double raw = value.GetNumber();
+  // WinRT exposes JSON numbers as double; keep only exact non-negative integers.
+  constexpr double kMaxExactJsonInteger = 9007199254740991.0; // 2^53 - 1
+  if (!std::isfinite(raw) || raw < 0 || std::trunc(raw) != raw || raw > kMaxExactJsonInteger)
+    throw std::runtime_error("invalid revision");
+  return static_cast<uint64_t>(raw);
+}
+
 class PreferencesDocument {
 public:
   PreferencesDocument() { reset_defaults(); }
@@ -364,8 +378,7 @@ public:
       document_ =
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
-      revision_ =
-          static_cast<uint64_t>(document_.GetNamedNumber(L"revision", 0));
+      revision_ = strict_revision(document_, L"revision", 0);
       return true;
     } catch (...) {
       error = L"设置文件格式无效。";
@@ -389,8 +402,7 @@ public:
       document_ =
           JsonObject::Parse(text(response.text)).GetNamedObject(L"value");
       preferences_ = document_.GetNamedObject(L"preferences");
-      revision_ = static_cast<uint64_t>(
-          document_.GetNamedNumber(L"revision", static_cast<double>(revision_)));
+      revision_ = strict_revision(document_, L"revision", revision_);
       return true;
     } catch (...) {
       error = L"设置已写入，但返回内容无法读取。";
