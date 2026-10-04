@@ -54,11 +54,11 @@ enum CandidateGlossModel {
   }
 
   static func integerValue(_ value: NSNumber, maximum: UInt64) -> UInt64? {
-    guard CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite,
-          value.doubleValue.rounded(.towardZero) == value.doubleValue,
-          value.doubleValue >= 0 else { return nil }
-    let integer = value.uint64Value
-    return integer <= maximum ? integer : nil
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = UInt64(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame,
+          integer <= maximum else { return nil }
+    return integer
   }
 
 }
