@@ -267,6 +267,9 @@ import {
   AccountPreferenceError,
   AccountPreferenceSchema,
   AccountPreferences,
+  accountPreferencesFromDocument,
+  localPreferenceRevision,
+  preferenceSchemaFromDocument,
   applyAccountPreferences,
   localAccountPreferences,
   mergeAccountPreferences,
@@ -8914,6 +8917,41 @@ group("uploading keeps what other devices wrote", () => {
       error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refusedLegacyLimit, "the same photo is refused by an older negotiated 64 KiB limit");
+});
+
+group("account preference envelopes reject malformed numeric metadata", () => {
+  const fields = { "input.learning": { type: "boolean" } };
+  check(
+    preferenceSchemaFromDocument({
+      fields,
+      maximum_bytes: 64.5,
+      update_mode: "replace",
+      revision_required: true,
+    }) === null,
+    "a fractional schema byte limit is unavailable",
+  );
+  check(
+    preferenceSchemaFromDocument({
+      fields,
+      maximum_bytes: 64 * 1024,
+      update_mode: "replace",
+      revision_required: false,
+    }) === null,
+    "a schema that disables revision checks is unavailable",
+  );
+  check(
+    accountPreferencesFromDocument({ revision: 2.5, settings: {} }) === null,
+    "a fractional cloud revision is unavailable",
+  );
+  check(
+    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) === null,
+    "an unsafe cloud revision is unavailable",
+  );
+  check(
+    localPreferenceRevision({ revision: 3.25 }) === null,
+    "a fractional local revision is unavailable",
+  );
+  check(localPreferenceRevision({ revision: 3 }) === 3, "a safe local revision is preserved");
 });
 
 group("applying writes only what the schema declares", () => {
