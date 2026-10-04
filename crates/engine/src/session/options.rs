@@ -24,11 +24,11 @@ pub struct SessionOptions {
     pub vietnamese_input_method: VietnameseInputMethod,
     /// Where the Vietnamese scheme puts the tone on `oa`, `oe` and `uy`.
     pub vietnamese_tone_style: VietnameseToneStyle,
-    /// Where `cantonese.db` is; empty when the host has none. Read only when Cantonese is activated, which fails without it.
+    /// Where `msime-cantonese.db` is; empty when the host has none. Read only when Cantonese is activated, which fails without it.
     pub cantonese_dictionary: PathBuf,
-    /// Where `zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
+    /// Where `msime-zhuyin.db` is; empty when the host has none. Read only when Zhuyin is activated, which fails without it.
     pub zhuyin_dictionary: PathBuf,
-    /// Where `stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
+    /// Where `msime-stroke.db` is; empty when the host has none. Read only when Stroke is activated, which fails without it.
     pub stroke_dictionary: PathBuf,
     /// `msime-japanese.dat` 的位置；为空时读资源目录里的那份。文件缺失时日文只给假名行。
     pub japanese_dictionary: PathBuf,

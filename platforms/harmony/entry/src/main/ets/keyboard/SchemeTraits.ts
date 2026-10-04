@@ -48,7 +48,7 @@ export class SchemeTraits {
     ].includes(scheme);
   }
 
-  /** The Simplified-to-Traditional switch applies; Cantonese and Zhuyin are Traditional as typed, and Stroke writes each character as stroke.db stores it. */
+  /** The Simplified-to-Traditional switch applies; Cantonese and Zhuyin are Traditional as typed, and Stroke writes each character as msime-stroke.db stores it. */
   static scriptConversionApplies(scheme: number): boolean {
     return [SchemeTraits.QUANPIN, SchemeTraits.SHUANGPIN, SchemeTraits.WUBI].includes(scheme);
   }

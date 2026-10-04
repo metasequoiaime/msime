@@ -1,4 +1,4 @@
-//! `cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `yue/` 下，锁文件按固定提交读取。
+//! `msime-cantonese.db`：粤语方案的粤拼词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 rime-cantonese（CC BY 4.0，见 `resources/licenses/rime-cantonese-CC-BY-4.0.txt`）在 `resources/dictionary-sources.lock.json` 的 `rime-cantonese` 引用所记提交的文件，由 msime-dictionary 原样收在 `yue/` 下，锁文件按固定提交读取。
 //!
 //! Three files are read: `jyut6ping3.chars.dict.yaml` (one character, its toned reading and an optional `N%` share of that character's use per row), `jyut6ping3.words.dict.yaml` (one word and its toned readings per row) and `essay-cantonese.txt` (Rime's word frequency list, one `text<TAB>count` per line). `jyut6ping3.maps.dict.yaml` is ODbL and `jyut6ping3.phrase.dict.yaml` has no readings and no clear provenance, so neither is pinned or read; neither is `jyut6ping3.lettered.dict.yaml`.
 //!
@@ -24,10 +24,10 @@ pub const ESSAY: &str = "yue/essay-cantonese.txt";
 pub const REFERENCE: &str = "rime-cantonese";
 /// The SPDX identifier recorded as the database's `license`.
 pub const LICENSE: &str = "CC-BY-4.0";
-pub const DATABASE: &str = "cantonese.db";
+pub const DATABASE: &str = "msime-cantonese.db";
 /// The licence text in `resources/licenses/` and the name it ships under beside the database.
 pub const LICENSE_SOURCE: &str = "rime-cantonese-CC-BY-4.0.txt";
-pub const LICENSE_NAME: &str = "rime_cantonese_LICENSE.txt";
+pub const LICENSE_NAME: &str = "msime-rime_cantonese_LICENSE.txt";
 
 /// The essay count from which a word missing from the words file is added. The essay's counts are scaled scores rather than raw counts (the median word of the words file scores 900), and 1000 keeps about five thousand frequent words such as 你好 while leaving out the long tail of novel names and segmentation fragments the essay also lists.
 pub const ESSAY_WORD_MIN_COUNT: i64 = 1000;

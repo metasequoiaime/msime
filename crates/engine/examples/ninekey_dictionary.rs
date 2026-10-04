@@ -1,6 +1,6 @@
 //! Real dictionary integration probe for the nine-key whole-sentence arbitration.
 //!
-//! The Engine reads `bigram.bin` and `trigram.bin` from the dictionary directory and silently falls
+//! The Engine reads `msime-bigram.bin` and `msime-trigram.bin` from the dictionary directory and silently falls
 //! back to unweighted lattice paths when they are absent -- candidates still come out, just ordered
 //! as if there were no language model. A resource directory staged from an older dictionary release
 //! than the locked Engine therefore looks healthy while ranking whole sentences badly, which is
@@ -8,7 +8,7 @@
 //! are missing from the directory, and when their presence makes no difference to the order.
 use msime_engine::host::{prepare_options, Session};
 
-const NGRAM_TABLES: [&str; 2] = ["bigram.bin", "trigram.bin"];
+const NGRAM_TABLES: [&str; 2] = ["msime-bigram.bin", "msime-trigram.bin"];
 
 fn candidates(
     resources: &std::path::Path,

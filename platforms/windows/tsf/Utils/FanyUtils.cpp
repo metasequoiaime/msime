@@ -123,9 +123,9 @@ int ReadConfiguredRunningScheme()
         {
             const auto path = std::filesystem::u8path(directory->get<std::string>());
             std::error_code ec;
-            installed.cantonese = std::filesystem::is_regular_file(path / "cantonese.db", ec);
-            installed.zhuyin = std::filesystem::is_regular_file(path / "zhuyin.db", ec);
-            installed.stroke = std::filesystem::is_regular_file(path / "stroke.db", ec);
+            installed.cantonese = std::filesystem::is_regular_file(path / "msime-cantonese.db", ec);
+            installed.zhuyin = std::filesystem::is_regular_file(path / "msime-zhuyin.db", ec);
+            installed.stroke = std::filesystem::is_regular_file(path / "msime-stroke.db", ec);
         }
     }
     return msime::windows::scheme::effective_scheme(configured, lastChinese, installed);

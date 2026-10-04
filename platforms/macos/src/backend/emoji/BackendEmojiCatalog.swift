@@ -51,7 +51,7 @@ enum MacEmojiCatalog {
     return groups
   }
 
-  /// 已安装符号集插件的全部组：包按名字排序、组按清单顺序。不读 `others.db`，内置目录不可用时也能列出；`plugins` 必须是绝对路径。
+  /// 已安装符号集插件的全部组：包按名字排序、组按清单顺序。不读 `msime-others.db`，内置目录不可用时也能列出；`plugins` 必须是绝对路径。
   static func loadPluginSymbolGroups(resources: String, plugins: String) throws -> [MacEmojiPluginSymbolGroup] {
     guard NSString(string: plugins).isAbsolutePath else { throw NSError(domain: "MSIMEEmojiCatalog", code: 6) }
     let response = try request(resources: resources,
@@ -78,13 +78,13 @@ enum MacEmojiCatalog {
     return (try? loadPluginSymbolGroups(resources: resources, plugins: plugins)) ?? []
   }
 
-  /// `requiresCatalog` 为假时不要求 `others.db` 可读，只用于不读内置目录的请求（插件符号组）。
+  /// `requiresCatalog` 为假时不要求 `msime-others.db` 可读，只用于不读内置目录的请求（插件符号组）。
   static func request(resources: String, parameters: [String: Any], requiresCatalog: Bool = true) throws -> NSDictionary {
     let selector = NSSelectorFromString("emojiCatalogRequest:")
     var payload = parameters
     payload["resources"] = resources
     guard NSString(string: resources).isAbsolutePath,
-          !requiresCatalog || FileManager.default.isReadableFile(atPath: URL(fileURLWithPath: resources).appendingPathComponent("others.db").path),
+          !requiresCatalog || FileManager.default.isReadableFile(atPath: URL(fileURLWithPath: resources).appendingPathComponent("msime-others.db").path),
           let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           type.responds(to: selector),
           let response = type.perform(selector, with: payload as NSDictionary)?.takeUnretainedValue() as? NSDictionary else {

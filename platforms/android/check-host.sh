@@ -84,11 +84,11 @@ if rg -n 'U\+3105|0x3105|12549' "$repo_root/platforms/android/java/app/msime/and
   echo "Android must not compose bopomofo itself; the Engine owns the Zhuyin editor" >&2
   exit 1
 fi
-# 笔画的组字与查字都在 Engine 里：宿主只把笔画键印成字形并发送字母 h s p n z x，不保存笔顺码表，也不自己打开 stroke.db（它只用文件名判断方案是否可用）。
+# 笔画的组字与查字都在 Engine 里：宿主只把笔画键印成字形并发送字母 h s p n z x，不保存笔顺码表，也不自己打开 msime-stroke.db（它只用文件名判断方案是否可用）。
 if rg -n '"[hspnzx]{3,}"' "$repo_root/platforms/android/java/app/msime/android" \
   || rg -n '"stroke\.db"' "$repo_root/platforms/android/java/app/msime/android" \
     | rg -v '/keyboard/KeyboardScheme\.java:'; then
-  echo "Android must not look up strokes itself; the Engine owns the Stroke scheme and stroke.db" >&2
+  echo "Android must not look up strokes itself; the Engine owns the Stroke scheme and msime-stroke.db" >&2
   exit 1
 fi
 # The Stroke inline composition is the glyphs in View.reading, marked through the same policy as Korean and Zhuyin; editing_text holds only the stroke letters.

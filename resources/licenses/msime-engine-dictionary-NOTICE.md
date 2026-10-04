@@ -39,7 +39,7 @@
 
 ## 整句词格的上下文表
 
-`bigram.bin` 与 `trigram.bin` 不由本仓库的文本构建，而是在构建时统计一份固定的语料：
+`msime-bigram.bin` 与 `msime-trigram.bin` 不由本仓库的文本构建，而是在构建时统计一份固定的语料：
 
 | 语料 | 上游 | 上游许可 |
 | --- | --- | --- |
@@ -59,9 +59,9 @@
 
 | 前端 | 分发的数据 | 署名现状 |
 | --- | --- | --- |
-| [MSIME-Linux](https://github.com/metasequoiaime/MSIME-Linux) | DEB／RPM 包内的 `msime-pinyin.db`、`others.db`、`msime-english.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
+| [MSIME-Linux](https://github.com/metasequoiaime/MSIME-Linux) | DEB／RPM 包内的 `msime-pinyin.db`、`msime-others.db`、`msime-english.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
 | [MSIME-Apple](https://github.com/metasequoiaime/MSIME-Apple) | app bundle 内的 `msime-pinyin.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
-| [MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) | 安装包内的 `msime-pinyin.db`、`others.db`、`msime-english.db`、`msime-japanese.dat` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库，由安装包装到程序目录 |
+| [MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) | 安装包内的 `msime-pinyin.db`、`msime-others.db`、`msime-english.db`、`msime-japanese.dat` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库，由安装包装到程序目录 |
 
 改动本文件的来源表时，这几份文件要一起改；它们才是随产物送到用户手上的那一份。
 

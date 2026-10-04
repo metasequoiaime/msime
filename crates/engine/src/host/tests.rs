@@ -1045,13 +1045,15 @@ fn cantonese_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.scheme = 5;
-    let error = Session::new(&value).err().expect("no cantonese.db");
+    let error = Session::new(&value).err().expect("no msime-cantonese.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
     );
     value.cantonese_dictionary = dir.path().join("missing.db").to_str().unwrap().to_owned();
-    let error = Session::new(&value).err().expect("missing cantonese.db");
+    let error = Session::new(&value)
+        .err()
+        .expect("missing msime-cantonese.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -1085,13 +1087,13 @@ fn zhuyin_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.scheme = 6;
-    let error = Session::new(&value).err().expect("no zhuyin.db");
+    let error = Session::new(&value).err().expect("no msime-zhuyin.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
     );
     value.zhuyin_dictionary = dir.path().join("missing.db").to_str().unwrap().to_owned();
-    let error = Session::new(&value).err().expect("missing zhuyin.db");
+    let error = Session::new(&value).err().expect("missing msime-zhuyin.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -1104,13 +1106,13 @@ fn stroke_is_unavailable_without_its_dictionary() {
     let dir = tempfile::tempdir().unwrap();
     let mut value = options(dir.path());
     value.scheme = 9;
-    let error = Session::new(&value).err().expect("no stroke.db");
+    let error = Session::new(&value).err().expect("no msime-stroke.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
     );
     value.stroke_dictionary = dir.path().join("missing.db").to_str().unwrap().to_owned();
-    let error = Session::new(&value).err().expect("missing stroke.db");
+    let error = Session::new(&value).err().expect("missing msime-stroke.db");
     assert_eq!(
         error.to_string(),
         crate::diagnostics::LANGUAGE_DICTIONARY_UNAVAILABLE
@@ -1122,7 +1124,7 @@ fn stroke_is_unavailable_without_its_dictionary() {
 #[test]
 fn stroke_snapshot_draws_glyphs_and_edits_letters() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("stroke.db");
+    let path = dir.path().join("msime-stroke.db");
     crate::stroke::fixture::build(&path);
     let mut value = options(dir.path());
     value.scheme = 9;
@@ -1152,7 +1154,7 @@ fn stroke_snapshot_draws_glyphs_and_edits_letters() {
 fn zhuyin_command_sixteen_opens_a_list_whose_selection_commits_nothing() {
     use crate::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("zhuyin.db");
+    let path = dir.path().join("msime-zhuyin.db");
     let connection = Connection::open(&path).unwrap();
     connection.execute_batch(SCHEMA).unwrap();
     connection
@@ -1728,7 +1730,7 @@ fn gloss_display_keeps_two_senses_and_withholds_control_characters() {
 fn emoji_catalog_wrappers_page_through_others_db() {
     let dir = tempfile::tempdir().unwrap();
     let resources = dir.path().to_str().unwrap();
-    Connection::open(dir.path().join("others.db"))
+    Connection::open(dir.path().join("msime-others.db"))
         .unwrap()
         .execute_batch(
             "CREATE TABLE emoji(emoji TEXT, category TEXT, keywords TEXT, pinyin TEXT, sort_order INTEGER);

@@ -90,7 +90,7 @@ FWB = {"databases": {"msime-pinyin.db": "BEGIN;"
 QPH = {"databases": {"msime-pinyin.db": "CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);"
        "INSERT INTO quick_parases VALUES('ab','快捷短语一',20);"
        "INSERT INTO quick_parases VALUES('aa','快捷短语二',10);"}}
-EXP = {"databases": {"others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);"
+EXP = {"databases": {"msime-others.db": "CREATE TABLE emoji_pinyin(key TEXT,emoji TEXT,sort_order INTEGER);"
        "INSERT INTO emoji_pinyin VALUES('xiaolian','😀',10);"
        "INSERT INTO emoji_pinyin VALUES('xiao''lian','😄',20);"
        "CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);"

@@ -327,7 +327,7 @@ char *msime_client_community_resource_library(const uint8_t *request, size_t len
  * the prompt names the exact document the parser accepts. */
 char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
 /* Absolute staged engine resources; returns {profile,sourceCommit} from the
- * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * packaged msime-dictionary-manifest.json. Two fields only: the page is asking what
  * dictionary is installed and where it came from, not for journal modes or
  * third-party references. Missing or unreadable is reported, never guessed -
  * showing the wrong dictionary version is worse than showing none. */
@@ -632,8 +632,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
-/* Query the verified local others.db Emoji catalog. Resources is an absolute
- * generation directory containing others.db; no provider socket is needed.
+/* Query the verified local msime-others.db Emoji catalog. Resources is an absolute
+ * generation directory containing msime-others.db; no provider socket is needed.
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.

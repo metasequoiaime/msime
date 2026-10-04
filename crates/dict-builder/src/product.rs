@@ -1,4 +1,4 @@
-//! The desktop dictionary product: release checks, `dictionary-manifest.json` and `SHA256SUMS.txt`. The manifest keeps the schema clients already read (`profile`, `source.commit`, `files`, ...).
+//! The desktop dictionary product: release checks, `msime-dictionary-manifest.json` and `msime-SHA256SUMS.txt`. The manifest keeps the schema clients already read (`profile`, `source.commit`, `files`, ...).
 
 use std::path::Path;
 use std::process::Command;
@@ -14,15 +14,15 @@ use crate::msime::quanpin_tables;
 use crate::ngram;
 use crate::sources::{sha256_file, Lock, Reference};
 
-pub const MANIFEST: &str = "dictionary-manifest.json";
+pub const MANIFEST: &str = "msime-dictionary-manifest.json";
 pub const SHIPPING_ARTIFACTS: [&str; 8] = [
     "msime-pinyin.db",
     "msime-wubi.db",
     "msime-english.db",
-    "others.db",
+    "msime-others.db",
     "msime-japanese.dat",
-    "bigram.bin",
-    "trigram.bin",
+    "msime-bigram.bin",
+    "msime-trigram.bin",
     japanese::NOTICE_NAME,
 ];
 const FEATURES: [&str; 8] = [
@@ -200,7 +200,7 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
             ],
         ),
         (
-            "others.db",
+            "msime-others.db",
             &[
                 ("emoji", 1_000),
                 ("emoji_pinyin", 1_000),
@@ -244,7 +244,7 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
             model.len()
         );
     }
-    for name in ["bigram.bin", "trigram.bin"] {
+    for name in ["msime-bigram.bin", "msime-trigram.bin"] {
         let table = std::fs::read(out.join(name))?;
         let field = |offset: usize| {
             table
@@ -329,7 +329,7 @@ pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool
     for name in SHIPPING_ARTIFACTS.iter().chain([&MANIFEST]) {
         sums.push_str(&format!("{}  {name}\n", sha256_file(&out.join(name))?));
     }
-    std::fs::write(out.join("SHA256SUMS.txt"), sums)?;
+    std::fs::write(out.join("msime-SHA256SUMS.txt"), sums)?;
     Ok(())
 }
 

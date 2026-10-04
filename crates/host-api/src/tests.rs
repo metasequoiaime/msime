@@ -132,7 +132,7 @@ fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
 #[test]
 fn local_mode_resource_gates_preserve_unrelated_modes() {
     let root = tempfile::tempdir().unwrap();
-    for name in ["others.db", "msime-english.db", "msime-japanese.dat"] {
+    for name in ["msime-others.db", "msime-english.db", "msime-japanese.dat"] {
         std::fs::write(root.path().join(name), b"fixture").unwrap();
     }
     let mut options = EngineOptions {
@@ -201,7 +201,7 @@ fn local_mode_resource_gates_preserve_unrelated_modes() {
     assert!(options.local_temporary_english);
     assert!(options.local_temporary_japanese);
 
-    std::fs::remove_file(root.path().join("others.db")).unwrap();
+    std::fs::remove_file(root.path().join("msime-others.db")).unwrap();
     std::fs::remove_file(root.path().join("msime-japanese.dat")).unwrap();
     apply_local_mode_resource_gates(&mut options);
     assert!(!options.local_emoji);
@@ -5470,7 +5470,7 @@ fn complete_candidate_abi_keeps_view_paged_and_selects_a_later_entry() {
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
 
-/// 表情目录请求列出插件符号组：不需要 others.db，没传插件目录时为空，相对路径被拒绝。
+/// 表情目录请求列出插件符号组：不需要 msime-others.db，没传插件目录时为空，相对路径被拒绝。
 #[test]
 #[cfg(unix)]
 fn emoji_catalog_lists_plugin_symbol_groups() {
@@ -5540,7 +5540,7 @@ fn emoji_catalog_pagination_preserves_legacy_defaults() {
 #[cfg(unix)]
 fn emoji_catalog_cursor_advances_over_invalid_rows_and_preserves_duplicates() {
     let directory = tempfile::tempdir().unwrap();
-    let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("msime-others.db")).unwrap();
     db.execute_batch(
         "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
          CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);
@@ -5619,7 +5619,7 @@ fn emoji_catalog_cursor_advances_over_invalid_rows_and_preserves_duplicates() {
 #[cfg(unix)]
 fn emoji_catalog_cursor_skips_invalid_groups_without_stalling() {
     let directory = tempfile::tempdir().unwrap();
-    let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("msime-others.db")).unwrap();
     db.execute_batch(
         "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
          INSERT INTO emoji VALUES ('synthetic-invalid',NULL,'','',0);
@@ -5652,7 +5652,7 @@ fn emoji_catalog_cursor_skips_invalid_groups_without_stalling() {
 #[cfg(unix)]
 fn emoji_catalog_ffi_reads_beyond_first_page() {
     let directory = tempfile::tempdir().unwrap();
-    let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("msime-others.db")).unwrap();
     db.execute_batch(
         "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
          CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);
@@ -5742,7 +5742,7 @@ fn emoji_catalog_errors_are_not_empty_results() {
     };
     let unavailable = json!({"ok":false,"error":"local emoji catalog unavailable"});
     assert_eq!(request(""), unavailable);
-    let path = directory.path().join("others.db");
+    let path = directory.path().join("msime-others.db");
     assert!(!path.exists(), "read-only query must not create resources");
     std::fs::write(&path, b"synthetic invalid sqlite file").unwrap();
     for category in ["", "kaomoji", "symbols"] {
@@ -5771,7 +5771,7 @@ fn emoji_catalog_errors_are_not_empty_results() {
 #[cfg(unix)]
 fn emoji_groups_preserve_catalog_order_and_filter_before_paging() {
     let directory = tempfile::tempdir().unwrap();
-    let db = rusqlite::Connection::open(directory.path().join("others.db")).unwrap();
+    let db = rusqlite::Connection::open(directory.path().join("msime-others.db")).unwrap();
     db.execute_batch("CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);
         INSERT INTO emoji VALUES ('one','Z','match','',1),('two','A','match','',2),('three','Z','match','',3),('four','Z','other','',4);
         CREATE TABLE symbol_catalog(symbol TEXT,category TEXT,parent_category TEXT,keywords TEXT,sort_order INTEGER);
@@ -6177,38 +6177,38 @@ fn language_dictionaries_beside_the_resources_are_discovered() {
 
     let beside = root.path().join("language-dictionaries");
     // A directory of the right name is not a dictionary.
-    std::fs::create_dir_all(beside.join("zhuyin.db")).expect("decoy");
-    std::fs::write(beside.join("cantonese.db"), b"sqlite").expect("cantonese");
+    std::fs::create_dir_all(beside.join("msime-zhuyin.db")).expect("decoy");
+    std::fs::write(beside.join("msime-cantonese.db"), b"sqlite").expect("cantonese");
     assert_eq!(
         super::language_dictionaries_beside(&resources),
         LanguageDictionaries {
-            cantonese: Some(beside.join("cantonese.db")),
+            cantonese: Some(beside.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
         }
     );
 
-    std::fs::remove_dir(beside.join("zhuyin.db")).expect("decoy");
-    std::fs::write(beside.join("zhuyin.db"), b"sqlite").expect("zhuyin");
+    std::fs::remove_dir(beside.join("msime-zhuyin.db")).expect("decoy");
+    std::fs::write(beside.join("msime-zhuyin.db"), b"sqlite").expect("zhuyin");
     assert_eq!(
         super::language_dictionaries_beside(&resources),
         LanguageDictionaries {
-            cantonese: Some(beside.join("cantonese.db")),
-            zhuyin: Some(beside.join("zhuyin.db")),
+            cantonese: Some(beside.join("msime-cantonese.db")),
+            zhuyin: Some(beside.join("msime-zhuyin.db")),
             stroke: None,
         }
     );
 
-    // stroke.db alone is enough for the directory to count as installed.
-    std::fs::remove_file(beside.join("cantonese.db")).expect("cantonese");
-    std::fs::remove_file(beside.join("zhuyin.db")).expect("zhuyin");
-    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    // msime-stroke.db alone is enough for the directory to count as installed.
+    std::fs::remove_file(beside.join("msime-cantonese.db")).expect("cantonese");
+    std::fs::remove_file(beside.join("msime-zhuyin.db")).expect("zhuyin");
+    std::fs::write(beside.join("msime-stroke.db"), b"sqlite").expect("stroke");
     assert_eq!(
         super::language_dictionaries_beside(&resources),
         LanguageDictionaries {
             cantonese: None,
             zhuyin: None,
-            stroke: Some(beside.join("stroke.db")),
+            stroke: Some(beside.join("msime-stroke.db")),
         }
     );
     assert_eq!(
@@ -6227,19 +6227,19 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
     let base = &all[..5];
     let none = LanguageDictionaries::default();
     let cantonese_only = LanguageDictionaries {
-        cantonese: Some("/dictionaries/cantonese.db".into()),
+        cantonese: Some("/dictionaries/msime-cantonese.db".into()),
         zhuyin: None,
         stroke: None,
     };
     let both = LanguageDictionaries {
-        cantonese: Some("/dictionaries/cantonese.db".into()),
-        zhuyin: Some("/dictionaries/zhuyin.db".into()),
+        cantonese: Some("/dictionaries/msime-cantonese.db".into()),
+        zhuyin: Some("/dictionaries/msime-zhuyin.db".into()),
         stroke: None,
     };
     let stroke_only = LanguageDictionaries {
         cantonese: None,
         zhuyin: None,
-        stroke: Some("/dictionaries/stroke.db".into()),
+        stroke: Some("/dictionaries/msime-stroke.db".into()),
     };
     const OFFERED: Option<&str> = None;
     const NOT_OFFERED: Option<&str> = Some("this host does not offer it");
@@ -6335,7 +6335,7 @@ fn effective_scheme_falls_back_to_the_last_chinese_scheme_then_quanpin() {
             Quanpin,
             NO_DICTIONARY,
         ),
-        // Stroke runs only with stroke.db, and is itself a Chinese scheme to return to.
+        // Stroke runs only with msime-stroke.db, and is itself a Chinese scheme to return to.
         (
             Stroke,
             Some(ChineseScheme::Wubi),
@@ -6404,8 +6404,8 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     let root = tempfile::tempdir().expect("tempdir");
     let directory = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&directory).expect("directory");
-    std::fs::write(directory.join("cantonese.db"), b"sqlite").expect("cantonese");
-    std::fs::write(directory.join("stroke.db"), b"sqlite").expect("stroke");
+    std::fs::write(directory.join("msime-cantonese.db"), b"sqlite").expect("cantonese");
+    std::fs::write(directory.join("msime-stroke.db"), b"sqlite").expect("stroke");
     let preferences = Preferences {
         scheme: InputScheme::Vietnamese,
         last_chinese_scheme: Some(msime_client_core::preferences::ChineseScheme::Wubi),
@@ -6423,12 +6423,12 @@ fn host_options_carry_vietnamese_settings_and_language_dictionaries_to_the_engin
     assert_eq!(options.vietnamese_tone_style, 1);
     assert_eq!(
         options.cantonese_dictionary,
-        directory.join("cantonese.db").to_str().unwrap()
+        directory.join("msime-cantonese.db").to_str().unwrap()
     );
     assert_eq!(options.zhuyin_dictionary, "");
     assert_eq!(
         options.stroke_dictionary,
-        directory.join("stroke.db").to_str().unwrap()
+        directory.join("msime-stroke.db").to_str().unwrap()
     );
     // Production passes `compiled_input_schemes()`, which offers the scheme or returns to the last Chinese one.
     let expected = if compiled_input_schemes().contains(&InputScheme::Vietnamese) {
@@ -6493,8 +6493,8 @@ fn installed_language_dictionaries_enable_their_schemes() {
 
     let beside = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&beside).expect("beside");
-    std::fs::write(beside.join("cantonese.db"), b"sqlite").expect("cantonese");
-    std::fs::write(beside.join("zhuyin.db"), b"sqlite").expect("zhuyin");
+    std::fs::write(beside.join("msime-cantonese.db"), b"sqlite").expect("cantonese");
+    std::fs::write(beside.join("msime-zhuyin.db"), b"sqlite").expect("zhuyin");
     assert_eq!(
         super::installed_language_dictionaries(&resources).as_deref(),
         beside.to_str()
@@ -6505,7 +6505,7 @@ fn installed_language_dictionaries_enable_their_schemes() {
     assert_eq!(engine_scheme(InputScheme::Vietnamese), 7);
     assert_eq!(engine_scheme(InputScheme::Tibetan), 8);
 
-    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    std::fs::write(beside.join("msime-stroke.db"), b"sqlite").expect("stroke");
     assert_eq!(engine_scheme(InputScheme::Stroke), 9);
 }
 
@@ -6561,7 +6561,7 @@ fn translation_queries_only_clear_chinese_candidates_for_the_network() {
         // Kaomoji mode stays disabled until the catalog it reads from exists.
         let resources = dir.path().join("resources");
         std::fs::create_dir_all(&resources).unwrap();
-        rusqlite::Connection::open(resources.join("others.db"))
+        rusqlite::Connection::open(resources.join("msime-others.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE kaomoji(pinyin TEXT,jianpin TEXT,kaomoji TEXT,sort_order INTEGER);
@@ -7017,7 +7017,7 @@ fn the_dictionary_manifest_answers_what_is_installed_or_says_it_cannot() {
     // The real shape, with every field the packaged manifest carries. Only two come back — the
     // page is asking what is installed and where it came from, not for journal modes.
     std::fs::write(
-        resources.join("dictionary-manifest.json"),
+        resources.join("msime-dictionary-manifest.json"),
         json!({
             "manifest_version": 1,
             "profile": "desktop",
@@ -7051,13 +7051,13 @@ fn the_dictionary_manifest_answers_what_is_installed_or_says_it_cannot() {
         json!({"source": {"commit": commit}}),
     ] {
         std::fs::write(
-            resources.join("dictionary-manifest.json"),
+            resources.join("msime-dictionary-manifest.json"),
             broken.to_string(),
         )
         .unwrap();
         assert_eq!(read_manifest()["ok"], false, "accepted {broken}");
     }
-    std::fs::write(resources.join("dictionary-manifest.json"), "not json").unwrap();
+    std::fs::write(resources.join("msime-dictionary-manifest.json"), "not json").unwrap();
     assert_eq!(read_manifest()["ok"], false);
 
     // A relative directory is refused rather than resolved against whatever the process happens
@@ -7161,7 +7161,7 @@ fn refresh_keeps_the_language_dictionaries_in_step_with_the_installed_package() 
     std::fs::create_dir_all(&beside).expect("beside");
     assert_eq!(refresh(&current), None);
 
-    std::fs::write(beside.join("zhuyin.db"), b"sqlite").expect("zhuyin");
+    std::fs::write(beside.join("msime-zhuyin.db"), b"sqlite").expect("zhuyin");
     let mut installed = current.clone();
     installed["language_dictionaries"] = json!(beside);
     assert_eq!(refresh(&current), Some(installed.clone()));
@@ -7183,13 +7183,13 @@ fn refresh_keeps_the_language_dictionaries_in_step_with_the_installed_package() 
     moved["user_data"] = json!("/t/user");
     assert_eq!(refresh(&moved), None);
 
-    std::fs::remove_file(beside.join("zhuyin.db")).expect("uninstall");
+    std::fs::remove_file(beside.join("msime-zhuyin.db")).expect("uninstall");
     assert_eq!(refresh(&installed), Some(current.clone()));
 
-    // stroke.db alone records the directory as well.
-    std::fs::write(beside.join("stroke.db"), b"sqlite").expect("stroke");
+    // msime-stroke.db alone records the directory as well.
+    std::fs::write(beside.join("msime-stroke.db"), b"sqlite").expect("stroke");
     assert_eq!(refresh(&current), Some(installed.clone()));
-    std::fs::remove_file(beside.join("stroke.db")).expect("uninstall");
+    std::fs::remove_file(beside.join("msime-stroke.db")).expect("uninstall");
     assert_eq!(refresh(&installed), Some(current.clone()));
 }
 
@@ -7203,7 +7203,7 @@ fn a_prepared_generation_records_the_language_dictionaries_beside_its_new_resour
     std::fs::create_dir_all(&new).expect("new");
     let beside = root.path().join("new").join("language-dictionaries");
     std::fs::create_dir_all(&beside).expect("beside");
-    std::fs::write(beside.join("cantonese.db"), b"sqlite").expect("cantonese");
+    std::fs::write(beside.join("msime-cantonese.db"), b"sqlite").expect("cantonese");
     let stale = json!({
         "resources": old,
         "user_data": "/s/user",
@@ -7234,7 +7234,7 @@ fn only_the_input_method_refresh_records_the_language_dictionaries() {
     std::fs::create_dir(&resources).unwrap();
     let beside = directory.path().join("language-dictionaries");
     std::fs::create_dir(&beside).unwrap();
-    std::fs::write(beside.join("zhuyin.db"), b"sqlite").unwrap();
+    std::fs::write(beside.join("msime-zhuyin.db"), b"sqlite").unwrap();
     let state = directory.path().join("state");
     std::fs::create_dir(&state).unwrap();
     let generation = serde_json::from_str::<ResourceSet>(include_str!(
@@ -7277,8 +7277,8 @@ fn an_outdated_generation_still_records_the_installed_language_dictionaries() {
     std::fs::write(resources.join("msime-pinyin.db"), b"previous generation").unwrap();
     let beside = state.join("language-dictionaries");
     std::fs::create_dir(&beside).unwrap();
-    std::fs::write(beside.join("cantonese.db"), b"sqlite").unwrap();
-    std::fs::write(beside.join("zhuyin.db"), b"sqlite").unwrap();
+    std::fs::write(beside.join("msime-cantonese.db"), b"sqlite").unwrap();
+    std::fs::write(beside.join("msime-zhuyin.db"), b"sqlite").unwrap();
     let document = json!({
         "api_version": 1,
         "cache": state.join("cache"),
@@ -8925,12 +8925,16 @@ pub(crate) fn synthetic_desktop_lock(resources: &Path) -> ResourceSet {
             .unwrap();
     }
     std::fs::write(resources.join("msime-japanese.dat"), b"japanese").unwrap();
-    std::fs::write(resources.join("mozc_dictionary_oss_README.txt"), b"readme").unwrap();
+    std::fs::write(
+        resources.join("msime-mozc_dictionary_oss_README.txt"),
+        b"readme",
+    )
+    .unwrap();
     let artifacts = [
         "msime-pinyin.db",
         "msime-english.db",
         "msime-japanese.dat",
-        "mozc_dictionary_oss_README.txt",
+        "msime-mozc_dictionary_oss_README.txt",
     ]
     .into_iter()
     .map(|name| {
@@ -8970,15 +8974,15 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let state = root.path().join("state");
     let recorded = root.path().join("language-dictionaries");
     std::fs::create_dir_all(&recorded).unwrap();
-    std::fs::write(recorded.join("cantonese.db"), b"bundled").unwrap();
-    std::fs::write(recorded.join("zhuyin.db"), b"bundled").unwrap();
-    std::fs::write(recorded.join("stroke.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-cantonese.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-zhuyin.db"), b"bundled").unwrap();
+    std::fs::write(recorded.join("msime-stroke.db"), b"bundled").unwrap();
 
     // 没有资源包：用记录的（随包内置的）那份。
     let bundled = LanguageDictionaries {
-        cantonese: Some(recorded.join("cantonese.db")),
-        zhuyin: Some(recorded.join("zhuyin.db")),
-        stroke: Some(recorded.join("stroke.db")),
+        cantonese: Some(recorded.join("msime-cantonese.db")),
+        zhuyin: Some(recorded.join("msime-zhuyin.db")),
+        stroke: Some(recorded.join("msime-stroke.db")),
     };
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), Some(&recorded)),
@@ -8998,7 +9002,7 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         .join(".staging-language-dictionaries-abc")
         .join("model");
     std::fs::create_dir_all(&staging).unwrap();
-    std::fs::write(staging.join("cantonese.db"), b"partial").unwrap();
+    std::fs::write(staging.join("msime-cantonese.db"), b"partial").unwrap();
     std::fs::write(staging.join("msime-model.json"), b"{}").unwrap();
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), Some(&recorded)),
@@ -9009,20 +9013,20 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
     let pack = publish_resource_pack(
         &state,
         ResourcePack::LanguageDictionaries,
-        &["cantonese.db"],
+        &["msime-cantonese.db"],
     );
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), Some(&recorded)),
         LanguageDictionaries {
-            cantonese: Some(pack.join("cantonese.db")),
-            zhuyin: Some(recorded.join("zhuyin.db")),
-            stroke: Some(recorded.join("stroke.db")),
+            cantonese: Some(pack.join("msime-cantonese.db")),
+            zhuyin: Some(recorded.join("msime-zhuyin.db")),
+            stroke: Some(recorded.join("msime-stroke.db")),
         }
     );
     assert_eq!(
         LanguageDictionaries::resolve(Some(&state), None),
         LanguageDictionaries {
-            cantonese: Some(pack.join("cantonese.db")),
+            cantonese: Some(pack.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
         }
@@ -9039,15 +9043,15 @@ fn downloaded_language_dictionaries_win_over_the_recorded_directory() {
         .into_engine_options();
     assert_eq!(
         options.cantonese_dictionary,
-        pack.join("cantonese.db").to_str().unwrap()
+        pack.join("msime-cantonese.db").to_str().unwrap()
     );
     assert_eq!(
         options.zhuyin_dictionary,
-        recorded.join("zhuyin.db").to_str().unwrap()
+        recorded.join("msime-zhuyin.db").to_str().unwrap()
     );
     assert_eq!(
         options.stroke_dictionary,
-        recorded.join("stroke.db").to_str().unwrap()
+        recorded.join("msime-stroke.db").to_str().unwrap()
     );
     assert_eq!(options.scheme, 5);
 }
@@ -9084,7 +9088,7 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let pack = publish_resource_pack(
         &state,
         ResourcePack::Japanese,
-        &["msime-japanese.dat", "mozc_dictionary_oss_README.txt"],
+        &["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"],
     );
     let with = options();
     assert_eq!(
@@ -9120,7 +9124,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     .unwrap();
 
     // 只缺一半：两种规则都拒绝。
-    std::fs::remove_file(resources.join("mozc_dictionary_oss_README.txt")).unwrap();
+    std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
     assert!(verify_resources_once(
         &resources,
         &specification,
@@ -9167,7 +9171,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     let resources = root.path().join("resources");
     let specification = synthetic_desktop_lock(&resources);
     std::fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
-    std::fs::remove_file(resources.join("mozc_dictionary_oss_README.txt")).unwrap();
+    std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
     let prepared = prepare_shipped_host_configuration(
         &resources,
         &root.path().join("state"),
@@ -9239,7 +9243,7 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     let language = publish_resource_pack(
         &state,
         ResourcePack::LanguageDictionaries,
-        &["cantonese.db"],
+        &["msime-cantonese.db"],
     );
     let japanese = publish_resource_pack(&state, ResourcePack::Japanese, &["msime-japanese.dat"]);
     // 组字中途不重建：变化先记下，等输入空闲。
@@ -9257,7 +9261,7 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     assert_eq!(
         after,
         LanguageDictionaries {
-            cantonese: Some(language.join("cantonese.db")),
+            cantonese: Some(language.join("msime-cantonese.db")),
             zhuyin: None,
             stroke: None,
         }

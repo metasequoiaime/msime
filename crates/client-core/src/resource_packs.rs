@@ -404,21 +404,27 @@ mod tests {
         let external = publish_fake(outside.path(), pack);
         fs::create_dir_all(root(state.path())).unwrap();
         symlink(&external, root(state.path()).join(pack.id())).unwrap();
-        assert_eq!(installed_file(state.path(), pack, "cantonese.db"), None);
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-cantonese.db"),
+            None
+        );
         fs::remove_file(root(state.path()).join(pack.id())).unwrap();
 
         // 资源包里的文件是符号链接。
         let directory = publish_fake(state.path(), pack);
-        fs::remove_file(directory.join("cantonese.db")).unwrap();
+        fs::remove_file(directory.join("msime-cantonese.db")).unwrap();
         symlink(
-            external.join("cantonese.db"),
-            directory.join("cantonese.db"),
+            external.join("msime-cantonese.db"),
+            directory.join("msime-cantonese.db"),
         )
         .unwrap();
-        assert_eq!(installed_file(state.path(), pack, "cantonese.db"), None);
         assert_eq!(
-            installed_file(state.path(), pack, "zhuyin.db"),
-            Some(directory.join("zhuyin.db"))
+            installed_file(state.path(), pack, "msime-cantonese.db"),
+            None
+        );
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-zhuyin.db"),
+            Some(directory.join("msime-zhuyin.db"))
         );
 
         // 资源包父目录是符号链接时，也不能把外部文件当作已安装资源。
@@ -426,7 +432,7 @@ mod tests {
         let linked_root = root(linked_state.path());
         symlink(root(outside.path()), &linked_root).unwrap();
         assert_eq!(
-            installed_file(linked_state.path(), pack, "cantonese.db"),
+            installed_file(linked_state.path(), pack, "msime-cantonese.db"),
             None
         );
         assert!(list(linked_state.path())

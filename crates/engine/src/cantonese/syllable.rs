@@ -1,4 +1,4 @@
-//! Toneless Jyutping syllables: the inventory `cantonese.db` lists, and the segmentation of typed letters into it. `'` is a hard boundary no syllable crosses, and only the last letters of the input may be an incomplete syllable, one some inventory syllable starts with.
+//! Toneless Jyutping syllables: the inventory `msime-cantonese.db` lists, and the segmentation of typed letters into it. `'` is a hard boundary no syllable crosses, and only the last letters of the input may be an incomplete syllable, one some inventory syllable starts with.
 
 use std::collections::HashSet;
 
@@ -17,7 +17,7 @@ pub struct Inventory {
 }
 
 impl Inventory {
-    /// An inventory of `syllables`, which are lowercase ASCII as `cantonese.db` stores them.
+    /// An inventory of `syllables`, which are lowercase ASCII as `msime-cantonese.db` stores them.
     pub fn new<I, S>(syllables: I) -> Self
     where
         I: IntoIterator<Item = S>,

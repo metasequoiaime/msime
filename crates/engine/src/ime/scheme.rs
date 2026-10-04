@@ -33,7 +33,7 @@ pub enum Scheme {
 }
 
 impl Scheme {
-    /// ime_session.cpp:371-386; the profile only matters for shuangpin, the input method and tone style only for Vietnamese, the syllable inventory only for Cantonese and the open `zhuyin.db` only for Zhuyin. Neither can be built without its dictionary (`LANGUAGE_DICTIONARY_UNAVAILABLE`), which exists once the scheme has been activated.
+    /// ime_session.cpp:371-386; the profile only matters for shuangpin, the input method and tone style only for Vietnamese, the syllable inventory only for Cantonese and the open `msime-zhuyin.db` only for Zhuyin. Neither can be built without its dictionary (`LANGUAGE_DICTIONARY_UNAVAILABLE`), which exists once the scheme has been activated.
     pub fn new(
         scheme: SchemeType,
         profile_kind: ShuangpinProfileKind,
@@ -61,7 +61,7 @@ impl Scheme {
                 Self::Vietnamese(VietnameseScheme::new(vietnamese_method, vietnamese_style))
             }
             SchemeType::Tibetan => Self::Tibetan(TibetanScheme::new()),
-            // 笔画方案自己不持有 `stroke.db`：词典留在 registry，查询时按请求读。
+            // 笔画方案自己不持有 `msime-stroke.db`：词典留在 registry，查询时按请求读。
             SchemeType::Stroke => Self::Stroke(StrokeScheme::new()),
         })
     }
@@ -104,7 +104,7 @@ impl Scheme {
             Self::Japanese(scheme) => scheme.handle_key(key),
             Self::Korean(scheme) => scheme.handle_key(key),
             Self::Cantonese(scheme) => scheme.handle_key(key),
-            // The session drives Zhuyin through `ImeSession::handle_zhuyin_key`, which reports whether the editor claimed a key and whether reading `zhuyin.db` failed; a scheme key reaching it here changes nothing.
+            // The session drives Zhuyin through `ImeSession::handle_zhuyin_key`, which reports whether the editor claimed a key and whether reading `msime-zhuyin.db` failed; a scheme key reaching it here changes nothing.
             Self::Zhuyin(_) => {}
             Self::Vietnamese(scheme) => scheme.handle_key(key),
             Self::Tibetan(scheme) => scheme.handle_key(key),
@@ -186,7 +186,7 @@ impl Scheme {
         }
     }
 
-    /// The `zhuyin.db` connection a Zhuyin scheme holds, `None` for every other scheme.
+    /// The `msime-zhuyin.db` connection a Zhuyin scheme holds, `None` for every other scheme.
     pub fn into_zhuyin_dictionary(self) -> Option<LanguageDictionary> {
         match self {
             Self::Zhuyin(scheme) => Some(scheme.into_dictionary()),

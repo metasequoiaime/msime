@@ -4078,7 +4078,7 @@ int main(int argc, char **argv) {
       require(key('g') && key('a') && seen.preedit == "ག" && seen.committed == before,
               "The Tibetan syllable survived the focus change");
       invoke("Reset");
-      // 笔画：装好 stroke.db 并重新读取选项后出现在菜单里，并从菜单选中，这样能发现 PropertyActivate 白名单或 id 映射漏掉的 Scheme/Stroke 一项。
+      // 笔画：装好 msime-stroke.db 并重新读取选项后出现在菜单里，并从菜单选中，这样能发现 PropertyActivate 白名单或 id 映射漏掉的 Scheme/Stroke 一项。
       const auto stroke_fixture =
           std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
       require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");

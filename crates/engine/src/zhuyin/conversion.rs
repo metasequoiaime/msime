@@ -45,7 +45,7 @@ impl Score {
     }
 }
 
-/// Converts `syllables` (toned, as `zhuyin.db` keys them) into the best sequence of spans covering all of them. `best` returns the heaviest entry for a key (the syllables joined by a space). `pins` are non-overlapping spans that must appear as given; no other span may cross them. A single syllable with no entry converts to itself, so there is always a path.
+/// Converts `syllables` (toned, as `msime-zhuyin.db` keys them) into the best sequence of spans covering all of them. `best` returns the heaviest entry for a key (the syllables joined by a space). `pins` are non-overlapping spans that must appear as given; no other span may cross them. A single syllable with no entry converts to itself, so there is always a path.
 pub fn convert(
     syllables: &[&str],
     pins: &[Span],

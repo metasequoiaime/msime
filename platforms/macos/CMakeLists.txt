@@ -154,7 +154,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libhangul-h
 # The Cantonese and Zhuyin schemes, whose syllables and words come from the dictionaries in language-dictionaries/ (when installed), built from rime-cantonese (CC BY 4.0, which requires attribution) and libchewing-data (LGPL-2.1-or-later, which requires the licence text and a source pointer).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-cantonese-CC-BY-4.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-cantonese-CC-BY-4.0.txt" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/libchewing-data-LGPL-2.1.txt" "${MSIME_LEGAL_DIRECTORY}/libchewing-data-LGPL-2.1.txt" COPYONLY)
-# The Stroke scheme, whose stroke orders come from stroke.db in language-dictionaries/ (when installed), built from rime-stroke (LGPL-3.0, which requires the licence text and a source pointer; its main table also carries the CNS11643 attribution).
+# The Stroke scheme, whose stroke orders come from msime-stroke.db in language-dictionaries/ (when installed), built from rime-stroke (LGPL-3.0, which requires the licence text and a source pointer; its main table also carries the CNS11643 attribution).
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/rime-stroke-LGPL-3.0.txt" "${MSIME_LEGAL_DIRECTORY}/rime-stroke-LGPL-3.0.txt" COPYONLY)
 # The vi crate the engine links for Vietnamese Telex and VNI; MIT requires its copyright and permission notice in every copy, and macOS is where the Vietnamese scheme ships.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../../resources/licenses/vi-MIT.txt" "${MSIME_LEGAL_DIRECTORY}/vi-MIT.txt" COPYONLY)

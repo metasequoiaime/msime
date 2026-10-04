@@ -12,7 +12,7 @@ export type EmojiCatalogGroup = {
 
 // The Windows resource catalog is larger and is supplied by the native host
 // when available. This compact catalog keeps the shared panel useful in
-// browser previews and on hosts that have not packaged others.db yet.
+// browser previews and on hosts that have not packaged msime-others.db yet.
 export const fallbackEmojiGroups: EmojiCatalogGroup[] = [
   {
     title: "Smileys and emotion",

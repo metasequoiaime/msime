@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the installable macOS release: the Tauri settings app with the pinned core dictionaries (EngineResources), the licence files and the InputMethodKit bundle 水杉输入法.app embedded as resources, packed into a DMG with a SHA256SUMS beside it.
 #
-# 包里只带装好就能打中文的核心词库（msime-pinyin.db、bigram/trigram、msime-english.db、others.db、sentence-model、helpcodes/、dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
+# 包里只带装好就能打中文的核心词库（msime-pinyin.db、bigram/trigram、msime-english.db、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
 #   japanese              msime-japanese.dat 与 mozc README，用户选日文方案时下载
 #   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
@@ -177,7 +177,7 @@ check_app() {
   done
   # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里。
   test ! -e "$resources_dir/EngineResources/msime-japanese.dat"
-  test ! -e "$resources_dir/EngineResources/mozc_dictionary_oss_README.txt"
+  test ! -e "$resources_dir/EngineResources/msime-mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"

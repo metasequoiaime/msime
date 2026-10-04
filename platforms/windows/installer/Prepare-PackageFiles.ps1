@@ -384,7 +384,7 @@ if (Test-Path -LiteralPath $languagesTarget) {
 }
 if (-not $Light) {
     $stagedLanguages = @()
-    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'), @('stroke.db', 'rime_stroke_LICENSE.txt'))) {
+    foreach ($pair in @(@('msime-cantonese.db', 'msime-rime_cantonese_LICENSE.txt'), @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt'), @('msime-stroke.db', 'msime-rime_stroke_LICENSE.txt'))) {
         $database = Join-Path $languagesSource $pair[0]
         $license = Join-Path $languagesSource $pair[1]
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { continue }

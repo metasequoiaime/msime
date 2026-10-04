@@ -21,7 +21,7 @@ PR_WORKFLOW = ROOT / ".github/workflows/ci-macos-package.yml"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/release-macos.yml"
 INPUTS = (RESOURCES_RS, DESKTOP_LOCK, LANGUAGE_LOCK, HANDWRITING_LOCK, PACKAGE, TAURI_MACOS, PR_WORKFLOW, RELEASE_WORKFLOW)
 
-EXPECTED_ON_DEMAND = ["msime-japanese.dat", "mozc_dictionary_oss_README.txt"]
+EXPECTED_ON_DEMAND = ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]
 # 决定发布包内容和资源包能否下载的文件。任何一个改动都要让 ci-macos-package.yml 打一次包。
 PACKAGING_INPUTS = (
     "platforms/macos/package-release.sh",

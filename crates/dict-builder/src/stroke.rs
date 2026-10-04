@@ -1,4 +1,4 @@
-//! `stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `cn/SingleCharsAllV1.txt`（rime-ice 字频，GPL-3.0）。
+//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `cn/SingleCharsAllV1.txt`（rime-ice 字频，GPL-3.0）。
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `SingleCharsAllV1.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
@@ -6,7 +6,7 @@
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! `stroke.db` 在 msime-dictionary 的固定提交中读取 `stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
+//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -34,10 +34,10 @@ pub const SOURCE_SHA256: &str = "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1
 pub const STROKES: [char; 5] = ['h', 's', 'p', 'n', 'z'];
 /// 记入数据库 `license` 的 SPDX 表达式：笔顺码是 rime-stroke 的 LGPL-3.0，权重取自 rime-ice 的 GPL-3.0 字频。
 pub const LICENSE: &str = "LGPL-3.0-only AND GPL-3.0-only";
-pub const DATABASE: &str = "stroke.db";
+pub const DATABASE: &str = "msime-stroke.db";
 /// `resources/licenses/` 里的许可证文本，以及它在数据库旁边的文件名。
 pub const LICENSE_SOURCE: &str = "rime-stroke-LGPL-3.0.txt";
-pub const LICENSE_NAME: &str = "rime_stroke_LICENSE.txt";
+pub const LICENSE_NAME: &str = "msime-rime_stroke_LICENSE.txt";
 
 /// 发布构建时 `verify` 要求的下限。固定提交经 `kept` 过滤后的实际值是 47095 条、27588 个字、7678 个有字频的字。
 pub const FLOORS: Floors = Floors {
@@ -119,7 +119,7 @@ pub struct Dictionary {
     pub entries: BTreeMap<(String, String), i64>,
 }
 
-/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `stroke.db`，粤拼与注音词库照常构建和发布。
+/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `msime-stroke.db`，粤拼与注音词库照常构建和发布。
 pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
     if sources.lock.files.iter().any(|file| file.path == SOURCE) {
         return sources.pinned(SOURCE).map(Some);

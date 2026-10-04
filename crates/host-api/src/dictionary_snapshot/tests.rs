@@ -744,7 +744,7 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     let resources = root.path().join("resources");
     let specification = crate::tests::synthetic_desktop_lock(&resources);
     fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
-    fs::remove_file(resources.join("mozc_dictionary_oss_README.txt")).unwrap();
+    fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
     for name in ["user", "cache", "dictionaries", "staging"] {
         fs::create_dir_all(root.path().join(name)).unwrap();
     }

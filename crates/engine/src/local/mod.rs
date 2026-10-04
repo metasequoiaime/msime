@@ -1,4 +1,4 @@
-//! Shift+letter local modes (core-session.md §10, overlays.md §8.1): Unicode code points, date and time, quick phrases, emoji, kaomoji and super jianpin, plus the emoji / kaomoji / symbol catalog the host's picker pages through. Quick phrase and jianpin read the generation's `msime-pinyin.db`; emoji and kaomoji read the resource `others.db`. The expression (`V`), command (`/`) and mention (`@`) modes compute their rows from the input, the clock and host-supplied tables, and read nothing from disk.
+//! Shift+letter local modes (core-session.md §10, overlays.md §8.1): Unicode code points, date and time, quick phrases, emoji, kaomoji and super jianpin, plus the emoji / kaomoji / symbol catalog the host's picker pages through. Quick phrase and jianpin read the generation's `msime-pinyin.db`; emoji and kaomoji read the resource `msime-others.db`. The expression (`V`), command (`/`) and mention (`@`) modes compute their rows from the input, the clock and host-supplied tables, and read nothing from disk.
 
 pub mod catalog;
 pub mod command;

@@ -9,13 +9,13 @@ pub const WUBI_DICTIONARY: &str = "msime-wubi.db";
 /// The English dictionary; a working copy lives in each generation.
 pub const ENGLISH_DICTIONARY: &str = "msime-english.db";
 /// Lattice n-gram tables, copied beside each generation.
-pub const BIGRAM_TABLE: &str = "bigram.bin";
-pub const TRIGRAM_TABLE: &str = "trigram.bin";
+pub const BIGRAM_TABLE: &str = "msime-bigram.bin";
+pub const TRIGRAM_TABLE: &str = "msime-trigram.bin";
 /// Emoji, kaomoji and symbol catalogs; read-only resource.
-pub const OTHER_DICTIONARY: &str = "others.db";
+pub const OTHER_DICTIONARY: &str = "msime-others.db";
 pub const JAPANESE_MODEL: &str = "msime-japanese.dat";
-pub const JAPANESE_NOTICE: &str = "mozc_dictionary_oss_README.txt";
-pub const DICTIONARY_MANIFEST: &str = "dictionary-manifest.json";
+pub const JAPANESE_NOTICE: &str = "msime-mozc_dictionary_oss_README.txt";
+pub const DICTIONARY_MANIFEST: &str = "msime-dictionary-manifest.json";
 /// Hand-written translations; copied from user data or resources into the generation as a sidecar.
 pub const TRANSLATIONS: &str = "custom_translations.txt";
 /// The user journal every learning write goes through.

@@ -68,7 +68,7 @@ native windows-session
 # Engine attribution above turned out to be wrong twice over. Unicode, date and time and quick phrase all
 # pass now - the Engine behaviour blamed here really was fixed - and the abort had moved on to emoji, where
 # it was never the Engine at all. Four of the eight modes are gated on a runtime resource as well as on the
-# preference (apply_local_mode_resource_gates: emoji and kaomoji need others.db, temporary English needs
+# preference (apply_local_mode_resource_gates: emoji and kaomoji need msime-others.db, temporary English needs
 # msime-english.db, temporary Japanese needs msime-japanese.dat), and the test built an empty resources directory,
 # so it asserted something that could not hold. The gate only asks whether the file is there, so the test
 # now creates empty ones - and asserts the gate itself, which nothing on macOS covered: with the resource

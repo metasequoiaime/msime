@@ -59,15 +59,15 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertNil(InputSchemePreference.installedLanguageSchemes(in: nil))
     try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [])
-    try Data().write(to: state.appendingPathComponent("cantonese.db"))
+    try Data().write(to: state.appendingPathComponent("msime-cantonese.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese])
-    try Data().write(to: state.appendingPathComponent("zhuyin.db"))
+    try Data().write(to: state.appendingPathComponent("msime-zhuyin.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin])
-    try Data().write(to: state.appendingPathComponent("stroke.db"))
+    try Data().write(to: state.appendingPathComponent("msime-stroke.db"))
     XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.cantonese, .zhuyin, .stroke])
-    try FileManager.default.removeItem(at: state.appendingPathComponent("cantonese.db"))
-    try FileManager.default.removeItem(at: state.appendingPathComponent("zhuyin.db"))
-    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.stroke], "stroke.db alone offers Stroke")
+    try FileManager.default.removeItem(at: state.appendingPathComponent("msime-cantonese.db"))
+    try FileManager.default.removeItem(at: state.appendingPathComponent("msime-zhuyin.db"))
+    XCTAssertEqual(InputSchemePreference.installedLanguageSchemes(in: state), [.stroke], "msime-stroke.db alone offers Stroke")
   }
 
   /// The test host bundles EngineResources, so it can tell what is installed; the App bundle carries no Engine and cannot.
@@ -225,7 +225,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testTheDachenRowsReplaceTheLettersWhileZhuyinIsActive() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.zhuyin) == true,
-                      "zhuyin.db is not staged into the test host")
+                      "msime-zhuyin.db is not staged into the test host")
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .zhuyin
@@ -304,7 +304,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testTheStrokeKeysReplaceTheLettersWhileStrokeIsActive() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.stroke) == true,
-                      "stroke.db is not staged into the test host")
+                      "msime-stroke.db is not staged into the test host")
     let previous = InputSchemePreference.scheme
     defer { InputSchemePreference.scheme = previous }
     InputSchemePreference.scheme = .stroke
@@ -331,7 +331,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testAnIdleZhuyinToneKeyIsLeftToTheKeyboardToType() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.zhuyin) == true,
-                      "zhuyin.db is not staged into the test host")
+                      "msime-zhuyin.db is not staged into the test host")
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switchToZhuyin()
     for tone in ["6", "3", "4", "7"] {
@@ -348,7 +348,7 @@ final class LanguageSchemesTests: XCTestCase {
 
   func testZhuyinComposesInPlaceAndReturnCommitsTheConversion() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.zhuyin) == true,
-                      "zhuyin.db is not staged into the test host")
+                      "msime-zhuyin.db is not staged into the test host")
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switchToZhuyin()
     let composing = type("su3cl3", into: bridge)
@@ -360,10 +360,10 @@ final class LanguageSchemesTests: XCTestCase {
     XCTAssertEqual(committed.commitText, "你好")
   }
 
-  /// Synthetic expectations that hold for any stroke.db: 一 is the single stroke 横, and an idle wildcard is left to the host.
+  /// Synthetic expectations that hold for any msime-stroke.db: 一 is the single stroke 横, and an idle wildcard is left to the host.
   func testStrokeLooksUpByStrokeOrderAndReturnCommitsTheLetters() throws {
     try XCTSkipUnless(InputSchemePreference.installedLanguageSchemes?.contains(.stroke) == true,
-                      "stroke.db is not staged into the test host")
+                      "msime-stroke.db is not staged into the test host")
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
     _ = bridge.switchToStroke()
     let idle = bridge.handleCharacter("x")

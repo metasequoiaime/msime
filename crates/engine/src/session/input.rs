@@ -1548,7 +1548,7 @@ impl InputSession {
         item.scheme == SchemeType::Wubi
     }
 
-    /// Whether a row came from a dictionary a pin, fixed position or removal can write to. Japanese rows come from a read-only model, Korean Hanja rows from the embedded table, Cantonese rows from the read-only `cantonese.db`, Zhuyin rows from the read-only `zhuyin.db` and Stroke rows from the read-only `stroke.db`; keyed by their letters, any of them would land in the pinyin user dictionary.
+    /// Whether a row came from a dictionary a pin, fixed position or removal can write to. Japanese rows come from a read-only model, Korean Hanja rows from the embedded table, Cantonese rows from the read-only `msime-cantonese.db`, Zhuyin rows from the read-only `msime-zhuyin.db` and Stroke rows from the read-only `msime-stroke.db`; keyed by their letters, any of them would land in the pinyin user dictionary.
     pub(super) fn is_editable_source(&self, item: &WordItem) -> bool {
         item.source == CandidateSource::EnglishDictionary
             || (item.source.is_dictionary()

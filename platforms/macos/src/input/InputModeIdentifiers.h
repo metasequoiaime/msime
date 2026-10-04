@@ -40,9 +40,9 @@ static inline BOOL MSIMEPathAncestorsAreReal(NSString *path) {
     return msime::mac::StoragePathIsSafe(path.stringByStandardizingPath.fileSystemRepresentation, true);
 }
 
-// 某个方案此处能否真正运行。粤拼、注音和笔画需要各自的词典（cantonese.db、zhuyin.db、stroke.db）：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
+// 某个方案此处能否真正运行。粤拼、注音和笔画需要各自的词典（msime-cantonese.db、msime-zhuyin.db、msime-stroke.db）：按 host-api 的顺序，先找设置应用按需下载到 `<preferences_directory>/resource-packs/language-dictionaries/` 的副本（preferences_directory 须为绝对路径，资源包目录须是真实目录且带 msime-model.json，词典须是普通文件，符号链接一律不认），再找 HostOptions 的 `language_dictionaries` 目录；两处都没有时 host-api 会回退，此时提供该方案只会选中一个永远不生效的方案。其余方案（包括缺少日文词典时退化为纯假名的日文）不需要资源集之外的数据。输入法自身从不下载，下载只在设置应用里进行。
 static inline BOOL MSIMEInputSchemeAvailable(NSString *scheme, NSDictionary *hostOptions) {
-    NSDictionary<NSString *, NSString *> *files = @{@"cantonese": @"cantonese.db", @"zhuyin": @"zhuyin.db", @"stroke": @"stroke.db"};
+    NSDictionary<NSString *, NSString *> *files = @{@"cantonese": @"msime-cantonese.db", @"zhuyin": @"msime-zhuyin.db", @"stroke": @"msime-stroke.db"};
     NSString *file = [scheme isKindOfClass:NSString.class] ? files[scheme] : nil;
     if (!file) return [MSIMEInputSchemeNames() containsObject:scheme];
     id stateRoot = hostOptions[@"preferences_directory"];

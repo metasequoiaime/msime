@@ -1,4 +1,4 @@
-//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`cantonese.db`, `zhuyin.db`, `stroke.db`), each with its licence text, plus `language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
+//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`msime-cantonese.db`, `msime-zhuyin.db`, `msime-stroke.db`), each with its licence text, plus `msime-language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
 
 use std::path::Path;
 
@@ -10,7 +10,7 @@ use crate::stroke;
 use crate::text;
 use crate::zhuyin;
 
-pub const SUMS: &str = "language-dictionaries-SHA256SUMS";
+pub const SUMS: &str = "msime-language-dictionaries-SHA256SUMS";
 
 /// Builds every language dictionary into `out` with the licence texts from `licenses` (`resources/licenses/`), verifies each, and writes the checksums. Returns one summary line per dictionary.
 pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<String>> {
@@ -124,7 +124,7 @@ fn copy_license(licenses: &Path, source: &str, out: &Path, name: &str) -> Result
     Ok(())
 }
 
-/// `sha256  name` lines in name order, the `sha256sum` format of the desktop product's `SHA256SUMS.txt`.
+/// `sha256  name` lines in name order, the `sha256sum` format of the desktop product's `msime-SHA256SUMS.txt`.
 fn write_sums(out: &Path, names: &[&str]) -> Result<()> {
     let mut names = names.to_vec();
     names.sort_unstable();

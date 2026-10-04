@@ -89,7 +89,7 @@ cargo run --quiet -p msime-client-core --example install_resources --locked -- t
 ```
 
 - scheme 是 `MSIMEClientTests`，`MSIMEKeyboardTests` 是 target 名，直接用它报 "does not contain a scheme"。`xcodebuild -list` 查全部。
-- `xcodegen generate` 会做 spec 校验，缺 `target/ios/EngineResources` 及其中的 `dictionary-manifest.json` 直接失败——先 stage 再生成工程。
+- `xcodegen generate` 会做 spec 校验，缺 `target/ios/EngineResources` 及其中的 `msime-dictionary-manifest.json` 直接失败——先 stage 再生成工程。
 - 改了 `App/Sources`、`SharedUI`、`KeyboardTests` 下的文件要 `xcodegen generate` 并提交 `project.pbxproj`：它逐个列出源文件，不重新生成，新文件不会被编译。
 - Xcode 27 的模拟器界面是 `DeviceHub.app`，`Simulator.app` 已不存在；`xcrun simctl` 一切照常，设备状态以 `xcrun simctl list devices` 为准。
 

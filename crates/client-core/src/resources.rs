@@ -29,7 +29,7 @@ pub struct ResourceSet {
 
 /// macOS 发布包不内置、改为按需下载的桌面词库文件。两者作为一个整体出现或缺席：日文词典与它的 Mozc 许可说明必须同时在场，只有一个在场时按原规则校验失败。
 pub const MACOS_ON_DEMAND_ARTIFACTS: [&str; 2] =
-    ["msime-japanese.dat", "mozc_dictionary_oss_README.txt"];
+    ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
@@ -513,7 +513,7 @@ mod tests {
         let core = spec.without(&MACOS_ON_DEMAND_ARTIFACTS);
         assert_eq!(
             names(&on_demand),
-            ["msime-japanese.dat", "mozc_dictionary_oss_README.txt"]
+            ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]
         );
         assert_eq!(names(&core), ["msime-pinyin.db", "msime-english.db"]);
         assert_eq!(on_demand.source_commit, spec.source_commit);
@@ -545,7 +545,7 @@ mod tests {
             .verify(directory.path(), &shipped)
             .unwrap_err();
         assert!(
-            matches!(&error, ResourceError::ExistingGeneration(message) if message.contains("mozc_dictionary_oss_README.txt")),
+            matches!(&error, ResourceError::ExistingGeneration(message) if message.contains("msime-mozc_dictionary_oss_README.txt")),
             "{error}"
         );
     }
@@ -556,7 +556,9 @@ mod tests {
         write_core(directory.path());
         fs::write(directory.path().join("msime-japanese.dat"), b"japanese").unwrap();
         fs::write(
-            directory.path().join("mozc_dictionary_oss_README.txt"),
+            directory
+                .path()
+                .join("msime-mozc_dictionary_oss_README.txt"),
             b"readme",
         )
         .unwrap();

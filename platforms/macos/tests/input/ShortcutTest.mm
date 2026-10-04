@@ -1866,7 +1866,7 @@ static void TestOptInSchemeModes() {
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
     NSString *dictionaries = [NSTemporaryDirectory() stringByAppendingPathComponent:[@"msime-language-dictionaries-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     assert([NSFileManager.defaultManager createDirectoryAtPath:dictionaries withIntermediateDirectories:YES attributes:nil error:nil]);
-    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"cantonese.db"] atomically:YES]);
+    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"msime-cantonese.db"] atomically:YES]);
     NSMutableArray<NSString *> *enabled = [NSMutableArray array];
     auto makeController = [&](MSIMEAppearancePreferences *appearance, BOOL withEnabler) {
         MSIMEInputController *controller = [MSIMEInputController alloc];
@@ -1883,7 +1883,7 @@ static void TestOptInSchemeModes() {
     MSIMEInputController *controller = makeController(appearance, YES);
     id client = [controller valueForKey:@"activeClient"];
 
-    // 只有 cantonese.db 时菜单按引擎顺序正好列出八个方案，没有注音或笔画。
+    // 只有 msime-cantonese.db 时菜单按引擎顺序正好列出八个方案，没有注音或笔画。
     NSMenuItem *schemeItem = [controller.menu itemAtIndex:9];
     NSMutableArray<NSString *> *listed = [NSMutableArray array];
     for (NSMenuItem *item in schemeItem.submenu.itemArray) [listed addObject:item.representedObject];
@@ -1907,7 +1907,7 @@ static void TestOptInSchemeModes() {
     schemeItem = [controller.menu itemAtIndex:9];
     assert([schemeItem.title isEqual:@"输入方案（全拼）"] && [schemeItem.submenu itemAtIndex:0].state == NSControlStateValueOn);
     // Installing the dictionary afterwards makes zhuyin the scheme running, which enables its mode.
-    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"zhuyin.db"] atomically:YES]);
+    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"msime-zhuyin.db"] atomically:YES]);
     [controller syncSystemInputModeForClient:client];
     assert(([enabled isEqualToArray:@[MSIMEVietnameseInputModeID, MSIMEZhuyinInputModeID]]));
     schemeItem = [controller.menu itemAtIndex:9];
@@ -1955,24 +1955,24 @@ static void TestOptInSchemeModes() {
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
 
-    // 笔画没有 stroke.db 时按全拼运行、不启用模式；词库到位后成为实际方案，启用「笔」，菜单最后一项是笔画并打勾。
+    // 笔画没有 msime-stroke.db 时按全拼运行、不启用模式；词库到位后成为实际方案，启用「笔」，菜单最后一项是笔画并打勾。
     [defaults setObject:@"stroke" forKey:@"MSIMEClientInputScheme"];
     relaunched = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     next = makeController(relaunched, YES);
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 6 && [relaunched.lastSyncedInputScheme isEqual:@"quanpin"]);
-    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"stroke.db"] atomically:YES]);
+    assert([NSData.data writeToFile:[dictionaries stringByAppendingPathComponent:@"msime-stroke.db"] atomically:YES]);
     [next syncSystemInputModeForClient:[next valueForKey:@"activeClient"]];
     assert(enabled.count == 7 && [enabled.lastObject isEqual:MSIMEStrokeInputModeID] && [relaunched.lastSyncedInputScheme isEqual:@"stroke"]);
     schemeItem = [next.menu itemAtIndex:9];
     assert(schemeItem.submenu.numberOfItems == 10 && [schemeItem.title isEqual:@"输入方案（笔画）"]);
     NSMenuItem *strokeItem = [schemeItem.submenu itemAtIndex:9];
     assert([strokeItem.representedObject isEqual:@"stroke"] && [strokeItem.title isEqual:@"笔画"] && strokeItem.state == NSControlStateValueOn);
-    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"stroke.db"] error:nil]);
+    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"msime-stroke.db"] error:nil]);
     [defaults setObject:@"cantonese" forKey:@"MSIMEClientInputScheme"];
 
-    // The settings radios read the runtime options on disk: with only cantonese.db named there, 注音 and 笔画 are disabled and say why, and the rest are enabled.
-    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"zhuyin.db"] error:nil]);
+    // The settings radios read the runtime options on disk: with only msime-cantonese.db named there, 注音 and 笔画 are disabled and say why, and the rest are enabled.
+    assert([NSFileManager.defaultManager removeItemAtPath:[dictionaries stringByAppendingPathComponent:@"msime-zhuyin.db"] error:nil]);
     NSString *optionsPath = MSIMEDefaultRuntimeOptionsPath(NSFileManager.defaultManager);
     assert(![NSFileManager.defaultManager fileExistsAtPath:optionsPath]);
     assert([NSFileManager.defaultManager createDirectoryAtPath:optionsPath.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil]);

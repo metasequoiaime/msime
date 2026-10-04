@@ -434,9 +434,9 @@ msime::windows::scheme::LanguageDictionaryPresence
 installed_language_dictionaries(const std::filesystem::path &resources) {
   const auto directory = resources.parent_path() / L"language-dictionaries";
   std::error_code error;
-  return {std::filesystem::is_regular_file(directory / L"cantonese.db", error),
-          std::filesystem::is_regular_file(directory / L"zhuyin.db", error),
-          std::filesystem::is_regular_file(directory / L"stroke.db", error)};
+  return {std::filesystem::is_regular_file(directory / L"msime-cantonese.db", error),
+          std::filesystem::is_regular_file(directory / L"msime-zhuyin.db", error),
+          std::filesystem::is_regular_file(directory / L"msime-stroke.db", error)};
 }
 // The scheme the Engine runs for the stored preferences, which is the stored one unless it needs a dictionary that is not installed.
 std::string running_scheme(
@@ -487,7 +487,7 @@ msime::windows::TsfLocalConfig tsf_local_config(
     const nlohmann::json &preferences,
     msime::windows::scheme::LanguageDictionaryPresence installed) {
   msime::windows::TsfLocalConfig config;
-  // The TIP keys the scheme the Engine runs: Zhuyin chosen without zhuyin.db runs a pinyin scheme, and keying it as Zhuyin would swallow the tone digits.
+  // The TIP keys the scheme the Engine runs: Zhuyin chosen without msime-zhuyin.db runs a pinyin scheme, and keying it as Zhuyin would swallow the tone digits.
   const auto scheme = running_scheme(preferences, installed);
   const auto navigation =
       preferences.value("navigation", nlohmann::json::object());

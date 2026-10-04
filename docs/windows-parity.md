@@ -1686,7 +1686,7 @@ macOS 对应同一份 `settings_launcher.cpp` 语义，但只对设置窗生效�
 
 ### 整句词格只接收精确读音（2026-09-22）
 
-来源 `e2a5f5f9` 修了两个互相放大的缺口：跨度查不到精确键时不应把前缀/简拼降级行塞进词格；语言模型只看汉字时还要用词条权重压住零权重的生僻读音。目标 Engine 的打分器不是来源的 KenLM：它用 `bigram.bin` / `trigram.bin` 加 `edge_log_prob`，后者已经把每条词库权重放进边分数，零权重的「卷(gun)」「而(neng)」天然比常见读音低十多个自然对数单位。因此不再叠加来源的 reading-prior 参数，避免破坏本仓已经用句集标定的 bigram/trigram 权重；真实资源打开整句 alternatives 后，`gunqi` 没有生成「卷七」，`nengfasheng` 也没有生成「而发生」。
+来源 `e2a5f5f9` 修了两个互相放大的缺口：跨度查不到精确键时不应把前缀/简拼降级行塞进词格；语言模型只看汉字时还要用词条权重压住零权重的生僻读音。目标 Engine 的打分器不是来源的 KenLM：它用 `msime-bigram.bin` / `msime-trigram.bin` 加 `edge_log_prob`，后者已经把每条词库权重放进边分数，零权重的「卷(gun)」「而(neng)」天然比常见读音低十多个自然对数单位。因此不再叠加来源的 reading-prior 参数，避免破坏本仓已经用句集标定的 bigram/trigram 权重；真实资源打开整句 alternatives 后，`gunqi` 没有生成「卷七」，`nengfasheng` 也没有生成「而发生」。
 
 真正仍缺的是精确跨度边界。修复前真实资源把 `gun'qiu` 的「滚球/棍球」当作 `gun'qi` 的数据库命中放在最前，因为 `query_segments_keyed_flat` 在精确键为空时会扫前缀范围，而插入位置又只按汉字/音节数判断“完整命中”。`apply_engine_lattice_reading.py` 把全拼与双拼共用的词格 lookup 改为批量精确键查询，并在查询前把 `jv/jve/lue` 等 ü 的等价拼法归一到词库存法；整句门槛降到两个完整音节，插入边界改为比较 canonical key。修复后两条错误前缀候选仍作为普通低位候选保留，首位变为 fallback「滚其」，Generated alternatives 只从 `gun'qi` 的行组成（「滚起/滚气/滚奇…」）。
 

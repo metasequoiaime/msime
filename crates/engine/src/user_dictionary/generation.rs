@@ -608,7 +608,7 @@ mod tests {
             fs::read(paths.dictionary(assets::BIGRAM_TABLE)).unwrap(),
             b"first"
         );
-        assert!(!paths.dictionary("trigram.bin.incoming").exists());
+        assert!(!paths.dictionary("msime-trigram.bin.incoming").exists());
         let fresh = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap();
         assert_eq!(
             fs::read(fresh.dictionary(assets::BIGRAM_TABLE)).unwrap(),

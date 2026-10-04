@@ -46,12 +46,12 @@
 | --- | --- | --- |
 | `msime-pinyin.db` | 81.9 MB | 工作词库，含 86 与 98 五笔码表；98 版同时合并 `msime-dictionary` 的开源补充表 |
 | `msime-english.db` | 1.5 MB | Engine 发布的英文词库 |
-| `bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
-| `trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
-| `others.db` | 1.3 MB | Engine 发布的表情等数据 |
+| `msime-bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
+| `msime-trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
+| `msime-others.db` | 1.3 MB | Engine 发布的表情等数据 |
 | `msime-japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
-| `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
-| `dictionary-manifest.json` | 2.5 KB | 资源清单 |
+| `msime-mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
+| `msime-dictionary-manifest.json` | 2.5 KB | 资源清单 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
@@ -62,14 +62,14 @@
 
 ### 日文词库的分发义务
 
-`msime-japanese.dat` 是 Mozc 的开源版词典，不是 Google 日本語入力所用的那一份。按随附 `mozc_dictionary_oss_README.txt` 的说明，它由四部分构成：
+`msime-japanese.dat` 是 Mozc 的开源版词典，不是 Google 日本語入力所用的那一份。按随附 `msime-mozc_dictionary_oss_README.txt` 的说明，它由四部分构成：
 
 - **IPAdic**（`mecab-ipadic-2.7.0-20070801`），奈良先端科学技術大学院大学 2000–2003 年版权。允许使用、复制和分发，但要求任何副本——无论原样还是修改过——都必须同时包含其版权声明和紧随其后的两段免责声明。
 - **ICOT Free Software**，词条中很大一部分源于此。其条款要求 `NO WARRANTY` 一节**始终**出现在随程序分发的材料中，或附加于其上。
 - **冲绳辞書**（[o-dic](http://sourceforge.jp/projects/o-dic/)），明示为 Public Domain，使用、修改、分发均无限制。
 - Google 手工增补的形容词／动词、片假名词和复合词，适用 Mozc 自身的条款；该 README 未复述这部分，GitHub 对 `google/mozc` 的许可证识别结果是 `NOASSERTION`，因此本文件不替它断定 SPDX 标识。
 
-**实际后果：分发这份词库时必须一并携带 `mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。
+**实际后果：分发这份词库时必须一并携带 `msime-mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。
 
 开源版不含日本邮政编码词典；README 给出了自行生成的步骤，本仓库没有执行。
 
@@ -199,22 +199,22 @@ kaikki 每周覆盖同一个 URL，所以能复现构建的是 `filtered_input`�
 
 ## 粤语与注音的数据（rime-cantonese、libchewing-data）
 
-粤语（粤拼）与注音（大千）两个方案的音节和词条来自两份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `cantonese.db` 与 `zhuyin.db`。两份数据库放在资源目录的兄弟目录 `language-dictionaries/`，不进 `desktop-dictionary.lock.json`，上面「九个产物」不变；理由与 `offline-glosses/` 相同：资源目录必须和词库锁逐字节一致，而且只有 macOS 与 Windows 提供这两个方案（Windows 安装包放在 `server\language-dictionaries`，与 `server\resources` 同级）。数据库不在时，这两个方案显示为不可用。
+粤语（粤拼）与注音（大千）两个方案的音节和词条来自两份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-cantonese.db` 与 `msime-zhuyin.db`。两份数据库放在资源目录的兄弟目录 `language-dictionaries/`，不进 `desktop-dictionary.lock.json`，上面「九个产物」不变；理由与 `offline-glosses/` 相同：资源目录必须和词库锁逐字节一致，而且只有 macOS 与 Windows 提供这两个方案（Windows 安装包放在 `server\language-dictionaries`，与 `server\resources` 同级）。数据库不在时，这两个方案显示为不可用。
 
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
-| [rime/rime-cantonese](https://github.com/rime/rime-cantonese) 的 `jyut6ping3.chars.dict.yaml`、`jyut6ping3.words.dict.yaml`、`essay-cantonese.txt`，提交 `ac277184f161f297c2031b497588975234019f9d` | CC BY 4.0（作者为粤语计算语言学基础建设组 CanCLID；拼写采用香港语言学学会 LSHK 的粤拼方案）。全文、署名与改动说明在 `resources/licenses/rime-cantonese-CC-BY-4.0.txt` | 转换成 `cantonese.db`：去掉声调数字、音节以空格连接，字频与词频取自 `essay-cantonese.txt`。按 ODbL 发布的 `jyut6ping3.maps.dict.yaml`、来源不明且没有读音的 `jyut6ping3.phrase.dict.yaml` 和 `jyut6ping3.lettered.dict.yaml` 都不读取、不分发。CC BY 4.0 要求署名并说明改动，许可证文件已写明两者 |
-| [chewing/libchewing-data](https://github.com/chewing/libchewing-data) 的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，提交 `c44e81aef24b06f1509f19e1be54c99812d0c43f`；以及 [openvanilla/McBopomofo](https://github.com/openvanilla/McBopomofo) 的 `Source/Data/BPMFMappings.txt`，提交 `be6564acad6c4d3265c34a2e1a872d80f9db6068` | libchewing-data 为 LGPL-2.1-or-later（两个文件的文件头 `dc:license` 声明，Copyright (c) 2025 libchewing Core Team）；McBopomofo 多字词表说明其来源为 BSD 授权的 libtabe 并含修改。两者的署名、源码地址和条款在 `resources/licenses/libchewing-data-LGPL-2.1.txt` | 转换成 `zhuyin.db`：`tsi.csv` 按词频排序，`word.csv` 补全单字，McBopomofo 补充表补入其余词语组合并以 0 作为无来源频率。仓库里其他注音文件不使用；注音从不读 `msime-pinyin.db`，也不经过简繁转换。若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。 |
+| [rime/rime-cantonese](https://github.com/rime/rime-cantonese) 的 `jyut6ping3.chars.dict.yaml`、`jyut6ping3.words.dict.yaml`、`essay-cantonese.txt`，提交 `ac277184f161f297c2031b497588975234019f9d` | CC BY 4.0（作者为粤语计算语言学基础建设组 CanCLID；拼写采用香港语言学学会 LSHK 的粤拼方案）。全文、署名与改动说明在 `resources/licenses/rime-cantonese-CC-BY-4.0.txt` | 转换成 `msime-cantonese.db`：去掉声调数字、音节以空格连接，字频与词频取自 `essay-cantonese.txt`。按 ODbL 发布的 `jyut6ping3.maps.dict.yaml`、来源不明且没有读音的 `jyut6ping3.phrase.dict.yaml` 和 `jyut6ping3.lettered.dict.yaml` 都不读取、不分发。CC BY 4.0 要求署名并说明改动，许可证文件已写明两者 |
+| [chewing/libchewing-data](https://github.com/chewing/libchewing-data) 的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，提交 `c44e81aef24b06f1509f19e1be54c99812d0c43f`；以及 [openvanilla/McBopomofo](https://github.com/openvanilla/McBopomofo) 的 `Source/Data/BPMFMappings.txt`，提交 `be6564acad6c4d3265c34a2e1a872d80f9db6068` | libchewing-data 为 LGPL-2.1-or-later（两个文件的文件头 `dc:license` 声明，Copyright (c) 2025 libchewing Core Team）；McBopomofo 多字词表说明其来源为 BSD 授权的 libtabe 并含修改。两者的署名、源码地址和条款在 `resources/licenses/libchewing-data-LGPL-2.1.txt` | 转换成 `msime-zhuyin.db`：`tsi.csv` 按词频排序，`word.csv` 补全单字，McBopomofo 补充表补入其余词语组合并以 0 作为无来源频率。仓库里其他注音文件不使用；注音从不读 `msime-pinyin.db`，也不经过简繁转换。若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。 |
 
 这些文件由 [msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 原样收在 `yue/`、`tw/` 下（与上游固定提交逐字节一致），`resources/dictionary-sources.lock.json` 按 `yue/`、`tw/` 路径固定它们在 msime-dictionary `sources-v*` release 里的附件（URL、长度与 SHA-256），上游提交记在同一文件的 `rime-cantonese`、`libchewing-data` 引用里。许可证文本经各平台的通知渠道分发，与下一节的 libhangul 汉字表相同：Windows 的 `Collect-Notices.ps1`，macOS 输入法包的 `Resources/Licenses`（`CMakeLists.txt` 与 `THIRD_PARTY_NOTICES.txt`），Linux 安装的声明（`CMakeLists.txt` 与 `data/THIRD_PARTY_NOTICES.txt`），Android 的 `assets/native-notices`（`build-native.sh`），iOS App 的资源（`project.yml`），HarmonyOS 的 `resfile/licenses`（`stage-resources.sh`）。除 macOS 外的平台目前不提供这两个方案，也不带数据库，但这些方案的代码随每一份引擎分发，统一一份渠道清单检查起来最简单。`scripts/test-language-data-notices.py` 检查许可证文本和这几处渠道都还在。
 
 ## 笔画的数据（rime-stroke）
 
-笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `stroke.db`，与 `cantonese.db`、`zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。
+笔画方案（h 横、s 竖、p 撇、n 点、z 折）的笔顺码来自一份固定提交的上游数据，由 `msime-dict-build languages` 转换成 `msime-stroke.db`，与 `msime-cantonese.db`、`msime-zhuyin.db` 放在同一个 `language-dictionaries/` 目录、同一个语言词库资源包里。数据库不在时，笔画方案显示为不可用。
 
 | 组件 | 许可证 | 位置与说明 |
 | --- | --- | --- |
-| [rime/rime-stroke](https://github.com/rime/rime-stroke) 的 `stroke.dict.yaml`，提交 `1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48` | LGPL-3.0（仓库的 `LICENSE`；`AUTHORS` 记载四季的風、雪齋、Kunki Chou 整理的主码表依 CNS11643 资料的授权声明以 LGPL 再发布，扩展至 Ext J 的数据来自宋天，同为 LGPL）。主码表源自 CNS11643 全字库，该资料按「政府資料開放授權條款－第1版」要求署名：數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw。附码表源自北大中文論壇（孙海峰、徐孟罗、唐捺之、谢振斌整理）。全文、署名与固定提交的源码地址在 `resources/licenses/rime-stroke-LGPL-3.0.txt` | 转换成 `stroke.db`：每行 `字<TAB>笔顺码` 原样成为一条，键就是笔顺字母串；一个字的多个笔顺（大陆规范与台湾 CNS11643 笔顺并列）各成一条。上游没有权重，排序用 `cn/SingleCharsAllV1.txt`（rime-ice，GPL-3.0-only）里每个字各读音权重之和，不在表里的字权重为 0；数据库 `license` 元数据因此记为 `LGPL-3.0-only AND GPL-3.0-only`。只有单字，不含词组。上游数据原样未改时，随附许可证全文和固定提交的源码地址即满足 LGPL 的源码提供义务；若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。这一判断未经法务审阅 |
+| [rime/rime-stroke](https://github.com/rime/rime-stroke) 的 `stroke.dict.yaml`，提交 `1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48` | LGPL-3.0（仓库的 `LICENSE`；`AUTHORS` 记载四季的風、雪齋、Kunki Chou 整理的主码表依 CNS11643 资料的授权声明以 LGPL 再发布，扩展至 Ext J 的数据来自宋天，同为 LGPL）。主码表源自 CNS11643 全字库，该资料按「政府資料開放授權條款－第1版」要求署名：數位發展部，CNS11643中文標準交換碼全字庫網站，https://www.cns11643.gov.tw。附码表源自北大中文論壇（孙海峰、徐孟罗、唐捺之、谢振斌整理）。全文、署名与固定提交的源码地址在 `resources/licenses/rime-stroke-LGPL-3.0.txt` | 转换成 `msime-stroke.db`：每行 `字<TAB>笔顺码` 原样成为一条，键就是笔顺字母串；一个字的多个笔顺（大陆规范与台湾 CNS11643 笔顺并列）各成一条。上游没有权重，排序用 `cn/SingleCharsAllV1.txt`（rime-ice，GPL-3.0-only）里每个字各读音权重之和，不在表里的字权重为 0；数据库 `license` 元数据因此记为 `LGPL-3.0-only AND GPL-3.0-only`。只有单字，不含词组。上游数据原样未改时，随附许可证全文和固定提交的源码地址即满足 LGPL 的源码提供义务；若转换本身算作修改，对应的源码是本仓库以 GPL-3.0 发布的 `crates/dict-builder`。这一判断未经法务审阅 |
 
 `stroke.dict.yaml` 还没有收进 msime-dictionary 的 `sources-v*` release，`resources/dictionary-sources.lock.json` 暂不固定它；在那之前 `msime-dict-build languages` 只从 `--cache` 目录的 `stroke/stroke.dict.yaml` 读取手动放入的上游文件，并按 `crates/dict-builder/src/stroke.rs` 记下的固定提交、大小与 SHA-256 校验，不联网下载。固定之后改走锁文件，`rime-stroke` 引用必须仍是上面的提交。许可证文本走与上一节相同的全部通知渠道，`scripts/test-language-data-notices.py` 一并检查。
 

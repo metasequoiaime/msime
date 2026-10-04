@@ -276,13 +276,13 @@ export class KeyboardScheme {
   /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese, Zhuyin and Stroke read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
   static languageDictionary(engineScheme: string): string | null {
     if (engineScheme === "cantonese") {
-      return "cantonese.db";
+      return "msime-cantonese.db";
     }
     if (engineScheme === "zhuyin") {
-      return "zhuyin.db";
+      return "msime-zhuyin.db";
     }
     if (engineScheme === "stroke") {
-      return "stroke.db";
+      return "msime-stroke.db";
     }
     return null;
   }

@@ -88,7 +88,7 @@ struct Fixture {
 };
 } // namespace
 
-// argv[1] is tests/input/fixtures/zhuyin.db: the dictionary of crates/engine/tests/golden/scenarios/zh_bpmf_space_opens_list.json, written by Python's sqlite3 from that scenario's SQL with a 512-byte page size. The Windows build links no SQLite of its own, so the file is checked in rather than built here.
+// argv[1] is tests/input/fixtures/msime-zhuyin.db: the dictionary of crates/engine/tests/golden/scenarios/zh_bpmf_space_opens_list.json, written by Python's sqlite3 from that scenario's SQL with a 512-byte page size. The Windows build links no SQLite of its own, so the file is checked in rather than built here.
 int main(int argc, char **argv) {
   assert(argc == 2);
   const auto root = std::filesystem::temp_directory_path() /
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
   // A copy beside the resources, where the packaged dictionary goes, so the checked-in file is never opened for writing.
   const auto dictionaries = root / "language-dictionaries";
   std::filesystem::create_directory(dictionaries);
-  std::filesystem::copy_file(std::filesystem::u8path(argv[1]), dictionaries / "zhuyin.db");
+  std::filesystem::copy_file(std::filesystem::u8path(argv[1]), dictionaries / "msime-zhuyin.db");
   auto options = test_host_options(root);
   options["language_dictionaries"] = dictionaries.u8string();
   options["preferences"]["scheme"] = "zhuyin";

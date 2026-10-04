@@ -27,7 +27,7 @@ pub const ID_DEF: &str = "ja/mozc/id.def";
 pub const CONNECTION: &str = "ja/mozc/connection_single_column.txt";
 /// Mozc 的 README 包含模型所依据的 IPAdic、ICOT 与冲绳词典说明，因此随模型一同发布。
 pub const NOTICE: &str = "ja/mozc/README.txt";
-pub const NOTICE_NAME: &str = "mozc_dictionary_oss_README.txt";
+pub const NOTICE_NAME: &str = "msime-mozc_dictionary_oss_README.txt";
 
 const HEADER_SIZE: u64 = 56;
 

@@ -1,4 +1,4 @@
-//! 笔画输入：按笔顺键入横竖撇点折，读 `stroke.db`（`language_dictionary`）给出单字候选。只读，不学习，不做繁简转换。
+//! 笔画输入：按笔顺键入横竖撇点折，读 `msime-stroke.db`（`language_dictionary`）给出单字候选。只读，不学习，不做繁简转换。
 //!
 //! 键位：`h` 横、`s` 竖、`p` 撇、`n` 点（捺）、`z` 折，`x` 是匹配任意一笔的通配符。全部是小写字母，所以不占用任何标点键，也不需要宿主把它们当拼写符号转发。
 
@@ -51,7 +51,7 @@ pub const fn key_of_glyph(glyph: char) -> Option<u8> {
     }
 }
 
-/// 测试用的合成 `stroke.db`：共用 `language_dictionary::SCHEMA`，权重是虚构的。
+/// 测试用的合成 `msime-stroke.db`：共用 `language_dictionary::SCHEMA`，权重是虚构的。
 #[cfg(test)]
 pub(crate) mod fixture {
     use std::path::Path;

@@ -1,4 +1,4 @@
-//! `zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `tw/` 下，锁文件按固定提交读取。
+//! `msime-zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `tw/` 下，锁文件按固定提交读取。
 //!
 //! Three files are read, all `text,frequency,reading` CSV: `tsi.csv` (phrases and characters with their use counts), `word.csv` (every character with each of its readings, all at frequency 0), and the McBopomofo phrase supplement (frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character and a supplement phrase weigh 0 unless `tsi.csv` gives the same combination a count.
 //!
@@ -21,10 +21,10 @@ pub const SUPPLEMENT: &str = "tw/McBopomofoSupplement.txt";
 pub const REFERENCE: &str = "libchewing-data";
 /// The SPDX identifier recorded as the database's `license`, as the CSV headers declare it.
 pub const LICENSE: &str = "LGPL-2.1-or-later";
-pub const DATABASE: &str = "zhuyin.db";
+pub const DATABASE: &str = "msime-zhuyin.db";
 /// The licence text in `resources/licenses/` and the name it ships under beside the database.
 pub const LICENSE_SOURCE: &str = "libchewing-data-LGPL-2.1.txt";
-pub const LICENSE_NAME: &str = "libchewing_data_LICENSE.txt";
+pub const LICENSE_NAME: &str = "msime-libchewing_data_LICENSE.txt";
 
 /// The floors `verify` enforces on a release build.
 pub const FLOORS: Floors = Floors {

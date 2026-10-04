@@ -55,15 +55,15 @@ enum Stage {
     EnglishGlosses,
     /// custom/translations.txt (pinned from msime-dictionary) over the gloss tables
     CustomTranslations,
-    /// emoji tables in others.db
+    /// emoji tables in msime-others.db
     Emoji,
-    /// kaomoji tables in others.db
+    /// kaomoji tables in msime-others.db
     Kaomoji,
-    /// symbol_catalog table in others.db
+    /// symbol_catalog table in msime-others.db
     Symbols,
     /// msime-japanese.dat from Mozc OSS data, plus its notice
     JapaneseModel,
-    /// bigram.bin and trigram.bin over the pinned zhwiki dump (reads msime-pinyin.db)
+    /// msime-bigram.bin and msime-trigram.bin over the pinned zhwiki dump (reads msime-pinyin.db)
     Ngram,
 }
 
@@ -131,7 +131,7 @@ enum Command {
     Places(Places),
     /// 从 sources lock 固定的 libhangul `ko/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
-    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db, stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
+    /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
     Languages(Languages),
 }
 
@@ -511,7 +511,7 @@ impl Build {
                 )?)?;
                 let (rows, keys) = others::emoji_rows(&self.pinyin()?, &catalog, &zh, &en);
                 let pinyin_rows =
-                    others::build_emoji(&mut self.database("others.db")?, &rows, &keys)?;
+                    others::build_emoji(&mut self.database("msime-others.db")?, &rows, &keys)?;
                 Ok(format!("{} emoji, {pinyin_rows} search keys", rows.len()))
             }
             Stage::Kaomoji => {
@@ -519,7 +519,7 @@ impl Build {
                     &self.sources.repository("kaomoji/kaomoji.txt")?,
                 )?)?;
                 let (rows, entries) = others::build_kaomoji(
-                    &mut self.database("others.db")?,
+                    &mut self.database("msime-others.db")?,
                     &self.pinyin()?,
                     &mapping,
                 )?;
@@ -530,7 +530,7 @@ impl Build {
                     &self.sources.repository("symbols/piliapp_symbols.txt")?,
                 )?);
                 let rows = others::symbol_rows(&self.pinyin()?, &categories)?;
-                others::build_symbols(&mut self.database("others.db")?, &rows)?;
+                others::build_symbols(&mut self.database("msime-others.db")?, &rows)?;
                 Ok(format!("{} symbols", rows.len()))
             }
             Stage::JapaneseModel => {
@@ -569,11 +569,11 @@ impl Build {
                 let corpus = self.sources.pinned(&corpus_file.path)?;
                 let counts = ngram::count_corpus(&vocabulary, &corpus)?;
                 std::fs::write(
-                    self.out.join("trigram.bin"),
+                    self.out.join("msime-trigram.bin"),
                     ngram::pack(&vocabulary, &counts, 3)?,
                 )?;
                 std::fs::write(
-                    self.out.join("bigram.bin"),
+                    self.out.join("msime-bigram.bin"),
                     ngram::pack(&vocabulary, &counts, 2)?,
                 )?;
                 Ok(format!(
@@ -702,7 +702,7 @@ fn main() -> Result<()> {
     product::verify(&build.out, complete)?;
     product::write_manifest(&build.out, root, &build.sources.lock, complete)?;
     eprintln!(
-        "[product] verified; wrote {} and SHA256SUMS.txt",
+        "[product] verified; wrote {} and msime-SHA256SUMS.txt",
         product::MANIFEST
     );
     Ok(())

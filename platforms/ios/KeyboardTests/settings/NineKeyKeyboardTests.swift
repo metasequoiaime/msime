@@ -1365,7 +1365,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases
       where scheme != .handwriting && scheme != .japaneseNineKey {
         InputSchemePreference.scheme = scheme
-        // 笔画和注音只在测试宿主带了 stroke.db、zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
+        // 笔画和注音只在测试宿主带了 msime-stroke.db、msime-zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
         if [.stroke, .zhuyin].contains(scheme) && InputSchemePreference.scheme != scheme { continue }
         // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），键盘为这一行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
         let keyboardHeight = 260 + KeyboardViewController.stripExtraHeight(

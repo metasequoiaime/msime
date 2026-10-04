@@ -970,15 +970,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
   /// Korean Hangul (Dubeolsik). Switching discards an open syllable, so callers finish the composition first.
   func switchToKorean() -> MetasequoiaInputSnapshot { switchScheme("korean", profile: nil) }
-  /// Cantonese Jyutping. Without cantonese.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed.
+  /// Cantonese Jyutping. Without msime-cantonese.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed.
   func switchToCantonese() -> MetasequoiaInputSnapshot { switchScheme("cantonese", profile: nil) }
-  /// Dachen Zhuyin with Traditional output. Without zhuyin.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed. Switching discards an open conversion, so callers finish the composition first.
+  /// Dachen Zhuyin with Traditional output. Without msime-zhuyin.db beside EngineResources the runtime keeps running the last Chinese scheme instead, so the keyboard only offers it when the file is installed. Switching discards an open conversion, so callers finish the composition first.
   func switchToZhuyin() -> MetasequoiaInputSnapshot { switchScheme("zhuyin", profile: nil) }
   /// Vietnamese Telex and VNI, composed in place with no candidates. Switching discards an open word, so callers finish the composition first.
   func switchToVietnamese() -> MetasequoiaInputSnapshot { switchScheme("vietnamese", profile: nil) }
   /// 藏文 EWTS 威利转写，就地组字，没有候选。切换会丢掉正在组的音节，所以调用方先结束组字。
   func switchToTibetan() -> MetasequoiaInputSnapshot { switchScheme("tibetan", profile: nil) }
-  /// 笔画输入，按笔顺查单字。缺少 language-dictionaries 里的 stroke.db 时运行时继续用最近一次的中文方案，所以键盘只在文件在时提供它。
+  /// 笔画输入，按笔顺查单字。缺少 language-dictionaries 里的 msime-stroke.db 时运行时继续用最近一次的中文方案，所以键盘只在文件在时提供它。
   func switchToStroke() -> MetasequoiaInputSnapshot { switchScheme("stroke", profile: nil) }
 
   func editCandidate(at index: UInt, expectedWord: String, action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
