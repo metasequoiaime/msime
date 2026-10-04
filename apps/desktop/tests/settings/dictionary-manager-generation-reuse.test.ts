@@ -9,6 +9,7 @@ test("dictionary manager reuses the shared client generation lifecycle", () => {
     }),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(");
+  expect(source).toContain("const phraseRequestGeneration = useAsyncGeneration(client.dictionary)");
   expect(source).not.toContain("const clientGeneration = useRef(0)");
+  expect(source).not.toContain("const phraseRequestGeneration = useRef(0)");
 });

@@ -59,7 +59,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [phraseForm, setPhraseForm] = useState<DictionaryPhraseForm | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
-  const phraseRequestGeneration = useRef(0);
+  const phraseRequestGeneration = useAsyncGeneration(client.dictionary);
   const phraseActionBusy = useRef(false);
   const phraseActionOwner = useRef(0);
   const phraseListRef = useRef<HTMLUListElement>(null);
@@ -70,21 +70,10 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
     client.saveExport,
   );
 
-  useEffect(
-    () => () => {
-      phraseRequestGeneration.current += 1;
-    },
-    [],
-  );
-
   useEffect(() => {
-    const generation = ++phraseRequestGeneration.current;
     phraseActionOwner.current += 1;
     phraseActionBusy.current = false;
     setPhraseBusy(false);
-    return () => {
-      if (phraseRequestGeneration.current === generation) phraseRequestGeneration.current++;
-    };
   }, [client.dictionary]);
 
   useEffect(() => {
