@@ -16,6 +16,7 @@ import {
   LocalAsrPathTrust,
   PathTrustStat,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPathTrust";
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -12201,6 +12202,11 @@ group("LocalAsrPathTrust", () => {
 
 group("LocalAsrPolicy", () => {
   check(
+    LocalAsrPolicy.textFileLimit("manifest") === 256 * 1024 &&
+      LocalAsrPolicy.textFileLimit("tokens") === 8 * 1024 * 1024,
+    "local model text files use bounded manifest and token limits",
+  );
+  check(
     LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
     "an absolute directory under the local provider is a model",
   );
@@ -12351,6 +12357,45 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
     "spaces around CJK marks, inside initialisms and at the ends go",
   );
+});
+
+group("LocalAsrTextReader", () => {
+  const opened: { fd: number }[] = [];
+  const chunks: Uint8Array[] = [new TextEncoder().encode("model")];
+  const api: LocalAsrTextReaderApi = {
+    open: () => {
+      const file = { fd: 7 };
+      opened.push(file);
+      return file;
+    },
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      const chunk: Uint8Array | undefined = chunks.shift();
+      if (chunk === undefined) return 0;
+      new Uint8Array(buffer).set(chunk);
+      return chunk.length;
+    },
+    close: (file: { fd: number }): void => {
+      opened.splice(opened.indexOf(file), 1);
+    },
+    decode: (bytes: Uint8Array): string => new TextDecoder().decode(bytes),
+  };
+  check(LocalAsrTextReader.read("/model.txt", 16, api, 0) === "model", "reads a short model text file");
+  check(opened.length === 0, "closes the model text file after reading");
+
+  const oversized: LocalAsrTextReaderApi = {
+    ...api,
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      new Uint8Array(buffer).fill(65);
+      return buffer.byteLength;
+    },
+  };
+  let refused = false;
+  try {
+    LocalAsrTextReader.read("/large.txt", 16, oversized, 0);
+  } catch (error) {
+    refused = true;
+  }
+  check(refused && opened.length === 0, "refuses an oversized model text file and closes it");
 });
 
 group("PcmFrameSlicer", () => {
@@ -13275,6 +13320,16 @@ group("an effect pack's parameters replace the preference values once host-api r
   check(
     odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
+  );
+  check(
+    TypingEffectPolicy.resolve(preferences, {
+      pack: "neon",
+      issue: null,
+      intensity: 50,
+      colors: [],
+      duration_ms: Number.NaN,
+    }).flashMillis === FLASH_MILLIS,
+    "a non-finite flash length keeps the safe default",
   );
 });
 

@@ -51,11 +51,28 @@ public final class VocabularyReviewModelSmoke {
             check(true, "the queue is not writable from outside");
         }
 
+        check(VocabularyReviewModel.strictCount(Integer.valueOf(24)) == 24,
+            "JSON review counts accept integers");
+        check(VocabularyReviewModel.strictCount(Long.valueOf(Integer.MAX_VALUE))
+                == Integer.MAX_VALUE, "large in-range review counts retain precision");
+        expectFailure(() -> VocabularyReviewModel.strictCount(Double.valueOf(24.5)));
+        expectFailure(() -> VocabularyReviewModel.strictCount(Double.valueOf(24.0)));
+        expectFailure(() -> VocabularyReviewModel.strictCount(Boolean.TRUE));
+        expectFailure(() -> VocabularyReviewModel.strictCount(Long.valueOf(-1)));
+        expectFailure(() -> VocabularyReviewModel.strictCount(
+            Long.valueOf((long) Integer.MAX_VALUE + 1)));
+
         System.out.println("VocabularyReviewModelSmoke passed");
     }
 
     private static void check(boolean condition, String what) {
         if (!condition) throw new AssertionError(what);
         System.out.println("  ok  " + what);
+    }
+
+    private static void expectFailure(Runnable action) {
+        try { action.run(); }
+        catch (IllegalArgumentException expected) { return; }
+        throw new AssertionError("Malformed review count accepted");
     }
 }

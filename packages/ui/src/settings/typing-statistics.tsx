@@ -1392,7 +1392,6 @@ export function TypingStatisticsPage({
   }
 
   useEffect(() => {
-    let active = true;
     const generation = clientGeneration.current;
     const refreshWhenVisible = () => {
       if (!mounted.current || clientGeneration.current !== generation) return;
@@ -1410,8 +1409,7 @@ export function TypingStatisticsPage({
       requestStartedAtRef.current = now;
       void request
         .then((next) => {
-          if (!active || clientGeneration.current !== generation || requestRef.current !== request)
-            return;
+          if (clientGeneration.current !== generation || requestRef.current !== request) return;
           const signature = JSON.stringify(next);
           if (signature !== statusSignatureRef.current) {
             statusSignatureRef.current = signature;
@@ -1419,14 +1417,13 @@ export function TypingStatisticsPage({
           }
         })
         .catch(() => {
-          if (active && clientGeneration.current === generation && requestRef.current === request)
+          if (clientGeneration.current === generation && requestRef.current === request)
             setError("无法读取或保存统计，请稍后重试。原有统计不会被自动重置。");
         })
         .finally(() => {
           if (requestRef.current === request) {
             requestRef.current = null;
-            if (active && mounted.current && clientGeneration.current === generation)
-              setBusy(false);
+            if (mounted.current && clientGeneration.current === generation) setBusy(false);
           }
         });
     };
@@ -1435,12 +1432,11 @@ export function TypingStatisticsPage({
     document.addEventListener("visibilitychange", refreshWhenVisible);
     const poll = window.setInterval(refreshWhenVisible, overviewPollMs);
     return () => {
-      active = false;
       window.clearInterval(poll);
       window.removeEventListener("focus", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [client]);
+  }, [client, clientGeneration]);
 
   if (!status)
     return (

@@ -2,6 +2,13 @@ import XCTest
 import UIKit
 
 final class ClipboardHistoryTests: XCTestCase {
+  func testTimestampRejectsMalformedNativeNumbers() {
+    XCTAssertEqual(ClipboardHistoryStore.strictTimestampMilliseconds(NSNumber(value: 3)), 3)
+    XCTAssertNil(ClipboardHistoryStore.strictTimestampMilliseconds(NSNumber(value: true)))
+    XCTAssertNil(ClipboardHistoryStore.strictTimestampMilliseconds(NSNumber(value: 3.5)))
+    XCTAssertNil(ClipboardHistoryStore.strictTimestampMilliseconds(NSNumber(value: -1)))
+  }
+
   private func temporaryStore() throws -> ClipboardHistoryStore {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     addTeardownBlock { try? FileManager.default.removeItem(at: directory) }

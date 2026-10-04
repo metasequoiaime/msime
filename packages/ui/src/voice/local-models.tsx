@@ -13,6 +13,7 @@ import {
   visibleLocalModels,
 } from "./local-model-helpers";
 import { StatusMessage } from "../core/status-message";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
 export {
   formatModelBytes,
@@ -101,6 +102,7 @@ export function LocalModelManager({
   const [installing, setInstalling] = useState<Record<string, boolean>>({});
   const [removing, setRemoving] = useState<Record<string, boolean>>({});
   const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client);
   const activeClient = useRef(client);
   activeClient.current = client;
   // A download takes minutes; what it finishes into is the page as it is then, not as it was on
@@ -121,24 +123,27 @@ export function LocalModelManager({
   };
 
   useEffect(() => {
+    const generation = clientGeneration.current;
     void refresh();
     let unlisten: (() => void) | undefined;
-    let cancelled = false;
     void client
       .onProgress((event) => {
-        if (mounted.current && activeClient.current === client)
+        if (
+          mounted.current &&
+          activeClient.current === client &&
+          generation === clientGeneration.current
+        )
           setProgress((current) => ({ ...current, [event.id]: event }));
       })
       .then((stop) => {
-        if (cancelled) stop();
+        if (generation !== clientGeneration.current) stop();
         else unlisten = stop;
       })
       .catch(() => undefined);
     return () => {
-      cancelled = true;
       unlisten?.();
     };
-  }, [client]);
+  }, [client, clientGeneration]);
 
   const install = async (model: LocalVoiceModel) => {
     setNotice("");

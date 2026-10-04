@@ -155,16 +155,25 @@ final class OnlineCandidateProvider {
     for (name, value) in descriptor["headers"] as? [String: String] ?? [:] {
       request.setValue(value, forHTTPHeaderField: name)
     }
-    let maxBytes = min(maxAIResponseBytes, integer(descriptor["max_response_bytes"]) ?? maxAIResponseBytes)
+    let maxBytes: Int
+    if descriptor["max_response_bytes"] == nil {
+      maxBytes = maxAIResponseBytes
+    } else {
+      guard let value = integer(descriptor["max_response_bytes"]), value > 0 else { return nil }
+      maxBytes = min(maxAIResponseBytes, value)
+    }
+    guard let connectTimeout = seconds(descriptor["connect_timeout_ms"], fallback: 2500),
+          let requestTimeout = seconds(descriptor["timeout_ms"], fallback: 8000) else { return nil }
     return OnlineCandidateRequest(urlRequest: request,
-                                  connectTimeout: seconds(descriptor["connect_timeout_ms"], fallback: 2500),
-                                  timeout: seconds(descriptor["timeout_ms"], fallback: 8000),
+                                  connectTimeout: connectTimeout,
+                                  timeout: requestTimeout,
                                   maxBytes: max(1, maxBytes))
   }
 
   /// Milliseconds from the descriptor, held to the 1-10 s the Android host allows.
-  private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval {
-    let milliseconds = integer(value) ?? fallback
+  private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval? {
+    let milliseconds = value == nil ? fallback : integer(value)
+    guard let milliseconds, milliseconds > 0 else { return nil }
     return TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
   }
 

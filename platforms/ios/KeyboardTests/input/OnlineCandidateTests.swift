@@ -35,6 +35,23 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertTrue(try bridge.snapshot(from: applied).candidates.contains("泥壕云"))
   }
 
+  func testBridgeRejectsMalformedUnsignedIntegers() {
+    XCTAssertEqual(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7)), 7)
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: 7.5)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: true)))
+    XCTAssertNil(MetasequoiaInputSessionBridge.strictUInt64(NSNumber(value: -1)))
+  }
+
+  func testSnapshotRejectsCandidateRowsWithoutText() throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let malformed: [String: Any] = [
+      "view": [
+        "candidates": [["code": "ni", "source": 0], ["text": "你", "code": "ni"]],
+      ],
+    ]
+    XCTAssertThrowsError(try bridge.snapshot(from: malformed))
+  }
+
   func testCloudCandidatesStayOffUntilTheSwitchIsOn() async throws {
     CloudCandidatePreference.enabled = false
     // A document synced from a desktop, where cloud candidates are on.
@@ -157,6 +174,30 @@ final class OnlineCandidateTests: XCTestCase {
     var get = descriptor
     get["method"] = "GET"
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))
+  }
+
+  func testAIDescriptorRejectsMalformedNumericFields() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"], "timeout_ms": 8000, "connect_timeout_ms": 2500,
+      "max_response_bytes": 1_048_576,
+    ]
+    var fractional = descriptor
+    fractional["timeout_ms"] = 8000.5
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(fractional))
+    var boolean = descriptor
+    boolean["max_response_bytes"] = true
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(boolean))
+    var negative = descriptor
+    negative["connect_timeout_ms"] = -1
+    XCTAssertNil(OnlineCandidateProvider.aiRequest(negative))
+
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": 1.5],
+    ]))
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit([
+      "ai_eligible": true, "ai_assistant": ["enabled": true, "candidate_limit": true],
+    ]))
   }
 
   func testTheAIDescriptorIgnoresNonIntegerLimits() {
