@@ -11,8 +11,10 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::types::PersonalDictionaryKind;
-use crate::user_dictionary::generation::{prepare_runtime_paths, roots_overlap, weakly_canonical};
+use crate::types::{PersonalDictionaryKind, SchemeSet};
+use crate::user_dictionary::generation::{
+    prepare_runtime_paths_for, roots_overlap, weakly_canonical,
+};
 use crate::user_dictionary::journal::{ensure_schema, open_database};
 
 pub const DEFAULT_MAXIMUM_RECORDS: usize = 500_000;
@@ -234,6 +236,25 @@ pub fn stage_dictionary_state(
     records: &mut dyn Iterator<Item = Result<DictionaryStateRecord>>,
     maximum_records: usize,
 ) -> Result<RuntimePaths> {
+    stage_dictionary_state_for(
+        resources,
+        generation,
+        content_id,
+        records,
+        maximum_records,
+        SchemeSet::ALL,
+    )
+}
+
+/// [`stage_dictionary_state`]，词库按 `schemes` 准备（`prepare_runtime_paths_for`）：不读 `msime.db` 的集合只复制 `english.db`，记录照收，回放时只有英文行写进词库。
+pub fn stage_dictionary_state_for(
+    resources: &Path,
+    generation: &Path,
+    content_id: &str,
+    records: &mut dyn Iterator<Item = Result<DictionaryStateRecord>>,
+    maximum_records: usize,
+    schemes: SchemeSet,
+) -> Result<RuntimePaths> {
     require(resources.is_absolute() && generation.is_absolute())?;
     require(!roots_overlap(
         &weakly_canonical(resources)?,
@@ -245,7 +266,14 @@ pub fn stage_dictionary_state(
         Err(error) if error.kind() == ErrorKind::AlreadyExists => return Err(invalid_state()),
         Err(error) => return Err(error.into()),
     }
-    let staged = build_generation(resources, generation, content_id, records, maximum_records);
+    let staged = build_generation(
+        resources,
+        generation,
+        content_id,
+        records,
+        maximum_records,
+        schemes,
+    );
     if staged.is_err() {
         // The directory is this call's own; the caller needs the error that stopped the staging, not whether its cleanup also failed (DS:225-230).
         let _ = fs::remove_dir_all(generation);
@@ -259,6 +287,7 @@ fn build_generation(
     content_id: &str,
     records: &mut dyn Iterator<Item = Result<DictionaryStateRecord>>,
     maximum_records: usize,
+    schemes: SchemeSet,
 ) -> Result<RuntimePaths> {
     #[cfg(unix)]
     {
@@ -353,7 +382,13 @@ fn build_generation(
     }
     transaction.commit().map_err(|_| invalid_state())?;
     drop(connection);
-    prepare_runtime_paths(resources, &user, &generation.join("cache"), content_id)
+    prepare_runtime_paths_for(
+        resources,
+        &user,
+        &generation.join("cache"),
+        content_id,
+        schemes,
+    )
 }
 
 /// Non-empty unless `allow_empty`, at most `maximum` bytes and free of NUL (DS:82-86); `String` already guarantees UTF-8.

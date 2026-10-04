@@ -2443,3 +2443,152 @@ fn only_generated_modes_are_left_out_of_typing_statistics() {
         assert!(local_mode_counts_as_typing(mode), "{mode}");
     }
 }
+
+/// 只有日文、越南文或藏文的方案集合不读 msime.db：资源目录里只有 `english.db` 也能准备代次、建会话、打字，代次里始终没有 msime.db。个人词库只收英文词，拼音和快捷短语直接说明没有中文词库；重置和快照导入都只换回、回放英文词库。
+#[test]
+fn schemes_without_the_main_dictionary_run_on_english_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    Connection::open(resources.join("english.db"))
+        .unwrap()
+        .execute_batch(&format!(
+            "{ENGLISH_SCHEMA} INSERT INTO english_words VALUES('word','word',100);"
+        ))
+        .unwrap();
+    for (content_id, scheme, code, input, preedit) in [
+        ("japanese", SchemeType::JapaneseRomaji, 3, &b"ka"[..], ""),
+        (
+            "vietnamese",
+            SchemeType::Vietnamese,
+            7,
+            &b"tieengs"[..],
+            "tiếng",
+        ),
+        ("tibetan", SchemeType::Tibetan, 8, &b"bod"[..], "བོད"),
+    ] {
+        let set = crate::types::SchemeSet::of(&[scheme]);
+        let user = root.path().join(content_id).join("user");
+        let mut prepared = prepare_options_for(
+            resources.to_str().unwrap(),
+            user.to_str().unwrap(),
+            root.path().join(content_id).join("cache").to_str().unwrap(),
+            content_id,
+            set,
+        )
+        .unwrap();
+        assert_eq!(prepared.enabled_schemes, set);
+        let dictionaries = Path::new(&prepared.dictionaries).to_owned();
+        assert!(dictionaries.join("english.db").is_file());
+        assert!(!dictionaries.join("msime.db").exists());
+        // 集合外的方案（缺省的全拼）建不了会话；本版本的方案照常。
+        assert!(Session::new(&prepared).is_err());
+        prepared.scheme = code;
+        let mut session = Session::new(&prepared).unwrap();
+        type_text(&mut session, input);
+        let snapshot = session.snapshot().unwrap();
+        assert_eq!(snapshot.scheme, code, "{content_id}");
+        if scheme == SchemeType::JapaneseRomaji {
+            assert_eq!(snapshot.reading, "か");
+        } else {
+            assert_eq!(snapshot.preedit, preedit, "{content_id}");
+        }
+        drop(session);
+        assert!(!dictionaries.join("msime.db").exists());
+
+        let entry = |kind, key: &str, value: &str| DictionaryEntry {
+            kind,
+            key: key.into(),
+            value: value.into(),
+            weight: 10,
+        };
+        dictionary_edit(
+            &prepared,
+            None,
+            Some(&entry(DictionaryKind::English, "zzfixture", "Zzfixture")),
+            "add-english",
+        )
+        .unwrap();
+        for kind in [DictionaryKind::Pinyin, DictionaryKind::QuickPhrase] {
+            let key = if kind == DictionaryKind::Pinyin {
+                "ni'hao"
+            } else {
+                "dh"
+            };
+            assert_eq!(
+                dictionary_edit(&prepared, None, Some(&entry(kind, key, "你好")), "")
+                    .unwrap_err()
+                    .to_string(),
+                "This input method has no Chinese dictionary; only English words can be edited"
+            );
+        }
+        let listed = dictionary_entries(&prepared, 0, 10).unwrap();
+        assert_eq!(listed.entries.len(), 1);
+        assert_eq!(listed.entries[0].kind, DictionaryKind::English);
+        assert!(
+            dictionary_table_entries(&prepared, DictionaryKind::Pinyin, "nihao", 0, 10)
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+
+        // 快照导入：拼音行收进日志但不回放，英文行回放进新代次的英文词库。
+        let generation = root.path().join(content_id).join("snapshot");
+        let staged = stage_dictionary_state(
+            &prepared,
+            generation.to_str().unwrap(),
+            "restored",
+            10,
+            [
+                DictionaryStateRecord::Entry {
+                    kind: DictionaryKind::Pinyin,
+                    key: "ni'hao".into(),
+                    value: "你好".into(),
+                    weight: 50,
+                    display: String::new(),
+                    deleted: false,
+                    user_inserted: true,
+                },
+                DictionaryStateRecord::Entry {
+                    kind: DictionaryKind::English,
+                    key: "zzrestored".into(),
+                    value: "Zzrestored".into(),
+                    weight: 60,
+                    display: "Zzrestored".into(),
+                    deleted: false,
+                    user_inserted: true,
+                },
+            ]
+            .into_iter()
+            .map(Ok),
+        )
+        .unwrap();
+        let staged_dictionaries = Path::new(&staged.dictionaries);
+        assert!(!staged_dictionaries.join("msime.db").exists());
+        let restored: i64 = Connection::open(staged_dictionaries.join("english.db"))
+            .unwrap()
+            .query_row(
+                "SELECT weight FROM english_words WHERE word='zzrestored' AND display='Zzrestored'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, 60);
+        let listed = dictionary_entries(&staged, 0, 10).unwrap();
+        assert_eq!(
+            listed
+                .entries
+                .iter()
+                .map(|entry| entry.key.as_str())
+                .collect::<Vec<_>>(),
+            ["zzrestored"]
+        );
+
+        reset_learned_data(&prepared).unwrap();
+        assert!(dictionary_entries(&prepared, 0, 10)
+            .unwrap()
+            .entries
+            .is_empty());
+        assert!(!dictionaries.join("msime.db").exists());
+    }
+}

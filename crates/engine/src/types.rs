@@ -515,6 +515,13 @@ impl SchemeSet {
             .iter()
             .fold(Self::EMPTY, |set, scheme| set.with(*scheme))
     }
+
+    /// 集合里是否有读 `msime.db` 的方案：全拼、双拼和五笔的候选、学习和用户词都在它里面（五笔混拼的拼音行也是）。没有这三个方案的集合（例如只有日文、越南文或藏文的版本）随包不带 `msime.db`：代次里没有它的工作副本，用户词库只剩英文词。
+    pub const fn reads_main_dictionary(self) -> bool {
+        self.contains(SchemeType::Quanpin)
+            || self.contains(SchemeType::Shuangpin)
+            || self.contains(SchemeType::Wubi)
+    }
 }
 
 impl Default for SchemeSet {
@@ -1725,5 +1732,31 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn only_pinyin_and_wubi_read_the_main_dictionary() {
+        assert!(SchemeSet::ALL.reads_main_dictionary());
+        assert!(!SchemeSet::EMPTY.reads_main_dictionary());
+        for value in 0..=u8::MAX {
+            let Some(scheme) = SchemeType::from_u8(value) else {
+                continue;
+            };
+            let reads = matches!(
+                scheme,
+                SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+            );
+            assert_eq!(
+                SchemeSet::of(&[scheme]).reads_main_dictionary(),
+                reads,
+                "{scheme:?}"
+            );
+        }
+        assert!(!SchemeSet::of(&[
+            SchemeType::JapaneseRomaji,
+            SchemeType::Vietnamese,
+            SchemeType::Tibetan,
+        ])
+        .reads_main_dictionary());
     }
 }

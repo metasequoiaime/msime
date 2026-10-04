@@ -1,4 +1,4 @@
-//! Generation staging (core-session.md §12, data-formats.md §3, `runtime_paths.cpp:116-182`): `user_data/dictionaries/<content id>` holds backup-API copies of `msime.db` and `english.db` with the journal replayed, plus the n-gram tables.
+//! Generation staging (core-session.md §12, data-formats.md §3, `runtime_paths.cpp:116-182`): `user_data/dictionaries/<content id>` holds backup-API copies of `msime.db` and `english.db` with the journal replayed, plus the n-gram tables. 不读 `msime.db` 的方案集合（见 `SchemeSet::reads_main_dictionary`）准备的代次只有 `english.db`。
 
 use std::ffi::OsString;
 use std::fs;
@@ -12,7 +12,8 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::user_dictionary::replay::replay;
+use crate::types::SchemeSet;
+use crate::user_dictionary::replay::{replay, replay_english};
 
 pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 
@@ -26,6 +27,18 @@ pub fn prepare_runtime_paths(
     cache: &Path,
     content_id: &str,
 ) -> Result<RuntimePaths> {
+    prepare_runtime_paths_for(resources, user_data, cache, content_id, SchemeSet::ALL)
+}
+
+/// 按会话允许的方案准备代次。`schemes` 读 `msime.db`（[`SchemeSet::reads_main_dictionary`]）时与 [`prepare_runtime_paths`] 完全相同：`msime.db` 和 `english.db` 都必须在资源目录里，都复制进代次。不读它时（只有日文、越南文、藏文这类方案的版本）资源目录里本来就没有它：代次只复制并要求 `english.db`，日志只回放英文行（`replay_english`）。
+pub fn prepare_runtime_paths_for(
+    resources: &Path,
+    user_data: &Path,
+    cache: &Path,
+    content_id: &str,
+    schemes: SchemeSet,
+) -> Result<RuntimePaths> {
+    let main_dictionary = schemes.reads_main_dictionary();
     if !valid_content_id(content_id) {
         return Err(EngineError::invalid(
             diagnostics::INVALID_RUNTIME_CONTENT_ID,
@@ -56,7 +69,7 @@ pub fn prepare_runtime_paths(
     reject_redirected_directory(cache)?;
 
     if result.dictionaries.join(assets::GENERATION_READY).exists() {
-        for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        for name in generation_dictionaries(main_dictionary) {
             if !is_real_file(&result.dictionary(name)) {
                 return Err(EngineError::failed(
                     diagnostics::INCOMPLETE_RUNTIME_GENERATION,
@@ -64,7 +77,7 @@ pub fn prepare_runtime_paths(
             }
         }
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
-        replay_into(&result, &result.dictionaries)?;
+        replay_into(&result, &result.dictionaries, main_dictionary)?;
         stage_generation_copies(resources, &result.dictionaries, false)?;
         return Ok(result);
     }
@@ -81,11 +94,11 @@ pub fn prepare_runtime_paths(
         Err(error) => return Err(error.into()),
     }
     let staged = (|| -> Result<()> {
-        for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        for name in generation_dictionaries(main_dictionary) {
             copy_database(&resources.join(name), &stage.join(name))?;
         }
         stage_generation_copies(resources, &stage, true)?;
-        replay_into(&result, &stage)?;
+        replay_into(&result, &stage, main_dictionary)?;
         fs::write(
             stage.join(assets::GENERATION_READY),
             format!("{content_id}\n"),
@@ -110,13 +123,28 @@ fn valid_content_id(content_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Replay the journal of `paths` into the dictionaries in `generation`; any failed row or error refuses the generation.
-fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
-    let replayed = replay(
-        &paths.user(assets::USER_JOURNAL),
-        &generation.join(assets::MAIN_DICTIONARY),
-        &generation.join(assets::ENGLISH_DICTIONARY),
-    );
+/// 代次里的词库工作副本：`main_dictionary` 为假时没有 `msime.db`，只有 `english.db`。
+fn generation_dictionaries(main_dictionary: bool) -> &'static [&'static str] {
+    if main_dictionary {
+        &[assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY]
+    } else {
+        &[assets::ENGLISH_DICTIONARY]
+    }
+}
+
+/// Replay the journal of `paths` into the dictionaries in `generation`; any failed row or error refuses the generation. 没有 `msime.db` 的代次只回放英文行。
+fn replay_into(paths: &RuntimePaths, generation: &Path, main_dictionary: bool) -> Result<()> {
+    let journal = paths.user(assets::USER_JOURNAL);
+    let english = generation.join(assets::ENGLISH_DICTIONARY);
+    let replayed = if main_dictionary {
+        replay(
+            &journal,
+            &generation.join(assets::MAIN_DICTIONARY),
+            &english,
+        )
+    } else {
+        replay_english(&journal, &english)
+    };
     if replayed.failed != 0 || !replayed.error.is_empty() {
         return Err(EngineError::failed(format!(
             "{}{}",
@@ -701,5 +729,90 @@ mod tests {
             shipped(&main),
             shipped(&resources.join(assets::MAIN_DICTIONARY)) + 1
         );
+    }
+
+    fn japanese_only() -> SchemeSet {
+        SchemeSet::of(&[crate::types::SchemeType::JapaneseRomaji])
+    }
+
+    /// 只有日文（或越南文、藏文）的版本不带 `msime.db`：代次只复制 `english.db`，日志里的英文词照样回放，拼音行跳过而不拒绝这个代次；再次准备同一个代次也不要求 `msime.db`。读 `msime.db` 的集合缺了它仍然失败，与以前相同。
+    #[test]
+    fn a_generation_without_the_main_dictionary_holds_only_english() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        fs::remove_file(resources.join(assets::MAIN_DICTIONARY)).unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let journal = user.join(assets::USER_JOURNAL);
+        fs::create_dir_all(&user).unwrap();
+        learn(&journal, "你", 1);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES('english','zzfixture','Zzfixture','upsert',11,'Zzfixture',1,2)",
+        );
+
+        let paths =
+            prepare_runtime_paths_for(&resources, &user, &cache, "v1", japanese_only()).unwrap();
+        assert!(paths.dictionaries.join(assets::GENERATION_READY).is_file());
+        assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
+        assert!(!resources.join(assets::MAIN_DICTIONARY).exists());
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::ENGLISH_DICTIONARY),
+                "SELECT weight FROM english_words WHERE word='zzfixture' AND display='Zzfixture'"
+            ),
+            Some(11)
+        );
+
+        // 已经准备好的代次再准备一次：不要求 msime.db，日志再回放一次。
+        let again =
+            prepare_runtime_paths_for(&resources, &user, &cache, "v1", japanese_only()).unwrap();
+        assert_eq!(again, paths);
+        assert!(!again.dictionary(assets::MAIN_DICTIONARY).exists());
+
+        // 同一个资源目录给读 msime.db 的集合准备，照旧因为缺 msime.db 失败。
+        let error = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{}{}",
+                diagnostics::RUNTIME_COPY_FAILED,
+                resources.join(assets::MAIN_DICTIONARY).display()
+            )
+        );
+        assert!(!user.join("dictionaries/v2").exists());
+        // 读 msime.db 的集合也不接受一个没有 msime.db 的现成代次。
+        let error = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION
+        );
+    }
+
+    /// 不读 msime.db 的代次仍然要求 `english.db`：资源目录缺了它就失败，不留下暂存目录。
+    #[test]
+    fn a_generation_without_the_main_dictionary_still_needs_english() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing-resources");
+        fs::create_dir_all(&missing).unwrap();
+        let user = root.path().join("user");
+        let error = prepare_runtime_paths_for(
+            &missing,
+            &user,
+            &root.path().join("cache"),
+            "v1",
+            japanese_only(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{}{}",
+                diagnostics::RUNTIME_COPY_FAILED,
+                missing.join(assets::ENGLISH_DICTIONARY).display()
+            )
+        );
+        assert!(!user.join("dictionaries/v1.incoming").exists());
+        assert!(!user.join("dictionaries/v1").exists());
     }
 }
