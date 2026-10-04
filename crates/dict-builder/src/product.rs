@@ -332,3 +332,46 @@ pub fn write_manifest(out: &Path, repository: &Path, lock: &Lock, complete: bool
     std::fs::write(out.join("SHA256SUMS.txt"), sums)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_wubi_moves_tables_to_the_named_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let pinyin = Connection::open(directory.path().join("msime-pinyin.db")).unwrap();
+        pinyin
+            .execute_batch(
+                "CREATE TABLE tbl_1_a(key TEXT,jp TEXT,value TEXT,weight INTEGER); CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER); CREATE TABLE wubi98(key TEXT,value TEXT,weight INTEGER); INSERT INTO wubi86 VALUES('aaa','甲',10); INSERT INTO wubi98 VALUES('bbb','乙',20);",
+            )
+            .unwrap();
+        drop(pinyin);
+
+        split_wubi_database(directory.path()).unwrap();
+
+        let pinyin = Connection::open(directory.path().join("msime-pinyin.db")).unwrap();
+        assert!(pinyin
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('wubi86', 'wubi98')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap() == 0);
+        let wubi = Connection::open(directory.path().join("msime-wubi.db")).unwrap();
+        assert_eq!(
+            wubi.query_row("SELECT value FROM wubi86 WHERE key = 'aaa'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "甲"
+        );
+        assert_eq!(
+            wubi.query_row("SELECT value FROM wubi98 WHERE key = 'bbb'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            "乙"
+        );
+    }
+}
