@@ -1,53 +1,59 @@
 {
-  "source_commit": "f661d8d44d12d24c46f9fb83af693b6d6fd68706",
+  "source_commit": "0b10c814b0023175d8535e7695777a3c15e0ee25",
   "artifacts": [
     {
       "name": "msime-pinyin.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/msime.db",
-      "sha256": "deec10d3cfde129e3f2068689a10759cae1f28c033f20a6c741e3a00dcfd850e",
-      "size": 81850368
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/msime-pinyin.db",
+      "sha256": "bdabb6717a95695ed380534d093e21394d7a889c19513ea377b35c665867382c",
+      "size": 74014720
+    },
+    {
+      "name": "msime-wubi.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/msime-wubi.db",
+      "sha256": "5cb1ba98af80bdd9a112c225100764bfb1d3a26b53002cee667c0fff9ca5d928",
+      "size": 13688832
     },
     {
       "name": "msime-english.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/english.db",
-      "sha256": "3722ac7d6acccae79365f807f06005dab8af6959b73fcc4939d4f5a315d32dc1",
-      "size": 1482752
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/msime-english.db",
+      "sha256": "a370fb2b38351ed5e86688507afb0e9c095edebb29db40411c02a198a466b92e",
+      "size": 1626112
     },
     {
       "name": "bigram.bin",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/bigram.bin",
-      "sha256": "a256b88b1c4be4d70e53a7ee04914252a7b3119bb3ab7f3fef179e37a25d426d",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/bigram.bin",
+      "sha256": "e8ba0a2454cfdf4364d6035c38611b893b6cee1d2d0ca6cb59902720be7bd9b5",
       "size": 12000016
     },
     {
       "name": "trigram.bin",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/trigram.bin",
-      "sha256": "8407813186c000f8c3ef731e051aca5054f08b62da2c8c422ac04be94ec47dd1",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/trigram.bin",
+      "sha256": "85b69b0efc54f1d88a90a07cad02bbb84b051a376241c7e6ceac31e10ce516e2",
       "size": 12000016
     },
     {
       "name": "others.db",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/others.db",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/others.db",
       "sha256": "9f3cae5b407038e0e4536c40582a0bc0feb732657f0ae2d38196374cede52f94",
       "size": 1314816
     },
     {
       "name": "msime-japanese.dat",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/dict_japanese.dat",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/msime-japanese.dat",
       "sha256": "8baafcfc3881d0280cdda8bda7cf3968d8f8fbc94243fea94847cff2b6e2cd66",
       "size": 66538457
     },
     {
       "name": "mozc_dictionary_oss_README.txt",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/mozc_dictionary_oss_README.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/mozc_dictionary_oss_README.txt",
       "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
       "size": 5750
     },
     {
       "name": "dictionary-manifest.json",
-      "url": "https://github.com/metasequoiaime/msime/releases/download/dict-v2.0.2/dictionary-manifest.json",
-      "sha256": "5460bd34dd28d16e3b6b5dc16d16278db9695fe56982c2cdde47178cf3097281",
-      "size": 2534
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.3/dictionary-manifest.json",
+      "sha256": "2abd8d961ab971f1efe55bd521ecf8b64b4187f0c4f235c982c6b510414bf76c",
+      "size": 3614
     },
     {
       "name": "sentence-model.safetensors",
