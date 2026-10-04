@@ -81,6 +81,7 @@ export function useCommunityGallery<T extends { id: string }>({
   /** Resolves false only when this request was the latest and failed, which leaves the list as it was; true when it succeeded or a newer request superseded it. */
   const requestList = useCallback(
     async (query: string, append: boolean, mine = activeMine.current): Promise<boolean> => {
+      const currentClient = clientGeneration.current;
       const generation = ++listGeneration.current;
       const offset = append ? nextOffset.current : 0;
       setListBusy(true);
@@ -98,11 +99,11 @@ export function useCommunityGallery<T extends { id: string }>({
           (page.skipped ?? 0) > 0;
           extra++
         ) {
-          if (generation !== listGeneration.current) return true;
+          if (!isCurrent(currentClient) || generation !== listGeneration.current) return true;
           pageOffset += page.skipped ?? 0;
           page = await client.list(pageOffset, query, mine);
         }
-        if (generation !== listGeneration.current) return true;
+        if (!isCurrent(currentClient) || generation !== listGeneration.current) return true;
         const items = page.items;
         setItems((current) => (append ? appendUniqueById(current, items) : items));
         nextOffset.current = pageOffset + page.items.length + (page.skipped ?? 0);
@@ -113,28 +114,25 @@ export function useCommunityGallery<T extends { id: string }>({
         setHasMore(page.has_more);
         return true;
       } catch (requestError) {
-        if (generation !== listGeneration.current) return true;
+        if (!isCurrent(currentClient) || generation !== listGeneration.current) return true;
         fail(requestError);
         if (!append) setMineOnly(activeMine.current);
         return false;
       } finally {
-        if (generation === listGeneration.current) setListBusy(false);
+        if (isCurrent(currentClient) && generation === listGeneration.current) setListBusy(false);
       }
     },
-    [client, fail],
+    [client, clientGeneration, fail, isCurrent],
   );
 
   useEffect(() => {
     setActionBusy(false);
     void requestList("", false, activeMine.current);
-    return () => {
-      listGeneration.current += 1;
-      detailGeneration.current += 1;
-    };
   }, [client, requestList]);
 
   const open = useCallback(
     (item: T) => {
+      const currentClient = clientGeneration.current;
       const generation = ++detailGeneration.current;
       setSelected(item);
       setDetailBusy(true);
@@ -145,16 +143,19 @@ export function useCommunityGallery<T extends { id: string }>({
       void client
         .detail(item.id)
         .then((value) => {
-          if (generation === detailGeneration.current) setSelected(value);
+          if (isCurrent(currentClient) && generation === detailGeneration.current)
+            setSelected(value);
         })
         .catch((detailError) => {
-          if (generation === detailGeneration.current) fail(detailError);
+          if (isCurrent(currentClient) && generation === detailGeneration.current)
+            fail(detailError);
         })
         .finally(() => {
-          if (generation === detailGeneration.current) setDetailBusy(false);
+          if (isCurrent(currentClient) && generation === detailGeneration.current)
+            setDetailBusy(false);
         });
     },
-    [client, fail],
+    [client, clientGeneration, fail, isCurrent],
   );
 
   const closeDetail = useCallback(() => {
