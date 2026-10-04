@@ -526,12 +526,12 @@ export function CommunityPluginPublishDialog({
   const packGeneration = useRef(0);
 
   useEffect(() => {
-    let active = true;
+    const generation = clientGeneration.current;
     setBusy(false);
     setOptionsLoading(true);
     void localPlugins()
       .then((catalog) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         const loaded: LocalPluginOption[] = [];
         for (const item of catalog.packages) {
           if (item.builtin || !isCommunityKind(item.kind)) continue;
@@ -549,15 +549,12 @@ export function CommunityPluginPublishDialog({
         );
       })
       .catch(() => {
-        if (active) setError("读取本地插件失败，请重试。");
+        if (generation === clientGeneration.current) setError("读取本地插件失败，请重试。");
       })
       .finally(() => {
-        if (active) setOptionsLoading(false);
+        if (generation === clientGeneration.current) setOptionsLoading(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client, localPlugins]);
+  }, [client, localPlugins, clientGeneration]);
 
   const chosen = useMemo(
     () => options.find((item) => item.key === selection) ?? null,
