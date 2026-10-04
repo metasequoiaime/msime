@@ -1809,7 +1809,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     run,
     invalidate,
   } = usePanelAction(setNotice);
-  const draftRevision = useRef(0);
+  const draftRevision = useAsyncGeneration();
   const searchRef = useRef("");
   const cloudGeneration = useAsyncGeneration(client);
 
