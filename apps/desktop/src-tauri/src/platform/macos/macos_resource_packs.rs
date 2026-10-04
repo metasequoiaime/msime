@@ -191,6 +191,20 @@ mod tests {
         );
     }
 
+    /// macOS 发布包对每个版本都不内置日文词典。水杉日语只有日文一个方案，用户不会去切换方案：它的状态目录第一次准备好时偏好就是日文（`Preferences::for_edition`），设置应用第一次启动就由这里补下词典。越南文、藏文版不需要任何资源包。
+    #[test]
+    fn single_language_editions_fetch_exactly_their_own_packs_on_first_launch() {
+        use msime_client_core::edition::Edition;
+        use msime_client_core::preferences::Preferences;
+        let first_launch = |id: &str| {
+            let preferences = Preferences::for_edition(Edition::by_id(id).unwrap());
+            needed_packs(preferences.scheme, preferences.last_chinese_scheme)
+        };
+        assert_eq!(first_launch("japanese"), [ResourcePack::Japanese]);
+        assert_eq!(first_launch("vietnamese"), []);
+        assert_eq!(first_launch("tibetan"), []);
+    }
+
     #[test]
     fn resource_pack_install_keys_never_collide_with_voice_model_ids() {
         for pack in ResourcePack::ALL {

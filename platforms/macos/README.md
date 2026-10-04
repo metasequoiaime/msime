@@ -63,7 +63,7 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
-- `japanese`：`dict_japanese.dat` 与 `mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
+- `japanese`：`dict_japanese.dat` 与 `mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下（水杉日语只有日文方案，状态目录第一次准备好时偏好就是日文，所以它的设置应用第一次启动就下载，日文版的 DMG 同样不内置这两个文件）；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
 - `language-dictionaries`：`cantonese.db`、`zhuyin.db`、`stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
 - `handwriting`：`handwriting-zh_CN.model` 与 `HandwritingModel-LICENSE.txt`，按 `resources/handwriting-model.lock.json`。第一次打开手写面板时下载。
 
