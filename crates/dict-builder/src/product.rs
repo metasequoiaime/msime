@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
+use crate::english_supplement;
 use crate::japanese;
 use crate::licensing;
 use crate::msime::quanpin_tables;
@@ -15,7 +16,7 @@ use crate::ngram;
 use crate::sources::{sha256_file, Lock, Reference};
 
 pub const MANIFEST: &str = "msime-dictionary-manifest.json";
-pub const SHIPPING_ARTIFACTS: [&str; 8] = [
+pub const SHIPPING_ARTIFACTS: [&str; 10] = [
     "msime-pinyin.db",
     "msime-wubi.db",
     "msime-english.db",
@@ -24,6 +25,8 @@ pub const SHIPPING_ARTIFACTS: [&str; 8] = [
     "msime-bigram.bin",
     "msime-trigram.bin",
     japanese::NOTICE_NAME,
+    japanese::LICENSE_NAME,
+    english_supplement::NOTICE_NAME,
 ];
 const FEATURES: [&str; 8] = [
     "pinyin",
@@ -294,14 +297,42 @@ pub fn verify(out: &Path, complete: bool) -> Result<()> {
             bail!("{name} is not a packed table of at least 100000 entries");
         }
     }
-    let notice = std::fs::read_to_string(out.join(japanese::NOTICE_NAME))?.to_lowercase();
-    for term in ["ipadic", "icot", "okinawa"] {
-        if !notice.contains(term) {
-            bail!(
-                "{} does not mention {term}; msime-japanese.dat must not ship without it",
-                japanese::NOTICE_NAME
-            );
+    verify_notices(out)
+}
+
+/// The licence notices the data's terms require beside it: Mozc's dictionary README (IPAdic, ICOT, Okinawa) and Mozc's BSD `LICENSE` for `msime-japanese.dat`, and SCOWL's copyright notice, byte for byte the text `msime-english.db` stores, for the SCOWL words in `msime-english.db`.
+fn verify_notices(out: &Path) -> Result<()> {
+    let required: [(&str, &str, &[&str]); 2] = [
+        (
+            japanese::NOTICE_NAME,
+            "msime-japanese.dat",
+            &["ipadic", "icot", "okinawa"],
+        ),
+        (
+            japanese::LICENSE_NAME,
+            "msime-japanese.dat",
+            &[
+                "google inc.",
+                "redistribution and use in source and binary forms",
+            ],
+        ),
+    ];
+    for (name, data, terms) in required {
+        let path = out.join(name);
+        let notice = std::fs::read_to_string(&path)
+            .with_context(|| format!("{name}: {data} must not ship without it"))?
+            .to_lowercase();
+        for term in terms {
+            if !notice.contains(term) {
+                bail!("{name} does not mention {term}; {data} must not ship without it");
+            }
         }
+    }
+    let name = english_supplement::NOTICE_NAME;
+    let notice = std::fs::read(out.join(name))
+        .with_context(|| format!("{name}: msime-english.db must not ship without it"))?;
+    if notice != english_supplement::COPYRIGHT.as_bytes() {
+        bail!("{name} differs from resources/licenses/scowl-aspell6-en-Copyright.txt, the notice msime-english.db's SCOWL words ship under");
     }
     Ok(())
 }
@@ -446,6 +477,45 @@ mod tests {
                 .dirty
         );
         assert!(!provenance(msime.path(), None).unwrap().dirty);
+    }
+
+    /// A release missing either Mozc notice or SCOWL's, or carrying a SCOWL notice that is not the committed text, fails product verification.
+    #[test]
+    fn product_verification_requires_every_licence_notice() {
+        let directory = tempfile::tempdir().unwrap();
+        let out = directory.path();
+        let write = |name: &str, text: &str| std::fs::write(out.join(name), text).unwrap();
+        write(
+            japanese::NOTICE_NAME,
+            "IPAdic ... ICOT Free Software ... Okinawa dictionary",
+        );
+        write(
+            japanese::LICENSE_NAME,
+            "Copyright 2010-2018, Google Inc.\nRedistribution and use in source and binary forms ...",
+        );
+        write(
+            english_supplement::NOTICE_NAME,
+            english_supplement::COPYRIGHT,
+        );
+        verify_notices(out).unwrap();
+
+        write(english_supplement::NOTICE_NAME, "SCOWL\n");
+        let error = verify_notices(out).unwrap_err().to_string();
+        assert!(error.contains(english_supplement::NOTICE_NAME), "{error}");
+        std::fs::remove_file(out.join(english_supplement::NOTICE_NAME)).unwrap();
+        let error = verify_notices(out).unwrap_err().to_string();
+        assert!(error.contains(english_supplement::NOTICE_NAME), "{error}");
+        write(
+            english_supplement::NOTICE_NAME,
+            english_supplement::COPYRIGHT,
+        );
+
+        std::fs::remove_file(out.join(japanese::LICENSE_NAME)).unwrap();
+        let error = verify_notices(out).unwrap_err().to_string();
+        assert!(error.contains(japanese::LICENSE_NAME), "{error}");
+        write(japanese::LICENSE_NAME, "Copyright 2010-2018, Google Inc.\n");
+        let error = verify_notices(out).unwrap_err().to_string();
+        assert!(error.contains("redistribution"), "{error}");
     }
 
     #[test]

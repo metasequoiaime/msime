@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::cantonese;
+use crate::hkcancor;
 use crate::sources::{sha256_file, Sources};
 use crate::stroke;
 use crate::text;
@@ -22,10 +23,12 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     let characters = text::read(&sources.pinned(cantonese::CHARACTERS)?)?;
     let words = text::read(&sources.pinned(cantonese::WORDS)?)?;
     let essay = text::read(&sources.pinned(cantonese::ESSAY)?)?;
+    let corpus = text::read(&sources.pinned(cantonese::CORPUS)?)?;
     let dictionary = cantonese::build(
         &cantonese::parse_characters(&characters)?,
         &cantonese::parse_words(&words)?,
         &cantonese::parse_essay(&essay)?,
+        &hkcancor::parse(&corpus)?,
     );
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
@@ -38,12 +41,15 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     )?;
     written.extend([cantonese::DATABASE, cantonese::LICENSE_NAME]);
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay)",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key)",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
         counts.words,
-        dictionary.essay_words
+        dictionary.essay_words,
+        dictionary.corpus_words,
+        dictionary.corpus_scale,
+        dictionary.corpus_capped
     ));
 
     let commit = reference_commit(sources, zhuyin::REFERENCE)?;
@@ -59,17 +65,22 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         zhuyin::CHARACTERS,
         &text::read(&sources.pinned(zhuyin::CHARACTERS)?)?,
     )?);
+    let occurrences = text::read(&sources.pinned(zhuyin::OCCURRENCES)?)?;
+    let dictionary = zhuyin::build(&rows, &zhuyin::parse_occurrences(&occurrences)?);
     let database = out.join(zhuyin::DATABASE);
-    zhuyin::write(&zhuyin::build(&rows), &database, commit)?;
+    zhuyin::write(&dictionary, &database, commit)?;
     let counts = zhuyin::verify(&database, zhuyin::FLOORS, &zhuyin::EXPECTED)?;
     copy_license(licenses, zhuyin::LICENSE_SOURCE, out, zhuyin::LICENSE_NAME)?;
     written.extend([zhuyin::DATABASE, zhuyin::LICENSE_NAME]);
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} phrase entries",
+        "{}: {} syllables, {} character and {} phrase entries ({} phrases weighed by phrase.occ at {} each, {} of them capped below a counted entry)",
         zhuyin::DATABASE,
         counts.syllables,
         counts.characters,
-        counts.phrases
+        counts.phrases,
+        dictionary.filled,
+        dictionary.occurrence_scale,
+        dictionary.capped
     ));
 
     match stroke::source(sources)? {

@@ -245,6 +245,116 @@ pub fn apply_custom_words(
     Ok(counts)
 }
 
+/// Wrong readings removed from the quanpin tables once every pinyin input is merged (`resources/dictionary-sources/`). The pinned inputs are locked byte for byte, so a wrong row cannot be fixed where it lives.
+pub const READING_CORRECTIONS: &str = "pinyin-reading-corrections.txt";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadingCorrection {
+    pub value: String,
+    pub wrong: String,
+    pub correct: String,
+}
+
+/// `word<TAB>wrong pinyin<TAB>correct pinyin`, blank and `#` lines skipped. A malformed line, an entry whose two readings are equal or a word and wrong reading listed twice fails the stage.
+pub fn parse_reading_corrections(text: &str) -> Result<Vec<ReadingCorrection>> {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    for (number, line) in text::splitlines(text).into_iter().enumerate() {
+        let location = || format!("{READING_CORRECTIONS}:{}", number + 1);
+        let stripped = text::strip(line);
+        if stripped.is_empty() || stripped.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = stripped.split('\t').map(text::strip).collect();
+        let [value, wrong, correct] = fields[..] else {
+            bail!(
+                "{}: expected word, wrong pinyin and correct pinyin: {line:?}",
+                location()
+            );
+        };
+        if value.is_empty() {
+            bail!("{}: the word is empty", location());
+        }
+        for key in [wrong, correct] {
+            if !is_quanpin(key) {
+                bail!("{}: {key:?} is not quanpin separated by \"'\"", location());
+            }
+        }
+        if wrong == correct {
+            bail!(
+                "{}: the wrong and correct readings are both {wrong:?}",
+                location()
+            );
+        }
+        if !seen.insert((value.to_owned(), wrong.to_owned())) {
+            bail!("{}: {value} {wrong} is listed twice", location());
+        }
+        entries.push(ReadingCorrection {
+            value: value.to_owned(),
+            wrong: wrong.to_owned(),
+            correct: correct.to_owned(),
+        });
+    }
+    Ok(entries)
+}
+
+fn is_quanpin(key: &str) -> bool {
+    key.split('\'')
+        .all(|syllable| !syllable.is_empty() && syllable.bytes().all(|b| b.is_ascii_lowercase()))
+        && pinyin_table(key).is_some()
+}
+
+/// Deletes every quanpin row whose word and pinyin match an entry's wrong reading and returns how many rows went. Fails, leaving the tables unchanged, when an entry deletes nothing (the input it corrected has changed, so the entry is stale) or when the word has no row at the correct reading afterwards (the correction would leave the word untypeable).
+pub fn apply_reading_corrections(
+    connection: &mut Connection,
+    entries: &[ReadingCorrection],
+) -> Result<usize> {
+    let transaction = connection.transaction()?;
+    let mut removed = 0;
+    let mut stale = Vec::new();
+    let mut missing = Vec::new();
+    for entry in entries {
+        let table = pinyin_table(&entry.wrong).context("reading correction without a table")?;
+        let deleted = transaction.execute(
+            &format!("delete from {table} where key = ? and value = ?"),
+            params![entry.wrong, entry.value],
+        )?;
+        if deleted == 0 {
+            stale.push(format!("{} {}", entry.value, entry.wrong));
+        }
+        removed += deleted;
+    }
+    for entry in entries {
+        let table = pinyin_table(&entry.correct).context("reading correction without a table")?;
+        let present: bool = transaction.query_row(
+            &format!("select exists(select 1 from {table} where key = ? and value = ?)"),
+            params![entry.correct, entry.value],
+            |row| row.get(0),
+        )?;
+        if !present {
+            missing.push(format!("{} {}", entry.value, entry.correct));
+        }
+    }
+    if !stale.is_empty() || !missing.is_empty() {
+        let mut problems = Vec::new();
+        if !stale.is_empty() {
+            problems.push(format!(
+                "no row to remove for {} (drop the entry if its input no longer has the wrong reading)",
+                stale.join(", ")
+            ));
+        }
+        if !missing.is_empty() {
+            problems.push(format!(
+                "no row at the correct reading for {} (add it to msime-dictionary's custom/words.txt)",
+                missing.join(", ")
+            ));
+        }
+        bail!("{READING_CORRECTIONS}: {}", problems.join("; "));
+    }
+    transaction.commit()?;
+    Ok(removed)
+}
+
 /// `value<TAB>code<TAB>weight` (wubi86) or `code<TAB>value<TAB>weight` (quick phrases). Invalid lines are skipped and counted, as the Python importers did.
 struct CodeTable {
     name: &'static str,
@@ -615,6 +725,96 @@ mod tests {
         for bad in ["词\tci", "词\tCi\t1", "词\tci\t0", "\tci\t1", "词\tci\tx"] {
             assert!(parse_custom_words(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn reading_corrections_remove_every_row_of_the_wrong_reading() {
+        let mut connection = quanpin_fixture(None);
+        // The same word and wrong reading from two inputs gives two rows; both go.
+        apply_custom_words(
+            &mut connection,
+            &parse_custom_words("重绘\tzhong'hui\t5\n重绘\tchong'hui\t5\n").unwrap(),
+        )
+        .unwrap();
+        connection
+            .execute(
+                "insert into tbl_2_z (key, jp, value, weight) values ('zhong''hui', 'zh', '重绘', 9)",
+                [],
+            )
+            .unwrap();
+        let entries = parse_reading_corrections("# c\n\n重绘\tzhong'hui\tchong'hui\n").unwrap();
+        assert_eq!(
+            apply_reading_corrections(&mut connection, &entries).unwrap(),
+            2
+        );
+        assert_eq!(
+            rows(
+                &connection,
+                "select key, jp, value, weight from tbl_2_z union all select key, jp, value, weight from tbl_2_c"
+            ),
+            [("chong'hui".into(), "ch".into(), "重绘".into(), 5)]
+        );
+    }
+
+    #[test]
+    fn a_stale_or_unbacked_reading_correction_fails_and_changes_nothing() {
+        let mut connection = quanpin_fixture(None);
+        let count = |connection: &Connection| -> i64 {
+            connection
+                .query_row("select count(*) from tbl_2_n", [], |row| row.get(0))
+                .unwrap()
+        };
+        // 你好 has no row at ni'hao'a: the entry is stale.
+        let stale = parse_reading_corrections("你好\tni'hao'a\tni'hao\n").unwrap();
+        let error = apply_reading_corrections(&mut connection, &stale).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("no row to remove for 你好 ni'hao'a"),
+            "{error}"
+        );
+        // Removing ni'hao would leave 你好 without the correct reading.
+        let unbacked = parse_reading_corrections("你好\tni'hao\tnin'hao\n").unwrap();
+        let error = apply_reading_corrections(&mut connection, &unbacked).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("no row at the correct reading for 你好 nin'hao"),
+            "{error}"
+        );
+        assert_eq!(count(&connection), 1);
+    }
+
+    #[test]
+    fn a_malformed_reading_correction_fails_the_stage() {
+        for bad in [
+            "词\tci",
+            "词\tci\tci",
+            "词\tCi\tci'a",
+            "\tci\tcha",
+            "词\tci\tcha\t1",
+            "词\tci\tcha\n词\tci\tchi",
+        ] {
+            assert!(parse_reading_corrections(bad).is_err(), "{bad:?}");
+        }
+        let error = parse_reading_corrections("# c\n\n词\tci\tcha\n词\tci").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("{READING_CORRECTIONS}:4:")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_repository_reading_corrections_parse() {
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/dictionary-sources")
+                .join(READING_CORRECTIONS),
+        )
+        .unwrap();
+        assert!(!parse_reading_corrections(&text).unwrap().is_empty());
     }
 
     #[test]

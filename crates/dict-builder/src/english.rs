@@ -47,9 +47,19 @@ pub fn parse_oaldpe_words(text: &str) -> Result<BTreeSet<String>> {
     Ok(words)
 }
 
-/// `display input-code [weight]` lines from rime-ice's English dictionary. The input code is ignored: prefix lookup uses the display word itself. Returns the lowercase word and the display casing to show, which stays as written only when the source has a single casing for it.
-pub fn parse_base_dict_words(text: &str) -> Result<BTreeMap<String, String>> {
-    let mut displays: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+/// Every display casing of each lowercase word, in the order the source first lists them. Each casing becomes its own `english_words` row; [`build_english_words`] decides which of them leads.
+pub type EnglishWords = BTreeMap<String, Vec<String>>;
+
+fn add_display(words: &mut EnglishWords, display: &str) {
+    let displays = words.entry(display.to_ascii_lowercase()).or_default();
+    if !displays.iter().any(|known| known == display) {
+        displays.push(display.to_owned());
+    }
+}
+
+/// `display input-code [weight]` lines from rime-ice's English dictionary. The input code is ignored: prefix lookup uses the display word itself. Returns every casing the source writes for a lowercase word (China and china, PostgreSQL and postgresql), each kept as its own display.
+pub fn parse_base_dict_words(text: &str) -> Result<EnglishWords> {
+    let mut words = EnglishWords::new();
     for (number, line) in text::universal_lines(text).into_iter().enumerate() {
         let stripped = text::strip(line);
         if stripped.is_empty() || stripped.starts_with('#') {
@@ -68,26 +78,70 @@ pub fn parse_base_dict_words(text: &str) -> Result<BTreeMap<String, String>> {
         fields.pop();
         let display = fields.join(" ");
         if is_ascii_word(&display) {
-            displays
-                .entry(display.to_ascii_lowercase())
-                .or_default()
-                .insert(display);
+            add_display(&mut words, &display);
         }
     }
-    if displays.is_empty() {
+    if words.is_empty() {
         bail!("rime-ice-en.txt: no pure English words found");
     }
-    Ok(displays
-        .into_iter()
-        .map(|(word, casings)| {
-            let display = if casings.len() == 1 {
-                casings.into_iter().next().unwrap_or_default()
-            } else {
-                word.clone()
-            };
-            (word, display)
-        })
-        .collect())
+    Ok(words)
+}
+
+/// A generated word list such as `sources/english/scowl-words.txt`: one display word per line after `#` header lines. Every line has to be an ASCII word and appear once, since the generator only writes such lines; anything else means the file is not what the lock pinned.
+pub fn parse_word_list(text: &str, name: &str) -> Result<EnglishWords> {
+    let mut words = EnglishWords::new();
+    let mut seen = HashSet::new();
+    for (number, line) in text::universal_lines(text).into_iter().enumerate() {
+        let stripped = text::strip(line);
+        if stripped.is_empty() || stripped.starts_with('#') {
+            continue;
+        }
+        if !is_ascii_word(stripped) {
+            bail!(
+                "{name}:{}: expected one ASCII word, got {stripped:?}",
+                number + 1
+            );
+        }
+        if !seen.insert(stripped.to_owned()) {
+            bail!("{name}:{}: duplicate word {stripped:?}", number + 1);
+        }
+        add_display(&mut words, stripped);
+    }
+    if words.is_empty() {
+        bail!("{name}: no words found");
+    }
+    Ok(words)
+}
+
+/// Adds the displays of `other` to `words`; returns how many lowercase words were new.
+pub fn merge_words(words: &mut EnglishWords, other: EnglishWords) -> usize {
+    let mut added = 0;
+    for (word, displays) in other {
+        if !words.contains_key(&word) {
+            added += 1;
+        }
+        for display in displays {
+            add_display(words, &display);
+        }
+    }
+    added
+}
+
+/// The display that leads when a word has several casings. SCOWL's spelling dictionary (`attested`, its letter-only forms) decides where it has a say: when it lists the word in some of the source's casings but not in lowercase, the first of those leads, since the word is a name (Wikipedia, Ukraine, Islam, Skype) whose lowercase spelling rime-ice also carries. Otherwise (SCOWL has the lowercase form too, as for china and China, may and May, or none of them) the all-lowercase display leads when the source has it, as the form the user typed, and the first the source lists when it does not. rime-ice's own order says nothing here: it lists Go before go but japan before Japan.
+fn leading_display<'a>(
+    word: &str,
+    displays: &'a [String],
+    attested: &HashSet<String>,
+) -> Option<&'a str> {
+    let lowercase = displays.iter().find(|display| display.as_str() == word);
+    let attested_first = displays
+        .iter()
+        .find(|display| attested.contains(display.as_str()));
+    let chosen = match attested_first {
+        Some(display) if !attested.contains(word) => Some(display),
+        _ => lowercase.or_else(|| displays.first()),
+    };
+    chosen.map(String::as_str)
 }
 
 /// Google's unigram counts (`word<TAB>count`), which order the words once several of them match a prefix. A later line for the same word wins.
@@ -109,7 +163,10 @@ pub fn parse_google_counts(text: &str) -> HashMap<String, i64> {
 /// What [`build_english_words`] wrote: the words of the base lexicons, and how the custom rows landed on them.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct EnglishWordCounts {
+    /// Lowercase words of the base lexicons.
     pub base: usize,
+    /// Base rows: one per display, so a word with several casings has several.
+    pub base_rows: usize,
     /// Custom (word, display) pairs the base lexicons did not have.
     pub custom_added: usize,
     /// Custom pairs that replaced a base row with the same word and display.
@@ -124,8 +181,9 @@ fn custom_english_weight(entry: &CustomEnglishWord, count: i64, ceiling: i64) ->
 pub fn build_english_words(
     connection: &mut Connection,
     oaldpe: &BTreeSet<String>,
-    base: &BTreeMap<String, String>,
+    base: &EnglishWords,
     counts: &HashMap<String, i64>,
+    attested: &HashSet<String>,
     custom: &[CustomEnglishWord],
 ) -> Result<EnglishWordCounts> {
     let words: BTreeSet<&String> = oaldpe.iter().chain(base.keys()).collect();
@@ -140,22 +198,46 @@ pub fn build_english_words(
         let mut insert = transaction
             .prepare("INSERT INTO english_words(word, display, weight) VALUES (?, ?, ?)")?;
         for word in &words {
-            let display = base.get(*word).unwrap_or(word);
-            insert.execute(params![
-                word,
-                display,
-                counts.get(*word).copied().unwrap_or(0)
-            ])?;
+            let count = counts.get(*word).copied().unwrap_or(0);
+            let displays = base.get(*word).map(Vec::as_slice).unwrap_or_default();
+            let Some(leading) = leading_display(word, displays, attested) else {
+                // An OALDPE headword the base lexicons lack: its lowercase spelling is the display.
+                insert.execute(params![word, word, count])?;
+                result.base_rows += 1;
+                continue;
+            };
+            // The leading casing takes the count and the others one below it, so the Engine, which orders a prefix's rows by weight and then by display bytes, shows the leading one first. A word without a count would tie at zero and fall to byte order, which puts every capitalised form first, so its leading casing gets 1 instead.
+            let leading_weight = if displays.len() > 1 {
+                count.max(1)
+            } else {
+                count
+            };
+            for display in displays {
+                let weight = if display == leading {
+                    leading_weight
+                } else {
+                    leading_weight - 1
+                };
+                insert.execute(params![word, display, weight])?;
+                result.base_rows += 1;
+            }
         }
     }
-    // The base lexicons give every word exactly one display; only custom rows may add a second.
+    // Every base word has at least one display and every (word, display) pair is written once; custom rows may add more displays.
     let (base_rows, distinct): (i64, i64) = transaction.query_row(
         "SELECT COUNT(*), COUNT(DISTINCT word) FROM english_words",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    if base_rows == 0 || base_rows != distinct {
-        bail!("english_words: unexpected row counts: rows={base_rows}, distinct_words={distinct}");
+    if base_rows == 0
+        || base_rows != i64::try_from(result.base_rows)?
+        || distinct != i64::try_from(result.base)?
+    {
+        bail!(
+            "english_words: unexpected row counts: rows={base_rows}, distinct_words={distinct}, expected {} rows of {} words",
+            result.base_rows,
+            result.base
+        );
     }
     {
         let ceiling = counts
@@ -207,6 +289,20 @@ pub fn build_english_words(
     }
     sqlite::analyze(connection, true)?;
     Ok(result)
+}
+
+/// The licence notices of the word lists in `english_words` whose terms ask for the notice in every copy (SCOWL's), as `(source, notice)` rows of `source_notices`. The Engine never reads the table; it only travels with the database.
+pub fn write_notices(connection: &mut Connection, notices: &[(&str, &str)]) -> Result<()> {
+    let transaction = connection.transaction()?;
+    transaction.execute_batch("DROP TABLE IF EXISTS source_notices; CREATE TABLE source_notices (source TEXT NOT NULL PRIMARY KEY, notice TEXT NOT NULL) WITHOUT ROWID;")?;
+    for (source, notice) in notices {
+        transaction.execute(
+            "INSERT INTO source_notices(source, notice) VALUES (?, ?)",
+            params![source, notice],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
 }
 
 // ---- custom English words ----
@@ -550,8 +646,13 @@ fn chinese_term_weights(msime: &Connection, terms: &HashSet<&str>) -> Result<Has
     Ok(weights)
 }
 
-/// Intersects ECDICT with the English candidates and derives both gloss directions. Only general senses of words with a corpus or core-vocabulary signal feed the Chinese-to-English index, and only for Chinese terms the pinyin tables can produce.
-pub fn derive_glosses(ecdict: &Path, english: &Connection, msime: &Connection) -> Result<Glosses> {
+/// Intersects ECDICT with the English candidates and derives both gloss directions. Only general senses of words with a corpus or core-vocabulary signal feed the Chinese-to-English index, and only for Chinese terms the pinyin tables can produce. Words in `reverse_excluded` get English-to-Chinese glosses but neither feed the Chinese-to-English index nor stand in for an inflection there: the build passes the words only SCOWL brings, so that index keeps choosing among the curated word lists (SCOWL's long tail would otherwise win terms such as 体现 → impersonate).
+pub fn derive_glosses(
+    ecdict: &Path,
+    english: &Connection,
+    msime: &Connection,
+    reverse_excluded: &HashSet<String>,
+) -> Result<Glosses> {
     let candidates = english_candidates(english)?;
     let bytes = std::fs::read(ecdict).with_context(|| format!("reading {}", ecdict.display()))?;
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
@@ -611,7 +712,11 @@ pub fn derive_glosses(ecdict: &Path, english: &Connection, msime: &Connection) -
             .split('/')
             .filter_map(|item| item.strip_prefix("0:"))
             .map(|lemma| text::strip(lemma).to_lowercase())
-            .find(|lemma| candidates.contains(lemma) && is_lowercase_ascii_word(lemma))
+            .find(|lemma| {
+                candidates.contains(lemma)
+                    && !reverse_excluded.contains(lemma)
+                    && is_lowercase_ascii_word(lemma)
+            })
             .unwrap_or_else(|| english.clone());
         let replace = entries.get(&english).is_none_or(|previous| {
             (quality, terms.len()) > (previous.quality, previous.terms.len())
@@ -630,8 +735,8 @@ pub fn derive_glosses(ecdict: &Path, english: &Connection, msime: &Connection) -
 
     // Reverse candidates are built only after duplicate English rows are resolved, so a duplicated source row cannot distort the ranking.
     let mut reverse: HashMap<String, HashMap<String, i64>> = HashMap::new();
-    for entry in entries.values() {
-        if entry.quality <= 0 {
+    for (english, entry) in &entries {
+        if entry.quality <= 0 || reverse_excluded.contains(english) {
             continue;
         }
         for term in entry.terms.iter().filter(|term| term.reverse_eligible()) {
@@ -783,43 +888,79 @@ pub fn apply_custom_translations(
 mod tests {
     use super::*;
 
+    fn displays(words: &EnglishWords, word: &str) -> Vec<String> {
+        words.get(word).cloned().unwrap_or_default()
+    }
+
+    fn prefix_rows(connection: &Connection, prefix: &str) -> Vec<(String, i64)> {
+        connection
+            .prepare("SELECT display, weight FROM english_words WHERE word >= ?1 AND word < ?1 || '{' ORDER BY CASE WHEN word = ?1 THEN 0 ELSE 1 END, weight DESC, length(word), word, display")
+            .unwrap()
+            .query_map([prefix], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
     #[test]
-    fn english_words_merge_casings_and_counts() {
-        let base = parse_base_dict_words("AA AA\r\naaa aaa\r\n# aac aac\r\nAaliyah Aaliyah\r\nHello hello 3\r\nhello hello\r\nice cream icecream\r\nJan jan 12\r\n").unwrap();
-        assert_eq!(base.get("aa").map(String::as_str), Some("AA"));
-        assert_eq!(base.get("aaliyah").map(String::as_str), Some("Aaliyah"));
+    fn english_words_keep_every_casing_and_merge_counts() {
+        let base = parse_base_dict_words("AA AA\r\naaa aaa\r\n# aac aac\r\nAaliyah Aaliyah\r\nHello hello 3\r\nhello hello\r\nice cream icecream\r\nJan jan 12\r\nDOS DOS\r\nDoS DoS\r\nDOS DOS\r\nwikipedia wikipedia\r\nWikipedia Wikipedia\r\nRaq raq\r\nraq raq\r\n").unwrap();
+        assert_eq!(displays(&base, "aa"), ["AA"]);
+        assert_eq!(displays(&base, "aaliyah"), ["Aaliyah"]);
         assert_eq!(
-            base.get("hello").map(String::as_str),
-            Some("hello"),
-            "two casings fall back to lowercase"
+            displays(&base, "hello"),
+            ["Hello", "hello"],
+            "each casing is kept, in source order"
         );
-        assert_eq!(base.get("jan").map(String::as_str), Some("Jan"));
+        assert_eq!(displays(&base, "jan"), ["Jan"]);
+        assert_eq!(
+            displays(&base, "dos"),
+            ["DOS", "DoS"],
+            "a repeated casing is kept once"
+        );
         assert!(!base.contains_key("ice cream"));
 
-        let counts = parse_google_counts("the\t100\nHello\t7\nbad\tx\n\t5\n");
+        let counts =
+            parse_google_counts("the\t100\nHello\t7\nbad\tx\n\t5\ndos\t40\nwikipedia\t50\n");
+        // The casings SCOWL lists: Wikipedia only capitalised, hello in both casings, neither DOS nor raq.
+        let attested: HashSet<String> = ["Wikipedia", "hello", "Hello"].map(str::to_owned).into();
         assert_eq!(counts.get("hello"), Some(&7));
         assert!(!counts.contains_key("bad"));
 
-        let oaldpe = parse_oaldpe_words("a\nzebra\n").unwrap();
+        let oaldpe = parse_oaldpe_words("a\nzebra\nhello\n").unwrap();
         assert!(parse_oaldpe_words("a\na\n").is_err());
         assert!(parse_oaldpe_words("Abc\n").is_err());
 
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_english_words(&mut connection, &oaldpe, &base, &counts, &[]).unwrap(),
+            build_english_words(&mut connection, &oaldpe, &base, &counts, &attested, &[]).unwrap(),
             EnglishWordCounts {
-                base: 7,
+                base: 10,
+                base_rows: 14,
                 ..EnglishWordCounts::default()
             }
         );
-        let row: (String, i64) = connection
-            .query_row(
-                "SELECT display, weight FROM english_words WHERE word='hello'",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(row, ("hello".into(), 7));
+        // SCOWL has hello in lowercase too, so the lowercase casing leads with the word's count although the source lists Hello first; the other casing follows one below.
+        assert_eq!(
+            prefix_rows(&connection, "hello"),
+            [("hello".to_owned(), 7), ("Hello".to_owned(), 6)]
+        );
+        // Without a lowercase casing the first one the source lists leads.
+        assert_eq!(
+            prefix_rows(&connection, "dos"),
+            [("DOS".to_owned(), 40), ("DoS".to_owned(), 39)]
+        );
+        // SCOWL lists the name only capitalised, so it leads although the source lists the lowercase spelling first.
+        assert_eq!(
+            prefix_rows(&connection, "wikipedia"),
+            [("Wikipedia".to_owned(), 50), ("wikipedia".to_owned(), 49)]
+        );
+        // Without a count the leading casing is lifted to 1, so the zero tie does not fall to byte order (Raq before raq).
+        assert_eq!(
+            prefix_rows(&connection, "raq"),
+            [("raq".to_owned(), 1), ("Raq".to_owned(), 0)]
+        );
+        assert_eq!(prefix_rows(&connection, "zebra"), [("zebra".to_owned(), 0)]);
         let stats: Vec<String> = connection
             .prepare("SELECT tbl FROM sqlite_stat1")
             .unwrap()
@@ -828,6 +969,32 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(stats, ["english_words"]);
+
+        write_notices(
+            &mut connection,
+            &[("SCOWL", "Copyright 2000-2026 by Kevin Atkinson")],
+        )
+        .unwrap();
+        write_notices(
+            &mut connection,
+            &[("SCOWL", "Copyright 2000-2026 by Kevin Atkinson")],
+        )
+        .unwrap();
+        let notices: Vec<(String, String)> = connection
+            .prepare("SELECT source, notice FROM source_notices")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            notices,
+            [(
+                "SCOWL".to_owned(),
+                "Copyright 2000-2026 by Kevin Atkinson".to_owned()
+            )],
+            "rewriting the notices replaces them"
+        );
     }
 
     #[test]
@@ -883,13 +1050,20 @@ mod tests {
         );
         let custom = parse_custom_english("figma\tfigma\t1\nfigma\tFigma\t1\nasr\tASR\t1\nwebview\twebview\t1\nwebview\tWebview2\t1\nloud\tLOUD\t999999999\n").unwrap();
         let mut connection = Connection::open_in_memory().unwrap();
-        let counts_written =
-            build_english_words(&mut connection, &BTreeSet::new(), &base, &counts, &custom)
-                .unwrap();
+        let counts_written = build_english_words(
+            &mut connection,
+            &BTreeSet::new(),
+            &base,
+            &counts,
+            &HashSet::new(),
+            &custom,
+        )
+        .unwrap();
         assert_eq!(
             counts_written,
             EnglishWordCounts {
                 base: 5,
+                base_rows: 5,
                 custom_added: 5,
                 custom_replaced: 1
             }
@@ -1002,13 +1176,13 @@ mod tests {
             &csv,
             "\u{feff}word,phonetic,definition,translation,pos,collins,oxford,tag,bnc,frq,exchange,detail,audio\n\
              bank,,,\"n. 银行, 堤\",,3,1,zk,500,400,s:banks,,\n\
-             banks,,,n. 银行,,,,,,,0:bank,,\n\
+             banks,,,n. 银行,,,,,,100,0:bank,,\n\
              run,,,\"v. 跑步\\nn. 运行\",,5,1,,100,100,,,\n\
              rare,,,a. 稀有的,,,,,,,,,\n\
              absent,,,n. 缺席,,5,1,,1,1,,,\n",
         )
         .unwrap();
-        let glosses = derive_glosses(&csv, &english, &msime).unwrap();
+        let glosses = derive_glosses(&csv, &english, &msime, &HashSet::new()).unwrap();
         assert_eq!(
             glosses.en_zh.get("bank").map(String::as_str),
             Some("银行；堤")
@@ -1018,6 +1192,14 @@ mod tests {
         // 稀有 has no quality signal, 运行 and 堤 are not pinyin-table values.
         assert_eq!(glosses.zh_en.keys().collect::<Vec<_>>(), ["跑步", "银行"]);
         assert_eq!(glosses.zh_en.get("银行").map(String::as_str), Some("bank"));
+        // An excluded word keeps its English-to-Chinese gloss but neither feeds the reverse index nor stands in for its inflections there.
+        let excluded =
+            derive_glosses(&csv, &english, &msime, &HashSet::from(["bank".to_owned()])).unwrap();
+        assert_eq!(excluded.en_zh, glosses.en_zh);
+        assert_eq!(
+            excluded.zh_en.get("银行").map(String::as_str),
+            Some("banks")
+        );
 
         let mut english = english;
         write_glosses(&mut english, &glosses).unwrap();

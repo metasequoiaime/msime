@@ -2,9 +2,11 @@
 //!
 //! Three files are read, all `text,frequency,reading` CSV: `tsi.csv` (phrases and characters with their use counts), `word.csv` (every character with each of its readings, all at frequency 0), and the McBopomofo phrase supplement (frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character and a supplement phrase weigh 0 unless `tsi.csv` gives the same combination a count.
 //!
+//! About a third of the phrases still weigh 0 that way: the whole supplement and the `tsi.csv` rows chewing never counted. McBopomofo's `phrase.occ` (MIT, its own corpus counts, one `phrase count` per line, msime-dictionary keeps it verbatim in `sources/zhuyin/`) fills them in. A phrase of two or more characters that weighs 0 and that no row counts under any reading takes its `phrase.occ` count times `occurrence_scale`, the median ratio between the chewing count and the `phrase.occ` count of the phrases both count, which puts the counts on chewing's scale. A text some row counts is left alone, since its other readings at 0 are ones chewing chose not to count, and single characters too, since `phrase.occ` counts a character across all its readings. The filled weight never takes a key's first place from an entry chewing counts: on a key that has one, it is capped one below the largest counted weight there, because `phrase.occ` counts substrings of running text, which inflates fragments such as 小的 against the words of the same reading (曉得).
+//!
 //! The syllable inventory is every syllable some key uses. A syllable must be at most one initial, one medial and one rime in that order, then an optional tone mark, because that is all the Dachen editor can compose; anything else fails the build. The only rows left out are the four tone marks listed as their own text and reading, which have no letters to type.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -17,6 +19,7 @@ use crate::sqlite;
 pub const PHRASES: &str = "sources/zhuyin/tsi.csv";
 pub const CHARACTERS: &str = "sources/zhuyin/word.csv";
 pub const SUPPLEMENT: &str = "sources/zhuyin/mcbopomofo-supplement.txt";
+pub const OCCURRENCES: &str = "sources/zhuyin/phrase.occ";
 /// The sources lock reference whose commit is recorded as the database's `source_commit`.
 pub const REFERENCE: &str = "libchewing-data";
 /// The SPDX identifier recorded as the database's `license`, as the CSV headers declare it.
@@ -75,6 +78,10 @@ pub struct Dictionary {
     pub syllables: BTreeSet<String>,
     /// `(key, text)` to weight.
     pub entries: BTreeMap<(String, String), i64>,
+    /// Entries that took their weight from `phrase.occ`, how many of them the cap held below a counted entry, and the factor that put the counts on chewing's scale.
+    pub filled: usize,
+    pub capped: usize,
+    pub occurrence_scale: i64,
 }
 
 /// Where a symbol sits in a syllable: initial, then medial, then rime.
@@ -150,8 +157,45 @@ pub fn parse(name: &str, source: &str) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-/// The dictionary of the parsed rows of both files. A `(key, text)` pair keeps the largest frequency any row gives it.
-pub fn build(rows: &[Row]) -> Dictionary {
+/// `phrase.occ`: `phrase count` per line. The file separates with a space although McBopomofo's data notes say a tab, so either is accepted. A phrase listed twice keeps its larger count.
+pub fn parse_occurrences(source: &str) -> Result<HashMap<&str, i64>> {
+    let mut counts = HashMap::new();
+    for (index, line) in source.lines().enumerate() {
+        let parsed = line.split_once([' ', '\t']).and_then(|(text, count)| {
+            Some((text, count.parse::<i64>().ok().filter(|count| *count >= 0)?))
+        });
+        let Some((text, count)) = parsed.filter(|(text, _)| !text.is_empty()) else {
+            bail!("{OCCURRENCES}: line {} is not phrase count", index + 1);
+        };
+        let kept = counts.entry(text).or_insert(count);
+        *kept = (*kept).max(count);
+    }
+    Ok(counts)
+}
+
+/// The lower median of `chewing weight / phrase.occ count` (integer division) over the phrases of two or more characters both count, or 1 when they share none.
+fn occurrence_scale(
+    entries: &BTreeMap<(String, String), i64>,
+    occurrences: &HashMap<&str, i64>,
+) -> i64 {
+    let mut ratios: Vec<i64> = entries
+        .iter()
+        .filter(|((_, text), weight)| **weight > 0 && text.chars().count() >= 2)
+        .filter_map(|((_, text), weight)| {
+            let count = *occurrences.get(text.as_str())?;
+            (count > 0).then(|| weight / count)
+        })
+        .collect();
+    ratios.sort_unstable();
+    ratios
+        .get(ratios.len().saturating_sub(1) / 2)
+        .copied()
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// The dictionary of the parsed rows of all three files, with `phrase.occ` filling in the phrases no row counts. A `(key, text)` pair keeps the largest frequency any row gives it.
+pub fn build(rows: &[Row], occurrences: &HashMap<&str, i64>) -> Dictionary {
     let mut dictionary = Dictionary::default();
     for row in rows {
         dictionary.syllables.extend(row.syllables.iter().cloned());
@@ -160,6 +204,41 @@ pub fn build(rows: &[Row]) -> Dictionary {
             .entry((row.syllables.join(" "), row.text.clone()))
             .or_insert(row.frequency);
         *weight = (*weight).max(row.frequency);
+    }
+    dictionary.occurrence_scale = occurrence_scale(&dictionary.entries, occurrences);
+    let counted: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.frequency > 0)
+        .map(|row| row.text.as_str())
+        .collect();
+    // The largest counted weight on each key, which a filled weight stays below.
+    let mut top: HashMap<&str, i64> = HashMap::new();
+    for ((key, _), weight) in &dictionary.entries {
+        if *weight > 0 {
+            let slot = top.entry(key.as_str()).or_insert(0);
+            *slot = (*slot).max(*weight);
+        }
+    }
+    let mut fills = Vec::new();
+    for ((key, text), weight) in &dictionary.entries {
+        if *weight != 0 || text.chars().count() < 2 || counted.contains(text.as_str()) {
+            continue;
+        }
+        let Some(&count) = occurrences.get(text.as_str()).filter(|count| **count > 0) else {
+            continue;
+        };
+        let wanted = count.saturating_mul(dictionary.occurrence_scale);
+        let filled = top
+            .get(key.as_str())
+            .map_or(wanted, |top| wanted.min(top - 1));
+        if filled > 0 {
+            fills.push(((key.clone(), text.clone()), filled, filled < wanted));
+        }
+    }
+    for (entry, weight, capped) in fills {
+        dictionary.entries.insert(entry, weight);
+        dictionary.filled += 1;
+        dictionary.capped += usize::from(capped);
     }
     dictionary
 }
@@ -272,7 +351,7 @@ mod tests {
     fn sample() -> Dictionary {
         let mut rows = parse(PHRASES, &phrases_source()).unwrap();
         rows.extend(parse(CHARACTERS, &characters_source()).unwrap());
-        build(&rows)
+        build(&rows, &HashMap::new())
     }
 
     fn entries(dictionary: &Dictionary) -> Vec<(&str, &str, i64)> {
@@ -326,6 +405,55 @@ mod tests {
                 ("ㄦ", "兒", 0),
             ]
         );
+    }
+
+    #[test]
+    fn phrase_occ_fills_the_phrases_no_row_counts() {
+        let rows = parse(
+            PHRASES,
+            &format!("{HEADER}你好,1227,ㄋㄧˇ ㄏㄠˇ\n台灣,124258,ㄊㄞˊ ㄨㄢ\n曉得,480,ㄒㄧㄠˇ ㄉㄜ˙\n黃埔江,8,ㄏㄨㄤˊ ㄆㄨˇ ㄐㄧㄤ\n鬱卒,0,ㄩˋ ㄗㄨˊ\n一一,0,ㄧ ㄧ\n一一,2095,ㄧˊ ㄧˊ\n好,30909,ㄏㄠˇ\n"),
+        )
+        .unwrap();
+        let mut rows = rows;
+        rows.extend(
+            parse(
+                SUPPLEMENT,
+                "# supplement\n小的,0,ㄒㄧㄠˇ ㄉㄜ˙\n黃浦江,0,ㄏㄨㄤˊ ㄆㄨˇ ㄐㄧㄤ\n冷僻詞,0,ㄌㄥˇ ㄆㄧˋ ㄘˊ\n",
+            )
+            .unwrap(),
+        );
+        rows.extend(parse(CHARACTERS, &format!("{HEADER}好,0,ㄏㄠˋ\n")).unwrap());
+        // 一一 (ㄧˊ ㄧˊ) 2095/762, 你好 1227/300 and 台灣 124258/24111 give ratios 2, 4 and 5 (曉得 and 黃埔江 have no phrase.occ count); the lower median is 4.
+        let occurrences = parse_occurrences(
+            "你好 300\n台灣 24111\n小的 673\n黃浦江 21\n鬱卒 7\n一一 762\n好 99999\n冷僻詞 0\n",
+        )
+        .unwrap();
+        let dictionary = build(&rows, &occurrences);
+        assert_eq!(dictionary.occurrence_scale, 4);
+        let weight = |key: &str, text: &str| dictionary.entries[&(key.to_owned(), text.to_owned())];
+        // A key without a counted entry takes the scaled count.
+        assert_eq!(weight("ㄩˋ ㄗㄨˊ", "鬱卒"), 28);
+        // 黃浦江 (84) would pass 黃埔江 (8), so it is held one below it.
+        assert_eq!(weight("ㄏㄨㄤˊ ㄆㄨˇ ㄐㄧㄤ", "黃浦江"), 7);
+        assert_eq!(weight("ㄒㄧㄠˇ ㄉㄜ˙", "小的"), 479);
+        // 一一 is counted under another reading, a single character is never filled, and a 0 count fills nothing.
+        assert_eq!(weight("ㄧ ㄧ", "一一"), 0);
+        assert_eq!(weight("ㄏㄠˋ", "好"), 0);
+        assert_eq!(weight("ㄌㄥˇ ㄆㄧˋ ㄘˊ", "冷僻詞"), 0);
+        assert_eq!((dictionary.filled, dictionary.capped), (3, 2));
+    }
+
+    #[test]
+    fn phrase_occ_lines_are_phrase_and_count() {
+        let counts = parse_occurrences("一一 762\n一一\t800\nㄅ 41\n").unwrap();
+        assert_eq!((counts["一一"], counts["ㄅ"]), (800, 41));
+        for source in ["一一\n", "一一 x\n", " 3\n", "一一 -1\n"] {
+            let error = parse_occurrences(source).unwrap_err().to_string();
+            assert!(
+                error.contains("phrase.occ: line 1 is not phrase count"),
+                "{error}"
+            );
+        }
     }
 
     #[test]
@@ -429,7 +557,7 @@ mod tests {
             })
             .collect();
         pinned.sort_unstable();
-        assert_eq!(pinned, [SUPPLEMENT, PHRASES, CHARACTERS]);
+        assert_eq!(pinned, [SUPPLEMENT, OCCURRENCES, PHRASES, CHARACTERS]);
     }
 
     fn written(dictionary: &Dictionary) -> (tempfile::TempDir, std::path::PathBuf) {
@@ -534,7 +662,7 @@ mod tests {
             syllables: vec!["ㄋㄧˇ".to_owned(), "ㄏㄠˇ".to_owned()],
             frequency: 5000,
         });
-        let (_dir, path) = written(&build(&rows));
+        let (_dir, path) = written(&build(&rows, &HashMap::new()));
         let none = Floors {
             syllables: 0,
             characters: 0,

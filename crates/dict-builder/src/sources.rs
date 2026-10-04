@@ -53,8 +53,8 @@ impl Lock {
 const DICTIONARY_RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
 /// Top-level directories of the dictionary source repository the builder reads; with a checkout, a path under them resolves from the checkout even when the lock has no entry for it.
 const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
-/// msime-dictionary files that copy or are generated from an upstream at a commit msime records outside the file itself (a lock reference, the Mozc revision, or the licence texts and notices in `resources/licenses`), as an exact path or a directory prefix, with the upstream's name. The manifest's references and `mozc_revision`, `source_commit` in the language databases and the shipped licence texts all name those commits, so even with `--dictionary` these files must still match the lock's size and SHA-256: replacing one with a newer upstream version needs that record, the lock entry and the licences in msime updated first.
-const UPSTREAM_FILES: [(&str, &str); 12] = [
+/// msime-dictionary files that copy or are generated from an upstream at a commit msime records outside the file itself (a lock reference, the Mozc revision, or the licence texts and notices in `resources/licenses`), as an exact path or a directory prefix, with the upstream's name. The manifest's references and `mozc_revision`, `source_commit` in the language databases and the shipped licence texts all name those commits, so even with `--dictionary` these files must still match the lock's size and SHA-256: replacing one with a newer upstream version needs that record, the lock entry and the licences in msime updated first. This covers the tables msime's own generators write from such an upstream (`hkcancor-counts` from HKCanCor, `english-supplement` from SCOWL), whose headers name the msime commit that pins them in the lock.
+const UPSTREAM_FILES: [(&str, &str); 15] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
     (
         "sources/pinyin/rime-ice-supplement.txt",
@@ -64,10 +64,16 @@ const UPSTREAM_FILES: [(&str, &str); 12] = [
         "sources/english/rime-ice-en-supplement.txt",
         "rime-ice-supplement",
     ),
+    (crate::hkcancor::OUTPUT, crate::hkcancor::REFERENCE),
     ("sources/cantonese/", "rime-cantonese"),
+    (
+        crate::english_supplement::OUTPUT,
+        crate::english_supplement::REFERENCE,
+    ),
     ("sources/zhuyin/tsi.csv", "libchewing-data"),
     ("sources/zhuyin/word.csv", "libchewing-data"),
     ("sources/zhuyin/mcbopomofo-supplement.txt", "McBopomofo"),
+    ("sources/zhuyin/phrase.occ", "McBopomofo"),
     ("sources/stroke/", "rime-stroke"),
     ("sources/japanese/", "mozc"),
     ("sources/korean/", "libhangul"),
@@ -75,7 +81,7 @@ const UPSTREAM_FILES: [(&str, &str); 12] = [
     ("sources/wubi/wubi98-fcitx.txt", "fcitx5-table-extra"),
 ];
 
-/// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any.
+/// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any. The first matching entry of `UPSTREAM_FILES` wins, so an exact path listed before its directory's prefix (HKCanCor's counts beside rime-cantonese's files) names its own upstream.
 fn upstream_reference(path: &str) -> Option<&'static str> {
     UPSTREAM_FILES
         .iter()
@@ -438,6 +444,23 @@ mod tests {
         assert_eq!(upstream_reference("sources/pinyin/places.txt"), None);
         assert_eq!(upstream_reference("custom/words.txt"), None);
         assert_eq!(upstream_reference("sources/japanese/id.def"), Some("mozc"));
+        assert_eq!(upstream_reference("sources/japanese/LICENSE"), Some("mozc"));
+        assert_eq!(
+            upstream_reference("sources/zhuyin/phrase.occ"),
+            Some("McBopomofo")
+        );
+        assert_eq!(
+            upstream_reference("sources/cantonese/hkcancor-word-counts.txt"),
+            Some("hkcancor")
+        );
+        assert_eq!(
+            upstream_reference("sources/cantonese/essay-cantonese.txt"),
+            Some("rime-cantonese")
+        );
+        assert_eq!(
+            upstream_reference("sources/english/scowl-words.txt"),
+            Some("SCOWL")
+        );
     }
 
     /// Without `--dictionary` a path the lock does not pin is still an error, even under `sources/`, and pinned files come from the cache.

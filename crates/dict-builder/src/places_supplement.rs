@@ -251,7 +251,7 @@ pub struct Inputs<'a> {
 }
 
 /// `value<TAB>key<TAB>weight` rows as the quanpin stage reads them: `#` lines skipped, the line stripped, rows without three fields ignored.
-fn weighted_rows(source: &str) -> impl Iterator<Item = (&str, &str, i64)> {
+pub(crate) fn weighted_rows(source: &str) -> impl Iterator<Item = (&str, &str, i64)> {
     source.split_terminator('\n').filter_map(|line| {
         if line.starts_with('#') {
             return None;

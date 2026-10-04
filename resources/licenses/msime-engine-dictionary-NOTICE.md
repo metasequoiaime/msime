@@ -32,11 +32,29 @@
 | 文件 | 上游 | 上游许可 |
 | --- | --- | --- |
 | `sources/english/rime-ice-en.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 |
+| `sources/english/scowl-words.txt`（`msime-english.db` 的 `english_words` 表，许可文本另存于该库的 `source_notices` 表） | [en-wl/wordlist](https://github.com/en-wl/wordlist)（SCOWL）发布 `rel-2026.02.25`（提交 `7e99edab8e32f9f9ea2b15f249ca8d4d67237410`）的 Aspell 英文词典 `aspell6-en-2026.02.25-0.tar.bz2`，即 SCOWL 60 级官方拼写检查词典；由 `crates/dict-builder` 的 `english-supplement` 子命令取其中美式拼写与英式 -ise 拼写的纯字母词形，排除 `rime-ice-en.txt`、`rime-ice-en-supplement.txt` 与 `custom/english.txt` 已有或被 rime-ice 注释掉的词、蔑称、只有大写形式且拼出中文词全拼的专名，以及没有 Google 词频的词 | SCOWL 许可：可自由使用、复制、修改、分发和出售，条件是在所有副本中保留版权声明，并在随附文档中同时保留版权声明与许可声明（见下方「SCOWL 版权声明」，全文见 `resources/licenses/scowl-aspell6-en-Copyright.txt`）。60 级官方词典不涉及 UKACD 条款（只适用于 80 级以上的词表） |
 | `sources/english/google-word-counts.txt` | [Google 1/3 million 词频表](https://www.norvig.com/ngrams/count_1w.txt) | 以来源页面说明为准 |
 | `sources/unlicensed/oaldpe-words.txt` | 自 oaldpe.mdx 提取的词形列表 | 权利归词典出版方 |
 | `kaomoji/` | [aoguai/rime_kaomoji_dict](https://github.com/aoguai/rime_kaomoji_dict) | MIT |
 | 候选翻译数据 | [skywind3000/ECDICT](https://github.com/skywind3000/ECDICT) | MIT |
 | `resources/dictionary-sources/pinyin-overrides.txt`（emoji、颜文字与符号关键词的整词读音） | [mozillazg/python-pinyin](https://github.com/mozillazg/python-pinyin) 0.55 的 `lazy_pinyin` 输出 | MIT |
+
+### SCOWL 版权声明
+
+`msime-english.db` 的英文词表含有取自 SCOWL 的词。SCOWL 的条款要求在随附文档中保留下面的版权声明与许可声明（原文照录）。msime-dictionary 的 `dict-v` 发布把许可全文作为 `msime-scowl_Copyright.txt` 与 `msime-english.db` 一起附上：
+
+```text
+Copyright 2000-2026 by Kevin Atkinson
+
+Permission to use, copy, modify, distribute, and sell any part of SCOWLv2, or
+word lists created from it, is hereby granted without fee, provided that the
+above copyright notice appears in all copies and that both the above
+copyright notice and this notice appear in supporting documentation.  Kevin
+Atkinson makes no representations about the suitability of this database for
+any purpose.  It is provided "as is" without express or implied warranty.
+```
+
+Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚英语数据声明（与上面同类的宽松条款）和 Aspell 词缀文件的 Ispell 声明；构建不读取澳大利亚词表和词缀文件，全文仍原样收在 `resources/licenses/scowl-aspell6-en-Copyright.txt`。
 
 ## 整句词格的上下文表
 
@@ -84,7 +102,7 @@
 | --- | --- | --- |
 | `sources/unlicensed/custom-pinyin-dictionary-part1.txt`、`custom-pinyin-dictionary-part2.txt` | `sources/pinyin/rime-ice.txt`（rime-ice，GPL-3.0） | 中文词库召回下降；rime-ice 是合并前的子集，构建不会失败 |
 | `sources/unlicensed/single-char-whitelist.txt` | 无 | 不做过滤，`single-chars.txt` 里的单字全部收入 |
-| `sources/unlicensed/oaldpe-words.txt` | 无 | 英文词表只来自 `rime-ice-en.txt` |
+| `sources/unlicensed/oaldpe-words.txt` | 无 | 英文词表只来自 `rime-ice-en.txt`、`rime-ice-en-supplement.txt`、`scowl-words.txt` 与 `custom/english.txt` |
 | `rime-jp_sela` | 无 | Rust 构建器没有 `japanese-lexicon` 阶段，`msime-pinyin.db` 不含该表 |
 
 想构建完整词库（本地开发、评估召回率）用 `--include-unlicensed`，或设环境变量 `MSIME_DICT_INCLUDE_UNLICENSED=1`。**这样构建出来的产物不要附到 release 上。**
