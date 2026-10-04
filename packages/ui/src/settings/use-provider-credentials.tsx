@@ -65,7 +65,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
   >({});
   const credentialSaveRunning = useRef(false);
   const credentialTestRunning = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
-  const credentialTestOwner = useRef(0);
+  const credentialTestOwner = useAsyncGeneration();
   const clientGeneration = useAsyncGeneration(client.providerCredentials, client.testApiCredential);
 
   const updateTencentCredentialInput = (patch: Partial<TencentCredentialInput>) =>
