@@ -8,7 +8,7 @@ msime 的 Debian 源码包
 - msime_VERSION.orig.tar.xz：发布页上的 msime-VERSION.tar.xz，即该提交的 `git archive`。
 - msime_VERSION.orig-vendor.tar.xz：发布页上的 msime-VERSION-vendor.tar.xz，dpkg-source 解到 vendor/。内容是 `cargo vendor --locked` 的 crate、pnpm 构建好的设置窗口前端及其 npm 许可证汇总，以及按 resources/*.lock.json 取回的语音运行库归档、手写模型、离线释义和方言词库。
 
-两者都由 platforms/linux/packaging/rpm/make-source-tarballs.sh 生成。Launchpad 构建时没有网络，所以这些依赖只能随源码包提供；构建时 debian/rules 再用仓库自己的 fetch 脚本对着源码树里的锁文件核对一遍 vendor/ 里的数据，对不上就会去下载并在无网络的构建农场里失败。
+两者都由 platforms/linux/packaging/make-source-tarballs.sh 生成。Launchpad 构建时没有网络，所以这些依赖只能随源码包提供；构建时 debian/rules 再用仓库自己的 fetch 脚本对着源码树里的锁文件核对一遍 vendor/ 里的数据，对不上就会去下载并在无网络的构建农场里失败。
 
 编译器用发行版的 rustc/cargo，要求不低于 Cargo.toml 的 rust-version（1.89）：Debian unstable、Ubuntu 26.04 的默认版本都满足，Debian 13 的 1.85 不满足。Ubuntu 24.04 的默认 cargo 是 1.75，要靠第二个候选 cargo-1.91/rustc-1.91，debian/rules 会把 /usr/lib/rust-1.*/bin 放到 PATH 最前面；如果构建器只取 Build-Depends 的第一个候选（Debian 官方 buildd 就是这样），给 24.04 上传前把 control 里这两项直接改成 cargo-1.91、rustc-1.91。
 
@@ -24,7 +24,7 @@ msime 的 Debian 源码包
     mkdir msime-$v/vendor
     tar xf msime_$v.orig-vendor.tar.xz -C msime-$v/vendor --strip-components=1
     cp -a msime-$v/platforms/linux/packaging/debian msime-$v/debian
-    python3 msime-$v/platforms/linux/packaging/rpm/render-sources.py --version $v \
+    python3 msime-$v/platforms/linux/packaging/render-sources.py --version $v \
       --changelog-out msime-$v/debian/changelog \
       --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04
     cd msime-$v && debuild -S -sa -k<签名密钥>

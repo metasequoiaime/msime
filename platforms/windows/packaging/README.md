@@ -17,11 +17,11 @@
 
 ## 三个包共同依据的安装包事实
 
-这些都取自 `../installer/msime_setup.iss` 与 `release-windows.yml`，`scripts/test-windows-package-managers.py` 核对两边一致：
+这些都取自 `../installer/msime_setup.iss`、它包含的 `../installer/editions.iss`（由版本表 `shared/contracts/editions.json` 生成）与 `release-windows.yml`，`scripts/test-windows-package-managers.py` 核对两边一致。安装包按版本（edition）各打一个，包管理器只发 full：AppId、显示名和安装包名都取 full 那一份。
 
 - **只有 x64**：`ArchitecturesAllowed=x64compatible`。ARM64 的 Windows 11 可以通过 x64 模拟安装，这与直接运行安装包一致；包定义里只声明 x64。
 - **按机器安装**：`PrivilegesRequired=admin`，程序装到 `%ProgramFiles%\metasequoiaime`，安装包自己请求提权（winget 的 `ElevationRequirement: elevatesSelf`）。输入法要注册 TSF DLL、COM 类和登录任务，没有按用户安装的形态。
-- **卸载项**：`AppId={A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}`，Inno 写入的卸载键是 `{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1`（winget 的 `ProductCode`），显示名 `Metasequoia IME 水杉输入法`，发布者 `Metasequoia`。
+- **卸载项**：full 的 `AppId={A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1`（winget 的 `ProductCode`），显示名 `Metasequoia IME 水杉输入法`，发布者 `Metasequoia`。
 - **静默参数**：安装 `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，卸载 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，与 `../installer/tests/install-smoke.ps1` 在发布机上跑的相同。卸载程序会把自己复制到临时目录再启动并立即返回，所以 Scoop 和 Chocolatey 的卸载脚本等它删掉自己的文件再结束。
 - **升级就地覆盖，卸载删数据**：新版安装包直接覆盖旧版，保留数据目录；卸载程序会删除它拥有的数据目录（用户词、配置、皮肤）。因此 winget 用 `UpgradeBehavior: install` 而不是 `uninstallPrevious`，Scoop 的卸载脚本在 `scoop update` 时什么都不做，只在 `scoop uninstall` 时运行卸载程序；Chocolatey 升级本来就不运行卸载脚本。
 - **前置组件**：安装包不带 Visual C++ 2015-2022 x64 运行库和 WebView2 Runtime，静默安装时缺了也只写日志继续装（`InitializeSetup`）。winget 声明 `Microsoft.VCRedist.2015+.x64` 与 `Microsoft.EdgeWebView2Runtime` 依赖，Chocolatey 声明 `vcredist140`（≥ 14.20，与安装包要求的版本下限一致）与 `webview2-runtime`。Scoop 没有系统级依赖的机制，写在 `notes` 里。
@@ -107,6 +107,6 @@ python3 platforms/windows/packaging/render.py --tag windows-v<版本> --output o
 3. `choco push msime.<版本>.nupkg --source https://push.chocolatey.org/`。社区仓库会先跑自动校验（validator）、在测试机上安装卸载（verifier），再进人工审核；首个版本审核时间最长。包从发布页下载安装包并按 `checksum64` 校验，没有内嵌二进制，所以不需要 `VERIFICATION.txt`。
 4. 首次审核通过前，`owners` 里的 `Metasequoia` 要换成实际的 Chocolatey 账号名。
 
-## 发布任务接入（待做）
+## 发布任务接入
 
-`release-windows.yml` 现在不调用这里的任何东西。要让每个发布自动产出渲染好的定义，在「Publish independent Windows release」之后加一步：`python3 platforms/windows/packaging/render.py --tag "windows-v${VERSION}" --output package-managers`（发布被跳过时改用 `--version "$VERSION" --installer "dist/MetasequoiaIME_Setup_v$VERSION.exe"`），再用 `actions/upload-artifact` 上传 `package-managers/`。
+`release-windows.yml` 的 `package-definitions` job 在发布之后运行：`render.py --tag windows-v<版本> --output target/package-managers`（预发布加 `--allow-prerelease`），再用 `choco pack` 打出 `chocolatey/msime.<版本>.nupkg`，整个目录作为构建产物 `msime-package-definitions-windows-<版本>` 上传。摘要取自发布页本身，不是构建机上算的那份。这个 job 不向任何外部仓库推送；上面的发布步骤可以直接用这个产物，跳过自己渲染。没有勾选发布（`publish=false`）时它不运行，因为定义里的安装包地址只有发布之后才存在。

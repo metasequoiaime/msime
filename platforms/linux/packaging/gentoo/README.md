@@ -3,7 +3,7 @@
 本目录是一个最小的 overlay（`profiles/repo_name` 为 `msime`，`metadata/layout.conf` 以 `gentoo` 为 master），只有 `app-i18n/msime` 一个包：
 
 - `msime-9999.ebuild`：跟踪 `develop` 的 live ebuild。克隆、`cargo vendor`、pnpm 安装与锁定资源下载都在 `src_unpack` 里完成，Portage 只在 live ebuild 的这一步放行网络；pnpm 经 `npx` 取 `package.json` 的 `packageManager` 钉住的版本。
-- `msime.ebuild.in`：按版本发布的 ebuild 模板，由 `render.py` 渲染成 `msime-<版本>.ebuild`。构建时不联网：crate 由 `pycargoebuild` 按该版本的 `Cargo.lock` 列进 `CRATES`/`GIT_CRATES`（crate 许可证一并填入 `LICENSE`），随包资源按 `resources/*.lock.json` 的地址列进 `SRC_URI`（distfile 名带锁定 SHA-256 的前缀），`src_prepare` 把它们放到 fetch 脚本的输出目录，脚本只核对、不下载。桌面二进制嵌入的前端取自发布附带的 `msime-linux-<版本>-desktop-frontend.tar.xz`（pnpm 依赖没法像 crate 那样逐个列进 `SRC_URI`）。
+- `msime.ebuild.in`：按版本发布的 ebuild 模板，由 `render.py` 渲染成 `msime-<版本>.ebuild`。构建时不联网：crate 由 `pycargoebuild` 按该版本的 `Cargo.lock` 列进 `CRATES`/`GIT_CRATES`（crate 许可证一并填入 `LICENSE`），随包资源按 `resources/*.lock.json` 的地址列进 `SRC_URI`（distfile 名带锁定 SHA-256 的前缀），`src_prepare` 把它们放到 fetch 脚本的输出目录，脚本只核对、不下载。桌面二进制嵌入的前端取自发布附带的 `msime-<版本>-frontend.tar.xz`（由 `platforms/linux/packaging/make-source-tarballs.sh` 生成；pnpm 依赖没法像 crate 那样逐个列进 `SRC_URI`）。
 
 两份 ebuild 的构建步骤一致，对应 `platforms/linux/package-container.sh`：Host API、`msime-mcp` 与桌面二进制用 cargo.eclass 构建，`MSIME_ENABLE_PACKAGING=ON` 配置 CMake，`src_test` 跑与门禁相同的 ctest，`src_install` 结束前核对 Fcitx5 插件按 RUNPATH 找到的是本包里的 Host API。
 
