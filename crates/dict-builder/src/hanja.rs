@@ -1,4 +1,4 @@
-//! `hanja`：韩语方案把正在组字的音节转换为 Hanja 时使用的表，由 libhangul 的 `data/hanja/hanja.txt`（BSD-3-Clause，见 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）生成；提交由 `resources/dictionary-sources.lock.json` 在 `ko/` 下固定。
+//! `hanja`：韩语方案把正在组字的音节转换为 Hanja 时使用的表，由 libhangul 的 `data/hanja/hanja.txt`（BSD-3-Clause，见 `resources/licenses/libhangul-hanja-BSD-3-Clause.txt`）生成；提交由 `resources/dictionary-sources.lock.json` 在 `sources/korean/` 下固定。
 //!
 //! The source has one `key:value:comment` line per reading, words and single syllables mixed. Only single syllables are kept: the key is one precomposed Hangul syllable (U+AC00..U+D7A3) and the value one unified ideograph of the Basic Multilingual Plane, that is one Hanja in the CJK Unified Ideographs block, Extension A, or one of the twelve unified ideographs the CJK Compatibility Ideographs block holds (U+FA0E 﨎, U+FA11 﨑 and so on, which NFC leaves alone). True compatibility ideographs are dropped because NFC rewrites them; the pinned source lists none of them as a single-syllable value. Characters outside the Basic Multilingual Plane are dropped because fonts are not guaranteed to cover them. A value of two characters (the source has a few place names such as 莘洞) is not a single Hanja and is dropped too.
 //!
@@ -10,7 +10,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-pub const SOURCE: &str = "ko/hanja.txt";
+pub const SOURCE: &str = "sources/korean/hanja.txt";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reading {

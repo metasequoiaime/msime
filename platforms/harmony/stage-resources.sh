@@ -62,7 +62,7 @@ languages_source=${3:-$repo_root/target/language-dictionaries}
 languages_staged="$repo_root/platforms/harmony/entry/src/main/resources/resfile/language-dictionaries"
 rm -rf "$languages_staged"
 staged_languages=()
-for pair in cantonese.db:rime_cantonese_LICENSE.txt zhuyin.db:libchewing_data_LICENSE.txt stroke.db:rime_stroke_LICENSE.txt; do
+for pair in msime-cantonese.db:msime-rime_cantonese_LICENSE.txt msime-zhuyin.db:msime-libchewing_data_LICENSE.txt msime-stroke.db:msime-rime_stroke_LICENSE.txt; do
   database=${pair%%:*}
   license=${pair#*:}
   [ -f "$languages_source/$database" ] || continue

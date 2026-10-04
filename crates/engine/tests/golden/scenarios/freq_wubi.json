@@ -7,7 +7,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "BEGIN;CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);INSERT INTO wubi86 VALUES('aaaa', '工', 100);INSERT INTO wubi86 VALUES('aaaa', '或', 50);COMMIT;"
+   "msime-pinyin.db": "BEGIN;CREATE TABLE wubi86(key TEXT, value TEXT, weight INTEGER);INSERT INTO wubi86 VALUES('aaaa', '工', 100);INSERT INTO wubi86 VALUES('aaaa', '或', 50);COMMIT;"
   }
  },
  "options": {

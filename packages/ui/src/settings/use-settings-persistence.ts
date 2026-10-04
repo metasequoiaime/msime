@@ -81,6 +81,7 @@ export function useSettingsPersistence({
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
   const clientRef = useRef(client);
+  const loadingClientRef = useRef<SettingsClient | undefined>(undefined);
   clientRef.current = client;
   const [saveState, setSaveState] = useState<SettingsSaveState>("idle");
   const [saveError, setSaveError] = useState("");
@@ -89,9 +90,10 @@ export function useSettingsPersistence({
   const generation = useAsyncGeneration(client);
 
   useEffect(() => {
+    if (loadingClientRef.current === client) return;
     snapshotRef.current = snapshot;
     draftRef.current = draft;
-  }, [snapshot, draft]);
+  }, [client, snapshot, draft]);
 
   // The macOS-only preferences live outside the shared document; the save loop reads them through this so a value changed while a save is in flight is still seen.
   const nativeRef = useRef({
@@ -178,6 +180,7 @@ export function useSettingsPersistence({
   // judged against the revision the save is about to replace; the revision check then drops the
   // echo and still applies another window's later write.
   const savingRef = useRef(false);
+  const saveTokenRef = useRef(0);
   const heldChange = useRef<Snapshot>(undefined);
   const applyPreferencesChange = (value: Snapshot) => {
     const currentSnapshot = snapshotRef.current;
@@ -222,11 +225,27 @@ export function useSettingsPersistence({
   }, [client, generation]);
 
   useEffect(() => {
+    clearAutosave();
+    clearTimeout(savedStatusTimer.current);
+    saveTokenRef.current += 1;
+    savingRef.current = false;
+    heldChange.current = undefined;
+    loadingClientRef.current = client;
+    snapshotRef.current = undefined;
+    draftRef.current = undefined;
+    setBusy(true);
+    setLoadFailed(false);
+    setSaveState("idle");
+    setSaveError("");
+  }, [client, generation]);
+
+  useEffect(() => {
     const current = generation.current;
     client
       .load()
       .then((value) => {
         if (generation.current !== current) return;
+        loadingClientRef.current = undefined;
         adoptSnapshot(value);
         setLoadFailed(false);
       })
@@ -253,6 +272,7 @@ export function useSettingsPersistence({
       try {
         const value = await client.load();
         if (!mounted.current) return;
+        loadingClientRef.current = undefined;
         adoptSnapshot(value);
         setLoadFailed(false);
         setSaveState("idle");
@@ -295,6 +315,8 @@ export function useSettingsPersistence({
     clearAutosave();
     if (!mounted.current || savingRef.current || !savePending()) return;
     if (draftRef.current && !validCandidateFonts(draftRef.current)) return;
+    const saveClient = client;
+    const saveToken = ++saveTokenRef.current;
     savingRef.current = true;
     clearTimeout(savedStatusTimer.current);
     setSaveState("saving");
@@ -304,6 +326,7 @@ export function useSettingsPersistence({
     try {
       // 即使设置页在请求期间卸载，也继续写完这段时间产生的编辑。卸载后 refs 和 client 仍可用，只有 React 状态更新停止。
       while (savePending()) {
+        if (clientRef.current !== saveClient) break;
         const base = snapshotRef.current;
         const sent = draftRef.current;
         if (!base || !sent || !validCandidateFonts(sent)) break;
@@ -311,40 +334,49 @@ export function useSettingsPersistence({
           let value: Snapshot;
           try {
             value = await client.save(base.revision, sent);
+            if (clientRef.current !== saveClient) break;
           } catch (reason) {
             if (errorCode(reason) !== "conflict" || conflicts >= CONFLICT_RETRIES) throw reason;
             conflicts += 1;
             // Another window saved first: take its revision, put this window's edits on top, and save again.
             const latest = await client.load();
+            if (clientRef.current !== saveClient) break;
             if (rebase(latest, base) && mounted.current) setNotice(mergedNotice);
             continue;
           }
           adoptSaved(value, sent);
         }
+        if (clientRef.current !== saveClient) break;
         // The native macOS preferences follow the shared document, in the order the save button used to write them.
         if (shuangpinPending() && saveMacosShuangpinKeymap) {
           const enabled = nativeRef.current.shuangpin === true;
           await saveMacosShuangpinKeymap(enabled);
+          if (clientRef.current !== saveClient) break;
           nativeRef.current = { ...nativeRef.current, savedShuangpin: enabled };
           if (mounted.current) setSavedMacosShuangpinKeymap(enabled);
         }
         if (wubiPending() && saveMacosWubiAutoCommitUnique) {
           const enabled = nativeRef.current.wubi === true;
           await saveMacosWubiAutoCommitUnique(enabled);
+          if (clientRef.current !== saveClient) break;
           nativeRef.current = { ...nativeRef.current, savedWubi: enabled };
           if (mounted.current) setSavedMacosWubiAutoCommitUnique(enabled);
         }
       }
     } catch (reason) {
       failed = true;
-      if (mounted.current) {
+      if (mounted.current && clientRef.current === saveClient) {
         setSaveState("failed");
         setSaveError(errorMessage(reason));
       }
     } finally {
-      savingRef.current = false;
+      if (saveTokenRef.current === saveToken) savingRef.current = false;
     }
     if (!mounted.current) return;
+    if (clientRef.current !== saveClient) {
+      if (savePending()) scheduleAutosave();
+      return;
+    }
     if (!failed) {
       if (savePending()) {
         // Edited again after the loop last looked; save that too once the edits pause.

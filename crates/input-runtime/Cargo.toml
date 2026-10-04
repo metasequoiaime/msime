@@ -20,7 +20,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-# Writes the cantonese.db fixture and reads the journal back in the Cantonese tests.
+# Writes the msime-cantonese.db fixture and reads the journal back in the Cantonese tests.
 rusqlite.workspace = true
 tempfile.workspace = true
 

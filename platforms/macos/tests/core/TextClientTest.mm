@@ -90,11 +90,11 @@ static void TestEngineMaintenance() {
         options[name] = path;
     }
     sqlite3 *database = nullptr;
-    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
         "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',10000),('ni''hao','nh','拟好',9000);", nullptr, nullptr, nullptr) == SQLITE_OK);
     assert(sqlite3_close(database) == SQLITE_OK);
-    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime-english.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
         "INSERT INTO english_words VALUES('hello','hello',100);"
         "CREATE TABLE en_zh_glosses(english TEXT COLLATE BINARY PRIMARY KEY,chinese_gloss TEXT NOT NULL) WITHOUT ROWID;"

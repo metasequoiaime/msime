@@ -699,8 +699,8 @@ if(MSIME_LANGUAGE_DICTIONARIES)
   if(NOT IS_DIRECTORY "${MSIME_LANGUAGE_DICTIONARIES}")
     message(FATAL_ERROR "MSIME_LANGUAGE_DICTIONARIES is not a directory: ${MSIME_LANGUAGE_DICTIONARIES}")
   endif()
-  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt"
-          "stroke.db:rime_stroke_LICENSE.txt")
+  foreach(MSIME_LANGUAGE_PAIR "msime-cantonese.db:msime-rime_cantonese_LICENSE.txt" "msime-zhuyin.db:msime-libchewing_data_LICENSE.txt"
+          "msime-stroke.db:msime-rime_stroke_LICENSE.txt")
     string(REPLACE ":" ";" MSIME_LANGUAGE_PAIR "${MSIME_LANGUAGE_PAIR}")
     list(GET MSIME_LANGUAGE_PAIR 0 MSIME_LANGUAGE_DATABASE)
     list(GET MSIME_LANGUAGE_PAIR 1 MSIME_LANGUAGE_LICENSE)

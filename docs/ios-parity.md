@@ -70,7 +70,7 @@ ML Kit Digital Ink 的 arm64 切片只给 device，所以模拟器这份 `Handwr
 
 - `testBrandOpensCompactToolsAndUpdatesFeedbackState` 仍在根页找「键盘设置」卡。那一层是有意删掉的——实现里的注释写明了理由（六张一样的入口卡，要再点一次才知道按键音开没开），而同一个用例后面又直接从根页读 `moreCard-按键振动`，自相矛盾。
 - `testSchemePickerUsesCurrentSkinPalette` 期望选中卡片的填充是 `accent` 的 0.10 透明度，实现是 0.12。0.12 来自来源，是有意对齐的，断言没跟上。
-- `testAdditionalEngineSchemesAndLocalProviders` 要求临时英文模式下 `hello` 给出多于一条候选。固定词库发布的 `english.db` 里以 `hello` 开头的词正好只有一个，所以它断的是词库内容而不是产品行为，改成断言补全确实以输入开头。
+- `testAdditionalEngineSchemesAndLocalProviders` 要求临时英文模式下 `hello` 给出多于一条候选。固定词库发布的 `msime-english.db` 里以 `hello` 开头的词正好只有一个，所以它断的是词库内容而不是产品行为，改成断言补全确实以输入开头。
 
 第一条修掉表层之后，同一个用例往下跑露出被它挡住的第二层：「设置」分组的开关卡 `maxY` 到 332 / 386，而面板高度是 306，原断言要求每张卡都在折线以上。这一条没有按字面修，因为它和它所针对的设计相矛盾：面板是滚动视图，实现的注释写明这些开关是**有意**从「键盘设置」二级页搬到根页的，理由是那一层把状态藏了起来，而「面板本来就会滚动，分组标题也已经能区分两类」。
 

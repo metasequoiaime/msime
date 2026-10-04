@@ -5289,10 +5289,10 @@ fn tibetan_backspace_blur_and_escape() {
 
 const CANTONESE_SCHEME: u8 = 5;
 
-/// A `cantonese.db` with a few Jyutping rows, written with the shipped schema.
+/// A `msime-cantonese.db` with a few Jyutping rows, written with the shipped schema.
 fn cantonese_dictionary(directory: &std::path::Path) -> String {
     use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
-    let path = directory.join("cantonese.db");
+    let path = directory.join("msime-cantonese.db");
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection.execute_batch(SCHEMA).unwrap();
     connection
@@ -5549,7 +5549,7 @@ fn cantonese_lists_are_never_reranked_or_demoted() {
         reordered(CANTONESE_SCHEME, &rows, vec![LATTICE_SOURCE; 3], favours()),
         rows
     );
-    // Stroke lists come from stroke.db in its own order as well.
+    // Stroke lists come from msime-stroke.db in its own order as well.
     assert_eq!(
         reordered(STROKE_SCHEME, &rows, vec![LATTICE_SOURCE; 3], favours()),
         rows
@@ -5572,10 +5572,10 @@ fn cantonese_lists_are_never_reranked_or_demoted() {
 
 const ZHUYIN_SCHEME: u8 = 6;
 
-/// A `zhuyin.db` with a few bopomofo rows, written with the shipped schema.
+/// A `msime-zhuyin.db` with a few bopomofo rows, written with the shipped schema.
 fn zhuyin_dictionary(directory: &std::path::Path) -> String {
     use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
-    let path = directory.join("zhuyin.db");
+    let path = directory.join("msime-zhuyin.db");
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection.execute_batch(SCHEMA).unwrap();
     connection
@@ -5890,10 +5890,10 @@ fn zhuyin_spelling_symbols_stay_visible_with_phrase_preedit() {
 
 const STROKE_SCHEME: u8 = 9;
 
-/// A `stroke.db` with a few single characters keyed by their stroke letters, written with the shipped schema. `土` has two codes, as characters with variant stroke orders do in the real data. The weights are made up.
+/// A `msime-stroke.db` with a few single characters keyed by their stroke letters, written with the shipped schema. `土` has two codes, as characters with variant stroke orders do in the real data. The weights are made up.
 fn stroke_dictionary(directory: &std::path::Path) -> String {
     use msime_engine::language_dictionary::{FORMAT_VERSION, METADATA_FORMAT_VERSION, SCHEMA};
-    let path = directory.join("stroke.db");
+    let path = directory.join("msime-stroke.db");
     let connection = rusqlite::Connection::open(&path).unwrap();
     connection.execute_batch(SCHEMA).unwrap();
     connection

@@ -1,6 +1,6 @@
 //! The MSJPDT1 lemma dictionary (schemes-lang.md §5.7-§5.8, data-formats.md §8): tokens sorted by reading, a connection matrix and a string blob, all little-endian. Loaded once per path for the process.
 //!
-//! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `dict_japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did.
+//! The file is mapped read-only, as japanese_sentence_decoder.cpp:101-125 did, so its 66 MB are clean, file-backed pages the system can evict under memory pressure (the iOS keyboard extension's limit) rather than dirty heap read on the first Japanese query. The mapping rests on the resource contract: `msime-japanese.dat` ships read-only in the resource bundle and a replacement arrives by rename, never by an in-place write, so a mapped inode keeps its bytes for as long as the dictionary lives (`replacing_a_model_file_never_alters_a_loaded_dictionary`). Access is by offset with unaligned little-endian loads, as the C++ `memcpy` did.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -523,7 +523,7 @@ mod tests {
     #[test]
     fn a_mapped_model_answers_lookups_and_sentence_search() {
         let root = tempfile::tempdir().expect("temporary directory");
-        let path = root.path().join("dict_japanese.dat");
+        let path = root.path().join("msime-japanese.dat");
         let file = test_model::bytes(
             &[("かな", "仮名", 0, 0, 900), ("し", "詩", 0, 0, 400)],
             1,
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn shared_returns_one_dictionary_per_path_while_it_lives() {
         let root = tempfile::tempdir().expect("temporary directory");
-        let path = root.path().join("dict_japanese.dat");
+        let path = root.path().join("msime-japanese.dat");
         std::fs::write(&path, test_model::single("甲")).expect("write model");
         let first = JapaneseDictionary::shared(&path).expect("loads");
         let second = JapaneseDictionary::shared(&path).expect("shared");

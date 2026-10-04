@@ -1,4 +1,4 @@
-//! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
+//! The Jyutping composition: typed letters and `'` boundaries, read as syllables against the inventory, and the candidates `msime-cantonese.db` has for them. A candidate may cover only the leading syllables; selecting it takes those letters out of the composition and leaves the rest composing, with nothing held back as phrase progress.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -320,7 +320,7 @@ mod tests {
 
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cantonese.db");
+        let path = dir.path().join("msime-cantonese.db");
         build(&path);
         Fixture {
             dictionary: open_read_only(&path).unwrap(),
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn candidates_reserve_each_dictionary_batch() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cantonese.db");
+        let path = dir.path().join("msime-cantonese.db");
         build(&path);
         let connection = Connection::open(&path).unwrap();
         connection.execute("DELETE FROM entries", []).unwrap();
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn the_dictionary_opens_with_its_inventory() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cantonese.db");
+        let path = dir.path().join("msime-cantonese.db");
         build(&path);
         let opened = crate::cantonese::CantoneseDictionary::open(&path).unwrap();
         let mut scheme = CantoneseScheme::new(opened.inventory());

@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 笔画键盘：九键外框中间的 2×3 网格，五种笔画加一个通配键。
  *
- * <p>Like the Dachen keycaps these are labels only. Each key sends the stroke letter the Engine's Stroke scheme reads (h 横, s 竖, p 撇, n 点, z 折, x for any one stroke), so the Engine decides what the strokes spell and which characters they match; this host keeps no stroke-code table and never opens `stroke.db` itself. The Engine draws the typed strokes as glyphs in the view's `reading`, which is what the host marks inline.
+ * <p>Like the Dachen keycaps these are labels only. Each key sends the stroke letter the Engine's Stroke scheme reads (h 横, s 竖, p 撇, n 点, z 折, x for any one stroke), so the Engine decides what the strokes spell and which characters they match; this host keeps no stroke-code table and never opens `msime-stroke.db` itself. The Engine draws the typed strokes as glyphs in the view's `reading`, which is what the host marks inline.
  */
 public final class StrokeKeyboardLayout {
     /** One grid key: the glyph it prints, the stroke name under it, and the ASCII letter it sends. */

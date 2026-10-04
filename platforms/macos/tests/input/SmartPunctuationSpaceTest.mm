@@ -92,7 +92,7 @@ static void TestRealKeyArming(MSIMEAppearancePreferences *appearance) {
         options[name] = path;
     }
     sqlite3 *database = nullptr;
-    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime.db"] fileSystemRepresentation], &database) == SQLITE_OK);
+    assert(sqlite3_open([[options[@"dictionaries"] stringByAppendingPathComponent:@"msime-pinyin.db"] fileSystemRepresentation], &database) == SQLITE_OK);
     assert(sqlite3_exec(database, "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
         "INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);", nullptr, nullptr, nullptr) == SQLITE_OK);
     assert(sqlite3_close(database) == SQLITE_OK);

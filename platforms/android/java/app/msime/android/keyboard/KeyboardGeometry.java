@@ -60,6 +60,13 @@ public final class KeyboardGeometry {
         }
     }
 
+    /** Read a finite JSON number without accepting numeric strings or booleans. */
+    public static double strictDouble(Object raw, double fallback) {
+        if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
+        double value = ((Number) raw).doubleValue();
+        return Double.isFinite(value) ? value : fallback;
+    }
+
     /** Divide the total adjustment across rows without losing a density-independent pixel. */
     public static int adjustedRowHeight(int baseHeight, int adjustment, int rowCount, int rowIndex) {
         if (baseHeight <= 0 || rowCount <= 0 || rowIndex < 0 || rowIndex >= rowCount)

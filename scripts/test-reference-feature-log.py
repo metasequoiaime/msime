@@ -138,7 +138,7 @@ REVIEWED_COMMITS: dict[str, str] = {
         "front of it in either scheme."
     ),
     "feat(installer): 打包时生成并安装词格语言模型 sc.lm": (
-        "Deliberately absent with the KenLM scorer below: the lattice reads bigram.bin/trigram.bin, "
+        "Deliberately absent with the KenLM scorer below: the lattice reads msime-bigram.bin/msime-trigram.bin, "
         "which ship with the pinned dictionary release in resources/desktop-dictionary.lock.json."
     ),
     "feat(engine): 词格整句改用 kenlm 三元模型打分": (

@@ -131,7 +131,7 @@ int main() {
             assert(created);
             localOptions[name] = path;
         }
-        for (NSString *name in @[@"english.db", @"dict_japanese.dat"]) {
+        for (NSString *name in @[@"msime-english.db", @"msime-japanese.dat"]) {
             BOOL written = [[@"fixture" dataUsingEncoding:NSUTF8StringEncoding] writeToFile:[localOptions[@"resources"] stringByAppendingPathComponent:name] atomically:YES];
             assert(written);
         }

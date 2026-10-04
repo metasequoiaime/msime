@@ -171,11 +171,11 @@ class Harness:
         resources = scratch / "resources"
         resources.mkdir()
         payload = b"synthetic dictionary"
-        (resources / "msime.db").write_bytes(payload)
+        (resources / "msime-pinyin.db").write_bytes(payload)
         lock = scratch / "desktop-dictionary.lock.json"
         lock.write_text(json.dumps({"artifacts": [
-            {"name": "msime.db", "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
-             "url": "https://example.invalid/msime.db"},
+            {"name": "msime-pinyin.db", "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest(),
+             "url": "https://example.invalid/msime-pinyin.db"},
         ]}))
         self.resources = resources
         self.state_file = scratch / "stub-state.json"

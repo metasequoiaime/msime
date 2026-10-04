@@ -6,7 +6,7 @@ Credits, as recorded in the rime-stroke AUTHORS file and the stroke.dict.yaml he
 - The supplementary table, kept for Mainland China's standard glyph forms, comes from 北大中文論壇 and was compiled by 孙海峰, 徐孟罗, 唐捺之 and 谢振斌.
 - The extension data up to CJK Unified Ideographs Extension J comes from 宋天 (http://soongsky.com/) (LGPL).
 
-Used by MSIME: stroke.dict.yaml only. MSIME converts it into its Stroke dictionary (stroke.db): every character<TAB>code row becomes one entry keyed by its stroke letters (h, s, p, n, z) unchanged, and the YAML header and comment lines are dropped. No code or character is changed, added or removed. The upstream file has no weights; each entry's weight is the sum of the character's frequencies in cn/SingleCharsAllV1.txt of metasequoiaime/msime-dictionary, which derives from iDvel/rime-ice (GPL-3.0-only) with readings corrected by mozillazg/pinyin-data (MIT). No other file of rime-stroke is used.
+Used by MSIME: stroke.dict.yaml only. MSIME converts it into its Stroke dictionary (msime-stroke.db): every character<TAB>code row becomes one entry keyed by its stroke letters (h, s, p, n, z) unchanged, and the YAML header and comment lines are dropped. No code or character is changed, added or removed. The upstream file has no weights; each entry's weight is the sum of the character's frequencies in sources/pinyin/single-chars.txt of metasequoiaime/msime-dictionary, which derives from iDvel/rime-ice (GPL-3.0-only) with readings corrected by mozillazg/pinyin-data (MIT). No other file of rime-stroke is used.
 
 The data is licensed under the GNU Lesser General Public License, version 3. The corresponding source, unmodified, is available at the pinned commit:
 

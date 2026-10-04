@@ -1,7 +1,7 @@
 {
  "name": "local_quick_phrase_missing_table",
  "source": "tests/src/test_input_session.cpp:1474-1483",
- "note": "The ctest's directory has no msime.db at all; the recorder always stages one (an empty database), so this records a msime.db without the quick_parases table.",
+ "note": "The ctest's directory has no msime-pinyin.db at all; the recorder always stages one (an empty database), so this records a msime-pinyin.db without the quick_parases table.",
  "covers": [
   "local modes"
  ],
