@@ -998,8 +998,8 @@ export class AccountCloudBridge {
       // Under the lock, so a refresh the keyboard is in the middle of cannot write the previous session over this one.
       return await this.locked(async (): Promise<string> => {
         if (generation !== this.generation) return error("account_cancelled");
-        this.session = session;
         this.store.save(JSON.stringify(session));
+        this.session = session;
         return success({ user: session.user });
       });
     } catch {

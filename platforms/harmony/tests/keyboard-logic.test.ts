@@ -7577,6 +7577,66 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("a failed login save preserves the last committed session", () => {
+  for (const signedIn of [false, true]) {
+    let stored: string | null = signedIn
+      ? JSON.stringify({
+          access_token: "a".repeat(64),
+          refresh_token: "b".repeat(64),
+          token_type: "Bearer",
+          expires_at: Date.now() + 600000,
+          user: { id: "synthetic-old", display_name: "Old", created_at: "2026-01-01" },
+        })
+      : null;
+    const previous = stored;
+    let saveFails = true;
+    const bridge = new AccountCloudBridge(
+      {
+        request: async () => ({
+          status: 200,
+          body: JSON.stringify({
+            access_token: "c".repeat(64),
+            refresh_token: "d".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "synthetic-new", display_name: "New", created_at: "2026-01-01" },
+          }),
+        }),
+      },
+      {
+        load: () => stored,
+        save: (value) => {
+          if (saveFails) throw new Error("synthetic storage failure");
+          stored = value;
+        },
+        clear: () => { stored = null; },
+      },
+    );
+    void bridge
+      .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+      .then(async (reply) => {
+        check(JSON.parse(reply).error === "account_unavailable", "a failed save refuses login");
+        check(stored === previous, "the failed save preserves the stored session");
+        check(
+          bridge.currentUserId() === (signedIn ? "synthetic-old" : null),
+          "a refused login preserves the in-memory account",
+        );
+        const status = JSON.parse(await bridge.handle('{"operation":"status"}'));
+        check(
+          (status.value.user?.id ?? null) === (signedIn ? "synthetic-old" : null),
+          "status agrees with the committed session after failure",
+        );
+        saveFails = false;
+        const retry = await bridge.handle(
+          '{"operation":"login","challenge_id":"challenge","credential":"123456"}',
+        );
+        check(JSON.parse(retry).ok === true, "login can be retried when storage recovers");
+        check(bridge.currentUserId() === "synthetic-new", "a saved login switches the account");
+        check(JSON.parse(stored ?? "{}").user?.id === "synthetic-new", "the new session is stored");
+      });
+  }
+});
+
 group("account session generation changes on same-user re-login", () => {
   let stored: string | null = null;
   const session = (access: string, refresh: string) =>
