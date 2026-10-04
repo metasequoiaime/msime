@@ -12,9 +12,9 @@
 | `cn/BaseDictAllV1Part1.txt`、`cn/BaseDictAllV1Part2.txt` | 上面两者合并去重 | GPL-3.0 与**未声明**的混合 |
 | `cn/SingleCharsAllV1.txt` | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT |
 | `source/SampleIMESimplifiedQuanPin.txt` | [microsoft/Windows-classic-samples](https://github.com/microsoft/Windows-classic-samples) | MIT |
-| `cn/Wubi86.txt` | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 |
-| `cn/Wubi98.txt`（`msime-pinyin.db` 的 `wubi98` 表） | [yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)（98五笔小组）提交 `6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697` 的 `98五笔含词表-【单义】.txt`，逐字节未改；同一作者 2021 年也把这份表贡献给 [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)（`tables/wubi98.txt`） | Unlicense。权利声明来自数据作者本人；上游没有记录基础单字编码与简码的生成过程，只能确认它们依照 98 版五笔编码规范 |
-| `cn/Wubi98Fcitx.txt`（与 `cn/Wubi98.txt` 合并进入 `msime-pinyin.db` 的 `wubi98` 表） | [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)，提交 `dbc7154a7f0b9fc04313160ae8066ed4d8cbc446` 的 `tables/wubi98.txt` | GPL-3.0-or-later（随上游仓库的 `LICENSES/GPL-3.0-or-later.txt`） |
+| `cn/Wubi86.txt`（`msime-wubi.db` 的 `wubi86` 表） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 |
+| `cn/Wubi98.txt`（`msime-wubi.db` 的 `wubi98` 表） | [yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)（98五笔小组）提交 `6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697` 的 `98五笔含词表-【单义】.txt`，逐字节未改；同一作者 2021 年也把这份表贡献给 [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)（`tables/wubi98.txt`） | Unlicense。权利声明来自数据作者本人；上游没有记录基础单字编码与简码的生成过程，只能确认它们依照 98 版五笔编码规范 |
+| `cn/Wubi98Fcitx.txt`（与 `cn/Wubi98.txt` 合并进入 `msime-wubi.db` 的 `wubi98` 表） | [fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)，提交 `dbc7154a7f0b9fc04313160ae8066ed4d8cbc446` 的 `tables/wubi98.txt` | GPL-3.0-or-later（随上游仓库的 `LICENSES/GPL-3.0-or-later.txt`） |
 | `cn/53013_single.txt` | Unicode 收录的汉字单字表 | 数据本身来自 Unicode 标准；不被任何构建阶段读取，因此不进入任何产物 |
 | `cn/SingleCharWhitelist.txt` | **待确认**，见下方「待解决」 | **待确认** |
 | `source/FanyExtDict.txt`、`cn/phrases.txt` | 本项目自建 | 见下方「本项目自建部分」 |
@@ -59,9 +59,9 @@
 
 | 前端 | 分发的数据 | 署名现状 |
 | --- | --- | --- |
-| [MSIME-Linux](https://github.com/metasequoiaime/MSIME-Linux) | DEB／RPM 包内的 `msime-pinyin.db`、`msime-others.db`、`msime-english.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
-| [MSIME-Apple](https://github.com/metasequoiaime/MSIME-Apple) | app bundle 内的 `msime-pinyin.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
-| [MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) | 安装包内的 `msime-pinyin.db`、`msime-others.db`、`msime-english.db`、`msime-japanese.dat` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库，由安装包装到程序目录 |
+| [MSIME-Linux](https://github.com/metasequoiaime/MSIME-Linux) | DEB／RPM 包内的 `msime-pinyin.db`、`msime-wubi.db`、`msime-others.db`、`msime-english.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
+| [MSIME-Apple](https://github.com/metasequoiaime/MSIME-Apple) | app bundle 内的 `msime-pinyin.db`、`msime-wubi.db` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库 |
+| [MSIME-Windows](https://github.com/metasequoiaime/MSIME-Windows) | 安装包内的 `msime-pinyin.db`、`msime-wubi.db`、`msime-others.db`、`msime-english.db`、`msime-japanese.dat` 与辅助码 | `THIRD_PARTY_NOTICES.txt`，已覆盖词库，由安装包装到程序目录 |
 
 改动本文件的来源表时，这几份文件要一起改；它们才是随产物送到用户手上的那一份。
 

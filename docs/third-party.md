@@ -40,18 +40,19 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定九个产物的长度和 SHA-256，每个都带可匿名下载的 URL：八个来自`metasequoiaime/msime-dictionary` 的 `dict-v2.0.2` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。原先的第十个产物 `dict_pinyin.dat` 只供 Google 整句解码器使用，随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定十个产物的长度和 SHA-256，每个都带可匿名下载的 URL：九个来自 `metasequoiaime/msime-dictionary` 的 `dict-v2.0.5` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。早先只供 Google 整句解码器使用的 `dict_pinyin.dat` 已随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
-| `msime-pinyin.db` | 81.9 MB | 工作词库，含 86 与 98 五笔码表；98 版同时合并 `msime-dictionary` 的开源补充表 |
-| `msime-english.db` | 1.5 MB | Engine 发布的英文词库 |
+| `msime-pinyin.db` | 74.0 MB | 拼音工作词库与快捷短语 |
+| `msime-wubi.db` | 13.7 MB | 86 与 98 五笔码表，从拼音构建产物拆出；98 版同时合并 `msime-dictionary` 的开源补充表。准备代次时并回工作主词库 |
+| `msime-english.db` | 1.6 MB | Engine 发布的英文词库 |
 | `msime-bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
 | `msime-trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
 | `msime-others.db` | 1.3 MB | Engine 发布的表情等数据 |
 | `msime-japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
 | `msime-mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
-| `msime-dictionary-manifest.json` | 2.5 KB | 资源清单 |
+| `msime-dictionary-manifest.json` | 3.6 KB | 资源清单 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。

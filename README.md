@@ -100,7 +100,7 @@ cargo test -p msime-engine --locked
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v2.0.2` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 170 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定 `metasequoiaime/msime-dictionary` 已发布 `dict-v2.0.5` 的来源、长度和 SHA-256。其中 `msime-mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 186 MB。词库锁的 `source_commit` 记录这批词库是本仓库哪次提交用 `msime-dict-build` 产出的，其中 `msime-bigram.bin` 与 `msime-trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以换词库版本时要确认 `crates/engine` 还读得了新表，并重跑句子转换评测。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

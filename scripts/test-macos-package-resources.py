@@ -94,16 +94,11 @@ def main() -> int:
             check(name not in source and name not in destination, f"tauri.macos.conf.json bundles {source} -> {destination}, which belongs to an on-demand pack ({name})")
 
     # 三个资源包锁文件里的地址都必须是不可变的。日文资源包是 desktop-dictionary.lock.json 的子集，整个锁一起查。
-    legacy_names = {"msime-pinyin.db": "msime.db", "msime-english.db": "english.db", "msime-japanese.dat": "dict_japanese.dat"}
     for lock_path, lock in ((DESKTOP_LOCK, desktop), (LANGUAGE_LOCK, language), (HANDWRITING_LOCK, handwriting)):
         for artifact in lock["artifacts"]:
             url = artifact["url"]
             check(bool(IMMUTABLE_URL.match(url)), f"{lock_path.relative_to(ROOT)} pins {url}, which is neither a release asset nor a raw URL at a fixed commit")
-            suffixes = ["/" + artifact["name"]]
-            # 首次拆分沿用不可变的 v2.0.2 字节，只改变本地文件名；下一次锁文件更新会指向 msime-dictionary 的新附件名。
-            if artifact["name"] in legacy_names:
-                suffixes.append("/" + legacy_names[artifact["name"]])
-            check(any(url.endswith(suffix) for suffix in suffixes), f"{lock_path.relative_to(ROOT)} names {artifact['name']} but downloads {url}")
+            check(url.endswith("/" + artifact["name"]), f"{lock_path.relative_to(ROOT)} names {artifact['name']} but downloads {url}")
 
     # PR 打包检查的改动判断要覆盖每个打包输入，否则改了它的 PR 不会打包。
     workflow = "\n".join(live_lines(PR_WORKFLOW))
