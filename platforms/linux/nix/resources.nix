@@ -7,13 +7,13 @@
 }:
 let
   lock = lib.importJSON ../../../resources/desktop-dictionary.lock.json;
-  fetch = artifact: fetchurl { inherit (artifact) url sha256; };
 in
 # 复制而不是链接：CMake 安装时会拒绝符号链接形式的词库文件（见 platforms/linux/CMakeLists.txt
-# 里 MSIME_ENGINE_RESOURCES 的校验）。
+# 里 MSIME_ENGINE_RESOURCES 的校验），沙箱里跨 store 的硬链接也做不成。支持 reflink 的文件系统
+# 上这份复制不占额外空间。
 runCommand "msime-resources" { } ''
   mkdir -p $out
   ${lib.concatMapStrings (artifact: ''
-    cp ${fetch artifact} $out/${artifact.name}
+    cp --reflink=auto ${fetchurl { inherit (artifact) url sha256; }} $out/${artifact.name}
   '') lock.artifacts}
 ''

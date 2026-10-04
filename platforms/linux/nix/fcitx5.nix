@@ -3,11 +3,11 @@
 # msime-linux-prepare 是 Fcitx5 首次配置也要用的。
 {
   lib,
+  root,
+  version,
   stdenv,
-  coreutils,
   procps,
   dbus,
-  runtimeShell,
   cmake,
   ninja,
   pkg-config,
@@ -30,27 +30,45 @@
   msime-host-api,
   # 随包词库。默认不带，与 Linux 安装包一致，由用户首次配置时 `msime-linux-setup --download`
   # 取回；传入 msime-resources 时装进 share/msime-client/resources 并跑带词库的引擎冒烟。
-  msime-resources ? null,
+  # 不叫 msime-resources：经 overlay 时 pkgs 里有同名的包，callPackage 会自动填上它。
+  bundledResources ? null,
 }:
-let
-  root = ../../..;
-  xdgShellDir = "${wayland-protocols}/share/wayland-protocols/stable/xdg-shell";
-in
 stdenv.mkDerivation {
   pname = "msime-fcitx5";
-  version = lib.fileContents ../version.txt;
+  inherit version;
 
+  # 只放 CMake 构建和测试读到的部分：说明文档和 nix 目录本身的改动不触发重编，
+  # resources 与 shared 里与 Linux 宿主无关的目录也去掉。
   src = lib.fileset.toSource {
     inherit root;
     fileset = lib.fileset.unions [
-      ../../linux
+      (lib.fileset.difference ../../linux (
+        lib.fileset.unions [
+          ../README.md
+          ./.
+        ]
+      ))
       ../../common
       (root + "/crates/host-api/include")
       # 契约测试拿 Fcitx5 插件与这两处 Rust 定义对照；只列文件，免得 Rust 改动都触发重编。
       (root + "/crates/engine/src/types.rs")
       (root + "/crates/client-core/src/ai.rs")
-      (root + "/resources")
-      (root + "/shared")
+      (lib.fileset.difference (root + "/resources") (
+        lib.fileset.unions [
+          (root + "/resources/eval")
+          (root + "/resources/dictionary-sources")
+          (root + "/resources/voice-models")
+        ]
+      ))
+      (lib.fileset.difference (root + "/shared") (
+        lib.fileset.unions [
+          (root + "/shared/apple")
+          (root + "/shared/apple-bridge")
+          (root + "/shared/backend")
+          (root + "/shared/backend-ui")
+          (root + "/shared/snapshot")
+        ]
+      ))
     ];
   };
 
@@ -65,8 +83,10 @@ stdenv.mkDerivation {
     wayland-scanner
   ];
   # python3 也放在这里，fixup 阶段才会把安装出去的脚本的 `#!/usr/bin/env python3` 改写到它。
+  # wayland-protocols 只提供 .pc 和协议 XML，CMake 经 pkg-config 找到其中的 xdg-shell.xml。
   buildInputs = [
     python3
+    wayland-protocols
     fcitx5
     ibus
     libxkbcommon
@@ -82,51 +102,27 @@ stdenv.mkDerivation {
     libxrandr
   ];
 
-  # 构建沙箱里没有 /usr/bin/env。patchShebangs 改写源码树里可执行脚本的首行；测试在运行时
-  # 写出的桩脚本和照抄的 .in 模板里，`#!/usr/bin/env` 是字符串字面量，它改不到，这里换成
-  # coreutils 的 env，仍按 PATH 找解释器。
+  # 测试会直接执行源码树里的脚本，构建沙箱里没有 /usr/bin/env。
   postPatch = ''
     patchShebangs platforms/linux/scripts platforms/linux/tests platforms/linux/data
-    grep -rlZ '#!/usr/bin/env' platforms/linux/tests platforms/linux/data \
-      | xargs -0 sed -i 's|#!/usr/bin/env|#!${coreutils}/bin/env|g'
   '';
 
   cmakeFlags = [
     (lib.cmakeBool "MSIME_ENABLE_FCITX5" true)
     (lib.cmakeFeature "MSIME_HOST_LIBRARY" "${msime-host-api}/lib/libmsime_host_api.so")
-    # 两处 find_path 只搜 /usr/share 和 /usr/local/share；找不到时 Wayland 的模式徽章和
-    # 语音浮层会被静默跳过，构建照样成功，所以这里显式给出。
-    (lib.cmakeFeature "MSIME_XDG_SHELL_DIR" xdgShellDir)
-    (lib.cmakeFeature "MSIME_BADGE_XDG_SHELL_DIR" xdgShellDir)
   ]
-  ++ lib.optional (msime-resources != null) (
-    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${msime-resources}"
+  ++ lib.optional (bundledResources != null) (
+    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}"
   );
 
   doCheck = true;
   # msime-linux-setup 切换词库前用 pgrep 确认宿主进程，setup_update 测试会走到这一步。
-  # 带词库时 ibus-page-number-visibility 用 GTestDBus 起一个 dbus-daemon，与门禁镜像装 dbus 的理由相同。
+  # linux-ibus-startup-telemetry 和带词库时的 ibus-page-number-visibility 要起 dbus-daemon，
+  # 与门禁镜像装 dbus 的理由相同。
   nativeCheckInputs = [
     procps
     dbus
   ];
-  # nixpkgs 的 `dbus-daemon --session` 读 /etc/dbus-1/session.conf，构建沙箱里没有 /etc，
-  # linux-ibus-startup-telemetry 起不来总线（它把 stderr 丢了，只报没打出地址）。只在测试期间
-  # 垫一层，把 --session 换成包里自带的同一份配置；真机上有这个文件，测试本身不用改。
-  preCheck = ''
-    mkdir -p "$TMPDIR/dbus-shim"
-    cat > "$TMPDIR/dbus-shim/dbus-daemon" <<EOF
-    #!${runtimeShell}
-    args=()
-    for arg in "\$@"; do
-      [ "\$arg" = --session ] && arg=--config-file=${dbus}/share/dbus-1/session.conf
-      args+=("\$arg")
-    done
-    exec ${dbus}/bin/dbus-daemon "\''${args[@]}"
-    EOF
-    chmod +x "$TMPDIR/dbus-shim/dbus-daemon"
-    export PATH="$TMPDIR/dbus-shim:$PATH"
-  '';
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
   # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。

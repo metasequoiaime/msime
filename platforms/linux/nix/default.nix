@@ -1,4 +1,4 @@
-# 给定一套 nixpkgs，返回 Linux 平台的几个包。flake 的 packages 与 overlay 共用这一份，
+# 给定一套 nixpkgs，返回 Linux 平台的几个包和开发 shell。flake 的 packages 与 overlay 共用这一份，
 # 区别只在传进来的是本 flake 锁定的 nixpkgs 还是使用方自己的。
 {
   pkgs,
@@ -13,18 +13,19 @@ let
       ../../../rust-toolchain.toml;
   craneLib = (crane.mkLib pkgs).overrideToolchain (_: rustToolchain);
 
-  msime-host-api = pkgs.callPackage ./host-api.nix { inherit craneLib; };
-  msime-resources = pkgs.callPackage ./resources.nix { };
-  # 需要随包词库时：msime-fcitx5.override { inherit msime-resources; }
-  # msime-resources 必须显式传 null：用 overlay 时 pkgs 里就有 msime-resources，callPackage
-  # 会拿它填参数，fcitx5.nix 里的 `? null` 默认值不起作用，系统构建便去下载词库。
-  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix {
-    inherit msime-host-api;
-    msime-resources = null;
+  # 仓库根目录与本平台版本号，几个包共用。
+  common = {
+    root = ../../..;
+    version = pkgs.lib.fileContents ../version.txt;
   };
+
+  msime-host-api = pkgs.callPackage ./host-api.nix (common // { inherit craneLib; });
+  msime-resources = pkgs.callPackage ./resources.nix { };
+  # 需要随包词库时：msime-fcitx5.override { bundledResources = msime-resources; }
+  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (common // { inherit msime-host-api; });
 in
 {
-  inherit msime-host-api msime-resources msime-fcitx5;
+  packages = { inherit msime-host-api msime-resources msime-fcitx5; };
 
   devShell = pkgs.mkShell {
     inputsFrom = [
