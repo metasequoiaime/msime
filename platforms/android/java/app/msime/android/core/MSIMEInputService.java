@@ -1206,7 +1206,7 @@ public final class MSIMEInputService extends InputMethodService {
             options.put("phrase_preedit", true);
             int drawnLayout = displayedTouchLayout(view);
             view = value(NativeClient.create(options.toString()));
-            session = view.getLong("session");
+            session = strictCandidateLong(view, "session");
             String resources = options.optString("resources", "");
             if (new File(resources).isAbsolute()) {
                 emojiResources = resources;
@@ -2248,7 +2248,8 @@ public final class MSIMEInputService extends InputMethodService {
                 JSONObject applied = value(call.get());
                 if (!applied.optBoolean("applied", false)) return;
                 JSONObject next = applied.getJSONObject("view");
-                if (next.optLong("session") != targetSession) return;
+                if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE)
+                        != targetSession) return;
                 view = next;
                 render();
                 JSONObject current = onlineQuery(targetSession);
@@ -6524,9 +6525,10 @@ public final class MSIMEInputService extends InputMethodService {
             if (!candidateManagementEnabled()) return false;
             JSONObject candidate = visibleCandidate(action);
             JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-            if (id == null || id.optLong("session") != session) return false;
-            if (!apply(NativeClient.removeCandidate(session, id.getLong("generation"),
-                                                    id.getLong("index")))) {
+            if (id == null || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
+                    != session) return false;
+            if (!apply(NativeClient.removeCandidate(session, strictCandidateLong(id, "generation"),
+                                                    strictCandidateLong(id, "index")))) {
                 showDiagnostic("当前候选不支持此操作");
             }
             return true;
@@ -6546,11 +6548,50 @@ public final class MSIMEInputService extends InputMethodService {
             && scheme != InputSchemeTraits.STROKE;
     }
 
-    private void editCandidate(JSONObject id, CandidateManagementAction action) {
-        if (session == 0 || id == null || id.optLong("session") != session) return;
+    /** 候选身份字段是协议整数，禁止 JSONObject 把小数或布尔值静默转换。 */
+    private static long strictCandidateLong(JSONObject value, String key) throws JSONException {
         try {
-            long generation = id.getLong("generation");
-            long index = id.getLong("index");
+            return CandidateGlossPolicy.strictInteger(value.opt(key));
+        } catch (IllegalArgumentException error) {
+            throw new JSONException("Invalid candidate identity: " + key);
+        }
+    }
+
+    private static int strictCandidatePage(JSONObject value, String key) {
+        long page = CandidateGlossPolicy.strictOr(value.opt(key), Long.MIN_VALUE);
+        return page < 0 || page > Integer.MAX_VALUE ? -1 : (int) page;
+    }
+
+    private static boolean sameCandidateIdentity(JSONObject left, JSONObject right) {
+        if (left == null || right == null) return false;
+        try {
+            return strictCandidateLong(left, "session") == strictCandidateLong(right, "session")
+                && strictCandidateLong(left, "generation")
+                    == strictCandidateLong(right, "generation")
+                && strictCandidateLong(left, "index") == strictCandidateLong(right, "index");
+        } catch (JSONException error) {
+            return false;
+        }
+    }
+
+    private static boolean sameCandidateVersion(JSONObject left, JSONObject right) {
+        if (left == null || right == null) return false;
+        try {
+            return strictCandidateLong(left, "session") == strictCandidateLong(right, "session")
+                && strictCandidateLong(left, "generation")
+                    == strictCandidateLong(right, "generation");
+        } catch (JSONException error) {
+            return false;
+        }
+    }
+
+    private void editCandidate(JSONObject id, CandidateManagementAction action) {
+        if (session == 0 || id == null
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
+            return;
+        try {
+            long generation = strictCandidateLong(id, "generation");
+            long index = strictCandidateLong(id, "index");
             String result = switch (action) {
                 case PROMOTE -> NativeClient.pinCandidate(session, generation, index);
                 case FIX_FIRST -> NativeClient.fixCandidatePosition(
@@ -6583,9 +6624,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject current = visibleCandidate(slot);
         JSONObject currentId = current == null ? null : current.optJSONObject("id");
         return current != null && currentId != null && id != null
-            && currentId.optLong("session") == id.optLong("session")
-            && currentId.optLong("generation") == id.optLong("generation")
-            && currentId.optLong("index") == id.optLong("index")
+            && sameCandidateIdentity(currentId, id)
             && text.equals(chineseOutput(current.optString("text"), view));
     }
 
@@ -6611,15 +6650,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean expandedCandidateIsCurrent(JSONObject candidate, JSONObject id, String text) {
         if (!candidatePanelOpen || candidatePanelSnapshot == null || view == null || candidate == null
-                || id == null || candidatePanelSnapshot.optLong("session") != session
-                || candidatePanelSnapshot.optLong("session") != view.optLong("session")
-                || candidatePanelSnapshot.optLong("generation") != view.optLong("generation"))
+                || id == null
+                || CandidateGlossPolicy.strictOr(candidatePanelSnapshot.opt("session"), Long.MIN_VALUE)
+                    != session
+                || !sameCandidateVersion(candidatePanelSnapshot, view))
             return false;
         JSONObject candidateId = candidate.optJSONObject("id");
         return candidateId != null
-            && candidateId.optLong("session") == id.optLong("session")
-            && candidateId.optLong("generation") == id.optLong("generation")
-            && candidateId.optLong("index") == id.optLong("index")
+            && sameCandidateIdentity(candidateId, id)
             && text.equals(chineseOutput(candidate.optString("text"), view));
     }
 
@@ -6812,12 +6850,14 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean selectCandidateEdge(WordCharacterPolicy.Edge edge) {
         JSONObject candidate = highlightedCandidate();
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-        if (id == null || session == 0 || id.optLong("session") != session) return false;
+        if (id == null || session == 0
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
+            return false;
         String displayed = chineseOutput(candidate.optString("text"), view);
         try {
             candidatePanelOpen = false;
-            if (apply(NativeClient.selectEdge(session, id.getLong("generation"),
-                                              id.getLong("index"), edge.code()))) return true;
+            if (apply(NativeClient.selectEdge(session, strictCandidateLong(id, "generation"),
+                                              strictCandidateLong(id, "index"), edge.code()))) return true;
             // Declined: the Engine kept the composition, so end it here before the host commits.
             String fallback = CandidateTextPolicy.fallbackCommit(displayed, edge);
             if (fallback == null || fallback.isEmpty()) return false;
@@ -6842,20 +6882,26 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
         if (id == null) return;
         playFeedback(button);
-        if (session == 0 || id.optLong("session") != session) return;
+        if (session == 0
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
+            return;
         candidatePanelOpen = false;
         try {
-            apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index")));
+            apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
+                                      strictCandidateLong(id, "index")));
         } catch (JSONException | LinkageError error) { fail(); }
     }
 
     private boolean selectHardwareCandidate(int slot) {
         JSONObject candidate = visibleCandidate(slot);
         JSONObject id = candidate == null ? null : candidate.optJSONObject("id");
-        if (id == null || session == 0 || id.optLong("session") != session) return false;
+        if (id == null || session == 0
+                || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE) != session)
+            return false;
         candidatePanelOpen = false;
         try {
-            apply(NativeClient.select(session, id.getLong("generation"), id.getLong("index")));
+            apply(NativeClient.select(session, strictCandidateLong(id, "generation"),
+                                      strictCandidateLong(id, "index")));
             return true;
         } catch (JSONException | LinkageError error) {
             fail();
@@ -6906,7 +6952,8 @@ public final class MSIMEInputService extends InputMethodService {
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
-        long index = id == null ? -1 : id.optLong("index", -1);
+        long index = id == null ? -1
+            : CandidateGlossPolicy.strictOr(id.opt("index"), -1);
         button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "："
             + text + candidateAccessibilitySuffix(candidate, typed));
         if (Build.VERSION.SDK_INT >= 30)
@@ -6916,12 +6963,15 @@ public final class MSIMEInputService extends InputMethodService {
         } else {
             button.setOnClickListener(ignored -> {
                 playFeedback(button);
-                if (session == 0 || id.optLong("session") != session) return;
+                if (session == 0
+                        || CandidateGlossPolicy.strictOr(id.opt("session"), Long.MIN_VALUE)
+                            != session) return;
                 candidatePanelOpen = false;
                 candidatePanelSnapshot = null;
                 try {
                     apply(NativeClient.selectAnyCandidate(
-                        session, id.getLong("generation"), id.getLong("index")));
+                        session, strictCandidateLong(id, "generation"),
+                        strictCandidateLong(id, "index")));
                 } catch (JSONException | LinkageError error) { fail(); }
             });
             button.setOnLongClickListener(ignored -> {
@@ -6946,8 +6996,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (session == 0 || view == null || view.optInt("page_count", 0) <= 1) return;
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(session));
-            if (snapshot.optLong("session") != view.optLong("session")
-                    || snapshot.optLong("generation") != view.optLong("generation")) return;
+            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != session
+                    || !sameCandidateVersion(snapshot, view))
+                return;
             JSONArray entries = snapshot.optJSONArray("candidates");
             JSONArray visible = view.optJSONArray("candidates");
             if (entries == null || visible == null || entries.length() <= visible.length()) return;
@@ -6962,8 +7013,9 @@ public final class MSIMEInputService extends InputMethodService {
         if (expandedCandidates == null || expandedCandidateScroll == null) return;
         expandedCandidates.removeAllViews();
         if (!candidatePanelOpen || view == null || candidatePanelSnapshot == null
-                || candidatePanelSnapshot.optLong("session") != view.optLong("session")
-                || candidatePanelSnapshot.optLong("generation") != view.optLong("generation")) {
+                || CandidateGlossPolicy.strictOr(candidatePanelSnapshot.opt("session"), Long.MIN_VALUE)
+                    != session
+                || !sameCandidateVersion(candidatePanelSnapshot, view)) {
             candidatePanelOpen = false;
             candidatePanelSnapshot = null;
             expandedCandidates.setVisibility(View.GONE);
@@ -8008,7 +8060,7 @@ public final class MSIMEInputService extends InputMethodService {
             for (Button key : nineKeySpellingButtons) key.setVisibility(View.GONE);
             return;
         }
-        nineKeySpellingGeneration = view.optLong("generation", -1);
+        nineKeySpellingGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         java.util.List<String> values = new java.util.ArrayList<>();
         java.util.List<Integer> indices = new java.util.ArrayList<>();
         for (int index = 0; index < spellings.length(); index++) {
@@ -8613,8 +8665,12 @@ public final class MSIMEInputService extends InputMethodService {
             japaneseConversionEditingText = "";
         }
         String page = "";
-        if (view != null && view.optInt("page_count", 0) > 0)
-            page = " · " + (view.optInt("page", 0) + 1) + "/" + view.optInt("page_count");
+        if (view != null && view.optInt("page_count", 0) > 0) {
+            int currentPage = strictCandidatePage(view, "page");
+            int pageCount = strictCandidatePage(view, "page_count");
+            if (currentPage >= 0 && pageCount > 0)
+                page = " · " + (currentPage + 1) + "/" + pageCount;
+        }
         String localMode = "";
         if (view != null) {
             String modeKey = view.optString("local_mode", "none");
@@ -8928,9 +8984,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
             return;
         }
-        long nextSession = view.optLong("session", session);
-        long nextGeneration = view.optLong("generation", -1);
-        int nextPage = view.optInt("page", -1);
+        long nextSession = CandidateGlossPolicy.strictOr(view.opt("session"), session);
+        long nextGeneration = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
+        int nextPage = strictCandidatePage(view, "page");
         if (!CandidateScrollPolicy.changed(candidateScrollSession, candidateScrollGeneration,
                 candidateScrollPage, nextSession, nextGeneration, nextPage)) return;
         candidateScrollSession = nextSession;

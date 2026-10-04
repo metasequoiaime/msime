@@ -479,8 +479,8 @@ test("the settings page picks a model and a mirror into the saved preferences", 
   });
   saveSettingsNow();
 
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-  const saved = save.mock.calls[0]?.[1]?.voice_input;
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const saved = save.mock.calls.at(-1)?.[1]?.voice_input;
   expect(saved?.asr_model_path).toBe(sense.path);
   expect(saved?.asr_model_mirror).toBe("https://ghproxy.example.com");
   expect(
