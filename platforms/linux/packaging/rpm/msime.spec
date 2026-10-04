@@ -152,9 +152,6 @@ cmake -S platforms/linux -B build/cmake \
   -DCMAKE_INSTALL_SYSCONFDIR=%{_sysconfdir} \
   -DCMAKE_SKIP_RPATH=OFF \
   -DCMAKE_SKIP_INSTALL_RPATH=OFF \
-%if 0%{?suse_version}
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-%endif
   -DMSIME_ENABLE_PACKAGING=ON \
   -DMSIME_ENABLE_FCITX5=ON \
   -DMSIME_PACKAGE_VERSION=%{version} \
