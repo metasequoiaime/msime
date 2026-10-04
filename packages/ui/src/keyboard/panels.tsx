@@ -3795,6 +3795,7 @@ export function EmojiPanel({
   );
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
+  const catalogGeneration = useAsyncGeneration(client, catalogRetry);
 
   function setNotice(message: string, temporary = false) {
     if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
@@ -3864,12 +3865,12 @@ export function EmojiPanel({
       setCatalogLoading(false);
       return;
     }
-    let active = true;
+    const generation = catalogGeneration.current;
     setCatalogLoading(true);
     void Promise.resolve()
       .then(() => client.loadCatalog!())
       .then((next) => {
-        if (!active) return;
+        if (generation !== catalogGeneration.current) return;
         const unavailable = next.unavailable ?? [];
         setCatalog((current) => ({
           emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
@@ -3879,15 +3880,13 @@ export function EmojiPanel({
         setCatalogUnavailable(unavailable);
       })
       .catch(() => {
-        if (active) setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
+        if (generation === catalogGeneration.current)
+          setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
       })
       .finally(() => {
-        if (active) setCatalogLoading(false);
+        if (generation === catalogGeneration.current) setCatalogLoading(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client, catalogRetry]);
+  }, [client, catalogGeneration]);
 
   useEffect(() => {
     if (!client.clipboard?.list) {
