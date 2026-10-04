@@ -119,7 +119,7 @@ export function CandidateSkinPublishDialog({
   const drawRunning = useRef(false);
   const drawOwner = useAsyncGeneration();
   const licenseRunning = useRef(false);
-  const licenseOwner = useRef(0);
+  const licenseOwner = useAsyncGeneration();
   // The package whose name the form was filled from, so switching visibility re-checks the package without discarding a name the user typed.
   const namedSkin = useRef("");
 
