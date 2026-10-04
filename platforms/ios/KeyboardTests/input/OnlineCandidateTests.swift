@@ -159,6 +159,20 @@ final class OnlineCandidateTests: XCTestCase {
     XCTAssertNil(OnlineCandidateProvider.aiRequest(get))
   }
 
+  func testTheAIDescriptorIgnoresNonIntegerLimits() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/v1/chat/completions", "method": "POST",
+      "body": ["model": "m"], "timeout_ms": true, "connect_timeout_ms": 2.5,
+      "max_response_bytes": 1.5,
+    ]
+    let request = OnlineCandidateProvider.aiRequest(descriptor)
+    XCTAssertEqual(request?.timeout, 8)
+    XCTAssertEqual(request?.connectTimeout, 2.5)
+    XCTAssertEqual(request?.maxBytes, 1_048_576)
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit(["ai_assistant": ["candidate_limit": true]]))
+    XCTAssertNil(OnlineCandidateProvider.aiCandidateLimit(["ai_assistant": ["candidate_limit": 2.5]]))
+  }
+
   func testTheSignatureIgnoresTheGenerationButNotTheAssistant() {
     let query: [String: Any] = [
       "session_id": 1, "generation": 3, "cache_key": "nihao", "identity": "q", "cloud_candidates": true,
