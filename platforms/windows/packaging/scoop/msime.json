@@ -1,0 +1,59 @@
+{
+    "##": [
+        "Template: platforms/windows/packaging/render.py fills the @...@ fields from a windows-v release; checkver and autoupdate keep the rendered manifest current in a bucket afterwards.",
+        "Not portable: an input method has to register its TSF DLLs and COM classes system-wide, so this runs the released Inno Setup installer (machine scope, UAC prompt) and keeps nothing in the Scoop app directory. The installer upgrades in place and keeps the data directory, so the uninstaller script does nothing during 'scoop update'; it runs the Inno uninstaller only for 'scoop uninstall', which also deletes the data directory the installer owns."
+    ],
+    "version": "@VERSION@",
+    "description": "Metasequoia IME (水杉输入法): a Chinese input method (pinyin, shuangpin and wubi). Not related to Microsoft IME.",
+    "homepage": "https://msime.app/",
+    "license": {
+        "identifier": "GPL-3.0-only",
+        "url": "https://github.com/metasequoiaime/msime/blob/develop/LICENSE"
+    },
+    "notes": [
+        "Metasequoia IME was installed machine-wide by its own installer (Program Files\\metasequoiaime), not into the Scoop directory.",
+        "It needs the Visual C++ 2015-2022 x64 redistributable and the Microsoft Edge WebView2 Runtime; the installer only logs which one is missing when it runs silently.",
+        "'scoop uninstall msime' also deletes the input method's data directory (your own words, settings and skins)."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "@INSTALLER_URL@",
+            "hash": "@SHA256@"
+        }
+    },
+    "installer": {
+        "script": [
+            "$setup = Join-Path $dir $fname",
+            "$process = Start-Process -FilePath $setup -ArgumentList '/SP-', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru",
+            "if ($process.ExitCode -ne 0) { throw \"Metasequoia IME installer exited with $($process.ExitCode)\" }",
+            "Remove-Item -LiteralPath $setup -Force"
+        ]
+    },
+    "uninstaller": {
+        "script": [
+            "if ($cmd -eq 'update') { return }",
+            "$key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}_is1'",
+            "if (-not (Test-Path -LiteralPath $key)) { warn 'Metasequoia IME is not installed; nothing to uninstall.'; return }",
+            "$uninstaller = (Get-ItemProperty -LiteralPath $key).UninstallString.Trim('\"')",
+            "$process = Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru",
+            "if ($process.ExitCode -ne 0) { throw \"Metasequoia IME uninstaller exited with $($process.ExitCode)\" }",
+            "# The Inno uninstaller relaunches itself from a temporary copy and returns at once; wait for it to remove its own file.",
+            "$deadline = (Get-Date).AddMinutes(3)",
+            "while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }"
+        ]
+    },
+    "checkver": {
+        "url": "https://api.github.com/repos/metasequoiaime/msime/releases?per_page=100",
+        "regex": "\"tag_name\":\\s*\"windows-v([\\d.]+)\"[^{}]*?\"prerelease\":\\s*false"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/metasequoiaime/msime/releases/download/windows-v$version/MetasequoiaIME_Setup_v$version.exe",
+                "hash": {
+                    "url": "$url.sha256"
+                }
+            }
+        }
+    }
+}
