@@ -1,0 +1,63 @@
+Source: msime
+Section: utils
+Priority: optional
+Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
+Rules-Requires-Root: no
+Standards-Version: 4.7.2
+Homepage: https://github.com/metasequoiaime/msime
+Vcs-Browser: https://github.com/metasequoiaime/msime
+Vcs-Git: https://github.com/metasequoiaime/msime.git
+Build-Depends: debhelper-compat (= 13),
+ cargo (>= 1.89) | cargo-1.91,
+ rustc (>= 1.89) | rustc-1.91,
+ cmake (>= 3.25),
+ pkgconf,
+ python3,
+ libasound2-dev,
+ libcairo2-dev,
+ libcurl4-openssl-dev,
+ libfcitx5config-dev (>= 5.0.20),
+ libfcitx5core-dev (>= 5.0.20),
+ libfcitx5utils-dev (>= 5.0.20),
+ libglib2.0-dev,
+ libgtk-3-dev,
+ libibus-1.0-dev,
+ libjavascriptcoregtk-4.1-dev,
+ libpango1.0-dev,
+ libsoup-3.0-dev,
+ libssl-dev,
+ libwayland-dev,
+ libwebkit2gtk-4.1-dev,
+ libx11-dev,
+ libxext-dev,
+ libxfixes-dev,
+ libxkbcommon-dev,
+ libxrandr-dev,
+ nlohmann-json3-dev,
+ wayland-protocols,
+ dbus-bin <!nocheck>,
+ dbus-daemon <!nocheck>,
+ desktop-file-utils <!nocheck>,
+ procps <!nocheck>,
+
+Package: msime
+Architecture: amd64 arm64
+Depends: ${misc:Depends},
+ ${shlibs:Depends},
+ fcitx5 (>= 5.0.20),
+ hicolor-icon-theme,
+ ibus (>= 1.5.20),
+ procps,
+ python3 (>= 3.9),
+Recommends: pulseaudio-utils | pipewire-bin | alsa-utils,
+ python3-websockets (>= 15),
+Conflicts: msime-linux,
+Replaces: msime-linux,
+Description: Metasequoia IME (Chinese input method) for Fcitx5 and IBus
+ Metasequoia IME (水杉输入法) is a Chinese input method. This package
+ contains the native Linux hosts built from source: the Fcitx5 addon, the
+ IBus engine, the first-run setup program msime-linux-setup, the provider
+ services, the MCP server and the settings window.
+ .
+ The dictionaries are not included; msime-linux-setup --download fetches
+ them on first use.
