@@ -115,16 +115,16 @@ def run_host(host, registration_bus, scratch, recovered):
             "HTTPS_PROXY": proxy, "https_proxy": proxy, "ALL_PROXY": proxy, "all_proxy": proxy,
         }
         arguments = [host] + (["--recovered"] if recovered else []) + [str(options)]
-        launched = time.monotonic()
         log = scratch / "host.log"
         with log.open("w") as output:
             process = subprocess.Popen(arguments, env=environment, stdout=output, stderr=subprocess.STDOUT)
         processes.append(process)
-        # Registration must not wait on the endpoint; well under the client's timeouts leaves room for a slow machine.
+        # Registration must complete before the telemetry request is accepted. The ordering check
+        # below observes that directly; a wall-clock startup threshold only made this test depend
+        # on container load.
         wait_for(lambda: registrations or process.poll() is not None, "host never registered its component", timeout=10)
         assert registrations, ("host exited before registering", process.returncode, log.read_text())
         registered, sender = registrations[0]
-        assert registered - launched < 2.5, ("registration waited", registered - launched)
 
         def probe():
             """Ask the host's factory for an unknown engine; returns the reply line from the stub."""
