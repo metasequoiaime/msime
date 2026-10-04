@@ -11349,12 +11349,22 @@ group("the settings page is refreshed on a changed document, not on every visit"
     "an unusable observation announces nothing",
   );
   check(!PreferenceRevisionPolicy.changed(4, Number.NaN), "and neither does an unusable reading");
+  check(!PreferenceRevisionPolicy.changed(4, 2.5), "a fractional reading announces nothing");
+  check(
+    !PreferenceRevisionPolicy.changed(4, Number.MAX_SAFE_INTEGER + 1),
+    "an unsafe reading announces nothing",
+  );
 });
 
 group("an unreadable revision does not replace a good one", () => {
   check(PreferenceRevisionPolicy.observe(5, 9) === 9, "a usable revision is remembered");
   check(PreferenceRevisionPolicy.observe(5, Number.NaN) === 5, "NaN leaves the previous in place");
   check(PreferenceRevisionPolicy.observe(5, -2) === 5, "and so does a negative one");
+  check(PreferenceRevisionPolicy.observe(5, 2.5) === 5, "a fractional revision is unusable");
+  check(
+    PreferenceRevisionPolicy.observe(5, Number.MAX_SAFE_INTEGER + 1) === 5,
+    "an unsafe revision is unusable",
+  );
   // -1 is what the bridge starts with, and it must not compare equal to any real revision.
   check(PreferenceRevisionPolicy.changed(-1, 0), "the initial value counts as not yet observed");
 });
