@@ -738,6 +738,18 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
   );
 });
 
+group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
+  for (const invalid of [null, {}, 42, true, "synthetic", [], { text: null },
+    { text: 12 }, { text: true }, { text: {} }, { text: [] }]) {
+    const response = JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+      candidates: [{ text: "甲" }, invalid, { text: "乙" }, { text: "甲" }, { text: "丙" }],
+    }) } }] });
+    const values = OnlineCandidatePolicy.aiCandidates(response, 2);
+    check(values !== null && values.join(",") === "甲,乙",
+      `无效候选 ${JSON.stringify(invalid)} 不丢弃整批结果`);
+  }
+});
+
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
   const query: TranslationQuery = {
     generation: 12,

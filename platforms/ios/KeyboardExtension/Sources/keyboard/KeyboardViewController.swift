@@ -4075,7 +4075,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     do {
       let allCandidates = try session.allCandidates()
       guard let value = allCandidates["generation"] as? NSNumber else { return }
-      let generation = value.uint64Value
+      guard let generation = CandidateGlossModel.integerValue(value, maximum: UInt64.max) else { return }
       if candidateGlossRequestedGeneration == generation { return }
       guard let candidates = allCandidates["candidates"] as? [[String: Any]] else { return }
       let request = try CandidateGlossModel.request(generation: generation, candidates: candidates)

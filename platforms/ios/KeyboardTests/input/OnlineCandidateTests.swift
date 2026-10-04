@@ -54,13 +54,41 @@ final class OnlineCandidateTests: XCTestCase {
 
   func testSnapshotRejectsMalformedCandidateNumericFields() {
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
-    let malformed: [String: Any] = [
-      "view": [
-        "candidates": [["text": "你", "source": 1.5]],
-        "page_count": 1, "editing_text": "ni", "caret_position": 0,
-      ],
-    ]
-    XCTAssertThrowsError(try bridge.snapshot(from: malformed))
+    for field in ["source", "fixed_position"] {
+      for invalid: Any in [1.5, true, -1, 256, "1", NSNull()] {
+        let malformed: [String: Any] = ["view": ["candidates": [["text": "合成", field: invalid]]]]
+        XCTAssertThrowsError(try bridge.snapshot(from: malformed), "\(field): \(invalid)")
+      }
+    }
+  }
+
+  func testSnapshotRejectsMalformedPageCountsAndCaretOffsets() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    for field in ["page_count", "caret_position"] {
+      for invalid: Any in [1.5, true, -1, "1", NSNull(), NSNumber(value: UInt64.max)] {
+        let malformed: [String: Any] = ["view": ["editing_text": "ni", field: invalid]]
+        XCTAssertThrowsError(try bridge.snapshot(from: malformed), "\(field): \(invalid)")
+      }
+    }
+    XCTAssertThrowsError(try bridge.snapshot(from: ["view": ["editing_text": "ni", "caret_position": 3]]))
+  }
+
+  func testSnapshotPreservesIntegerBoundsAndUTF8CaretOffsets() throws {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    let snapshot = try bridge.snapshot(from: ["view": [
+      "candidates": [["text": "合成", "source": 255, "fixed_position": 255]],
+      "page_count": Int.max, "editing_text": "việt", "caret_position": "việt".utf8.count,
+    ]])
+    XCTAssertEqual(snapshot.candidateSources, [255])
+    XCTAssertEqual(snapshot.candidateFixedPositions, [255])
+    XCTAssertEqual(snapshot.candidatePageCount, Int.max)
+    XCTAssertEqual(snapshot.caretPosition, "việt".utf8.count)
+
+    let defaults = try bridge.snapshot(from: ["view": ["candidates": [["text": "合成"]]]])
+    XCTAssertEqual(defaults.candidateSources, [-1])
+    XCTAssertEqual(defaults.candidateFixedPositions, [0])
+    XCTAssertEqual(defaults.candidatePageCount, 0)
+    XCTAssertEqual(defaults.caretPosition, 0)
   }
 
   func testCloudCandidatesStayOffUntilTheSwitchIsOn() async throws {

@@ -406,16 +406,10 @@ export function TouchKeyboardSkinEditor({
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
   const mounted = useMountedRef();
-  const libraryGeneration = useRef(0);
+  const libraryGeneration = useAsyncGeneration(library);
   const libraryActionBusy = useRef(false);
   useEffect(() => {
-    return () => {
-      libraryGeneration.current += 1;
-      libraryActionBusy.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    const generation = ++libraryGeneration.current;
+    const generation = libraryGeneration.current;
     if (!library) return;
     libraryActionBusy.current = true;
     void runAsyncAction(
@@ -435,10 +429,9 @@ export function TouchKeyboardSkinEditor({
       { formatError: libraryError },
     );
     return () => {
-      if (generation === libraryGeneration.current) libraryGeneration.current += 1;
       libraryActionBusy.current = false;
     };
-  }, [library]);
+  }, [library, libraryGeneration]);
   const apply = (next: TouchKeyboardSkinDesign, record = true) => {
     const normalized = normalizeTouchKeyboardSkinDesign(next);
     if (JSON.stringify(normalized) === JSON.stringify(design)) return;

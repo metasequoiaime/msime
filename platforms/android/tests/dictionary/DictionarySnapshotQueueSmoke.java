@@ -1,5 +1,6 @@
 import app.msime.android.DictionarySnapshotQueue;
 import app.msime.android.DictionarySnapshotWorker;
+import app.msime.android.DictionarySnapshotPolicy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -21,6 +22,10 @@ public final class DictionarySnapshotQueueSmoke {
     }
 
     public static void main(String[] args) throws Exception {
+        check(DictionarySnapshotPolicy.handle(42L, -1) == 42L);
+        check(DictionarySnapshotPolicy.handle(42.5, -1) == -1);
+        check(DictionarySnapshotPolicy.handle(true, -1) == -1);
+        check(DictionarySnapshotPolicy.handle(0L, -1) == -1);
         Path root = Files.createTempDirectory("msime-snapshot-queue-");
         try {
             Path outside = Files.createDirectory(root.resolve("outside"));

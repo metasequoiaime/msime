@@ -2241,7 +2241,10 @@ function useHelpcodePacks(
   const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
   const generation = useAsyncGeneration(catalog, inputPageOpen);
   useEffect(() => {
-    if (!catalog || !inputPageOpen) return;
+    if (!catalog || !inputPageOpen) {
+      setPacks([]);
+      return;
+    }
     const current = generation.current;
     void catalog()
       .then((next) => {
