@@ -94,7 +94,11 @@ public final class CustomKeyboardSkin {
     }
 
     private static int color(JSONObject object, String key, int fallback) {
-        return (int) object.optLong(key, fallback) & 0xFFFFFF;
+        return colorValue(object.opt(key), fallback);
+    }
+
+    static int colorValue(Object raw, int fallback) {
+        return KeyboardGeometry.strictInt(raw, fallback) & 0xFFFFFF;
     }
 
     private static String oneOf(String value, String first, String second, String third, String fourth) {

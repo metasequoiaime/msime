@@ -37,10 +37,12 @@ public final class KeyboardGeometry {
         return bounded(value, MIN_HEIGHT_ADJUSTMENT_DP, MAX_HEIGHT_ADJUSTMENT_DP);
     }
 
-    /** Read an integer-valued JSON preference without optInt's fractional truncation. */
+    /** 读取整数值，拒绝 JSONObject 的小数截断、布尔转换和非有限数。 */
     public static int strictInt(JSONObject object, String key, int fallback) {
-        if (object == null) return fallback;
-        Object raw = object.opt(key);
+        return strictInt(object == null ? null : object.opt(key), fallback);
+    }
+
+    public static int strictInt(Object raw, int fallback) {
         if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
         double value = ((Number) raw).doubleValue();
         if (!Double.isFinite(value) || value != Math.rint(value)
