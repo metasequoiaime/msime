@@ -2239,12 +2239,13 @@ function useHelpcodePacks(
   inputPageOpen: boolean,
 ): HelpcodePackOption[] {
   const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
+  const generation = useAsyncGeneration(catalog, inputPageOpen);
   useEffect(() => {
     if (!catalog || !inputPageOpen) return;
-    let active = true;
+    const current = generation.current;
     void catalog()
       .then((next) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setPacks(
           next.packages
             .filter((pack) => pack.kind === "helpcode")
@@ -2252,12 +2253,9 @@ function useHelpcodePacks(
         );
       })
       .catch(() => {
-        if (active) setPacks([]);
+        if (generation.current === current) setPacks([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [catalog, inputPageOpen]);
+  }, [catalog, inputPageOpen, generation]);
   return packs;
 }
 
