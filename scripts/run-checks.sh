@@ -88,14 +88,36 @@ for entry in $special_checks; do
 done
 [ "$registry_ok" -eq 1 ] && echo "contract check registry: every special check is run by the script it names, or documented where no gate runs it"
 
-# Everything else, in file-name order.
+# Everything else, in file-name order. The checks are independent of each other and almost all of them are single-threaded Python reading the tree, so they run in a bounded pool: one after another they cost about half a minute of every push, which is most of the gate's time on a push that builds nothing. Each check's output goes to its own file and is printed afterwards in file-name order under its own header, so what is printed and what fails is the same as when they ran one by one. The pool is MSIME_CHECK_JOBS wide, else CARGO_BUILD_JOBS (rbuild sets it to the cores it may use on the Studio), else the core count capped at six. PYTHONUNBUFFERED keeps a check's stdout and stderr in the order it wrote them now that neither is a terminal.
+check_jobs="${MSIME_CHECK_JOBS:-${CARGO_BUILD_JOBS:-}}"
+if [ -z "$check_jobs" ]; then
+  check_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+  [ "$check_jobs" -gt 6 ] 2>/dev/null && check_jobs=6
+fi
+case "$check_jobs" in '' | *[!0-9]* | 0) check_jobs=1 ;; esac
+checks_dir="$(mktemp -d)"
+# Sourced, verify-local.sh's own EXIT trap removes checks_dir; on its own this script has no other trap to share.
+[ "$run_checks_standalone" -eq 1 ] && trap 'rm -rf -- "$checks_dir"' EXIT
+pending=""
 for check in scripts/test-*.py; do
   name="${check#scripts/test-}"
   name="${name%.py}"
   case " $special_names " in *" $name "*) continue ;; esac
-  note "${name//-/ }"
-  python3 "$check" || fail "${name//-/ }"
+  pending="$pending$check"$'\n'
 done
+# xargs's own status is ignored: each check's status is read from the file it leaves, and a check that left none (killed, or never started) counts as failed below.
+# shellcheck disable=SC2016  # expanded by the sh that xargs starts, not here
+printf '%s' "$pending" | xargs -P "$check_jobs" -I {} sh -c \
+  'out="$2/$(basename "$1" .py)"; PYTHONUNBUFFERED=1 python3 "$1" </dev/null >"$out.log" 2>&1; echo $? >"$out.status"' \
+  run-check {} "$checks_dir"
+for check in $pending; do
+  name="${check#scripts/test-}"
+  name="${name%.py}"
+  note "${name//-/ }"
+  cat "$checks_dir/test-$name.log" 2>/dev/null
+  [ "$(cat "$checks_dir/test-$name.status" 2>/dev/null)" = 0 ] || fail "${name//-/ }"
+done
+rm -rf -- "$checks_dir"
 
 if [ "$run_checks_standalone" -eq 1 ]; then
   if [ "$failed" -ne 0 ]; then

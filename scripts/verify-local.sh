@@ -18,6 +18,8 @@
 #   scripts/verify-local.sh           everything
 #   scripts/verify-local.sh --update-baseline   append newly observed failures to known-failures.txt
 #
+# --quick skips the platform phases this change cannot reach; see "scope" below for how the change is worked out and what counts as reaching a phase. MSIME_VERIFY_ALL=1 runs every phase regardless. The full run never skips for scope.
+#
 # --update-baseline appends what one run observed and removes nothing. Several
 # desktop tests are flaky, so a single run under-reports: the committed baseline
 # is the union of several, and entries are removed by hand as they are fixed.
@@ -98,6 +100,8 @@ cleanup() {
     if [ -n "$file" ]; then rm -f -- "$file"; fi
   done
   if [ -n "$held_lock" ]; then rmdir "$held_lock" 2>/dev/null; fi
+  # The contract checks' output directory, made by scripts/run-checks.sh when it is sourced below.
+  if [ -n "${checks_dir:-}" ]; then rm -rf -- "$checks_dir"; fi
   return 0
 }
 trap cleanup EXIT
@@ -119,6 +123,117 @@ compare() {
   fi
 }
 
+# ---- scope ----
+# Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), the commits on HEAD since it left its upstream (origin/develop when it has none), and whatever is modified or untracked in the work tree, because that is what the phases build. When any of that cannot be worked out every phase runs.
+#
+# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the hooks, .github, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), and the crates every native host links (path-trust, client-core, engine, input-runtime, host-api) all run everything, as does any deletion or rename and any path the table below does not know. Files under resources/ reach only the CMake hosts that name them (platforms/linux and platforms/macos read the lock files at configure time); the Rust crates take them in through include_str!/include_bytes!, which cannot fail on a changed file, and a deleted one runs everything. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
+scope_all=1
+scope_why="full run"
+scope_areas=" "
+scope_count=0
+
+# The areas a path reaches, or "all", or nothing at all for a path no platform phase builds from.
+scope_classify() {
+  case "$1" in
+    scripts/verify-local.sh | scripts/run-checks.sh | .githooks/* | .github/* | \
+      Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
+      package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
+      CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
+      crates/path-trust/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/*)
+      echo all ;;
+    platforms/windows/* | scripts/test-windows-*.py) echo windows ;;
+    crates/host-windows/*) echo windows desktop ;;
+    crates/host-macos/*) echo macos desktop ;;
+    apps/desktop/* | crates/tauri-mobile-platform/* | crates/ios-native-ffi/*) echo desktop ;;
+    packages/ui/*) echo desktop harmony ;;
+    platforms/harmony/* | apps/harmony/* | scripts/test-harmony-*.py) echo harmony ;;
+    platforms/android/* | scripts/test-android-*.py) echo android ;;
+    platforms/linux/*) echo linux ;;
+    platforms/macos/*) echo macos ;;
+    resources/*)
+      grep -rqF -- "$1" platforms/linux && echo linux
+      grep -rqF -- "$1" platforms/macos && echo macos
+      ;;
+    # Built by no --quick phase: the contract checks and the Rust workspace check, which always run, cover these.
+    docs/* | scripts/* | tools/* | platforms/ios/* | \
+      crates/dict-builder/* | crates/pack-tool/* | crates/mcp-server/* | \
+      *.md | LICENSE | .editorconfig) ;;
+    *) echo all ;;
+  esac
+}
+
+# Prints the change as `git diff --name-status --no-renames` lines; fails when it cannot be determined.
+scope_changes() {
+  local zero=0000000000000000000000000000000000000000 local_sha remote_sha base upstream
+  # The pre-push hook's stdin: "<local ref> <local sha> <remote ref> <remote sha>" per ref pushed. Anything else on stdin means this was not run by that hook, and a timeout bounds a caller that leaves stdin open without writing to it.
+  if [ ! -t 0 ]; then
+    while read -r -t 2 _ local_sha _ remote_sha; do
+      case "$local_sha$remote_sha" in *[!0-9a-f]*) return 1 ;; esac
+      [ "${#local_sha}" -eq 40 ] && [ "${#remote_sha}" -eq 40 ] || return 1
+      [ "$local_sha" = "$zero" ] && continue
+      if [ "$remote_sha" = "$zero" ]; then
+        base="$(git merge-base origin/develop "$local_sha" 2>/dev/null)" || return 1
+      else
+        git cat-file -e "$remote_sha^{commit}" 2>/dev/null || return 1
+        base="$remote_sha"
+      fi
+      git diff --name-status --no-renames "$base...$local_sha" || return 1
+    done
+  fi
+  upstream="$(git rev-parse --verify -q '@{upstream}' 2>/dev/null || git rev-parse --verify -q origin/develop)" || return 1
+  git diff --name-status --no-renames "$upstream...HEAD" || return 1
+  git diff --name-status --no-renames HEAD || return 1
+  git ls-files --others --exclude-standard | awk '{ print "A\t" $0 }'
+}
+
+if [ "$quick" -eq 1 ] && [ "${MSIME_VERIFY_ALL:-0}" = 1 ]; then
+  scope_why="MSIME_VERIFY_ALL=1"
+elif [ "$quick" -eq 1 ]; then
+  if ! scope_list="$(scope_changes)"; then
+    scope_why="the change could not be worked out from git"
+  else
+    scope_all=0
+    # The same file can arrive from more than one of the sources above; it is counted once.
+    scope_count="$(printf '%s\n' "$scope_list" | cut -f2 | grep . | sort -u | wc -l | tr -d ' ')"
+    while IFS="$(printf '\t')" read -r scope_status scope_path; do
+      [ -n "$scope_path" ] || continue
+      case "$scope_status" in
+        D*) scope_all=1; scope_why="$scope_path is deleted"; break ;;
+      esac
+      for scope_area in $(scope_classify "$scope_path"); do
+        if [ "$scope_area" = all ]; then
+          scope_all=1
+          scope_why="$scope_path is an input every phase shares"
+          break 2
+        fi
+        case "$scope_areas" in *" $scope_area "*) ;; *) scope_areas="$scope_areas$scope_area " ;; esac
+      done
+    done <<EOF_SCOPE
+$scope_list
+EOF_SCOPE
+  fi
+fi
+if [ "$quick" -eq 1 ]; then
+  if [ "$scope_all" -eq 1 ]; then
+    echo "scope: every phase runs ($scope_why)"
+  else
+    scope_reached="${scope_areas# }"
+    scope_reached="${scope_reached% }"
+    echo "scope: $scope_count changed files reach: ${scope_reached:-no platform phase}; the others are skipped (MSIME_VERIFY_ALL=1 runs them)"
+  fi
+fi
+
+# True when a phase built from any of the named areas has to run; otherwise says why it does not, on the phase's own line.
+scoped() {
+  local area
+  [ "$scope_all" -eq 1 ] && return 0
+  for area in "$@"; do
+    case "$scope_areas" in *" $area "*) return 0 ;; esac
+  done
+  echo "skipped (scope): this change touches none of its inputs ($*); MSIME_VERIFY_ALL=1 runs it"
+  return 1
+}
+
 # The special checks below run inline here because they need this script's locks or toolchains; scripts/run-checks.sh names them in special_checks, and its registry phase fails when this file stops invoking them. Everything else under scripts/test-*.py is discovered and run by that script, sourced further down.
 
 # The 32-bit TSF DLL is loaded into every 32-bit host application, and nothing
@@ -134,7 +249,9 @@ note "windows x86 syntax"
 # minute later. Seen twice in one afternoon; both times the retry passed, which is exactly the shape
 # of failure that teaches people to ignore a gate.
 x86_lock=""
-if [ -n "$cross_vcpkg" ]; then
+if ! scoped windows; then
+  x86_lock="skipped"
+elif [ -n "$cross_vcpkg" ]; then
   x86_deps="$(dirname "$cross_vcpkg")/windows-native-deps"
   x86_lock="$x86_deps/.verify-cross-build.lock"
   mkdir -p "$x86_deps" 2>/dev/null
@@ -156,14 +273,18 @@ fi
 # cross build linked them - and linking does not catch an assertion. Same
 # sources, host compiler, actually executed.
 note "windows tests on this host"
-python3 scripts/test-windows-native-run.py || fail "windows tests on this host"
+if scoped windows; then
+  python3 scripts/test-windows-native-run.py || fail "windows tests on this host"
+fi
 
 # The HarmonyOS settings window is a WebView over a generated bundle that is
 # committed to the repository and that nothing rebuilds. It drifted for
 # fifty-two commits of shared UI before anyone looked, and a stale bundle is a
 # working bundle: the window renders, it simply renders last month's UI.
 note "harmony settings bundle"
-python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
+if scoped harmony; then
+  python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
+fi
 
 # The contract checks themselves: the registry phase and every other scripts/test-*.py, discovered by file name. Sourced rather than run so the output and this script's failure count stay as they were; the contracts workflow runs the same file on its own. It has to stay after the three inline special phases just above.
 # shellcheck source=scripts/run-checks.sh
@@ -220,7 +341,9 @@ case $(uname -s) in
   *) android_host_tag="" ;;
 esac
 android_clang="$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/aarch64-linux-android28-clang"
-if [ -n "$android_host_tag" ] && [ -x "$android_clang" ] \
+if ! scoped desktop android; then
+  :
+elif [ -n "$android_host_tag" ] && [ -x "$android_clang" ] \
   && rustup target list --installed 2>/dev/null | grep -q '^aarch64-linux-android$'; then
   env "CC_aarch64_linux_android=$android_clang" \
     "CXX_aarch64_linux_android=${android_clang}++" \
@@ -238,7 +361,9 @@ fi
 # panels and two dozen policy classes with their own smoke tests. check-host.sh compiles all of it
 # against the SDK's android.jar and runs those tests, and it needs no device.
 note "android host java"
-if [ -n "$android_sdk" ] && [ -d "$android_sdk/platforms" ]; then
+if ! scoped android; then
+  :
+elif [ -n "$android_sdk" ] && [ -d "$android_sdk/platforms" ]; then
   android_host_log="$(mktemp)"
   if ANDROID_SDK_ROOT="$android_sdk" bash platforms/android/check-host.sh >"$android_host_log" 2>&1; then
     echo "android host java: service, policies and smoke tests compile and pass"
@@ -272,7 +397,9 @@ else
     fi
   done
 fi
-if [ -x "$harmony_hvigor" ] && [ -d "$root/platforms/harmony/entry/libs" ] \
+if ! scoped harmony; then
+  :
+elif [ -x "$harmony_hvigor" ] && [ -d "$root/platforms/harmony/entry/libs" ] \
   && [ -d "$root/platforms/harmony/entry/src/main/resources/resfile/engine" ] \
   && [ -d "$root/platforms/harmony/oh_modules" ]; then
   harmony_log="$(mktemp)"
@@ -312,7 +439,9 @@ note "compile: linux desktop shell"
 #
 # The build dependencies live in an image (platforms/linux/tests/tools/Dockerfile.desktop-check) rather than being installed with apt in a throwaway container: that reinstall of the whole webkit2gtk closure ran on every --quick and so on every push, and it is the part of this phase that does not change. The image is tagged per checkout the same way platforms/linux/build-container.sh tags its gate image, so concurrent worktrees never run each other's Dockerfile; the README says how to prune the tags old worktrees leave behind.
 linux_desktop_note="image=msime-linux-desktop-check:\$(printf %s \"\$PWD\" | shasum | cut -c1-12); docker build -t \"\$image\" -f platforms/linux/tests/tools/Dockerfile.desktop-check platforms/linux/tests && docker run --rm -v \"\$PWD\":/source -w /source \"\$image\" cargo check -p msime-desktop --locked --all-targets"
-if [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
+if ! scoped desktop linux; then
+  :
+elif [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
   cargo check -p msime-desktop --locked --all-targets 2>&1 | tail -3
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check -p msime-desktop (linux)"
 elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -355,7 +484,9 @@ note "compile: linux native host"
 # IBus, Fcitx5 or XKB development packages. It compiles and runs the unit tests;
 # tests/tools/check-container.sh remains the acceptance run that needs a verified
 # dictionary directory and a live IBus daemon.
-if [ "$(uname -s 2>/dev/null)" = "Linux" ] && pkg-config --exists ibus-1.0 2>/dev/null; then
+if ! scoped linux; then
+  :
+elif [ "$(uname -s 2>/dev/null)" = "Linux" ] && pkg-config --exists ibus-1.0 2>/dev/null; then
   cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
     cmake --build "$root/target/linux-gate" >/dev/null 2>&1 &&
     ctest --test-dir "$root/target/linux-gate" --output-on-failure >/dev/null 2>&1 &&
@@ -375,7 +506,9 @@ else
 fi
 
 note "compile: native host"
-if [ -d "$MSIME_NATIVE_BUILD" ]; then
+if ! scoped windows desktop; then
+  :
+elif [ -d "$MSIME_NATIVE_BUILD" ]; then
   # The native tests link the Rust library, so it has to be current or they
   # fail to start with an entry-point error that looks like a test failure.
   cargo build -p msime-host-api 2>&1 | tail -2
@@ -518,7 +651,8 @@ macos_sparkle_root() {
   return 1
 }
 
-if [ "$apple_host" -eq 1 ] && ! macos_configured; then
+# Out of scope the configure is left alone too; "compile: macos" below says it was skipped.
+if [ "$apple_host" -eq 1 ] && ! macos_configured && scoped macos >/dev/null; then
   if sparkle_root=$(macos_sparkle_root); then
     note "configure: macos"
     # The workspace stage above checks rather than builds, so the static library configure insists on may not exist yet even though everything needed to produce it does. This only has to make it exist; the compile stage below rebuilds whichever library the configured build links.
@@ -535,7 +669,9 @@ if [ "$apple_host" -eq 1 ] && ! macos_configured; then
 fi
 
 note "compile: macos"
-if macos_configured; then
+if ! scoped macos; then
+  :
+elif macos_configured; then
   if build_macos_host_library; then
     cmake --build "$MSIME_MACOS_BUILD" --parallel 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
     cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
@@ -561,7 +697,9 @@ fi
 
 note "compile: pipe-only configuration"
 # Cheap: no Rust library, no vcpkg dependencies, just the protocol tests.
-if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=ON      >/dev/null 2>&1; then
+if ! scoped windows; then
+  :
+elif cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=ON      >/dev/null 2>&1; then
   if cmake --build "$MSIME_PIPE_BUILD" --config Debug >/dev/null 2>&1; then
     echo "pipe-only: builds"
   else
