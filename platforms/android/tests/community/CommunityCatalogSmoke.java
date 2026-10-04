@@ -15,6 +15,14 @@ public final class CommunityCatalogSmoke {
         check((boolean) invalid.invoke(null, 1, 0, true), "a page with only malformed rows must not retry the same offset");
         check((boolean) invalid.invoke(null, 2, 1, true), "dropping any row must not shift the next offset");
         check(!(boolean) invalid.invoke(null, 0, 0, false), "an empty final page must be accepted");
+        Method idKey = CommunityCatalog.class.getDeclaredMethod("idKey", String.class);
+        idKey.setAccessible(true);
+        check(idKey.invoke(null, "a1234567-1234-1234-1234-123456789abc").equals(
+            idKey.invoke(null, "A1234567-1234-1234-1234-123456789ABC")),
+            "UUID duplicate detection must ignore hexadecimal case");
+        check(!idKey.invoke(null, "a1234567-1234-1234-1234-123456789abc").equals(
+            idKey.invoke(null, "b1234567-1234-1234-1234-123456789abc")),
+            "different UUIDs must remain distinct");
         Method responseLimit = CommunityCatalog.class.getDeclaredMethod(
             "maximumResponseBytes", CommunityRequest.Kind.class);
         responseLimit.setAccessible(true);

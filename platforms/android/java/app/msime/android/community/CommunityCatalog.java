@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -239,7 +240,7 @@ public final class CommunityCatalog {
             if (item == null) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
-            if (!ids.add(item.id())) {
+            if (!ids.add(idKey(item.id()))) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
             items.add(item);
@@ -248,6 +249,10 @@ public final class CommunityCatalog {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
         return new Page(List.copyOf(items), hasMore, "");
+    }
+
+    static String idKey(String value) {
+        return value.toLowerCase(Locale.ROOT);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */

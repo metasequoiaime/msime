@@ -202,7 +202,7 @@ private final class MalformedCommunityPageProtocol: URLProtocol {
         ["id": "a1234567-1234-1234-1234-123456789abc", "name": "测试", "description": "",
          "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
          "rating_average": 0, "owned": false, "my_rating": 0],
-        ["id": "a1234567-1234-1234-1234-123456789abc", "name": "重复", "description": "",
+        ["id": "A1234567-1234-1234-1234-123456789ABC", "name": "重复", "description": "",
          "author": "作者", "design": design, "downloads": 0, "rating_count": 0,
          "rating_average": 0, "owned": false, "my_rating": 0]
       ], "has_more": true]
