@@ -40,7 +40,7 @@ pub fn start() {
     }));
 }
 
-/// 把词库字节导入内存 VFS 的 `path`（如 `/res/msime.db`）；同名库先删掉。
+/// 把词库字节导入内存 VFS 的 `path`（如 `/res/msime-pinyin.db`）；同名库先删掉。
 #[wasm_bindgen]
 pub fn import_database(path: &str, bytes: &[u8]) -> Result<(), JsError> {
     msime_engine::web::import_database(path, bytes).map_err(|error| JsError::new(&error))
@@ -78,7 +78,7 @@ pub struct WebEngine {
 
 #[wasm_bindgen]
 impl WebEngine {
-    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma` 或 `wubi86`；主库须已导入 `/res/msime.db`。`model` 是解压后的 `sentence-model.safetensors`，五笔忽略它。
+    /// `scheme` 是 `quanpin`、`xiaohe`、`ziranma` 或 `wubi86`；主库须已导入 `/res/msime-pinyin.db`（拼音方案导入网页包的 `msime-pinyin.db`，五笔导入 `msime-wubi86.db`，路径相同）。`model` 是解压后的 `sentence-model.safetensors`，五笔忽略它。
     #[wasm_bindgen(constructor)]
     pub fn new(
         scheme: &str,

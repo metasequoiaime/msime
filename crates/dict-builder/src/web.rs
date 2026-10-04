@@ -1,4 +1,4 @@
-//! `web` 子命令：从完整的 `msime.db` 裁出网页内置输入法用的两个词库。
+//! `web` 子命令：从词库 release 的 `msime-pinyin.db`（全拼表与 `quick_parases`）和 `msime-wubi.db`（`wubi86`、`wubi98`）裁出网页内置输入法用的两个词库。两个输入先在临时副本里合成拆分前那种单个主库的布局，再按下面的规则裁剪，所以输出的表结构和拆分前一样。
 //!
 //! - `msime-pinyin.db`：全拼与双拼共用。保留全部单字表 `tbl_1_*`，多字表 `tbl_{2..7,others}_*` 只保留全局按权重排名前 N 行，清空 `wubi86`、`wubi98` 和 `quick_parases`。
 //! - `msime-wubi86.db`：只保留 `wubi86`，清空全部全拼表、`wubi98` 和 `quick_parases`。
@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use msime_engine::format::{quanpin_table, SHIPPED_INITIALS};
+use rusqlite::types::Value;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::msime::quanpin_tables;
@@ -24,7 +25,8 @@ pub const DEFAULT_KEEP_MULTI: usize = 200_000;
 
 /// 除全拼表以外，裁剪时认识的表；遇到其它表直接失败，免得把不认识的数据原样带进网页词库。
 const WUBI86_TABLE: &str = "wubi86";
-const EMPTIED_TABLES: [&str; 2] = ["wubi98", "quick_parases"];
+const WUBI98_TABLE: &str = "wubi98";
+const EMPTIED_TABLES: [&str; 2] = [WUBI98_TABLE, "quick_parases"];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Flavour {
@@ -61,15 +63,24 @@ struct Tables {
     multi: Vec<String>,
 }
 
-pub fn build(input: &Path, out_dir: &Path, keep_multi: usize) -> Result<Vec<Summary>> {
+/// 两个输入库，都只读打开。
+#[derive(Clone, Copy)]
+pub struct Inputs<'a> {
+    /// release 的 `msime-pinyin.db`。
+    pub pinyin: &'a Path,
+    /// release 的 `msime-wubi.db`。
+    pub wubi: &'a Path,
+}
+
+pub fn build(inputs: Inputs<'_>, out_dir: &Path, keep_multi: usize) -> Result<Vec<Summary>> {
     fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
     Ok(vec![
-        write(input, &out_dir.join(PINYIN), Flavour::Pinyin, keep_multi)?,
-        write(input, &out_dir.join(WUBI86), Flavour::Wubi86, keep_multi)?,
+        write(inputs, &out_dir.join(PINYIN), Flavour::Pinyin, keep_multi)?,
+        write(inputs, &out_dir.join(WUBI86), Flavour::Wubi86, keep_multi)?,
     ])
 }
 
-fn write(input: &Path, out: &Path, flavour: Flavour, keep_multi: usize) -> Result<Summary> {
+fn write(inputs: Inputs<'_>, out: &Path, flavour: Flavour, keep_multi: usize) -> Result<Summary> {
     let mut scratch = out.as_os_str().to_owned();
     scratch.push(".scratch");
     let scratch = PathBuf::from(scratch);
@@ -77,12 +88,12 @@ fn write(input: &Path, out: &Path, flavour: Flavour, keep_multi: usize) -> Resul
     remove_if_present(&scratch)?;
     remove_if_present(out)?;
 
-    let source = Connection::open_with_flags(input, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .with_context(|| format!("opening {}", input.display()))?;
+    let source = open_read_only(inputs.pinyin)?;
     vacuum_into(&source, &scratch)?;
     drop(source);
 
     let mut connection = sqlite::open(&scratch)?;
+    merge_wubi(&mut connection, inputs.wubi)?;
     let tables = classify(&connection)?;
     let transaction = connection.transaction()?;
     match flavour {
@@ -138,6 +149,72 @@ fn remove_if_present(path: &Path) -> Result<()> {
     }
 }
 
+fn open_read_only(path: &Path) -> Result<Connection> {
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .with_context(|| format!("opening {}", path.display()))
+}
+
+/// 把 `msime-wubi.db` 的表和索引原样复制进 `msime-pinyin.db` 的临时副本，得到拆分前单个主库的布局。行按 rowid 顺序复制：运行时反查五笔编码以 rowid 作最后的排序键。`msime-wubi.db` 里只能有 `wubi86`、`wubi98`（和 SQLite 自己的统计表），拼音库里也不能已有同名表，否则说明两个输入给反了或不是拆分后的 release。
+fn merge_wubi(connection: &mut Connection, wubi: &Path) -> Result<()> {
+    let source = open_read_only(wubi)?;
+    let mut statement = source.prepare(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type = 'index', name",
+    )?;
+    let schema = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(statement);
+    if !schema
+        .iter()
+        .any(|(kind, name, _)| kind == "table" && name == WUBI86_TABLE)
+    {
+        bail!("{}: no wubi86 table", wubi.display());
+    }
+    let transaction = connection.transaction()?;
+    for (kind, name, sql) in &schema {
+        if kind == "table" {
+            if name != WUBI86_TABLE && name != WUBI98_TABLE {
+                bail!("{}: unexpected table {name}", wubi.display());
+            }
+            let present: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = ?1)",
+                [name],
+                |row| row.get(0),
+            )?;
+            if present {
+                bail!("the pinyin dictionary already has {name}; pass the msime-pinyin.db and msime-wubi.db of a split release");
+            }
+        }
+        transaction.execute_batch(sql)?;
+        if kind == "table" {
+            copy_rows(&source, &transaction, name)?;
+        }
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn copy_rows(source: &Connection, target: &Connection, table: &str) -> Result<()> {
+    let mut select = source.prepare(&format!("SELECT * FROM \"{table}\" ORDER BY rowid"))?;
+    let columns = select.column_count();
+    let placeholders = vec!["?"; columns].join(", ");
+    let mut insert = target.prepare(&format!("INSERT INTO \"{table}\" VALUES ({placeholders})"))?;
+    let mut rows = select.query([])?;
+    while let Some(row) = rows.next()? {
+        let values = (0..columns)
+            .map(|index| row.get::<_, Value>(index))
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        insert.execute(rusqlite::params_from_iter(values))?;
+    }
+    Ok(())
+}
+
 fn vacuum_into(connection: &Connection, path: &Path) -> Result<()> {
     let target = path
         .to_str()
@@ -177,7 +254,7 @@ fn classify(connection: &Connection) -> Result<Tables> {
         }
     }
     if tables.single.is_empty() || !wubi86 {
-        bail!("the input is not a msime.db: no single-character quanpin tables or no wubi86 table");
+        bail!("no single-character quanpin tables in the pinyin dictionary or no wubi86 table in the wubi dictionary");
     }
     Ok(tables)
 }

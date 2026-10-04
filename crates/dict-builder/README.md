@@ -55,16 +55,16 @@ Releases are cut by msime-dictionary's `.github/workflows/release-built-dictiona
 
 ## 网页词库
 
-网页内置输入法（`crates/engine-wasm`）不带完整的 `msime.db`，而是带从它裁出来的两个库，由 `web` 子命令生成：
+网页内置输入法（`crates/engine-wasm`）不带完整的桌面词库，而是带从词库 release 的 `msime-pinyin.db`（全拼表与 `quick_parases`）和 `msime-wubi.db`（`wubi86`、`wubi98`）裁出来的两个库，由 `web` 子命令生成。两个输入先在临时副本里合成拆分前单个主库的布局（五笔表按 rowid 顺序复制），再按下面的规则裁剪：
 
 ```sh
-cargo run --locked --release -p msime-dict-builder --bin msime-dict-build -- web --input <msime.db> --out-dir target/web-dict [--keep-multi 200000]
+cargo run --locked --release -p msime-dict-builder --bin msime-dict-build -- web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir target/web-dict [--keep-multi 200000]
 ```
 
 - `msime-pinyin.db`：全拼和双拼共用。保留全部单字表 `tbl_1_*`；多字表 `tbl_{2..7,others}_*` 合在一起按 `weight DESC, key, value, 表名, rowid` 排序，只保留前 `--keep-multi` 行（默认 200000，即评测里的 d200000）；`wubi86`、`wubi98` 和 `quick_parases` 清空。
 - `msime-wubi86.db`：只保留 `wubi86`，全拼表、`wubi98` 和 `quick_parases` 清空。
 
-两个库都保留输入库的全部表结构和索引，被清空的表查询时返回空结果而不是报错；随后 `ANALYZE`（只留 `sqlite_stat1`），再用 `VACUUM INTO` 写出不带空闲页的回滚日志模式数据库。输入只读打开，不会被修改。输出逐字节可复现：同一个输入跑两次得到相同的 sha256，`tests/web.rs` 会检查这一点。输入库里出现不认识的表时命令直接失败。
+两个库都保留两个输入库合起来的全部表结构和索引，被清空的表查询时返回空结果而不是报错；随后 `ANALYZE`（只留 `sqlite_stat1`），再用 `VACUUM INTO` 写出不带空闲页的回滚日志模式数据库。输入只读打开，不会被修改。输出逐字节可复现：同样的输入跑两次得到相同的 sha256，`tests/web.rs` 会检查这一点。输入库里出现不认识的表、`msime-wubi.db` 里有五笔以外的表或拼音库里已有五笔表（两个输入给反了，或不是拆分后的 release）时命令直接失败。
 
 ## Checking contributed words
 

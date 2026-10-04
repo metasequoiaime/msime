@@ -1,4 +1,4 @@
-//! `msime-dict-build web` 的端到端测试：用合成的小号 msime.db 跑编译出的二进制，检查裁剪结果。
+//! `msime-dict-build web` 的端到端测试：用合成的小号 msime-pinyin.db 和 msime-wubi.db 跑编译出的二进制，检查裁剪结果。
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,9 +21,8 @@ fn quanpin_tables() -> Vec<String> {
         .collect()
 }
 
-/// 按真实 msime.db 的结构建一个小库：每张全拼表都有两个索引，`wubi86`、`wubi98`、`quick_parases` 各有一个索引。
-fn fixture(path: &Path) {
-    let connection = Connection::open(path).unwrap();
+/// 按词库 release 的结构建两个小库：`msime-pinyin.db` 里每张全拼表都有两个索引，`quick_parases` 有一个索引；`msime-wubi.db` 里 `wubi86`、`wubi98` 各有一个索引。
+fn fixture(pinyin: &Path, wubi: &Path) {
     let mut sql = String::from("BEGIN;");
     for table in quanpin_tables() {
         let suffix = table.trim_start_matches("tbl_");
@@ -31,11 +30,7 @@ fn fixture(path: &Path) {
             "CREATE TABLE {table} {QUANPIN_SCHEMA}; CREATE INDEX idx_key_{suffix} ON {table}(key); CREATE INDEX idx_jp_{suffix} ON {table}(jp);"
         ));
     }
-    for table in ["wubi86", "wubi98", "quick_parases"] {
-        sql.push_str(&format!(
-            "CREATE TABLE {table} {KEYED_SCHEMA}; CREATE INDEX idx_{table}_key_weight ON {table}(\"key\", \"weight\" DESC);"
-        ));
-    }
+    sql.push_str(&keyed_table("quick_parases"));
     sql.push_str(
         "INSERT INTO tbl_1_a VALUES ('a', 'a', '啊', 10), ('ai', 'a', '爱', 1);
          INSERT INTO tbl_1_b VALUES ('ba', 'b', '把', 0);
@@ -43,26 +38,48 @@ fn fixture(path: &Path) {
          INSERT INTO tbl_2_w VALUES ('wo''men', 'wm', '我们', 800), ('wan''shang', 'ws', '晚上', 100);
          INSERT INTO tbl_3_z VALUES ('zhong''guo''ren', 'zgr', '中国人', 700), ('zao''shang''hao', 'zsh', '早上好', 100);
          INSERT INTO tbl_others_x VALUES ('xi''huan''ni''men''de''ge''qu''ya', 'xhnmdgqy', '喜欢你们的歌曲呀', 100);
-         INSERT INTO wubi86 VALUES ('wqiy', '你', 3), ('q', '我', 9), ('ggll', '一', 1);
-         INSERT INTO wubi98 VALUES ('wqiy', '你', 3);
          INSERT INTO quick_parases VALUES ('dz', '地址', 1);
          COMMIT;",
     );
-    connection.execute_batch(&sql).unwrap();
+    Connection::open(pinyin)
+        .unwrap()
+        .execute_batch(&sql)
+        .unwrap();
+    let mut sql = String::from("BEGIN;");
+    sql.push_str(&keyed_table("wubi86"));
+    sql.push_str(&keyed_table("wubi98"));
+    sql.push_str(
+        "INSERT INTO wubi86 VALUES ('wqiy', '你', 3), ('q', '我', 9), ('ggll', '一', 1);
+         INSERT INTO wubi98 VALUES ('wqiy', '你', 3);
+         COMMIT;",
+    );
+    Connection::open(wubi).unwrap().execute_batch(&sql).unwrap();
 }
 
-fn run(input: &Path, out_dir: &Path, keep_multi: Option<usize>) {
+fn keyed_table(table: &str) -> String {
+    format!(
+        "CREATE TABLE {table} {KEYED_SCHEMA}; CREATE INDEX idx_{table}_key_weight ON {table}(\"key\", \"weight\" DESC);"
+    )
+}
+
+fn command(pinyin: &Path, wubi: &Path, out_dir: &Path, keep_multi: Option<usize>) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_msime-dict-build"));
     command
         .arg("web")
-        .arg("--input")
-        .arg(input)
+        .arg("--pinyin")
+        .arg(pinyin)
+        .arg("--wubi")
+        .arg(wubi)
         .arg("--out-dir")
         .arg(out_dir);
     if let Some(keep) = keep_multi {
         command.arg("--keep-multi").arg(keep.to_string());
     }
-    let output = command.output().unwrap();
+    command
+}
+
+fn run(pinyin: &Path, wubi: &Path, out_dir: &Path, keep_multi: Option<usize>) {
+    let output = command(pinyin, wubi, out_dir, keep_multi).output().unwrap();
     assert!(
         output.status.success(),
         "msime-dict-build web failed: {}",
@@ -110,18 +127,26 @@ fn sha256(path: &Path) -> String {
 
 struct Built {
     _dir: tempfile::TempDir,
-    input: PathBuf,
+    pinyin: PathBuf,
+    wubi: PathBuf,
     out: PathBuf,
 }
 
-fn built(keep_multi: Option<usize>) -> Built {
+fn inputs() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    let input = dir.path().join("msime.db");
-    fixture(&input);
+    let pinyin = dir.path().join("msime-pinyin.db");
+    let wubi = dir.path().join("msime-wubi.db");
+    fixture(&pinyin, &wubi);
+    (dir, pinyin, wubi)
+}
+
+fn built(keep_multi: Option<usize>) -> Built {
+    let (dir, pinyin, wubi) = inputs();
     let out = dir.path().join("web");
-    run(&input, &out, keep_multi);
+    run(&pinyin, &wubi, &out, keep_multi);
     Built {
-        input,
+        pinyin,
+        wubi,
         out,
         _dir: dir,
     }
@@ -170,7 +195,7 @@ fn pinyin_breaks_weight_ties_by_key() {
 fn pinyin_default_keeps_every_row_of_a_small_input() {
     let built = built(None);
     let db = open(&built.out.join("msime-pinyin.db"));
-    let source = open(&built.input);
+    let source = open(&built.pinyin);
     for table in quanpin_tables() {
         assert_eq!(count(&db, &table), count(&source, &table), "{table}");
     }
@@ -195,11 +220,16 @@ fn wubi86_keeps_only_the_wubi86_table() {
 #[test]
 fn both_outputs_keep_every_table_and_index() {
     let built = built(Some(2));
-    let source = open(&built.input);
+    let union = |kind: &str| {
+        let mut all = names(&open(&built.pinyin), kind);
+        all.extend(names(&open(&built.wubi), kind));
+        all.sort();
+        all
+    };
     for name in ["msime-pinyin.db", "msime-wubi86.db"] {
         let db = open(&built.out.join(name));
-        assert_eq!(names(&db, "table"), names(&source, "table"), "{name}");
-        assert_eq!(names(&db, "index"), names(&source, "index"), "{name}");
+        assert_eq!(names(&db, "table"), union("table"), "{name}");
+        assert_eq!(names(&db, "index"), union("index"), "{name}");
         assert!(names(&db, "index").contains(&"idx_wubi86_key_weight".to_owned()));
         let mode: String = db
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
@@ -230,14 +260,14 @@ fn two_runs_give_the_same_bytes() {
         .map(|name| sha256(&built.out.join(name)))
         .collect();
     // 第二次写到已有输出的同一目录，同时验证覆盖旧文件。
-    run(&built.input, &built.out, Some(3));
+    run(&built.pinyin, &built.wubi, &built.out, Some(3));
     let second: Vec<String> = ["msime-pinyin.db", "msime-wubi86.db"]
         .iter()
         .map(|name| sha256(&built.out.join(name)))
         .collect();
     assert_eq!(first, second);
     let elsewhere = built.out.with_file_name("again");
-    run(&built.input, &elsewhere, Some(3));
+    run(&built.pinyin, &built.wubi, &elsewhere, Some(3));
     let third: Vec<String> = ["msime-pinyin.db", "msime-wubi86.db"]
         .iter()
         .map(|name| sha256(&elsewhere.join(name)))
@@ -246,11 +276,18 @@ fn two_runs_give_the_same_bytes() {
 }
 
 #[test]
-fn the_input_is_left_untouched() {
-    let dir = tempfile::tempdir().unwrap();
-    let input = dir.path().join("msime.db");
-    fixture(&input);
-    let before = sha256(&input);
-    run(&input, &dir.path().join("web"), Some(1));
-    assert_eq!(sha256(&input), before);
+fn the_inputs_are_left_untouched() {
+    let (dir, pinyin, wubi) = inputs();
+    let before = [sha256(&pinyin), sha256(&wubi)];
+    run(&pinyin, &wubi, &dir.path().join("web"), Some(1));
+    assert_eq!([sha256(&pinyin), sha256(&wubi)], before);
+}
+
+#[test]
+fn swapped_inputs_are_rejected() {
+    let (dir, pinyin, wubi) = inputs();
+    let output = command(&wubi, &pinyin, &dir.path().join("web"), None)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
 }

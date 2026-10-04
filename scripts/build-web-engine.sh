@@ -4,10 +4,10 @@
 # TapTapGo 按 web-engine-manifest.json 里每个文件的 sha256 和大小钉住 release（data/msime/web-engine.lock.json），所以同一提交、同一输入构建出来的文件必须逐字节相同：gzip 用 -n 去掉文件名和时间戳，词库由 `msime-dict-build web` 确定性地生成。
 #
 # 用法：
-#   scripts/build-web-engine.sh --dict <msime.db> --model <sentence-model.safetensors> [--keep-multi N] [--version X.Y.Z]
+#   scripts/build-web-engine.sh --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --model <sentence-model.safetensors> [--keep-multi N] [--version X.Y.Z]
 #   scripts/build-web-engine.sh --no-data [--version X.Y.Z]     只构建 wasm、加载代码和 NOTICE（CI 用）
 #
-# --keep-multi 是拼音库保留的多字词条数，默认 200000，透传给 `msime-dict-build web`。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
+# --pinyin 和 --wubi 是词库 release 的 msime-pinyin.db 和 msime-wubi.db，与 --keep-multi 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
 #
 # 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
 set -euo pipefail
@@ -27,14 +27,16 @@ usage() {
 }
 
 no_data=0
-dict=""
+pinyin=""
+wubi=""
 model=""
 keep_multi=200000
 version=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-data) no_data=1; shift ;;
-    --dict) [ "$#" -ge 2 ] || usage; dict="$2"; shift 2 ;;
+    --pinyin) [ "$#" -ge 2 ] || usage; pinyin="$2"; shift 2 ;;
+    --wubi) [ "$#" -ge 2 ] || usage; wubi="$2"; shift 2 ;;
     --model) [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
     --keep-multi) [ "$#" -ge 2 ] || usage; keep_multi="$2"; shift 2 ;;
     --version) [ "$#" -ge 2 ] || usage; version="$2"; shift 2 ;;
@@ -47,10 +49,11 @@ die() { echo "build-web-engine: $*" >&2; exit 1; }
 step() { printf '\n=== %s ===\n' "$1"; }
 
 if [ "$no_data" -eq 1 ]; then
-  [ -z "$dict" ] && [ -z "$model" ] || die "--no-data cannot be combined with --dict or --model"
+  [ -z "$pinyin" ] && [ -z "$wubi" ] && [ -z "$model" ] || die "--no-data cannot be combined with --pinyin, --wubi or --model"
 else
-  [ -n "$dict" ] && [ -n "$model" ] || die "--dict and --model are required unless --no-data is given"
-  [ -f "$dict" ] || die "dictionary not found: $dict"
+  [ -n "$pinyin" ] && [ -n "$wubi" ] && [ -n "$model" ] || die "--pinyin, --wubi and --model are required unless --no-data is given"
+  [ -f "$pinyin" ] || die "pinyin dictionary not found: $pinyin"
+  [ -f "$wubi" ] || die "wubi dictionary not found: $wubi"
   [ -f "$model" ] || die "model not found: $model"
   [[ "$keep_multi" =~ ^[0-9]+$ ]] || die "--keep-multi must be a number, got '$keep_multi'"
 fi
@@ -140,7 +143,7 @@ if [ "$no_data" -eq 0 ]; then
   dict_dir="$out/dict"
   mkdir -p "$dict_dir"
   cargo run --locked --release -p msime-dict-builder --bin msime-dict-build -- \
-    web --input "$dict" --out-dir "$dict_dir" --keep-multi "$keep_multi"
+    web --pinyin "$pinyin" --wubi "$wubi" --out-dir "$dict_dir" --keep-multi "$keep_multi"
   gzip -9n -c "$dict_dir/msime-pinyin.db" > "$dist/msime-pinyin.db.gz"
   gzip -9n -c "$dict_dir/msime-wubi86.db" > "$dist/msime-wubi86.db.gz"
   gzip -9n -c "$model" > "$dist/sentence-model.safetensors.gz"

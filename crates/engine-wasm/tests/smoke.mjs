@@ -45,7 +45,7 @@ const info = glue.build_info();
 if (!info.startsWith("msime-engine-wasm ")) {
   fail(`unexpected build_info: ${info}`);
 }
-glue.import_database("/res/msime.db", new Uint8Array(readFileSync(db)));
+glue.import_database("/res/msime-pinyin.db", new Uint8Array(readFileSync(db)));
 
 const engine = new glue.WebEngine("quanpin", 9);
 try {
@@ -70,5 +70,5 @@ try {
 } finally {
   engine.free();
 }
-glue.delete_database("/res/msime.db");
+glue.delete_database("/res/msime-pinyin.db");
 console.log("smoke: ok");

@@ -5,8 +5,8 @@
 | 文件 | 内容 |
 | --- | --- |
 | `msime_engine_bg.wasm`、`msime_engine.js` | 编译到 WebAssembly 的输入法引擎（`crates/engine-wasm`）及 wasm-bindgen 生成的加载代码 |
-| `msime-pinyin.db.gz` | 全拼与双拼用的拼音词库（`msime-dict-build web` 从 `msime.db` 裁出，gzip 压缩） |
-| `msime-wubi86.db.gz` | 五笔 86 码表（同上） |
+| `msime-pinyin.db.gz` | 全拼与双拼用的拼音词库（`msime-dict-build web` 从词库 release 的 `msime-pinyin.db` 裁出，gzip 压缩） |
+| `msime-wubi86.db.gz` | 五笔 86 码表（`msime-dict-build web` 从词库 release 的 `msime-wubi.db` 裁出，gzip 压缩） |
 | `sentence-model.safetensors.gz` | 整句重排模型（逐字节未改，gzip 压缩） |
 | `NOTICE.md` | 本文件 |
 
@@ -29,14 +29,15 @@
 
 ## 词库
 
-`msime-pinyin.db` 与 `msime-wubi86.db` 由 `msime-dict-build web` 从本仓库 `dict-v*` release 的 `msime.db` 裁剪而来（拼音库保留全部单字和权重最高的若干多字词，五笔库只保留 86 码表），不增加任何新数据。`msime.db` 是授权构建：`release-dictionary.yml` 不带 `--include-unlicensed`，没有再分发授权的输入不会进入其中。来源逐项如下，与 `resources/licenses/msime-engine-dictionary-NOTICE.md` 一致：
+`msime-pinyin.db` 与 `msime-wubi86.db` 由 `msime-dict-build web` 从 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) `dict-v*` release 的 `msime-pinyin.db` 和 `msime-wubi.db` 裁剪而来（拼音库保留全部单字和权重最高的若干多字词，五笔库只保留 86 码表），不增加任何新数据。这两个库是授权构建：msime-dictionary 的 `release-built-dictionaries.yml` 不带 `--include-unlicensed`，没有再分发授权的输入不会进入其中。来源逐项如下，与 `resources/licenses/msime-engine-dictionary-NOTICE.md` 一致：
 
 | 数据 | 上游 | 上游许可 | 在哪个文件 |
 | --- | --- | --- | --- |
-| 拼音词条（`cn/BaseDictIceV1.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 | `msime-pinyin.db` |
-| 单字表（`cn/SingleCharsAllV1.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT | `msime-pinyin.db` |
+| 拼音词条（`sources/pinyin/rime-ice.txt`、`sources/pinyin/rime-ice-supplement.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice) | GPL-3.0 | `msime-pinyin.db` |
+| 行政区划地名（`sources/pinyin/places.txt`） | [modood/Administrative-divisions-of-China](https://github.com/modood/Administrative-divisions-of-China)，读音与权重下限依据 rime-ice | WTFPL（区划名称）；读音与权重依据 GPL-3.0 | `msime-pinyin.db` |
+| 单字表（`sources/pinyin/single-chars.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT | `msime-pinyin.db` |
 | `source/SampleIMESimplifiedQuanPin.txt` | [microsoft/Windows-classic-samples](https://github.com/microsoft/Windows-classic-samples) | MIT | `msime-pinyin.db` |
-| 五笔 86 码表（`cn/Wubi86.txt`） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 | `msime-wubi86.db` |
+| 五笔 86 码表（`sources/wubi/wubi86-jidian.txt`） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 | `msime-wubi86.db` |
 | 本项目自建词条（`source/FanyExtDict.txt`、`cn/phrases.txt`、msime-dictionary 的 `custom/`） | [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) | GPL-3.0 | `msime-pinyin.db` |
 
 拼音库含 rime-ice 的数据，再分发时必须保留对 rime-ice 的署名，并按 GPL-3.0 提供；GPL-3.0 全文见下文 `LICENSE`。五笔 86 码表为 Apache-2.0，需保留署名。两个库里的五笔 98 码表与快捷短语表都已清空（只留表结构）。
@@ -47,7 +48,7 @@
 
 ## 不包含的数据
 
-网页引擎不分发 `bigram.bin`、`trigram.bin`（中文维基百科统计的 n-gram 表，CC-BY-SA 4.0）、`others.db`、`english.db` 和辅助码表，因此不承担这些数据的署名与相同方式共享义务。
+网页引擎不分发 `msime-bigram.bin`、`msime-trigram.bin`（中文维基百科统计的 n-gram 表，CC-BY-SA 4.0）、`msime-others.db`、`msime-english.db` 和辅助码表，因此不承担这些数据的署名与相同方式共享义务。
 
 ## 仓库内的许可证全文
 

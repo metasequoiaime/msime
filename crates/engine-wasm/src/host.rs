@@ -256,7 +256,7 @@ pub struct WebHost {
 }
 
 impl WebHost {
-    /// 主库必须已在 /res/msime.db（wasm 上由 import_database 放入；原生测试用真实路径构造，见 new_with_paths）
+    /// 主库必须已在 /res/msime-pinyin.db（wasm 上由 import_database 放入；原生测试用真实路径构造，见 new_with_paths）。路径必须是 `assets::MAIN_DICTIONARY` 的现名：wasm32-unknown-unknown 上读不到文件元数据，`RuntimePaths` 退回旧名 msime.db 的逻辑不会生效
     pub fn new(scheme: Scheme, page_size: usize, model: Option<&[u8]>) -> Result<WebHost, String> {
         let resources = PathBuf::from("/res");
         let scratch = PathBuf::from("/scratch");

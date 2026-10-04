@@ -5,7 +5,7 @@
 // 模型开着测：每条输入开始前 `set_model_enabled(true)`，它同时清掉慢帧熔断（连续三次重排超过 120 ms 就关模型），否则机器一慢模型被熔断，量出来的反而是不带模型的数字。熔断被触发的条数会单独报告。
 //
 // 用法：node crates/engine-wasm/bench/latency.mjs [--dist <dist 目录>] [--set <tsv>] [--scheme quanpin] [--no-model] [--max-p95 <ms>]
-// dist 默认 target/web-engine/dist（scripts/build-web-engine.sh 带 --dict --model 的产物），set 默认 resources/eval/sentences-v1.tsv。只用 Node 22+ 自带的模块。
+// dist 默认 target/web-engine/dist（scripts/build-web-engine.sh 带 --pinyin --wubi --model 的产物），set 默认 resources/eval/sentences-v1.tsv。只用 Node 22+ 自带的模块。
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -89,7 +89,7 @@ const glue = await import(pathToFileURL(resolve(options.dist, "msime_engine.js")
 glue.initSync({ module: readFileSync(resolve(options.dist, "msime_engine_bg.wasm")) });
 
 const dbFile = isWubi ? "msime-wubi86.db.gz" : "msime-pinyin.db.gz";
-glue.import_database("/res/msime.db", new Uint8Array(gunzipSync(readFileSync(resolve(options.dist, dbFile)))));
+glue.import_database("/res/msime-pinyin.db", new Uint8Array(gunzipSync(readFileSync(resolve(options.dist, dbFile)))));
 const model =
   options.model && !isWubi ? new Uint8Array(gunzipSync(readFileSync(resolve(options.dist, "sentence-model.safetensors.gz")))) : undefined;
 
