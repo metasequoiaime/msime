@@ -124,7 +124,12 @@ export function PluginsSection({
   const openedFrom = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!active || !client) return;
+    if (!client) {
+      setCatalog({ packages: [], issues: [] });
+      setCatalogState("loading");
+      return;
+    }
+    if (!active) return;
     const generation = clientGeneration.current;
     // A read after a failed one shows as loading again; once a catalog is listed it stays on screen while it is reread.
     setCatalogState((state) => (state === "loaded" ? state : "loading"));
