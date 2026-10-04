@@ -124,7 +124,11 @@ export function ClipboardHistorySection({
       setClearArmed(false);
       return;
     }
-    if (!client?.list) return;
+    if (!client?.list) {
+      setEntries([]);
+      setClearArmed(false);
+      return;
+    }
     void client
       .list()
       .then((next) => {
