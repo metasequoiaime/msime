@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 private typealias MSIMEByte = UInt8
@@ -1335,6 +1336,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard rows.allSatisfy({ $0["text"] is String }) else {
       throw InputBridgeFailure.invalidResponse
     }
+    let candidateSources = try rows.map { try strictInt($0["source"], fallback: -1, range: 0...255) }
+    let candidateFixedPositions = try rows.map { try strictInt($0["fixed_position"], fallback: 0, range: 0...255) }
+    let pageCount = try strictInt(view["page_count"], fallback: 0, range: 0...Int.max)
+    let editingText = view["editing_text"] as? String ?? ""
+    let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
@@ -1343,15 +1349,25 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
-      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? -1 },
-      candidateFixedPositions: rows.map { ($0["fixed_position"] as? NSNumber)?.intValue ?? 0 },
-      candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
+      candidateSources: candidateSources,
+      candidateFixedPositions: candidateFixedPositions,
+      candidatePageCount: pageCount,
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
-      editingText: view["editing_text"] as? String ?? "",
-      caretPosition: (view["caret_position"] as? NSNumber)?.intValue ?? 0)
+      editingText: editingText,
+      caretPosition: caretPosition)
+  }
+
+  private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {
+    guard let value else { return fallback }
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          range.contains(integer) else { throw InputBridgeFailure.invalidResponse }
+    return integer
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
