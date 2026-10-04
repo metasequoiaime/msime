@@ -42,6 +42,8 @@ export function useDataDirectory({ client, enabled, confirm }: UseDataDirectoryO
     const current = generation.current;
     actionRunning.current = false;
     setBusy(false);
+    setDataDirectory(undefined);
+    setResult("");
     if (!enabled || !client) return;
     void client
       .status()

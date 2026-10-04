@@ -154,7 +154,7 @@ mod tests {
     }
 
     fn fixture(dir: &Path) -> std::path::PathBuf {
-        let path = dir.join("msime.db");
+        let path = dir.join("msime-pinyin.db");
         Connection::open(&path)
             .unwrap()
             .execute_batch(

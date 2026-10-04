@@ -168,7 +168,7 @@ pub struct QuanpinDictionary {
 }
 
 impl QuanpinDictionary {
-    /// Opens the generation's `msime.db`, loads the n-gram tables, the personal context store and the typo profile off the keystroke path, and warms the statement cache (QD:231-268).
+    /// Opens the generation's `msime-pinyin.db`, loads the n-gram tables, the personal context store and the typo profile off the keystroke path, and warms the statement cache (QD:231-268).
     pub fn new(paths: &RuntimePaths) -> Self {
         let database = PinyinDatabase::open(&paths.dictionary(MAIN_DICTIONARY));
         database.warm_up();

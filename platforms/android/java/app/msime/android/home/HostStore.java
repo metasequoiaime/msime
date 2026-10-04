@@ -90,7 +90,8 @@ public final class HostStore {
         final String document;
         try {
             JSONObject pending = new JSONObject(snapshot.toString());
-            revision = pending.getLong("revision");
+            revision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (revision < 0) return null;
             pending.put("format_version", FORMAT_VERSION);
             document = pending.toString();
         } catch (JSONException error) {

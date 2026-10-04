@@ -1,4 +1,5 @@
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { TextPolicy } from '../TextPolicy';
 import { utf8Length } from '../Utf8';
@@ -108,6 +109,7 @@ export class HarmonyVoicePolisher {
       ]
     };
     const request: http.HttpRequest = http.createHttp();
+    installNoRedirectGuard(request);
     this.request = request;
     try {
       const response: http.HttpResponse = await request.request(endpoint, {

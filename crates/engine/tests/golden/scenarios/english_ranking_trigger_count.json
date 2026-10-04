@@ -8,8 +8,8 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',200);INSERT INTO tbl_1_n VALUES('ni','n','倪',100);",
-   "english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);INSERT INTO english_words VALUES('ni','Ni',300);INSERT INTO english_words VALUES('ninja','Ninja',200);INSERT INTO english_words VALUES('nimbus','Nimbus',100);INSERT INTO english_words VALUES('ni','倪',50);INSERT INTO english_words VALUES('hello','Hello',300);INSERT INTO english_words VALUES('help','Help',200);INSERT INTO english_words VALUES('nickel','Nickel',400);INSERT INTO english_words VALUES('nicker','Nicker',300);"
+   "msime-pinyin.db": "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);INSERT INTO tbl_1_n VALUES('ni','n','你',200);INSERT INTO tbl_1_n VALUES('ni','n','倪',100);",
+   "msime-english.db": "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT NOT NULL);CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT NOT NULL);INSERT INTO english_words VALUES('ni','Ni',300);INSERT INTO english_words VALUES('ninja','Ninja',200);INSERT INTO english_words VALUES('nimbus','Nimbus',100);INSERT INTO english_words VALUES('ni','倪',50);INSERT INTO english_words VALUES('hello','Hello',300);INSERT INTO english_words VALUES('help','Help',200);INSERT INTO english_words VALUES('nickel','Nickel',400);INSERT INTO english_words VALUES('nicker','Nicker',300);"
   }
  },
  "options": {
@@ -49,7 +49,7 @@
   },
   {
    "op": "query",
-   "db": "english.db",
+   "db": "msime-english.db",
    "arg": "SELECT word,display,weight FROM english_words WHERE word LIKE 'nick%' ORDER BY 1,2"
   },
   {
@@ -67,7 +67,7 @@
   },
   {
    "op": "query",
-   "db": "english.db",
+   "db": "msime-english.db",
    "arg": "SELECT word,display,weight FROM english_words WHERE word LIKE 'nick%' ORDER BY 1,2"
   },
   {

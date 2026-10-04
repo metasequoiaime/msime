@@ -1,5 +1,6 @@
 import app.msime.android.HttpAsrPolicy;
 import app.msime.android.WavAudio;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
 /** Which providers this host can talk to, and the exact bytes it uploads. */
@@ -102,6 +103,16 @@ public final class HttpAsrPolicySmoke {
         byte[] without = HttpAsrPolicy.multipartBody(boundary, "whisper-1", "  ", wav);
         check(!new String(without, StandardCharsets.ISO_8859_1).contains("name=\"language\""),
             "no language field is sent when there is none, which is how these APIs detect one");
+        try {
+            Method strictText = HttpAsrPolicy.class.getDeclaredMethod("strictText", Object.class);
+            strictText.setAccessible(true);
+            check("synthetic transcript".equals(strictText.invoke(null, "synthetic transcript")),
+                "HTTP ASR accepts string transcripts");
+            check("".equals(strictText.invoke(null, 42)),
+                "HTTP ASR rejects numeric transcripts instead of coercing them");
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError("HTTP ASR response parser unavailable", error);
+        }
         System.out.println("Android HTTP ASR policy passed");
     }
 }

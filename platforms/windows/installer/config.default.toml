@@ -245,7 +245,7 @@ toggle_character_set_ctrl_shift_f = true
 #
 [dictionary]
 # 词库路径
-dictionary_path = "./assets/dictionaries/msime.db"
+dictionary_path = "./assets/dictionaries/msime-pinyin.db"
 
 #
 # Skin

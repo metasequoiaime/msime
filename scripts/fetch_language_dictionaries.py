@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fetch the Cantonese and Zhuyin dictionaries the macOS and Windows hosts ship beside their resource set.
 
-``resources/language-dictionaries.lock.json`` pins ``cantonese.db`` and ``zhuyin.db``, built by ``msime-dict-build languages`` and published by ``.github/workflows/release-language-dictionaries.yml``, together with their licence texts (``rime_cantonese_LICENSE.txt``, ``libchewing_data_LICENSE.txt``), which must travel with them. ``platforms/macos/stage-resources.sh`` and ``platforms/windows/installer/Prepare-PackageFiles.ps1`` read ``target/language-dictionaries`` and stage nothing when it is absent; without the dictionaries Cantonese and Zhuyin are shown as unavailable and fall back, while Vietnamese needs no data.
+``resources/language-dictionaries.lock.json`` pins ``msime-cantonese.db`` and ``msime-zhuyin.db``, built by ``msime-dict-build languages`` and published by ``msime-dictionary/.github/workflows/release-built-dictionaries.yml``, together with their licence texts (``msime-rime_cantonese_LICENSE.txt``, ``msime-libchewing_data_LICENSE.txt``), which must travel with them. ``platforms/macos/stage-resources.sh`` and ``platforms/windows/installer/Prepare-PackageFiles.ps1`` read ``target/language-dictionaries`` and stage nothing when it is absent; without the dictionaries Cantonese and Zhuyin are shown as unavailable and fall back, while Vietnamese needs no data.
 
 Until a release is pinned the lock does not exist; this prints a "skipped" line and exits 0, so packaging can call it unconditionally. The lock pins a SHA-256 and a size for every file, and a download that does not match them is discarded rather than installed. Idempotent: a file already present and matching is left alone.
 

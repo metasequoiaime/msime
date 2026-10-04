@@ -11,7 +11,7 @@
 
 namespace msime_linux {
 // Both tools consume files, even when the Host API takes a containing
-// directory (the Emoji catalog is always resources/others.db).
+// directory (the Emoji catalog is always resources/msime-others.db).
 inline bool resource_file(const std::filesystem::path &path) {
   std::error_code error;
   return path.is_absolute() && std::filesystem::is_regular_file(path, error);

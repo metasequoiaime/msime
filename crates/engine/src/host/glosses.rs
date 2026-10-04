@@ -59,7 +59,7 @@ pub fn candidate_glosses_with_user(
     user_data: &str,
     candidates: &[(String, u8)],
 ) -> Result<Vec<String>> {
-    // An empty resource path requests only the user overlay, never a relative `english.db` (bridge.cpp:1161-1162).
+    // An empty resource path requests only the user overlay, never a relative `msime-english.db` (bridge.cpp:1161-1162).
     let packaged = if resources.is_empty() {
         None
     } else {

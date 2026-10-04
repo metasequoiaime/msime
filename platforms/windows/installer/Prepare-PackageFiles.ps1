@@ -132,7 +132,7 @@ $license = Join-Path $RepoRoot 'LICENSE'
 $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
     $DesktopResourcesDirectory
 } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
-$englishDb = Join-Path $resourceSource 'english.db'
+$englishDb = Join-Path $resourceSource 'msime-english.db'
 # 手写模型与其授权声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model 查找，因此这两个文件与 Server 一起落在 server_exe 下，而不是 app_data。来源由 resources/handwriting-model.lock.json 记录，不再随包附 provenance.json。
 $handwritingSource = Join-Path $RepoRoot $HandwritingDirectory
 $handwritingModel = Join-Path $handwritingSource 'handwriting-zh_CN.model'
@@ -191,14 +191,14 @@ if (-not $Light) {
     if (-not (Get-ChildItem -LiteralPath $helpcodeSource -File -Filter '*.txt')) {
         throw "辅助码目录中没有码表：$helpcodeSource"
     }
-    Assert-PathExists -LiteralPath $englishDb -Description '英文词库数据库 english.db'
+    Assert-PathExists -LiteralPath $englishDb -Description '英文词库数据库 msime-english.db'
     python -c @"
 import sqlite3, sys
 cols = list(sqlite3.connect(sys.argv[1]).execute('PRAGMA table_info(english_words)'))
 names = {row[1] for row in cols}
 pk = [row[1] for row in cols if row[5] > 0]
 if 'weight' not in names or pk != ['word', 'display']:
-    raise SystemExit('english.db schema is stale; rebuild with weight and PRIMARY KEY(word, display)')
+    raise SystemExit('msime-english.db schema is stale; rebuild with weight and PRIMARY KEY(word, display)')
 "@ $englishDb
     if ($LASTEXITCODE -ne 0) {
         throw "英文词库数据库 schema 检查失败：$englishDb"
@@ -384,7 +384,7 @@ if (Test-Path -LiteralPath $languagesTarget) {
 }
 if (-not $Light) {
     $stagedLanguages = @()
-    foreach ($pair in @(@('cantonese.db', 'rime_cantonese_LICENSE.txt'), @('zhuyin.db', 'libchewing_data_LICENSE.txt'), @('stroke.db', 'rime_stroke_LICENSE.txt'))) {
+    foreach ($pair in @(@('msime-cantonese.db', 'msime-rime_cantonese_LICENSE.txt'), @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt'), @('msime-stroke.db', 'msime-rime_stroke_LICENSE.txt'))) {
         $database = Join-Path $languagesSource $pair[0]
         $license = Join-Path $languagesSource $pair[1]
         if (-not (Test-Path -LiteralPath $database -PathType Leaf)) { continue }
@@ -460,7 +460,7 @@ foreach ($pair in @(@($tsf32Release, $targetTsf32), @($tsf64Release, $targetTsf6
         Copy-Item -Destination $pair[1] -Force
 }
 Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
-# rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime.db, so the
+# rime-ice is GPL-3.0 and requires attribution, and its content forms the bulk of msime-pinyin.db, so the
 # notice has to reach the user's disk rather than only exist in the source repository.
 Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $PSScriptRoot 'THIRD_PARTY_NOTICES.txt') -Force
 # GPLv3 sections 4 and 6 require a copy of the licence to reach whoever receives the program, and the

@@ -2,6 +2,7 @@ import { SettingsGroupNote } from "./settings-group-note";
 import { useEffect, useState } from "react";
 import { GroupList } from "../core/platform-controls";
 import { SummaryRow } from "./summary-row";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export interface DictionaryManifest {
   profile: string;
@@ -16,20 +17,18 @@ export interface DictionaryManifestCardProps {
 export function DictionaryManifestCard({ read }: DictionaryManifestCardProps) {
   const [manifest, setManifest] = useState<DictionaryManifest | null>(null);
   const [failed, setFailed] = useState(false);
+  const generation = useAsyncGeneration(read);
 
   useEffect(() => {
-    let active = true;
+    const requestGeneration = generation.current;
     void read()
       .then((value) => {
-        if (active) setManifest(value);
+        if (generation.current === requestGeneration) setManifest(value);
       })
       .catch(() => {
-        if (active) setFailed(true);
+        if (generation.current === requestGeneration) setFailed(true);
       });
-    return () => {
-      active = false;
-    };
-  }, [read]);
+  }, [read, generation]);
 
   if (failed) {
     return (

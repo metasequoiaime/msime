@@ -2,7 +2,7 @@ import UIKit
 
 /// Categorized symbol surface used by the keyboard's punctuation shortcut.
 ///
-/// Symbols the user picked before lead as 最近, the way the Windows panel opens on its recently used items. The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
+/// Symbols the user picked before lead as 最近, the way the Windows panel opens on its recently used items. The hand-picked phone categories come next; after them come the parents of the Engine's symbol catalog in `msime-others.db`, the same catalog the desktop, macOS and Harmony panels browse, loaded a parent at a time off the main thread.
 ///
 /// 搜索 looks the whole catalog up by keyword, as the search box of the Windows panel does. A keyboard extension has no text field of its own to type into, so the search swaps the category column for a letter pad under the results; the catalog files every symbol under English words, full pinyin and pinyin initials, which letters are enough to type.
 final class KeyboardSymbolPanelView: UIView {

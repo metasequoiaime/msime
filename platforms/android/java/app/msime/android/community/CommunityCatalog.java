@@ -253,8 +253,10 @@ public final class CommunityCatalog {
     /** 一个条目，读不出或不合规时为 null。 */
     private static Item item(CommunityRequest.Kind kind, JSONObject value) {
         boolean skin = kind == CommunityRequest.Kind.SKIN;
-        String id = value.optString("id", "");
-        String name = value.optString("name", "").trim();
+        String id = strictString(value.opt("id"));
+        String name = strictString(value.opt("name"));
+        if (id == null || name == null) return null;
+        name = name.trim();
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
         Long saves = count(value, "saves", skin ? "downloads" : null);
         Long ratings = count(value, "rating_count", null);
@@ -266,10 +268,22 @@ public final class CommunityCatalog {
             category = CommunityRequest.Category.parse(raw == JSONObject.NULL ? null : raw);
             if (category == null) return null;
         }
-        Item item = new Item(id, kind, name, value.optString("description", "").trim(),
-            value.optString("author", "").trim(), saves, ratings, average, payload, category,
-            value.optBoolean("owned", false));
+        String description = value.has("description") ? strictString(value.opt("description")) : "";
+        String author = value.has("author") ? strictString(value.opt("author")) : "";
+        Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
+        if (description == null || author == null || owned == null) return null;
+        Item item = new Item(id, kind, name, description.trim(), author.trim(), saves, ratings,
+            average, payload, category, owned);
         return validItem(item, kind) ? item : null;
+    }
+
+    /** org.json's optString/optBoolean coerce numbers and booleans; community responses are a typed contract. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
+    static Boolean strictBoolean(Object value) {
+        return value instanceof Boolean ? (Boolean) value : null;
     }
 
     /** A malformed page is a backend fault, not more results to show. Kept apart from parse so the JVM smoke can check it: the smokes run against android.jar, whose org.json classes are stubs that throw. */

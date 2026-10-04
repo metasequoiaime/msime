@@ -25,6 +25,7 @@ import {
 import {
   ACCOUNT_ORIGIN, FileSessionStore, HarmonyAccountTransport, responseContentLength, responseContentType
 } from './HarmonyAccountTransport';
+import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
 interface SnapshotAction {
   operation: string;
@@ -145,21 +146,27 @@ class HarmonyTransport extends HarmonyAccountTransport {
       Authorization: `Bearer ${token}`,
       'Accept-Encoding': 'identity'
     };
-    const options: http.HttpRequestOptions = {
+    const options = noRedirectOptions({
       method: http.RequestMethod.GET,
       header: headers,
       connectTimeout: 30000,
       readTimeout: 600000
-    };
+    });
     let handle: fs.File | undefined = undefined;
     let bytes: number = 0;
     let failed: boolean = false;
     let contentLength: number | undefined = undefined;
     let contentType: string | undefined = undefined;
+    let endResolve: (() => void) | undefined = undefined;
     const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
+      endResolve = resolve;
       // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
       // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
       request.on('dataEnd', (): void => resolve());
+    });
+    installNoRedirectGuard(request, (): void => {
+      failed = true;
+      endResolve?.();
     });
     request.on('headersReceive', (responseHeaders: Object): void => {
       contentLength = responseContentLength(responseHeaders);

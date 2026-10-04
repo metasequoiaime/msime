@@ -2,6 +2,15 @@ import XCTest
 
 /// The app's 键盘布局 page saves where the keyboard reads: the shared document first, the App Group after it.
 final class KeyboardGeometrySettingsTests: XCTestCase {
+  func testSharedGeometryRejectsFractionalAndBooleanValues() {
+    XCTAssertNil(KeyboardLayoutPreference.sharedKeySpacing(NSNumber(value: 45.5)))
+    XCTAssertNil(KeyboardLayoutPreference.sharedRowSpacing(NSNumber(value: true)))
+    XCTAssertNil(KeyboardLayoutPreference.sharedHeightAdjustment(NSNumber(value: 2.5)))
+    XCTAssertEqual(KeyboardLayoutPreference.sharedKeySpacing(NSNumber(value: 45)), 4.5)
+    XCTAssertEqual(KeyboardLayoutPreference.sharedRowSpacing(NSNumber(value: 70)), 7)
+    XCTAssertEqual(KeyboardLayoutPreference.sharedHeightAdjustment(NSNumber(value: 20)), 20)
+  }
+
   private var state: URL!
   private var previous: (Double, Double, Double, Bool) = (0, 0, 0, false)
 

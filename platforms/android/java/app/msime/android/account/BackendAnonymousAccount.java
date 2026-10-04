@@ -83,7 +83,7 @@ final class BackendAnonymousAccount {
                 ? tokens.optString("refresh_token", "") : null;
             if (token == null || refresh == null || !"Bearer".equals(tokens.optString("token_type", "")))
                 throw new IllegalStateException("anonymous account unavailable");
-            long expires = tokens.optLong("expires_in", 0);
+            long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
             if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), token,
                     refresh, expires)) throw new IllegalStateException("anonymous account unavailable");
             JSONObject savedSession = new JSONObject().put("tokens", tokens)
@@ -162,8 +162,8 @@ final class BackendAnonymousAccount {
     private static String tokenFromSession(String encoded) {
         try {
             JSONObject session = new JSONObject(encoded);
-            long expiry = session.optLong("expires_at_unix_ms", 0);
-            if (expiry <= System.currentTimeMillis() + 30_000L) return null;
+            long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
+            if (!AccountTokenPolicy.validExpiry(expiry, System.currentTimeMillis())) return null;
             String token = session.getJSONObject("tokens").optString("access_token", "");
             return AccountTokenPolicy.validToken(token) ? token : null;
         } catch (Exception ignored) { return null; }

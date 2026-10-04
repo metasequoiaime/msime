@@ -33,11 +33,11 @@ def main() -> int:
         resources = root / "resources"
         resources.mkdir()
         payload = b"synthetic dictionary bytes"
-        checksum = write(resources / "msime.db", payload)
+        checksum = write(resources / "msime-pinyin.db", payload)
         lock = {
             "artifacts": [
-                {"name": "msime.db", "sha256": checksum, "size": len(payload),
-                 "url": "https://example.invalid/msime.db"},
+                {"name": "msime-pinyin.db", "sha256": checksum, "size": len(payload),
+                 "url": "https://example.invalid/msime-pinyin.db"},
             ]
         }
 
@@ -51,10 +51,10 @@ def main() -> int:
         lock["artifacts"][0]["size"] = len(payload)
 
         # 大小相同而内容被换掉：只有摘要能发现，这正是它存在的理由。
-        write(resources / "msime.db", b"synthetic dictionary bytez")
+        write(resources / "msime-pinyin.db", b"synthetic dictionary bytez")
         problems = setup.verify_directory(resources, lock)
         assert len(problems) == 1 and "SHA-256" in problems[0], problems
-        write(resources / "msime.db", payload)
+        write(resources / "msime-pinyin.db", payload)
 
         # 宿主拒绝锁之外的任何条目，这里同样报出来；例外只有 Engine 的 helpcodes 子目录。
         (resources / "helpcodes").mkdir()
@@ -68,7 +68,7 @@ def main() -> int:
         (resources / "nested").rmdir()
 
         # 缺文件与内容不对是两种报告，不要混成一句「不可用」。
-        (resources / "msime.db").unlink()
+        (resources / "msime-pinyin.db").unlink()
         problems = setup.verify_directory(resources, lock)
         assert len(problems) == 1 and "缺少" in problems[0], problems
 
@@ -80,8 +80,8 @@ def main() -> int:
         lock = {
             "artifacts": [
                 {"name": "present.dat", "sha256": write(resources / "present.dat", present), "size": len(present)},
-                {"name": "msime.db", "sha256": hashlib.sha256(b"x").hexdigest(), "size": 1,
-                 "url": "https://example.invalid/msime.db"},
+                {"name": "msime-pinyin.db", "sha256": hashlib.sha256(b"x").hexdigest(), "size": 1,
+                 "url": "https://example.invalid/msime-pinyin.db"},
                 {"name": "unreachable.dat", "sha256": "1" * 64, "size": 1},
             ]
         }
@@ -102,7 +102,7 @@ def main() -> int:
             assert requested == [], requested
             lock["artifacts"].pop()
             setup.download_artifacts(lock, resources)
-            assert requested == ["https://example.invalid/msime.db"], requested
+            assert requested == ["https://example.invalid/msime-pinyin.db"], requested
             assert setup.verify_directory(resources, lock) == []
         finally:
             setup.fetch = original_fetch

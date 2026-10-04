@@ -8,7 +8,7 @@
  "fixture": {
   "english_schema": true,
   "databases": {
-   "msime.db": "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE tbl_7_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE tbl_others_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);"
+   "msime-pinyin.db": "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE tbl_7_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE tbl_others_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);"
   }
  },
  "options": {},

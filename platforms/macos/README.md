@@ -59,19 +59,19 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime.db`、`bigram.bin`、`trigram.bin`、`english.db`、`others.db`、`sentence-model.safetensors`、`dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 115000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 121000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
-- `japanese`：`dict_japanese.dat` 与 `mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
-- `language-dictionaries`：`cantonese.db`、`zhuyin.db`、`stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
+- `japanese`：`msime-japanese.dat` 与 `msime-mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
+- `language-dictionaries`：`msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `msime-stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
 - `handwriting`：`handwriting-zh_CN.model` 与 `HandwritingModel-LICENSE.txt`，按 `resources/handwriting-model.lock.json`。第一次打开手写面板时下载。
 
-查找时下载的那份优先，其次是随包内置或旧配置记录的那份（`language_dictionaries` 键指向的目录、资源目录里的 `dict_japanese.dat`、`Contents/Resources/handwriting` 里的模型），两处都没有时对应方案或手写面板显示为不可用，和以前缺数据时一样降级。输入法在输入框获得焦点时重新看一次这几个路径，会话打开后才装好的资源包在下一次输入空闲时生效，不必重启输入法。
+查找时下载的那份优先，其次是随包内置或旧配置记录的那份（`language_dictionaries` 键指向的目录、资源目录里的 `msime-japanese.dat`、`Contents/Resources/handwriting` 里的模型），两处都没有时对应方案或手写面板显示为不可用，和以前缺数据时一样降级。输入法在输入框获得焦点时重新看一次这几个路径，会话打开后才装好的资源包在下一次输入空闲时生效，不必重启输入法。
 
 用户词库的代次仍按完整的 `desktop-dictionary.lock.json` 计算，`user/dictionaries/<代次>` 不会因为包里少了日文词典而变化，所以从内置全部资源的旧版本升级上来不会重新准备工作词库。升级后旧配置里记录的资源目录和语言词库目录如果还在，照常作为兜底；Sparkle 换掉整个 bundle 后包里的那份已经不在，设置应用启动时按已保存的方案补下需要的资源包。
 
-`package-release.sh` 在编译之前先用 App 运行时的同一个安装器（`install_resource_pack` 示例）把三个资源包装进临时目录，地址失效或哈希漂移的发布包不会被打出来。`release-dictionary.yml` 与 `release-language-dictionaries.yml` 发布的 release 是已发布 App 的下载源，不能删除，附件也不能替换。`.github/workflows/ci-macos-package.yml` 在改动碰到打包输入的 PR 上检查核心词库的暂存规则和资源包可下载，并在 Apple 芯片的 runner 上打一个未签名的包；它不是分支保护要求的检查，每周还会定时跑一次。`scripts/test-macos-package-resources.py` 静态核对这几处保持一致。
+`package-release.sh` 在编译之前先用 App 运行时的同一个安装器（`install_resource_pack` 示例）把三个资源包装进临时目录，地址失效或哈希漂移的发布包不会被打出来。`msime-dictionary/.github/workflows/release-built-dictionaries.yml` 发布的词库 release 是已发布 App 的下载源，不能删除，附件也不能替换。`.github/workflows/ci-macos-package.yml` 在改动碰到打包输入的 PR 上检查核心词库的暂存规则和资源包可下载，并在 Apple 芯片的 runner 上打一个未签名的包；它不是分支保护要求的检查，每周还会定时跑一次。`scripts/test-macos-package-resources.py` 静态核对这几处保持一致。
 
 签名与公证取决于仓库 secrets，全部可选。括号里是 workflow 把它们交给 `package-release.sh` 时用的环境变量名，本机打包时直接设置这些变量：
 
@@ -322,7 +322,7 @@ cmake --build target/macos-isolated --target emoji-home-test-build emoji-flow-te
 ctest --test-dir target/macos-isolated -L emoji-local --output-on-failure
 ```
 
-符号集插件并入符号和颜文字页：面板用 `list_plugin_symbol_groups` 与 `<preferences_directory>/plugins` 读出已安装插件的全部组，这个请求不读 `others.db`。`symbols` 组以插件包为上级分类，排在内置分类之后（分类显示插件名，按包 id 区分，同名插件包也各占一个分类，图标是该包第一个符号），组标题作为分节标题；`kaomoji` 组作为独立分节排在内置颜文字 All 之后。不与内置目录或其他插件包去重。搜索词命中组关键词时给整组，否则只给文本包含搜索词的项，插件结果排在内置结果之后。插件组在打开符号页或颜文字页时读一次，之后的搜索和切换分组只筛这份缓存，不再逐包扫描校验。插件读取失败或没有偏好目录时只显示内置目录；内置符号分类或内置条目读取失败时（例如 `others.db` 损坏），插件分类和插件条目照常显示。`emoji-catalog` 用模拟会话覆盖请求参数、解码与非法响应，`emoji-category-tabs`、`emoji-symbol-sections` 和 `emoji-flow` 覆盖分类、分节下标和跨分节的上下移动。首页预览不含插件组。
+符号集插件并入符号和颜文字页：面板用 `list_plugin_symbol_groups` 与 `<preferences_directory>/plugins` 读出已安装插件的全部组，这个请求不读 `msime-others.db`。`symbols` 组以插件包为上级分类，排在内置分类之后（分类显示插件名，按包 id 区分，同名插件包也各占一个分类，图标是该包第一个符号），组标题作为分节标题；`kaomoji` 组作为独立分节排在内置颜文字 All 之后。不与内置目录或其他插件包去重。搜索词命中组关键词时给整组，否则只给文本包含搜索词的项，插件结果排在内置结果之后。插件组在打开符号页或颜文字页时读一次，之后的搜索和切换分组只筛这份缓存，不再逐包扫描校验。插件读取失败或没有偏好目录时只显示内置目录；内置符号分类或内置条目读取失败时（例如 `msime-others.db` 损坏），插件分类和插件条目照常显示。`emoji-catalog` 用模拟会话覆盖请求参数、解码与非法响应，`emoji-category-tabs`、`emoji-symbol-sections` 和 `emoji-flow` 覆盖分类、分节下标和跨分节的上下移动。首页预览不含插件组。
 
 ### 布局度量
 
@@ -366,11 +366,11 @@ platforms/macos/stage-resources.sh <已校验资源目录>
 
 第三个可选参数是非英语离线释义目录（默认 `target/offline-glosses`，由 `scripts/fetch_offline_glosses.py` 按锁下载，见 [docs/third-party.md](../../docs/third-party.md#非英语离线释义resourcesoffline-glosseslockjson)）。其中的 `zh-<语言>.db` 与 NOTICE 暂存到 `target/macos/offline-glosses`，即资源目录的同级目录，宿主在翻译目标包含该语言时读取；没有时只有英语走离线释义。`release-macos.yml` 打包前先运行这个脚本，`package-release.sh` 在有暂存的释义时把它们复制进设置应用的 `Contents/Resources/offline-glosses`，签名一并封入，并在 DMG 内的副本上检查 NOTICE 在场；没有时照常打包。
 
-第四个可选参数是粤语、注音与笔画词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，锁文件还不存在时打印一行 skipped 并跳过；也可以用 `msime-dict-build languages` 自己构建）。其中的 `cantonese.db`、`zhuyin.db`、`stroke.db` 各自只在旁边有对应许可证（`rime_cantonese_LICENSE.txt`、`libchewing_data_LICENSE.txt`、`rime_stroke_LICENSE.txt`）时暂存到 `target/macos/language-dictionaries`，有词库没有许可证时脚本失败；一个都没有时照常暂存，粤语、注音与笔画在设置页显示为不可用、选中后回退。设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 时 `resources/language-dictionaries.lock.json` 固定的每一套词库都必须在，否则 `stage-resources.sh` 失败；锁固定 `stroke.db` 之前笔画词库不在必需之列。这里暂存的是开发构建的内置兜底：`package-release.sh` 不再下载或复制它们，发布包里没有 `language-dictionaries`，由设置应用按需下载到 `resource-packs/language-dictionaries`（见「核心词库与按需下载的资源包」）。开发构建要测试下载流程时，用 `MSIME_MACOS_OMIT_ON_DEMAND=1` 暂存，并且不要给第四个参数准备语言词库。`prepare_host` 只在这个目录里有词库时把它写进 `runtime-options.json` 的 `language_dictionaries`；已有配置由 IMK 启动时的刷新补上（见下文）。
+第四个可选参数是粤语、注音与笔画词库目录（默认 `target/language-dictionaries`，由 `scripts/fetch_language_dictionaries.py` 按 `resources/language-dictionaries.lock.json` 下载，锁文件还不存在时打印一行 skipped 并跳过；也可以用 `msime-dict-build languages` 自己构建）。其中的 `msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 各自只在旁边有对应许可证（`msime-rime_cantonese_LICENSE.txt`、`msime-libchewing_data_LICENSE.txt`、`msime-rime_stroke_LICENSE.txt`）时暂存到 `target/macos/language-dictionaries`，有词库没有许可证时脚本失败；一个都没有时照常暂存，粤语、注音与笔画在设置页显示为不可用、选中后回退。设置 `MSIME_REQUIRE_LANGUAGE_DICTIONARIES=1` 时 `resources/language-dictionaries.lock.json` 固定的每一套词库都必须在，否则 `stage-resources.sh` 失败；锁固定 `msime-stroke.db` 之前笔画词库不在必需之列。这里暂存的是开发构建的内置兜底：`package-release.sh` 不再下载或复制它们，发布包里没有 `language-dictionaries`，由设置应用按需下载到 `resource-packs/language-dictionaries`（见「核心词库与按需下载的资源包」）。开发构建要测试下载流程时，用 `MSIME_MACOS_OMIT_ON_DEMAND=1` 暂存，并且不要给第四个参数准备语言词库。`prepare_host` 只在这个目录里有词库时把它写进 `runtime-options.json` 的 `language_dictionaries`；已有配置由 IMK 启动时的刷新补上（见下文）。
 
 打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：`mis-aligned LINKEDIT string pool` 表示过程宏的 dylib 被产出成 dyld 拒绝加载的形状。成因是 `MACOSX_DEPLOYMENT_TARGET`：`tauri build` 会按 `bundle.macOS.minimumSystemVersion` 导出它，rustc 把它也用在宿主过程宏上，同一个 crate 不设该变量时产出的 dylib 能正常加载。cargo 不把这个变量算进指纹，坏掉的 dylib 会留在产物目录里被后续构建继续复用，所以换一个干净的 `CARGO_TARGET_DIR` 看起来也能「修好」——但那只是另起一整棵要从头编译、占几个 GB 的产物树，坏掉的 dylib 还留在原处，不要这么做。`package-release.sh` 因此先用不带该变量的 `cargo build --features tauri/custom-protocol` 编译设置应用，再用 `tauri bundle` 只做打包；已经坏掉的过程宏要删掉 `target/<profile>/deps` 里对应的 `.dylib` 让它重编。
 
-`tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表；缺了它们，Shift 字母仍被当作辅助码却筛不掉任何候选。`package-release.sh` 检查打出的应用里有这几个文件。资源目录缺少 `others.db` 或 `dict_japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
+`tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。`stage-resources.sh` 还把仓库自带的六套辅助码表（`resources/helpcodes`，不在词库发布里）连同来源声明放进其中的 `helpcodes/`，Engine 从资源目录下的这个子目录读辅助码表；缺了它们，Shift 字母仍被当作辅助码却筛不掉任何候选。`package-release.sh` 检查打出的应用里有这几个文件。资源目录缺少 `msime-others.db` 或 `msime-japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
 
 Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `runtime-options.json`，会从 bundle 内的 `EngineResources` 调用共享 Host API 准备默认用户词库、缓存和配置，并以同目录原子发布配置；已有配置不会被覆盖。`MSIME_CLIENT_HOST_OPTIONS` 显式指定配置时不会触发自动准备，`MSIME_CLIENT_STATE_DIR` 仍可指定偏好与用户状态根目录。资源校验或准备失败会以通用错误终止本次设置宿主启动，不泄露路径、输入或 Host API 诊断内容。
 

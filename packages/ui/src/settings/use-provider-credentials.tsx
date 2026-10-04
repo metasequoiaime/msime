@@ -77,6 +77,7 @@ export function useProviderCredentials({ client }: UseProviderCredentialsOptions
     credentialTestRunning.current = {};
     credentialTestOwner.current++;
     credentialSaveRunning.current = false;
+    setProviderCredentials(undefined);
     setCredentialTests((current) => (Object.keys(current).length ? {} : current));
     setProviderCredentialBusy(undefined);
     setProviderCredentialMessages((current) => (Object.keys(current).length ? {} : current));

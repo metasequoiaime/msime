@@ -1667,6 +1667,7 @@ impl<E: InputEngine> Runtime<E> {
             || (self.phrase_prefix.is_empty()
                 && scheme_type(self.cached.scheme)
                     .is_some_and(|scheme| !scheme.opens_local_modes()));
+        // 字面标点路由刻意不进入网址模式：组字 `www` 时引擎在 `spelling_symbols` 里列出 `.`，但宿主在这条路由上要的是字面符号，所以这里不收，照常结束组字再接上 `.`（列出但不接受的例外）。
         if spells && self.cached.spelling_symbols.as_bytes().contains(&value) {
             return self.engine.character(value, false);
         }

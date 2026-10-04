@@ -1,6 +1,8 @@
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { runAsyncAction, type AsyncActionState } from "../core/async-action";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export type AccountOperationState = Omit<AsyncActionState, "setNotice"> & {
   setNotice: (message: string) => void;
@@ -35,18 +37,15 @@ export function useAccountAction(
   ...owners: readonly unknown[]
 ): AccountActionState {
   const [busy, setBusy] = useState(false);
-  const mounted = useRef(true);
-  const clientGeneration = useRef(0);
+  const mounted = useMountedRef();
+  const clientGeneration = useAsyncGeneration(client, ...owners);
   const actionRunning = useRef(false);
 
   useEffect(() => {
-    const generation = ++clientGeneration.current;
-    mounted.current = true;
     actionRunning.current = false;
     setBusy(false);
     return () => {
-      mounted.current = false;
-      if (generation === clientGeneration.current) clientGeneration.current++;
+      actionRunning.current = false;
     };
   }, [client, ...owners]);
 

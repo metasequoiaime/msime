@@ -84,6 +84,7 @@ import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../network/HarmonyHttpSecurity';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
@@ -298,7 +299,7 @@ export interface ClipboardHistoryMutation {
   readonly failure: ClipboardFailure | null;
 }
 
-// The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
+// The local emoji catalog lives in msime-others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
 /** `{prefix,limit}` as the shared ABI reads it; the prefix is ASCII letters and the limit 1..32. */
 interface EnglishCompletionRequest {
@@ -3910,6 +3911,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(url, {
@@ -3947,6 +3949,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.onlineRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
@@ -4371,6 +4374,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       || !TextPolicy.validSecureAuthority(descriptor.url, allowHttp)) return null;
     if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     this.translationRequests.add(request);
     try {
       const response: http.HttpResponse = await request.request(descriptor.url, {
@@ -4864,6 +4868,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return [];
     }
     const requestHttp = http.createHttp();
+    installNoRedirectGuard(requestHttp);
     this.replyRequest = requestHttp;
     try {
       const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
@@ -5061,7 +5066,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * One page of the local emoji catalog.
    *
-   * Reads others.db directly rather than through the session: the catalog is a property of the
+   * Reads msime-others.db directly rather than through the session: the catalog is a property of the
    * installed dictionary, not of what is being typed, and nothing about it changes with focus.
    */
   emojiPage(group: string, offset: number, limit: number): EmojiPage | null {
@@ -5155,7 +5160,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /**
    * 已安装符号集插件的组，读自 `<stateDirectory>/plugins`，与设置页交给插件管理的是同一个目录。
    *
-   * 不依赖 `others.db`；读不出来时返回空表，表情面板照旧只显示内置内容。
+   * 不依赖 `msime-others.db`；读不出来时返回空表，表情面板照旧只显示内置内容。
    */
   pluginSymbolGroups(): PluginSymbolGroup[] {
     if (this.stateDirectory.length === 0 || this.resourceDirectory.length === 0) {

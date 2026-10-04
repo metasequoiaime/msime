@@ -1,6 +1,7 @@
 //! Caret editing, the editing text, segment boundaries and caret-prefix decoding (core-session.md §5.9, overlays.md §7.6).
 
 use super::input::InputSession;
+use crate::local::url;
 use crate::local::GENERATED_MODE_INPUT_LIMIT;
 use crate::shuangpin::query::{
     detect_active_double_helpcode_length, segment_raw_boundaries,
@@ -48,8 +49,11 @@ impl InputSession {
     pub(super) fn edit_at_caret(&mut self, command: Command) -> KeyResult {
         let mut text = self.editing_text();
         let mut caret = self.caret_position();
-        // A local mode's prefix letter is a mode marker, not editable payload.
-        let begin = usize::from(self.local_mode != LocalInputMode::None);
+        // 本地模式的前缀字母是模式标记，不是可编辑的内容；网址模式没有前缀字母，整段都能编辑。
+        let begin = usize::from(!matches!(
+            self.local_mode,
+            LocalInputMode::None | LocalInputMode::Url
+        ));
         match command {
             Command::MoveLeft => caret = caret.saturating_sub(1).max(begin),
             Command::MoveRight => caret = (caret + 1).min(text.len()),
@@ -60,15 +64,15 @@ impl InputSession {
                     return KeyResult::handled();
                 }
                 caret -= 1;
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             Command::DeleteForward => {
                 if caret == text.len() {
                     return KeyResult::handled();
                 }
-                text.remove(caret);
-                return self.replace_editing_text(&text, caret);
+                let removed = text.remove(caret);
+                return self.delete_editing_character(text, caret, removed);
             }
             _ => return KeyResult::unhandled(),
         }
@@ -76,6 +80,22 @@ impl InputSession {
         // Moving the caret changes which prefix is decoded.
         self.update_mixed_candidates();
         KeyResult::handled()
+    }
+
+    /// 从编辑文字里删掉 `removed` 后剩下 `text`。网址模式删空就退出；删掉的正是进入网址模式的那个键（`url_reverts`）时退回组字，否则与其他模式一样替换编辑文字。
+    fn delete_editing_character(&mut self, text: String, caret: usize, removed: char) -> KeyResult {
+        if self.local_mode == LocalInputMode::Url {
+            // 网址删空后没有前缀字母可留，退出模式，否则会停在空的网址模式里吞掉后续按键。
+            if text.is_empty() {
+                self.reset_composition();
+                return KeyResult::handled();
+            }
+            if self.url_reverts(&text, removed) {
+                self.restore_composition_from_url(text);
+                return KeyResult::handled();
+            }
+        }
+        self.replace_editing_text(&text, caret)
     }
 
     /// input_session_editing.cpp:161-210.
@@ -141,13 +161,26 @@ impl InputSession {
                 LocalInputMode::Command | LocalInputMode::Mention => {
                     accepted = text.len() < GENERATED_MODE_INPUT_LIMIT && lower;
                 }
+                // 与 `handle_local_character` 同一组规则。
+                LocalInputMode::Url => {
+                    if !url::accepts(value) {
+                        return KeyResult::unhandled();
+                    }
+                    // 已到长度上限时吞掉按键，与行末键入一致；只有网址不收的键才交还 runtime。
+                    if text.len() >= url::INPUT_LIMIT {
+                        return KeyResult::handled();
+                    }
+                    accepted = true;
+                }
             }
         }
         if !accepted {
             return KeyResult::unhandled();
         }
         let bytes = text.as_bytes();
+        // 网址里的撇号是字面字符，可以连着出现。
         if value == b'\''
+            && self.local_mode != LocalInputMode::Url
             && ((caret > 0 && bytes[caret - 1] == b'\'') || bytes.get(caret) == Some(&b'\''))
         {
             return KeyResult::handled();

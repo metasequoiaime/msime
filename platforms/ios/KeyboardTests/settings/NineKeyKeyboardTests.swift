@@ -4,6 +4,12 @@ import Darwin
 
 @MainActor
 final class NineKeyKeyboardTests: XCTestCase {
+  func testSharedFrequencyPreferenceRejectsFractionalAndBooleanCounts() {
+    XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 2.5), range: 1...10))
+    XCTAssertNil(KeyboardViewController.sharedPreferenceInt(NSNumber(value: true), range: 1...10))
+    XCTAssertEqual(KeyboardViewController.sharedPreferenceInt(NSNumber(value: 4), range: 1...10), 4)
+  }
+
   // Claims every scheme so an assignment to InputSchemePreference.scheme is not downgraded to
   // whatever the app group was left holding. See InputSchemeTestSupport.
   private var savedKeyboardPreferences: [String: Any] = [:]
@@ -1365,7 +1371,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       for scheme in ChineseInputScheme.allCases
       where scheme != .handwriting && scheme != .japaneseNineKey {
         InputSchemePreference.scheme = scheme
-        // 笔画和注音只在测试宿主带了 stroke.db、zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
+        // 笔画和注音只在测试宿主带了 msime-stroke.db、msime-zhuyin.db 时才能选上（CI 不带）；没带时上面的赋值落到别的方案，那个方案已经单独测过。
         if [.stroke, .zhuyin].contains(scheme) && InputSchemePreference.scheme != scheme { continue }
         // 韩语方案在候选栏里常留一行训音（2758a0ebc，#2615），键盘为这一行长高而不是从按键里扣，所以视图要按方案自己要的高度给，按键才保持九键高度。
         let keyboardHeight = 260 + KeyboardViewController.stripExtraHeight(
@@ -1830,7 +1836,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(snapshot.candidates.isEmpty, "Provider \(trigger)")
       // Temporary English completes what was typed. This used to ask for more than one answer,
       // which counted rows in the pinned dictionary rather than describing the product: the
-      // release `english.db` now holds exactly one word beginning with "hello", so the count
+      // release `msime-english.db` now holds exactly one word beginning with "hello", so the count
       // moved while the behaviour did not.
       if trigger == "Y" {
         XCTAssertTrue(snapshot.candidates.contains { $0.lowercased().hasPrefix(input) },

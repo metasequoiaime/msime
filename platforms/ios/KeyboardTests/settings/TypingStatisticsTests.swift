@@ -377,6 +377,14 @@ final class TypingStatisticsTests: XCTestCase {
     XCTAssertTrue(try store.load().dailyKeys.isEmpty)
   }
 
+  func testRecordCountRejectsMalformedNativeNumbers() {
+    XCTAssertEqual(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 3), maximum: 5), 3)
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: true), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 3.5), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: -1), maximum: 5))
+    XCTAssertNil(TypingStatisticsStore.strictRecordedCount(NSNumber(value: 6), maximum: 5))
+  }
+
   /// The 按键 page sums the selected day, or every day, and splits the keys into the drawn keyboard, the nine-key grid, the rest and the top five.
   func testKeyHeatmapFollowsTheScope() throws {
     let old = try JSONDecoder().decode(TypingStatistics.self, from: Data(#"{"enabled":true,"total":0}"#.utf8))

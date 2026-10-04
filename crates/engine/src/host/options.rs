@@ -85,13 +85,13 @@ pub struct EngineOptions {
     pub vietnamese_input_method: u8,
     /// 0 modern (hoà), 1 classic (hòa) (`vietnamese::ToneStyle`).
     pub vietnamese_tone_style: u8,
-    /// Absolute path of `cantonese.db`, empty when the host has none; the Cantonese scheme is unavailable without it.
+    /// Absolute path of `msime-cantonese.db`, empty when the host has none; the Cantonese scheme is unavailable without it.
     pub cantonese_dictionary: String,
-    /// Absolute path of `zhuyin.db`, empty when the host has none; the Zhuyin scheme is unavailable without it.
+    /// Absolute path of `msime-zhuyin.db`, empty when the host has none; the Zhuyin scheme is unavailable without it.
     pub zhuyin_dictionary: String,
-    /// Absolute path of `stroke.db`, empty when the host has none; the Stroke scheme is unavailable without it.
+    /// Absolute path of `msime-stroke.db`, empty when the host has none; the Stroke scheme is unavailable without it.
     pub stroke_dictionary: String,
-    /// `dict_japanese.dat` 的绝对路径；为空时从资源目录读取。
+    /// `msime-japanese.dat` 的绝对路径；为空时从资源目录读取。
     pub japanese_dictionary: String,
 }
 

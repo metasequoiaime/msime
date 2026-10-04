@@ -14,6 +14,7 @@ import {
 } from "./cloud-clipboard-send";
 import { ActionButton } from "./action-button";
 import { SwitchRow } from "./switch-row";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 
@@ -58,14 +59,20 @@ export function ClipboardHistorySection({
   const [cloud, setCloud] = useState<CloudClipboardAvailability>("checking");
   const [cloudNotice, setCloudNotice] = useState("");
   const [sending, setSending] = useState(false);
-  const cloudRevision = useRef(0);
-  const historyGeneration = useRef(0);
-  const historyActionBusy = useRef(false);
   const historyShown = historyEnabled && Boolean(client?.list);
+  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown);
+  const historyGeneration = useAsyncGeneration(
+    client,
+    ios,
+    page,
+    persistedHistoryEnabled,
+    revision,
+  );
+  const historyActionBusy = useRef(false);
 
   // The account state and the server's enabled flag are read once each time the page is opened with the history showing; there is no polling.
   useEffect(() => {
-    const revision = ++cloudRevision.current;
+    const revision = cloudRevision.current;
     setCloud("checking");
     setCloudNotice("");
     setSending(false);
@@ -79,10 +86,7 @@ export function ClipboardHistorySection({
         if (revision === cloudRevision.current) setCloud(cloudClipboardFailure(error));
       },
     );
-    return () => {
-      cloudRevision.current++;
-    };
-  }, [cloudRequest, historyShown]);
+  }, [cloudRequest, cloudRevision, historyShown]);
 
   const sendToCloud = async (text: string) => {
     if (!cloudRequest || cloud !== "ready" || sending) return;
@@ -111,29 +115,30 @@ export function ClipboardHistorySection({
   const cloudNote = cloudRequest ? cloudNotice || cloudClipboardAvailabilityNote(cloud) : undefined;
 
   useEffect(() => {
-    const currentGeneration = ++historyGeneration.current;
-    let active = true;
+    const currentGeneration = historyGeneration.current;
     if (!ios && !persistedHistoryEnabled) {
       setEntries([]);
       setClearArmed(false);
       return;
     }
-    if (!client?.list) return;
+    if (!client?.list) {
+      setEntries([]);
+      setClearArmed(false);
+      return;
+    }
     void client
       .list()
       .then((next) => {
-        if (active && currentGeneration === historyGeneration.current) {
+        if (currentGeneration === historyGeneration.current) {
           setEntries(next);
           setClearArmed(false);
         }
       })
       .catch(() => undefined);
     return () => {
-      active = false;
-      historyGeneration.current++;
       historyActionBusy.current = false;
     };
-  }, [client, ios, page, persistedHistoryEnabled, revision]);
+  }, [client, historyGeneration]);
 
   const mutate = async (action: () => Promise<void>, failure: string) => {
     if (historyActionBusy.current) return;

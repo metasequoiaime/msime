@@ -23,6 +23,8 @@ private func msimeClientStringFree(_ value: UnsafeMutablePointer<CChar>?)
 /// client-core; this adapter only owns pointer lifetime and response JSON
 /// extraction for the iOS transport coordinator.
 enum DoubaoHostFrameCodec {
+  private static let maximumTranscriptCharacters = 10_000
+
   enum Failure: Error { case startFrame, audioFrame }
 
   static func make(enableITN: Bool, punctuation: Bool, DDC: Bool,
@@ -97,10 +99,16 @@ enum DoubaoHostFrameCodec {
 
   /// `bigmodel_async` returns `result` as one object, while `bigmodel_nostream` documents it as a list of sentence segments; the Windows client reads both, and so does this.
   static func transcript(in body: [String: Any]) -> String? {
-    if let result = body["result"] as? [String: Any], let text = result["text"] as? String { return text }
-    if let segments = body["result"] as? [[String: Any]] {
-      return segments.compactMap { $0["text"] as? String }.joined()
+    if let result = body["result"] as? [String: Any], let text = result["text"] as? String {
+      return text.count <= maximumTranscriptCharacters ? text : nil
     }
-    return body["text"] as? String
+    if let segments = body["result"] as? [[String: Any]] {
+      let text = segments.compactMap { $0["text"] as? String }.joined()
+      return text.count <= maximumTranscriptCharacters ? text : nil
+    }
+    if let text = body["text"] as? String {
+      return text.count <= maximumTranscriptCharacters ? text : nil
+    }
+    return nil
   }
 }

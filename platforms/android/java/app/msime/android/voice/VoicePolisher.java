@@ -108,10 +108,15 @@ public final class VoicePolisher {
             JSONArray choices = new JSONObject(response).optJSONArray("choices");
             JSONObject first = choices == null ? null : choices.optJSONObject(0);
             JSONObject message = first == null ? null : first.optJSONObject("message");
-            return message == null ? "" : message.optString("content", "");
+            return message == null ? "" : strictContent(message.opt("content"));
         } catch (JSONException error) {
             return "";
         }
+    }
+
+    /** Chat completions carry text; do not let org.json turn malformed values into visible prose. */
+    static String strictContent(Object value) {
+        return value instanceof String ? (String) value : "";
     }
 
     /** Authentication headers for the provider endpoint, matching the shared AI transport. */

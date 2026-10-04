@@ -1,16 +1,17 @@
-//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`cantonese.db`, `zhuyin.db`, `stroke.db`), each with its licence text, plus `language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
+//! `languages`: the dictionaries that ship beside the resource set rather than inside it (`msime-cantonese.db`, `msime-zhuyin.db`, `msime-stroke.db`), each with its licence text, plus `msime-language-dictionaries-SHA256SUMS` over everything written. None of this touches the desktop dictionary product (`STAGES`, `product::SHIPPING_ARTIFACTS`, the manifest): a host ships these files only for the schemes it offers.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
 use crate::cantonese;
+use crate::hkcancor;
 use crate::sources::{sha256_file, Sources};
 use crate::stroke;
 use crate::text;
 use crate::zhuyin;
 
-pub const SUMS: &str = "language-dictionaries-SHA256SUMS";
+pub const SUMS: &str = "msime-language-dictionaries-SHA256SUMS";
 
 /// Builds every language dictionary into `out` with the licence texts from `licenses` (`resources/licenses/`), verifies each, and writes the checksums. Returns one summary line per dictionary.
 pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<String>> {
@@ -22,10 +23,12 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     let characters = text::read(&sources.pinned(cantonese::CHARACTERS)?)?;
     let words = text::read(&sources.pinned(cantonese::WORDS)?)?;
     let essay = text::read(&sources.pinned(cantonese::ESSAY)?)?;
+    let corpus = text::read(&sources.pinned(cantonese::CORPUS)?)?;
     let dictionary = cantonese::build(
         &cantonese::parse_characters(&characters)?,
         &cantonese::parse_words(&words)?,
         &cantonese::parse_essay(&essay)?,
+        &hkcancor::parse(&corpus)?,
     );
     let database = out.join(cantonese::DATABASE);
     cantonese::write(&dictionary, &database, commit)?;
@@ -38,12 +41,15 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
     )?;
     written.extend([cantonese::DATABASE, cantonese::LICENSE_NAME]);
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} word entries ({} of them from the essay)",
+        "{}: {} syllables, {} character and {} word entries ({} of them from the essay; {} words weighed by the HKCanCor counts at {} each, {} of them held below an essay word of their key)",
         cantonese::DATABASE,
         counts.syllables,
         counts.characters,
         counts.words,
-        dictionary.essay_words
+        dictionary.essay_words,
+        dictionary.corpus_words,
+        dictionary.corpus_scale,
+        dictionary.corpus_capped
     ));
 
     let commit = reference_commit(sources, zhuyin::REFERENCE)?;
@@ -59,17 +65,22 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
         zhuyin::CHARACTERS,
         &text::read(&sources.pinned(zhuyin::CHARACTERS)?)?,
     )?);
+    let occurrences = text::read(&sources.pinned(zhuyin::OCCURRENCES)?)?;
+    let dictionary = zhuyin::build(&rows, &zhuyin::parse_occurrences(&occurrences)?);
     let database = out.join(zhuyin::DATABASE);
-    zhuyin::write(&zhuyin::build(&rows), &database, commit)?;
+    zhuyin::write(&dictionary, &database, commit)?;
     let counts = zhuyin::verify(&database, zhuyin::FLOORS, &zhuyin::EXPECTED)?;
     copy_license(licenses, zhuyin::LICENSE_SOURCE, out, zhuyin::LICENSE_NAME)?;
     written.extend([zhuyin::DATABASE, zhuyin::LICENSE_NAME]);
     summaries.push(format!(
-        "{}: {} syllables, {} character and {} phrase entries",
+        "{}: {} syllables, {} character and {} phrase entries ({} phrases weighed by phrase.occ at {} each, {} of them capped below a counted entry)",
         zhuyin::DATABASE,
         counts.syllables,
         counts.characters,
-        counts.phrases
+        counts.phrases,
+        dictionary.filled,
+        dictionary.occurrence_scale,
+        dictionary.capped
     ));
 
     match stroke::source(sources)? {
@@ -124,7 +135,7 @@ fn copy_license(licenses: &Path, source: &str, out: &Path, name: &str) -> Result
     Ok(())
 }
 
-/// `sha256  name` lines in name order, the `sha256sum` format of the desktop product's `SHA256SUMS.txt`.
+/// `sha256  name` lines in name order, the `sha256sum` format of the desktop product's `msime-SHA256SUMS.txt`.
 fn write_sums(out: &Path, names: &[&str]) -> Result<()> {
     let mut names = names.to_vec();
     names.sort_unstable();
@@ -156,7 +167,7 @@ mod tests {
         );
     }
 
-    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 12 MB）。锁文件固定 `stroke/stroke.dict.yaml` 之前，要先把 rime-stroke 的原文件放到 `target/dict-cache/stroke/`（见 `stroke::source`）。
+    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 17 MB）。
     #[test]
     #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼、注音与字频源文件"]
     fn builds_from_the_pinned_sources() {
@@ -166,6 +177,7 @@ mod tests {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache: root.join("target/dict-cache"),
             offline: false,
+            dictionary: None,
         };
         let out = tempfile::tempdir().unwrap();
         let summaries = build(&sources, &root.join("resources/licenses"), out.path()).unwrap();

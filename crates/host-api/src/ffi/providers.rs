@@ -289,9 +289,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let Some(candidates_view) = session.runtime.translation_candidates() else {
                 return Ok(Value::Null);
             };
-            // Only the schemes that show glosses ask for them: Windows does not request glosses for Japanese candidates, while Korean's Hanja rows are glossed like Chinese ones: their 훈음 is drawn by the host whatever this answers, and a translation or gloss goes on the line under it. Use Engine's active mode, including temporary Japanese composition.
+            // 只有显示释义的方案才请求释义：Windows 不为日文候选请求释义，而韩文的汉字候选和中文一样带释义：훈음 由宿主自己画出，与这里的回答无关，翻译或释义画在它下面一行。按引擎当前的本地模式判断，临时日文组字同样不请求。网址模式也不请求：网址可能带着私密路径和参数，不能发给翻译服务。
             if !SchemeType::from_u8(candidates_view.scheme).is_some_and(SchemeType::shows_glosses)
-                || candidates_view.local_mode == "temporary_japanese"
+                || matches!(
+                    candidates_view.local_mode.as_str(),
+                    "temporary_japanese" | "url"
+                )
             {
                 return Ok(Value::Null);
             }
@@ -647,7 +650,7 @@ pub(crate) struct EmojiCatalogQuery {
     pub(crate) list_plugin_symbol_groups: bool,
 }
 
-/// Query the local verified `others.db` Emoji catalog without a provider socket.
+/// Query the local verified `msime-others.db` Emoji catalog without a provider socket.
 /// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
 /// With `cursor:true`, also returns `next_offset` and `complete`, preserves
 /// duplicate entries, and advances past invalid rows without treating them as EOF.
@@ -690,7 +693,7 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             return Ok(json!({"groups": groups}));
         }
         if query.list_plugin_symbol_groups {
-            // 符号集插件不依赖 others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
+            // 符号集插件不依赖 msime-others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
             let groups = match query.plugins.as_deref() {
                 None => Vec::new(),
                 Some(plugins) if std::path::Path::new(plugins).is_absolute() => {

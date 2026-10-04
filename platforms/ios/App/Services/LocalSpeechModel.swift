@@ -25,6 +25,11 @@ struct LocalSpeechModelManifest: Equatable {
   init(directory: URL) throws {
     let url = directory.appendingPathComponent(Self.fileName)
     let invalidManifest = ServiceFailure(message: "本地语音模型的描述文件已损坏，请删除后重新下载。")
+    var manifestStatus = stat()
+    guard lstat(url.path, &manifestStatus) == 0,
+          (manifestStatus.st_mode & S_IFMT) == S_IFREG else {
+      throw invalidManifest
+    }
     guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
       throw ServiceFailure(message: "所选目录不是已安装的本地语音模型。")
     }
@@ -72,8 +77,12 @@ struct LocalSpeechModelManifest: Equatable {
 
   static func isModelDirectory(_ url: URL) -> Bool {
     var directory: ObjCBool = false
+    let manifest = url.appendingPathComponent(fileName)
+    var manifestStatus = stat()
     return FileManager.default.fileExists(atPath: url.path, isDirectory: &directory) && directory.boolValue
-      && FileManager.default.isReadableFile(atPath: url.appendingPathComponent(fileName).path)
+      && lstat(manifest.path, &manifestStatus) == 0
+      && (manifestStatus.st_mode & S_IFMT) == S_IFREG
+      && FileManager.default.isReadableFile(atPath: manifest.path)
   }
 
   /// Resolve a manifest member and keep symlinks and traversal from escaping the installed model.

@@ -445,7 +445,7 @@ impl NineKeySession {
         words
     }
 
-    /// `english.db` is optional; a missing file means no English rows and is looked for again on the next refresh (NK:179-186).
+    /// `msime-english.db` is optional; a missing file means no English rows and is looked for again on the next refresh (NK:179-186).
     fn open_english(&mut self) -> Option<&EnglishDictionary> {
         if self.english.is_none() {
             let path = self.paths.dictionary(assets::ENGLISH_DICTIONARY);
@@ -1450,7 +1450,7 @@ mod tests {
     fn a_missing_english_dictionary_means_no_english_rows() {
         let fixture = fixture();
         std::fs::remove_file(fixture.paths.dictionary(assets::ENGLISH_DICTIONARY))
-            .expect("remove english.db");
+            .expect("remove msime-english.db");
         let mut session = open(&fixture.paths, false, mixed());
         type_digits(&mut session, "64");
         assert_eq!(words(&session), ["你", "米"]);

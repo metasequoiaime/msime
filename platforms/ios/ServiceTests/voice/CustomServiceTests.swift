@@ -197,6 +197,7 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["result": [[String: Any]]()]), "")
     XCTAssertEqual(DoubaoHostFrameCodec.transcript(in: ["text": "网关"]), "网关")
     XCTAssertNil(DoubaoHostFrameCodec.transcript(in: [:]))
+    XCTAssertNil(DoubaoHostFrameCodec.transcript(in: ["text": String(repeating: "字", count: 10_001)]))
   }
 
   func testConfigurationRejectsUnsafeOrIncompleteEndpoints() {
@@ -226,6 +227,21 @@ final class CustomServiceTests: XCTestCase {
     XCTAssertTrue(try XCTUnwrap(multipart["contentType"] as? String).contains("boundary="))
     XCTAssertEqual(try AppServicesBridge.parseResponse(Data("{\"text\":\"语音测试\"}".utf8), voice: true), "语音测试")
     XCTAssertThrowsError(try AppServicesBridge.parseResponse(Data("{\"error\":\"private\"}".utf8), voice: false))
+  }
+
+  func testEngineCodecsRejectOversizedRecognitionAndPolishText() throws {
+    let oversized = String(repeating: "字", count: 20_000)
+    let voice = try JSONSerialization.data(withJSONObject: ["text": oversized])
+    let voiceWithChatFallback = try JSONSerialization.data(withJSONObject: [
+      "text": oversized,
+      "choices": [["message": ["content": "错误协议回退"]]]
+    ])
+    let polish = try JSONSerialization.data(withJSONObject: [
+      "choices": [["message": ["content": oversized]]]
+    ])
+    XCTAssertThrowsError(try AppServicesBridge.parseResponse(voice, voice: true))
+    XCTAssertThrowsError(try AppServicesBridge.parseResponse(voiceWithChatFallback, voice: true))
+    XCTAssertThrowsError(try AppServicesBridge.parseResponse(polish, voice: false))
   }
 
   func testTransportUsesConfiguredEndpointAndReportsHTTPFailure() async throws {

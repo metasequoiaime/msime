@@ -384,22 +384,18 @@ function ResourceDetail({
     });
   };
   useEffect(() => {
-    let active = true;
     const generation = clientGeneration.current;
     setBusy(false);
     void client
       .detail(initial.id)
       .then((value) => {
-        if (active && generation === clientGeneration.current) setItem(value);
+        if (mounted.current && generation === clientGeneration.current) setItem(value);
       })
       .catch((errorValue) => {
-        if (active && generation === clientGeneration.current)
+        if (mounted.current && generation === clientGeneration.current)
           setError(resourceMessage(errorValue));
       });
-    return () => {
-      active = false;
-    };
-  }, [client, initial.id]);
+  }, [client, initial.id, clientGeneration, mounted]);
   const save = () =>
     void run(async (generation) => {
       await client.save(item.id, !item.saved);

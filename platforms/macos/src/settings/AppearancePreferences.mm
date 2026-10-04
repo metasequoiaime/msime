@@ -19,6 +19,7 @@ extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
 #import "../core/SharedVoicePreferences.h"
 #import "../core/UpdateController.h"
 #import "../core/SupportWindowController.h"
+#import "../core/BoundedFileReader.h"
 #import "../voice/VoiceSettingsEntry.h"
 #import "../core/WindowPresentation.h"
 #include "ShuangpinProfileNames.h"
@@ -4994,6 +4995,7 @@ static NSString *const MSIMESettingsDocumentSettingsField = @"settings";
 /// The scope of the document, said in the two panels rather than left to be discovered. The payload is -cloudSettingsSnapshot, which is the set of settings that already travels between machines through the account; it is not everything this window holds, and a user about to reinstall should know that before they rely on the file.
 static NSString *const MSIMESettingsDocumentScope =
     @"包含可跨机器同步的那部分设置：皮肤、候选排列与字号、每页候选、输入方案与辅助码方案、翻页键组，以及标点、简繁、云候选等开关。字体、配色、主题、快捷键、语音与应用例外不在其中。";
+static const NSUInteger MSIMESettingsDocumentLimit = 1 << 20;
 
 /// Writes the snapshot the account sync already speaks to a file the user keeps.
 - (void)exportSettings:(id)sender {
@@ -5029,7 +5031,7 @@ static NSString *const MSIMESettingsDocumentScope =
     panel.prompt = @"导入";
     panel.message = MSIMESettingsDocumentScope;
     if ([panel runModal] != NSModalResponseOK || panel.URL == nil) return;
-    NSData *data = [NSData dataWithContentsOfURL:panel.URL];
+    NSData *data = MSIMEReadFileUpTo(panel.URL, MSIMESettingsDocumentLimit, nil);
     id document = data == nil ? nil : [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     if (![document isKindOfClass:NSDictionary.class] ||
         ![document[MSIMESettingsDocumentFormatField] isEqual:MSIMESettingsDocumentFormat]) {

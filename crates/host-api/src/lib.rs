@@ -234,11 +234,11 @@ struct HostSession {
 /// the complete resource set is present.
 fn apply_local_mode_resource_gates(options: &mut EngineOptions) {
     let resources = std::path::Path::new(&options.resources);
-    let has_emoji_catalog = resources.join("others.db").is_file();
-    let has_english_dictionary = resources.join("english.db").is_file();
+    let has_emoji_catalog = resources.join("msime-others.db").is_file();
+    let has_english_dictionary = resources.join("msime-english.db").is_file();
     // 下载的日文词典写在 `japanese_dictionary` 里；为空时 Engine 读资源目录里的那份。
     let has_japanese_model = if options.japanese_dictionary.is_empty() {
-        resources.join("dict_japanese.dat").is_file()
+        resources.join("msime-japanese.dat").is_file()
     } else {
         Path::new(&options.japanese_dictionary).is_file()
     };
@@ -559,17 +559,23 @@ impl HostSession {
             let prior = result.diagnostic.take().unwrap_or_default();
             result.diagnostic = Some(format!("{prior} {note}").trim().to_owned());
         }
-        // A replacement changes the view generation, never the completed commit. A scheme that does not widen (Korean) writes half-width ASCII punctuation and digits whatever the width switch says; the dedicated English mode keeps its own rules in every scheme, so its commits are widened as they are under a Chinese scheme.
+        // 替换只改变 view 的代次，不改变已完成的上屏。不转全角的方案（韩文）无论宽度开关如何都写半角 ASCII 标点和数字；专用英文模式在任何方案里都按自己的规则走，所以它的上屏和中文方案下一样转全角。网址模式的网址部分始终是半角：上屏后 view 已回到 `none`，所以看上屏前记下的 `commit_context`；结束网址的那个标点不是网址能收的字符，照常转全角。
         let half_width_text = SchemeType::from_u8(result.view.scheme)
             .is_some_and(|scheme| !scheme.widens_full_width())
             && !result.view.dedicated_english
             && result.view.local_mode == "none";
+        let url_commit = result
+            .commit_context
+            .as_ref()
+            .is_some_and(|context| context.local_mode == "url");
         if result.view.character_width == CharacterWidth::Fullwidth && !half_width_text {
             if let Some(c) = result.commit.as_mut() {
                 *c = c
                     .chars()
                     .map(|x| {
-                        if x == ' ' {
+                        if url_commit && x.is_ascii() && msime_engine::url::accepts(x as u8) {
+                            x
+                        } else if x == ' ' {
                             '\u{3000}'
                         } else if ('!'..='~').contains(&x) {
                             char::from_u32(x as u32 + 0xfee0).unwrap()
@@ -693,22 +699,22 @@ impl LanguageDictionaries {
                 })
         };
         LanguageDictionaries {
-            cantonese: find("cantonese.db"),
-            zhuyin: find("zhuyin.db"),
-            stroke: find("stroke.db"),
+            cantonese: find("msime-cantonese.db"),
+            zhuyin: find("msime-zhuyin.db"),
+            stroke: find("msime-stroke.db"),
         }
     }
 
-    /// `cantonese.db`, `zhuyin.db` and `stroke.db` in `directory`, each when it is a file.
+    /// `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` in `directory`, each when it is a file.
     fn in_directory(directory: &std::path::Path) -> Self {
         let present = |name: &str| {
             let path = directory.join(name);
             path.is_file().then_some(path)
         };
         LanguageDictionaries {
-            cantonese: present("cantonese.db"),
-            zhuyin: present("zhuyin.db"),
-            stroke: present("stroke.db"),
+            cantonese: present("msime-cantonese.db"),
+            zhuyin: present("msime-zhuyin.db"),
+            stroke: present("msime-stroke.db"),
         }
     }
 
@@ -737,9 +743,9 @@ impl LanguageDictionaries {
     }
 }
 
-/// 已下载的日文资源包里的 `dict_japanese.dat`。`None` 时 Engine 读资源目录里的那份（完整发布包或开发环境内置的）。
+/// 已下载的日文资源包里的 `msime-japanese.dat`。`None` 时 Engine 读资源目录里的那份（完整发布包或开发环境内置的）。
 fn japanese_dictionary(state_root: Option<&Path>) -> Option<PathBuf> {
-    resource_packs::installed_file(state_root?, ResourcePack::Japanese, "dict_japanese.dat")
+    resource_packs::installed_file(state_root?, ResourcePack::Japanese, "msime-japanese.dat")
 }
 
 /// EngineOptions 里的路径文本，没有路径（或路径不是 UTF-8）时为空。
@@ -851,7 +857,7 @@ struct HostOptions {
     /// Absolute path to the bundle's built-in sound packs (`resources/sound-packs` in the repository), for a host whose bundle does not put them in `sound-packs` beside `resources`, the directory used when this is absent. Installed packs, command tables and the `@` name list are read from `plugins` under `preferences_directory`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sound_packs: Option<String>,
-    /// Absolute path to the directory holding `cantonese.db`, `zhuyin.db` and `stroke.db`, for a host that installs any of them. Absent, or a directory missing one of them, means that scheme falls back as `effective_scheme` describes.
+    /// Absolute path to the directory holding `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db`, for a host that installs any of them. Absent, or a directory missing one of them, means that scheme falls back as `effective_scheme` describes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language_dictionaries: Option<String>,
 }
@@ -982,7 +988,7 @@ pub(crate) fn offline_glosses_beside(
     path.is_file().then_some(path)
 }
 
-/// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/cantonese.db`, `language-dictionaries/zhuyin.db` and `language-dictionaries/stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
+/// The Cantonese, Zhuyin and Stroke dictionaries installed beside a resource bundle: `language-dictionaries/msime-cantonese.db`, `language-dictionaries/msime-zhuyin.db` and `language-dictionaries/msime-stroke.db`, built by `msime-dict-builder`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and only the hosts that offer these schemes ship them. Absence is the normal case.
 pub(crate) fn language_dictionaries_beside(resources: &std::path::Path) -> LanguageDictionaries {
     language_dictionaries_directory(resources)
         .map(|directory| LanguageDictionaries::in_directory(&directory))
@@ -1002,7 +1008,7 @@ pub fn installed_language_dictionaries(resources: &std::path::Path) -> Option<St
         .and_then(|directory| directory.to_str().map(str::to_owned))
 }
 
-/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged english.db instead.
+/// The target languages an offline gloss dictionary can exist for; English is glossed from the packaged msime-english.db instead.
 pub(crate) const OFFLINE_GLOSS_LANGUAGES: [&str; 6] = ["fr", "ja", "es", "ru", "de", "ko"];
 
 /// Drop the `\\?\` prefix Windows canonicalisation adds.
@@ -1498,7 +1504,7 @@ pub struct LocalEmojiCatalogSlice {
 }
 
 /// Read catalog rows without collapsing equal text from distinct categories.
-// Not unix-gated: the bodies only call the engine, which builds on Windows too. The gate was a porting gap, and it left the Windows desktop falling back to the compact built-in catalog - 97 emoji against the several thousand rows in others.db - behind a permanent "catalog failed to load" banner.
+// Not unix-gated: the bodies only call the engine, which builds on Windows too. The gate was a porting gap, and it left the Windows desktop falling back to the compact built-in catalog - 97 emoji against the several thousand rows in msime-others.db - behind a permanent "catalog failed to load" banner.
 pub fn local_emoji_catalog_slice(
     resources: &str,
     category: &str,

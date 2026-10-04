@@ -129,4 +129,24 @@ final class VocabularyReviewTests: XCTestCase {
     XCTAssertEqual(status.queue.first?.phonetic, "")
     XCTAssertEqual(status.answeredToday, 0)
   }
+
+  func testStatusIgnoresNonIntegerProgressMetadata() throws {
+    let value: [String: Any] = [
+      "wordbooks": [["id": "fixture", "total": true]],
+      "settings": ["wordbook": "fixture", "newPerDay": 1.5, "sessionLimit": 20],
+      "due": false,
+      "answeredToday": 2.5,
+      "introducing": 3,
+      "remaining": 4,
+    ]
+    let roundTripped = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONSerialization.data(withJSONObject: value)) as? [String: Any])
+    let status = VocabularyReviewStore.status(from: roundTripped)
+    XCTAssertEqual(status.wordbooks.first?.total, 0)
+    XCTAssertEqual(status.newPerDay, 0)
+    XCTAssertEqual(status.due, 0)
+    XCTAssertEqual(status.answeredToday, 0)
+    XCTAssertEqual(status.introducing, 3)
+    XCTAssertEqual(status.remaining, 4)
+  }
 }

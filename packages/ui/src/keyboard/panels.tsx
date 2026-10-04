@@ -28,6 +28,8 @@ import { normalizeHandwritingCandidates } from "./handwriting";
 import { validVoiceLanguage } from "./voice-panel";
 import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -69,6 +71,7 @@ import {
   cloudClipboardItems,
   cloudDictionaryCatalogEntries,
   cloudDictionaryEntries,
+  cloudResponseInteger,
   cloudResponseRequest,
   cloudResponseText,
 } from "./cloud-response";
@@ -1439,31 +1442,26 @@ export function VoicePanel({
   const recognitionRevision = useRef(0);
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
+  const voiceGeneration = useAsyncGeneration(client);
 
   useEffect(() => {
-    let active = true;
+    const generation = voiceGeneration.current;
     if (!client.loadVoiceLanguage) return;
     void client
       .loadVoiceLanguage()
       .then((next) => {
-        if (active && validVoiceLanguage(next)) setLanguage(next);
+        if (generation === voiceGeneration.current && validVoiceLanguage(next)) setLanguage(next);
       })
       .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   useEffect(() => {
-    let active = true;
+    const generation = voiceGeneration.current;
     if (!client.rememberInputTarget) return;
     void client.rememberInputTarget().catch(() => {
-      if (active) setNotice("未能记录前台输入窗口");
+      if (generation === voiceGeneration.current) setNotice("未能记录前台输入窗口");
     });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   useEffect(() => {
     submittingRef.current = false;
@@ -1484,11 +1482,11 @@ export function VoicePanel({
 
   useEffect(() => {
     if (!client.onVoiceUpdate) return;
-    let active = true;
+    const generation = voiceGeneration.current;
     let unlisten: (() => void) | undefined;
     void client
       .onVoiceUpdate((update) => {
-        if (!active || !busyRef.current) return;
+        if (generation !== voiceGeneration.current || !busyRef.current) return;
         if (update.level !== undefined) {
           if (
             !stoppingRef.current &&
@@ -1525,15 +1523,14 @@ export function VoicePanel({
         );
       })
       .then((stop) => {
-        if (active) unlisten = stop;
+        if (generation === voiceGeneration.current) unlisten = stop;
         else stop();
       })
       .catch(() => undefined);
     return () => {
-      active = false;
       unlisten?.();
     };
-  }, [client]);
+  }, [client, voiceGeneration]);
 
   async function recognize() {
     if (busyRef.current || submittingRef.current) return;
@@ -1814,6 +1811,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   } = usePanelAction(setNotice);
   const draftRevision = useRef(0);
   const searchRef = useRef("");
+  const cloudGeneration = useAsyncGeneration(client);
 
   async function load(revision: number, nextSearch: string) {
     let result;
@@ -1839,7 +1837,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   useEffect(() => {
-    let active = true;
+    const generation = cloudGeneration.current;
     busyRef.current = false;
     setItems([]);
     setLoaded(false);
@@ -1848,21 +1846,21 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       void client
         .canSendText()
         .then((available) => {
-          if (active) setInputAvailable(available && Boolean(client.sendText));
+          if (generation === cloudGeneration.current)
+            setInputAvailable(available && Boolean(client.sendText));
         })
         .catch(() => {
-          if (active) setInputAvailable(false);
+          if (generation === cloudGeneration.current) setInputAvailable(false);
         });
     if (client.rememberInputTarget)
       void client.rememberInputTarget().catch(() => {
-        if (active) setNotice("未能记录前台输入窗口");
+        if (generation === cloudGeneration.current) setNotice("未能记录前台输入窗口");
       });
     void refresh(searchRef.current);
     return () => {
-      active = false;
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, cloudGeneration, invalidate]);
 
   function add() {
     if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
@@ -2094,7 +2092,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }
     if (!isCurrent(revision)) return;
     setEntries(cloudDictionaryEntries<CloudDictionaryEntry>(result));
-    setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
+    setOffset(cloudResponseInteger(result.offset) ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
   }
 
@@ -2330,7 +2328,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     snapshot: CloudDictionarySnapshotMetadata;
     expectedRevision: number;
   } | null>(null);
-  const mounted = useRef(true);
+  const mounted = useMountedRef();
   const lifecycleRevision = useRef(0);
 
   useEffect(() => {
@@ -2344,13 +2342,6 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
   }, [client, invalidate]);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;
@@ -3010,9 +3001,9 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }
     if (!isCurrent(current)) return;
     setEntries(cloudDictionaryCatalogEntries<CloudDictionaryCatalogEntry>(result));
-    setOffset(typeof result.offset === "number" ? result.offset : nextOffset);
+    setOffset(cloudResponseInteger(result.offset) ? result.offset : nextOffset);
     setHasMore(result.has_more === true);
-    setRevision(typeof result.revision === "number" ? result.revision : 0);
+    setRevision(cloudResponseInteger(result.revision) ? result.revision : 0);
     setNormalized(typeof result.normalized === "string" ? result.normalized : query.code);
     setConfirmed(query);
   }
@@ -3306,7 +3297,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     // (or make a fast query appear to have timed out on touch hosts).
     setCandidates(nextCandidates);
     setContext(typeof result.context === "string" ? result.context : "");
-    setRevision(typeof result.revision === "number" ? result.revision : 0);
+    setRevision(cloudResponseInteger(result.revision) ? result.revision : 0);
     setPositions([]);
     setQuery(nextQuery);
     if (nextQuery.kind !== "quick" && typeof result.context === "string" && result.context) {
@@ -3799,6 +3790,8 @@ export function EmojiPanel({
   );
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
+  const catalogGeneration = useAsyncGeneration(client, catalogRetry);
+  const clipboardLifecycle = useAsyncGeneration(client, page, clipboardRefresh);
 
   function setNotice(message: string, temporary = false) {
     if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
@@ -3868,12 +3861,12 @@ export function EmojiPanel({
       setCatalogLoading(false);
       return;
     }
-    let active = true;
+    const generation = catalogGeneration.current;
     setCatalogLoading(true);
     void Promise.resolve()
       .then(() => client.loadCatalog!())
       .then((next) => {
-        if (!active) return;
+        if (generation !== catalogGeneration.current) return;
         const unavailable = next.unavailable ?? [];
         setCatalog((current) => ({
           emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
@@ -3883,28 +3876,27 @@ export function EmojiPanel({
         setCatalogUnavailable(unavailable);
       })
       .catch(() => {
-        if (active) setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
+        if (generation === catalogGeneration.current)
+          setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
       })
       .finally(() => {
-        if (active) setCatalogLoading(false);
+        if (generation === catalogGeneration.current) setCatalogLoading(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client, catalogRetry]);
+  }, [client, catalogRetry, catalogGeneration]);
 
   useEffect(() => {
     if (!client.clipboard?.list) {
       setClipboardLoadFailed(false);
       return;
     }
-    let active = true;
+    const generation = clipboardLifecycle.current;
+    const isCurrent = () => generation === clipboardLifecycle.current;
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
     let inFlight = 0;
     let refreshPending = false;
     const refresh = () => {
-      if (!active) return;
+      if (!isCurrent()) return;
       if (inFlight !== 0) {
         refreshPending = true;
         // A newer notification invalidates the current snapshot, but only
@@ -3922,14 +3914,14 @@ export function EmojiPanel({
           ]),
         )
         .then(([value, enabled]) => {
-          if (active && request === clipboardGeneration.current) {
+          if (isCurrent() && request === clipboardGeneration.current) {
             setClipboard(enabled ? value : []);
             setClipboardEnabled(enabled);
             setClipboardLoadFailed(false);
           }
         })
         .catch(() => {
-          if (active && request === clipboardGeneration.current) {
+          if (isCurrent() && request === clipboardGeneration.current) {
             setClipboard([]);
             setClipboardEnabled(null);
             setClipboardLoadFailed(true);
@@ -3937,7 +3929,7 @@ export function EmojiPanel({
         })
         .finally(() => {
           inFlight--;
-          if (active && refreshPending) {
+          if (isCurrent() && refreshPending) {
             refreshPending = false;
             refresh();
           }
@@ -3945,7 +3937,7 @@ export function EmojiPanel({
     };
     const pollVisible = () => {
       if (
-        active &&
+        isCurrent() &&
         document.visibilityState === "visible" &&
         !clipboardMutation.current &&
         inFlight === 0
@@ -3955,7 +3947,7 @@ export function EmojiPanel({
     const start = async () => {
       try {
         const stop = await client.clipboard?.onChanged?.(refresh);
-        if (!active) {
+        if (!isCurrent()) {
           stop?.();
           return;
         }
@@ -3963,7 +3955,7 @@ export function EmojiPanel({
       } catch {
         /* Keep polling if host notification registration fails. */
       }
-      if (!active) return;
+      if (!isCurrent()) return;
       // Close the gap between the initial snapshot and subscription setup.
       refresh();
       if (unsubscribe && poll !== undefined) {
@@ -3981,14 +3973,13 @@ export function EmojiPanel({
     }
     void start();
     return () => {
-      active = false;
       refreshPending = false;
       ++clipboardGeneration.current;
       if (poll !== undefined) clearInterval(poll);
       document.removeEventListener("visibilitychange", pollVisible);
       unsubscribe?.();
     };
-  }, [client, page, clipboardRefresh]);
+  }, [client, page, clipboardLifecycle, clipboardRefresh]);
 
   type DisplayGroup = EmojiCatalogGroup & { moreTarget?: EmojiPage; flow?: boolean };
   const groups =

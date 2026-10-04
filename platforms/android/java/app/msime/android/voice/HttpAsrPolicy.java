@@ -33,6 +33,11 @@ public final class HttpAsrPolicy {
         return false;
     }
 
+    /** A transcription response carries text; reject non-string JSON values before display. */
+    static String strictText(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
+
     /**
      * Whether this host can run the request as given.
      *

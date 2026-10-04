@@ -47,6 +47,22 @@ test("a move response from a replaced data directory client is ignored", async (
   expect(result.current.dataDirectory?.path).toBe("/new");
 });
 
+test("clears the directory when the capability is disabled", async () => {
+  const client: DataDirectoryClient = {
+    status: vi.fn().mockResolvedValue({ path: "/current", isDefault: true }),
+    pick: vi.fn(),
+    move: vi.fn(),
+  };
+  const { result, rerender } = renderHook(
+    ({ enabled }) => useDataDirectory({ client, enabled, confirm: vi.fn() }),
+    { initialProps: { enabled: true } },
+  );
+  await waitFor(() => expect(result.current.dataDirectory?.path).toBe("/current"));
+
+  rerender({ enabled: false });
+  await waitFor(() => expect(result.current.dataDirectory).toBeUndefined());
+});
+
 test("ignores a same-tick duplicate directory choice", async () => {
   const pendingPick = deferred<string | null>();
   const client: DataDirectoryClient = {

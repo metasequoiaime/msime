@@ -231,7 +231,7 @@ struct DictionarySettingsView: View {
   @State private var habits = InputHabitPreference.mirrored
   @State private var saveFailed = false
   private var manifest: [String: Any] {
-    guard let url = Bundle.main.url(forResource: "dictionary-manifest", withExtension: "json"),
+    guard let url = Bundle.main.url(forResource: "msime-dictionary-manifest", withExtension: "json"),
           let data = try? Data(contentsOf: url),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
     return object

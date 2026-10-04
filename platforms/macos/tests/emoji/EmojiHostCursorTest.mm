@@ -12,7 +12,7 @@ int main() {
         assert([files createDirectoryAtURL:directory withIntermediateDirectories:NO attributes:nil error:&error]);
         @try {
             sqlite3 *db = nullptr;
-            assert(sqlite3_open([[directory URLByAppendingPathComponent:@"others.db"].path fileSystemRepresentation], &db) == SQLITE_OK);
+            assert(sqlite3_open([[directory URLByAppendingPathComponent:@"msime-others.db"].path fileSystemRepresentation], &db) == SQLITE_OK);
             const char *sql =
                 "CREATE TABLE emoji(emoji TEXT,category TEXT,keywords TEXT,pinyin TEXT,sort_order INTEGER);"
                 "CREATE TABLE kaomoji_catalog(kaomoji TEXT,keywords TEXT,sort_order INTEGER);"

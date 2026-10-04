@@ -66,7 +66,7 @@ targets:
       - path: SharedUI
       - path: App/Resources/Assets.xcassets
       - path: App/Resources/LaunchScreen.storyboard
-      - path: ../../target/ios/EngineResources/dictionary-manifest.json
+      - path: ../../target/ios/EngineResources/msime-dictionary-manifest.json
         buildPhase: resources
       - path: SharedResources/MLKit-NOTICES.txt
         buildPhase: resources
@@ -266,6 +266,9 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/KeyboardAIService.swift
       - path: App/Services/SkinCommunityAPI.swift
+      - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
+      - path: App/Sources/settings/CandidateOptionsSettingsView.swift
+      - path: App/Sources/settings/CandidatePreviewCard.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

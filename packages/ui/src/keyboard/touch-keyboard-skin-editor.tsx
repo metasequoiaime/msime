@@ -39,6 +39,7 @@ import * as skin from "./touch-skin-style";
 import * as doc from "../settings/document-style";
 import * as community from "../community/community-style";
 import { ActionButton } from "../core/action-button";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
@@ -74,25 +75,26 @@ function AiSkinGeneration({
   const saveRunning = useRef(false);
   const requestRef = useRef("");
   const mounted = useMountedRef();
+  const progressGeneration = useAsyncGeneration(client, requestId);
 
   useEffect(() => {
+    const generation = progressGeneration.current;
     requestRef.current = requestId;
     if (!client.onProgress) return;
-    let active = true;
     let unsubscribe: (() => void) | undefined;
     void client
       .onProgress((progress) => {
-        if (active && progress.requestId === requestRef.current) setCompleted(progress.completed);
+        if (generation === progressGeneration.current && progress.requestId === requestRef.current)
+          setCompleted(progress.completed);
       })
       .then((value) => {
-        if (active) unsubscribe = value;
+        if (generation === progressGeneration.current) unsubscribe = value;
         else value();
       });
     return () => {
-      active = false;
       unsubscribe?.();
     };
-  }, [client, requestId]);
+  }, [client, progressGeneration, requestId]);
 
   useEffect(
     () => () => {
@@ -404,16 +406,10 @@ export function TouchKeyboardSkinEditor({
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [aiGenerationOpen, setAiGenerationOpen] = useState(false);
   const mounted = useMountedRef();
-  const libraryGeneration = useRef(0);
+  const libraryGeneration = useAsyncGeneration(library);
   const libraryActionBusy = useRef(false);
   useEffect(() => {
-    return () => {
-      libraryGeneration.current += 1;
-      libraryActionBusy.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    const generation = ++libraryGeneration.current;
+    const generation = libraryGeneration.current;
     if (!library) return;
     libraryActionBusy.current = true;
     void runAsyncAction(
@@ -433,10 +429,9 @@ export function TouchKeyboardSkinEditor({
       { formatError: libraryError },
     );
     return () => {
-      if (generation === libraryGeneration.current) libraryGeneration.current += 1;
       libraryActionBusy.current = false;
     };
-  }, [library]);
+  }, [library, libraryGeneration]);
   const apply = (next: TouchKeyboardSkinDesign, record = true) => {
     const normalized = normalizeTouchKeyboardSkinDesign(next);
     if (JSON.stringify(normalized) === JSON.stringify(design)) return;

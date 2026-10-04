@@ -16,6 +16,7 @@ import {
   LocalAsrPathTrust,
   PathTrustStat,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPathTrust";
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -232,6 +233,11 @@ import {
   TelemetryPolicy,
 } from "../entry/src/main/ets/telemetry/TelemetryPolicy";
 import { NoticePolicy } from "../entry/src/main/ets/notices/NoticePolicy";
+import {
+  HttpRequestLike,
+  installNoRedirectGuard,
+  noRedirectOptions,
+} from "../entry/src/main/ets/network/HarmonyHttpSecurity";
 import {
   CLOUD_CLIPBOARD_EMPTY,
   CLOUD_CLIPBOARD_FAILED,
@@ -730,6 +736,18 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
     OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
     "oversized UTF-8 cloud responses are rejected by byte size",
   );
+});
+
+group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
+  for (const invalid of [null, {}, 42, true, "synthetic", [], { text: null },
+    { text: 12 }, { text: true }, { text: {} }, { text: [] }]) {
+    const response = JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+      candidates: [{ text: "甲" }, invalid, { text: "乙" }, { text: "甲" }, { text: "丙" }],
+    }) } }] });
+    const values = OnlineCandidatePolicy.aiCandidates(response, 2);
+    check(values !== null && values.join(",") === "甲,乙",
+      `无效候选 ${JSON.stringify(invalid)} 不丢弃整批结果`);
+  }
 });
 
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
@@ -5715,8 +5733,8 @@ group("quietening other applications is off unless asked for", () => {
 
 group("a staged resource copy is trusted only while it matches the package", () => {
   const set: StagedArtifact[] = [
-    { name: "msime.db", size: 107552768 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552768 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   const token: string = StagedResourcePolicy.generationToken(set);
   check(token.length > 0, "a package can be described");
@@ -5727,15 +5745,15 @@ group("a staged resource copy is trusted only while it matches the package", () 
   // The defect this replaces: a marker saying only "staged" went on saying so after the package
   // changed, and the shared verification then refused the directory outright.
   const upgraded: StagedArtifact[] = [
-    { name: "msime.db", size: 107552769 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552769 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(upgraded)) ===
       true,
     "an artifact that changed size is a different generation",
   );
-  const dropped: StagedArtifact[] = [{ name: "msime.db", size: 107552768 }];
+  const dropped: StagedArtifact[] = [{ name: "msime-pinyin.db", size: 107552768 }];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(dropped)) ===
       true,
@@ -6055,6 +6073,16 @@ group("a streaming frame is read at whichever level answered", () => {
     VoiceResponsePolicy.streamingFrame("not json", false).failure.length > 0,
     "a frame that is not JSON is a refusal rather than an empty result",
   );
+});
+
+group("流式语音拒绝非对象 JSON，并保留结束标记", () => {
+  for (const payload of ["null", "[]", "true", "42", '"synthetic"']) {
+    for (const last of [false, true]) {
+      const outcome = VoiceResponsePolicy.streamingFrame(payload, last);
+      check(outcome.failure.length > 0, `拒绝非对象响应 ${payload}`);
+      check(outcome.text === "" && outcome.last === last, "无效响应不提交文字并保留结束标记");
+    }
+  }
 });
 
 group("a final frame ends the recording even when it carries no text", () => {
@@ -7313,6 +7341,33 @@ group("a clipboard history document is not trusted because we wrote it", () => {
   );
   const good = ClipboardHistoryStore.parse('[{"text":"a","at":1,"pinned":false}]');
   check(good.length === 1 && good[0].text === "a", "a sound document round-trips");
+});
+
+group("Harmony HTTP requests stop before following redirects", () => {
+  let redirectCallback: ((headers: Object) => void) | undefined;
+  let destroyed = 0;
+  const request: HttpRequestLike = {
+    on: (_type: "headersReceive", callback: (headers: Object) => void) => {
+      redirectCallback = callback;
+    },
+    destroy: () => {
+      destroyed += 1;
+    },
+  };
+  installNoRedirectGuard(request);
+  redirectCallback?.({ Location: "https://synthetic.invalid/" });
+  check(destroyed === 1, "a Location response destroys the request before the redirect");
+
+  destroyed = 0;
+  redirectCallback?.({ location: "https://synthetic.invalid/" });
+  check(destroyed === 1, "redirect detection is case insensitive");
+
+  destroyed = 0;
+  redirectCallback?.({ "content-type": "application/json" });
+  check(destroyed === 0, "ordinary response headers keep the request alive");
+
+  const options = noRedirectOptions({ readTimeout: 1000 });
+  check(options.maxRedirects === 0, "the native redirect limit is also set to zero when available");
 });
 
 group("account and cloud clipboard bridge keeps secrets native", () => {
@@ -12169,6 +12224,11 @@ group("LocalAsrPathTrust", () => {
 
 group("LocalAsrPolicy", () => {
   check(
+    LocalAsrPolicy.textFileLimit("manifest") === 256 * 1024 &&
+      LocalAsrPolicy.textFileLimit("tokens") === 8 * 1024 * 1024,
+    "local model text files use bounded manifest and token limits",
+  );
+  check(
     LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
     "an absolute directory under the local provider is a model",
   );
@@ -12319,6 +12379,45 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
     "spaces around CJK marks, inside initialisms and at the ends go",
   );
+});
+
+group("LocalAsrTextReader", () => {
+  const opened: { fd: number }[] = [];
+  const chunks: Uint8Array[] = [new TextEncoder().encode("model")];
+  const api: LocalAsrTextReaderApi = {
+    open: () => {
+      const file = { fd: 7 };
+      opened.push(file);
+      return file;
+    },
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      const chunk: Uint8Array | undefined = chunks.shift();
+      if (chunk === undefined) return 0;
+      new Uint8Array(buffer).set(chunk);
+      return chunk.length;
+    },
+    close: (file: { fd: number }): void => {
+      opened.splice(opened.indexOf(file), 1);
+    },
+    decode: (bytes: Uint8Array): string => new TextDecoder().decode(bytes),
+  };
+  check(LocalAsrTextReader.read("/model.txt", 16, api, 0) === "model", "reads a short model text file");
+  check(opened.length === 0, "closes the model text file after reading");
+
+  const oversized: LocalAsrTextReaderApi = {
+    ...api,
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      new Uint8Array(buffer).fill(65);
+      return buffer.byteLength;
+    },
+  };
+  let refused = false;
+  try {
+    LocalAsrTextReader.read("/large.txt", 16, oversized, 0);
+  } catch (error) {
+    refused = true;
+  }
+  check(refused && opened.length === 0, "refuses an oversized model text file and closes it");
 });
 
 group("PcmFrameSlicer", () => {
@@ -12617,6 +12716,130 @@ group("V mode spells digits and operators the Engine lists, and Shift+digit pick
     route({ keyCode: 2001, unicodeChar: 0x31 }, { localMode: "command", editing: "/rq", caret: 3 })
       .action === HardwareKeyAction.SELECT,
     "a digit picks a command",
+  );
+});
+
+group("URL mode and its trigger keys route through the symbols the Engine lists", () => {
+  const route = (over: Record<string, unknown>, spelling: Partial<HardwareSpelling>) =>
+    HardwareKeyRouter.route(
+      {
+        keyCode: 0,
+        unicodeChar: 0,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: false,
+        logoKey: false,
+        ...over,
+      } as HardwareKey,
+      true,
+      true,
+      true,
+      undefined,
+      false,
+      false,
+      "disabled",
+      true,
+      { ...PLAIN_SPELLING, ...spelling },
+    );
+  // 组字原文是 `www` 时引擎只列出触发键 `.`（`SessionCore::spelling_symbols`）。
+  const www: Partial<HardwareSpelling> = { editing: "www", caret: 3, spellingSymbols: "." };
+  const dot = route({ keyCode: 2044, unicodeChar: 0x2e }, www);
+  check(
+    dot.action === HardwareKeyAction.COMPOSE && dot.character === 0x2e,
+    "the . after www goes to the Engine as input rather than paging or ending the composition",
+  );
+  check(
+    route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, www).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Shift+1 is still the ! it types when only a trigger key is listed, not a pick",
+  );
+  const apostrophe = route({ keyCode: 2063, unicodeChar: 0x27 }, www);
+  check(
+    apostrophe.action === HardwareKeyAction.COMPOSE && apostrophe.character === 0x27,
+    "the syllable apostrophe still separates while a trigger key is listed",
+  );
+  const semicolon = route(
+    { keyCode: 2062, unicodeChar: 0x3b },
+    { ...www, editing: "w", caret: 1, microsoftShuangpin: true },
+  );
+  check(
+    semicolon.action === HardwareKeyAction.COMPOSE && semicolon.character === 0x3b,
+    "and Microsoft shuangpin's ; is still the second key of a syllable",
+  );
+  check(
+    route({ keyCode: 2004, unicodeChar: 0x34 }, www).action === HardwareKeyAction.SELECT,
+    "a plain digit still picks, since no digit is listed",
+  );
+  const colon = route(
+    { keyCode: 2062, unicodeChar: 0x3a, shiftKey: true },
+    { editing: "http", caret: 4, spellingSymbols: ":" },
+  );
+  check(
+    colon.action === HardwareKeyAction.COMPOSE && colon.character === 0x3a,
+    "Shift+; after http is the : of the scheme",
+  );
+  // 网址模式下引擎列出的符号集（`local::url::SPELLING_SYMBOLS`）。
+  const url: Partial<HardwareSpelling> = {
+    localMode: "url",
+    editing: "www.",
+    caret: 4,
+    spellingSymbols: "0123456789-._~:/?#[]@!$&'()*+,;=%^",
+  };
+  const four = route({ keyCode: 2004, unicodeChar: 0x34 }, url);
+  check(
+    four.action === HardwareKeyAction.COMPOSE && four.character === 0x34,
+    "a digit is part of the URL, not a pick",
+  );
+  const at = route({ keyCode: 2002, unicodeChar: 0x40, shiftKey: true }, url);
+  check(
+    at.action === HardwareKeyAction.COMPOSE && at.character === 0x40,
+    "every Shift+digit mark is listed, so Shift+2 is the @ of the URL rather than a pick",
+  );
+  const slash = route({ keyCode: 2064, unicodeChar: 0x2f }, url);
+  check(
+    slash.action === HardwareKeyAction.COMPOSE && slash.character === 0x2f,
+    "/ is part of the URL",
+  );
+  const quote = route({ keyCode: 2063, unicodeChar: 0x27 }, url);
+  check(
+    quote.action === HardwareKeyAction.COMPOSE && quote.character === 0x27,
+    "' is a literal character of the URL",
+  );
+  const doubleQuote = route({ keyCode: 2063, unicodeChar: 0x22, shiftKey: true }, url);
+  check(
+    doubleQuote.action === HardwareKeyAction.PUNCTUATION && doubleQuote.character === 0x22,
+    "a mark the URL cannot hold goes the punctuation way, which ends the URL first",
+  );
+  check(
+    route(
+      { keyCode: 2062, unicodeChar: 0x3b },
+      { ...url, microsoftShuangpin: true, editing: "w", caret: 1 },
+    ).action === HardwareKeyAction.COMPOSE,
+    "; is listed in URL mode, so it spells there too",
+  );
+  check(
+    route({ keyCode: 2050, unicodeChar: 0x20 }, url).action === HardwareKeyAction.COMMIT,
+    "Space takes the single row, the URL itself",
+  );
+  // 触屏符号键：组字中列出的符号（含数字）走字符路由，空闲时列出的 `/` `@` 和没列出的符号照旧走标点路由。
+  const touch = (spelling: Partial<HardwareSpelling>, character: number) =>
+    HardwareKeyRouter.touchSpells({ ...PLAIN_SPELLING, ...spelling }, character);
+  check(touch(url, 0x31) && touch(url, 0x3d) && touch(url, 0x2e), "touch digits and = . are URL input");
+  check(!touch(url, 0x3c), "touch < ends the URL on the punctuation route");
+  check(touch(www, 0x2e) && !touch(www, 0x31), "touch . after www opens the URL; a digit there is not listed");
+  check(!touch({ spellingSymbols: "/@" }, 0x2f), "idle / stays on the punctuation route");
+  check(!touch({ ...url, englishCandidates: true }, 0x31), "the English candidate mode spells letters only");
+  // 有意的行为变化只有粤拼：组字中只列了撇号（`cantonese::SPELLING_SYMBOLS_COMPOSING`）时，数字键没被占用，Shift+1 是它打出的 `!`，与 Windows `EditPolicy.h` 的 `digit_selects_candidate` 和全拼一致；裸数字仍然选候选。藏文由 route() 交给 routeKorean，不经过这里。
+  const cantonese: Partial<HardwareSpelling> = { editing: "nei", caret: 3, spellingSymbols: "'" };
+  const bang = route({ keyCode: 2001, unicodeChar: 0x21, shiftKey: true }, cantonese);
+  check(
+    bang.action === HardwareKeyAction.PUNCTUATION && bang.character === 0x21,
+    "Cantonese composing: Shift+1 is the ! it types, not a pick",
+  );
+  const one = route({ keyCode: 2001, unicodeChar: 0x31 }, cantonese);
+  check(
+    one.action === HardwareKeyAction.SELECT && one.index === 0,
+    "Cantonese composing: a bare 1 still picks the first candidate",
   );
 });
 
@@ -13120,6 +13343,16 @@ group("an effect pack's parameters replace the preference values once host-api r
     odd.intensity === 40 && odd.flashMillis === 1500 && odd.color === undefined,
     "out-of-range values are clamped or ignored rather than drawn",
   );
+  check(
+    TypingEffectPolicy.resolve(preferences, {
+      pack: "neon",
+      issue: null,
+      intensity: 50,
+      colors: [],
+      duration_ms: Number.NaN,
+    }).flashMillis === FLASH_MILLIS,
+    "a non-finite flash length keeps the safe default",
+  );
 });
 
 group("background music follows the desktop player's rules", () => {
@@ -13428,8 +13661,8 @@ group(
       "the preference ids resolve, in the fixed order",
     );
     check(
-      KeyboardScheme.languageDictionary("cantonese") === "cantonese.db" &&
-        KeyboardScheme.languageDictionary("zhuyin") === "zhuyin.db" &&
+      KeyboardScheme.languageDictionary("cantonese") === "msime-cantonese.db" &&
+        KeyboardScheme.languageDictionary("zhuyin") === "msime-zhuyin.db" &&
         KeyboardScheme.languageDictionary("vietnamese") === null &&
         KeyboardScheme.languageDictionary("quanpin") === null,
       "Cantonese and Zhuyin read their own lexicon; Vietnamese needs none",
@@ -13440,7 +13673,7 @@ group(
       KeyboardScheme.ZHUYIN,
       KeyboardScheme.VIETNAMESE,
     ];
-    const onlyCantonese = (file: string): boolean => file === "cantonese.db";
+    const onlyCantonese = (file: string): boolean => file === "msime-cantonese.db";
     check(
       KeyboardScheme.withInstalledDictionaries(enabled, onlyCantonese)
         .map((scheme: SchemeDefinition): string => scheme.engineScheme)
@@ -13575,7 +13808,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
   );
 });
 
-group("Stroke is one more card, opt-in and needing stroke.db", () => {
+group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
     KeyboardScheme.SCHEMES.length === 16 &&
       KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
@@ -13621,21 +13854,21 @@ group("Stroke is one more card, opt-in and needing stroke.db", () => {
       KeyboardScheme.engineSchemeName(10) === "quanpin",
     "nine names Stroke rather than falling back to quanpin",
   );
-  check(KeyboardScheme.languageDictionary("stroke") === "stroke.db", "Stroke reads stroke.db");
+  check(KeyboardScheme.languageDictionary("stroke") === "msime-stroke.db", "Stroke reads msime-stroke.db");
   const enabled: SchemeDefinition[] = [KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, stroke];
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "zhuyin.db",
+      (file: string): boolean => file === "msime-zhuyin.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,zhuyin",
-    "without stroke.db the card is hidden",
+    "without msime-stroke.db the card is hidden",
   );
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "stroke.db",
+      (file: string): boolean => file === "msime-stroke.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,stroke",
@@ -13978,6 +14211,22 @@ group("a hardware keyboard on Zhuyin and Vietnamese composes what the Engine spe
     zhuyin(key({ unicodeChar: 0x21, shiftKey: true }), true, DACHEN).action ===
       HardwareKeyAction.PUNCTUATION,
     "Shift+1 is a mark, not a pick from a list that is not open",
+  );
+  // 注音选单打开时 Engine 只列出 `0`：Shift+1 的数字没被列出，仍是符号，不选词。
+  check(
+    zhuyin(key({ unicodeChar: 0x21, shiftKey: true }), true, LIST_OPEN, true).action ===
+      HardwareKeyAction.PUNCTUATION,
+    "Shift+1 is still a mark with the list open, since only 0 is listed",
+  );
+  // 注音没有音节撇号：组字中的 `'` 走标点路由，配对引号和编辑器上下文才会生效。
+  const apostrophe: HardwareKeyDecision = zhuyin(
+    key({ keyCode: 2063, unicodeChar: 0x27 }),
+    true,
+    { ...DACHEN, editing: "su3", caret: 3 },
+  );
+  check(
+    apostrophe.action === HardwareKeyAction.PUNCTUATION && apostrophe.character === 0x27,
+    "a ' while composing Zhuyin is punctuation, not a syllable separator",
   );
 
   const vietnamese = (

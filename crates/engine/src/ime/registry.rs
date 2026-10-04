@@ -1,4 +1,4 @@
-//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `cantonese.db`, which is opened the first time the scheme is activated and then kept for the session. Zhuyin's editor reads `zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
+//! The providers, one per scheme family (`R/providers/provider_registry.cpp`, `pinyin_candidate_provider.cpp`): pinyin (quanpin and shuangpin engines), wubi and Japanese. Korean syllables are the text, so a Korean query answers nothing until the user opens the Hanja list, and then the embedded Hanja table (`korean::hanja`) answers it. Cantonese is answered by `msime-cantonese.db`, which is opened the first time the scheme is activated and then kept for the session. Zhuyin's editor reads `msime-zhuyin.db` itself while it converts, so the registry opens that file the first time the scheme is activated, lends the connection to each Zhuyin scheme built and takes it back when that scheme is replaced; its list rows reach the session through the scheme, never through `query`. Stroke is answered by `msime-stroke.db` the way Cantonese is: opened the first time the scheme is activated, kept for the session, and read by `query`.
 //!
 //! The registry answers queries and lookups only. The reference also routed `create_word` / `update_weight_by_pinyin_and_word` / `delete_by_pinyin_and_word` through it; here the session writes pins, removals and frequency learning into user_dictionary itself, choosing the dictionary kind from the selected row's scheme (overlays.md §3.3), and phrases through its own canonical-pinyin `QuanpinEngine`, so a second writer path would only diverge from it.
 
@@ -28,21 +28,33 @@ pub struct ProviderRegistry {
     wubi: WubiProvider,
     japanese: JapaneseProvider,
     keymap: Option<SharedKeymap>,
-    /// Where `cantonese.db` is; empty when the host has none.
+    /// Where `msime-cantonese.db` is; empty when the host has none.
     cantonese_path: PathBuf,
     cantonese: Option<CantoneseDictionary>,
-    /// Where `zhuyin.db` is; empty when the host has none.
+    /// Where `msime-zhuyin.db` is; empty when the host has none.
     zhuyin_path: PathBuf,
-    /// `zhuyin.db` opened by `activate`; `None` before that and while the live Zhuyin scheme holds it.
+    /// `msime-zhuyin.db` opened by `activate`; `None` before that and while the live Zhuyin scheme holds it.
     zhuyin: Option<LanguageDictionary>,
-    /// Where `stroke.db` is; empty when the host has none.
+    /// Where `msime-stroke.db` is; empty when the host has none.
     stroke_path: PathBuf,
-    /// `stroke.db` opened by `activate`; `None` before that.
+    /// `msime-stroke.db` opened by `activate`; `None` before that.
     stroke: Option<LanguageDictionary>,
 }
 
+/// 五笔码表所在的数据库。准备代次时单独发布的 `msime-wubi.db` 已并回工作主词库，学习、删词与个人词典也写那里，所以优先读代次的 `msime-pinyin.db`，读写落在同一个文件上。代次目录就是资源目录（只读布局）时读其中的 `msime-wubi.db`；没有代次工作副本时退回资源目录，先找拆分后的 `msime-wubi.db`，再找旧的合并发布。
+fn wubi_database(paths: &RuntimePaths) -> PathBuf {
+    [
+        paths.dictionary(assets::WUBI_DICTIONARY),
+        paths.dictionary(assets::MAIN_DICTIONARY),
+        paths.resource(assets::WUBI_DICTIONARY),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .unwrap_or_else(|| paths.resource(assets::MAIN_DICTIONARY))
+}
+
 impl ProviderRegistry {
-    /// Wubi reads the generation's `msime.db`; the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `dict_japanese.dat`。
+    /// 五笔读 `wubi_database` 选出的文件，通常是代次里的 `msime-pinyin.db`； the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `msime-japanese.dat`。
     pub fn new(
         profile_kind: ShuangpinProfileKind,
         paths: &RuntimePaths,
@@ -59,7 +71,7 @@ impl ProviderRegistry {
         Self {
             quanpin: QuanpinEngine::new(paths),
             shuangpin: ShuangpinEngine::new(profile(profile_kind), paths),
-            wubi: WubiProvider::new(&paths.dictionary(assets::MAIN_DICTIONARY)),
+            wubi: WubiProvider::new(&wubi_database(paths)),
             japanese: JapaneseProvider::new(&japanese_model),
             keymap: None,
             cantonese_path,
@@ -71,7 +83,7 @@ impl ProviderRegistry {
         }
     }
 
-    /// Opens what `scheme` reads before it becomes active, once per session: `cantonese.db` for Cantonese, `zhuyin.db` for Zhuyin and `stroke.db` for Stroke, failing as `language_dictionary::open_read_only` does when the file is missing or of an unknown version. Nothing for the other schemes. The caller does not activate Zhuyin while a Zhuyin scheme holds the connection, which would open the file again.
+    /// Opens what `scheme` reads before it becomes active, once per session: `msime-cantonese.db` for Cantonese, `msime-zhuyin.db` for Zhuyin and `msime-stroke.db` for Stroke, failing as `language_dictionary::open_read_only` does when the file is missing or of an unknown version. Nothing for the other schemes. The caller does not activate Zhuyin while a Zhuyin scheme holds the connection, which would open the file again.
     pub fn activate(&mut self, scheme: SchemeType) -> Result<()> {
         if scheme == SchemeType::Cantonese && self.cantonese.is_none() {
             self.cantonese = Some(CantoneseDictionary::open(&self.cantonese_path)?);
@@ -85,7 +97,7 @@ impl ProviderRegistry {
         Ok(())
     }
 
-    /// Lends the `zhuyin.db` connection `activate` opened to the Zhuyin scheme about to be built; `None` for any other scheme, and for Zhuyin before it has been activated.
+    /// Lends the `msime-zhuyin.db` connection `activate` opened to the Zhuyin scheme about to be built; `None` for any other scheme, and for Zhuyin before it has been activated.
     pub fn take_dictionary(&mut self, scheme: SchemeType) -> Option<LanguageDictionary> {
         if scheme == SchemeType::Zhuyin {
             self.zhuyin.take()
@@ -94,12 +106,12 @@ impl ProviderRegistry {
         }
     }
 
-    /// Takes back the `zhuyin.db` connection of a Zhuyin scheme being replaced, so switching back to Zhuyin reuses it instead of opening the file again.
+    /// Takes back the `msime-zhuyin.db` connection of a Zhuyin scheme being replaced, so switching back to Zhuyin reuses it instead of opening the file again.
     pub fn return_dictionary(&mut self, dictionary: LanguageDictionary) {
         self.zhuyin = Some(dictionary);
     }
 
-    /// The syllable inventory of the open `cantonese.db`; `None` until Cantonese has been activated.
+    /// The syllable inventory of the open `msime-cantonese.db`; `None` until Cantonese has been activated.
     pub fn cantonese_inventory(&self) -> Option<Arc<Inventory>> {
         self.cantonese.as_ref().map(CantoneseDictionary::inventory)
     }
@@ -175,7 +187,7 @@ impl ProviderRegistry {
             }
             SchemeType::Wubi => self.wubi.reset_cache(),
             SchemeType::JapaneseRomaji => self.japanese.reset_cache(),
-            // `cantonese.db` and `stroke.db` are read-only and their rows are never rewritten, so there is no cache to drop.
+            // `msime-cantonese.db` and `msime-stroke.db` are read-only and their rows are never rewritten, so there is no cache to drop.
             SchemeType::Korean
             | SchemeType::Cantonese
             | SchemeType::Zhuyin
@@ -234,7 +246,7 @@ impl ProviderRegistry {
         }
     }
 
-    /// The `cantonese.db` rows for the request's letters, read again through the activated inventory, as `CantoneseScheme::candidates` lists them. Each row is keyed by the typed letters it covers (`pinyin`, apostrophes kept) and the dictionary key it was found under (`canonical_pinyin`), which is what selecting it takes out of the composition. A read that fails answers nothing, like the wubi table.
+    /// The `msime-cantonese.db` rows for the request's letters, read again through the activated inventory, as `CantoneseScheme::candidates` lists them. Each row is keyed by the typed letters it covers (`pinyin`, apostrophes kept) and the dictionary key it was found under (`canonical_pinyin`), which is what selecting it takes out of the composition. A read that fails answers nothing, like the wubi table.
     fn cantonese_candidates(&self, request: &QueryRequest) -> Vec<WordItem> {
         let Some(dictionary) = &self.cantonese else {
             return Vec::new();
@@ -261,7 +273,7 @@ impl ProviderRegistry {
             .collect()
     }
 
-    /// `stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。
+    /// `msime-stroke.db` 对请求笔画的单字候选，顺序同 `StrokeScheme::candidates`。每行以键入的笔画为 `pinyin`、以该字的完整笔画码为 `canonical_pinyin`；笔画不学习，这两个键只用于显示，从不写回任何词典。读失败时不给候选，与粤拼一样。
     fn stroke_candidates(&self, request: &QueryRequest) -> Vec<WordItem> {
         let Some(dictionary) = &self.stroke else {
             return Vec::new();

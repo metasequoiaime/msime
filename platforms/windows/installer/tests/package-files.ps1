@@ -44,10 +44,10 @@ try {
         'target/release/msime-desktop.exe',
         'target/handwriting-model/handwriting-zh_CN.model',
         'target/handwriting-model/HandwritingModel-LICENSE.txt',
-        'target/language-dictionaries/zhuyin.db',
-        'target/language-dictionaries/libchewing_data_LICENSE.txt',
-        'target/language-dictionaries/stroke.db',
-        'target/language-dictionaries/rime_stroke_LICENSE.txt',
+        'target/language-dictionaries/msime-zhuyin.db',
+        'target/language-dictionaries/msime-libchewing_data_LICENSE.txt',
+        'target/language-dictionaries/msime-stroke.db',
+        'target/language-dictionaries/msime-rime_stroke_LICENSE.txt',
         'resources/helpcodes/helpcode.txt',
         'resources/helpcodes/NOTICE.md',
         'resources/sound-packs/default/plugin.toml',
@@ -57,14 +57,14 @@ try {
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
     Write-Fixture 'windows/build32-release/Release/synthetic-runtime.dll' 'synthetic x86 dependency'
     Write-Fixture 'windows/build64-release/Release/synthetic-runtime.dll' 'synthetic x64 dependency'
-    $english = Join-Path $fixture 'target/desktop-resources/english.db'
+    $english = Join-Path $fixture 'target/desktop-resources/msime-english.db'
     New-Item -ItemType Directory -Force (Split-Path -Parent $english) | Out-Null
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
-        foreach ($name in @('msime.db', 'english.db', 'others.db', 'dict_japanese.dat',
-                            'mozc_dictionary_oss_README.txt', 'dictionary-manifest.json')) {
-            if ($name -ne 'english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
+        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-others.db', 'msime-japanese.dat',
+                            'msime-mozc_dictionary_oss_README.txt', 'msime-dictionary-manifest.json')) {
+            if ($name -ne 'msime-english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
             $path = Join-Path $fixture "target/desktop-resources/$name"
             @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
         }
@@ -85,14 +85,14 @@ try {
     if (Test-Path (Join-Path $installer 'server_exe/resources/stale.txt')) {
         throw 'Packaged unverified native build resources'
     }
-    $pinned = Join-Path $fixture 'target/desktop-resources/msime.db'
+    $pinned = Join-Path $fixture 'target/desktop-resources/msime-pinyin.db'
     $originalPinned = [IO.File]::ReadAllText($pinned)
     foreach ($bad in @('short', ('x' * $originalPinned.Length))) {
         [IO.File]::WriteAllText($pinned, $bad)
         $rejected = $false
         try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $true }
         if (-not $rejected) { throw 'Invalid pinned resource accepted' }
-        if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/resources/msime.db')) -ne $originalPinned) {
+        if ([IO.File]::ReadAllText((Join-Path $installer 'server_exe/resources/msime-pinyin.db')) -ne $originalPinned) {
             throw 'Failed resource preflight damaged previous staging'
         }
     }
@@ -120,15 +120,15 @@ try {
     }
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
     # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
-    foreach ($name in @('zhuyin.db', 'libchewing_data_LICENSE.txt', 'stroke.db', 'rime_stroke_LICENSE.txt')) {
+    foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
         if (-not (Test-Path (Join-Path $installer "server_exe/language-dictionaries/$name"))) { throw "Missing language dictionary file: $name" }
     }
-    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/cantonese.db')) { throw 'Packaged a Cantonese dictionary that was not provided' }
-    Write-Fixture 'target/language-dictionaries/cantonese.db'
+    if (Test-Path (Join-Path $installer 'server_exe/language-dictionaries/msime-cantonese.db')) { throw 'Packaged a Cantonese dictionary that was not provided' }
+    Write-Fixture 'target/language-dictionaries/msime-cantonese.db'
     $rejected = $false
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'rime_cantonese_LICENSE' }
     if (-not $rejected) { throw 'A language dictionary without its licence was accepted' }
-    Remove-Item (Join-Path $fixture 'target/language-dictionaries/cantonese.db') -Force
+    Remove-Item (Join-Path $fixture 'target/language-dictionaries/msime-cantonese.db') -Force
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     foreach ($testFile in @(
         'server_exe/MetasequoiaImeServerTests.exe',

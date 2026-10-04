@@ -68,15 +68,15 @@ pub enum SchemeType {
     JapaneseRomaji = 3,
     /// Korean Hangul on the Dubeolsik layout: syllables compose in the preedit and commit themselves; the only candidates are the composing syllable's Hanja, after `Command::ConvertHanja`.
     Korean = 4,
-    /// Cantonese in toneless Jyutping read against `cantonese.db`: candidates are Traditional as stored, a candidate covering the leading syllables commits at once and leaves the rest composing, and nothing is learned.
+    /// Cantonese in toneless Jyutping read against `msime-cantonese.db`: candidates are Traditional as stored, a candidate covering the leading syllables commits at once and leaves the rest composing, and nothing is learned.
     Cantonese = 5,
-    /// Zhuyin (bopomofo) on the Dachen layout read against `zhuyin.db`: keys compose syllables that convert to Traditional text as typed, a list the user opens pins a span's text without committing, Enter or any key outside the layout commits the conversion, and nothing is learned.
+    /// Zhuyin (bopomofo) on the Dachen layout read against `msime-zhuyin.db`: keys compose syllables that convert to Traditional text as typed, a list the user opens pins a span's text without committing, Enter or any key outside the layout commits the conversion, and nothing is learned.
     Zhuyin = 6,
     /// Vietnamese through Telex or VNI: the keystrokes compose into one word in the preedit, which any key outside the spelling commits; there are no candidates.
     Vietnamese = 7,
     /// 藏文，在拉丁键盘上按 EWTS（扩展威利转写）拼写：威利原文在组字里组成一个音节串，显示为转换出的藏文；空格带音节点上屏，`/` 带垂符上屏，回车只上屏藏文；没有候选。
     Tibetan = 8,
-    /// Stroke (笔画) read against `stroke.db`: the keys h s p n z type the five strokes 横竖撇点折 in writing order and x stands for any one stroke; the preedit draws the strokes, candidates are single characters whose stroke code starts with the typed strokes, and nothing is learned.
+    /// Stroke (笔画) read against `msime-stroke.db`: the keys h s p n z type the five strokes 横竖撇点折 in writing order and x stands for any one stroke; the preedit draws the strokes, candidates are single characters whose stroke code starts with the typed strokes, and nothing is learned.
     Stroke = 9,
 }
 
@@ -223,6 +223,20 @@ impl SchemeType {
             Self::Quanpin | Self::Shuangpin => true,
             Self::Wubi
             | Self::JapaneseRomaji
+            | Self::Korean
+            | Self::Vietnamese
+            | Self::Tibetan
+            | Self::Cantonese
+            | Self::Stroke
+            | Self::Zhuyin => false,
+        }
+    }
+
+    /// 组字中键入 `www.`、`http:` 等时进入网址模式。
+    pub const fn detects_urls(self) -> bool {
+        match self {
+            Self::Quanpin | Self::Shuangpin | Self::Wubi => true,
+            Self::JapaneseRomaji
             | Self::Korean
             | Self::Vietnamese
             | Self::Tibetan
@@ -563,7 +577,7 @@ impl WubiProfileKind {
         }
     }
 
-    /// `msime.db` 里这一版的码表，表名与 `name` 相同。
+    /// `msime-pinyin.db` 里这一版的码表，表名与 `name` 相同。
     pub fn table(self) -> &'static str {
         self.name()
     }
@@ -862,6 +876,8 @@ pub enum LocalInputMode {
     Command,
     /// `@`: the names and places of the host's mention list.
     Mention,
+    /// 在全拼、双拼、五笔的组字中键入 `www.`、`http:` 等之后：原样输入的 ASCII 网址。
+    Url,
 }
 
 impl LocalInputMode {
@@ -880,6 +896,7 @@ impl LocalInputMode {
             Self::Expression => "expression",
             Self::Command => "command",
             Self::Mention => "mention",
+            Self::Url => "url",
         }
     }
 
@@ -898,6 +915,7 @@ impl LocalInputMode {
             Self::Expression,
             Self::Command,
             Self::Mention,
+            Self::Url,
         ]
         .into_iter()
         .find(|mode| mode.name() == name)
@@ -908,6 +926,7 @@ impl LocalInputMode {
         match self {
             Self::Unicode => "0123456789",
             Self::Expression => crate::local::expression::SPELLING_SYMBOLS,
+            Self::Url => crate::local::url::SPELLING_SYMBOLS,
             _ => "",
         }
     }
@@ -1119,7 +1138,7 @@ impl PersonalDictionaryKind {
         matches!(self, Self::Wubi | Self::Wubi98)
     }
 
-    /// 五笔种类对应的 `msime.db` 码表。
+    /// 五笔种类对应的 `msime-pinyin.db` 码表。
     pub fn wubi_table(self) -> Option<&'static str> {
         match self {
             Self::Wubi => Some(WubiProfileKind::Wubi86.table()),
@@ -1330,6 +1349,55 @@ mod tests {
                 assert_eq!(predicate(scheme), want, "{name} for {scheme:?}");
             }
         }
+    }
+
+    #[test]
+    fn only_the_chinese_typing_schemes_detect_urls() {
+        for code in 0..=9 {
+            let scheme = SchemeType::from_u8(code).expect("scheme code");
+            let expected = matches!(
+                scheme,
+                SchemeType::Quanpin | SchemeType::Shuangpin | SchemeType::Wubi
+            );
+            assert_eq!(scheme.detects_urls(), expected, "{scheme:?}");
+        }
+    }
+
+    #[test]
+    fn local_input_mode_names_round_trip() {
+        use super::LocalInputMode;
+        // 穷举 match：新增变体时这里编译不过，提醒把它接进链条，`from_name` 的手写数组漏掉它时下面的断言就会失败。
+        fn next(mode: LocalInputMode) -> Option<LocalInputMode> {
+            Some(match mode {
+                LocalInputMode::None => LocalInputMode::Unicode,
+                LocalInputMode::Unicode => LocalInputMode::DateTime,
+                LocalInputMode::DateTime => LocalInputMode::QuickPhrase,
+                LocalInputMode::QuickPhrase => LocalInputMode::Emoji,
+                LocalInputMode::Emoji => LocalInputMode::Kaomoji,
+                LocalInputMode::Kaomoji => LocalInputMode::SuperJianpin,
+                LocalInputMode::SuperJianpin => LocalInputMode::TemporaryEnglish,
+                LocalInputMode::TemporaryEnglish => LocalInputMode::TemporaryJapanese,
+                LocalInputMode::TemporaryJapanese => LocalInputMode::Expression,
+                LocalInputMode::Expression => LocalInputMode::Command,
+                LocalInputMode::Command => LocalInputMode::Mention,
+                LocalInputMode::Mention => LocalInputMode::Url,
+                LocalInputMode::Url => return None,
+            })
+        }
+        let mut names = Vec::new();
+        let mut mode = Some(LocalInputMode::None);
+        while let Some(current) = mode {
+            assert_eq!(
+                LocalInputMode::from_name(current.name()),
+                Some(current),
+                "{current:?}"
+            );
+            names.push(current.name());
+            mode = next(current);
+        }
+        assert_eq!(names.len(), 13);
+        assert!(names.contains(&"url"));
+        assert_eq!(LocalInputMode::from_name("unknown"), None);
     }
 
     #[test]

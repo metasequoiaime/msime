@@ -467,7 +467,7 @@ int main(int argc, char **argv) {
         const auto outdated = std::filesystem::path(directory) / "outdated";
         std::filesystem::create_directories(outdated / "resources");
         std::filesystem::create_directories(outdated / "state");
-        std::ofstream(outdated / "resources/msime.db") << "previous generation";
+        std::ofstream(outdated / "resources/msime-pinyin.db") << "previous generation";
         const auto outdatedOptions = outdated / "state/runtime-options.json";
         const auto document = Json{{"api_version", 1},
                                    {"resources", (outdated / "resources").string()},
@@ -2639,7 +2639,7 @@ int main(int argc, char **argv) {
       engine.deactivate(entry, tibetanSwitch);
       require(ic.committed == before + "ཀག", "switching input methods commits the open syllable");
       engine.activate(entry, focus);
-      // 装好 stroke.db 并重新读取选项后，笔画进入菜单；它是中文方案，选中后记为最后使用的中文方案。
+      // 装好 msime-stroke.db 并重新读取选项后，笔画进入菜单；它是中文方案，选中后记为最后使用的中文方案。
       const auto strokeFixture =
           std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
       require(std::system(strokeFixture.c_str()) == 0, "Stroke dictionary fixture written");

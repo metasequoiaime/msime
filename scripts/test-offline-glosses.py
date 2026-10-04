@@ -44,14 +44,14 @@ def sha(path: Path) -> str:
 def main() -> int:
     with tempfile.TemporaryDirectory() as scratch:
         scratch = Path(scratch)
-        # The vocabulary stands in for msime.db (tbl_* tables with a value column) and holds 辞林 so that its absence proves the Hokkien row was skipped rather than filtered by vocabulary.
-        vocabulary = scratch / "msime.db"
+        # The vocabulary stands in for msime-pinyin.db (tbl_* tables with a value column) and holds 辞林 so that its absence proves the Hokkien row was skipped rather than filtered by vocabulary.
+        vocabulary = scratch / "msime-pinyin.db"
         with sqlite3.connect(vocabulary) as database:
             database.execute("CREATE TABLE tbl_2_a(key TEXT, jp TEXT, value TEXT, weight INTEGER)")
             database.execute("CREATE TABLE tbl_others_a(key TEXT, jp TEXT, value TEXT, weight INTEGER)")
             words = ["天", "天空", "猫", "猫儿", "词典", "辞典", "辞林", "字典", "自由", "自由的", "预订", "产品", "制品", "积", "橙", "橙子", "空闲", "余暇", "日", "呕吐", "回", "脑回"]
             database.executemany("INSERT INTO tbl_2_a VALUES ('', '', ?, 1)", [(word,) for word in words])
-        frequency = scratch / "english.db"
+        frequency = scratch / "msime-english.db"
         with sqlite3.connect(frequency) as database:
             database.execute("CREATE TABLE english_words(word TEXT, display TEXT, weight INTEGER)")
             database.executemany("INSERT INTO english_words VALUES (?, ?, ?)", [("day", "day", 446236148), ("sky", "sky", 27281333), ("Day", "Day", 5), ("cat", "cat", 60133542), ("vomit", "vomit", 1296870), ("orange", "orange", 37316112)])

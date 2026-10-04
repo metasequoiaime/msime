@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import Darwin
 
 // The Tauri host reaches the same App Group queue as the native keyboard
@@ -130,7 +131,8 @@ enum TauriPersonalDictionaryBridge {
   }
 
   private static func boundedInteger(_ value: Any?, range: ClosedRange<Int>) throws -> Int {
-    guard let number = value as? NSNumber else { throw Failure.invalid }
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID() else { throw Failure.invalid }
     let integer = number.intValue
     guard NSNumber(value: integer) == number, range.contains(integer) else { throw Failure.invalid }
     return integer

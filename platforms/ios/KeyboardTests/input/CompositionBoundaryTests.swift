@@ -28,6 +28,37 @@ final class CompositionBoundaryTests: XCTestCase {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: true, scheme: .quanpin, boundary: .deactivate), .finishComposition)
   }
 
+  /// 网址模式里数字和网址符号是 Engine 的输入：符号面板据此把它们作为字符交给会话，而不是选候选或结束组字。
+  func testUrlModeDigitsAreEngineInputNotCandidatePicks() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    for letter in ["w", "w", "w"] { _ = bridge.handleCharacter(letter) }
+    XCTAssertTrue(bridge.engineSpellsWhileComposing("."), "the . after www opens the URL mode")
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("1"), "a digit still picks before the URL mode opens")
+    for symbol in [".", "1", "6", "3", ".", "c", "o", "m", ":", "8", "0"] {
+      if symbol.first!.isLetter {
+        _ = bridge.handleCharacter(symbol)
+      } else {
+        XCTAssertTrue(bridge.engineSpellsWhileComposing(symbol), symbol)
+        XCTAssertTrue(bridge.handleCharacter(symbol).isHandled, symbol)
+      }
+    }
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("<"), "< ends the URL")
+    XCTAssertEqual(bridge.commitRaw().commitText, "www.163.com:80")
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("/"), "with nothing composed / stays on the punctuation route")
+  }
+
+  /// U 模式里码点的数字是 Engine 的输入：宿主据此把数字作为字符交给会话，而不是按槽位选候选。
+  func testUnicodeModeDigitsAreEngineInputNotCandidatePicks() {
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertFalse(bridge.engineSpellsWhileComposing("4"), "with nothing composed a digit is not spelled")
+    XCTAssertTrue(bridge.openLocalMode("U").isInLocalMode, "Shift+U opens the Unicode mode")
+    for digit in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+      XCTAssertTrue(bridge.engineSpellsWhileComposing(digit), digit)
+    }
+    XCTAssertTrue(bridge.handleCharacter("4").isHandled)
+    XCTAssertTrue(bridge.engineSpellsWhileComposing("9"), "digits stay input once the code point has begun")
+  }
+
   /// A Korean syllable is text already: Return commits it raw so the newline still follows, and every other boundary finishes it.
   func testKoreanCommitsTheSyllableAtEveryBoundary() {
     XCTAssertEqual(CompositionBoundaryPolicy.action(composing: false, scheme: .korean, boundary: .returnKey), .none)

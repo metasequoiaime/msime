@@ -5,9 +5,9 @@ export function useAsyncGeneration(...owners: readonly unknown[]): MutableRefObj
   const generation = useRef(0);
 
   useEffect(() => {
-    const current = ++generation.current;
+    generation.current++;
     return () => {
-      if (generation.current === current) generation.current++;
+      generation.current++;
     };
   }, owners);
 

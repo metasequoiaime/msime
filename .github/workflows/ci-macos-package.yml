@@ -101,9 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           staged=target/macos/EngineResources
-          test ! -e "$staged/dict_japanese.dat"
-          test ! -e "$staged/mozc_dictionary_oss_README.txt"
-          test -f "$staged/msime.db"
+          test ! -e "$staged/msime-japanese.dat"
+          test ! -e "$staged/msime-mozc_dictionary_oss_README.txt"
+          test -f "$staged/msime-pinyin.db"
           test -f "$staged/helpcodes/helpcode.txt"
           cargo run --quiet --locked -p msime-client-core --example verify_resources -- --omit-on-demand "$staged"
           du -sk "$staged"

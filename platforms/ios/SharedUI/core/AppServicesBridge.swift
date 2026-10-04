@@ -1,6 +1,9 @@
 import Foundation
 
 enum AppServicesBridge {
+  private static let maximumVoiceTextCharacters = 10_000
+  private static let maximumPolishTextBytes = 32 * 1024
+
   static func polishBody(_ model: String, prompt: String, text: String) throws -> Data {
     try JSONSerialization.data(withJSONObject: [
       "model": model,
@@ -27,10 +30,17 @@ enum AppServicesBridge {
     guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
       throw ServiceFailure(message: "服务返回格式无效。")
     }
-    if voice, let text = object["text"] as? String { return text }
+    if voice {
+      guard let text = object["text"] as? String,
+            text.count <= maximumVoiceTextCharacters else {
+        throw ServiceFailure(message: object["error"] as? String ?? "服务未返回可用文字。")
+      }
+      return text
+    }
     if let choices = object["choices"] as? [[String: Any]],
        let message = choices.first?["message"] as? [String: Any],
-       let content = message["content"] as? String { return content }
+       let content = message["content"] as? String,
+       content.utf8.count <= maximumPolishTextBytes { return content }
     throw ServiceFailure(message: object["error"] as? String ?? "服务未返回可用文字。")
   }
 }

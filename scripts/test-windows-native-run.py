@@ -62,8 +62,8 @@ HOST_DIFFERENCES = {
 # Sources whose `main` takes an argument the build system supplies.
 ARGUMENTS = {
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
-    "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/zhuyin.db"],
-    "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/stroke.db"],
+    "input/zhuyin_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-zhuyin.db"],
+    "input/stroke_keys.cpp": ["platforms/windows/tests/input/fixtures/msime-stroke.db"],
 }
 
 # The three online workers are the exception to "one translation unit": their

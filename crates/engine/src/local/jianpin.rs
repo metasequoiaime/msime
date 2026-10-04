@@ -206,7 +206,7 @@ mod tests {
     }
 
     fn fixture(dir: &Path) -> PathBuf {
-        let path = dir.join("msime.db");
+        let path = dir.join("msime-pinyin.db");
         Connection::open(&path)
             .unwrap()
             .execute_batch(
@@ -360,7 +360,7 @@ mod tests {
     #[test]
     fn missing_corrupt_and_tableless_databases() {
         let dir = tempfile::tempdir().unwrap();
-        let missing = dir.path().join("missing").join("msime.db");
+        let missing = dir.path().join("missing").join("msime-pinyin.db");
         let result = query_jianpin("nh", SchemeType::Quanpin, &missing, 50, &XIAOHE);
         assert!(result.candidates.is_empty());
         assert_eq!(

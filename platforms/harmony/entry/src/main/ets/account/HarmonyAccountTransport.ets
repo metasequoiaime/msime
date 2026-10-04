@@ -2,6 +2,7 @@ import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
 import { AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
+import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
 /**
  * The account session file and the HTTPS transport, shared by the settings application and the keyboard extension.
@@ -163,6 +164,7 @@ export class HarmonyAccountTransport implements AccountTransport {
     timeoutMs?: number, requestTag?: string): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
     const request = http.createHttp();
+    installNoRedirectGuard(request);
     if (requestTag !== undefined && requestTag.length > 0) {
       let requests: Set<http.HttpRequest> | undefined = this.activeRequests.get(requestTag);
       if (requests === undefined) {
@@ -175,13 +177,13 @@ export class HarmonyAccountTransport implements AccountTransport {
     if (token !== undefined) headers.Authorization = `Bearer ${token}`;
     // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
     // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
-    const options: http.HttpRequestOptions = {
+    const options = noRedirectOptions({
       method: this.method(method),
       header: headers,
       connectTimeout: 30000,
       readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
       extraData: body === undefined ? undefined : JSON.stringify(body)
-    };
+    });
     try {
       const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
       return {

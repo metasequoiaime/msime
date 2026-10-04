@@ -36,7 +36,7 @@ constexpr bool AlwaysInlinePreedit(int scheme) { return LetterComposition(scheme
 // `is_chinese`: a Chinese scheme, the one a switch to a non-Chinese scheme remembers as `last_chinese_scheme`.
 constexpr bool IsChinese(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi || scheme == Cantonese || scheme == Zhuyin || scheme == Stroke; }
 
-// `script_conversion_applies`：繁体输出转换会改写这个方案的文字。粤拼和注音本来就写繁体字，笔画候选按 stroke.db 里存的字形原样取用，假名、谚文、越南文和藏文都不是中文。
+// `script_conversion_applies`：繁体输出转换会改写这个方案的文字。粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用，假名、谚文、越南文和藏文都不是中文。
 constexpr bool ScriptConversionApplies(int scheme) { return scheme == Quanpin || scheme == Shuangpin || scheme == Wubi; }
 
 // `learns_into_main_dictionary`: a candidate may be removed from, or pinned in, the user dictionary of the main Chinese lexicon.

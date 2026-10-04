@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// 「候选栏 AI 候选」: the shared document's `ai_assistant`, which the runtime turns into candidate-bar AI requests, written from the keyboard AI configuration the settings app already saved.
 ///
@@ -12,8 +13,16 @@ enum AICandidatePreference {
   }
 
   static func limit(_ preferences: [String: Any]?) -> Int {
-    let value = ((preferences?["ai_assistant"] as? [String: Any])?["candidate_limit"] as? NSNumber)?.intValue
+    let value = integer((preferences?["ai_assistant"] as? [String: Any])?["candidate_limit"])
     return value.flatMap { limits.contains($0) ? $0 : nil } ?? defaultLimit
+  }
+
+  private static func integer(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return nil }
+    return integer
   }
 
   /// The document's `ai_assistant` after turning the candidate bar on or off for a saved keyboard configuration. Fields this page does not own (prompts, other providers' entries) are kept; a key that reached the document from elsewhere is left alone rather than copied or erased.

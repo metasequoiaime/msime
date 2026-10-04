@@ -37,6 +37,7 @@ import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { CommunityNotice } from "./community-notice";
 import { useCommunityInstallState } from "./community-install-state";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { ActionButton } from "../core/action-button";
 import {
   CommunitySkinCategoryFilter,
@@ -178,21 +179,19 @@ function CandidateSkinPreviewImage({
 }) {
   const [url, setUrl] = useState("");
   const [failed, setFailed] = useState(false);
+  const generation = useAsyncGeneration(id, load);
   useEffect(() => {
-    let active = true;
+    const requestGeneration = generation.current;
     setUrl("");
     setFailed(false);
     void load(id)
       .then((value) => {
-        if (active) setUrl(value);
+        if (generation.current === requestGeneration) setUrl(value);
       })
       .catch(() => {
-        if (active) setFailed(true);
+        if (generation.current === requestGeneration) setFailed(true);
       });
-    return () => {
-      active = false;
-    };
-  }, [id, load]);
+  }, [id, load, generation]);
   return (
     <span className={`${className} grid min-h-[96px] place-items-center`}>
       {url ? (

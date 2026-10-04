@@ -20,7 +20,7 @@ pub const REBALANCE_COUNT: usize = 16;
 /// A fixed candidate keeps its slot by position, not by weight, so learning never moves it (J:1356-1358).
 const FIXED_CANDIDATE: &str = "The candidate has a fixed position";
 
-/// One learning pick. `main_db` is `msime.db` for pinyin and wubi and `english.db` for English.
+/// One learning pick. `main_db` is `msime-pinyin.db` for pinyin and wubi and `msime-english.db` for English.
 #[derive(Debug, Clone, Copy)]
 pub struct RankingRequest<'a> {
     pub main_db: &'a Path,
@@ -423,7 +423,7 @@ pub fn adjust_english_candidate_ranking(request: &RankingRequest<'_>) -> Result<
     };
 
     let english = open_dictionary_for_writing(request.main_db)?;
-    // Journal the new weight before english.db carries it. The journal upsert is idempotent and replay reapplies it, so a journal row one step ahead of the dictionary is recoverable, while a boosted weight that never reached the journal is silently reverted at the next dictionary upgrade. The row must already exist, otherwise replay would insert a word the user never learned.
+    // Journal the new weight before msime-english.db carries it. The journal upsert is idempotent and replay reapplies it, so a journal row one step ahead of the dictionary is recoverable, while a boosted weight that never reached the journal is silently reverted at the next dictionary upgrade. The row must already exist, otherwise replay would insert a word the user never learned.
     let exists = english
         .prepare_cached("SELECT 1 FROM english_words WHERE word=?1 AND display=?2")?
         .exists(params![request.entry_key, request.value])?;
@@ -1037,7 +1037,7 @@ mod tests {
         assert_eq!(dir.weight("xi'e", "西鄂"), Some(6));
     }
 
-    /// test_english_input_session.cpp:203-240: while another connection holds the journal's write lock the pick fails before english.db is opened, so the dictionary never carries a weight the journal lacks.
+    /// test_english_input_session.cpp:203-240: while another connection holds the journal's write lock the pick fails before msime-english.db is opened, so the dictionary never carries a weight the journal lacks.
     #[test]
     fn a_locked_journal_leaves_english_db_untouched() {
         let dir = Dir::new();

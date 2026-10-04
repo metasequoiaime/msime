@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes a small stroke.db into the directory named by the first argument, for the host tests that drive the Stroke scheme through IBus and Fcitx5.
+"""Writes a small msime-stroke.db into the directory named by the first argument, for the host tests that drive the Stroke scheme through IBus and Fcitx5.
 
 The schema and format version are the engine's (crates/engine/src/language_dictionary.rs); `syllables` holds the five stroke letters, as dict-builder writes them. The rows are synthetic: h s gives 十 exactly and then the longer codes that start with it, and h x (x is the wildcard) gives the two-stroke codes 十 and 二 before anything longer."""
 
@@ -29,8 +29,8 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("usage: stroke_dictionary.py <directory>", file=sys.stderr)
         return 2
-    target = Path(sys.argv[1]) / "stroke.db"
-    partial = target.with_name("stroke.db.partial")
+    target = Path(sys.argv[1]) / "msime-stroke.db"
+    partial = target.with_name("msime-stroke.db.partial")
     partial.unlink(missing_ok=True)
     connection = sqlite3.connect(partial)
     with connection:

@@ -306,7 +306,8 @@ public final class LocalAsrRecognizer {
             JSONObject response = new JSONObject(NativeClient.voiceHotwordCorrect(request.toString()));
             JSONObject value = response.optBoolean("ok", false) ? response.optJSONObject("value") : null;
             if (value == null || value.isNull("text")) return text;
-            return value.optString("text", text);
+            String corrected = LocalAsrPolicy.strictText(value.opt("text"));
+            return corrected == null ? text : corrected;
         } catch (JSONException | RuntimeException error) {
             return text;
         }

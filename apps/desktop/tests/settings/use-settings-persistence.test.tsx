@@ -87,3 +87,221 @@ test("does not start a second settings load while reload is in flight", async ()
   reloadLoad.resolve(snapshot);
   await manualReload;
 });
+
+test("clears the previous settings while a replacement client is loading", async () => {
+  const oldLoad = deferred<Snapshot>();
+  const nextLoad = deferred<Snapshot>();
+  const oldClient: SettingsClient = {
+    load: vi.fn(() => oldLoad.promise),
+    save: vi.fn(),
+  };
+  const nextClient: SettingsClient = {
+    load: vi.fn(() => nextLoad.promise),
+    save: vi.fn(),
+  };
+  let activeClient = oldClient;
+  const setBusy = vi.fn();
+
+  const { result, rerender } = renderHook(() => {
+    const mounted = useRef(true);
+    const [currentSnapshot, setSnapshot] = useState<Snapshot>();
+    const [draft, setDraft] = useState<Preferences>();
+    return useSettingsPersistence({
+      client: activeClient,
+      mobile: false,
+      macos: false,
+      mounted,
+      snapshot: currentSnapshot,
+      draft,
+      setSnapshot,
+      setDraft,
+      setBusy,
+      setError: vi.fn(),
+      setNotice: vi.fn(),
+      setRecoveredBackup: vi.fn(),
+      macosShuangpinKeymap: undefined,
+      savedMacosShuangpinKeymap: undefined,
+      setSavedMacosShuangpinKeymap: vi.fn(),
+      macosWubiAutoCommitUnique: undefined,
+      savedMacosWubiAutoCommitUnique: undefined,
+      setSavedMacosWubiAutoCommitUnique: vi.fn(),
+    });
+  });
+
+  await act(async () => {
+    oldLoad.resolve(snapshot);
+    await Promise.resolve();
+  });
+  expect(result.current.snapshotRef.current).toEqual(snapshot);
+  expect(result.current.draftRef.current).toEqual(snapshot.preferences);
+
+  activeClient = nextClient;
+  rerender();
+
+  expect(result.current.snapshotRef.current).toBeUndefined();
+  expect(result.current.draftRef.current).toBeUndefined();
+  expect(setBusy).toHaveBeenLastCalledWith(true);
+
+  await act(async () => {
+    nextLoad.resolve({
+      ...snapshot,
+      revision: 2,
+      preferences: { ...snapshot.preferences, scheme: "wubi" },
+    });
+    await Promise.resolve();
+  });
+  expect(result.current.snapshotRef.current?.revision).toBe(2);
+});
+
+test("does not let a save from the previous client restore stale settings", async () => {
+  const oldLoad = deferred<Snapshot>();
+  const oldSave = deferred<Snapshot>();
+  const nextLoad = deferred<Snapshot>();
+  const oldClient: SettingsClient = {
+    load: vi.fn(() => oldLoad.promise),
+    save: vi.fn(() => oldSave.promise),
+  };
+  const nextClient: SettingsClient = {
+    load: vi.fn(() => nextLoad.promise),
+    save: vi.fn(),
+  };
+  let activeClient = oldClient;
+  let edit!: (value: Preferences) => void;
+
+  const { result, rerender } = renderHook(() => {
+    const mounted = useRef(true);
+    const [currentSnapshot, setSnapshot] = useState<Snapshot>();
+    const [draft, setDraft] = useState<Preferences>();
+    edit = (value) => setDraft(value);
+    return useSettingsPersistence({
+      client: activeClient,
+      mobile: false,
+      macos: false,
+      mounted,
+      snapshot: currentSnapshot,
+      draft,
+      setSnapshot,
+      setDraft,
+      setBusy: vi.fn(),
+      setError: vi.fn(),
+      setNotice: vi.fn(),
+      setRecoveredBackup: vi.fn(),
+      macosShuangpinKeymap: undefined,
+      savedMacosShuangpinKeymap: undefined,
+      setSavedMacosShuangpinKeymap: vi.fn(),
+      macosWubiAutoCommitUnique: undefined,
+      savedMacosWubiAutoCommitUnique: undefined,
+      setSavedMacosWubiAutoCommitUnique: vi.fn(),
+    });
+  });
+
+  await act(async () => {
+    oldLoad.resolve(snapshot);
+    await Promise.resolve();
+  });
+  act(() => edit({ ...snapshot.preferences, scheme: "wubi" }));
+  const flush = result.current.flush();
+  await waitFor(() => expect(oldClient.save).toHaveBeenCalledOnce());
+
+  activeClient = nextClient;
+  rerender();
+  expect(result.current.snapshotRef.current).toBeUndefined();
+
+  await act(async () => {
+    oldSave.resolve({
+      ...snapshot,
+      revision: 2,
+      preferences: { ...snapshot.preferences, scheme: "wubi" },
+    });
+    await flush;
+  });
+  expect(result.current.snapshotRef.current).toBeUndefined();
+  expect(result.current.draftRef.current).toBeUndefined();
+
+  nextLoad.resolve({
+    ...snapshot,
+    revision: 3,
+    preferences: { ...snapshot.preferences, scheme: "japanese" },
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(result.current.snapshotRef.current?.revision).toBe(3);
+});
+
+test("does not let a pending save from the previous client block the replacement client", async () => {
+  const oldLoad = deferred<Snapshot>();
+  const oldSave = deferred<Snapshot>();
+  const nextLoad = deferred<Snapshot>();
+  const nextSaved = {
+    ...snapshot,
+    revision: 3,
+    preferences: { ...snapshot.preferences, scheme: "japanese" as const },
+  };
+  const oldClient: SettingsClient = {
+    load: vi.fn(() => oldLoad.promise),
+    save: vi.fn(() => oldSave.promise),
+  };
+  const nextClient: SettingsClient = {
+    load: vi.fn(() => nextLoad.promise),
+    save: vi.fn().mockResolvedValue(nextSaved),
+  };
+  let activeClient = oldClient;
+  let edit!: (value: Preferences) => void;
+
+  const { result, rerender } = renderHook(() => {
+    const mounted = useRef(true);
+    const [currentSnapshot, setSnapshot] = useState<Snapshot>();
+    const [draft, setDraft] = useState<Preferences>();
+    edit = (value) => setDraft(value);
+    return useSettingsPersistence({
+      client: activeClient,
+      mobile: false,
+      macos: false,
+      mounted,
+      snapshot: currentSnapshot,
+      draft,
+      setSnapshot,
+      setDraft,
+      setBusy: vi.fn(),
+      setError: vi.fn(),
+      setNotice: vi.fn(),
+      setRecoveredBackup: vi.fn(),
+      macosShuangpinKeymap: undefined,
+      savedMacosShuangpinKeymap: undefined,
+      setSavedMacosShuangpinKeymap: vi.fn(),
+      macosWubiAutoCommitUnique: undefined,
+      savedMacosWubiAutoCommitUnique: undefined,
+      setSavedMacosWubiAutoCommitUnique: vi.fn(),
+    });
+  });
+
+  await act(async () => {
+    oldLoad.resolve(snapshot);
+    await Promise.resolve();
+  });
+  act(() => edit({ ...snapshot.preferences, scheme: "wubi" }));
+  const oldFlush = result.current.flush();
+  await waitFor(() => expect(oldClient.save).toHaveBeenCalledOnce());
+
+  activeClient = nextClient;
+  rerender();
+  nextLoad.resolve({
+    ...snapshot,
+    revision: 2,
+    preferences: { ...snapshot.preferences, scheme: "quanpin" },
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  act(() => edit({ ...snapshot.preferences, scheme: "japanese" }));
+  await result.current.flush();
+  expect(nextClient.save).toHaveBeenCalledOnce();
+
+  oldSave.resolve({
+    ...snapshot,
+    revision: 2,
+    preferences: { ...snapshot.preferences, scheme: "wubi" },
+  });
+  await oldFlush;
+});

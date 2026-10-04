@@ -327,7 +327,7 @@ char *msime_client_community_resource_library(const uint8_t *request, size_t len
  * the prompt names the exact document the parser accepts. */
 char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
 /* Absolute staged engine resources; returns {profile,sourceCommit} from the
- * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * packaged msime-dictionary-manifest.json. Two fields only: the page is asking what
  * dictionary is installed and where it came from, not for journal modes or
  * third-party references. Missing or unreadable is reported, never guessed -
  * showing the wrong dictionary version is worse than showing none. */
@@ -432,7 +432,7 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
 /* Resolve copied candidates against the packaged offline English dictionary.
  * JSON request: {generation,candidates:[{text,source}],user_data?,target_language?}; the generation is echoed for the host to pass to apply_translations on the session thread. This function owns no session handle and may run on a worker thread.
- * target_language absent or "en" reads english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
+ * target_language absent or "en" reads msime-english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* Query the packaged English dictionary without creating a session.
@@ -529,8 +529,8 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic: View.microsoft_shuangpin reports the applied Engine configuration, never a newer deferred preference. Hosts use it with mode, editing text and caret. none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin, temporary_english, temporary_japanese, expression, command, mention. Treat unknown as unusable state.
- * View.spelling_symbols lists the non-letter keys the Engine takes as input in this state: the active mode's spelling (digits and operators in expression, digits in unicode) or, with nothing composed, the keys that open a mode (/ and @). Send them as characters; a digit listed there is input, not a candidate shortcut. A transition's commit_context.typing_statistics is false for text the expression, command and mention modes generated, which is not counted as typing.
+/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url，未知取值视为不可用状态。
+ * View.spelling_symbols 列出 Engine 在当前状态下当作输入的非字母键：当前模式的拼写（expression 的数字和运算符、unicode 的数字、url 的数字和网址符号）；没有组字时打开模式的键（`/` 和 `@`）；全拼、双拼、五笔组字中原文恰好是 www、http、https、ftp 时打开网址模式的键（`.` 或 `:`）。宿主要把它们当字符发送；列在里面的数字是输入，不是选候选的快捷键。转换结果的 commit_context.typing_statistics 对 expression、command、mention 模式生成的文本为 false，这些文本不计入打字统计。
  */
 char *msime_client_view(uint64_t session);
 /* Return a copied OnlineQuery JSON object, or null when the current composition
@@ -632,8 +632,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
-/* Query the verified local others.db Emoji catalog. Resources is an absolute
- * generation directory containing others.db; no provider socket is needed.
+/* Query the verified local msime-others.db Emoji catalog. Resources is an absolute
+ * generation directory containing msime-others.db; no provider socket is needed.
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.

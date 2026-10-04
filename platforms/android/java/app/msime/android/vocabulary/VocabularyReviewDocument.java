@@ -34,6 +34,14 @@ public final class VocabularyReviewDocument {
      * and the statistics decoder beside this one makes the same distinction for the same reason.
      */
     public static VocabularyReviewModel from(JSONObject root) {
+        try {
+            return decode(root);
+        } catch (IllegalArgumentException error) {
+            return null;
+        }
+    }
+
+    private static VocabularyReviewModel decode(JSONObject root) {
         if (root == null || !root.has("settings") || !root.has("queue")) return null;
         JSONObject settings = root.optJSONObject("settings");
         if (settings == null) return null;
@@ -49,7 +57,7 @@ public final class VocabularyReviewDocument {
                 wordbooks.add(new VocabularyReviewModel.Wordbook(
                     id,
                     book.optString("name", id),
-                    book.optInt("total", 0),
+                    count(book, "total"),
                     book.optBoolean("builtin", false)));
             }
         }
@@ -73,12 +81,16 @@ public final class VocabularyReviewDocument {
         return new VocabularyReviewModel(
             wordbooks,
             settings.optString("wordbook", ""),
-            settings.optInt("newPerDay", 0),
-            settings.optInt("sessionLimit", 0),
-            root.optInt("due", 0),
-            root.optInt("answeredToday", 0),
-            root.optInt("introducing", 0),
-            root.optInt("remaining", 0),
+            count(settings, "newPerDay"),
+            count(settings, "sessionLimit"),
+            count(root, "due"),
+            count(root, "answeredToday"),
+            count(root, "introducing"),
+            count(root, "remaining"),
             queue);
+    }
+
+    private static int count(JSONObject object, String key) {
+        return object.has(key) ? VocabularyReviewModel.strictCount(object.opt(key)) : 0;
     }
 }

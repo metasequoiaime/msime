@@ -115,16 +115,14 @@ def run_host(host, registration_bus, scratch, recovered):
             "HTTPS_PROXY": proxy, "https_proxy": proxy, "ALL_PROXY": proxy, "all_proxy": proxy,
         }
         arguments = [host] + (["--recovered"] if recovered else []) + [str(options)]
-        launched = time.monotonic()
         log = scratch / "host.log"
         with log.open("w") as output:
             process = subprocess.Popen(arguments, env=environment, stdout=output, stderr=subprocess.STDOUT)
         processes.append(process)
-        # Registration must not wait on the endpoint; well under the client's timeouts leaves room for a slow machine.
-        wait_for(lambda: registrations or process.poll() is not None, "host never registered its component", timeout=10)
+        # Registration must not wait on the endpoint. That is checked by order, not by a wall-clock bound: the caller asserts the endpoint accepted its connection no earlier than registration, which fails whenever the send runs before or blocks registration, however fast or slow the machine is. A bound on launch-to-registration also measured process start-up and failed on a loaded build machine (3.9 s against 2.5 s) without any regression. The wait is well above the client's 10 s send timeout so a slow start-up cannot be mistaken for a host that never registers.
+        wait_for(lambda: registrations or process.poll() is not None, "host never registered its component", timeout=30)
         assert registrations, ("host exited before registering", process.returncode, log.read_text())
         registered, sender = registrations[0]
-        assert registered - launched < 2.5, ("registration waited", registered - launched)
 
         def probe():
             """Ask the host's factory for an unknown engine; returns the reply line from the stub."""
@@ -198,9 +196,10 @@ def main():
             {"id": previous, "platform": "linux", "version": "0.0.1", "started_at_unix_ms": 1}))
         (state / "telemetry-crashes" / f"{previous}.crash").write_text(
             "SIGSEGV: segmentation fault\n/home/someone/.local/lib/libmsime_host_api.so(+0x1f) [0x7f00]\n")
-        _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=True)
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=True)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
+            assert endpoint.connections[0][0] >= registered, ("recovered host sent before registration", endpoint.connections[0][0], registered)
             assert process.poll() is None, ("recovered host exited", process.returncode)
             queued = events(scratch)
             assert [event["kind"] for event in queued] == ["session_crash", "crash", "active"], queued
@@ -216,9 +215,10 @@ def main():
     # 宿主收到崩溃信号：处理函数只把这次会话的崩溃记录写到磁盘（第一行是信号摘要），然后照默认动作退出，不联网。
     with tempfile.TemporaryDirectory() as name:
         scratch = Path(name)
-        _, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
+        registered, _, endpoint, process, cleanup = run_host(host, registration_bus, scratch, recovered=False)
         try:
             wait_for(lambda: endpoint.connections, "queued events were never sent")
+            assert endpoint.connections[0][0] >= registered, ("telemetry ran before registration", endpoint.connections[0][0], registered)
             connections = len(endpoint.connections)
             process.send_signal(signal.SIGSEGV)
             process.wait(timeout=10)

@@ -296,7 +296,7 @@ def link_or_copy(source: str, target: str) -> None:
 def staged_resources(resources: Path, lock: dict) -> Path:
     """新版本词库的目录：与正在使用的那份并列，按锁的内容命名，中断后再运行会接着用同一个目录。
 
-    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
+    正在使用的目录不能原地更新：旧代次的会话每次查询都按路径打开其中的 msime-others.db 等文件，换掉其中几项它就读到新旧混杂的一份，切换失败时也无法退回。与锁一致的文件直接硬链接过来，只有缺失或不符的几项需要下载；下载总是改名替换，不写已有文件，所以链接不会改到旧目录。"""
     tag = hashlib.sha256(
         "\n".join(f"{artifact['name']}:{artifact['sha256']}" for artifact in lock["artifacts"]).encode()
     ).hexdigest()[:16]

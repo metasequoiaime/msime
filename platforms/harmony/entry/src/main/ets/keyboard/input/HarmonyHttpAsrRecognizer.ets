@@ -1,5 +1,6 @@
 import audio from '@ohos.multimedia.audio';
 import http from '@ohos.net.http';
+import { installNoRedirectGuard } from '../../network/HarmonyHttpSecurity';
 import util from '@ohos.util';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
@@ -192,6 +193,7 @@ export class HarmonyHttpAsrRecognizer {
     const boundary: string = `----msime-${util.generateRandomUUID(false).replace(/-/g, '')}`;
     const body: ArrayBuffer = this.multipart(boundary, model, config.asr_provider, config.language, wav);
     const request: http.HttpRequest = http.createHttp();
+    installNoRedirectGuard(request);
     this.request = request;
     try {
       const response: http.HttpResponse = await request.request(endpoint, {
