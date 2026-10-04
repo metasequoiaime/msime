@@ -431,6 +431,13 @@ int main() {
                     !MSIMEOptInInputModeToEnable(nil, @"quanpin", YES) && !MSIMEOptInInputModeToEnable(@"zhuyin", @"zhuyin", YES) &&
                     !MSIMEOptInInputModeToEnable(@"quanpin", @"zhuyin", NO) && !MSIMEOptInInputModeToEnable(@"quanpin", @"wubi", YES),
                 "An opt-in mode was enabled at the wrong time.");
+        // 越南文、藏文版的 bundle 只声明 中（.Hans）和 英：方案自己的按需模式不存在，不去启用，第一次同步就能记下这个方案。
+        for (NSString *scheme in @[@"vietnamese", @"tibetan"]) {
+            NSDictionary *info = @{@"MSIMEEdition": scheme, @"ComponentInputModeDict": @{@"tsInputModeListKey": @{
+                MSIMEChineseInputModeID: @{}, MSIMEEnglishInputModeID: @{}}}};
+            require(!MSIMEOptInInputModeToEnableIn(info, nil, scheme, YES) && !MSIMEOptInInputModeToEnableIn(info, @"quanpin", scheme, YES),
+                    "A single-language edition asked for an opt-in mode its bundle does not declare.");
+        }
 
         // A client that cannot switch modes is left alone.
         require(!MSIMESelectSystemInputMode(state, MSIMEEnglishInputModeID, [NSObject new], Available) && [state.current isEqualToString:MSIMEChineseInputModeID],

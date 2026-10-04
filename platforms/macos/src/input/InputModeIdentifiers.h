@@ -279,8 +279,13 @@ static inline BOOL MSIMESelectSystemInputMode(MSIMESystemInputModeState &state, 
 }
 
 // 方案从 `previous` 变成 `scheme` 时要启用的按需模式，没有则返回 nil。只有切到带按需模式的方案才算：模式在用户选中方案时启用——在菜单、任一设置窗口或经由它的模式——而不是每次输入法启动在这个方案上就启用，用户可能已经把它从输入菜单移除了。`previous` 为 nil 是第一次同步，同样算一次切换：这时用户正用着这个方案，而第一次同步只会发生一次，不会把用户之后移除的模式再加回来。在这台机器上跑不起来的方案（MSIMEInputSchemeAvailable）不启用任何模式，所以输入菜单不会提供一个会退回其它方案的模式。
-static inline NSString *MSIMEOptInInputModeToEnable(NSString *previous, NSString *scheme, BOOL available) {
+//
+// 本版本的 bundle 没有声明这个模式时同样返回 nil：越南文、藏文版只有 .Hans 和「英」，方案自己的模式不存在，请求启用它只会失败（fnfErr），这次切换就永远记不下来，之后每次同步都再按全部已安装输入源查一遍。
+static inline NSString *MSIMEOptInInputModeToEnableIn(NSDictionary *info, NSString *previous, NSString *scheme, BOOL available) {
     if ([previous isEqualToString:scheme] || !available) return nil;
     NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(NO, scheme));
-    return MSIMEIsOptInInputModeID(mode) ? mode : nil;
+    return MSIMEIsOptInInputModeID(mode) && MSIMEInputModeDeclaredIn(info, mode) ? mode : nil;
+}
+static inline NSString *MSIMEOptInInputModeToEnable(NSString *previous, NSString *scheme, BOOL available) {
+    return MSIMEOptInInputModeToEnableIn(MSIMEEditionInfo(), previous, scheme, available);
 }
