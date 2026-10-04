@@ -3,6 +3,30 @@
 #include <cassert>
 #include <initializer_list>
 
+static BOOL gSnapshotIntegerProbeCalled;
+static uint64_t gSnapshotIntegerProbeHandle;
+
+@interface SnapshotIntegerProbe : MSIMEClientSession
+@end
+
+@implementation SnapshotIntegerProbe
++ (BOOL)discardSnapshotHandle:(uint64_t)handle error:(NSError **)error {
+    (void)error;
+    (void)self;
+    gSnapshotIntegerProbeHandle = handle;
+    gSnapshotIntegerProbeCalled = YES;
+    return YES;
+}
++ (BOOL)applySnapshotHandle:(uint64_t)handle expectedVersion:(NSString *)version error:(NSError **)error {
+    (void)version;
+    (void)error;
+    (void)self;
+    gSnapshotIntegerProbeHandle = handle;
+    gSnapshotIntegerProbeCalled = YES;
+    return YES;
+}
+@end
+
 static NSDictionary *reload(MSIMEClientSession *session, NSString *directory, BOOL expectError) {
     __block BOOL done = NO;
     __block NSDictionary *loaded = nil;
@@ -22,6 +46,30 @@ static NSDictionary *reload(MSIMEClientSession *session, NSString *directory, BO
 
 int main() {
     @autoreleasepool {
+        for (id invalid in @[@YES, @1.5, @1e30, @(-1), @0, @"1", NSNull.null]) {
+            gSnapshotIntegerProbeCalled = NO;
+            NSDictionary *discarded = [SnapshotIntegerProbe discardSnapshot:@{ @"handle": invalid }];
+            assert(discarded[@"error"] && ![discarded[@"discarded"] boolValue]);
+            assert(!gSnapshotIntegerProbeCalled);
+            gSnapshotIntegerProbeCalled = NO;
+            NSDictionary *applied = [SnapshotIntegerProbe applySnapshot:@{ @"handle": invalid,
+                @"expectedVersion": [@"0" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0] }];
+            assert(applied[@"error"] && ![applied[@"activated"] boolValue]);
+            assert(!gSnapshotIntegerProbeCalled);
+        }
+        gSnapshotIntegerProbeCalled = NO;
+        NSDictionary *missingDiscardHandle = [SnapshotIntegerProbe discardSnapshot:@{}];
+        assert(missingDiscardHandle[@"error"] && !gSnapshotIntegerProbeCalled);
+        gSnapshotIntegerProbeCalled = NO;
+        NSDictionary *missingApplyHandle = [SnapshotIntegerProbe applySnapshot:@{
+            @"expectedVersion": [@"0" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0] }];
+        assert(missingApplyHandle[@"error"] && !gSnapshotIntegerProbeCalled);
+        gSnapshotIntegerProbeCalled = NO;
+        NSDictionary *discarded = [SnapshotIntegerProbe discardSnapshot:@{ @"handle": @42 }];
+        assert([discarded[@"discarded"] isEqual:@YES] && gSnapshotIntegerProbeCalled && gSnapshotIntegerProbeHandle == 42);
+        gSnapshotIntegerProbeCalled = NO;
+        NSDictionary *maxDiscarded = [SnapshotIntegerProbe discardSnapshot:@{ @"handle": @(UINT64_MAX) }];
+        assert([maxDiscarded[@"discarded"] isEqual:@YES] && gSnapshotIntegerProbeCalled && gSnapshotIntegerProbeHandle == UINT64_MAX);
         NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSMutableDictionary *options = [@{@"api_version": @1, @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5, @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
         for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
