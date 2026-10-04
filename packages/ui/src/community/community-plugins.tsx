@@ -48,6 +48,7 @@ import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
@@ -523,15 +524,14 @@ export function CommunityPluginPublishDialog({
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localPlugins);
-  const packGeneration = useRef(0);
 
   useEffect(() => {
-    let active = true;
+    const generation = clientGeneration.current;
     setBusy(false);
     setOptionsLoading(true);
     void localPlugins()
       .then((catalog) => {
-        if (!active) return;
+        if (generation !== clientGeneration.current) return;
         const loaded: LocalPluginOption[] = [];
         for (const item of catalog.packages) {
           if (item.builtin || !isCommunityKind(item.kind)) continue;
@@ -549,23 +549,21 @@ export function CommunityPluginPublishDialog({
         );
       })
       .catch(() => {
-        if (active) setError("读取本地插件失败，请重试。");
+        if (generation === clientGeneration.current) setError("读取本地插件失败，请重试。");
       })
       .finally(() => {
-        if (active) setOptionsLoading(false);
+        if (generation === clientGeneration.current) setOptionsLoading(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client, localPlugins]);
+  }, [client, localPlugins, clientGeneration]);
 
   const chosen = useMemo(
     () => options.find((item) => item.key === selection) ?? null,
     [options, selection],
   );
+  const packGeneration = useAsyncGeneration(chosen);
 
   useEffect(() => {
-    const generation = ++packGeneration.current;
+    const generation = packGeneration.current;
     setPack(null);
     setPackError("");
     setAgreed(false);
@@ -590,10 +588,7 @@ export function CommunityPluginPublishDialog({
       .finally(() => {
         if (generation === packGeneration.current) setPackLoading(false);
       });
-    return () => {
-      packGeneration.current++;
-    };
-  }, [client, chosen]);
+  }, [client, chosen, packGeneration]);
 
   const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
     communityPublishFields(name, description);

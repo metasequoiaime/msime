@@ -14,6 +14,7 @@ import {
 } from "./cloud-clipboard-send";
 import { ActionButton } from "./action-button";
 import { SwitchRow } from "./switch-row";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export type ClipboardHistoryEntry = { text: string; timestampMs: number; pinned: boolean };
 
@@ -59,7 +60,13 @@ export function ClipboardHistorySection({
   const [cloudNotice, setCloudNotice] = useState("");
   const [sending, setSending] = useState(false);
   const cloudRevision = useRef(0);
-  const historyGeneration = useRef(0);
+  const historyGeneration = useAsyncGeneration(
+    client,
+    ios,
+    page,
+    persistedHistoryEnabled,
+    revision,
+  );
   const historyActionBusy = useRef(false);
   const historyShown = historyEnabled && Boolean(client?.list);
 
@@ -111,8 +118,7 @@ export function ClipboardHistorySection({
   const cloudNote = cloudRequest ? cloudNotice || cloudClipboardAvailabilityNote(cloud) : undefined;
 
   useEffect(() => {
-    const currentGeneration = ++historyGeneration.current;
-    let active = true;
+    const currentGeneration = historyGeneration.current;
     if (!ios && !persistedHistoryEnabled) {
       setEntries([]);
       setClearArmed(false);
@@ -122,18 +128,16 @@ export function ClipboardHistorySection({
     void client
       .list()
       .then((next) => {
-        if (active && currentGeneration === historyGeneration.current) {
+        if (currentGeneration === historyGeneration.current) {
           setEntries(next);
           setClearArmed(false);
         }
       })
       .catch(() => undefined);
     return () => {
-      active = false;
-      historyGeneration.current++;
       historyActionBusy.current = false;
     };
-  }, [client, ios, page, persistedHistoryEnabled, revision]);
+  }, [client, historyGeneration]);
 
   const mutate = async (action: () => Promise<void>, failure: string) => {
     if (historyActionBusy.current) return;

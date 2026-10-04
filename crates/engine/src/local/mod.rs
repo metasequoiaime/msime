@@ -12,6 +12,7 @@ pub mod places;
 pub mod quick_phrase;
 pub mod unicode;
 pub mod units;
+pub mod url;
 
 use crate::types::WordItem;
 

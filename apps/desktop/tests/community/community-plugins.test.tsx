@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { testHost } from "../support/host";
+import { StrictMode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
@@ -325,6 +326,54 @@ test("publishing offers only installed, shareable packs and retries under the sa
   expect(retry[2]).toBe(firstCall[2]);
   expect(await screen.findByText("已发布到社区。")).not.toBeNull();
 });
+
+test.each(["success", "failure"])(
+  "late catalog %s cannot replace the new publish reader under StrictMode",
+  async (outcome) => {
+    let resolveOld!: (value: PluginCatalogResult) => void;
+    let rejectOld!: (reason: unknown) => void;
+    const oldCatalog = new Promise<PluginCatalogResult>((resolve, reject) => {
+      resolveOld = resolve;
+      rejectOld = reject;
+    });
+    const nextCatalog = deferred<PluginCatalogResult>();
+    const communityClient = client();
+    const onClose = vi.fn();
+    const onPublished = vi.fn();
+    const view = (localPlugins: () => Promise<PluginCatalogResult>) => (
+      <StrictMode>
+        <CommunityPluginPublishDialog
+          client={communityClient}
+          localPlugins={localPlugins}
+          onClose={onClose}
+          onPublished={onPublished}
+        />
+      </StrictMode>
+    );
+    const { rerender } = render(view(() => oldCatalog));
+    rerender(view(() => nextCatalog.promise));
+
+    await act(async () => {
+      if (outcome === "success") resolveOld({ packages: [pack("sound", "old")], issues: [] });
+      else rejectOld(new Error("synthetic catalog failure"));
+    });
+    expect(screen.getByText("正在读取本地插件…")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "发布插件" })).toBeNull();
+    expect(screen.queryByText("读取本地插件失败，请重试。")).toBeNull();
+
+    await act(async () => {
+      nextCatalog.resolve({ packages: [pack("sound", "replacement")], issues: [] });
+    });
+    const select = await screen.findByRole("combobox", { name: "发布插件" });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("value")),
+    ).toEqual(["sound/replacement"]);
+    expect(screen.queryByText("正在读取本地插件…")).toBeNull();
+    expect(screen.queryByText("读取本地插件失败，请重试。")).toBeNull();
+  },
+);
 
 test("a successful publish releases the dialog busy state after the callback", async () => {
   const onPublished = vi.fn().mockResolvedValue(undefined);

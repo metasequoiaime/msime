@@ -559,17 +559,23 @@ impl HostSession {
             let prior = result.diagnostic.take().unwrap_or_default();
             result.diagnostic = Some(format!("{prior} {note}").trim().to_owned());
         }
-        // A replacement changes the view generation, never the completed commit. A scheme that does not widen (Korean) writes half-width ASCII punctuation and digits whatever the width switch says; the dedicated English mode keeps its own rules in every scheme, so its commits are widened as they are under a Chinese scheme.
+        // 替换只改变 view 的代次，不改变已完成的上屏。不转全角的方案（韩文）无论宽度开关如何都写半角 ASCII 标点和数字；专用英文模式在任何方案里都按自己的规则走，所以它的上屏和中文方案下一样转全角。网址模式的网址部分始终是半角：上屏后 view 已回到 `none`，所以看上屏前记下的 `commit_context`；结束网址的那个标点不是网址能收的字符，照常转全角。
         let half_width_text = SchemeType::from_u8(result.view.scheme)
             .is_some_and(|scheme| !scheme.widens_full_width())
             && !result.view.dedicated_english
             && result.view.local_mode == "none";
+        let url_commit = result
+            .commit_context
+            .as_ref()
+            .is_some_and(|context| context.local_mode == "url");
         if result.view.character_width == CharacterWidth::Fullwidth && !half_width_text {
             if let Some(c) = result.commit.as_mut() {
                 *c = c
                     .chars()
                     .map(|x| {
-                        if x == ' ' {
+                        if url_commit && x.is_ascii() && msime_engine::url::accepts(x as u8) {
+                            x
+                        } else if x == ' ' {
                             '\u{3000}'
                         } else if ('!'..='~').contains(&x) {
                             char::from_u32(x as u32 + 0xfee0).unwrap()

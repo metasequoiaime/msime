@@ -119,6 +119,7 @@ import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
+import { useAsyncGeneration } from "./settings/use-async-generation";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -2214,25 +2215,21 @@ function useCustomHelpcodeSchemas(
   reader: SettingsClient["listHelpcodeSchemas"],
 ): CustomHelpcodeSchema[] {
   const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  const generation = useAsyncGeneration(reader);
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     if (!reader) {
       setSchemas([]);
-      return () => {
-        active = false;
-      };
+      return;
     }
     void reader()
       .then((next) => {
-        if (active) setSchemas(next);
+        if (generation.current === current) setSchemas(next);
       })
       .catch(() => {
-        if (active) setSchemas([]);
+        if (generation.current === current) setSchemas([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [reader]);
+  }, [reader, generation]);
   return schemas;
 }
 
@@ -2242,12 +2239,13 @@ function useHelpcodePacks(
   inputPageOpen: boolean,
 ): HelpcodePackOption[] {
   const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
+  const generation = useAsyncGeneration(catalog, inputPageOpen);
   useEffect(() => {
     if (!catalog || !inputPageOpen) return;
-    let active = true;
+    const current = generation.current;
     void catalog()
       .then((next) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setPacks(
           next.packages
             .filter((pack) => pack.kind === "helpcode")
@@ -2255,12 +2253,9 @@ function useHelpcodePacks(
         );
       })
       .catch(() => {
-        if (active) setPacks([]);
+        if (generation.current === current) setPacks([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [catalog, inputPageOpen]);
+  }, [catalog, inputPageOpen, generation]);
   return packs;
 }
 

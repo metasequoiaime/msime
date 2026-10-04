@@ -1,5 +1,6 @@
 import { ErrorEvent, MessageEvents, ThreadWorkerGlobalScope, worker } from '@kit.ArkTS';
 import fs from '@ohos.file.fs';
+import util from '@ohos.util';
 import {
   OfflineRecognizer,
   OfflineRecognizerConfig,
@@ -26,6 +27,7 @@ import {
   LocalModelPlan
 } from '../keyboard/input/LocalAsrPolicy';
 import { LocalAsrPathTrust, PathTrustStat } from '../keyboard/input/LocalAsrPathTrust';
+import { LocalAsrTextReader, LocalAsrTextReaderApi } from '../keyboard/input/LocalAsrTextReader';
 import { utf8Length } from '../keyboard/Utf8';
 
 /**
@@ -69,8 +71,18 @@ function reply(type: string, id: number, text: string, correct: boolean): void {
   workerPort.postMessage(message);
 }
 
-function readText(path: string): string {
-  return fs.readTextSync(path);
+const textReaderApi: LocalAsrTextReaderApi = {
+  open: (path: string, mode: number): { fd: number } => {
+    const file: fs.File = fs.openSync(path, mode);
+    return { fd: file.fd };
+  },
+  read: (fd: number, buffer: ArrayBuffer): number => fs.readSync(fd, buffer),
+  close: (file: { fd: number }): void => fs.closeSync(file.fd),
+  decode: (bytes: Uint8Array): string => util.TextDecoder.create('utf-8').decode(bytes),
+};
+
+function readText(path: string, maximumBytes: number): string {
+  return LocalAsrTextReader.read(path, maximumBytes, textReaderApi, fs.OpenMode.READ_ONLY);
 }
 
 function lookup(path: string, follow: boolean): PathTrustStat | null {
@@ -111,7 +123,10 @@ function readPlan(directory: string): LocalModelPlan {
   if (!trustedDirectory(directory) || !realFile(manifest)) {
     throw new Error('所选路径不是已安装的本地语音模型');
   }
-  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(directory, readText(manifest));
+  const plan: LocalModelPlan | null = LocalAsrPolicy.plan(
+    directory,
+    readText(manifest, LocalAsrPolicy.textFileLimit('manifest')),
+  );
   if (plan === null) throw new Error('本地语音模型清单无效或不受支持');
   const files: string[] = LocalAsrPolicy.requiredFiles(plan);
   if (LocalAsrPolicy.transducerNativeHotwords(plan)) files.push(plan.bpeVocab);
@@ -123,7 +138,10 @@ function readPlan(directory: string): LocalModelPlan {
 
 function transducerHotwords(plan: LocalModelPlan, words: string[]): string {
   if (!LocalAsrPolicy.transducerNativeHotwords(plan) || words.length === 0) return '';
-  return LocalAsrPolicy.transducerHotwords(words, LocalAsrPolicy.tokenSet(readText(plan.tokens)));
+  return LocalAsrPolicy.transducerHotwords(
+    words,
+    LocalAsrPolicy.tokenSet(readText(plan.tokens, LocalAsrPolicy.textFileLimit('tokens'))),
+  );
 }
 
 function createOnline(plan: LocalModelPlan, hotwords: string, threads: number): OnlineRecognizer {

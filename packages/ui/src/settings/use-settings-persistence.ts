@@ -16,6 +16,7 @@ import {
   preferenceChanges,
   preferenceChangesCollide,
 } from "./preference-changes";
+import { useAsyncGeneration } from "./use-async-generation";
 import { useFlushOnWindowLeave } from "./use-flush-on-window-leave";
 
 /** Where the automatic save of the settings form stands, for the quiet status in its action row. */
@@ -85,6 +86,7 @@ export function useSettingsPersistence({
   const [saveError, setSaveError] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const reloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
+  const generation = useAsyncGeneration(client);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -197,11 +199,11 @@ export function useSettingsPersistence({
 
   useEffect(() => {
     if (!client.onPreferencesChanged) return;
-    let active = true;
+    const current = generation.current;
     let unsubscribe: (() => void) | undefined;
     void client
       .onPreferencesChanged((value) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         if (savingRef.current) {
           if (!heldChange.current || value.revision > heldChange.current.revision)
             heldChange.current = value;
@@ -210,37 +212,33 @@ export function useSettingsPersistence({
         applyPreferencesChangeRef.current(value);
       })
       .then((value) => {
-        if (active) unsubscribe = value;
+        if (generation.current === current) unsubscribe = value;
         else value();
       })
       .catch(() => undefined);
     return () => {
-      active = false;
       unsubscribe?.();
     };
-  }, [client]);
+  }, [client, generation]);
 
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     client
       .load()
       .then((value) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         adoptSnapshot(value);
         setLoadFailed(false);
       })
       .catch((reason) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setError(errorMessage(reason));
         setLoadFailed(true);
       })
       .finally(() => {
-        if (active) setBusy(false);
+        if (generation.current === current) setBusy(false);
       });
-    return () => {
-      active = false;
-    };
-  }, [client]);
+  }, [client, generation]);
 
   async function reload() {
     if (!mounted.current) return;

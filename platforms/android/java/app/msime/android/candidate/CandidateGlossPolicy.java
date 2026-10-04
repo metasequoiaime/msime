@@ -18,6 +18,22 @@ public final class CandidateGlossPolicy {
 
     private CandidateGlossPolicy() {}
 
+    /** Read a JSON integer without org.json's lossy numeric coercion. */
+    public static long strictInteger(Object value) {
+        if (!(value instanceof Integer) && !(value instanceof Long))
+            throw new IllegalArgumentException("Expected JSON integer");
+        return ((Number) value).longValue();
+    }
+
+    /** Return a fallback for a missing or malformed protocol integer instead of coercing it. */
+    public static long strictOr(Object value, long fallback) {
+        try {
+            return strictInteger(value);
+        } catch (IllegalArgumentException error) {
+            return fallback;
+        }
+    }
+
     /** Engine annotations (for example Wubi codes) occupy the shared hint slot first. */
     public static String annotation(
             String engineAnnotation, String translation, boolean glossEnabled) {

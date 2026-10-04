@@ -1,4 +1,5 @@
 import UIKit
+import CoreFoundation
 
 /// Candidate and composition text size, and the candidates' font family chain, read from the shared preference document.
 ///
@@ -84,7 +85,10 @@ enum CandidateFontPreference {
   }
 
   private static func size(_ value: Any?, default fallback: Int, range: ClosedRange<Int>) -> Int {
-    guard let number = value as? NSNumber else { return fallback }
-    return SharedNumber.clamped(number.intValue, to: range)
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame else { return fallback }
+    return SharedNumber.clamped(integer, to: range)
   }
 }

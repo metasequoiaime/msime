@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CoreFoundation
 
 /// The candidate preview, text size and font, what the strip shows while spelling, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
@@ -208,7 +209,7 @@ struct CandidateOptionsSettingsView: View {
     guard let preferences = MetasequoiaInputSessionBridge.loadSharedPreferences() else { return }
     let mixed = preferences["mixed_input"] as? [String: Any] ?? [:]
     english = mixed["english"] as? Bool ?? english
-    minimumPrefix = (mixed["minimum_prefix"] as? NSNumber)?.intValue ?? minimumPrefix
+    minimumPrefix = Self.minimumPrefix(mixed["minimum_prefix"]) ?? minimumPrefix
     emoji = mixed["emoji"] as? Bool ?? emoji
     kaomoji = mixed["kaomoji"] as? Bool ?? kaomoji
     candidateSize = CandidateFontPreference.candidateSize(in: preferences, tablet: tablet)
@@ -220,6 +221,15 @@ struct CandidateOptionsSettingsView: View {
     document = preferences
     shuangpinRaw = preferences["shuangpin_preedit_uses_raw"] as? Bool ?? true
     wordCharacter = (preferences["word_character"] as? [String: Any])?["enabled"] as? Bool ?? wordCharacter
+  }
+
+  static func minimumPrefix(_ value: Any?) -> Int? {
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          (1...8).contains(integer) else { return nil }
+    return integer
   }
 }
 

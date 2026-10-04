@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SettingsClient, Snapshot } from "../index";
+import { useAsyncGeneration } from "./use-async-generation";
 
 export type PreferencesSnapshotClient = Pick<SettingsClient, "load" | "onPreferencesChanged">;
 
@@ -9,15 +10,16 @@ export function usePreferencesSnapshot(
   resetOnClientChange = false,
 ): Snapshot | null {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const generation = useAsyncGeneration(preferences, resetOnClientChange);
 
   useEffect(() => {
-    let active = true;
+    const requestGeneration = generation.current;
     let latestRevision = -1;
     let unsubscribe: (() => void) | undefined;
     if (resetOnClientChange) setSnapshot(null);
 
     const apply = (value: Snapshot) => {
-      if (!active || value.revision <= latestRevision) return;
+      if (generation.current !== requestGeneration || value.revision <= latestRevision) return;
       latestRevision = value.revision;
       setSnapshot(value);
     };
@@ -25,7 +27,7 @@ export function usePreferencesSnapshot(
     const start = async () => {
       try {
         const stop = await preferences.onPreferencesChanged?.(apply);
-        if (!active) {
+        if (generation.current !== requestGeneration) {
           stop?.();
           return;
         }
@@ -33,7 +35,7 @@ export function usePreferencesSnapshot(
       } catch {
         /* Initial loading still works when event subscription is unavailable. */
       }
-      if (active) {
+      if (generation.current === requestGeneration) {
         try {
           apply(await preferences.load());
         } catch {
@@ -43,10 +45,9 @@ export function usePreferencesSnapshot(
     };
     void start();
     return () => {
-      active = false;
       unsubscribe?.();
     };
-  }, [preferences, resetOnClientChange]);
+  }, [preferences, resetOnClientChange, generation]);
 
   return snapshot;
 }

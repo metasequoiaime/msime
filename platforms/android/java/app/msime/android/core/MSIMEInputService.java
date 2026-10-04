@@ -1288,19 +1288,20 @@ public final class MSIMEInputService extends InputMethodService {
         }
         // 共享的 `candidate_layout` 是桌面候选窗的横排/竖排，默认竖排；触屏候选条只有一行高，竖排时每个候选占满整行往下排，一屏只露出第一个。和 iOS 一样，触屏键盘始终横排，更多候选在展开面板里看。
         candidateHorizontal = true;
-        candidateFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        candidateFontSize = CandidateAppearance.fontSize(
+            KeyboardGeometry.strictInt(preferences, "candidate_font_size", 16));
         candidatePreeditFontSize = CandidateAppearance.fontSize(
-            preferences.optInt("candidate_preedit_font_size", candidateFontSize));
+            KeyboardGeometry.strictInt(preferences, "candidate_preedit_font_size", candidateFontSize));
     }
 
     private void applyTouchGeometry(JSONObject preferences) {
         touchKeySpacingTenths = KeyboardGeometry.keySpacing(preferences == null ? -1
-            : preferences.optInt("touch_key_spacing_tenths", -1));
+            : KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
-            : preferences.optInt("touch_row_spacing_tenths", -1));
+            : KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
         touchKeyboardHeightAdjustment = KeyboardGeometry.heightAdjustment(preferences == null
-            ? Integer.MIN_VALUE : preferences.optInt("touch_keyboard_height_adjustment",
-                Integer.MIN_VALUE));
+            ? Integer.MIN_VALUE : KeyboardGeometry.strictInt(preferences,
+                "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
     }
@@ -1521,15 +1522,16 @@ public final class MSIMEInputService extends InputMethodService {
         CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
             preferences, surfaceSkin(preferences, "candidate_theme"));
         boolean nextHorizontal = true;
-        int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
+        int nextFontSize = CandidateAppearance.fontSize(
+            KeyboardGeometry.strictInt(preferences, "candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
-            preferences.optInt("candidate_preedit_font_size", nextFontSize));
+            KeyboardGeometry.strictInt(preferences, "candidate_preedit_font_size", nextFontSize));
         int nextKeySpacing = KeyboardGeometry.keySpacing(
-            preferences.optInt("touch_key_spacing_tenths", -1));
+            KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
-            preferences.optInt("touch_row_spacing_tenths", -1));
+            KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
         int nextHeightAdjustment = KeyboardGeometry.heightAdjustment(
-            preferences.optInt("touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+            KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -1843,7 +1845,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!candidateEnglishGloss || session == 0 || view == null
                 || candidateGlossResources.isEmpty()
                 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
-        long generation = view.optLong("generation", -1);
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (generation < 0 || (candidateGlossRequestedSession == session
                 && candidateGlossRequestedGeneration == generation)) return;
         JSONArray visible = view.optJSONArray("candidates");
@@ -1855,8 +1857,8 @@ public final class MSIMEInputService extends InputMethodService {
         final java.util.Map<String, String> targetRequests = new java.util.LinkedHashMap<>();
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
-            if (snapshot.optLong("session") != targetSession
-                    || snapshot.optLong("generation") != generation) return;
+            if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
+                    || CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) != generation) return;
             request = CandidateGlossModel.request(generation,
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
@@ -1909,7 +1911,8 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyCandidateGlosses(CandidateGlossPolicy.Token token,
             CandidateGlossModel.Result result,
             java.util.Map<String, java.util.Map<String, String>> offline) {
-        long currentGeneration = view == null ? -1 : view.optLong("generation", -1);
+        long currentGeneration = view == null ? -1
+            : CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (!candidateEnglishGloss || result.generation() != token.generation()
                 || !token.isCurrent(session, currentGeneration, candidateGlossEpoch)) return;
         String translations = result.translations();
@@ -1924,13 +1927,13 @@ public final class MSIMEInputService extends InputMethodService {
                 token.session(), token.generation(), translations));
             if (!applied.optBoolean("applied", false)) return;
             JSONObject next = applied.getJSONObject("view");
-            if (next.optLong("session") != token.session()
-                    || next.optLong("generation") != token.generation()) return;
+            if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != token.session()
+                    || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != token.generation()) return;
             view = next;
             if (candidatePanelOpen) {
                 JSONObject snapshot = value(NativeClient.allCandidates(token.session()));
-                if (snapshot.optLong("session") == token.session()
-                        && snapshot.optLong("generation") == token.generation()) {
+                if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) == token.session()
+                        && CandidateGlossPolicy.strictOr(snapshot.opt("generation"), -1) == token.generation()) {
                     candidatePanelSnapshot = snapshot;
                 }
             }
@@ -1953,7 +1956,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || !"none".equals(view.optString("local_mode", "none"))) return;
         if (view.optInt("scheme", -1) == 3 || !schemeShowsGlosses(view.optInt("scheme", -1))) return;
         JSONArray entries = view.optJSONArray("candidates");
-        long generation = view.optLong("generation", -1);
+        long generation = CandidateGlossPolicy.strictOr(view.opt("generation"), -1);
         if (entries == null || entries.length() == 0 || generation < 0) return;
         java.util.ArrayList<String> words = new java.util.ArrayList<>();
         for (int index = 0; index < Math.min(entries.length(), 32); index++) {
@@ -1965,7 +1968,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyCandidateTranslations(long generation) {
         if (!candidateTranslationAccount || session == 0 || view == null
-                || view.optLong("generation", -1) != generation) return;
+                || CandidateGlossPolicy.strictOr(view.opt("generation"), -1) != generation) return;
         JSONArray entries = view.optJSONArray("candidates");
         if (entries == null || entries.length() == 0) return;
         JSONArray translations = mergedCandidateGlosses(generation);
@@ -1975,7 +1978,8 @@ public final class MSIMEInputService extends InputMethodService {
                 translations.toString()));
             if (!applied.optBoolean("applied", false)) return;
             JSONObject next = applied.getJSONObject("view");
-            if (next.optLong("session") != session || next.optLong("generation") != generation) return;
+            if (CandidateGlossPolicy.strictOr(next.opt("session"), Long.MIN_VALUE) != session
+                    || CandidateGlossPolicy.strictOr(next.opt("generation"), -1) != generation) return;
             view = next;
             render();
         } catch (JSONException | RuntimeException | LinkageError ignored) {
@@ -2191,7 +2195,7 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject aiQuery = new JSONObject(aiDocument);
             JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
             int limit = OnlineCandidatePolicy.aiCandidateLimit(
-                aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
+                aiAssistant == null ? 0 : KeyboardGeometry.strictInt(aiAssistant, "candidate_limit", 0));
             if (!requestsAi(aiQuery) || limit == 0) {
                 aiComplete = true;
                 return;
@@ -3043,12 +3047,19 @@ public final class MSIMEInputService extends InputMethodService {
             return character(event.getUnicodeChar(), event.isShiftPressed())
                 || super.onKeyDown(keyCode, event);
         }
-        // Shift belongs to the policy rather than to this condition: which face of the number row
-        // picks a candidate depends on the local mode, because in U mode the plain digits are the
-        // code point and the pick moves to the shifted face.
+        // 组字中或本地模式里 Engine 列为拼写的字符是输入，要在数字选词、翻页键和标点之前送给 Engine：网址模式的 `.` `=` 和数字、`www` 之后的 `.`、V 模式的运算符。
+        if (session != 0 && view != null && !event.isCtrlPressed() && !event.isAltPressed()
+                && !event.isMetaPressed() && NumberRowSelectionPolicy.engineSpells(
+                    view.optString("local_mode", "none"), view.optString("editing_text", ""),
+                    view.optString("spelling_symbols", ""), event.getUnicodeChar())) {
+            return character(event.getUnicodeChar(), event.isShiftPressed())
+                || super.onKeyDown(keyCode, event);
+        }
+        // 哪一面数字键选词由策略决定：Engine 把数字列为拼写时（U、V、网址模式）裸数字是输入，选词移到 Shift 那一面。
         int candidateSlot = NumberRowSelectionPolicy.slotForKeyCode(keyCode,
             event.isShiftPressed(), numberRowSelection,
-            view == null ? "none" : view.optString("local_mode", "none"));
+            view == null ? "none" : view.optString("local_mode", "none"),
+            view == null ? "" : view.optString("spelling_symbols", ""), event.getUnicodeChar());
         if (candidateSlot >= 0 && !dedicatedEnglish
                 && !event.isCtrlPressed() && !event.isAltPressed() && !event.isMetaPressed()
                 && view != null
@@ -5561,12 +5572,12 @@ public final class MSIMEInputService extends InputMethodService {
                 || preferencesDirectory.isEmpty()) return;
         JSONObject acceptedPreferences = preferencesSnapshot.optJSONObject("preferences");
         if (!reset && acceptedPreferences != null
-                && KeyboardGeometry.keySpacing(acceptedPreferences.optInt(
-                    "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
-                && KeyboardGeometry.rowSpacing(acceptedPreferences.optInt(
-                    "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && KeyboardGeometry.heightAdjustment(acceptedPreferences.optInt(
-                    "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
+                && KeyboardGeometry.keySpacing(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
+                && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
+                && KeyboardGeometry.heightAdjustment(KeyboardGeometry.strictInt(
+                    acceptedPreferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
                     == touchKeyboardHeightAdjustment
                 && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
                     == touchVoiceShortcutEnabled) return;

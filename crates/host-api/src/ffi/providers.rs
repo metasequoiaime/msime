@@ -289,9 +289,12 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             let Some(candidates_view) = session.runtime.translation_candidates() else {
                 return Ok(Value::Null);
             };
-            // Only the schemes that show glosses ask for them: Windows does not request glosses for Japanese candidates, while Korean's Hanja rows are glossed like Chinese ones: their 훈음 is drawn by the host whatever this answers, and a translation or gloss goes on the line under it. Use Engine's active mode, including temporary Japanese composition.
+            // 只有显示释义的方案才请求释义：Windows 不为日文候选请求释义，而韩文的汉字候选和中文一样带释义：훈음 由宿主自己画出，与这里的回答无关，翻译或释义画在它下面一行。按引擎当前的本地模式判断，临时日文组字同样不请求。网址模式也不请求：网址可能带着私密路径和参数，不能发给翻译服务。
             if !SchemeType::from_u8(candidates_view.scheme).is_some_and(SchemeType::shows_glosses)
-                || candidates_view.local_mode == "temporary_japanese"
+                || matches!(
+                    candidates_view.local_mode.as_str(),
+                    "temporary_japanese" | "url"
+                )
             {
                 return Ok(Value::Null);
             }

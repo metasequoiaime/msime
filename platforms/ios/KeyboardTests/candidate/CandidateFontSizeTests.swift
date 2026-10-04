@@ -61,6 +61,8 @@ final class CandidateFontSizeTests: XCTestCase {
     XCTAssertEqual(CandidateFontPreference.preeditSize(in: synced, tablet: false), 20)
     XCTAssertEqual(CandidateFontPreference.preeditSize(in: synced, tablet: true), 24)
     XCTAssertEqual(CandidateFontPreference.candidateSize(in: [CandidateFontPreference.candidateKey: 4], tablet: true), 12)
+    XCTAssertEqual(CandidateFontPreference.candidateSize(in: [CandidateFontPreference.candidateKey: 20.5], tablet: false), 18)
+    XCTAssertEqual(CandidateFontPreference.candidateSize(in: [CandidateFontPreference.candidateKey: true], tablet: false), 18)
   }
 
   func testLargerTextGrowsTheStripButSmallerTextKeepsTheTouchTarget() {

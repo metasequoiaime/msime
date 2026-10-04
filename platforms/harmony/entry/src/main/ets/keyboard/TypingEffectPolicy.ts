@@ -129,7 +129,7 @@ export class TypingEffectPolicy {
         ? Math.round(resolved.intensity)
         : settings.intensity;
     const flashMillis: number =
-      typeof resolved.duration_ms === "number"
+      typeof resolved.duration_ms === "number" && Number.isFinite(resolved.duration_ms)
         ? Math.min(Math.max(Math.round(resolved.duration_ms), MIN_FLASH_MILLIS), MAX_FLASH_MILLIS)
         : FLASH_MILLIS;
     const first: string | undefined = Array.isArray(resolved.colors)

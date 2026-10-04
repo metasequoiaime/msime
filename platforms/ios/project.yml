@@ -266,6 +266,9 @@ targets:
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/KeyboardAIService.swift
       - path: App/Services/SkinCommunityAPI.swift
+      - path: App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
+      - path: App/Sources/settings/CandidateOptionsSettingsView.swift
+      - path: App/Sources/settings/CandidatePreviewCard.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**

@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 private typealias MSIMEByte = UInt8
@@ -282,7 +283,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let mode = try? localMode() else { return false }
     return !mode.isEmpty && mode != "none"
   }
-  var isInUnicodeMode: Bool { (try? localMode()) == "unicode" }
+
+  /// 组字中或本地模式里，Engine 把这个单个 ASCII 符号列在 `spelling_symbols` 里时它是 Engine 的输入，要作为字符交给会话，而不是选候选或标点：网址模式的数字和网址符号、`www` 之后的 `.`、U 模式的十六进制数字。没有组字时列出的 `/` 和 `@` 不在此列。
+  func engineSpellsWhileComposing(_ symbol: String) -> Bool {
+    guard symbol.count == 1, let scalar = symbol.unicodeScalars.first,
+          scalar.value > 0x20, scalar.value < 0x7f,
+          let current = try? view() else { return false }
+    let mode = current["local_mode"] as? String ?? "none"
+    let editing = current["editing_text"] as? String ?? ""
+    let symbols = current["spelling_symbols"] as? String ?? ""
+    return (mode != "none" || !editing.isEmpty) && symbols.contains(symbol)
+  }
 
   /// Reload the canonical PreferencesStore written by the Tauri settings host.
   /// Disk and lock work stays off the keyboard thread; the accepted snapshot is
@@ -309,7 +320,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
           completion(false)
           return
         }
-        guard revision.uint64Value >= self.documentRevision else {
+        guard let revision = Self.strictUInt64(revision), revision >= self.documentRevision else {
           completion(false)
           return
         }
@@ -320,8 +331,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         let applied = (self.options["preferences"] as? [String: Any]) ?? [:]
         let overridden = Self.hostOverrides(applyingTo: preferences)
         self.options["preferences"] = overridden
-        self.revision = max(self.revision, revision.uint64Value)
-        self.documentRevision = revision.uint64Value
+        self.revision = max(self.revision, revision)
+        self.documentRevision = revision
         self.applyAppEditedPreferences(from: overridden, over: applied)
         completion(true)
       }
@@ -533,12 +544,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let directory = Data(stateRoot.utf8)
     guard !directory.isEmpty, directory.count <= 16_384 else { return nil }
     guard let stored = try? callDirectory(msimeClientLoadPreferences, directory),
-          let storedRevision = stored["revision"] as? NSNumber,
+          let storedRevision = Self.strictUInt64(stored["revision"]),
           let previous = stored["preferences"] as? [String: Any] else { return nil }
     var preferences = previous
     mutate(&preferences)
     guard !NSDictionary(dictionary: preferences).isEqual(to: previous) else {
-      return storedRevision.uint64Value
+      return storedRevision
     }
     let document: [String: Any] = ["format_version": 1, "revision": storedRevision,
                                    "preferences": preferences]
@@ -551,7 +562,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         try snapshot.withUnsafeBytes { snapshotBytes -> [String: Any] in
           let value = try decode(msimeClientSavePreferences(
             directoryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(directory.count),
-            storedRevision.uint64Value,
+            storedRevision,
             snapshotBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(snapshot.count)))
           guard let dictionary = value as? [String: Any] else {
             throw InputBridgeFailure.invalidResponse
@@ -562,7 +573,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     } catch {
       return nil
     }
-    return (saved["revision"] as? NSNumber)?.uint64Value ?? storedRevision.uint64Value
+    return Self.strictUInt64(saved["revision"]) ?? storedRevision
   }
 
   /// Apply a global theme change made in this keyboard (a GlobalThemePreference mapping) to the live session and the shared document. The caller mirrors the document into the App Group afterwards.
@@ -664,10 +675,10 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
           let identity = rows[Int(index)]["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else { return diagnostic("候选已失效") }
     return selectCandidate(
-      generation: generation.uint64Value, globalIndex: globalIndex.uint64Value)
+      generation: generation, globalIndex: globalIndex)
   }
 
   func selectCandidate(generation: UInt64, globalIndex: UInt64) -> MetasequoiaInputSnapshot {
@@ -686,8 +697,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let rows = try? currentCandidates() else { return false }
     return rows.contains { row in
       guard let identity = row["id"] as? [String: Any] else { return false }
-      return (identity["generation"] as? NSNumber)?.uint64Value == generation
-        && (identity["index"] as? NSNumber)?.uint64Value == globalIndex
+      return Self.strictUInt64(identity["generation"]) == generation
+        && Self.strictUInt64(identity["index"]) == globalIndex
     }
   }
 
@@ -695,9 +706,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func selectCandidateEdge(at index: UInt, last: Bool) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
           let identity = rows[Int(index)]["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else { return diagnostic("候选已失效") }
-    return selectCandidateEdge(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value, last: last)
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else { return diagnostic("候选已失效") }
+    return selectCandidateEdge(generation: generation, globalIndex: globalIndex, last: last)
   }
 
   func selectCandidateEdge(generation: UInt64, globalIndex: UInt64, last: Bool) -> MetasequoiaInputSnapshot {
@@ -900,7 +911,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   func chooseNineKeySpelling(at index: UInt) -> MetasequoiaInputSnapshot {
-    let generation = (try? view()["generation"] as? NSNumber)?.uint64Value ?? 0
+    let generation = (try? view()).flatMap { Self.strictUInt64($0["generation"]) } ?? 0
     return dispatch { msimeClientChooseNineKeySpelling(handle, generation, index) }
   }
 
@@ -985,11 +996,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     guard let row = (try? currentCandidates())?[safe: Int(index)],
           row["text"] as? String == expectedWord,
           let identity = row["id"] as? [String: Any],
-          let generation = identity["generation"] as? NSNumber,
-          let globalIndex = identity["index"] as? NSNumber else {
+          let generation = Self.strictUInt64(identity["generation"]),
+          let globalIndex = Self.strictUInt64(identity["index"]) else {
       return diagnostic("候选已失效")
     }
-    return editCandidate(generation: generation.uint64Value, globalIndex: globalIndex.uint64Value,
+    return editCandidate(generation: generation, globalIndex: globalIndex,
                          action: action)
   }
 
@@ -1308,13 +1319,28 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
 
   private static func number(_ value: Any?) throws -> UInt64 {
-    guard let number = value as? NSNumber else { throw InputBridgeFailure.invalidResponse }
-    return number.uint64Value
+    guard let value = strictUInt64(value) else { throw InputBridgeFailure.invalidResponse }
+    return value
+  }
+
+  /// NSNumber's unsigned accessors truncate fractions and convert booleans; bridge identities and
+  /// revisions are protocol integers, so malformed values must be rejected at the boundary.
+  static func strictUInt64(_ value: Any?) -> UInt64? {
+    guard let number = value as? NSNumber else { return nil }
+    return CandidateGlossModel.integerValue(number, maximum: UInt64.max)
   }
 
   private static func snapshot(_ value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     let view = value["view"] as? [String: Any] ?? [:]
     let rows = view["candidates"] as? [[String: Any]] ?? []
+    guard rows.allSatisfy({ $0["text"] is String }) else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    let candidateSources = try rows.map { try strictInt($0["source"], fallback: -1, range: 0...255) }
+    let candidateFixedPositions = try rows.map { try strictInt($0["fixed_position"], fallback: 0, range: 0...255) }
+    let pageCount = try strictInt(view["page_count"], fallback: 0, range: 0...Int.max)
+    let editingText = view["editing_text"] as? String ?? ""
+    let caretPosition = try strictInt(view["caret_position"], fallback: 0, range: 0...editingText.utf8.count)
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
@@ -1323,15 +1349,25 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidateAnnotations: rows.map { $0["annotation"] as? String ?? "" },
-      candidateSources: rows.map { ($0["source"] as? NSNumber)?.intValue ?? -1 },
-      candidateFixedPositions: rows.map { ($0["fixed_position"] as? NSNumber)?.intValue ?? 0 },
-      candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
+      candidateSources: candidateSources,
+      candidateFixedPositions: candidateFixedPositions,
+      candidatePageCount: pageCount,
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
       diagnosticText: value["diagnostic"] as? String,
       localMode: view["local_mode"] as? String ?? "none",
       nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [],
-      editingText: view["editing_text"] as? String ?? "",
-      caretPosition: (view["caret_position"] as? NSNumber)?.intValue ?? 0)
+      editingText: editingText,
+      caretPosition: caretPosition)
+  }
+
+  private static func strictInt(_ value: Any?, fallback: Int, range: ClosedRange<Int>) throws -> Int {
+    guard let value else { return fallback }
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let integer = Int(number.stringValue),
+          NSNumber(value: integer).compare(number) == .orderedSame,
+          range.contains(integer) else { throw InputBridgeFailure.invalidResponse }
+    return integer
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {

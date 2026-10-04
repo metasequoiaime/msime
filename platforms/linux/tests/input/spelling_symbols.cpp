@@ -86,6 +86,26 @@ int main() {
   // Quanpin's idle mode-entry keys stay on the punctuation route, and the dedicated English mode keeps no scheme rules.
   assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"spelling_symbols", "/@"}}, U'/'));
   assert(!engine_spelling(Json{{"scheme", 6}, {"dedicated_english", true}, {"spelling_symbols", "1"}}, U'1'));
+  // 组字原文是网址触发词时，全拼、双拼只列出打开网址模式的键：它是拼写，不是翻页键或中文标点；没列出的键和空闲时的 "/" 仍走宿主自己的规则。
+  const Json url_entry = {{"scheme", 0}, {"local_mode", "none"}, {"editing_text", "www"}, {"spelling_symbols", "."}};
+  assert(engine_spelling(url_entry, U'.'));
+  assert(!engine_spelling(url_entry, U','));
+  assert(!engine_spelling(url_entry, U'1'));
+  assert(!spelling_digits(url_entry));
+  const Json url_scheme = {{"scheme", 1}, {"local_mode", "none"}, {"editing_text", "https"}, {"spelling_symbols", ":"}};
+  assert(engine_spelling(url_scheme, U':'));
+  assert(!engine_spelling(url_scheme, U'.'));
+  // 普通组字不列符号，句号仍是中文标点；没有组字时列出的键（空 editing_text）不算组字拼写。
+  assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"editing_text", "zhong"}, {"spelling_symbols", ""}}, U'.'));
+  assert(!engine_spelling(Json{{"scheme", 0}, {"local_mode", "none"}, {"editing_text", ""}, {"spelling_symbols", "/@"}}, U'/'));
+  // 网址模式本身是本地模式：数字和网址符号都是输入，数字行不再选词。
+  const Json url_mode = {{"scheme", 0}, {"local_mode", "url"}, {"editing_text", "www."}, {"spelling_symbols", "0123456789-._~:/?#[]@!$&'()*+,;=%^"}};
+  for (char32_t character : U"0123456789-._~:/?#[]@!$&'()*+,;=%^")
+    if (character != 0) assert(engine_spelling(url_mode, character));
+  for (char32_t character : {U'"', U'<', U'>', U'\\', U'{', U'}', U'|', U'`', U' '})
+    assert(!engine_spelling(url_mode, character));
+  assert(spelling_digits(url_mode));
+  assert(!spelling_space(url_mode));
   // A local mode spells with its own symbols in every scheme.
   assert(engine_spelling(Json{{"scheme", 0}, {"local_mode", "expression"}, {"spelling_symbols", "0123456789+-*/.()%^"}}, U'+'));
   assert(!engine_spelling(Json(nullptr), U'1'));

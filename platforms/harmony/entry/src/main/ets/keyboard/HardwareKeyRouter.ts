@@ -440,6 +440,7 @@ export class HardwareKeyRouter {
       const spellingDecision: HardwareKeyDecision | undefined = HardwareKeyRouter.spellingKey(
         key,
         spelling,
+        scheme === SchemeTraits.ZHUYIN,
       );
       if (spellingDecision !== undefined) {
         return spellingDecision;
@@ -730,6 +731,14 @@ export class HardwareKeyRouter {
     return RELEASE;
   }
 
+  /** 触屏符号键是否作为字符交给 Engine：组字中或本地模式里 Engine 列为拼写的符号（网址模式的数字和网址符号、`www` 之后的 `.`、U/V 模式的数字）。标点入口 `msime_client_punctuation_with_context` 只收 ASCII 标点，数字走那条路会被拒绝而丢掉。没有组字时列出的 `/` 和 `@` 不在此列，照旧走标点路由。 */
+  static touchSpells(spelling: HardwareSpelling, character: number): boolean {
+    return (
+      (spelling.localMode !== "none" || spelling.editing.length > 0) &&
+      HardwareKeyRouter.spells(spelling, character)
+    );
+  }
+
   /** Whether the Engine takes `character` as input in this state. Never in the English candidate mode, which spells letters only. */
   private static spells(spelling: HardwareSpelling, character: number): boolean {
     return (
@@ -743,17 +752,24 @@ export class HardwareKeyRouter {
   private static spellingKey(
     key: HardwareKey,
     spelling: HardwareSpelling,
+    zhuyin: boolean,
   ): HardwareKeyDecision | undefined {
     // An English word has no syllables, code points or shuangpin finals; the Engine takes letters only there, so these keys stay punctuation.
     if (spelling.englishCandidates) {
       return undefined;
     }
     if (spelling.spellingSymbols.length > 0) {
-      // A local mode that spells with more than letters: U mode's hexadecimal digits, V mode's digits and operators. What the Engine lists is input, decided by the character the key typed, so V mode's Shift+9 is its `(`. Shift+1..9 picks otherwise, as on Windows, since the plain digits are taken.
+      // 引擎列出的符号就是输入，按键打出的字符决定，所以 V 模式的 Shift+9 是它的 `(`：U 模式的十六进制数字、V 模式的数字和运算符、网址模式的网址字符，以及组字原文是网址触发词时的 `.` `:`。
       if (HardwareKeyRouter.spells(spelling, key.unicodeChar)) {
         return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
       }
-      if (key.shiftKey && key.keyCode >= KEYCODE_1 && key.keyCode <= KEYCODE_9) {
+      // 只有这个键自己的数字被列为拼写时 Shift+1..9 才改为选候选（数字键已被占用），与 macOS 的 ShouldRouteSpellingShiftCandidateDigit 逐键判断一致；只列了 `.` 这类符号、或注音选单打开时只列了 `0`，Shift+1 仍是它打出的 `!`。
+      if (
+        key.shiftKey &&
+        key.keyCode >= KEYCODE_1 &&
+        key.keyCode <= KEYCODE_9 &&
+        spelling.spellingSymbols.indexOf(String.fromCharCode(0x31 + key.keyCode - KEYCODE_1)) >= 0
+      ) {
         return decision(HardwareKeyAction.SELECT, 0, key.keyCode - KEYCODE_1);
       }
       // `U+1F600` as well as `u1f600`: the plus is only part of the spelling straight after the U.
@@ -764,7 +780,10 @@ export class HardwareKeyRouter {
       ) {
         return decision(HardwareKeyAction.COMPOSE, PLUS);
       }
-      return undefined;
+      // 本地模式的拼写完全由列出的符号决定。没有本地模式时列出的只是个别键（网址触发键、粤拼的 `'`），没被它们接住的键继续走下面的撇号分隔和微软双拼 `;`，否则组字原文恰好是 `www` 时 `xi'an` 式的撇号和双拼 `;` 会变成标点。注音没有音节撇号，它的符号表就是全部拼写，没列出的 `'` 照旧走标点路由。
+      if (spelling.localMode !== "none" || zhuyin) {
+        return undefined;
+      }
     }
     if (key.shiftKey) {
       return undefined;

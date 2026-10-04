@@ -529,8 +529,8 @@ char *msime_client_all_candidates(uint64_t session);
 /* Return read-only English completions for a bounded ASCII prefix. */
 char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
                                        size_t prefix_length, size_t limit);
-/* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic: View.microsoft_shuangpin reports the applied Engine configuration, never a newer deferred preference. Hosts use it with mode, editing text and caret. none, unicode, date_time, quick_phrase, emoji, kaomoji, super_jianpin, temporary_english, temporary_japanese, expression, command, mention. Treat unknown as unusable state.
- * View.spelling_symbols lists the non-letter keys the Engine takes as input in this state: the active mode's spelling (digits and operators in expression, digits in unicode) or, with nothing composed, the keys that open a mode (/ and @). Send them as characters; a digit listed there is input, not a candidate shortcut. A transition's commit_context.typing_statistics is false for text the expression, command and mention modes generated, which is not counted as typing.
+/* View.local_mode 是 Engine 自己的模式，不是从预编辑前缀猜出来的；View.microsoft_shuangpin 报告 Engine 已应用的配置，不是尚未生效的新偏好。宿主结合模式、编辑文本和光标使用它。取值为 none、unicode、date_time、quick_phrase、emoji、kaomoji、super_jianpin、temporary_english、temporary_japanese、expression、command、mention、url，未知取值视为不可用状态。
+ * View.spelling_symbols 列出 Engine 在当前状态下当作输入的非字母键：当前模式的拼写（expression 的数字和运算符、unicode 的数字、url 的数字和网址符号）；没有组字时打开模式的键（`/` 和 `@`）；全拼、双拼、五笔组字中原文恰好是 www、http、https、ftp 时打开网址模式的键（`.` 或 `:`）。宿主要把它们当字符发送；列在里面的数字是输入，不是选候选的快捷键。转换结果的 commit_context.typing_statistics 对 expression、command、mention 模式生成的文本为 false，这些文本不计入打字统计。
  */
 char *msime_client_view(uint64_t session);
 /* Return a copied OnlineQuery JSON object, or null when the current composition

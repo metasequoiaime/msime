@@ -61,9 +61,11 @@ public final class OnlineCandidateTransport {
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(KeyboardGeometry.bounded(
-                descriptor.optInt("connect_timeout_ms", CONNECT_TIMEOUT_MILLIS), 1_000, 10_000));
+                KeyboardGeometry.strictInt(descriptor, "connect_timeout_ms", CONNECT_TIMEOUT_MILLIS),
+                1_000, 10_000));
             connection.setReadTimeout(KeyboardGeometry.bounded(
-                descriptor.optInt("timeout_ms", READ_TIMEOUT_MILLIS), 1_000, 10_000));
+                KeyboardGeometry.strictInt(descriptor, "timeout_ms", READ_TIMEOUT_MILLIS),
+                1_000, 10_000));
             connection.setDoOutput(true);
             connection.setFixedLengthStreamingMode(payload.length);
             JSONObject headers = descriptor.optJSONObject("headers");

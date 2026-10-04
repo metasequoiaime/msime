@@ -67,6 +67,7 @@ pub use user_dictionary::state::{
 };
 
 pub use local::date_time::LocalDateTime;
+pub use local::url;
 
 /// Create or migrate an `msime-english.db` to the schema the engine reads. Fixtures without one need it; `prepare_runtime_paths` copies both dictionaries.
 pub fn ensure_english_schema(path: &std::path::Path) -> Result<()> {

@@ -1383,6 +1383,42 @@ fn local_mode_raw_commit_is_learned_as_an_english_word() {
     assert_eq!(english_word_count(&value, "rustacean"), 1);
 }
 
+/// 网址不是英文单词：网址模式下 Enter 上屏整段网址，不写进英文词库。五笔 `http` 加 `s` 进入网址模式，预编辑 `https` 全是字母，没有排除时会被当作英文单词学进词库。
+#[test]
+fn url_enter_is_not_learned_as_english() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value = options(dir.path());
+    value.scheme = 2;
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"https");
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.local_mode, "url");
+    assert_eq!(snapshot.preedit, "https");
+    let result = session.command(Command::CommitRaw).unwrap();
+    assert!(result.has_commit);
+    assert_eq!(result.commit, "https");
+    assert_eq!(result.diagnostic, "");
+    assert_eq!(english_word_count(&value, "https"), 0);
+}
+
+/// 网址模式下 Esc 丢弃网址，不上屏，回到没有本地模式的状态。
+#[test]
+fn url_escape_discards_without_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let value = options(dir.path());
+    let mut session = Session::new(&value).unwrap();
+    type_text(&mut session, b"www");
+    assert!(session.punctuation(b'.').unwrap().handled);
+    type_text(&mut session, b"a");
+    assert_eq!(session.snapshot().unwrap().local_mode, "url");
+    let result = session.command(Command::Cancel).unwrap();
+    assert!(result.handled);
+    assert!(!result.has_commit, "{:?}", result.commit);
+    let snapshot = session.snapshot().unwrap();
+    assert_eq!(snapshot.local_mode, "none");
+    assert!(snapshot.preedit.is_empty());
+}
+
 /// bridge.cpp:1345-1348: in temporary Japanese the word is learned with its `R` trigger put back in front, so the letters typed in that mode stay apart from the same letters typed as English.
 #[test]
 fn temporary_japanese_raw_commit_learns_with_the_r_prefix() {

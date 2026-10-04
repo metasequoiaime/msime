@@ -150,7 +150,7 @@ public final class BackendAccount {
         JSONObject tokens = request("POST", "/v1/auth/login",
             new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken), null);
         String access = tokens.optString("access_token", "");
-        long expires = tokens.optLong("expires_in", 0);
+        long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
         if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), access,
                 tokens.optString("refresh_token", ""), expires)) {
             throw new IllegalStateException("login refused");
@@ -191,9 +191,9 @@ public final class BackendAccount {
             JSONObject tokens = session.getJSONObject("tokens");
             if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""),
                     tokens.optString("access_token", ""), tokens.optString("refresh_token", ""),
-                    tokens.optLong("expires_in", 0))) return "";
+                    AccountTokenPolicy.strictSeconds(tokens.opt("expires_in")))) return "";
             long now = System.currentTimeMillis();
-            long expiry = session.optLong("expires_at_unix_ms", 0);
+            long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
             if (expiry > now + MAX_SESSION_MILLISECONDS) return "";
             if (expiry > now + 30_000L) {
                 return tokens.optString("access_token", "");
@@ -385,7 +385,7 @@ public final class BackendAccount {
             throw error;
         }
         String access = tokens.optString("access_token", "");
-        long expires = tokens.optLong("expires_in", 0);
+        long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
         if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), access,
                 tokens.optString("refresh_token", ""), expires)) {
             throw new IllegalStateException("refresh refused");

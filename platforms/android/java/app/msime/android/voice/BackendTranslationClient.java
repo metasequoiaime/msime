@@ -65,7 +65,7 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     /** Decode the response without allowing org.json to coerce nulls or non-strings to text. */
     static List<String> parseResponse(byte[] bytes, int expectedCount) throws Exception {
         JSONObject response = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-        if (response.optInt("code", -1) != 200) return null;
+        if (!successStatusCode(response.opt("code"))) return null;
         Object data = response.opt("data");
         if (!(data instanceof JSONArray)) return null;
         JSONArray values = (JSONArray) data;
@@ -74,6 +74,13 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             rawValues.add(values.opt(index));
         }
         return parseValues(rawValues, expectedCount);
+    }
+
+    /** A successful response status is an integer JSON number, never a coerced fraction or boolean. */
+    static boolean successStatusCode(Object value) {
+        if (!(value instanceof Number) || value instanceof Boolean) return false;
+        double number = ((Number) value).doubleValue();
+        return Double.isFinite(number) && number == 200.0;
     }
 
     /** Validate already-decoded values without org.json's coercing accessors. */

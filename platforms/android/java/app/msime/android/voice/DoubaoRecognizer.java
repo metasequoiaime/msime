@@ -215,7 +215,7 @@ public final class DoubaoRecognizer {
             if (value.has("error_code")) return null;
             JSONObject document = new JSONObject(value.optString("payload", "{}"));
             JSONObject result = document.optJSONObject("result");
-            String text = result == null ? "" : result.optString("text", "");
+            String text = result == null ? "" : DoubaoAsrPolicy.strictText(result.opt("text"));
             return new Update(text, value.optBoolean("last", false));
         } catch (JSONException error) {
             return null;

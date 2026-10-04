@@ -147,9 +147,19 @@ fn download(file: &PinnedFile, target: &Path) -> Result<()> {
         .and_then(reqwest::blocking::Response::error_for_status)
         .with_context(|| format!("downloading {}", file.url))?;
     let incoming = target.with_extension("incoming");
+    write_pinned_response(&mut response, &incoming, file)?;
+    std::fs::rename(&incoming, target)?;
+    Ok(())
+}
+
+fn write_pinned_response<R: Read>(
+    mut response: R,
+    incoming: &Path,
+    file: &PinnedFile,
+) -> Result<()> {
     let mut hasher = Sha256::new();
     let mut written = 0u64;
-    {
+    let result = (|| {
         let mut output = File::create(&incoming)?;
         let mut buffer = vec![0u8; 1 << 20];
         loop {
@@ -157,29 +167,39 @@ fn download(file: &PinnedFile, target: &Path) -> Result<()> {
             if read == 0 {
                 break;
             }
+            if (read as u64) > file.size.saturating_sub(written) {
+                bail!(
+                    "{}: response exceeds pinned size of {} bytes",
+                    file.url,
+                    file.size
+                );
+            }
             hasher.update(&buffer[..read]);
             output.write_all(&buffer[..read])?;
             written += read as u64;
         }
         output.sync_all()?;
+        let digest = hex::encode(hasher.finalize());
+        if written != file.size || digest != file.sha256 {
+            bail!(
+                "{}: got {written} bytes with sha256 {digest}, the lock pins {} bytes with {}",
+                file.url,
+                file.size,
+                file.sha256
+            );
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(incoming);
     }
-    let digest = hex::encode(hasher.finalize());
-    if written != file.size || digest != file.sha256 {
-        let _ = std::fs::remove_file(&incoming);
-        bail!(
-            "{}: got {written} bytes with sha256 {digest}, the lock pins {} bytes with {}",
-            file.url,
-            file.size,
-            file.sha256
-        );
-    }
-    std::fs::rename(&incoming, target)?;
-    Ok(())
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     fn lock_with(file: PinnedFile) -> Lock {
         Lock {
@@ -221,6 +241,23 @@ mod tests {
         };
         let error = stale.pinned("cn/a.txt").unwrap_err().to_string();
         assert!(error.contains("--offline"), "{error}");
+    }
+
+    #[test]
+    fn an_oversized_response_is_rejected_before_it_reaches_disk() {
+        let directory = tempfile::tempdir().unwrap();
+        let incoming = directory.path().join("fixture.incoming");
+        let file = PinnedFile {
+            path: "fixture.txt".into(),
+            url: "https://synthetic.invalid/fixture.txt".into(),
+            sha256: hex::encode(Sha256::digest(b"123")),
+            size: 3,
+        };
+
+        let error = write_pinned_response(Cursor::new(b"12345"), &incoming, &file).unwrap_err();
+
+        assert!(error.to_string().contains("exceeds pinned size"));
+        assert!(!incoming.exists());
     }
 
     #[test]

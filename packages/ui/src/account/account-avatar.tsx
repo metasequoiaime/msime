@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AccountUser } from "./account-page";
 import { preferredAccountName } from "./account-labels";
 import * as account from "./account-style";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 /** Images already fetched, by avatar URL, so the profile card and the edit dialog showing the same avatar ask the host once. A failed load is dropped, so the next mount tries again. */
 const AVATAR_CACHE_CAPACITY = 16;
@@ -46,16 +47,14 @@ export function AccountAvatar({
 }) {
   const url = user.avatarUrl;
   const [image, setImage] = useState<{ url: string; src: string } | null>(null);
+  const generation = useAsyncGeneration(url, load);
   useEffect(() => {
     if (!url || !load) return;
-    let active = true;
+    const requestGeneration = generation.current;
     void loadAvatar(url, load).then((src) => {
-      if (active && src) setImage({ url, src });
+      if (generation.current === requestGeneration && src) setImage({ url, src });
     });
-    return () => {
-      active = false;
-    };
-  }, [url, load]);
+  }, [url, load, generation]);
   const src = image && image.url === url ? image.src : null;
   return (
     <div className={`${account.avatar(size)} overflow-hidden`} aria-hidden="true">

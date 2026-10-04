@@ -5,6 +5,13 @@ import java.util.List;
 
 public final class CandidateTranslationResponseSmoke {
     public static void main(String[] args) throws Exception {
+        check(!BackendTranslationClient.successStatusCode(200.5),
+            "fractional translation status codes must reject the response");
+        check(!BackendTranslationClient.successStatusCode(true),
+            "boolean translation status codes must reject the response");
+        check(BackendTranslationClient.successStatusCode(200),
+            "integer translation status codes must be accepted");
+
         List<String> translations = BackendTranslationClient.parseValues(
             Arrays.asList("你好", null), 2);
         check(translations == null, "JSON null translation must reject the response");

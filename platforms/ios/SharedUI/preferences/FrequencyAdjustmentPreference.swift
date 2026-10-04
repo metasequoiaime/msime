@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// The shared document's `frequency.mode`, in the Windows order; `disabled` keeps the dictionary's own order while learning still records new words.
 enum FrequencyAdjustmentMode: String, CaseIterable {
@@ -31,12 +32,19 @@ enum FrequencyAdjustmentPreference {
     if let number = stored as? Int {
       value = number
     } else if let number = stored as? NSNumber {
-      value = number.intValue
+      value = integer(number)
     } else {
       value = nil
     }
     guard let value, countRange.contains(value) else { return 1 }
     return value
+  }
+
+  private static func integer(_ value: NSNumber) -> Int? {
+    guard CFGetTypeID(value) != CFBooleanGetTypeID(),
+          let integer = Int(value.stringValue),
+          NSNumber(value: integer).compare(value) == .orderedSame else { return nil }
+    return integer
   }
 
   static var mode: FrequencyAdjustmentMode {

@@ -51,8 +51,9 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 response = readBounded(input, cancellation);
             }
             JSONObject document = new JSONObject(new String(response, StandardCharsets.UTF_8));
-            return document.getJSONArray("choices").getJSONObject(0)
-                .getJSONObject("message").getString("content");
+            Object content = document.getJSONArray("choices").getJSONObject(0)
+                .getJSONObject("message").opt("content");
+            return strictContent(content);
         } catch (AiPolishClient.Failure error) {
             throw error;
         } catch (IOException | JSONException | ClassCastException | SecurityException error) {
@@ -75,6 +76,11 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
             headers.put("Authorization", "Bearer " + token);
         }
         return headers;
+    }
+
+    /** Chat completions carry text; do not let org.json coerce malformed values into prose. */
+    static String strictContent(Object value) {
+        return value instanceof String ? (String) value : "";
     }
 
     private static byte[] readBounded(InputStream input, AiPolishClient.Cancellation cancellation)

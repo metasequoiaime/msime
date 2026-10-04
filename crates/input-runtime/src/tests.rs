@@ -6121,3 +6121,180 @@ fn stroke_selections_learn_nothing() {
     msime_engine::flush_personal_learning();
     assert_eq!(database_rows(directory.path()), before);
 }
+
+// ---- 网址模式 ----
+
+/// 用真实引擎（空词库）建一个指定方案的 runtime。
+fn url_runtime(directory: &std::path::Path, scheme: u8) -> Runtime {
+    let mut options = real_engine_options(directory);
+    options.scheme = scheme;
+    let session = msime_engine::host::Session::new(&options).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+    runtime
+}
+
+fn type_characters(runtime: &mut Runtime, text: &str) {
+    for value in text.bytes() {
+        let transition = character(runtime, value);
+        assert!(
+            transition.handled && transition.commit.is_none(),
+            "{:?} of {text:?}: {transition:?}",
+            value as char
+        );
+    }
+}
+
+// runtime 在把标点交给引擎前会先结束组字；只有引擎在 `spelling_symbols` 里列出的触发键才改走 `character`，所以 `www` 后的 `.` 能进入网址模式而不是先上屏。
+#[test]
+fn url_mode_opens_on_the_punctuation_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    assert_eq!(runtime.view().spelling_symbols, ".");
+    let opened = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    assert!(opened.handled && opened.commit.is_none(), "{opened:?}");
+    assert_eq!(opened.view.local_mode, "url");
+    assert_eq!(opened.view.editing_text, "www.");
+    type_characters(&mut runtime, "google");
+    let dot = runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    assert!(dot.handled && dot.commit.is_none(), "{dot:?}");
+    type_characters(&mut runtime, "com");
+    let committed = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert_eq!(committed.commit.as_deref(), Some("www.google.com"));
+    let context = committed.commit_context.unwrap();
+    assert_eq!(context.local_mode, "url");
+    // 网址是用户打出来的，计入打字统计。
+    assert!(context.typing_statistics);
+    assert_eq!(committed.view.local_mode, "none");
+    assert!(committed.view.editing_text.is_empty());
+}
+
+// 宿主把 `:` 当作字符送来（Character 路由）时同样进入网址模式。
+#[test]
+fn url_mode_opens_on_the_character_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "https");
+    let colon = character(&mut runtime, b':');
+    assert!(colon.handled && colon.commit.is_none(), "{colon:?}");
+    assert_eq!(colon.view.local_mode, "url");
+    type_characters(&mut runtime, "//x.com:8080/a?b=1");
+    let enter = runtime
+        .dispatch(Action::Command(Command::CommitRaw))
+        .unwrap();
+    assert_eq!(enter.commit.as_deref(), Some("https://x.com:8080/a?b=1"));
+}
+
+// 字面标点路由（PunctuationAscii）不负责入口：宿主在这条路由上要的是字面符号，组字中的 `.` 照旧结束组字。进入网址模式后，这条路由上的网址符号都是输入。
+#[test]
+fn url_mode_takes_symbols_on_the_punctuation_ascii_route() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    let literal = runtime.dispatch(Action::PunctuationAscii(b'.')).unwrap();
+    assert!(literal
+        .commit
+        .as_deref()
+        .is_some_and(|text| text.ends_with('.')));
+    assert_eq!(literal.view.local_mode, "none");
+
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    for value in *b"./?=&#" {
+        let transition = runtime.dispatch(Action::PunctuationAscii(value)).unwrap();
+        assert!(
+            transition.handled && transition.commit.is_none(),
+            "{:?}: {transition:?}",
+            value as char
+        );
+    }
+    assert_eq!(runtime.view().editing_text, "www.a./?=&#");
+    assert_eq!(runtime.view().local_mode, "url");
+}
+
+#[test]
+fn url_digit_is_input_not_a_pick() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    for value in *b"1234567890" {
+        let transition = character(&mut runtime, value);
+        assert!(
+            transition.handled && transition.commit.is_none(),
+            "{value} picked a candidate: {transition:?}"
+        );
+    }
+    assert_eq!(runtime.view().editing_text, "www.1234567890");
+    assert_eq!(runtime.view().local_mode, "url");
+}
+
+// 网址不收的符号结束网址：先上屏网址，再接上中文标点。
+#[test]
+fn url_mark_outside_the_url_commits_it_before_the_mark() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    let quote = character(&mut runtime, b'"');
+    assert_eq!(quote.commit.as_deref(), Some("www.a\u{201c}"));
+    assert_eq!(quote.view.local_mode, "none");
+}
+
+// 五笔码长上限是 4，`http` 后的 `s` 本会被拒绝；这里直接进入网址模式，空码的 `http` 也不会被顶字上屏。
+#[test]
+fn url_https_opens_on_the_fifth_wubi_letter() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 2);
+    type_characters(&mut runtime, "http");
+    assert_eq!(runtime.view().editing_text, "http");
+    let s = character(&mut runtime, b's');
+    assert!(s.handled && s.commit.is_none(), "{s:?}");
+    assert_eq!(s.view.local_mode, "url");
+    assert_eq!(s.view.editing_text, "https");
+    let colon = runtime.dispatch(Action::Punctuation(b':')).unwrap();
+    assert!(colon.handled && colon.commit.is_none(), "{colon:?}");
+    assert_eq!(runtime.view().editing_text, "https:");
+}
+
+// 删掉触发键退回组字。
+#[test]
+fn url_backspace_past_the_trigger_returns_to_the_composition() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(back.handled && back.commit.is_none());
+    assert_eq!(back.view.local_mode, "none");
+    assert_eq!(back.view.editing_text, "www");
+    assert_eq!(back.view.spelling_symbols, ".");
+}
+
+// 空格上屏网址本身，不在末尾带空格；Esc 丢弃网址不上屏，回到没有本地模式的状态。
+#[test]
+fn url_space_commits_the_url_alone_and_escape_discards_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = url_runtime(directory.path(), 0);
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    let space = runtime.dispatch(Action::SelectHighlighted).unwrap();
+    assert!(space.handled, "{space:?}");
+    assert_eq!(space.commit.as_deref(), Some("www.a"));
+    assert_eq!(space.view.local_mode, "none");
+    assert!(space.view.editing_text.is_empty());
+
+    type_characters(&mut runtime, "www");
+    runtime.dispatch(Action::Punctuation(b'.')).unwrap();
+    type_characters(&mut runtime, "a");
+    let escape = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert!(escape.commit.is_none(), "{escape:?}");
+    assert_eq!(escape.view.local_mode, "none");
+    assert!(escape.view.editing_text.is_empty());
+}
