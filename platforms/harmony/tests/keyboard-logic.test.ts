@@ -16,6 +16,10 @@ import {
   LocalAsrPathTrust,
   PathTrustStat,
 } from "../entry/src/main/ets/keyboard/input/LocalAsrPathTrust";
+import {
+  LocalAsrTextReader,
+  LocalAsrTextReaderApi,
+} from "../entry/src/main/ets/keyboard/input/LocalAsrTextReader";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
   KeyboardLayoutDragAxis,
@@ -736,6 +740,39 @@ group("bounds and deduplicates asynchronous online AI candidates", () => {
     OnlineCandidatePolicy.acceptsCloudBody("你".repeat(128 * 1024)) === false,
     "oversized UTF-8 cloud responses are rejected by byte size",
   );
+});
+
+group("AI 候选逐条跳过无效结构，保留相邻的有效候选", () => {
+  for (const invalid of [
+    null,
+    {},
+    42,
+    true,
+    "synthetic",
+    [],
+    { text: null },
+    { text: 12 },
+    { text: true },
+    { text: {} },
+    { text: [] },
+  ]) {
+    const response = JSON.stringify({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              candidates: [{ text: "甲" }, invalid, { text: "乙" }, { text: "甲" }, { text: "丙" }],
+            }),
+          },
+        },
+      ],
+    });
+    const values = OnlineCandidatePolicy.aiCandidates(response, 2);
+    check(
+      values !== null && values.join(",") === "甲,乙",
+      `无效候选 ${JSON.stringify(invalid)} 不丢弃整批结果`,
+    );
+  }
 });
 
 group("keeps translation provider policy bounded and credential-free in signatures", () => {
@@ -5724,8 +5761,8 @@ group("quietening other applications is off unless asked for", () => {
 
 group("a staged resource copy is trusted only while it matches the package", () => {
   const set: StagedArtifact[] = [
-    { name: "msime.db", size: 107552768 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552768 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   const token: string = StagedResourcePolicy.generationToken(set);
   check(token.length > 0, "a package can be described");
@@ -5736,15 +5773,15 @@ group("a staged resource copy is trusted only while it matches the package", () 
   // The defect this replaces: a marker saying only "staged" went on saying so after the package
   // changed, and the shared verification then refused the directory outright.
   const upgraded: StagedArtifact[] = [
-    { name: "msime.db", size: 107552769 },
-    { name: "others.db", size: 1495040 },
+    { name: "msime-pinyin.db", size: 107552769 },
+    { name: "msime-others.db", size: 1495040 },
   ];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(upgraded)) ===
       true,
     "an artifact that changed size is a different generation",
   );
-  const dropped: StagedArtifact[] = [{ name: "msime.db", size: 107552768 }];
+  const dropped: StagedArtifact[] = [{ name: "msime-pinyin.db", size: 107552768 }];
   check(
     StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(dropped)) ===
       true,
@@ -6064,6 +6101,16 @@ group("a streaming frame is read at whichever level answered", () => {
     VoiceResponsePolicy.streamingFrame("not json", false).failure.length > 0,
     "a frame that is not JSON is a refusal rather than an empty result",
   );
+});
+
+group("流式语音拒绝非对象 JSON，并保留结束标记", () => {
+  for (const payload of ["null", "[]", "true", "42", '"synthetic"']) {
+    for (const last of [false, true]) {
+      const outcome = VoiceResponsePolicy.streamingFrame(payload, last);
+      check(outcome.failure.length > 0, `拒绝非对象响应 ${payload}`);
+      check(outcome.text === "" && outcome.last === last, "无效响应不提交文字并保留结束标记");
+    }
+  }
 });
 
 group("a final frame ends the recording even when it carries no text", () => {
@@ -12402,6 +12449,11 @@ group("LocalAsrPathTrust", () => {
 
 group("LocalAsrPolicy", () => {
   check(
+    LocalAsrPolicy.textFileLimit("manifest") === 256 * 1024 &&
+      LocalAsrPolicy.textFileLimit("tokens") === 8 * 1024 * 1024,
+    "local model text files use bounded manifest and token limits",
+  );
+  check(
     LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
     "an absolute directory under the local provider is a model",
   );
@@ -12552,6 +12604,48 @@ group("LocalAsrPolicy", () => {
     LocalAsrPolicy.tidyTranscript(" 你好 ， 世界  A I 模型 ") === "你好，世界 AI 模型",
     "spaces around CJK marks, inside initialisms and at the ends go",
   );
+});
+
+group("LocalAsrTextReader", () => {
+  const opened: { fd: number }[] = [];
+  const chunks: Uint8Array[] = [new TextEncoder().encode("model")];
+  const api: LocalAsrTextReaderApi = {
+    open: () => {
+      const file = { fd: 7 };
+      opened.push(file);
+      return file;
+    },
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      const chunk: Uint8Array | undefined = chunks.shift();
+      if (chunk === undefined) return 0;
+      new Uint8Array(buffer).set(chunk);
+      return chunk.length;
+    },
+    close: (file: { fd: number }): void => {
+      opened.splice(opened.indexOf(file), 1);
+    },
+    decode: (bytes: Uint8Array): string => new TextDecoder().decode(bytes),
+  };
+  check(
+    LocalAsrTextReader.read("/model.txt", 16, api, 0) === "model",
+    "reads a short model text file",
+  );
+  check(opened.length === 0, "closes the model text file after reading");
+
+  const oversized: LocalAsrTextReaderApi = {
+    ...api,
+    read: (_fd: number, buffer: ArrayBuffer): number => {
+      new Uint8Array(buffer).fill(65);
+      return buffer.byteLength;
+    },
+  };
+  let refused = false;
+  try {
+    LocalAsrTextReader.read("/large.txt", 16, oversized, 0);
+  } catch (error) {
+    refused = true;
+  }
+  check(refused && opened.length === 0, "refuses an oversized model text file and closes it");
 });
 
 group("PcmFrameSlicer", () => {
@@ -13804,8 +13898,8 @@ group(
       "the preference ids resolve, in the fixed order",
     );
     check(
-      KeyboardScheme.languageDictionary("cantonese") === "cantonese.db" &&
-        KeyboardScheme.languageDictionary("zhuyin") === "zhuyin.db" &&
+      KeyboardScheme.languageDictionary("cantonese") === "msime-cantonese.db" &&
+        KeyboardScheme.languageDictionary("zhuyin") === "msime-zhuyin.db" &&
         KeyboardScheme.languageDictionary("vietnamese") === null &&
         KeyboardScheme.languageDictionary("quanpin") === null,
       "Cantonese and Zhuyin read their own lexicon; Vietnamese needs none",
@@ -13816,7 +13910,7 @@ group(
       KeyboardScheme.ZHUYIN,
       KeyboardScheme.VIETNAMESE,
     ];
-    const onlyCantonese = (file: string): boolean => file === "cantonese.db";
+    const onlyCantonese = (file: string): boolean => file === "msime-cantonese.db";
     check(
       KeyboardScheme.withInstalledDictionaries(enabled, onlyCantonese)
         .map((scheme: SchemeDefinition): string => scheme.engineScheme)
@@ -13951,7 +14045,7 @@ group("the Dachen keys wear their bopomofo and send their ASCII key", () => {
   );
 });
 
-group("Stroke is one more card, opt-in and needing stroke.db", () => {
+group("Stroke is one more card, opt-in and needing msime-stroke.db", () => {
   check(
     KeyboardScheme.SCHEMES.length === 16 &&
       KeyboardScheme.SCHEMES[14] === KeyboardScheme.TIBETAN &&
@@ -13997,21 +14091,24 @@ group("Stroke is one more card, opt-in and needing stroke.db", () => {
       KeyboardScheme.engineSchemeName(10) === "quanpin",
     "nine names Stroke rather than falling back to quanpin",
   );
-  check(KeyboardScheme.languageDictionary("stroke") === "stroke.db", "Stroke reads stroke.db");
+  check(
+    KeyboardScheme.languageDictionary("stroke") === "msime-stroke.db",
+    "Stroke reads msime-stroke.db",
+  );
   const enabled: SchemeDefinition[] = [KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, stroke];
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "zhuyin.db",
+      (file: string): boolean => file === "msime-zhuyin.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,zhuyin",
-    "without stroke.db the card is hidden",
+    "without msime-stroke.db the card is hidden",
   );
   check(
     KeyboardScheme.withInstalledDictionaries(
       enabled,
-      (file: string): boolean => file === "stroke.db",
+      (file: string): boolean => file === "msime-stroke.db",
     )
       .map((scheme: SchemeDefinition): string => scheme.preferenceId)
       .join() === "quanpin,stroke",

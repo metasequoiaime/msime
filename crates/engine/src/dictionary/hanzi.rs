@@ -1,4 +1,4 @@
-//! `hanzi_to_pinyin`, the reading lookup the dictionary import uses (bridge.cpp:239-305, 735-776). Bridge-local logic in the C++; it reads the working `msime.db` directly.
+//! `hanzi_to_pinyin`, the reading lookup the dictionary import uses (bridge.cpp:239-305, 735-776). Bridge-local logic in the C++; it reads the working `msime-pinyin.db` directly.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn a_missing_dictionary_answers_empty() {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime.db");
+        let path = directory.path().join("msime-pinyin.db");
         assert_eq!(hanzi_to_pinyin(&path, "你"), "");
         assert!(!path.exists());
         assert_eq!(hanzi_to_pinyin(Path::new(""), "你"), "");
@@ -310,7 +310,7 @@ mod tests {
         let mut directories = Vec::new();
         for index in 0..=HANZI_CACHE_CAPACITY {
             let directory = tempfile::tempdir().unwrap();
-            let path = directory.path().join("msime.db");
+            let path = directory.path().join("msime-pinyin.db");
             let connection = Connection::open(&path).unwrap();
             connection
                 .execute_batch(&format!(

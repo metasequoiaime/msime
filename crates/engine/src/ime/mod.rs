@@ -73,7 +73,7 @@ pub struct ImeSession {
 }
 
 impl ImeSession {
-    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `cantonese.db`, `zhuyin.db` and `stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `dict_japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
+    /// ime_session.cpp:42-49. `cantonese_dictionary`, `zhuyin_dictionary` and `stroke_dictionary` are where `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` are, each read only when its scheme is activated; starting in Cantonese, Zhuyin or Stroke fails as `switch_scheme` does when its file cannot be opened. `japanese_dictionary` 是 `msime-japanese.dat` 的位置，为空时读资源目录里的那份。`enabled` 是会话允许运行的方案，`scheme` 不在其中时报 `INPUT_SCHEME_NOT_ENABLED`。
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         scheme: SchemeType,
@@ -163,7 +163,7 @@ impl ImeSession {
         self.refresh_candidates();
     }
 
-    /// Opens what `scheme` reads (`cantonese.db` for Cantonese, `zhuyin.db` for Zhuyin, `stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `zhuyin.db`, so activating Zhuyin again opens nothing.
+    /// Opens what `scheme` reads (`msime-cantonese.db` for Cantonese, `msime-zhuyin.db` for Zhuyin, `msime-stroke.db` for Stroke) without switching to it, so a caller can learn that the scheme is unavailable before it discards anything; `switch_scheme` to an activated scheme cannot fail. A live Zhuyin scheme already holds `msime-zhuyin.db`, so activating Zhuyin again opens nothing.
     pub fn activate(&mut self, scheme: SchemeType) -> Result<()> {
         if scheme == SchemeType::Zhuyin && self.scheme.as_zhuyin().is_some() {
             return Ok(());
@@ -179,7 +179,7 @@ impl ImeSession {
             .as_zhuyin_mut()
             .filter(|_| scheme == SchemeType::Zhuyin)
         {
-            // The live editor holds `zhuyin.db`; an idle editor over the same connection is the new scheme.
+            // The live editor holds `msime-zhuyin.db`; an idle editor over the same connection is the new scheme.
             zhuyin.reset();
         } else {
             let next = Scheme::new(
@@ -432,7 +432,7 @@ impl ImeSession {
                 .expand_initial_candidates(&request, candidates)
     }
 
-    /// The request a scratch scheme of the current type builds for `raw`, with the session's switches applied. The current scheme was activated before it became current, so building its scratch twin cannot fail, except for Zhuyin, whose `zhuyin.db` connection belongs to the live editor: an invalid request stands for both, and Zhuyin keeps its caret at the end, so it never decodes a caret prefix.
+    /// The request a scratch scheme of the current type builds for `raw`, with the session's switches applied. The current scheme was activated before it became current, so building its scratch twin cannot fail, except for Zhuyin, whose `msime-zhuyin.db` connection belongs to the live editor: an invalid request stands for both, and Zhuyin keeps its caret at the end, so it never decodes a caret prefix.
     fn raw_request(&self, raw: &str, raw_with_cases: &str) -> QueryRequest {
         let Ok(mut scratch) = Scheme::new(
             self.current_scheme_type(),
@@ -518,7 +518,7 @@ impl ImeSession {
             .registry
             .expand_initial_candidates(&self.state.request, &mut self.state.candidates);
         if grew {
-            self.state.wubi_codes = self.registry.reverse_wubi_codes(&self.state.candidates);
+            self.refresh_wubi_codes();
         }
         grew
     }
@@ -563,7 +563,16 @@ impl ImeSession {
         }
         self.state.request = request;
         self.state.candidates = decoded.candidates;
-        self.state.wubi_codes = self.registry.reverse_wubi_codes(&self.state.candidates);
+        self.refresh_wubi_codes();
+    }
+
+    /// 宿主只在五笔方案里显示反查编码（含混输拼音的候选），其他方案的每次刷新都不必逐个候选去查五笔表。
+    fn refresh_wubi_codes(&mut self) {
+        self.state.wubi_codes = if self.current_scheme_type() == SchemeType::Wubi {
+            self.registry.reverse_wubi_codes(&self.state.candidates)
+        } else {
+            Vec::new()
+        };
     }
 
     /// The scheme's request with the session's switches, autocorrect suppression and the shuangpin double-helpcode segmentation applied.

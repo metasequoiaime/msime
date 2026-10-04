@@ -3,6 +3,7 @@ import { runAsyncAction } from "../core/async-action";
 import { appendUniqueById } from "./community-helpers";
 import { communityReportedNotice, type CommunityReportReason } from "./community-report";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type CommunityGalleryPage<T> = {
   items: T[];
@@ -57,8 +58,8 @@ export function useCommunityGallery<T extends { id: string }>({
   const [mineOnly, setMineOnly] = useState(initialMine);
   const [signInRequired, setSignInRequired] = useState(false);
   const [confirmUnpublish, setConfirmUnpublish] = useState(false);
-  const listGeneration = useRef(0);
-  const detailGeneration = useRef(0);
+  const listGeneration = useAsyncGeneration();
+  const detailGeneration = useAsyncGeneration();
   const nextOffset = useRef(0);
   const activeSearch = useRef("");
   const activeMine = useRef(initialMine);

@@ -85,7 +85,7 @@ fn typed_quick_phrase_edits_find_rows_by_code_and_text_and_list_only_user_phrase
     for name in ["resources", "dictionaries"] {
         let path = directory.path().join(name);
         std::fs::create_dir(&path).unwrap();
-        rusqlite::Connection::open(path.join("msime.db"))
+        rusqlite::Connection::open(path.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(fixture)
             .unwrap();
@@ -218,7 +218,7 @@ fn word_fixture(directory: &Path, bundled: &str) -> DictionaryOptions {
     for name in ["resources", "dictionaries"] {
         let path = directory.join(name);
         std::fs::create_dir(&path).unwrap();
-        let connection = rusqlite::Connection::open(path.join("msime.db")).unwrap();
+        let connection = rusqlite::Connection::open(path.join("msime-pinyin.db")).unwrap();
         connection.execute_batch(fixture).unwrap();
         connection.execute_batch(bundled).unwrap();
     }

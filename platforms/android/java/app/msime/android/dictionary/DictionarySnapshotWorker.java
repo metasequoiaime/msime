@@ -32,8 +32,11 @@ public final class DictionarySnapshotWorker {
                     queue.fail(request.id(), lease);
                     return;
                 }
-                handle = prepared.getJSONObject("value").getLong("handle");
-                final long preparedHandle = handle;
+                long preparedHandle = DictionarySnapshotPolicy.handle(
+                    prepared.getJSONObject("value").opt("handle"), 0);
+                if (preparedHandle == 0)
+                    throw new IllegalStateException("snapshot handle invalid");
+                handle = preparedHandle;
                 boolean applied = queue.complete(request.id(), lease, current, false, () -> {
                     JSONObject activated = new JSONObject(NativeClient.snapshotActivate(
                         preparedHandle, request.expectedLocalVersion()));

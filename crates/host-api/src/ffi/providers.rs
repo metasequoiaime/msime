@@ -650,7 +650,7 @@ pub(crate) struct EmojiCatalogQuery {
     pub(crate) list_plugin_symbol_groups: bool,
 }
 
-/// Query the local verified `others.db` Emoji catalog without a provider socket.
+/// Query the local verified `msime-others.db` Emoji catalog without a provider socket.
 /// Success contains `{items:[{text,annotation,group}]}` in the response envelope.
 /// With `cursor:true`, also returns `next_offset` and `complete`, preserves
 /// duplicate entries, and advances past invalid rows without treating them as EOF.
@@ -693,7 +693,7 @@ pub unsafe extern "C" fn msime_client_emoji_catalog_request(
             return Ok(json!({"groups": groups}));
         }
         if query.list_plugin_symbol_groups {
-            // 符号集插件不依赖 others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
+            // 符号集插件不依赖 msime-others.db：目录不可用时内置符号读不出来，插件组照样给。没传插件目录时没有插件组。
             let groups = match query.plugins.as_deref() {
                 None => Vec::new(),
                 Some(plugins) if std::path::Path::new(plugins).is_absolute() => {

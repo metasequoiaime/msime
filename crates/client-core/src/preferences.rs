@@ -27,15 +27,15 @@ pub enum InputScheme {
     Japanese,
     /// Korean Hangul on the Dubeolsik layout. The Engine ordinal is 4.
     Korean,
-    /// Cantonese in toneless Jyutping, read from `cantonese.db`. A Chinese scheme. The Engine ordinal is 5.
+    /// Cantonese in toneless Jyutping, read from `msime-cantonese.db`. A Chinese scheme. The Engine ordinal is 5.
     Cantonese,
-    /// Bopomofo on the Dachen layout, read from `zhuyin.db`. A Chinese scheme. The Engine ordinal is 6.
+    /// Bopomofo on the Dachen layout, read from `msime-zhuyin.db`. A Chinese scheme. The Engine ordinal is 6.
     Zhuyin,
     /// Vietnamese through Telex or VNI, set in `vietnamese`. The Engine ordinal is 7.
     Vietnamese,
     /// 藏文：在拉丁字母键盘上按 EWTS（扩展威利转写）输入，不用词库，也不是中文方案。Engine 序号为 8。
     Tibetan,
-    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `stroke.db`。是中文方案。Engine 序号为 9。
+    /// 笔画：按横竖撇点折（h s p n z，x 为通配）笔顺输入单字，读取 `msime-stroke.db`。是中文方案。Engine 序号为 9。
     Stroke,
 }
 

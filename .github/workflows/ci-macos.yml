@@ -204,7 +204,7 @@ jobs:
       # nothing. The release build is what verifies the real data, against the digests in the lock.
       - name: Create test dictionary
         if: ${{ matrix.build == 'true' }}
-        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
+        run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime-pinyin.db"
       - name: Type-check registration helper
         if: ${{ matrix.build == 'true' }}
         run: |
@@ -215,7 +215,7 @@ jobs:
           fi
       - name: Configure
         if: ${{ matrix.build == 'true' }}
-        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
+        run: cmake -S platforms/macos -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime-pinyin.db"
       # An explicit job count: with the Makefile generator a bare `--parallel` becomes `make -j` with no limit, which starts every ready compile at once. Once whisper and ggml were linked into the input method (4737c9651) that was enough to run the 7 GB arm64 runner out of memory, and the step sat swapping until the 60-minute job limit cancelled it on every run that built.
       - name: Build
         if: ${{ matrix.build == 'true' }}
@@ -341,7 +341,7 @@ jobs:
       - name: Create test dictionary
         run: |
           mkdir -p "$RUNNER_TEMP/dictionary"
-          if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime.db"; else touch "$RUNNER_TEMP/dictionary/msime.db"; fi
+          if [[ -f platforms/macos/tests/create_fixture_dictionary.py ]]; then python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/dictionary/msime-pinyin.db"; else touch "$RUNNER_TEMP/dictionary/msime-pinyin.db"; fi
       - name: Build the Rust host library
         run: cargo build --locked -p msime-host-api
       # OBJCXX is its own CMake language here, so CXX flags alone left every .mm unsanitized. Templates such as vector<uint8_t> are instantiated on both sides, and the linker keeping one copy from each can let instrumented code check container annotations the uninstrumented half never wrote - a container-overflow inside nlohmann's lexer.
@@ -350,7 +350,7 @@ jobs:
           cmake -S platforms/macos -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_PREFIX_PATH="$(brew --prefix)"
           -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT"
-          -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime.db"
+          -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/dictionary/msime-pinyin.db"
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_OBJCXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"

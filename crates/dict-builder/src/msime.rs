@@ -1,4 +1,4 @@
-//! `msime.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
+//! `msime-pinyin.db`: the quanpin tables, the hand-maintained custom words merged into them, the 86 and 98 wubi tables and the quick phrase table.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -140,10 +140,15 @@ pub struct CustomWord {
 
 /// `word<TAB>pinyin<TAB>weight`. A malformed line fails the stage: the file is short and hand-edited, so an error is cheaper than a silently dropped word. A word listed twice keeps its higher weight.
 pub fn parse_custom_words(text: &str) -> Result<Vec<CustomWord>> {
+    parse_word_list(text, "custom/words.txt")
+}
+
+/// A `word<TAB>pinyin<TAB>weight` list read like custom/words.txt (blank and `#` lines skipped, a malformed line an error), with errors located in `path`.
+pub fn parse_word_list(text: &str, path: &str) -> Result<Vec<CustomWord>> {
     let mut entries: IndexMap<(String, String), CustomWord> = IndexMap::new();
     for (number, line) in text::splitlines(text).into_iter().enumerate() {
         let Some(entry) =
-            parse_custom_word(line).with_context(|| format!("custom/words.txt:{}", number + 1))?
+            parse_custom_word(line).with_context(|| format!("{path}:{}", number + 1))?
         else {
             continue;
         };
@@ -240,18 +245,132 @@ pub fn apply_custom_words(
     Ok(counts)
 }
 
+/// Wrong readings removed from the quanpin tables once every pinyin input is merged (`resources/dictionary-sources/`). The pinned inputs are locked byte for byte, so a wrong row cannot be fixed where it lives.
+pub const READING_CORRECTIONS: &str = "pinyin-reading-corrections.txt";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadingCorrection {
+    pub value: String,
+    pub wrong: String,
+    pub correct: String,
+}
+
+/// `word<TAB>wrong pinyin<TAB>correct pinyin`, blank and `#` lines skipped. A malformed line, an entry whose two readings are equal or a word and wrong reading listed twice fails the stage.
+pub fn parse_reading_corrections(text: &str) -> Result<Vec<ReadingCorrection>> {
+    let mut entries = Vec::new();
+    let mut seen = HashSet::new();
+    for (number, line) in text::splitlines(text).into_iter().enumerate() {
+        let location = || format!("{READING_CORRECTIONS}:{}", number + 1);
+        let stripped = text::strip(line);
+        if stripped.is_empty() || stripped.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = stripped.split('\t').map(text::strip).collect();
+        let [value, wrong, correct] = fields[..] else {
+            bail!(
+                "{}: expected word, wrong pinyin and correct pinyin: {line:?}",
+                location()
+            );
+        };
+        if value.is_empty() {
+            bail!("{}: the word is empty", location());
+        }
+        for key in [wrong, correct] {
+            if !is_quanpin(key) {
+                bail!("{}: {key:?} is not quanpin separated by \"'\"", location());
+            }
+        }
+        if wrong == correct {
+            bail!(
+                "{}: the wrong and correct readings are both {wrong:?}",
+                location()
+            );
+        }
+        if !seen.insert((value.to_owned(), wrong.to_owned())) {
+            bail!("{}: {value} {wrong} is listed twice", location());
+        }
+        entries.push(ReadingCorrection {
+            value: value.to_owned(),
+            wrong: wrong.to_owned(),
+            correct: correct.to_owned(),
+        });
+    }
+    Ok(entries)
+}
+
+fn is_quanpin(key: &str) -> bool {
+    key.split('\'')
+        .all(|syllable| !syllable.is_empty() && syllable.bytes().all(|b| b.is_ascii_lowercase()))
+        && pinyin_table(key).is_some()
+}
+
+/// Deletes every quanpin row whose word and pinyin match an entry's wrong reading and returns how many rows went. Fails, leaving the tables unchanged, when an entry deletes nothing (the input it corrected has changed, so the entry is stale) or when the word has no row at the correct reading afterwards (the correction would leave the word untypeable).
+pub fn apply_reading_corrections(
+    connection: &mut Connection,
+    entries: &[ReadingCorrection],
+) -> Result<usize> {
+    let transaction = connection.transaction()?;
+    let mut removed = 0;
+    let mut stale = Vec::new();
+    let mut missing = Vec::new();
+    for entry in entries {
+        let table = pinyin_table(&entry.wrong).context("reading correction without a table")?;
+        let deleted = transaction.execute(
+            &format!("delete from {table} where key = ? and value = ?"),
+            params![entry.wrong, entry.value],
+        )?;
+        if deleted == 0 {
+            stale.push(format!("{} {}", entry.value, entry.wrong));
+        }
+        removed += deleted;
+    }
+    for entry in entries {
+        let table = pinyin_table(&entry.correct).context("reading correction without a table")?;
+        let present: bool = transaction.query_row(
+            &format!("select exists(select 1 from {table} where key = ? and value = ?)"),
+            params![entry.correct, entry.value],
+            |row| row.get(0),
+        )?;
+        if !present {
+            missing.push(format!("{} {}", entry.value, entry.correct));
+        }
+    }
+    if !stale.is_empty() || !missing.is_empty() {
+        let mut problems = Vec::new();
+        if !stale.is_empty() {
+            problems.push(format!(
+                "no row to remove for {} (drop the entry if its input no longer has the wrong reading)",
+                stale.join(", ")
+            ));
+        }
+        if !missing.is_empty() {
+            problems.push(format!(
+                "no row at the correct reading for {} (add it to msime-dictionary's custom/words.txt)",
+                missing.join(", ")
+            ));
+        }
+        bail!("{READING_CORRECTIONS}: {}", problems.join("; "));
+    }
+    transaction.commit()?;
+    Ok(removed)
+}
+
 /// `value<TAB>code<TAB>weight` (wubi86) or `code<TAB>value<TAB>weight` (quick phrases). Invalid lines are skipped and counted, as the Python importers did.
 struct CodeTable {
     name: &'static str,
     create: &'static str,
-    index: &'static str,
+    indexes: &'static [&'static str],
     code_first: bool,
 }
 
 const WUBI86: CodeTable = CodeTable {
     name: "wubi86",
     create: CREATE_WUBI_TABLE,
-    index: "CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC)",
+    // 第二个索引给按词条反查五笔编码用（engine 的 `WubiProvider::reverse_code`），名字与 engine 在代次副本里补建的一致，补建时见到同名索引就跳过。
+    indexes: &[
+        "CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC)",
+        "CREATE INDEX idx_wubi86_value ON wubi86(\"value\")",
+    ],
     code_first: false,
 };
 
@@ -259,7 +378,10 @@ const WUBI86: CodeTable = CodeTable {
 const WUBI98: CodeTable = CodeTable {
     name: "wubi98",
     create: CREATE_WUBI98_TABLE,
-    index: "CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC)",
+    indexes: &[
+        "CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC)",
+        "CREATE INDEX idx_wubi98_value ON wubi98(\"value\")",
+    ],
     code_first: false,
 };
 
@@ -269,7 +391,9 @@ const WUBI98_WEIGHT_STEP: i64 = 10;
 const QUICK_PHRASES: CodeTable = CodeTable {
     name: "quick_parases",
     create: CREATE_QUICK_PHRASE_TABLE,
-    index: "CREATE INDEX idx_quick_parases_key_weight ON quick_parases(\"key\", \"weight\" DESC)",
+    indexes: &[
+        "CREATE INDEX idx_quick_parases_key_weight ON quick_parases(\"key\", \"weight\" DESC)",
+    ],
     code_first: true,
 };
 
@@ -323,7 +447,9 @@ fn write_code_table<'a>(
     let transaction = connection.transaction()?;
     transaction.execute_batch(&format!("DROP TABLE IF EXISTS {}", table.name))?;
     transaction.execute_batch(table.create)?;
-    transaction.execute_batch(table.index)?;
+    for index in table.indexes {
+        transaction.execute_batch(index)?;
+    }
     let (mut imported, mut skipped) = (0, 0);
     {
         let mut insert = transaction.prepare(&format!(
@@ -613,6 +739,96 @@ mod tests {
     }
 
     #[test]
+    fn reading_corrections_remove_every_row_of_the_wrong_reading() {
+        let mut connection = quanpin_fixture(None);
+        // The same word and wrong reading from two inputs gives two rows; both go.
+        apply_custom_words(
+            &mut connection,
+            &parse_custom_words("重绘\tzhong'hui\t5\n重绘\tchong'hui\t5\n").unwrap(),
+        )
+        .unwrap();
+        connection
+            .execute(
+                "insert into tbl_2_z (key, jp, value, weight) values ('zhong''hui', 'zh', '重绘', 9)",
+                [],
+            )
+            .unwrap();
+        let entries = parse_reading_corrections("# c\n\n重绘\tzhong'hui\tchong'hui\n").unwrap();
+        assert_eq!(
+            apply_reading_corrections(&mut connection, &entries).unwrap(),
+            2
+        );
+        assert_eq!(
+            rows(
+                &connection,
+                "select key, jp, value, weight from tbl_2_z union all select key, jp, value, weight from tbl_2_c"
+            ),
+            [("chong'hui".into(), "ch".into(), "重绘".into(), 5)]
+        );
+    }
+
+    #[test]
+    fn a_stale_or_unbacked_reading_correction_fails_and_changes_nothing() {
+        let mut connection = quanpin_fixture(None);
+        let count = |connection: &Connection| -> i64 {
+            connection
+                .query_row("select count(*) from tbl_2_n", [], |row| row.get(0))
+                .unwrap()
+        };
+        // 你好 has no row at ni'hao'a: the entry is stale.
+        let stale = parse_reading_corrections("你好\tni'hao'a\tni'hao\n").unwrap();
+        let error = apply_reading_corrections(&mut connection, &stale).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("no row to remove for 你好 ni'hao'a"),
+            "{error}"
+        );
+        // Removing ni'hao would leave 你好 without the correct reading.
+        let unbacked = parse_reading_corrections("你好\tni'hao\tnin'hao\n").unwrap();
+        let error = apply_reading_corrections(&mut connection, &unbacked).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("no row at the correct reading for 你好 nin'hao"),
+            "{error}"
+        );
+        assert_eq!(count(&connection), 1);
+    }
+
+    #[test]
+    fn a_malformed_reading_correction_fails_the_stage() {
+        for bad in [
+            "词\tci",
+            "词\tci\tci",
+            "词\tCi\tci'a",
+            "\tci\tcha",
+            "词\tci\tcha\t1",
+            "词\tci\tcha\n词\tci\tchi",
+        ] {
+            assert!(parse_reading_corrections(bad).is_err(), "{bad:?}");
+        }
+        let error = parse_reading_corrections("# c\n\n词\tci\tcha\n词\tci").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("{READING_CORRECTIONS}:4:")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn the_repository_reading_corrections_parse() {
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/dictionary-sources")
+                .join(READING_CORRECTIONS),
+        )
+        .unwrap();
+        assert!(!parse_reading_corrections(&text).unwrap().is_empty());
+    }
+
+    #[test]
     fn the_98_table_is_decoded_from_utf16_and_weighted_by_line_order() {
         let dir = tempfile::tempdir().unwrap();
         let text = "工\ta\r\n戈\ta\r\n五\tgg\r\n工\taaaa\r\n藏匿\taaaa\r\n恭恭敬敬\taaaa\r\n坏\tz\r\n坏\tAA\r\n\tgg\r\n长\tabcde\r\n只有一列\r\n";
@@ -645,12 +861,12 @@ mod tests {
         );
         let indexes: i64 = connection
             .query_row(
-                "select count(*) from sqlite_master where name = 'idx_wubi98_key_weight'",
+                "select count(*) from sqlite_master where name in ('idx_wubi98_key_weight', 'idx_wubi98_value')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(indexes, 1);
+        assert_eq!(indexes, 2);
     }
 
     #[test]
@@ -671,7 +887,7 @@ mod tests {
         std::fs::write(&primary, bytes).unwrap();
         let supplement = write(
             dir.path(),
-            "Wubi98Fcitx.txt",
+            "wubi98-fcitx.txt",
             "[Data]\nukuy 部门\nukuy 冲凉\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
@@ -716,6 +932,15 @@ mod tests {
             wubi_rows,
             [("a".into(), "戈".into(), 10), ("a".into(), "工".into(), 30)]
         );
+        // 反查按词条找编码，发布的表要带上这个索引，否则每次都扫整张表。
+        let plan: String = connection
+            .query_row(
+                "explain query plan select key from wubi86 where value = '工'",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("idx_wubi86_value"), "{plan}");
 
         let phrases = write(
             dir.path(),

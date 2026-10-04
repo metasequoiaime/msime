@@ -337,8 +337,8 @@ pub(super) mod tests {
     fn fixture() -> Fixture {
         let root = tempfile::tempdir().unwrap();
         let journal = root.path().join("msime_user.db");
-        let main = root.path().join("msime.db");
-        let english = root.path().join("english.db");
+        let main = root.path().join("msime-pinyin.db");
+        let english = root.path().join("msime-english.db");
         sql(
             &main,
             "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);

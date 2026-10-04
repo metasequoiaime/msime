@@ -18,6 +18,7 @@ import app.msime.android.AiPolishConfiguration;
 import app.msime.android.AppEdition;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardGeometry;
+import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
@@ -550,7 +551,9 @@ public final class KeyboardSheets {
             // The snapshot this sheet opened with is now a revision behind; refresh it in place so
             // a second edit in the same sheet is not rejected by the compare-and-swap.
             try {
-                snapshot.put("revision", saved.optLong("revision"));
+                long revision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+                if (revision < 0) throw new JSONException("Invalid preferences revision");
+                snapshot.put("revision", revision);
                 snapshot.put("preferences", saved.optJSONObject("preferences"));
             } catch (JSONException ignored) {
                 // The next edit reloads instead; the write itself already succeeded.

@@ -14,6 +14,10 @@ export const LOCAL_VAD_WINDOW: number = 512;
 const MAX_TRANSDUCER_HOTWORDS: number = 200;
 const MAX_FUNASR_HOTWORDS: number = 30;
 const MAX_MODEL_PATH: number = 4096;
+/** The manifest is a small catalog entry, not model data. */
+export const LOCAL_MODEL_MANIFEST_MAX_BYTES: number = 256 * 1024;
+/** Only the first token column is needed to encode native hotwords. */
+export const LOCAL_MODEL_TOKENS_MAX_BYTES: number = 8 * 1024 * 1024;
 
 export const LOCAL_MODEL_ONLINE_TRANSDUCER: string = "online_transducer";
 export const LOCAL_MODEL_OFFLINE_SENSE_VOICE: string = "offline_sense_voice";
@@ -66,6 +70,11 @@ interface ManifestDocument {
 }
 
 export class LocalAsrPolicy {
+  /** Maximum bytes read from the text files the worker parses itself. */
+  static textFileLimit(file: "manifest" | "tokens"): number {
+    return file === "manifest" ? LOCAL_MODEL_MANIFEST_MAX_BYTES : LOCAL_MODEL_TOKENS_MAX_BYTES;
+  }
+
   /**
    * Whether the configured provider and path name an installed sherpa-onnx model directory rather than something else.
    *

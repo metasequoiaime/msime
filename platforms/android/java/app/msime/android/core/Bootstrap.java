@@ -17,7 +17,7 @@ import java.nio.file.StandardOpenOption;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** First-install preparation only. Existing configurations are never re-prepared from here; the optional offline glosses, helpcode tables and language dictionaries follow the installed package, and an existing configuration is only refreshed so that it names the language dictionaries installed beside its resources. */
+/** 首次安装时解包词库并准备配置。已有配置只经共享刷新跟上安装包：可选的离线释义、辅助码表与语言词库随安装包替换；安装包换了词库版本时，把 APK 里的词库重新解包到同一个资源目录，再由刷新准备新代次。 */
 public final class Bootstrap {
     private Bootstrap() {}
     public static boolean prepare(Context context) throws Exception {
@@ -30,33 +30,12 @@ public final class Bootstrap {
             // Before the configuration exists, so that prepare_host below finds them beside the resources and records them.
             installLanguageDictionaries(context, new File(root, "bootstrap/language-dictionaries"));
             File configuration = new File(root, "runtime-options.json");
+            File resources = new File(root, "bootstrap/resources");
             if (existingConfiguration(configuration)) {
-                refreshLanguageDictionaries(configuration);
+                refreshExistingConfiguration(context, configuration, resources);
                 return false;
             }
-            File resources = new File(root, "bootstrap/resources");
-            ensureSafeDirectory(resources.toPath());
-            JSONObject manifest;
-            // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
-            try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
-                // Small immutable APK manifest; large dictionary files are streamed below.
-                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    if (bytes.size() + count > 16384) throw new IllegalArgumentException("Manifest too large");
-                    bytes.write(buffer, 0, count);
-                }
-                manifest = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
-            }
-            JSONArray artifacts = manifest.getJSONArray("artifacts");
-            for (int index = 0; index < artifacts.length(); index++) {
-                String name = artifacts.getJSONObject(index).getString("name");
-                if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
-                try (InputStream input = context.getAssets().open("dictionary/" + name)) {
-                    copyAsset(input, new File(resources, name).toPath());
-                }
-            }
+            extractDictionary(context, resources);
             JSONObject request = new JSONObject().put("resources", resources.getAbsolutePath())
                 .put("state_root", new File(root, "bootstrap/state").getAbsolutePath());
             // 不是 full 的版本把版本 id 交给 host-api：它按本版本的资源锁校验 APK 里的词库，在状态目录记下版本，从此没有偏好文件时读到的就是本版本的默认偏好（五笔版默认五笔、混拼打开）。full 不带这个键，请求与引入版本之前相同。
@@ -161,7 +140,7 @@ public final class Bootstrap {
     }
 
     /**
-     * The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `cantonese.db`, `zhuyin.db` and `stroke.db` and names the directory in the runtime options.
+     * The Cantonese, Zhuyin and Stroke dictionaries (scripts/fetch_language_dictionaries.py), extracted to language-dictionaries/ beside the resources, where host-api looks for `msime-cantonese.db`, `msime-zhuyin.db` and `msime-stroke.db` and names the directory in the runtime options.
      *
      * <p>Like the offline glosses they are not part of the verified dictionary, so they follow the installed package: an update replaces them, and a package built without them removes any an earlier one left, which takes those schemes off the keyboard once the configuration is refreshed. The directory is swapped whole through a staging sibling and an atomic rename. A failure leaves Cantonese, Zhuyin and Stroke unavailable, never the keyboard without an Engine.
      */
@@ -193,21 +172,84 @@ public final class Bootstrap {
     }
 
     /**
-     * Brings `language_dictionaries` in an existing configuration in step with the dictionaries installed beside its resources, through the shared `msime_client_refresh_host`. The input method and this preparation run from the same package, so no older host is left reading a key it does not know.
-     *
-     * <p>The same call also re-prepares a configuration whose working dictionaries belong to an older resource generation. This host never replaces the resources of an existing configuration, so that step reports the resources outdated and leaves the file as it was, and the language dictionaries are then not recorded either; the keyboard keeps offering only the schemes it can run. A failure is logged without the path.
+     * 把 APK 里 `desktop-dictionary.lock.json` 固定的词库解包到 `resources`。共享校验要求资源目录恰好是锁里的文件（外加 `helpcodes/`），所以先删掉锁里没有的条目（例如统一 `msime-` 前缀之前的旧文件名），`helpcodes/` 连同用户自己的辅助码表原样保留。每个文件经临时同级文件原子替换，中途失败时下次启动的刷新仍报词库过期，会再解包一次。
      */
-    private static void refreshLanguageDictionaries(File configuration) {
-        try {
-            JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
-            if (!result.optBoolean("ok")) {
-                android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
-                    + (result.optString("error").startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));
+    private static void extractDictionary(Context context, File resources) throws Exception {
+        ensureSafeDirectory(resources.toPath());
+        JSONObject manifest;
+        // 各版本的 APK 都把本版本的资源锁放在这个文件名下（build-apk.sh 选的；full 的就是 resources/desktop-dictionary.lock.json 本身），下面只解出锁里列的文件。
+        try (InputStream input = context.getAssets().open("desktop-dictionary.lock.json")) {
+            // Small immutable APK manifest; large dictionary files are streamed below.
+            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() + count > 16384) throw new IllegalArgumentException("Manifest too large");
+                bytes.write(buffer, 0, count);
             }
+            manifest = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+        }
+        JSONArray artifacts = manifest.getJSONArray("artifacts");
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (int index = 0; index < artifacts.length(); index++) {
+            String name = artifacts.getJSONObject(index).getString("name");
+            if (!name.matches("[A-Za-z0-9_.-]+") || name.contains("..")) throw new IllegalArgumentException("Invalid asset name");
+            names.add(name);
+        }
+        File[] existing = resources.listFiles();
+        for (File entry : existing == null ? new File[0] : existing) {
+            if (entry.getName().equals("helpcodes") || names.contains(entry.getName())) continue;
+            deleteTree(entry);
+        }
+        for (String name : names) {
+            try (InputStream input = context.getAssets().open("dictionary/" + name)) {
+                copyAsset(input, new File(resources, name).toPath());
+            }
+        }
+    }
+
+    /**
+     * 经共享的 `msime_client_refresh_host` 让已有配置跟上安装包：`language_dictionaries` 对齐资源目录旁实际安装的语言词库，工作词库属于旧代次时准备新代次。输入法与这里的准备来自同一个安装包，不会留下读不懂新键的旧宿主。
+     *
+     * <p>安装包换了词库版本时，资源目录里还是旧版本解包出的文件，刷新报 `dictionary_outdated` 并保持配置不变。配置记录的就是本宿主自己的 `bootstrap/resources` 时，重新解包后再刷新一次，由 Engine 复制新代次并回放用户词库日志；其他目录不碰。失败只记一条不含路径的日志，输入法继续用原来的代次。
+     */
+    private static void refreshExistingConfiguration(Context context, File configuration, File resources) {
+        try {
+            String error = refreshHost(configuration);
+            if (error == null || !error.startsWith("dictionary_outdated")) return;
+            String recorded = readConfiguredResources(configuration);
+            if (recorded == null || !new File(recorded).getCanonicalPath().equals(resources.getCanonicalPath())) return;
+            extractDictionary(context, resources);
+            refreshHost(configuration);
         } catch (Exception | LinkageError error) {
             // Bootstrap has no editor or session input; never use this logging for keystrokes.
             android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed", error);
         }
+    }
+
+    /** 刷新一次配置；成功时返回 `null`，失败时记日志并返回共享层的错误文本。 */
+    private static String refreshHost(File configuration) throws Exception {
+        JSONObject result = new JSONObject(NativeClient.refreshHost(configuration.getAbsolutePath()));
+        if (result.optBoolean("ok")) return null;
+        String error = result.optString("error");
+        android.util.Log.w("MSIMEBootstrap", "Runtime options refresh failed: "
+            + (error.startsWith("dictionary_outdated") ? "dictionary_outdated" : "error"));
+        return error;
+    }
+
+    /** 配置里记录的 `resources`；超过 1 MiB 或读不出来时为 `null`。按块读并限长，文件在检查之后变大也不会无界分配。 */
+    private static String readConfiguredResources(File configuration) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream(8192);
+        try (InputStream input = Files.newInputStream(configuration.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (bytes.size() > 1024 * 1024 - count) return null;
+                bytes.write(buffer, 0, count);
+            }
+        }
+        String resources = new JSONObject(bytes.toString(StandardCharsets.UTF_8.name())).optString("resources", "");
+        return resources.isEmpty() ? null : resources;
     }
 
     static String readMarker(java.nio.file.Path file) {

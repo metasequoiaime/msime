@@ -239,7 +239,7 @@ constexpr std::string_view scheme_name(int scheme)
     }
 }
 
-// Which of the Cantonese, Zhuyin and Stroke dictionaries are installed (language-dictionaries/cantonese.db, zhuyin.db and stroke.db beside the resources).
+// Which of the Cantonese, Zhuyin and Stroke dictionaries are installed (language-dictionaries/msime-cantonese.db, msime-zhuyin.db and msime-stroke.db beside the resources).
 struct LanguageDictionaryPresence
 {
     bool cantonese = false;

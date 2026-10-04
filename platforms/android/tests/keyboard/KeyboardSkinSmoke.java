@@ -79,6 +79,20 @@ public final class KeyboardSkinSmoke {
             0xD4BBFF, 0xFFFFFF, 17, 1.5, .25, 3, true, "pebble", "glass", .45,
             0x30224A, true, .2, 0xA987E8,
             new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}, .8, 1);
+        check(CustomKeyboardSkin.colorValue(Integer.valueOf(0x123456), 0) == 0x123456);
+        check(CustomKeyboardSkin.colorValue(Long.valueOf(0xABCDEF), 0) == 0xABCDEF);
+        check(CustomKeyboardSkin.colorValue(Double.valueOf(1.5), 0x13579B) == 0x13579B);
+        check(CustomKeyboardSkin.colorValue(Boolean.TRUE, 0x2468AC) == 0x2468AC);
+        check(CustomKeyboardSkin.colorValue("123456", 0x369CF0) == 0x369CF0);
+        check(CustomKeyboardSkin.patternValue(2) == 2);
+        check(CustomKeyboardSkin.patternValue(2.5) == 0);
+        check(CustomKeyboardSkin.patternValue("2") == 0);
+        check(CustomKeyboardSkin.patternValue(true) == 0);
+        check(CustomKeyboardSkin.patternValue(10) == 3);
+        check(CustomKeyboardSkin.doubleValue(8.5, 0) == 8.5);
+        check(CustomKeyboardSkin.doubleValue("8.5", 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Boolean.TRUE, 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Double.NaN, 7) == 7);
         KeyboardSkin custom = KeyboardSkin.customFixture(design, false);
         check("custom".equals(custom.id()) && "我的皮肤".equals(custom.title()) && custom.designed());
         check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));

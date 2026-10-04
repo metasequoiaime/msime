@@ -27,6 +27,7 @@ import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
   type CandidateSkinCategory,
   type CandidateSkinCommunityClient,
@@ -114,7 +115,7 @@ export function CandidateSkinPublishDialog({
   const [signInRequired, setSignInRequired] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
   const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localSkins);
-  const packGeneration = useRef(0);
+  const packGeneration = useAsyncGeneration(client, skinId, visibility, packRevision);
   const drawRunning = useRef(false);
   const drawOwner = useRef(0);
   const licenseRunning = useRef(false);
@@ -156,7 +157,7 @@ export function CandidateSkinPublishDialog({
   }, [client, clientGeneration, localSkins]);
 
   useEffect(() => {
-    const generation = ++packGeneration.current;
+    const generation = packGeneration.current;
     setPack(null);
     setPackError("");
     setPackCode(undefined);
@@ -187,10 +188,7 @@ export function CandidateSkinPublishDialog({
       .finally(() => {
         if (generation === packGeneration.current) setPackLoading(false);
       });
-    return () => {
-      packGeneration.current++;
-    };
-  }, [client, skinId, visibility, packRevision]);
+  }, [client, skinId, visibility, packGeneration, packRevision]);
 
   // A decorated package without an image of its own draws its preview as the decoration, so a drawn preview would change its look; the host refuses it too.
   const previewless =

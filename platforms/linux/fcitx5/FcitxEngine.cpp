@@ -3190,7 +3190,7 @@ public:
     if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     return apply(msime_client_reset_cache(session_));
   }
-  // 繁体输出转换只用于简体中文（`script_conversion_applies`）：日文（假名和 Engine 选的汉字）与韩文（谚文和用户选的汉字）原样通过，粤拼和注音本来就写繁体字，笔画候选按 stroke.db 里存的字形原样取用，越南文和藏文不是中文。候选行、上屏和状态区动作都问这同一道关口，所以候选行显示的字永远就是它上屏的字（s2t 会把汉字 后 画成 後）。
+  // 繁体输出转换只用于简体中文（`script_conversion_applies`）：日文（假名和 Engine 选的汉字）与韩文（谚文和用户选的汉字）原样通过，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用，越南文和藏文不是中文。候选行、上屏和状态区动作都问这同一道关口，所以候选行显示的字永远就是它上屏的字（s2t 会把汉字 后 画成 後）。
   bool scriptConversionApplies() const {
     return msime::linux_host::scheme::ScriptConversionApplies(view_.value("scheme", 0));
   }

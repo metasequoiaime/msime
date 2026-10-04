@@ -44,8 +44,8 @@ def rejects(failures, label, call, reason):
 def main():
     expected = b"abc"
     artifact = {
-        "name": "zhuyin.db",
-        "url": "https://example.invalid/zhuyin.db",
+        "name": "msime-zhuyin.db",
+        "url": "https://example.invalid/msime-zhuyin.db",
         "sha256": hashlib.sha256(expected).hexdigest(),
         "size": len(expected),
     }
@@ -95,7 +95,7 @@ def main():
             sys.argv = original_argv
 
             module.urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("opened a non-HTTPS source")
-            rejects(failures, "a non-HTTPS source", lambda: module.fetch({**artifact, "url": "http://example.invalid/zhuyin.db"}, destination), "non-HTTPS")
+            rejects(failures, "a non-HTTPS source", lambda: module.fetch({**artifact, "url": "http://example.invalid/msime-zhuyin.db"}, destination), "non-HTTPS")
 
             with contextlib.redirect_stderr(io.StringIO()):
                 for label, response in [

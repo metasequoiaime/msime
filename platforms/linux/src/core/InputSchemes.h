@@ -86,9 +86,9 @@ inline LanguageDictionaryAvailability language_dictionary_availability(const nlo
   if (directory == options.end() || !directory->is_string() || directory->get_ref<const std::string &>().empty()) return {};
   const std::filesystem::path root = directory->get<std::string>();
   std::error_code error;
-  const bool cantonese = std::filesystem::is_regular_file(root / "cantonese.db", error);
-  const bool zhuyin = std::filesystem::is_regular_file(root / "zhuyin.db", error);
-  const bool stroke = std::filesystem::is_regular_file(root / "stroke.db", error);
+  const bool cantonese = std::filesystem::is_regular_file(root / "msime-cantonese.db", error);
+  const bool zhuyin = std::filesystem::is_regular_file(root / "msime-zhuyin.db", error);
+  const bool stroke = std::filesystem::is_regular_file(root / "msime-stroke.db", error);
   return {cantonese, zhuyin, stroke};
 }
 

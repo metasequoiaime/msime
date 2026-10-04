@@ -27,7 +27,7 @@ NOTICE_CHANNELS = {
     "platforms/ios/project.yml": "iOS: the app's bundled resources",
     "platforms/harmony/stage-resources.sh": "HarmonyOS: the licences staged into the HAP",
 }
-SOURCE = "ko/hanja.txt"
+SOURCE = "sources/korean/hanja.txt"
 COMMIT = "717409ce61524bb3d8426060a384822f21354c62"
 failures = []
 

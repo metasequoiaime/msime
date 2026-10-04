@@ -151,8 +151,11 @@ public:
     // poll() makes the reader interruptible even when the parent keeps the
     // helper's stdin open while the idle timer expires. Join before this
     // object is destroyed; the old detached reader could outlive Server.
+    // 被信号打断时重试：这一字节没写进去，reader 就永远不醒，下面的 join 会一直挂着。
+    // 不能写成 `(void)::write(...)`，带 _FORTIFY_SOURCE 的 GCC 不认这种写法，在 -Werror 下直接编不过。
     const char stop = 1;
-    (void)::write(stop_pipe_[1], &stop, 1);
+    while (::write(stop_pipe_[1], &stop, 1) < 0 && errno == EINTR) {
+    }
 #else
     // The Windows CRT has no pollable stdin descriptor. Closing the helper's
     // inherited input handle wakes getline so the reader can be joined before

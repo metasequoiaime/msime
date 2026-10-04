@@ -115,7 +115,7 @@ macOS 发布包只内置打中文所需的核心词库，日文词典、粤拼�
 | | |
 | --- | --- |
 | 触发 | 只在这几种情况下发生：在设置里选日文、粤拼、注音或笔画方案；第一次打开手写面板；设置应用启动时发现已保存的方案（或上一次的中文方案）需要的资源包还没装；在「临时日语」一行点「下载」 |
-| 目的地 | GitHub Releases（`https://github.com/metasequoiaime/msime/releases/download/dict-v.../`、`.../langdict-v.../`，下载时会被重定向到 GitHub 的文件存储域名）与 `https://raw.githubusercontent.com/metasequoiaime/msime-engine/<固定提交>/...`（手写模型）；配置了镜像时改为镜像地址 |
+| 目的地 | GitHub Releases（`https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v.../`，下载时会被重定向到 GitHub 的文件存储域名）与 `https://raw.githubusercontent.com/metasequoiaime/msime-engine/<固定提交>/...`（手写模型）；配置了镜像时改为镜像地址 |
 | 发送内容 | 对固定文件的 HTTPS GET 请求，不携带任何输入内容、账号或设备标识 |
 | 需要凭据 | 否 |
 | 偏好字段 | 沿用 `voice_input.asr_model_mirror`，默认空字符串，表示直接访问 GitHub |

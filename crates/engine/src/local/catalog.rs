@@ -44,7 +44,7 @@ pub struct EmojiSymbolGroup {
     pub title: String,
 }
 
-/// One page of `category` (`kaomoji`, `symbols`, or an emoji category) from `resources/others.db`. `limit` is 1..=4096. With `deduplicate` the first occurrence of each text wins; without it rows with empty text (or empty group, except kaomoji) are skipped.
+/// One page of `category` (`kaomoji`, `symbols`, or an emoji category) from `resources/msime-others.db`. `limit` is 1..=4096. With `deduplicate` the first occurrence of each text wins; without it rows with empty text (or empty group, except kaomoji) are skipped.
 #[allow(clippy::too_many_arguments)]
 pub fn read_emoji_catalog_slice(
     resources: &Path,
@@ -196,7 +196,7 @@ pub fn emoji_symbol_groups(resources: &Path) -> Result<Vec<EmojiSymbolGroup>> {
     Ok(groups)
 }
 
-/// A fresh read-only connection per call, as bridge.cpp:1024-1030 opened one. The picker's calls are not per keystroke, and a cached handle would keep reading a replaced or once-unreadable `others.db` until the process restarts.
+/// A fresh read-only connection per call, as bridge.cpp:1024-1030 opened one. The picker's calls are not per keystroke, and a cached handle would keep reading a replaced or once-unreadable `msime-others.db` until the process restarts.
 fn open_catalog(resources: &Path) -> Result<Connection> {
     open_read_only(&resources.join(assets::OTHER_DICTIONARY))
         .map_err(|_| EngineError::failed(diagnostics::EMOJI_CATALOG_UNAVAILABLE))

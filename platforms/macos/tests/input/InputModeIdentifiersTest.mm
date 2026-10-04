@@ -356,16 +356,16 @@ int main() {
         // Cantonese, Zhuyin and Stroke are available only with their dictionary in the HostOptions language_dictionaries directory; everything else needs nothing more.
         NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         [NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
-        [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"cantonese.db"] atomically:YES];
-        [NSFileManager.defaultManager createDirectoryAtPath:[directory stringByAppendingPathComponent:@"zhuyin.db"] withIntermediateDirectories:YES attributes:nil error:nil];
+        [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"msime-cantonese.db"] atomically:YES];
+        [NSFileManager.defaultManager createDirectoryAtPath:[directory stringByAppendingPathComponent:@"msime-zhuyin.db"] withIntermediateDirectories:YES attributes:nil error:nil];
         NSDictionary *hostOptions = @{@"language_dictionaries": directory};
         require(!MSIMEInputSchemeAvailable(@"stroke", hostOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", hostOptions) isEqualToString:@"wubi"],
-                "Stroke was available without stroke.db.");
-        [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"stroke.db"] atomically:YES];
+                "Stroke was available without msime-stroke.db.");
+        [NSData.data writeToFile:[directory stringByAppendingPathComponent:@"msime-stroke.db"] atomically:YES];
         require(MSIMEInputSchemeAvailable(@"stroke", hostOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", hostOptions) isEqualToString:@"stroke"] &&
                     [MSIMEEffectiveInputScheme(@"japanese", @"stroke", hostOptions) isEqualToString:@"japanese"] &&
                     [MSIMEEffectiveInputScheme(@"stroke", @"zhuyin", @{}) isEqualToString:@"quanpin"],
-                "stroke.db in language_dictionaries did not make Stroke available.");
+                "msime-stroke.db in language_dictionaries did not make Stroke available.");
         require(MSIMEInputSchemeAvailable(@"cantonese", hostOptions) && !MSIMEInputSchemeAvailable(@"zhuyin", hostOptions) &&
                     !MSIMEInputSchemeAvailable(@"cantonese", @{}) && !MSIMEInputSchemeAvailable(@"cantonese", nil) &&
                     MSIMEInputSchemeAvailable(@"vietnamese", nil) && MSIMEInputSchemeAvailable(@"tibetan", nil) && MSIMEInputSchemeAvailable(@"korean", @{}) &&
@@ -383,7 +383,7 @@ int main() {
         NSString *stateRoot = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSString *pack = [stateRoot stringByAppendingPathComponent:@"resource-packs/language-dictionaries"];
         [files createDirectoryAtPath:pack withIntermediateDirectories:YES attributes:nil error:nil];
-        [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"cantonese.db"] atomically:YES];
+        [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"msime-cantonese.db"] atomically:YES];
         NSDictionary *packOptions = @{@"preferences_directory": stateRoot};
         require(!MSIMEInputSchemeAvailable(@"cantonese", packOptions),
                 "A language dictionary pack without msime-model.json made Cantonese available.");
@@ -391,9 +391,9 @@ int main() {
         require(MSIMEInputSchemeAvailable(@"cantonese", packOptions) && !MSIMEInputSchemeAvailable(@"zhuyin", packOptions) &&
                     !MSIMEInputSchemeAvailable(@"stroke", packOptions),
                 "A downloaded language dictionary pack did not make exactly Cantonese available.");
-        [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"stroke.db"] atomically:YES];
+        [NSData.data writeToFile:[pack stringByAppendingPathComponent:@"msime-stroke.db"] atomically:YES];
         require(MSIMEInputSchemeAvailable(@"stroke", packOptions) && [MSIMEEffectiveInputScheme(@"stroke", @"wubi", packOptions) isEqualToString:@"stroke"],
-                "stroke.db in the downloaded pack did not make Stroke available.");
+                "msime-stroke.db in the downloaded pack did not make Stroke available.");
         require([MSIMEEffectiveInputScheme(@"cantonese", @"wubi", packOptions) isEqualToString:@"cantonese"] &&
                     [MSIMEEffectiveInputScheme(@"cantonese", @"wubi", @{@"preferences_directory": stateRoot, @"language_dictionaries": @""}) isEqualToString:@"cantonese"],
                 "The effective scheme ignored Cantonese from the downloaded pack.");
@@ -406,10 +406,10 @@ int main() {
                     !MSIMEInputSchemeAvailable(@"cantonese", @{@"preferences_directory": @42}),
                 "A relative, empty or non-string preferences_directory was used to find a pack.");
         NSString *target = [stateRoot stringByAppendingPathComponent:@"cantonese-target.db"];
-        [files moveItemAtPath:[pack stringByAppendingPathComponent:@"cantonese.db"] toPath:target error:nil];
-        [files createSymbolicLinkAtPath:[pack stringByAppendingPathComponent:@"cantonese.db"] withDestinationPath:target error:nil];
+        [files moveItemAtPath:[pack stringByAppendingPathComponent:@"msime-cantonese.db"] toPath:target error:nil];
+        [files createSymbolicLinkAtPath:[pack stringByAppendingPathComponent:@"msime-cantonese.db"] withDestinationPath:target error:nil];
         require(!MSIMEInputSchemeAvailable(@"cantonese", packOptions),
-                "A symlinked cantonese.db in the downloaded pack made Cantonese available.");
+                "A symlinked msime-cantonese.db in the downloaded pack made Cantonese available.");
         [files removeItemAtPath:stateRoot error:nil];
 
         // 资源包父目录是符号链接时也不能把外部词库当作已安装资源。
@@ -417,7 +417,7 @@ int main() {
         NSString *linkedOutside = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
         NSString *linkedOutsidePack = [linkedOutside stringByAppendingPathComponent:@"resource-packs/language-dictionaries"];
         [files createDirectoryAtPath:linkedOutsidePack withIntermediateDirectories:YES attributes:nil error:nil];
-        [NSData.data writeToFile:[linkedOutsidePack stringByAppendingPathComponent:@"cantonese.db"] atomically:YES];
+        [NSData.data writeToFile:[linkedOutsidePack stringByAppendingPathComponent:@"msime-cantonese.db"] atomically:YES];
         [@"{}" writeToFile:[linkedOutsidePack stringByAppendingPathComponent:@"msime-model.json"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
         [files createDirectoryAtPath:linkedStateRoot withIntermediateDirectories:YES attributes:nil error:nil];
         [files createSymbolicLinkAtPath:[linkedStateRoot stringByAppendingPathComponent:@"resource-packs"]

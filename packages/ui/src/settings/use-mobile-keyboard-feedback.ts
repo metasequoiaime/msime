@@ -21,27 +21,36 @@ export function useMobileKeyboardFeedback({
   const [value, setValue] = useState<MobileKeyboardFeedback>();
   const [busy, setBusy] = useState(false);
   const saveRunning = useRef(false);
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
   const mounted = useMountedRef();
-  const generation = useAsyncGeneration(client, mobile, onError);
+  const generation = useAsyncGeneration(client, mobile);
 
   useEffect(() => {
     const current = generation.current;
     saveRunning.current = false;
-    setBusy(false);
     if (!mobile || !client) {
       setValue(undefined);
+      setBusy(false);
       return;
     }
+    setValue(undefined);
+    setBusy(true);
     void client
       .load()
       .then((next) => {
-        if (mounted.current && generation.current === current) setValue(next);
+        if (mounted.current && generation.current === current) {
+          setValue(next);
+          setBusy(false);
+        }
       })
       .catch(() => {
-        if (mounted.current && generation.current === current)
-          onError("无法读取按键反馈设置，请重试。");
+        if (mounted.current && generation.current === current) {
+          onErrorRef.current("无法读取按键反馈设置，请重试。");
+          setBusy(false);
+        }
       });
-  }, [client, mobile, onError, mounted]);
+  }, [client, mobile, mounted]);
 
   async function save(next: MobileKeyboardFeedback) {
     if (!client || saveRunning.current) return;
@@ -50,14 +59,14 @@ export function useMobileKeyboardFeedback({
     saveRunning.current = true;
     setValue(next);
     setBusy(true);
-    onError("");
+    onErrorRef.current("");
     try {
       const saved = await client.save(next);
       if (mounted.current && generation.current === current) setValue(saved);
     } catch {
       if (mounted.current && generation.current === current) {
         if (previous) setValue(previous);
-        onError("无法保存按键反馈设置，请重试。");
+        onErrorRef.current("无法保存按键反馈设置，请重试。");
       }
     } finally {
       if (mounted.current && generation.current === current) {
@@ -69,11 +78,11 @@ export function useMobileKeyboardFeedback({
 
   async function preview() {
     if (!client?.preview || !value?.hapticsEnabled) return;
-    onError("");
+    onErrorRef.current("");
     try {
       await client.preview(value.hapticStrength);
     } catch {
-      if (mounted.current) onError("无法预览按键振动，请重试。");
+      if (mounted.current) onErrorRef.current("无法预览按键振动，请重试。");
     }
   }
 

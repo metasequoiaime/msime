@@ -18,7 +18,7 @@ impl Fixture {
             std::fs::create_dir_all(root.join(name)).unwrap();
         }
         let resources = root.join("resources");
-        rusqlite::Connection::open(resources.join("msime.db"))
+        rusqlite::Connection::open(resources.join("msime-pinyin.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE tbl_1_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
@@ -33,7 +33,7 @@ impl Fixture {
                  INSERT INTO quick_parases VALUES('dh','电话',1);",
             )
             .unwrap();
-        rusqlite::Connection::open(resources.join("english.db"))
+        rusqlite::Connection::open(resources.join("msime-english.db"))
             .unwrap()
             .execute_batch(
                 "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;\
@@ -56,7 +56,7 @@ impl Fixture {
 
     /// What an upgrade does: fresh copies of the packaged dictionaries, then the journal replayed onto them.
     fn install_packaged_dictionaries(&self) {
-        for name in ["msime.db", "english.db"] {
+        for name in ["msime-pinyin.db", "msime-english.db"] {
             std::fs::copy(
                 self.path("resources").join(name),
                 self.path("dictionaries").join(name),
@@ -70,8 +70,8 @@ impl Fixture {
         let text = |path: PathBuf| path.to_str().unwrap().to_owned();
         let (applied, _skipped, failed, error) = msime_engine::host::replay_user_dictionary(
             &text(self.path("user").join("msime_user.db")),
-            &text(self.path("dictionaries").join("msime.db")),
-            &text(self.path("dictionaries").join("english.db")),
+            &text(self.path("dictionaries").join("msime-pinyin.db")),
+            &text(self.path("dictionaries").join("msime-english.db")),
         );
         assert!(applied > 0 && failed == 0 && error.is_empty(), "{error}");
     }

@@ -328,7 +328,7 @@ char *msime_client_community_resource_library(const uint8_t *request, size_t len
  * the prompt names the exact document the parser accepts. */
 char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
 /* Absolute staged engine resources; returns {profile,sourceCommit} from the
- * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * packaged msime-dictionary-manifest.json. Two fields only: the page is asking what
  * dictionary is installed and where it came from, not for journal modes or
  * third-party references. Missing or unreadable is reported, never guessed -
  * showing the wrong dictionary version is worse than showing none. */
@@ -433,7 +433,7 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
                                       const uint8_t *translations, size_t length);
 /* Resolve copied candidates against the packaged offline English dictionary.
  * JSON request: {generation,candidates:[{text,source}],user_data?,target_language?}; the generation is echoed for the host to pass to apply_translations on the session thread. This function owns no session handle and may run on a worker thread.
- * target_language absent or "en" reads english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
+ * target_language absent or "en" reads msime-english.db and the user's glosses. fr/ja/es/ru/de/ko read only offline-glosses/zh-<lang>.db beside resources and ignore user_data; when that file is not installed the result is {generation,translations:[]}, not an error. Any other value is an invalid request. Only Chinese candidates get a non-English gloss. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
 /* Query the packaged English dictionary without creating a session.
@@ -633,8 +633,8 @@ char *msime_client_emoji_provider_request(const uint8_t *query,
                                           size_t query_length,
                                           const uint8_t *socket_path,
                                           size_t socket_length);
-/* Query the verified local others.db Emoji catalog. Resources is an absolute
- * generation directory containing others.db; no provider socket is needed.
+/* Query the verified local msime-others.db Emoji catalog. Resources is an absolute
+ * generation directory containing msime-others.db; no provider socket is needed.
  * Optional offset is a nonnegative SQL row offset (default 0); limit is 1..255.
  * Optional group filters a catalog subdivision; list_groups:true returns
  * {groups:[name,...]} in catalog order instead of an item page.

@@ -118,9 +118,9 @@ public enum KeyboardScheme {
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
     public String languageDictionary() {
-        if (this == CANTONESE) return "cantonese.db";
-        if (this == ZHUYIN) return "zhuyin.db";
-        if (this == STROKE) return "stroke.db";
+        if (this == CANTONESE) return "msime-cantonese.db";
+        if (this == ZHUYIN) return "msime-zhuyin.db";
+        if (this == STROKE) return "msime-stroke.db";
         return null;
     }
 

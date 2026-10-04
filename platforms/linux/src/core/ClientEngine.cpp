@@ -1117,7 +1117,7 @@ std::string effective_scheme(const State &s) {
       s.scheme_override.value_or(preferences.value("scheme", std::string("quanpin"))),
       preferences.value("last_chinese_scheme", std::string("quanpin")), configured_dictionaries);
 }
-// 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 stroke.db 里存的字形原样取用（`script_conversion_applies`）。
+// 只转换基础中文方案：假名、谚文、越南文和藏文不是中文，粤拼和注音本来就写繁体字，笔画候选按 msime-stroke.db 里存的字形原样取用（`script_conversion_applies`）。
 bool script_conversion_applies(const Json &context) {
   return context.is_object() &&
          msime::linux_host::scheme::ScriptConversionApplies(context.value("scheme", 255)) &&

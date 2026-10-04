@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes a small zhuyin.db into the directory named by the first argument, for the host tests that drive the Zhuyin scheme through IBus and Fcitx5.
+"""Writes a small msime-zhuyin.db into the directory named by the first argument, for the host tests that drive the Zhuyin scheme through IBus and Fcitx5.
 
 The schema and format version are the engine's (crates/engine/src/language_dictionary.rs). The rows are a few Dachen syllables: 1 8 is ㄅㄚ, so the digit 1 spells rather than picks a candidate, and , is ㄝ, so the comma spells rather than writes Chinese punctuation."""
 
@@ -22,8 +22,8 @@ def main() -> int:
     if len(sys.argv) != 2:
         print("usage: zhuyin_dictionary.py <directory>", file=sys.stderr)
         return 2
-    target = Path(sys.argv[1]) / "zhuyin.db"
-    partial = target.with_name("zhuyin.db.partial")
+    target = Path(sys.argv[1]) / "msime-zhuyin.db"
+    partial = target.with_name("msime-zhuyin.db.partial")
     partial.unlink(missing_ok=True)
     connection = sqlite3.connect(partial)
     with connection:

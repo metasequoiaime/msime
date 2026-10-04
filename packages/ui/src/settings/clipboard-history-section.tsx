@@ -59,7 +59,8 @@ export function ClipboardHistorySection({
   const [cloud, setCloud] = useState<CloudClipboardAvailability>("checking");
   const [cloudNotice, setCloudNotice] = useState("");
   const [sending, setSending] = useState(false);
-  const cloudRevision = useRef(0);
+  const historyShown = historyEnabled && Boolean(client?.list);
+  const cloudRevision = useAsyncGeneration(cloudRequest, historyShown);
   const historyGeneration = useAsyncGeneration(
     client,
     ios,
@@ -68,11 +69,10 @@ export function ClipboardHistorySection({
     revision,
   );
   const historyActionBusy = useRef(false);
-  const historyShown = historyEnabled && Boolean(client?.list);
 
   // The account state and the server's enabled flag are read once each time the page is opened with the history showing; there is no polling.
   useEffect(() => {
-    const revision = ++cloudRevision.current;
+    const revision = cloudRevision.current;
     setCloud("checking");
     setCloudNotice("");
     setSending(false);
@@ -86,10 +86,7 @@ export function ClipboardHistorySection({
         if (revision === cloudRevision.current) setCloud(cloudClipboardFailure(error));
       },
     );
-    return () => {
-      cloudRevision.current++;
-    };
-  }, [cloudRequest, historyShown]);
+  }, [cloudRequest, cloudRevision, historyShown]);
 
   const sendToCloud = async (text: string) => {
     if (!cloudRequest || cloud !== "ready" || sending) return;
@@ -124,7 +121,11 @@ export function ClipboardHistorySection({
       setClearArmed(false);
       return;
     }
-    if (!client?.list) return;
+    if (!client?.list) {
+      setEntries([]);
+      setClearArmed(false);
+      return;
+    }
     void client
       .list()
       .then((next) => {

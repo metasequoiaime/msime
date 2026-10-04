@@ -17,7 +17,7 @@ std::string local_resources(int argc, char **argv, bool *local) {
   if (argc != 2)
     return {};
   return msime_linux::local_resource(
-      "MSIME_EMOJI_RESOURCES", MSIME_EDITION_CLIENT_DIRECTORY "/emoji/others.db", true);
+      "MSIME_EMOJI_RESOURCES", MSIME_EDITION_CLIENT_DIRECTORY "/emoji/msime-others.db", true);
 }
 
 int main(int argc, char **argv) {

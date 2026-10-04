@@ -405,7 +405,7 @@ assert '"Scheme/Tibetan"' in ibus_source
 assert 'case msime::linux_host::InputModeIndicator::Tibetan: symbol = "藏"; break;' in ibus_source
 assert "korean_hanja_list || zhuyin_scheme || vietnamese_scheme || tibetan_scheme" in ibus_key
 
-# 两个宿主的菜单都只在有 stroke.db 时提供笔画（Engine 方案 9）：Fcitx5 注册它的动作，单独出现 stroke.db 时也重建菜单；IBus 列出 Scheme/Stroke，让 PropertyActivate 放行它并映射到 "stroke" id。IBus 缺任何一半，选笔画都会悄无声息地什么也不做。状态区的方案动作也要标出「输入方案：笔画」，否则会落到默认的全拼。
+# 两个宿主的菜单都只在有 msime-stroke.db 时提供笔画（Engine 方案 9）：Fcitx5 注册它的动作，单独出现 msime-stroke.db 时也重建菜单；IBus 列出 Scheme/Stroke，让 PropertyActivate 放行它并映射到 "stroke" id。IBus 缺任何一半，选笔画都会悄无声息地什么也不做。状态区的方案动作也要标出「输入方案：笔画」，否则会落到默认的全拼。
 assert '{&scheme_stroke_action_, "msime-scheme-stroke"}' in source
 assert 'FcitxSchemeItemAction scheme_stroke_action_{&factory_, 9, "笔画"};' in source
 assert 'case 9: return "输入方案：笔画";' in source

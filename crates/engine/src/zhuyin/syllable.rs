@@ -58,7 +58,7 @@ impl PendingSyllable {
         }
     }
 
-    /// The toned syllable as `zhuyin.db` stores it: the symbols followed by the tone mark (empty for tone 1). `None` while nothing is typed, since a tone alone is not a syllable.
+    /// The toned syllable as `msime-zhuyin.db` stores it: the symbols followed by the tone mark (empty for tone 1). `None` while nothing is typed, since a tone alone is not a syllable.
     pub fn toned(&self, mark: &str) -> Option<String> {
         if self.is_empty() {
             return None;

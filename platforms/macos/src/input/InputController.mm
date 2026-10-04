@@ -225,9 +225,19 @@ static NSString *MSIMEAICacheKey(NSDictionary *online) {
     return data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
 }
 
+static NSInteger MSIMEStrictInteger(id value, NSInteger fallback) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) return fallback;
+    NSNumber *number = (NSNumber *)value;
+    NSInteger integer = number.integerValue;
+    return [number compare:@(integer)] == NSOrderedSame ? integer : fallback;
+}
+
 static BOOL MSIMEViewContainsAICandidate(NSDictionary *view) {
     for (NSDictionary *candidate in view[@"candidates"])
-        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"source"] integerValue] == 1) return YES;
+        if ([candidate isKindOfClass:NSDictionary.class] &&
+            MSIMEStrictInteger(candidate[@"source"], -1) == 1) return YES;
     return NO;
 }
 
@@ -235,8 +245,8 @@ static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, 
                                                           NSDictionary *hostOptions, BOOL englishMode) {
     NSDictionary *effectiveContext = [context isKindOfClass:NSDictionary.class] ? context : view;
     NSNumber *scheme = effectiveContext[@"scheme"];
-    if (![scheme isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)scheme) == CFBooleanGetTypeID() ||
-        CFNumberIsFloatType((__bridge CFNumberRef)scheme)) return msime::mac::TypingSource::Unknown;
+    NSInteger strictScheme = MSIMEStrictInteger(scheme, NSIntegerMin);
+    if (strictScheme == NSIntegerMin) return msime::mac::TypingSource::Unknown;
     NSString *localMode = effectiveContext[@"local_mode"];
     if (![localMode isKindOfClass:NSString.class]) localMode = @"none";
     NSNumber *nineKey = view[@"nine_key"];
@@ -245,7 +255,7 @@ static msime::mac::TypingSource MSIMEResolveTypingSource(NSDictionary *context, 
     NSString *profile = view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = preferences[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = @"xiaohe";
-    return msime::mac::ResolveTypingSource(scheme.intValue, [nineKey boolValue], dedicatedEnglish,
+    return msime::mac::ResolveTypingSource((int)strictScheme, [nineKey boolValue], dedicatedEnglish,
         localMode.UTF8String ?: "none", profile.UTF8String ?: "xiaohe");
 }
 
@@ -298,13 +308,13 @@ static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, 
     if (![candidate isKindOfClass:NSDictionary.class] || ![view isKindOfClass:NSDictionary.class]) return @"";
     NSString *code = candidate[@"code"];
     NSString *typed = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : view[@"editing_text"];
-    NSNumber *scheme = view[@"scheme"];
     NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
     if (![code isKindOfClass:NSString.class] || ![typed isKindOfClass:NSString.class] ||
-        ![scheme isKindOfClass:NSNumber.class]) return @"";
+        MSIMEStrictInteger(view[@"scheme"], -1) < 0) return @"";
     const std::string codeUTF8 = code.UTF8String ? code.UTF8String : "";
     const std::string typedUTF8 = typed.UTF8String ? typed.UTF8String : "";
-    const std::string hint = msime::mac::WubiCodeHint(codeUTF8, typedUTF8, enabled, scheme.intValue,
+    const std::string hint = msime::mac::WubiCodeHint(codeUTF8, typedUTF8, enabled,
+                                                       (int)MSIMEStrictInteger(view[@"scheme"], -1),
                                                        localMode.UTF8String ?: "none",
                                                        [view[@"answered_by_pinyin_fallback"] boolValue]);
     return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
@@ -675,7 +685,9 @@ static BOOL MSIMESchemeRulesApply(NSDictionary *view) {
 }
 // The view's scheme number; a view without one reads as quanpin, the Engine's default scheme.
 static int MSIMEViewScheme(NSDictionary *view) {
-    return [view isKindOfClass:NSDictionary.class] ? [view[@"scheme"] intValue] : msime::mac::scheme::Quanpin;
+    return [view isKindOfClass:NSDictionary.class]
+        ? (int)MSIMEStrictInteger(view[@"scheme"], msime::mac::scheme::Quanpin)
+        : msime::mac::scheme::Quanpin;
 }
 // A scheme trait that holds while the view's scheme rules apply.
 static BOOL MSIMESchemeTrait(NSDictionary *view, bool (*trait)(int)) {
@@ -1513,7 +1525,7 @@ static NSImage *MSIMECandidateLogoImage() {
 // Returns NO for every other scheme and for keys this does not claim, which then run as before.
 - (BOOL)handleJapaneseConversionKey:(NSEvent *)event client:(id)sender {
     if (!_session || !_activeClient || event.type != NSEventTypeKeyDown) return NO;
-    if ([_view[@"scheme"] integerValue] != 3) return NO;
+    if (MSIMEViewScheme(_view) != 3) return NO;
     if (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption |
                                NSEventModifierFlagCommand | NSEventModifierFlagShift))
         return NO;
@@ -1529,7 +1541,7 @@ static NSImage *MSIMECandidateLogoImage() {
         if (!candidates.count) return NO;
         // Let Space reach the Engine's commit when the only row is the raw-text Fallback.
         NSDictionary *first = [candidates.firstObject isKindOfClass:NSDictionary.class] ? candidates.firstObject : nil;
-        const int firstSource = [first[@"source"] isKindOfClass:NSNumber.class] ? [first[@"source"] intValue] : -1;
+        const int firstSource = (int)MSIMEStrictInteger(first[@"source"], -1);
         if (msime::mac::JapaneseSpaceCommitsFallback(candidates.count, firstSource)) return NO;
         if (!_japaneseConversionIndex) {
             // The first press is the conversion itself. The panel already highlights the first
@@ -2847,7 +2859,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     const BOOL englishCandidateMode = [_view[@"dedicated_english"] boolValue] && !_appearance.englishMode;
     // 视图里的方案编号，按引擎顺序：quanpin、shuangpin、wubi、japanese、korean、cantonese、zhuyin、vietnamese、tibetan、stroke。
     NSArray<NSString *> *schemes = MSIMEInputSchemeNames();
-    const NSInteger index = [_view[@"scheme"] integerValue];
+    const NSInteger index = MSIMEViewScheme(_view);
     NSString *scheme = index >= 0 && index < (NSInteger)schemes.count ? schemes[index] : MSIMEEditionDefaultScheme();
     NSString *profile = _view[@"shuangpin_profile"];
     if (![profile isKindOfClass:NSString.class]) profile = _appearance.shuangpinProfile;
@@ -5548,7 +5560,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
     // the Engine spells with (expression mode's '-' and '.').
     const int physicalPageDirection = msime::mac::PhysicalCandidatePageDirection(event.keyCode);
     const BOOL japaneseMinusEqual = msime::mac::IsJapaneseMinusEqualKey(
-        [_view[@"scheme"] intValue], [_view[@"local_mode"] isEqual:@"temporary_japanese"],
+        MSIMEViewScheme(_view), [_view[@"local_mode"] isEqual:@"temporary_japanese"],
         event.keyCode, 0);
     const BOOL engineInputKey = ([_view[@"local_mode"] isEqual:@"unicode"] &&
         [event.charactersIgnoringModifiers isEqual:@"+"]) || MSIMESpellingSymbolString(_view, event.charactersIgnoringModifiers);
@@ -5586,7 +5598,7 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
             // In temporary Japanese mode '-' and '=' are composition input (the
             // Windows TSF path gives these keys to the engine as well). Do not
             // consume them as candidate paging shortcuts while the panel is up.
-            if (msime::mac::IsJapaneseMinusEqualKey([_view[@"scheme"] intValue],
+            if (msime::mac::IsJapaneseMinusEqualKey(MSIMEViewScheme(_view),
                                                      [_view[@"local_mode"] isEqual:@"temporary_japanese"],
                                                      event.keyCode, static_cast<char>(character))) {
                 // Fall through to the normal engine dispatch below.
@@ -6100,12 +6112,11 @@ static __weak MSIMEInputController *MSIMEMusicOwner;
 
 - (void)updateKeymapPanel {
     NSString *editing = MSIMEShuangpinKeymapEditingText(_view);
-    NSNumber *scheme = _view[@"scheme"];
     NSString *profile = _view[@"shuangpin_profile"];
     NSString *mode = _view[@"local_mode"];
     NSNumber *dedicatedEnglish = _view[@"dedicated_english"];
     if (!_session || !_activeClient || _appearance.englishMode ||
-        ![scheme isKindOfClass:NSNumber.class] || scheme.integerValue != 1 ||
+        MSIMEViewScheme(_view) != 1 ||
         ![mode isKindOfClass:NSString.class] || ![mode isEqualToString:@"none"] ||
         ![dedicatedEnglish isKindOfClass:NSNumber.class] || dedicatedEnglish.boolValue ||
         ![profile isKindOfClass:NSString.class] || profile.length == 0 ||

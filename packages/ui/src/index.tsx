@@ -119,6 +119,7 @@ import { useWindowState } from "./settings/use-window-state";
 import { useAppVersion } from "./settings/use-app-version";
 import { supportDiagnostics } from "./settings/support-diagnostics";
 import { useMountedRef } from "./settings/use-mounted-ref";
+import { useAsyncGeneration } from "./settings/use-async-generation";
 export {
   useProviderCredentials,
   type ProviderCredentialBusy,
@@ -2239,25 +2240,21 @@ function useCustomHelpcodeSchemas(
   reader: SettingsClient["listHelpcodeSchemas"],
 ): CustomHelpcodeSchema[] {
   const [schemas, setSchemas] = useState<CustomHelpcodeSchema[]>([]);
+  const generation = useAsyncGeneration(reader);
   useEffect(() => {
-    let active = true;
+    const current = generation.current;
     if (!reader) {
       setSchemas([]);
-      return () => {
-        active = false;
-      };
+      return;
     }
     void reader()
       .then((next) => {
-        if (active) setSchemas(next);
+        if (generation.current === current) setSchemas(next);
       })
       .catch(() => {
-        if (active) setSchemas([]);
+        if (generation.current === current) setSchemas([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [reader]);
+  }, [reader, generation]);
   return schemas;
 }
 
@@ -2267,12 +2264,16 @@ function useHelpcodePacks(
   inputPageOpen: boolean,
 ): HelpcodePackOption[] {
   const [packs, setPacks] = useState<HelpcodePackOption[]>([]);
+  const generation = useAsyncGeneration(catalog, inputPageOpen);
   useEffect(() => {
-    if (!catalog || !inputPageOpen) return;
-    let active = true;
+    if (!catalog || !inputPageOpen) {
+      setPacks([]);
+      return;
+    }
+    const current = generation.current;
     void catalog()
       .then((next) => {
-        if (!active) return;
+        if (generation.current !== current) return;
         setPacks(
           next.packages
             .filter((pack) => pack.kind === "helpcode")
@@ -2280,12 +2281,9 @@ function useHelpcodePacks(
         );
       })
       .catch(() => {
-        if (active) setPacks([]);
+        if (generation.current === current) setPacks([]);
       });
-    return () => {
-      active = false;
-    };
-  }, [catalog, inputPageOpen]);
+  }, [catalog, inputPageOpen, generation]);
   return packs;
 }
 
@@ -2681,9 +2679,9 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     setDraft,
     handwritingScheme: client.host?.edition?.default_scheme,
   });
-  // 每个平台都显示全部快捷模式的开关。macOS 以前以发布包只带 msime.db 和 english.db 为由隐藏 Emoji、颜文字和临时日语，但 others.db 早已在 resources/desktop-dictionary.lock.json 里并随包发布，隐藏开关只是藏起了能用的功能；同样依赖 english.db 的临时英文却一直显示，前后并不一致。
+  // 每个平台都显示全部快捷模式的开关。macOS 以前以发布包只带 msime-pinyin.db 和 msime-english.db 为由隐藏 Emoji、颜文字和临时日语，但 msime-others.db 早已在 resources/desktop-dictionary.lock.json 里并随包发布，隐藏开关只是藏起了能用的功能；同样依赖 msime-english.db 的临时英文却一直显示，前后并不一致。
   //
-  // 现在 macOS 发布包不再内置 dict_japanese.dat，改为按需下载（输入页「临时日语」开关下方提供下载）。缺资源的情况仍由运行时处理，而且比隐藏开关处理得更好：资源不在时运行时关闭对应模式（临时日语在日文词库下载前不可用），触发键照常输入大写字母而不是被吞掉。
+  // 现在 macOS 发布包不再内置 msime-japanese.dat，改为按需下载（输入页「临时日语」开关下方提供下载）。缺资源的情况仍由运行时处理，而且比隐藏开关处理得更好：资源不在时运行时关闭对应模式（临时日语在日文词库下载前不可用），触发键照常输入大写字母而不是被吞掉。
   const clipboardHistory = clipboardHistoryEnabled(iosPlatform, draft);
   const toggleClipboardHistory = useClipboardHistoryToggle({
     draft,

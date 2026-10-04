@@ -8,7 +8,7 @@
  ],
  "fixture": {
   "databases": {
-   "msime.db": "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 100)"
+   "msime-pinyin.db": "CREATE TABLE tbl_2_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);INSERT INTO tbl_2_n VALUES('ni''hao', 'nh', '你好', 100)"
   }
  },
  "options": {},

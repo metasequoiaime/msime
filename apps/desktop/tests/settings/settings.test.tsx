@@ -1767,6 +1767,38 @@ test("the 输入 page offers installed helpcode packs as helpcode schemes", asyn
   expect(within(shuangpin).getByRole("option", { name: "部首码（插件）" })).toBeTruthy();
 });
 
+test("clears helpcode packs when the active host has no plugin catalog", async () => {
+  const catalog = vi.fn().mockResolvedValue({
+    packages: [{ id: "radicals", kind: "helpcode", name: "部首码" }],
+    issues: [],
+  });
+  const withPlugins: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    plugins: {
+      catalog,
+      importPack: vi.fn(),
+      remove: vi.fn(),
+      loadMentions: vi.fn().mockResolvedValue([]),
+      saveMentions: vi.fn(),
+    } as never,
+  };
+  const withoutPlugins: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+  };
+  const view = render(<SettingsPage initialPage="input" client={withPlugins} />);
+  const quanpin = (await view.findByRole("combobox", {
+    name: "全拼辅助码方案",
+  })) as HTMLSelectElement;
+  await waitFor(() => expect(within(quanpin).getByRole("option", { name: "部首码（插件）" })));
+
+  view.rerender(<SettingsPage initialPage="input" client={withoutPlugins} />);
+  await waitFor(() =>
+    expect(within(quanpin).queryByRole("option", { name: "部首码（插件）" })).toBeNull(),
+  );
+});
+
 test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
   await settingsReady();
@@ -2392,7 +2424,7 @@ test("macOS offers every local mode switch, downloaded catalogs included", async
   expect(screen.getByRole("switch", { name: /^Unicode/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^超级简拼/ })).toBeDefined();
   expect(screen.getByRole("switch", { name: /^临时英文/ })).toBeDefined();
-  // others.db 随 macOS 发布包内置，Emoji 和颜文字一直可用；dict_japanese.dat 改为按需下载，临时日语的开关照常显示，词库下载前由运行时关闭这个模式，输入页另有下载入口。同样依赖 english.db 的临时英文从未隐藏过。
+  // msime-others.db 随 macOS 发布包内置，Emoji 和颜文字一直可用；msime-japanese.dat 改为按需下载，临时日语的开关照常显示，词库下载前由运行时关闭这个模式，输入页另有下载入口。同样依赖 msime-english.db 的临时英文从未隐藏过。
   expect(screen.getByRole("switch", { name: /^Emoji/ })).toBeDefined();
   // 颜文字混输 sits on the same page under 候选与联想, so match the local mode alone.
   expect(screen.getByRole("switch", { name: /^颜文字(?!混输)/ })).toBeDefined();

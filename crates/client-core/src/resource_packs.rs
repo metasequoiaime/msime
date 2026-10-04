@@ -18,7 +18,7 @@ const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.l
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
 
-/// 读语言词库包里 `<方案>.db` 的输入方案，即偏好里的方案名。
+/// 读语言词库包里 `msime-<方案>.db` 的输入方案，即偏好里的方案名。
 const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -55,7 +55,7 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
     }
 
-    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
+    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `msime-<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
     pub fn schemes(self) -> &'static [&'static str] {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
@@ -65,7 +65,7 @@ impl ResourcePack {
                 LANGUAGE_DICTIONARY_SCHEMES
                     .into_iter()
                     .filter(|scheme| {
-                        let file = format!("{scheme}.db");
+                        let file = format!("msime-{scheme}.db");
                         pinned.iter().any(|artifact| artifact.name == file)
                     })
                     .collect()
@@ -282,7 +282,7 @@ mod tests {
             .set()
             .artifacts
             .iter()
-            .filter_map(|artifact| artifact.name.strip_suffix(".db"))
+            .filter_map(|artifact| artifact.name.strip_prefix("msime-")?.strip_suffix(".db"))
             .collect();
         assert_eq!(ResourcePack::LanguageDictionaries.schemes(), pinned);
         assert!(pinned.contains(&"cantonese") && pinned.contains(&"zhuyin"));
@@ -328,26 +328,30 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let pack = ResourcePack::Japanese;
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
         let directory = publish_fake(state.path(), pack);
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
-            Some(directory.join("dict_japanese.dat"))
+            installed_file(state.path(), pack, "msime-japanese.dat"),
+            Some(directory.join("msime-japanese.dat"))
         );
         // 不属于该资源包的名字，即便文件存在也不认。
-        fs::write(directory.join("msime.db"), b"bytes").unwrap();
-        assert_eq!(installed_file(state.path(), pack, "msime.db"), None);
+        fs::write(directory.join("msime-pinyin.db"), b"bytes").unwrap();
+        assert_eq!(installed_file(state.path(), pack, "msime-pinyin.db"), None);
         assert_eq!(installed_file(state.path(), pack, MANIFEST_FILE), None);
         assert_eq!(
-            installed_file(state.path(), ResourcePack::Handwriting, "dict_japanese.dat"),
+            installed_file(
+                state.path(),
+                ResourcePack::Handwriting,
+                "msime-japanese.dat"
+            ),
             None
         );
         // 没有 msime-model.json 的目录不算安装完整。
         fs::remove_file(directory.join(MANIFEST_FILE)).unwrap();
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
     }
@@ -368,7 +372,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            installed_file(state.path(), pack, "dict_japanese.dat"),
+            installed_file(state.path(), pack, "msime-japanese.dat"),
             None
         );
     }
@@ -380,10 +384,10 @@ mod tests {
             .join(".staging-japanese-abc")
             .join("model");
         fs::create_dir_all(&staging).unwrap();
-        fs::write(staging.join("dict_japanese.dat"), b"bytes").unwrap();
+        fs::write(staging.join("msime-japanese.dat"), b"bytes").unwrap();
         fs::write(staging.join(MANIFEST_FILE), b"{}").unwrap();
         assert_eq!(
-            installed_file(state.path(), ResourcePack::Japanese, "dict_japanese.dat"),
+            installed_file(state.path(), ResourcePack::Japanese, "msime-japanese.dat"),
             None
         );
     }
@@ -400,21 +404,27 @@ mod tests {
         let external = publish_fake(outside.path(), pack);
         fs::create_dir_all(root(state.path())).unwrap();
         symlink(&external, root(state.path()).join(pack.id())).unwrap();
-        assert_eq!(installed_file(state.path(), pack, "cantonese.db"), None);
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-cantonese.db"),
+            None
+        );
         fs::remove_file(root(state.path()).join(pack.id())).unwrap();
 
         // 资源包里的文件是符号链接。
         let directory = publish_fake(state.path(), pack);
-        fs::remove_file(directory.join("cantonese.db")).unwrap();
+        fs::remove_file(directory.join("msime-cantonese.db")).unwrap();
         symlink(
-            external.join("cantonese.db"),
-            directory.join("cantonese.db"),
+            external.join("msime-cantonese.db"),
+            directory.join("msime-cantonese.db"),
         )
         .unwrap();
-        assert_eq!(installed_file(state.path(), pack, "cantonese.db"), None);
         assert_eq!(
-            installed_file(state.path(), pack, "zhuyin.db"),
-            Some(directory.join("zhuyin.db"))
+            installed_file(state.path(), pack, "msime-cantonese.db"),
+            None
+        );
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-zhuyin.db"),
+            Some(directory.join("msime-zhuyin.db"))
         );
 
         // 资源包父目录是符号链接时，也不能把外部文件当作已安装资源。
@@ -422,7 +432,7 @@ mod tests {
         let linked_root = root(linked_state.path());
         symlink(root(outside.path()), &linked_root).unwrap();
         assert_eq!(
-            installed_file(linked_state.path(), pack, "cantonese.db"),
+            installed_file(linked_state.path(), pack, "msime-cantonese.db"),
             None
         );
         assert!(list(linked_state.path())
@@ -468,10 +478,11 @@ mod tests {
         );
     }
 
-    /// 资源包只从本项目的固定发布地址下载：GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
+    /// 资源包只从本项目的固定发布地址下载：msime-dictionary 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
     #[test]
     fn every_url_is_immutable() {
-        const RELEASE: &str = "https://github.com/metasequoiaime/msime/releases/download/";
+        const RELEASE: &str =
+            "https://github.com/metasequoiaime/msime-dictionary/releases/download/";
         const ENGINE: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-engine/";
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {

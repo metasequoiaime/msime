@@ -19,5 +19,9 @@ public final class KeyboardGeometryStrictIntSmoke {
             if (KeyboardGeometry.strictInt(values, key, -1) != -1)
                 throw new AssertionError("malformed geometry value accepted: " + key);
         }
+        if (KeyboardGeometry.strictLong(Long.MAX_VALUE - 1, -1) != Long.MAX_VALUE - 1)
+            throw new AssertionError("large exact long was rounded");
+        if (KeyboardGeometry.strictLong(9.223372036854776E18, -1) != -1)
+            throw new AssertionError("rounded double was accepted as a long");
     }
 }

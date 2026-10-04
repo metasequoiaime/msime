@@ -3,17 +3,23 @@
 //! ```text
 //! msime-dict-build --cache <dir> --out <dir>                 every stage, then the manifest
 //! msime-dict-build --cache <dir> --out <dir> --skip ngram    a quick local build without the corpus pass
+//! msime-dict-build --cache <dir> --out <dir> --dictionary <msime-dictionary checkout>
 //! msime-dict-build --list
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
+//! msime-dict-build places-supplement --cache <dir> --out <places.txt> [--offline]
+//! msime-dict-build english-supplement --cache <dir> --out <scowl-words.txt> [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
-//! msime-dict-build languages --cache <dir> [--out <dir>] [--offline]
-//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime.db>] [--english-db <english.db>] [--json <report.json>] [--markdown <summary.md>]
+//! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
+//! msime-dict-build languages --cache <dir> [--out <dir>] [--offline] [--dictionary <msime-dictionary checkout>]
+//! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
 mod cantonese;
 mod check_words;
 mod english;
+mod english_supplement;
 mod hanja;
+mod hkcancor;
 mod japanese;
 mod languages;
 mod licensing;
@@ -22,6 +28,7 @@ mod ngram;
 mod others;
 mod pinyin;
 mod places;
+mod places_supplement;
 mod product;
 mod sources;
 mod sqlite;
@@ -29,6 +36,7 @@ mod stroke;
 mod text;
 mod zhuyin;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -39,38 +47,44 @@ use crate::sources::{Lock, Sources};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Stage {
-    /// Quanpin tables in msime.db (tbl_{1..7,others}_{initial})
+    /// Quanpin tables in msime-pinyin.db (tbl_{1..7,others}_{initial})
     Quanpin,
+    /// sources/pinyin/places.txt (pinned from msime-dictionary) merged into the quanpin tables, raising weights only
+    PlacesSupplement,
     /// custom/words.txt (pinned from msime-dictionary) merged into the quanpin tables
     CustomWords,
-    /// 86 wubi table in msime.db
+    /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
+    ReadingCorrections,
+    /// 86 wubi table in msime-pinyin.db
     Wubi,
-    /// 98 wubi table in msime.db
+    /// 98 wubi table in msime-pinyin.db
     Wubi98,
-    /// Quick phrase table in msime.db, then msime.db's planner statistics
+    /// Quick phrase table in msime-pinyin.db, then msime-pinyin.db's planner statistics
     QuickPhrases,
-    /// english_words table in english.db, plus custom/english.txt (pinned from msime-dictionary)
+    /// english_words table in msime-english.db from the rime-ice word lists and sources/english/scowl-words.txt, plus custom/english.txt (pinned from msime-dictionary)
     English,
-    /// Bidirectional gloss tables in english.db, derived from ECDICT (reads msime.db)
+    /// Bidirectional gloss tables in msime-english.db, derived from ECDICT (reads msime-pinyin.db)
     EnglishGlosses,
     /// custom/translations.txt (pinned from msime-dictionary) over the gloss tables
     CustomTranslations,
-    /// emoji tables in others.db
+    /// emoji tables in msime-others.db
     Emoji,
-    /// kaomoji tables in others.db
+    /// kaomoji tables in msime-others.db
     Kaomoji,
-    /// symbol_catalog table in others.db
+    /// symbol_catalog table in msime-others.db
     Symbols,
-    /// dict_japanese.dat from Mozc OSS data, plus its notice
+    /// msime-japanese.dat from Mozc OSS data, plus its notice
     JapaneseModel,
-    /// bigram.bin and trigram.bin over the pinned zhwiki dump (reads msime.db)
+    /// msime-bigram.bin and msime-trigram.bin over the pinned zhwiki dump (reads msime-pinyin.db)
     Ngram,
 }
 
 /// Build order: later stages read what earlier ones wrote (glosses are weighted by the quanpin tables, the n-gram vocabulary is the finished quanpin tables).
-const STAGES: [Stage; 13] = [
+const STAGES: [Stage; 15] = [
     Stage::Quanpin,
+    Stage::PlacesSupplement,
     Stage::CustomWords,
+    Stage::ReadingCorrections,
     Stage::Wubi,
     Stage::Wubi98,
     Stage::QuickPhrases,
@@ -121,6 +135,9 @@ struct Arguments {
     /// The msime checkout the manifest's provenance is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files, and the HKCanCor counts and SCOWL supplement generated from upstream commits the lock records) must still match the lock.
+    #[arg(long, value_name = "PATH")]
+    dictionary: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -129,9 +146,15 @@ enum Command {
     CheckWords(CheckWords),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
-    /// 从 sources lock 固定的 libhangul `ko/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
+    /// Write msime-dictionary's sources/pinyin/places.txt: the administrative place names (full and short) the pinned pinyin sources lack or rank below their level's floor, from the divisions pinned under places/.
+    PlacesSupplement(PlacesSupplement),
+    /// Write msime-dictionary's sources/english/scowl-words.txt: the words of SCOWL's size-60 Aspell dictionary (American plus British -ise spellings, pinned under scowl/) that the pinned rime-ice word lists (entries and commented-out entries) and custom/english.txt lack, less slurs, capitalised-only names spelling a pinyin key and words without a Google count (see english_supplement.rs).
+    EnglishSupplement(EnglishSupplement),
+    /// 从 sources lock 固定的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
-    /// Write the dictionaries that ship beside the resource set (cantonese.db, zhuyin.db, stroke.db) with their licence texts and checksums, from the sources pinned under yue/ and tw/ in the sources lock, rime-stroke's stroke.dict.yaml under stroke/ in the cache (checked against the commit stroke.rs records until the lock pins it) and the pinned cn/SingleCharsAllV1.txt frequencies.
+    /// Write msime-dictionary's sources/cantonese/hkcancor-word-counts.txt: how often each word of two or more Han characters occurs in the HKCanCor transcriptions pinned under hkcancor/ in the sources lock.
+    HkcancorCounts(HkcancorCounts),
+    /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under sources/cantonese/ and sources/zhuyin/ in the sources lock, rime-stroke's stroke.dict.yaml pinned at sources/stroke/stroke.dict.yaml in the sources lock (stroke.rs's recorded commit, size and SHA-256 only check a file placed in the cache when the lock has no such entry) and the pinned sources/pinyin/single-chars.txt frequencies.
     Languages(Languages),
 }
 
@@ -158,6 +181,7 @@ fn build_places(arguments: &Places) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: None,
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let places = places::build(
@@ -169,6 +193,203 @@ fn build_places(arguments: &Places) -> Result<()> {
     eprintln!(
         "[done] {} places -> {}",
         places.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct PlacesSupplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/pinyin/places.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: None,
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let (provinces, cities, areas) = (
+        read(places::PROVINCES)?,
+        read(places::CITIES)?,
+        read(places::AREAS)?,
+    );
+    let (single_chars, base, rime_ice_supplement) = (
+        read(places_supplement::SINGLE_CHARS)?,
+        read(places_supplement::BASE)?,
+        read(places_supplement::RIME_ICE_SUPPLEMENT)?,
+    );
+    let supplement = places_supplement::build(&places_supplement::Inputs {
+        provinces: &provinces,
+        cities: &cities,
+        areas: &areas,
+        single_chars: &single_chars,
+        base: &base,
+        rime_ice_supplement: &rime_ice_supplement,
+    })?;
+    let pinned = |path: &str| {
+        sources
+            .lock
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .with_context(|| format!("{path} is not pinned in the sources lock"))
+    };
+    // The places URLs name the upstream commit: .../Administrative-divisions-of-China/<commit>/dist/areas.csv.
+    let areas_url = &pinned(places::AREAS)?.url;
+    let upstream_commit = areas_url
+        .split('/')
+        .find(|segment| segment.len() == 40 && segment.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .with_context(|| format!("{areas_url} names no commit"))?;
+    let compared = [
+        (
+            places_supplement::BASE,
+            pinned(places_supplement::BASE)?.sha256.as_str(),
+        ),
+        (
+            places_supplement::RIME_ICE_SUPPLEMENT,
+            pinned(places_supplement::RIME_ICE_SUPPLEMENT)?
+                .sha256
+                .as_str(),
+        ),
+    ];
+    let rendered = places_supplement::render(
+        &supplement,
+        &places_supplement::Provenance {
+            upstream_commit,
+            compared: &compared,
+            single_chars: (
+                places_supplement::SINGLE_CHARS,
+                pinned(places_supplement::SINGLE_CHARS)?.sha256.as_str(),
+            ),
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in places_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    let inserted = supplement
+        .entries
+        .iter()
+        .filter(|entry| entry.existing.is_none())
+        .count();
+    eprintln!(
+        "[done] {} entries ({inserted} new, {} raised; {} already ranked or at their floor) -> {}",
+        supplement.entries.len(),
+        supplement.entries.len() - inserted,
+        supplement.already_ranked,
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct EnglishSupplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/english/scowl-words.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: None,
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let [rime_ice_en, rime_ice_en_supplement, custom_english] = english_supplement::COMPARED;
+    let pinyin = english_supplement::PINYIN
+        .iter()
+        .map(|path| read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let filters = english_supplement::Filters {
+        compared: english_supplement::compared_words(
+            &read(rime_ice_en)?,
+            &read(rime_ice_en_supplement)?,
+            &read(custom_english)?,
+        )?,
+        pinyin_keys: english_supplement::pinyin_keys(
+            &pinyin.iter().map(String::as_str).collect::<Vec<_>>(),
+        ),
+        counts: english::parse_google_counts(&read(english_supplement::COUNTS)?),
+    };
+    let archive = std::fs::read(sources.pinned(english_supplement::ARCHIVE)?)?;
+    let package = english_supplement::read_package(&archive)?;
+    let supplement = english_supplement::build(&package, &filters)?;
+    let pinned = |path: &str| {
+        sources
+            .lock
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .with_context(|| format!("{path} is not pinned in the sources lock"))
+    };
+    let archive_file = pinned(english_supplement::ARCHIVE)?;
+    let upstream = sources
+        .lock
+        .references
+        .get(english_supplement::REFERENCE)
+        .with_context(|| {
+            format!(
+                "{} is not a reference in the sources lock",
+                english_supplement::REFERENCE
+            )
+        })?;
+    let with_sha256 = |paths: &[&'static str]| {
+        paths
+            .iter()
+            .map(|path| Ok((*path, pinned(path)?.sha256.as_str())))
+            .collect::<Result<Vec<_>>>()
+    };
+    let compared_files = with_sha256(&english_supplement::COMPARED)?;
+    let pinyin_files = with_sha256(&english_supplement::PINYIN)?;
+    let rendered = english_supplement::render(
+        &supplement,
+        &english_supplement::Provenance {
+            archive_url: &archive_file.url,
+            archive_sha256: &archive_file.sha256,
+            upstream_commit: &upstream.commit,
+            compared: &compared_files,
+            pinyin: &pinyin_files,
+            counts_sha256: &pinned(english_supplement::COUNTS)?.sha256,
+        },
+    )?;
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in english_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    eprintln!(
+        "[done] {} words -> {}",
+        supplement.words.len(),
         arguments.out.display()
     );
     Ok(())
@@ -197,6 +418,7 @@ fn build_hanja(arguments: &Hanja) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: None,
     };
     let readings = hanja::build(&text::read(&sources.pinned(hanja::SOURCE)?)?)?;
     hanja::write(&readings, &arguments.out)?;
@@ -208,6 +430,77 @@ fn build_hanja(arguments: &Hanja) -> Result<()> {
     eprintln!(
         "[done] {} readings of {syllables} syllables -> {}",
         readings.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct HkcancorCounts {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The table to write (msime-dictionary's sources/cantonese/hkcancor-word-counts.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_hkcancor_counts(arguments: &HkcancorCounts) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: None,
+    };
+    let upstream_commit = sources
+        .lock
+        .references
+        .get(hkcancor::REFERENCE)
+        .with_context(|| format!("{} is not pinned in the sources lock", hkcancor::REFERENCE))?
+        .commit
+        .clone();
+    let mut texts = Vec::new();
+    for file in sources
+        .lock
+        .files
+        .iter()
+        .filter(|file| file.path.starts_with(hkcancor::PREFIX))
+    {
+        texts.push((file.path.clone(), text::read(&sources.pinned(&file.path)?)?));
+    }
+    if texts.is_empty() {
+        bail!(
+            "no file is pinned under {} in the sources lock",
+            hkcancor::PREFIX
+        );
+    }
+    let files: Vec<(&str, &str)> = texts
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    let counts = hkcancor::count(&files)?;
+    let rendered = hkcancor::render(
+        &counts,
+        &hkcancor::Provenance {
+            upstream_commit: &upstream_commit,
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    eprintln!(
+        "[done] {} words from {} tokens of {} files ({} lines skipped) -> {}",
+        counts.words.len(),
+        counts.tokens,
+        counts.files,
+        counts.skipped,
         arguments.out.display()
     );
     Ok(())
@@ -227,6 +520,9 @@ struct Languages {
     /// The msime checkout the sources lock and licence texts are read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files, and the HKCanCor counts and SCOWL supplement generated from upstream commits the lock records) must still match the lock.
+    #[arg(long, value_name = "PATH")]
+    dictionary: Option<PathBuf>,
 }
 
 fn build_languages(arguments: &Languages) -> Result<()> {
@@ -236,6 +532,7 @@ fn build_languages(arguments: &Languages) -> Result<()> {
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
+        dictionary: arguments.dictionary.clone(),
     };
     for summary in languages::build(&sources, &root.join("resources/licenses"), &arguments.out)? {
         eprintln!("[done] {summary}");
@@ -274,10 +571,10 @@ struct CheckWords {
     /// custom/english.txt after the change.
     #[arg(long, requires = "english_base")]
     english_head: Option<PathBuf>,
-    /// A shipped msime.db; appended words already in its quanpin tables are rejected.
+    /// A shipped msime-pinyin.db; appended words already in its quanpin tables are rejected.
     #[arg(long)]
     msime_db: Option<PathBuf>,
-    /// A shipped english.db; appended English words whose word and display are already in its english_words are rejected.
+    /// A shipped msime-english.db; appended English words whose word and display are already in its english_words are rejected.
     #[arg(long)]
     english_db: Option<PathBuf>,
     /// Where the JSON report is written.
@@ -359,10 +656,25 @@ impl Build {
         pinyin::Pinyin::with_overrides(&text::read(&self.sources.repository(pinyin::OVERRIDES)?)?)
     }
 
+    /// The OALDPE headwords the English stage adds, empty unless the build includes unlicensed inputs.
+    fn oaldpe_words(&self) -> Result<std::collections::BTreeSet<String>> {
+        if !self.complete {
+            return Ok(Default::default());
+        }
+        english::parse_oaldpe_words(&text::read(&self.sources.pinned(licensing::OALDPE_WORDS)?)?)
+    }
+
+    fn scowl_words(&self) -> Result<english::EnglishWords> {
+        english::parse_word_list(
+            &text::read(&self.sources.pinned(english_supplement::OUTPUT)?)?,
+            english_supplement::OUTPUT,
+        )
+    }
+
     fn run(&self, stage: Stage) -> Result<String> {
         match stage {
             Stage::Quanpin => {
-                let single_chars = self.sources.pinned("cn/SingleCharsAllV1.txt")?;
+                let single_chars = self.sources.pinned("sources/pinyin/single-chars.txt")?;
                 let (phrases, whitelist) = if self.complete {
                     let mut whitelist = msime::parse_whitelist(&text::read(
                         &self.sources.pinned(licensing::SINGLE_CHAR_WHITELIST)?,
@@ -379,9 +691,14 @@ impl Build {
                     )
                 } else {
                     // Without a provenance record the whitelist cannot be applied, so every single character of the licensed source is accepted.
-                    (vec![self.sources.pinned("cn/BaseDictIceV1.txt")?], None)
+                    (
+                        vec![self.sources.pinned("sources/pinyin/rime-ice.txt")?],
+                        None,
+                    )
                 };
-                let supplement = self.sources.pinned("cn/RimeIceSupplementV1.txt")?;
+                let supplement = self
+                    .sources
+                    .pinned("sources/pinyin/rime-ice-supplement.txt")?;
                 let mut phrases = phrases;
                 phrases.push(supplement);
                 let inputs = msime::QuanpinInputs {
@@ -389,14 +706,16 @@ impl Build {
                     whitelist,
                     phrases: phrases.iter().map(PathBuf::as_path).collect(),
                 };
-                let rows = msime::build_quanpin(&mut self.database("msime.db")?, &inputs)?;
+                let rows = msime::build_quanpin(&mut self.database("msime-pinyin.db")?, &inputs)?;
                 Ok(format!("{rows} rows"))
             }
-            Stage::CustomWords => {
-                let words = msime::parse_custom_words(&text::read(
-                    &self.sources.pinned("custom/words.txt")?,
-                )?)?;
-                let counts = msime::apply_custom_words(&mut self.database("msime.db")?, &words)?;
+            Stage::PlacesSupplement => {
+                let words = msime::parse_word_list(
+                    &text::read(&self.sources.pinned(places_supplement::OUTPUT)?)?,
+                    places_supplement::OUTPUT,
+                )?;
+                let counts =
+                    msime::apply_custom_words(&mut self.database("msime-pinyin.db")?, &words)?;
                 Ok(format!(
                     "{} entries: {} inserted, {} promoted, {} already at or above their weight",
                     words.len(),
@@ -405,18 +724,42 @@ impl Build {
                     counts.unchanged
                 ))
             }
+            Stage::CustomWords => {
+                let words = msime::parse_custom_words(&text::read(
+                    &self.sources.pinned("custom/words.txt")?,
+                )?)?;
+                let counts =
+                    msime::apply_custom_words(&mut self.database("msime-pinyin.db")?, &words)?;
+                Ok(format!(
+                    "{} entries: {} inserted, {} promoted, {} already at or above their weight",
+                    words.len(),
+                    counts.inserted,
+                    counts.promoted,
+                    counts.unchanged
+                ))
+            }
+            Stage::ReadingCorrections => {
+                let entries = msime::parse_reading_corrections(&text::read(
+                    &self.sources.repository(msime::READING_CORRECTIONS)?,
+                )?)?;
+                let removed = msime::apply_reading_corrections(
+                    &mut self.database("msime-pinyin.db")?,
+                    &entries,
+                )?;
+                Ok(format!("{} entries: {removed} rows removed", entries.len()))
+            }
             Stage::Wubi => {
                 let (imported, skipped) = msime::build_wubi(
-                    &mut self.database("msime.db")?,
-                    &self.sources.pinned("cn/Wubi86.txt")?,
+                    &mut self.database("msime-pinyin.db")?,
+                    &self.sources.pinned("sources/wubi/wubi86-jidian.txt")?,
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
             Stage::Wubi98 => {
-                let supplement = self.sources.pinned("cn/Wubi98Fcitx.txt")?;
+                let supplement = self.sources.pinned("sources/wubi/wubi98-fcitx.txt")?;
                 let (imported, skipped) = msime::build_wubi98_sources(
-                    &mut self.database("msime.db")?,
-                    &self.sources.pinned("cn/Wubi98.txt")?,
+                    &mut self.database("msime-pinyin.db")?,
+                    &self.sources.pinned("sources/wubi/wubi98.txt")?,
                     &[supplement.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
@@ -424,62 +767,84 @@ impl Build {
             Stage::QuickPhrases => {
                 let path = self.sources.repository("mix/quick_phrases.txt")?;
                 let (imported, skipped) =
-                    msime::build_quick_phrases(&mut self.database("msime.db")?, &path)?;
+                    msime::build_quick_phrases(&mut self.database("msime-pinyin.db")?, &path)?;
                 Ok(format!(
                     "{imported} rows imported, {skipped} blank, comment or invalid lines"
                 ))
             }
             Stage::English => {
-                let oaldpe = if self.complete {
-                    english::parse_oaldpe_words(&text::read(
-                        &self.sources.pinned(licensing::OALDPE_WORDS)?,
-                    )?)?
-                } else {
-                    Default::default()
-                };
+                let oaldpe = self.oaldpe_words()?;
                 let mut base = english::parse_base_dict_words(&text::read(
-                    &self.sources.pinned("en/BaseDictIceEn.txt")?,
+                    &self.sources.pinned("sources/english/rime-ice-en.txt")?,
                 )?)?;
                 let supplement = english::parse_base_dict_words(&text::read(
-                    &self.sources.pinned("en/RimeIceEnglishSupplementV1.txt")?,
+                    &self
+                        .sources
+                        .pinned("sources/english/rime-ice-en-supplement.txt")?,
                 )?)?;
-                let supplement_added = supplement
-                    .keys()
-                    .filter(|word| !base.contains_key(*word))
-                    .count();
-                base.extend(supplement);
+                let supplement_added = english::merge_words(&mut base, supplement);
+                let scowl_added = english::merge_words(&mut base, self.scowl_words()?);
+                // SCOWL's spelling dictionary decides which casing of a word leads (see english::leading_display).
+                let attested = english_supplement::letter_forms(&english_supplement::read_package(
+                    &std::fs::read(self.sources.pinned(english_supplement::ARCHIVE)?)?,
+                )?);
                 let counts = english::parse_google_counts(&text::read(
-                    &self.sources.pinned("en/google_count_1_w.txt")?,
+                    &self
+                        .sources
+                        .pinned("sources/english/google-word-counts.txt")?,
                 )?);
                 let custom = english::parse_custom_english(&text::read(
                     &self.sources.pinned(english::CUSTOM_ENGLISH)?,
                 )?)?;
+                let mut database = self.database("msime-english.db")?;
                 let rows = english::build_english_words(
-                    &mut self.database("english.db")?,
+                    &mut database,
                     &oaldpe,
                     &base,
                     &counts,
+                    &attested,
                     &custom,
                 )?;
+                english::write_notices(
+                    &mut database,
+                    &[(
+                        english_supplement::NOTICE_SOURCE,
+                        english_supplement::COPYRIGHT,
+                    )],
+                )?;
+                std::fs::write(
+                    self.out.join(english_supplement::NOTICE_NAME),
+                    english_supplement::COPYRIGHT,
+                )?;
                 Ok(format!(
-                    "{} words ({} from rime-ice supplement), {} custom rows: {} added, {} replacing a base row",
+                    "{} words in {} rows ({} from rime-ice supplement, {} from SCOWL), {} custom rows: {} added, {} replacing a base row",
                     rows.base,
+                    rows.base_rows,
                     supplement_added,
+                    scowl_added,
                     custom.len(),
                     rows.custom_added,
                     rows.custom_replaced
                 ))
             }
             Stage::EnglishGlosses => {
-                let msime_path = self.out.join("msime.db");
+                let msime_path = self.out.join("msime-pinyin.db");
                 if !msime_path.is_file() {
-                    bail!("english-glosses weights Chinese terms by msime.db; build quanpin first");
+                    bail!("english-glosses weights Chinese terms by msime-pinyin.db; build quanpin first");
                 }
-                let mut english_db = self.database("english.db")?;
+                // The words only SCOWL brings (scowl-words.txt lacks every rime-ice and custom word; OALDPE headwords were candidates before SCOWL too) stay out of the Chinese-to-English index.
+                let oaldpe = self.oaldpe_words()?;
+                let reverse_excluded: HashSet<String> = self
+                    .scowl_words()?
+                    .into_keys()
+                    .filter(|word| !oaldpe.contains(word))
+                    .collect();
+                let mut english_db = self.database("msime-english.db")?;
                 let glosses = english::derive_glosses(
                     &self.sources.pinned("ecdict/ecdict.csv")?,
                     &english_db,
                     &sqlite::open(&msime_path)?,
+                    &reverse_excluded,
                 )?;
                 english::write_glosses(&mut english_db, &glosses)?;
                 Ok(format!(
@@ -492,7 +857,10 @@ impl Build {
                 let entries = english::parse_custom_translations(&text::read(
                     &self.sources.pinned(english::CUSTOM_TRANSLATIONS)?,
                 )?)?;
-                english::apply_custom_translations(&mut self.database("english.db")?, &entries)?;
+                english::apply_custom_translations(
+                    &mut self.database("msime-english.db")?,
+                    &entries,
+                )?;
                 Ok(format!("{} overrides", entries.len()))
             }
             Stage::Emoji => {
@@ -507,7 +875,7 @@ impl Build {
                 )?)?;
                 let (rows, keys) = others::emoji_rows(&self.pinyin()?, &catalog, &zh, &en);
                 let pinyin_rows =
-                    others::build_emoji(&mut self.database("others.db")?, &rows, &keys)?;
+                    others::build_emoji(&mut self.database("msime-others.db")?, &rows, &keys)?;
                 Ok(format!("{} emoji, {pinyin_rows} search keys", rows.len()))
             }
             Stage::Kaomoji => {
@@ -515,7 +883,7 @@ impl Build {
                     &self.sources.repository("kaomoji/kaomoji.txt")?,
                 )?)?;
                 let (rows, entries) = others::build_kaomoji(
-                    &mut self.database("others.db")?,
+                    &mut self.database("msime-others.db")?,
                     &self.pinyin()?,
                     &mapping,
                 )?;
@@ -526,7 +894,7 @@ impl Build {
                     &self.sources.repository("symbols/piliapp_symbols.txt")?,
                 )?);
                 let rows = others::symbol_rows(&self.pinyin()?, &categories)?;
-                others::build_symbols(&mut self.database("others.db")?, &rows)?;
+                others::build_symbols(&mut self.database("msime-others.db")?, &rows)?;
                 Ok(format!("{} symbols", rows.len()))
             }
             Stage::JapaneseModel => {
@@ -534,25 +902,50 @@ impl Build {
                 for name in japanese::DICTIONARY_FILES {
                     dictionaries.push((name, text::read(&self.sources.pinned(name)?)?));
                 }
-                let tokens = japanese::read_tokens(&dictionaries)?;
+                let id_def = text::read(&self.sources.pinned(japanese::ID_DEF)?)?;
+                let mut word_lists = Vec::new();
+                for name in japanese::MANUAL_WORDS {
+                    word_lists.push((name, text::read(&self.sources.pinned(name)?)?));
+                }
+                let filter = japanese::DictionaryFilter::parse(
+                    japanese::DICTIONARY_FILTER,
+                    &text::read(&self.sources.pinned(japanese::DICTIONARY_FILTER)?)?,
+                )?;
+                let (tokens, added, filtered) = japanese::system_tokens(
+                    &dictionaries,
+                    &id_def,
+                    (
+                        japanese::AUX_DICTIONARY,
+                        &text::read(&self.sources.pinned(japanese::AUX_DICTIONARY)?)?,
+                    ),
+                    &word_lists,
+                    &filter,
+                )?;
                 let (size, costs) = japanese::read_connection(
-                    &text::read(&self.sources.pinned(japanese::ID_DEF)?)?,
+                    &id_def,
                     &text::read(&self.sources.pinned(japanese::CONNECTION)?)?,
                 )?;
                 japanese::write_model(
-                    &self.out.join("dict_japanese.dat"),
+                    &self.out.join("msime-japanese.dat"),
                     &japanese::pack(&tokens, size, &costs)?,
                 )?;
                 std::fs::copy(
                     self.sources.pinned(japanese::NOTICE)?,
                     self.out.join(japanese::NOTICE_NAME),
                 )?;
-                Ok(format!("{} tokens, {size} context ids", tokens.len()))
+                std::fs::copy(
+                    self.sources.pinned(japanese::LICENSE)?,
+                    self.out.join(japanese::LICENSE_NAME),
+                )?;
+                Ok(format!(
+                    "{} tokens ({added} added from the aux dictionary and manual word lists, {filtered} base lines filtered), {size} context ids",
+                    tokens.len()
+                ))
             }
             Stage::Ngram => {
-                let msime_path = self.out.join("msime.db");
+                let msime_path = self.out.join("msime-pinyin.db");
                 if !msime_path.is_file() {
-                    bail!("ngram segments with msime.db's vocabulary; build quanpin first");
+                    bail!("ngram segments with msime-pinyin.db's vocabulary; build quanpin first");
                 }
                 let vocabulary = ngram::Vocabulary::load(&sqlite::open(&msime_path)?)?;
                 let corpus_file = self
@@ -565,11 +958,11 @@ impl Build {
                 let corpus = self.sources.pinned(&corpus_file.path)?;
                 let counts = ngram::count_corpus(&vocabulary, &corpus)?;
                 std::fs::write(
-                    self.out.join("trigram.bin"),
+                    self.out.join("msime-trigram.bin"),
                     ngram::pack(&vocabulary, &counts, 3)?,
                 )?;
                 std::fs::write(
-                    self.out.join("bigram.bin"),
+                    self.out.join("msime-bigram.bin"),
                     ngram::pack(&vocabulary, &counts, 2)?,
                 )?;
                 Ok(format!(
@@ -594,8 +987,17 @@ fn main() -> Result<()> {
     if let Some(Command::Places(places)) = &arguments.command {
         return build_places(places);
     }
+    if let Some(Command::PlacesSupplement(supplement)) = &arguments.command {
+        return build_places_supplement(supplement);
+    }
+    if let Some(Command::EnglishSupplement(supplement)) = &arguments.command {
+        return build_english_supplement(supplement);
+    }
     if let Some(Command::Hanja(hanja)) = &arguments.command {
         return build_hanja(hanja);
+    }
+    if let Some(Command::HkcancorCounts(counts)) = &arguments.command {
+        return build_hkcancor_counts(counts);
     }
     if let Some(Command::Languages(languages)) = &arguments.command {
         return build_languages(languages);
@@ -647,6 +1049,7 @@ fn main() -> Result<()> {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache,
             offline: arguments.offline,
+            dictionary: arguments.dictionary.clone(),
         },
         out,
         complete,
@@ -672,6 +1075,8 @@ fn main() -> Result<()> {
         );
     }
 
+    product::split_wubi_database(&build.out)?;
+
     for name in product::SHIPPING_ARTIFACTS
         .iter()
         .filter(|name| name.ends_with(".db"))
@@ -694,9 +1099,15 @@ fn main() -> Result<()> {
         return Ok(());
     }
     product::verify(&build.out, complete)?;
-    product::write_manifest(&build.out, root, &build.sources.lock, complete)?;
+    product::write_manifest(
+        &build.out,
+        root,
+        build.sources.dictionary.as_deref(),
+        &build.sources.lock,
+        complete,
+    )?;
     eprintln!(
-        "[product] verified; wrote {} and SHA256SUMS.txt",
+        "[product] verified; wrote {} and msime-SHA256SUMS.txt",
         product::MANIFEST
     );
     Ok(())

@@ -1,6 +1,6 @@
-//! `bigram.bin` / `trigram.bin` (MSNG v1, quanpin.md §12.1, data-formats.md §7). The files are copied into a generation through `<name>.incoming` and renamed into place, never written in place, so a table read once stays the table of that generation.
+//! `msime-bigram.bin` / `msime-trigram.bin` (MSNG v1, quanpin.md §12.1, data-formats.md §7). The files are copied into a generation through `<name>.incoming` and renamed into place, never written in place, so a table read once stays the table of that generation.
 //!
-//! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for bigram.bin/trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
+//! The table is mapped read-only, as ngram_table.cpp:108 did (MapViewOfFile on Windows, :131-133), so its pages are clean and file-backed: the system can evict them under memory pressure, which the iOS keyboard extension's limit needs, instead of holding two 12 MB tables of dirty heap per generation. The `unsafe` map (decisions.md: memmap2 for msime-bigram.bin/msime-trigram.bin; `japanese::decoder` and `handwriting::recognizer` map their packaged models the same way) rests on the generation contract above. Like the reference, a table stays mapped for the life of the process once loaded.
 
 use std::fs::File;
 use std::io::Read;
@@ -314,9 +314,9 @@ pub(super) mod tests {
     #[test]
     fn a_mapped_table_survives_a_rename_replacement() {
         let directory = tempfile::tempdir().unwrap();
-        let table = pair_table(directory.path(), "bigram.bin", &[("配置", "与", 2.5)]);
-        let path = directory.path().join("bigram.bin");
-        let incoming = directory.path().join("bigram.bin.incoming");
+        let table = pair_table(directory.path(), "msime-bigram.bin", &[("配置", "与", 2.5)]);
+        let path = directory.path().join("msime-bigram.bin");
+        let incoming = directory.path().join("msime-bigram.bin.incoming");
         write_table(
             &incoming,
             &sorted(vec![(hash_pair("配置", "与"), -2.0)]),

@@ -148,9 +148,9 @@ public final class KeyboardSchemeSmoke {
         check(languages.equals(List.of(KeyboardScheme.QUANPIN, KeyboardScheme.CANTONESE,
             KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
         // A scheme is offered only when its dictionary is in the recorded directory; Vietnamese needs none.
-        check(KeyboardScheme.CANTONESE.languageDictionary().equals("cantonese.db"));
-        check(KeyboardScheme.ZHUYIN.languageDictionary().equals("zhuyin.db"));
-        check(KeyboardScheme.STROKE.languageDictionary().equals("stroke.db"));
+        check(KeyboardScheme.CANTONESE.languageDictionary().equals("msime-cantonese.db"));
+        check(KeyboardScheme.ZHUYIN.languageDictionary().equals("msime-zhuyin.db"));
+        check(KeyboardScheme.STROKE.languageDictionary().equals("msime-stroke.db"));
         check(!KeyboardScheme.STROKE.installed("") && !KeyboardScheme.STROKE.installed(null));
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.STROKE), "", FULL).equals(List.of(KeyboardScheme.QUANPIN)));
         check(KeyboardScheme.VIETNAMESE.languageDictionary() == null && KeyboardScheme.QUANPIN.languageDictionary() == null);
@@ -163,7 +163,7 @@ public final class KeyboardSchemeSmoke {
         check(KeyboardScheme.installedOf(List.of(KeyboardScheme.ZHUYIN), "", FULL).equals(List.of(KeyboardScheme.QUANPIN)));
         Path directory = Files.createTempDirectory("msime-language-dictionaries");
         try {
-            Files.write(directory.resolve("zhuyin.db"), new byte[] {1});
+            Files.write(directory.resolve("msime-zhuyin.db"), new byte[] {1});
             String recorded = directory.toAbsolutePath().toString();
             check(KeyboardScheme.ZHUYIN.installed(recorded) && !KeyboardScheme.CANTONESE.installed(recorded)
                 && !KeyboardScheme.STROKE.installed(recorded));
@@ -172,8 +172,8 @@ public final class KeyboardSchemeSmoke {
                 KeyboardScheme.QUANPIN, KeyboardScheme.ZHUYIN, KeyboardScheme.VIETNAMESE, KeyboardScheme.TIBETAN)));
             check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN, "cantonese",
                 KeyboardScheme.installedOf(languages, recorded, FULL), FULL) == KeyboardScheme.QUANPIN);
-            // stroke.db alone makes Stroke available and nothing else.
-            Files.write(directory.resolve("stroke.db"), new byte[] {1});
+            // msime-stroke.db alone makes Stroke available and nothing else.
+            Files.write(directory.resolve("msime-stroke.db"), new byte[] {1});
             check(KeyboardScheme.STROKE.installed(recorded) && !KeyboardScheme.STROKE.installed("relative/stroke"));
             List<KeyboardScheme> withStroke = KeyboardScheme.enabledFromPreferenceIds(List.of(
                 "stroke", "cantonese", "quanpin"), FULL);
@@ -182,8 +182,8 @@ public final class KeyboardSchemeSmoke {
             check(KeyboardScheme.resolveEnabledSelection(KeyboardScheme.QUANPIN, "stroke",
                 KeyboardScheme.installedOf(withStroke, recorded, FULL), FULL) == KeyboardScheme.STROKE);
         } finally {
-            Files.deleteIfExists(directory.resolve("stroke.db"));
-            Files.deleteIfExists(directory.resolve("zhuyin.db"));
+            Files.deleteIfExists(directory.resolve("msime-stroke.db"));
+            Files.deleteIfExists(directory.resolve("msime-zhuyin.db"));
             Files.deleteIfExists(directory);
         }
         editions();

@@ -1,6 +1,6 @@
 //! Freeze the MIT-licensed SampleIME quanpin word list into a committed evaluation set.
 //!
-//! The source is `SampleIMESimplifiedQuanPin.txt` from microsoft/Windows-classic-samples (MIT). No build reads it and it is not part of `msime.db`, so the evaluation set is frozen into `resources/eval/quanpin-words-v1.tsv` once and committed; rerunning this needs a copy of that file, not anything in this repository.
+//! The source is `SampleIMESimplifiedQuanPin.txt` from microsoft/Windows-classic-samples (MIT). No build reads it and it is not part of `msime-pinyin.db`, so the evaluation set is frozen into `resources/eval/quanpin-words-v1.tsv` once and committed; rerunning this needs a copy of that file, not anything in this repository.
 //!
 //! Truncation is filtered with the Engine's own segmenter rather than a length threshold: the source format truncates keys at twelve characters, but shorter keys are truncated too (`chulufengma`, `shumenshul`), so only "does this key segment into exactly as many syllables as the value has characters" rejects them all.
 //!

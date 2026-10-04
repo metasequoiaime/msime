@@ -284,9 +284,9 @@ fn drop_uninstalled_language_schemes(
     .filter(|directory| directory.is_absolute());
     capabilities.input_schemes.retain(|scheme| {
         let dictionary = match scheme {
-            InputScheme::Cantonese => "cantonese.db",
-            InputScheme::Zhuyin => "zhuyin.db",
-            InputScheme::Stroke => "stroke.db",
+            InputScheme::Cantonese => "msime-cantonese.db",
+            InputScheme::Zhuyin => "msime-zhuyin.db",
+            InputScheme::Stroke => "msime-stroke.db",
             _ => return true,
         };
         directory
@@ -3984,15 +3984,15 @@ fn packaged_emoji_resources(document: &Value) -> Option<PathBuf> {
                 .map(PathBuf::from)
         });
     if let Some(directory) = configured {
-        return (directory.is_absolute() && directory.join("others.db").is_file())
+        return (directory.is_absolute() && directory.join("msime-others.db").is_file())
             .then_some(directory);
     }
     discover_packaged_file(
         &format!(
-            "{}/emoji/others.db",
+            "{}/emoji/msime-others.db",
             msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory
         ),
-        "emoji/others.db",
+        "emoji/msime-others.db",
     )
     .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
 }

@@ -48,6 +48,7 @@ import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
 import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
+import { useAsyncGeneration } from "../settings/use-async-generation";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
@@ -523,7 +524,6 @@ export function CommunityPluginPublishDialog({
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localPlugins);
-  const packGeneration = useRef(0);
 
   useEffect(() => {
     const generation = clientGeneration.current;
@@ -560,9 +560,10 @@ export function CommunityPluginPublishDialog({
     () => options.find((item) => item.key === selection) ?? null,
     [options, selection],
   );
+  const packGeneration = useAsyncGeneration(chosen);
 
   useEffect(() => {
-    const generation = ++packGeneration.current;
+    const generation = packGeneration.current;
     setPack(null);
     setPackError("");
     setAgreed(false);
@@ -587,10 +588,7 @@ export function CommunityPluginPublishDialog({
       .finally(() => {
         if (generation === packGeneration.current) setPackLoading(false);
       });
-    return () => {
-      packGeneration.current++;
-    };
-  }, [client, chosen]);
+  }, [client, chosen, packGeneration]);
 
   const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
     communityPublishFields(name, description);

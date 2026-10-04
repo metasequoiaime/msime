@@ -7,7 +7,7 @@ enum KeyboardEmojiCatalogError: Error {
 
 /// Bounded host model for the Engine-owned Emoji catalog.
 ///
-/// Android, iOS and the desktop panel all read the same verified `others.db` through the shared
+/// Android, iOS and the desktop panel all read the same verified `msime-others.db` through the shared
 /// host API. The keyboard keeps only the currently visible category page and never opens SQLite.
 enum KeyboardEmojiCatalog {
   static let columns = 8

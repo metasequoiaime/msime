@@ -56,7 +56,11 @@ if(WAYLAND_CLIENT_FOUND AND WAYLAND_SCANNER_EXECUTABLE)
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-client-protocol.h")
   set(MSIME_LAYER_SHELL_CODE
       "${MSIME_WAYLAND_PROTOCOL_DIR}/wlr-layer-shell-unstable-v1-protocol.c")
+  # wayland-protocols 的 .pc 给出它的数据目录；只搜 /usr/share 的话，装在别处的（例如 Nix store）
+  # 找不到，Wayland 浮层被静默跳过。原有路径留作没有 .pc 时的退路。
+  pkg_get_variable(MSIME_WAYLAND_PROTOCOLS_DIR wayland-protocols pkgdatadir)
   find_path(MSIME_XDG_SHELL_DIR NAMES xdg-shell.xml
+            HINTS "${MSIME_WAYLAND_PROTOCOLS_DIR}/stable/xdg-shell"
             PATHS /usr/share/wayland-protocols/stable/xdg-shell
                   /usr/local/share/wayland-protocols/stable/xdg-shell)
   set(MSIME_XDG_SHELL_XML "${MSIME_XDG_SHELL_DIR}/xdg-shell.xml")
@@ -733,8 +737,8 @@ if(MSIME_LANGUAGE_DICTIONARIES)
   if(NOT IS_DIRECTORY "${MSIME_LANGUAGE_DICTIONARIES}")
     message(FATAL_ERROR "MSIME_LANGUAGE_DICTIONARIES is not a directory: ${MSIME_LANGUAGE_DICTIONARIES}")
   endif()
-  foreach(MSIME_LANGUAGE_PAIR "cantonese.db:rime_cantonese_LICENSE.txt" "zhuyin.db:libchewing_data_LICENSE.txt"
-          "stroke.db:rime_stroke_LICENSE.txt")
+  foreach(MSIME_LANGUAGE_PAIR "msime-cantonese.db:msime-rime_cantonese_LICENSE.txt" "msime-zhuyin.db:msime-libchewing_data_LICENSE.txt"
+          "msime-stroke.db:msime-rime_stroke_LICENSE.txt")
     string(REPLACE ":" ";" MSIME_LANGUAGE_PAIR "${MSIME_LANGUAGE_PAIR}")
     list(GET MSIME_LANGUAGE_PAIR 0 MSIME_LANGUAGE_DATABASE)
     list(GET MSIME_LANGUAGE_PAIR 1 MSIME_LANGUAGE_LICENSE)

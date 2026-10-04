@@ -42,6 +42,23 @@ test("emoji panel paginates catalog items and resets on search", async () => {
   await waitFor(() => expect(screen.queryByText("第 2 / 2 页")).toBeNull());
 });
 
+test("emoji panel reloads a failed catalog and displays the recovered items", async () => {
+  const loadCatalog = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic catalog failure"))
+    .mockResolvedValueOnce({
+      emoji: [{ title: "Recovered", icon: "🦉", items: [{ text: "🦉", keywords: "owl" }] }],
+      kaomoji: [],
+      symbols: [],
+    });
+  render(<EmojiPanel client={{ close: async () => {}, loadCatalog }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "重新加载" }));
+  await waitFor(() => expect(loadCatalog).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText(/目录加载失败/)).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "Emoji" }));
+  expect(await screen.findByRole("button", { name: "🦉" })).toBeDefined();
+});
+
 test("clipboard panel exposes host paste and keeps copy separate", async () => {
   const paste = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);

@@ -59,4 +59,11 @@ final class CandidateGlossModelTests: XCTestCase {
     ]
     XCTAssertThrowsError(try CandidateGlossModel.decode(value))
   }
+
+  func testIntegerValueRejectsLossyGenerationNumbers() {
+    XCTAssertEqual(CandidateGlossModel.integerValue(NSNumber(value: 7), maximum: UInt64.max), 7)
+    XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: 7.5), maximum: UInt64.max))
+    XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: true), maximum: UInt64.max))
+    XCTAssertNil(CandidateGlossModel.integerValue(NSNumber(value: -1), maximum: UInt64.max))
+  }
 }

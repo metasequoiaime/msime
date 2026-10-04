@@ -50,7 +50,7 @@ struct TrayMenuCapabilities {
   bool keyboard_panel = false;
   bool voice_input = false;
   bool settings = false;
-  // The Cantonese, Zhuyin and Stroke dictionaries installed beside the resources (language-dictionaries/cantonese.db, zhuyin.db and stroke.db). Without one the Engine answers that scheme with quanpin, so its row is disabled rather than selecting a scheme that would type pinyin.
+  // The Cantonese, Zhuyin and Stroke dictionaries installed beside the resources (language-dictionaries/msime-cantonese.db, msime-zhuyin.db and msime-stroke.db). Without one the Engine answers that scheme with quanpin, so its row is disabled rather than selecting a scheme that would type pinyin.
   bool cantonese = false;
   bool zhuyin = false;
   bool stroke = false;

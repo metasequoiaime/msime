@@ -14,7 +14,7 @@
  ],
  "fixture": {
   "databases": {
-   "stroke.db": "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key, text)) WITHOUT ROWID;CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);INSERT INTO metadata VALUES('format_version','1');INSERT INTO syllables VALUES('h'),('s'),('p'),('n'),('z');INSERT INTO entries VALUES('h','一',9000),('hh','二',5000),('hhh','三',4000),('hs','十',4500),('hsh','土',2000),('hshh','土',10),('hhsh','王',2500),('hhs','干',1500),('hpn','大',5500),('pn','人',6000),('szh','口',3500);"
+   "msime-stroke.db": "CREATE TABLE metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;CREATE TABLE syllables(syllable TEXT PRIMARY KEY) WITHOUT ROWID;CREATE TABLE entries(key TEXT NOT NULL, text TEXT NOT NULL, weight INTEGER NOT NULL, PRIMARY KEY(key, text)) WITHOUT ROWID;CREATE INDEX entries_by_key_weight ON entries(key, weight DESC);INSERT INTO metadata VALUES('format_version','1');INSERT INTO syllables VALUES('h'),('s'),('p'),('n'),('z');INSERT INTO entries VALUES('h','一',9000),('hh','二',5000),('hhh','三',4000),('hs','十',4500),('hsh','土',2000),('hshh','土',10),('hhsh','王',2500),('hhs','干',1500),('hpn','大',5500),('pn','人',6000),('szh','口',3500);"
   }
  },
  "options": {

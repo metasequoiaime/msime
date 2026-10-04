@@ -1,4 +1,4 @@
-//! Cantonese input in toneless Jyutping, read against `cantonese.db` (`language_dictionary`). Output is Traditional as stored, and nothing is learned.
+//! Cantonese input in toneless Jyutping, read against `msime-cantonese.db` (`language_dictionary`). Output is Traditional as stored, and nothing is learned.
 
 pub mod scheme;
 pub mod syllable;
@@ -15,7 +15,7 @@ use crate::language_dictionary::{self, LanguageDictionary};
 /// The non-letter keys the scheme spells with while composing: `'` is an explicit syllable boundary.
 pub const SPELLING_SYMBOLS_COMPOSING: &str = "'";
 
-/// `cantonese.db` opened for one activation of the scheme, with its syllable inventory read once.
+/// `msime-cantonese.db` opened for one activation of the scheme, with its syllable inventory read once.
 pub struct CantoneseDictionary {
     dictionary: LanguageDictionary,
     inventory: Arc<Inventory>,

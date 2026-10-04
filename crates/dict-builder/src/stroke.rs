@@ -1,12 +1,12 @@
-//! `stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `cn/SingleCharsAllV1.txt`（rime-ice 字频，GPL-3.0）。
+//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0）。
 //!
-//! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `SingleCharsAllV1.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
+//! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
 //! 只收基本区（U+4E00–9FFF）和扩展 A 区（U+3400–4DBF）的汉字，其余区段只收在字频表里出现过的字。上游还收了扩展 B 区及以后的七万多个字、西夏文部件、部首与笔画符号，几乎都没有字频；macOS 自带字体不覆盖扩展 B 区及以后，它们在候选窗里是方块，而笔数恰好打满时它们作为精确匹配排在常用字的补全前面。
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! 在 msime-dictionary 发布收录这份文件的 `sources-v*` release、`resources/dictionary-sources.lock.json` 固定 `stroke/stroke.dict.yaml` 之前，构建从 `--cache` 目录下同一路径读取手动放入的上游文件，并按这里记下的大小与 SHA-256 校验；锁文件一旦固定它，就改走锁文件。
+//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `sources/stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验；带 `--dictionary` 时从该 checkout 读取，它是 rime-stroke 的原样文件，所以仍须与锁文件记录的大小与 SHA-256 一致，否则构建失败。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,9 +19,9 @@ use crate::sources::{sha256_file, Sources};
 use crate::sqlite;
 use crate::text;
 
-pub const SOURCE: &str = "stroke/stroke.dict.yaml";
+pub const SOURCE: &str = "sources/stroke/stroke.dict.yaml";
 /// 字频来源，quanpin 阶段也读同一份固定文件。
-pub const FREQUENCIES: &str = "cn/SingleCharsAllV1.txt";
+pub const FREQUENCIES: &str = "sources/pinyin/single-chars.txt";
 /// 锁文件里记录上游提交的引用名；固定之后它的提交就是数据库的 `source_commit`。
 pub const REFERENCE: &str = "rime-stroke";
 pub const REPOSITORY: &str = "https://github.com/rime/rime-stroke";
@@ -34,10 +34,10 @@ pub const SOURCE_SHA256: &str = "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1
 pub const STROKES: [char; 5] = ['h', 's', 'p', 'n', 'z'];
 /// 记入数据库 `license` 的 SPDX 表达式：笔顺码是 rime-stroke 的 LGPL-3.0，权重取自 rime-ice 的 GPL-3.0 字频。
 pub const LICENSE: &str = "LGPL-3.0-only AND GPL-3.0-only";
-pub const DATABASE: &str = "stroke.db";
+pub const DATABASE: &str = "msime-stroke.db";
 /// `resources/licenses/` 里的许可证文本，以及它在数据库旁边的文件名。
 pub const LICENSE_SOURCE: &str = "rime-stroke-LGPL-3.0.txt";
-pub const LICENSE_NAME: &str = "rime_stroke_LICENSE.txt";
+pub const LICENSE_NAME: &str = "msime-rime_stroke_LICENSE.txt";
 
 /// 发布构建时 `verify` 要求的下限。固定提交经 `kept` 过滤后的实际值是 47095 条、27588 个字、7678 个有字频的字。
 pub const FLOORS: Floors = Floors {
@@ -119,9 +119,11 @@ pub struct Dictionary {
     pub entries: BTreeMap<(String, String), i64>,
 }
 
-/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它就按锁文件取（必要时下载）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `stroke.db`，粤拼与注音词库照常构建和发布。
+/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它、或给了 `--dictionary`，就按 `Sources::pinned` 取（锁文件路径下载，或从 msime-dictionary checkout 读）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `msime-stroke.db`，粤拼与注音词库照常构建和发布。
 pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
-    if sources.lock.files.iter().any(|file| file.path == SOURCE) {
+    if sources.lock.files.iter().any(|file| file.path == SOURCE)
+        || sources.checkout_file(SOURCE).is_some()
+    {
         return sources.pinned(SOURCE).map(Some);
     }
     let cached = sources.cache.join(SOURCE);
@@ -188,7 +190,7 @@ pub fn parse(source: &str) -> Result<Vec<Row<'_>>> {
     Ok(rows)
 }
 
-/// `SingleCharsAllV1.txt` 的 `字<TAB>拼音<TAB>权重` 行（CRLF 换行，`#` 行跳过），每个字所有读音的权重之和。
+/// `single-chars.txt` 的 `字<TAB>拼音<TAB>权重` 行（CRLF 换行，`#` 行跳过），每个字所有读音的权重之和。
 pub fn parse_frequencies(source: &str) -> Result<HashMap<&str, i64>> {
     let mut weights: HashMap<&str, i64> = HashMap::new();
     for (index, line) in source.lines().enumerate() {
@@ -546,6 +548,7 @@ mod tests {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache: dir.path().to_path_buf(),
             offline: true,
+            dictionary: None,
         };
         assert!(source(&sources).unwrap().is_none());
         let cached = dir.path().join(SOURCE);
@@ -568,10 +571,10 @@ mod tests {
         let pinned: Vec<_> = lock
             .files
             .iter()
-            .filter(|file| file.path.starts_with("stroke/"))
+            .filter(|file| file.path.starts_with("sources/stroke/"))
             .collect();
         for file in &pinned {
-            crate::sources::assert_dictionary_release_asset(file);
+            crate::sources::assert_dictionary_repository_file(file);
             assert_eq!(file.path, SOURCE);
             assert_eq!(file.size, SOURCE_SIZE);
             assert_eq!(file.sha256, SOURCE_SHA256);

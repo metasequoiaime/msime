@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the offline candidate gloss dictionaries for the non-English targets from Wiktionary.
 
-english.db only glosses Chinese into English. For fr/ja/es/ru/de/ko this pairs, inside one translation table of the English Wiktionary (one English sense), the Mandarin row with the target-language rows, and writes one SQLite file per language: ``zh-<lang>.db`` with ``zh_glosses(chinese, gloss, source)``, a ``meta`` table naming the language and the input, and ``PRAGMA user_version = 1``. The bridge refuses a file whose version or language does not match what it was asked for, so a renamed file never shows French under Japanese.
+msime-english.db only glosses Chinese into English. For fr/ja/es/ru/de/ko this pairs, inside one translation table of the English Wiktionary (one English sense), the Mandarin row with the target-language rows, and writes one SQLite file per language: ``zh-<lang>.db`` with ``zh_glosses(chinese, gloss, source)``, a ``meta`` table naming the language and the input, and ``PRAGMA user_version = 1``. The bridge refuses a file whose version or language does not match what it was asked for, so a renamed file never shows French under Japanese.
 
 The input is a Wiktextract JSONL dump from kaikki.org: either the postprocessed English edition (``kaikki.org-dictionary-English.jsonl.gz``) or the raw dump (``raw-wiktextract-data.jsonl.gz``), where only rows with ``lang_code == "en"`` are English entries. Wiktextract now places most translation rows under ``senses[].translations`` (a sample of the 2026-09-02 dump has six times as many there as in the deprecated top-level ``translations``, and no row in both), so both are read: sense rows first, in the page's sense order, then the top-level ones. The same table attached to several senses is kept once, since rows are grouped by their ``sense`` string anyway. Mandarin rows are ``lang == "Chinese Mandarin"``; the ``lang == "Chinese"`` rows are Hokkien, Dungan and other topolects. The last ``/`` segment of a Mandarin form is the simplified one (``"空閒 /空閑 /空闲"``).
 
@@ -14,7 +14,7 @@ Wiktionary text is CC BY-SA 4.0; ``build`` writes ``offline-glosses-NOTICE.txt``
 usage:
   build_offline_glosses.py filter --input <dump.jsonl[.gz]> --out <filtered.jsonl[.gz]>
   build_offline_glosses.py build --input <dump-or-filtered> --out <directory> [--lang fr,ja,es,ru,de,ko]
-      [--vocabulary msime.db] [--frequency english.db] [--dump-date YYYY-MM-DD] [--source-revision <wiktextract commit>]
+      [--vocabulary msime-pinyin.db] [--frequency msime-english.db] [--dump-date YYYY-MM-DD] [--source-revision <wiktextract commit>]
       [--max-bytes N]
 """
 import argparse
@@ -191,7 +191,7 @@ def input_vocabulary(path: Path | None) -> set[str] | None:
         for table in tables:
             words.update(value for (value,) in database.execute(f'SELECT value FROM "{table}"') if isinstance(value, str))
     if not words:
-        raise SystemExit(f"{path}: no tbl_* word tables; not an msime.db")
+        raise SystemExit(f"{path}: no tbl_* word tables; not an msime-pinyin.db")
     return words
 
 
@@ -295,7 +295,7 @@ def build_command(arguments) -> int:
         "dump_date": arguments.dump_date,
         "source_revision": arguments.source_revision,
         "sqlite_version": sqlite3.sqlite_version,
-        "vocabulary": "msime.db" if vocabulary is not None else "none",
+        "vocabulary": "msime-pinyin.db" if vocabulary is not None else "none",
     }
     for language in languages:
         rows = [(key, *select(candidates)) for key, candidates in sorted(found[language].items())]

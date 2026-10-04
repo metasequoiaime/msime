@@ -560,6 +560,30 @@ test("lists the installed packs by kind with what each is used as, and removes o
   expect(screen.queryByRole("heading", { name: "打字机" })).toBeNull();
 });
 
+test.each([false, true])(
+  "clears the catalog when the active host loses plugin support (detail=%s)",
+  async (detailOpen) => {
+    const oldClient = fakeClient();
+    const props = {
+      preferences: defaultPluginPreferences,
+      keySound: true,
+      music: true,
+      triggers: true,
+      active: true,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      confirm: vi.fn(async () => true),
+    };
+    const view = render(<PluginsSection {...props} client={oldClient} />);
+    await screen.findByRole("button", { name: "打字机" });
+    if (detailOpen) await openPack("打字机");
+
+    view.rerender(<PluginsSection {...props} client={undefined} />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "打字机" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "打字机" })).toBeNull());
+  },
+);
+
 test("a row opens its pack's detail and the back button returns focus to it", async () => {
   renderSection();
   const row = await within(await screen.findByLabelText("已安装的插件")).findByRole("button", {

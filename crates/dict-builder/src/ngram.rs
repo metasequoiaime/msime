@@ -1,4 +1,4 @@
-//! `bigram.bin` and `trigram.bin`: the lattice's context tables, counted over the pinned zhwiki dump.
+//! `msime-bigram.bin` and `msime-trigram.bin`: the lattice's context tables, counted over the pinned zhwiki dump.
 //!
 //! Text is segmented with the greedy longest match the decoder's vocabulary implies, and each entry holds an increment rather than a probability: `log(P(next | previous) / P(next))` for pairs, `log(P(next | before, previous) / P(next | previous))` for triples. An absent entry therefore contributes nothing, and the decoder can add both tables to its unigram score. Bonuses are shrunk toward zero by `count / (count + 5)` and clamped to ±3 so rare pairs adjust the ranking rather than replace it.
 //!
