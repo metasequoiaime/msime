@@ -163,7 +163,7 @@ final class BackendAnonymousAccount {
         try {
             JSONObject session = new JSONObject(encoded);
             long expiry = session.optLong("expires_at_unix_ms", 0);
-            if (expiry <= System.currentTimeMillis() + 30_000L) return null;
+            if (!AccountTokenPolicy.validExpiry(expiry, System.currentTimeMillis())) return null;
             String token = session.getJSONObject("tokens").optString("access_token", "");
             return AccountTokenPolicy.validToken(token) ? token : null;
         } catch (Exception ignored) { return null; }

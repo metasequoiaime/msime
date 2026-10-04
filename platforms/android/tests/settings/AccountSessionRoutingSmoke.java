@@ -35,6 +35,11 @@ public final class AccountSessionRoutingSmoke {
         check(AccountSessionRoutingPolicy.legacyToken(TOKEN, now + 30_000L, now).isEmpty(), "a token inside the expiry margin is left to the Rust client");
         check(AccountSessionRoutingPolicy.legacyToken(TOKEN, now - 1L, now).isEmpty(), "an expired Rust token is not used");
         check(AccountSessionRoutingPolicy.legacyToken(TOKEN, 0L, now).isEmpty(), "a Rust session without an expiry is not used");
+        check(AccountSessionRoutingPolicy.legacyToken(TOKEN,
+                now + AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L + 1L, now).isEmpty(),
+            "a Rust session beyond the maximum lifetime is not used");
+        check(AccountSessionRoutingPolicy.legacyToken(TOKEN, Long.MAX_VALUE, now).isEmpty(),
+            "a saturated Rust expiry is not treated as an eternal token");
         check(AccountSessionRoutingPolicy.legacyToken("E".repeat(64), now + 60_000L, now).isEmpty(), "a malformed Rust token is not used");
         check(AccountSessionRoutingPolicy.legacyToken(null, now + 60_000L, now).isEmpty(), "a missing Rust token is not used");
 

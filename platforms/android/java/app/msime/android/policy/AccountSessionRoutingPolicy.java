@@ -54,7 +54,8 @@ public final class AccountSessionRoutingPolicy {
     /** The v1 access token if it can be used as it is, or an empty string; an expiring one is left to the Rust client to refresh. */
     public static String legacyToken(String accessToken, long expiresAtUnixMillis, long nowUnixMillis) {
         if (!AccountTokenPolicy.validToken(accessToken)) return "";
-        return expiresAtUnixMillis > nowUnixMillis + EXPIRY_MARGIN_MILLIS ? accessToken : "";
+        return AccountTokenPolicy.validExpiry(expiresAtUnixMillis, nowUnixMillis)
+            ? accessToken : "";
     }
 
     /** The state the provider reports for one answer from the owning process. */
