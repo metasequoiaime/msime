@@ -14,6 +14,8 @@ export interface SettingsPageProjectionOptions {
   showDeveloperPage: boolean;
   /** The 插件 page: a host with a pack store, or one that plays or routes something it switches. */
   hasPlugins: boolean;
+  /** 「手写输入」页：手写识别器只认汉字，不提供手写的版本（`EditionInfo.handwriting` 为 false）没有这一页。 */
+  hasHandwriting: boolean;
   mobileHiddenPageIds: readonly SettingsPageId[];
   mobilePageTitle: (id: SettingsPageId, title: string) => string;
 }
@@ -49,6 +51,7 @@ export function settingsPageProjections({
   showFloatingToolbar,
   showDeveloperPage,
   hasPlugins,
+  hasHandwriting,
   mobileHiddenPageIds,
   mobilePageTitle,
 }: SettingsPageProjectionOptions): SettingsPageProjections {
@@ -64,6 +67,7 @@ export function settingsPageProjections({
         (item.id !== "floating-toolbar" || showFloatingToolbar) &&
         (item.id !== "developer" || showDeveloperPage) &&
         (item.id !== "plugins" || hasPlugins) &&
+        (item.id !== "handwriting" || hasHandwriting) &&
         (item.id !== "more" || mobilePlatform),
     )
     .map((item) => ({

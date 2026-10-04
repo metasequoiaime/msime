@@ -321,6 +321,10 @@ pub struct EditionInfo {
     pub temporary_japanese: bool,
     /// 本版本是否带键盘神经联想用的模型（`sentence-model.safetensors`）。不带时设置页不列出触屏宿主的神经联想开关，host-api 也始终把它关掉。桌面的神经联想用资源目录旁的 settled 模型，不归这一项管。
     pub neural_keyboard: bool,
+    /// 本版本是否带非英文目标语言的离线候选释义。不带时宿主不打包这些数据库，候选翻译的非英文目标只靠联网服务。
+    pub offline_glosses: bool,
+    /// 本版本是否提供手写。不提供时设置页不列出手写设置页和悬浮工具栏的手写按钮，宿主也不打开手写面板、不下载手写模型。
+    pub handwriting: bool,
     /// 本版本里五笔混拼的默认值，偏好文档缺这一项时设置页按它显示。
     pub wubi_mixed_pinyin_default: bool,
 }
@@ -613,6 +617,8 @@ impl HostCapabilities {
             return;
         }
         self.input_schemes.retain(|scheme| edition.offers(*scheme));
+        // 手写面板只认汉字，不提供手写的版本（日文、越南文和藏文版）在悬浮工具栏上也不放手写按钮。
+        self.floating_toolbar_handwriting &= edition.features.handwriting;
         self.edition = Some(EditionInfo {
             id: edition.id.clone(),
             display_name: edition.display_name.zh_hans.clone(),
@@ -620,6 +626,8 @@ impl HostCapabilities {
             default_scheme: edition.default_scheme,
             temporary_japanese: edition.features.temporary_japanese,
             neural_keyboard: edition.features.neural_keyboard,
+            offline_glosses: edition.features.offline_glosses,
+            handwriting: edition.features.handwriting,
             wubi_mixed_pinyin_default: edition
                 .preference_defaults
                 .wubi_mixed_pinyin

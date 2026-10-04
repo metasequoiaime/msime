@@ -90,7 +90,7 @@
           "description": "本版本是否提供这些可选功能。",
           "type": "object",
           "additionalProperties": false,
-          "required": ["temporary_japanese", "neural_keyboard"],
+          "required": ["temporary_japanese", "neural_keyboard", "offline_glosses", "handwriting"],
           "properties": {
             "temporary_japanese": {
               "description": "临时日文。为 true 时 resources.components 必须包含 japanese。",
@@ -98,6 +98,14 @@
             },
             "neural_keyboard": {
               "description": "神经网络整句重排。为 true 时 resources.components 必须包含 sentence-model。",
+              "type": "boolean"
+            },
+            "offline_glosses": {
+              "description": "非英文目标语言的离线候选释义（offline-glosses/zh-<语言>.db，按中文候选词查法、德、日、西、俄、韩文释义）。它只认中文候选，所以必须等于本版本是否提供中文方案（全拼、双拼、五笔、粤拼、注音、笔画，与 client-core 的 ChineseScheme::of 相同）；为 false 的版本各平台都不打包这些数据库。",
+              "type": "boolean"
+            },
+            "handwriting": {
+              "description": "手写输入。手写模型（桌面的 Zinnia handwriting-zh_CN.model、Android 的 ML Kit zh-Hani-CN）只认汉字，所以必须等于本版本是否提供中文方案；为 false 的版本不打包、不下载手写模型，也不提供手写面板和它的设置。",
               "type": "boolean"
             }
           }

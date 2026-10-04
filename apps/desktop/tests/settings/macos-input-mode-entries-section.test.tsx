@@ -170,6 +170,8 @@ const wubiEdition: EditionInfo = {
   default_scheme: "wubi",
   temporary_japanese: false,
   neural_keyboard: false,
+  offline_glosses: true,
+  handwriting: true,
   wubi_mixed_pinyin_default: true,
 };
 
@@ -206,6 +208,8 @@ test("full keeps the table and each edition lists only its own entries under its
         display_name,
         input_schemes: [id],
         default_scheme: id,
+        offline_glosses: false,
+        handwriting: false,
         wubi_mixed_pinyin_default: false,
       }).map((entry) => [entry.mode, entry.name, entry.language]),
     ).toEqual([

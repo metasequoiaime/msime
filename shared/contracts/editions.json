@@ -15,7 +15,7 @@
       "default_scheme": "quanpin",
       "preference_defaults": {},
       "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
-      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "features": { "temporary_japanese": true, "neural_keyboard": true, "offline_glosses": true, "handwriting": true },
       "language_dictionaries": ["cantonese.db", "zhuyin.db", "stroke.db"],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.MetasequoiaIME", "input_method_name": "水杉输入法", "settings_bundle_id": "app.msime.macos", "keychain_service": "com.metasequoia.msime.account", "cask": "msime", "dmg_prefix": "msime-macos" },
@@ -30,7 +30,7 @@
       "default_scheme": "quanpin",
       "preference_defaults": {},
       "resources": { "components": ["core", "chinese-main", "ngram", "sentence-model", "japanese"] },
-      "features": { "temporary_japanese": true, "neural_keyboard": true },
+      "features": { "temporary_japanese": true, "neural_keyboard": true, "offline_glosses": true, "handwriting": true },
       "language_dictionaries": [],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.pinyin", "input_method_name": "水杉拼音", "settings_bundle_id": "app.msime.macos.pinyin", "keychain_service": "com.metasequoia.msime.pinyin.account", "cask": "msime-pinyin", "dmg_prefix": "msime-macos-pinyin" },
@@ -45,7 +45,7 @@
       "default_scheme": "wubi",
       "preference_defaults": { "wubi_mixed_pinyin": true },
       "resources": { "components": ["core", "chinese-main", "ngram"] },
-      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "features": { "temporary_japanese": false, "neural_keyboard": false, "offline_glosses": true, "handwriting": true },
       "language_dictionaries": [],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.wubi", "input_method_name": "水杉五笔", "settings_bundle_id": "app.msime.macos.wubi", "keychain_service": "com.metasequoia.msime.wubi.account", "cask": "msime-wubi", "dmg_prefix": "msime-macos-wubi" },
@@ -60,7 +60,7 @@
       "default_scheme": "japanese",
       "preference_defaults": {},
       "resources": { "components": ["core", "japanese"] },
-      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "features": { "temporary_japanese": false, "neural_keyboard": false, "offline_glosses": false, "handwriting": false },
       "language_dictionaries": [],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.japanese", "input_method_name": "水杉日语", "settings_bundle_id": "app.msime.macos.japanese", "keychain_service": "com.metasequoia.msime.japanese.account", "cask": "msime-japanese", "dmg_prefix": "msime-macos-japanese" },
@@ -74,7 +74,7 @@
       "default_scheme": "vietnamese",
       "preference_defaults": {},
       "resources": { "components": ["core"] },
-      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "features": { "temporary_japanese": false, "neural_keyboard": false, "offline_glosses": false, "handwriting": false },
       "language_dictionaries": [],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.vietnamese", "input_method_name": "水杉越南语", "settings_bundle_id": "app.msime.macos.vietnamese", "keychain_service": "com.metasequoia.msime.vietnamese.account", "cask": "msime-vietnamese", "dmg_prefix": "msime-macos-vietnamese" },
@@ -88,7 +88,7 @@
       "default_scheme": "tibetan",
       "preference_defaults": {},
       "resources": { "components": ["core"] },
-      "features": { "temporary_japanese": false, "neural_keyboard": false },
+      "features": { "temporary_japanese": false, "neural_keyboard": false, "offline_glosses": false, "handwriting": false },
       "language_dictionaries": [],
       "platforms": {
         "macos": { "input_method_bundle_id": "app.msime.inputmethod.tibetan", "input_method_name": "水杉藏文", "settings_bundle_id": "app.msime.macos.tibetan", "keychain_service": "com.metasequoia.msime.tibetan.account", "cask": "msime-tibetan", "dmg_prefix": "msime-macos-tibetan" },

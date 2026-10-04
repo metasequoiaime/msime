@@ -5,7 +5,7 @@
 //! 版本表在编译期嵌入，结构由本模块的类型解析，跨字段和跨文件的约束（资源组件与锁文件一致、功能依赖的组件、冻结基线等）由 `scripts/test-editions.py` 检查。各平台的身份标识（`platforms` 段）大多由平台构建脚本读取；Rust 进程在运行时要用到的那几段（macOS、Windows 和 Linux）在这里解析，其余平台的段本模块不解析。
 
 use crate::account::AccountPreferenceValue;
-use crate::preferences::{ChineseScheme, InputScheme, TouchKeyboardScheme};
+use crate::preferences::{InputScheme, TouchKeyboardScheme};
 use crate::resources::{ResourceError, ResourceSet};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -201,6 +201,10 @@ pub struct EditionFeatures {
     pub temporary_japanese: bool,
     /// 神经网络整句重排。
     pub neural_keyboard: bool,
+    /// 非英文目标语言的离线候选释义（`offline-glosses/zh-<语言>.db`）。这些数据库按中文候选词查释义，所以只有提供中文方案的版本带它们（`scripts/test-editions.py` 检查两者相等）；为 false 的版本各平台都不打包。
+    pub offline_glosses: bool,
+    /// 手写输入。桌面的 Zinnia 模型（`handwriting-zh_CN.model`）和 Android 的 ML Kit 模型（`zh-Hani-CN`）都只认汉字，所以同样只有提供中文方案的版本有；为 false 的版本不打包、不下载手写模型，也不提供手写面板、手写入口和手写设置页。
+    pub handwriting: bool,
 }
 
 #[derive(Deserialize)]
@@ -286,15 +290,10 @@ impl Edition {
         self.input_schemes.contains(&scheme)
     }
 
-    /// 本版本的触屏键盘是否提供这个方案入口：入口背后的输入方案在本版本里时提供。手写不属于任何一个输入方案（识别由平台的手写识别器完成，不经过 Engine 的方案），但手写面板写出的是汉字（Android 用的是 ML Kit 的 `zh-Hani-CN` 模型），所以只有提供中文方案的版本有手写：full、拼音版和五笔版都有，日文、越南文和藏文版没有。
+    /// 本版本的触屏键盘是否提供这个方案入口：入口背后的输入方案在本版本里时提供。手写不属于任何一个输入方案（识别由平台的手写识别器完成，不经过 Engine 的方案），由版本表的 `features.handwriting` 决定：手写面板写出的是汉字（Android 用的是 ML Kit 的 `zh-Hani-CN` 模型），所以只有提供中文方案的版本有手写，full、拼音版和五笔版都有，日文、越南文和藏文版没有。
     pub fn offers_touch_scheme(&self, scheme: TouchKeyboardScheme) -> bool {
         let input = match scheme {
-            TouchKeyboardScheme::Handwriting => {
-                return self
-                    .input_schemes
-                    .iter()
-                    .any(|scheme| ChineseScheme::of(*scheme).is_some())
-            }
+            TouchKeyboardScheme::Handwriting => return self.features.handwriting,
             TouchKeyboardScheme::Quanpin | TouchKeyboardScheme::NineKey => InputScheme::Quanpin,
             TouchKeyboardScheme::Xiaohe
             | TouchKeyboardScheme::Ziranma
@@ -556,6 +555,7 @@ pub fn filter_downloaded_account_settings(
 mod tests {
     use super::*;
     use crate::host_surface::compiled_input_schemes;
+    use crate::preferences::ChineseScheme;
     use crate::preferences::Preferences;
     use std::collections::BTreeSet;
 
@@ -591,7 +591,9 @@ mod tests {
             full.features,
             EditionFeatures {
                 temporary_japanese: true,
-                neural_keyboard: true
+                neural_keyboard: true,
+                offline_glosses: true,
+                handwriting: true,
             }
         );
         assert_eq!(full.display_name.zh_hans, "水杉输入法");
@@ -618,6 +620,8 @@ mod tests {
         assert_eq!(wubi.default_scheme, InputScheme::Wubi);
         assert_eq!(wubi.preference_defaults.wubi_mixed_pinyin, Some(true));
         assert!(!wubi.features.temporary_japanese);
+        assert!(wubi.features.offline_glosses);
+        assert!(wubi.features.handwriting);
         assert!(wubi.offers(InputScheme::Wubi));
         assert!(!wubi.offers(InputScheme::Quanpin));
         assert_eq!(wubi.display_name.zh_hans, "水杉五笔");
@@ -654,7 +658,9 @@ mod tests {
                 edition.features,
                 EditionFeatures {
                     temporary_japanese: false,
-                    neural_keyboard: false
+                    neural_keyboard: false,
+                    offline_glosses: false,
+                    handwriting: false,
                 },
                 "{id}"
             );
@@ -674,6 +680,33 @@ mod tests {
                     .input_schemes
                     .iter()
                     .all(|scheme| compiled_input_schemes().contains(scheme)),
+                "{}",
+                edition.id
+            );
+        }
+    }
+
+    /// 离线释义和手写只认中文：两者都等于版本是否提供中文方案，与 `scripts/test-editions.py` 对版本表的检查是同一条规则。
+    #[test]
+    fn chinese_only_features_follow_the_chinese_schemes() {
+        for edition in Edition::all() {
+            let writes_chinese = edition
+                .input_schemes
+                .iter()
+                .any(|scheme| ChineseScheme::of(*scheme).is_some());
+            assert_eq!(
+                edition.features.offline_glosses, writes_chinese,
+                "{}",
+                edition.id
+            );
+            assert_eq!(
+                edition.features.handwriting, writes_chinese,
+                "{}",
+                edition.id
+            );
+            assert_eq!(
+                edition.offers_touch_scheme(TouchKeyboardScheme::Handwriting),
+                writes_chinese,
                 "{}",
                 edition.id
             );

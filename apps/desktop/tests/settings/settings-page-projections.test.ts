@@ -14,6 +14,7 @@ const project = (overrides: Partial<Parameters<typeof settingsPageProjections>[0
     showFloatingToolbar: true,
     showDeveloperPage: true,
     hasPlugins: true,
+    hasHandwriting: true,
     mobileHiddenPageIds: ["floating-toolbar", "plugins"],
     mobilePageTitle,
     ...overrides,
@@ -148,4 +149,19 @@ test("places the 插件 page in 工具 and drops it where the host does not back
   expect(
     phone.mobileSecondaryGroups.flatMap((item) => item.pages.map((page) => page.id)),
   ).not.toContain("plugins");
+});
+
+// 日文、越南文和藏文版没有手写（版本表 features.handwriting 为 false）：桌面侧栏和手机「全部设置」都不列出手写页，同组的其他页照旧。
+test("drops the 手写输入 page from an edition without handwriting", () => {
+  const desktop = project({ hasHandwriting: false });
+  expect(desktop.availablePages.map((page) => page.id)).not.toContain("handwriting");
+  expect(groupIds(desktop.sidebarGroups)).toContainEqual({
+    title: "更多输入方式",
+    ids: ["screen-keyboard", "voice"],
+  });
+  const phone = project({ mobilePlatform: true, hasHandwriting: false });
+  expect(groupIds(phone.mobileSecondaryGroups)).toContainEqual({
+    title: "键盘、语音与手写",
+    ids: ["screen-keyboard", "voice"],
+  });
 });

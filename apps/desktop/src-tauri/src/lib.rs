@@ -178,7 +178,37 @@ fn requested_surface_route() -> Option<SurfaceRoute> {
         .skip(1)
         .find_map(|argument| argument.strip_prefix("--route=").map(str::to_string));
     let requested = argument.or_else(|| std::env::var("MSIME_CLIENT_ROUTE").ok())?;
-    SurfaceRoute::parse(requested.trim()).ok()
+    SurfaceRoute::parse(requested.trim())
+        .ok()
+        .filter(|route| edition_offers_route(package_edition(), *route))
+}
+
+/// 本安装包所属的版本：macOS 读 app 里的版本声明，Windows 读 Server 目录里的，Linux 读安装前缀 bin 目录里的；没有声明（开发运行、测试、其他平台）是 full。声明坏了的包在启动时就已经退出（`check_*_edition`），这里读不出来时按 full 处理只会多给入口，不会少给。
+pub(crate) fn package_edition() -> &'static msime_client_core::edition::Edition {
+    use msime_client_core::edition::Edition;
+    #[cfg(target_os = "macos")]
+    let declared = Edition::of_macos_bundle();
+    #[cfg(target_os = "windows")]
+    let declared = Edition::of_windows_package();
+    #[cfg(target_os = "linux")]
+    let declared = Edition::of_linux_package();
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let declared: Result<&'static Edition, &'static str> = Ok(Edition::full());
+    declared.unwrap_or_else(|_| Edition::full())
+}
+
+/// 版本是否提供这个界面。手写面板只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）既不从启动参数、也不从菜单转发或设置页打开它，对应的设置页同样不打开。其他界面每个版本都有。
+pub(crate) fn edition_offers_route(
+    edition: &msime_client_core::edition::Edition,
+    route: SurfaceRoute,
+) -> bool {
+    match route {
+        SurfaceRoute::Handwriting
+        | SurfaceRoute::Settings(Some(
+            msime_client_core::host_surface::SettingsCategory::Handwriting,
+        )) => edition.features.handwriting,
+        _ => true,
+    }
 }
 
 #[tauri::command]
@@ -3565,6 +3595,12 @@ fn cancel_settings_linger(app: &tauri::AppHandle) {
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
+    // 转发来的路由与启动参数一样按版本过滤；本版本没有的界面落到设置窗口首页。
+    let route = if edition_offers_route(package_edition(), route) {
+        route
+    } else {
+        SurfaceRoute::Settings(None)
+    };
     // macOS has no settings linger: its settings process exits when the window closes.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     cancel_settings_linger(app);

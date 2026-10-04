@@ -1661,6 +1661,10 @@ export interface EditionInfo {
   temporary_japanese: boolean;
   /** 本版本是否带键盘神经联想用的模型。不带时触屏宿主不列出神经联想开关；桌面的神经联想用另一份模型，不归这一项管。 */
   neural_keyboard: boolean;
+  /** 本版本是否带非英文目标语言的离线候选释义。它们按中文候选查，所以只有提供中文方案的版本带。 */
+  offline_glosses: boolean;
+  /** 本版本是否提供手写。手写模型只认汉字，不提供中文方案的版本（日文、越南文和藏文版）没有手写：设置页不列出手写页，宿主也不打开手写面板、不下载模型。 */
+  handwriting: boolean;
   /** 本版本里五笔混拼的默认值。 */
   wubi_mixed_pinyin_default: boolean;
 }
@@ -2798,6 +2802,8 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
           showMusic ||
           showPluginTriggers ||
           showTypingEffects),
+      // full 不带版本信息，手写一直都在。
+      hasHandwriting: client.host?.edition?.handwriting ?? true,
       mobileHiddenPageIds,
       mobilePageTitle,
     });

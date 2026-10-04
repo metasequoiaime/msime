@@ -4,6 +4,7 @@
 
 use crate::voice::local_models::{run_install, saved_model_mirror, LocalModelInstalls};
 use crate::{HostActionError, PreferencesStore};
+use msime_client_core::edition::Edition;
 use msime_client_core::preferences::{ChineseScheme, InputScheme};
 use msime_client_core::resource_packs::{self, PackState, ResourcePack, ResourcePackStatus};
 use std::path::PathBuf;
@@ -27,6 +28,11 @@ fn known_pack(id: &str) -> Result<ResourcePack, HostActionError> {
     ResourcePack::from_id(id).ok_or(HostActionError {
         code: "local_model_unknown",
     })
+}
+
+/// 版本是否用得上这个资源包。手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它；日文词典和语言词库照旧由方案决定要不要下载。
+fn offered_by(pack: ResourcePack, edition: &Edition) -> bool {
+    pack != ResourcePack::Handwriting || edition.features.handwriting
 }
 
 /// 下载、校验并发布一个资源包，返回安装目录。命令和启动时的自动补齐都走这里，所以页面能看到同样的 busy 状态和进度。
@@ -55,11 +61,18 @@ pub(crate) async fn resource_packs(
     store: tauri::State<'_, Arc<PreferencesStore>>,
 ) -> Result<Vec<ResourcePackStatus>, HostActionError> {
     let root = state_root(store.inner());
-    tauri::async_runtime::spawn_blocking(move || resource_packs::list(&root))
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })
+    let edition = crate::package_edition();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut statuses = resource_packs::list(&root);
+        statuses.retain(|status| {
+            ResourcePack::from_id(status.id).is_some_and(|pack| offered_by(pack, edition))
+        });
+        statuses
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })
 }
 
 /// 下载并安装一个资源包，返回安装目录。镜像沿用已保存的 `voice_input.asr_model_mirror`。
@@ -71,6 +84,11 @@ pub(crate) async fn resource_pack_install<R: tauri::Runtime>(
     id: String,
 ) -> Result<String, HostActionError> {
     let pack = known_pack(&id)?;
+    if !offered_by(pack, crate::package_edition()) {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     let path = install_pack(&app, &installs, store.inner().clone(), pack).await?;
     Ok(path.to_string_lossy().into_owned())
 }
@@ -194,7 +212,6 @@ mod tests {
     /// macOS 发布包对每个版本都不内置日文词典。水杉日语只有日文一个方案，用户不会去切换方案：它的状态目录第一次准备好时偏好就是日文（`Preferences::for_edition`），设置应用第一次启动就由这里补下词典。越南文、藏文版不需要任何资源包。
     #[test]
     fn single_language_editions_fetch_exactly_their_own_packs_on_first_launch() {
-        use msime_client_core::edition::Edition;
         use msime_client_core::preferences::Preferences;
         let first_launch = |id: &str| {
             let preferences = Preferences::for_edition(Edition::by_id(id).unwrap());
@@ -203,6 +220,36 @@ mod tests {
         assert_eq!(first_launch("japanese"), [ResourcePack::Japanese]);
         assert_eq!(first_launch("vietnamese"), []);
         assert_eq!(first_launch("tibetan"), []);
+    }
+
+    /// 手写模型只给提供手写的版本：日文、越南文和藏文版不列出、不下载它，日文词典和语言词库不受影响。
+    #[test]
+    fn only_editions_with_handwriting_offer_the_handwriting_pack() {
+        for edition in Edition::all() {
+            assert_eq!(
+                offered_by(ResourcePack::Handwriting, edition),
+                edition.features.handwriting,
+                "{}",
+                edition.id
+            );
+            assert!(
+                offered_by(ResourcePack::Japanese, edition),
+                "{}",
+                edition.id
+            );
+            assert!(
+                offered_by(ResourcePack::LanguageDictionaries, edition),
+                "{}",
+                edition.id
+            );
+        }
+        for id in ["japanese", "vietnamese", "tibetan"] {
+            assert!(
+                !offered_by(ResourcePack::Handwriting, Edition::by_id(id).unwrap()),
+                "{id}"
+            );
+        }
+        assert!(offered_by(ResourcePack::Handwriting, Edition::full()));
     }
 
     #[test]

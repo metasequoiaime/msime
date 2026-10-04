@@ -686,6 +686,8 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
             default_scheme: InputScheme::Wubi,
             temporary_japanese: false,
             neural_keyboard: false,
+            offline_glosses: true,
+            handwriting: true,
             wubi_mixed_pinyin_default: true,
         })
     );
@@ -699,6 +701,8 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
             "default_scheme": "wubi",
             "temporary_japanese": false,
             "neural_keyboard": false,
+            "offline_glosses": true,
+            "handwriting": true,
             "wubi_mixed_pinyin_default": true,
         })
     );
@@ -722,4 +726,26 @@ fn a_narrower_edition_drops_its_missing_schemes_and_says_which_edition_it_is() {
     );
     assert!(edition.temporary_japanese);
     assert!(!edition.wubi_mixed_pinyin_default);
+}
+
+/// 不提供中文方案的版本（日文、越南文和藏文版）不带离线释义也不提供手写：设置页据此藏起手写页，macOS 悬浮工具栏的手写按钮开关也随之消失。提供中文方案的版本保持原样。
+#[test]
+fn editions_without_a_chinese_scheme_offer_no_handwriting_or_offline_glosses() {
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        assert!(capabilities.floating_toolbar_handwriting);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(!capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(!edition.handwriting, "{id}");
+        assert!(!edition.offline_glosses, "{id}");
+    }
+    for id in ["pinyin", "wubi"] {
+        let mut capabilities = HostCapabilities::for_platform(HostPlatform::Macos);
+        capabilities.narrow_to_edition(Edition::by_id(id).unwrap());
+        assert!(capabilities.floating_toolbar_handwriting, "{id}");
+        let edition = capabilities.edition.unwrap();
+        assert!(edition.handwriting, "{id}");
+        assert!(edition.offline_glosses, "{id}");
+    }
 }

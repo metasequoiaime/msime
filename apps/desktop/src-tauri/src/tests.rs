@@ -2530,3 +2530,53 @@ fn sway_container_owner_is_read_from_the_matching_view() {
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 2), None);
     assert_eq!(crate::panel_input::sway_pid_for_container(&tree, 9), None);
 }
+
+/// 不提供手写的版本（日文、越南文和藏文版）不打开手写面板和手写设置页，别的界面照常；提供中文方案的版本什么都不少。
+#[test]
+fn editions_without_handwriting_open_no_handwriting_surface() {
+    use msime_client_core::edition::Edition;
+    use msime_client_core::host_surface::{SettingsCategory, SurfaceRoute};
+
+    let handwriting = [
+        SurfaceRoute::Handwriting,
+        SurfaceRoute::Settings(Some(SettingsCategory::Handwriting)),
+    ];
+    let others = [
+        SurfaceRoute::Keyboard,
+        SurfaceRoute::Emoji,
+        SurfaceRoute::Voice,
+        SurfaceRoute::Settings(None),
+        SurfaceRoute::Settings(Some(SettingsCategory::Input)),
+    ];
+    for edition in Edition::all() {
+        for route in handwriting {
+            assert_eq!(
+                super::edition_offers_route(edition, route),
+                edition.features.handwriting,
+                "{} {route:?}",
+                edition.id
+            );
+        }
+        for route in others {
+            assert!(
+                super::edition_offers_route(edition, route),
+                "{} {route:?}",
+                edition.id
+            );
+        }
+    }
+    for id in ["japanese", "vietnamese", "tibetan"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            !super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
+    for id in ["full", "pinyin", "wubi"] {
+        let edition = Edition::by_id(id).unwrap();
+        assert!(
+            super::edition_offers_route(edition, SurfaceRoute::Handwriting),
+            "{id}"
+        );
+    }
+}

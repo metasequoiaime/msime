@@ -11,6 +11,7 @@
 - full 等于现状：全部 10 个方案、默认全拼、没有额外默认值、带全部组件和功能，显示名等于 Info.plist 的 `CFBundleDisplayName` 和 Tauri 的 `productName`；
 - 资源组件互不重叠，并集恰好等于 `resources/desktop-dictionary.lock.json` 的条目；
 - 生成的资源锁没有漂移：`resources/components/` 和 `resources/editions/` 下的文件与 `scripts/editions.py gen-locks` 的输出逐字节相同，没有多余文件，全部组件的并集逐字节等于 `resources/desktop-dictionary.lock.json`；
+- 只认中文的功能：非英文离线释义（`features.offline_glosses`）和手写（`features.handwriting`）都只对中文候选、汉字有用，所以两者必须等于本版本是否提供中文方案（与 client-core 的 `ChineseScheme::of` 是同一组方案，这里另外核对那组方案没有变）；日文、越南文和藏文版两者都是 false，各平台的打包和设置据此不带这些数据、不提供这些入口；
 - 数据依赖：用到 msime.db 的方案（全拼、双拼、五笔，与 Engine 的 `SchemeSet::reads_main_dictionary` 相同）要带 chinese-main，反过来没有这些方案的版本（日文、越南文、藏文）不带 chinese-main 和 ngram——Engine 给它们准备的代次里本来就没有 msime.db，带上也没人读；功能开关要带对应组件，粤语、注音和笔画要列出对应语言词库；
 - macOS 身份标识：每个字段在所有版本间两两不同（不区分大小写），一个版本的输入法 bundle id 不能是另一个版本输入模式标识符的前缀，钥匙串服务名连同 `.refresh` 和语音服务凭据的服务名（`EditionIdentity.h` 从 bundle id 推出）也不能撞，使用统计目录（同样由 `EditionIdentity.h` 从版本 id 推出）互不嵌套；full 的值等于今天的 Info.plist.in、tauri.macos.conf.json、cask 和 DMG 名；
 - Windows 身份标识：全部版本的全部 GUID（CLSID、profile、TSF 内部 GUID、Inno AppId）两两不同（不区分大小写），名字类字段两两不同，注册表键互不嵌套，%LOCALAPPDATA% 下的目录名（安装器默认数据目录、状态目录、用户目录）两两不同；不是 full 的版本的名字后缀、host DLL 名和安装包名按版本 id 推出，安装包名与 `update-manifest.ts` 认的形式一致；full 的值等于今天的 Globals.cpp、msime_setup.iss、StateDirectory.h 和 tauri.windows.conf.json；
@@ -59,6 +60,11 @@ CHINESE_MAIN_SCHEMES = {"quanpin", "shuangpin", "wubi"}
 # 只有读 msime.db 的方案才用得上的组件：n-gram 表给拼音整句的词格用。
 CHINESE_ONLY_COMPONENTS = ["chinese-main", "ngram"]
 ENGINE_TYPES = ROOT / "crates/engine/src/types.rs"
+# 写中文的方案，与 client-core 的 `ChineseScheme::of` 是同一组。非英文离线释义按中文候选查，手写模型只认汉字，所以只有提供其中任何一个方案的版本才有这两个功能。
+CHINESE_SCHEMES = {"quanpin", "shuangpin", "wubi", "cantonese", "zhuyin", "stroke"}
+CLIENT_PREFERENCES = ROOT / "crates/client-core/src/preferences.rs"
+# 只对中文方案有意义的功能：必须等于版本是否提供中文方案。
+CHINESE_FEATURES = ["offline_glosses", "handwriting"]
 # 功能开关和它依赖的资源组件。
 FEATURE_COMPONENTS = {"temporary_japanese": "japanese", "neural_keyboard": "sentence-model"}
 # 方案和它依赖的语言词库。
@@ -328,6 +334,13 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
             errors.append(f"{where}: ships the japanese component but neither the japanese scheme nor temporary_japanese uses it")
         if "sentence-model" in chosen and not entry["features"]["neural_keyboard"]:
             errors.append(f"{where}: ships the sentence-model component but neural_keyboard is off")
+        writes_chinese = bool(CHINESE_SCHEMES & set(schemes))
+        for feature in CHINESE_FEATURES:
+            enabled = entry["features"][feature]
+            if not isinstance(enabled, bool):
+                errors.append(f"{where}: features.{feature} must be a boolean")
+            elif enabled != writes_chinese:
+                errors.append(f"{where}: features.{feature} must be {str(writes_chinese).lower()}, because the edition {'offers' if writes_chinese else 'offers none of'} the Chinese schemes {sorted(CHINESE_SCHEMES)}")
 
         dictionaries = entry["language_dictionaries"]
         for name in dictionaries:
@@ -338,6 +351,7 @@ def check_editions(errors: list[str], table: dict, frozen: dict) -> None:
             errors.append(f"{where}: language_dictionaries must be exactly {sorted(needed)}, found {sorted(dictionaries)}")
 
     check_main_dictionary_rule(errors)
+    check_chinese_scheme_rule(errors)
     full = next((entry for entry in editions if entry["id"] == FULL), None)
     if full is not None:
         check_full(errors, full, engine, components)
@@ -360,6 +374,18 @@ def check_main_dictionary_rule(errors: list[str]) -> None:
     schemes = {camel_to_snake(name) for name in re.findall(r"SchemeType::(\w+)", match.group(1))}
     if schemes != CHINESE_MAIN_SCHEMES:
         errors.append(f"{ENGINE_TYPES.relative_to(ROOT)}: SchemeSet::reads_main_dictionary names {sorted(schemes)}, but this script's CHINESE_MAIN_SCHEMES is {sorted(CHINESE_MAIN_SCHEMES)}")
+
+
+def check_chinese_scheme_rule(errors: list[str]) -> None:
+    """`CHINESE_SCHEMES` 抄自 client-core 的 `ChineseScheme::of`：那边改了而这里没跟上时，离线释义和手写开关查的就不是宿主判断中文方案用的那条规则。"""
+    text = CLIENT_PREFERENCES.read_text(encoding="utf-8")
+    match = re.search(r"pub fn of\(scheme: InputScheme\) -> Option<Self> \{(.*?)\n    \}", text, re.S)
+    if not match:
+        errors.append(f"{CLIENT_PREFERENCES.relative_to(ROOT)}: ChineseScheme::of not found")
+        return
+    schemes = {camel_to_snake(name) for name in re.findall(r"InputScheme::(\w+) => Some", match.group(1))}
+    if schemes != CHINESE_SCHEMES:
+        errors.append(f"{CLIENT_PREFERENCES.relative_to(ROOT)}: ChineseScheme::of names {sorted(schemes)}, but this script's CHINESE_SCHEMES is {sorted(CHINESE_SCHEMES)}")
 
 
 def check_full(errors: list[str], full: dict, engine: list[str], components: dict) -> None:

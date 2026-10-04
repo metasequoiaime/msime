@@ -96,7 +96,7 @@ export function InputSchemeSettingsContent({
   const wubiEdition = singleEditionScheme(edition) === "wubi";
   // 粤拼、注音、越南语、藏文和笔画的触屏键盘输入各自的方案，所以只在宿主提供该方案时出现（粤拼、注音和笔画还需要装好词库）。
   // 五笔键盘只有一个，标题跟随当前的五笔版本。
-  // 不是 full 的版本还要去掉本版本没有的方案对应的键盘；手写不属于任何方案，但手写识别器只认汉字，只在提供中文方案的版本里保留（日文、越南文、藏文版没有），与 client-core 的 `Edition::offers_touch_scheme` 一致。
+  // 不是 full 的版本还要去掉本版本没有的方案对应的键盘；手写不属于任何方案，由版本表的 `features.handwriting`（`EditionInfo.handwriting`）决定：手写识别器只认汉字，只在提供中文方案的版本里保留（日文、越南文、藏文版没有），与 client-core 的 `Edition::offers_touch_scheme` 一致。
   const touchOptions = touchKeyboardSchemeOptions
     .filter(
       ([scheme]) =>
@@ -110,9 +110,7 @@ export function InputSchemeSettingsContent({
     .filter(([scheme]) => {
       if (!edition) return true;
       const input = touchKeyboardSchemeInputScheme(scheme);
-      return input === null
-        ? edition.input_schemes.some(isChineseScheme)
-        : edition.input_schemes.includes(input);
+      return input === null ? edition.handwriting : edition.input_schemes.includes(input);
     })
     .map(([scheme, title]): [TouchKeyboardScheme, string] => [
       scheme,

@@ -23,6 +23,8 @@ const wubiEdition: EditionInfo = {
   default_scheme: "wubi",
   temporary_japanese: false,
   neural_keyboard: false,
+  offline_glosses: true,
+  handwriting: true,
   wubi_mixed_pinyin_default: true,
 };
 
@@ -32,6 +34,8 @@ const pinyinEdition: EditionInfo = {
   default_scheme: "quanpin",
   temporary_japanese: true,
   neural_keyboard: true,
+  offline_glosses: true,
+  handwriting: true,
   wubi_mixed_pinyin_default: false,
 };
 
@@ -189,6 +193,8 @@ test("a touch host offers 手写 only in an edition with a Chinese scheme", asyn
     default_scheme: "vietnamese",
     temporary_japanese: false,
     neural_keyboard: false,
+    offline_glosses: false,
+    handwriting: false,
     wubi_mixed_pinyin_default: false,
   };
   async function touchSchemes(host: HostCapabilities, scheme: Snapshot["preferences"]["scheme"]) {
@@ -221,4 +227,35 @@ test("a touch host offers 手写 only in an edition with a Chinese scheme", asyn
     "wubi",
   );
   expect(screen.getByRole("switch", { name: "显示输入方案 手写" })).toBeTruthy();
+});
+
+// 手写只认汉字：没有中文方案的版本（`EditionInfo.handwriting` 为 false）设置导航里没有「手写输入」页，中文的版本照旧有。
+test("the settings navigation lists 手写输入 only in an edition with handwriting", async () => {
+  const japaneseEdition: EditionInfo = {
+    id: "japanese",
+    input_schemes: ["japanese"],
+    default_scheme: "japanese",
+    temporary_japanese: false,
+    neural_keyboard: false,
+    offline_glosses: false,
+    handwriting: false,
+    wubi_mixed_pinyin_default: false,
+  };
+  async function open(host: HostCapabilities, scheme: Snapshot["preferences"]["scheme"]) {
+    render(
+      <SettingsPage client={{ load: async () => snapshot({ scheme }), save: vi.fn(), host }} />,
+    );
+    await settingsFormReady();
+  }
+
+  await open(
+    testHost({ platform: "windows", input_schemes: ["japanese"], edition: japaneseEdition }),
+    "japanese",
+  );
+  expect(screen.queryByRole("button", { name: "手写输入" })).toBeNull();
+  expect(screen.getByRole("button", { name: "语音输入" })).toBeTruthy();
+  cleanup();
+
+  await open(wubiHost, "wubi");
+  expect(screen.getByRole("button", { name: "手写输入" })).toBeTruthy();
 });

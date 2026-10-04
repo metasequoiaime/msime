@@ -233,6 +233,8 @@ test("the wubi edition skips choosing a keyboard and completes with Wubi", async
         default_scheme: "wubi",
         temporary_japanese: false,
         neural_keyboard: false,
+        offline_glosses: true,
+        handwriting: true,
         wubi_mixed_pinyin_default: true,
       }}
     />,
@@ -271,6 +273,8 @@ test("a wubi edition learned only after preparing resources still skips choosing
     default_scheme: "wubi" as const,
     temporary_japanese: false,
     neural_keyboard: false,
+    offline_glosses: true,
+    handwriting: true,
     wubi_mixed_pinyin_default: true,
   };
   let learnEdition = () => {};
@@ -307,6 +311,8 @@ test("the pinyin edition keeps the keyboard choice", async () => {
         default_scheme: "quanpin",
         temporary_japanese: true,
         neural_keyboard: true,
+        offline_glosses: true,
+        handwriting: true,
         wubi_mixed_pinyin_default: false,
       }}
     />,
