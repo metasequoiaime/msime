@@ -2328,15 +2328,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     expectedRevision: number;
   } | null>(null);
   const mounted = useMountedRef();
-  const lifecycleRevision = useAsyncGeneration();
+  const lifecycleRevision = useAsyncGeneration(client);
 
   useEffect(() => {
-    const current = ++lifecycleRevision.current;
     invalidate();
     setSnapshotBusy(false);
     setRestorePreview(null);
     return () => {
-      if (current === lifecycleRevision.current) lifecycleRevision.current++;
       invalidate();
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };

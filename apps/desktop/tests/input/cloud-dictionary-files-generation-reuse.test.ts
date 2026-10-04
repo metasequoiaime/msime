@@ -12,6 +12,7 @@ test("cloud dictionary files reuse the shared lifecycle generation", () => {
   const end = source.indexOf("export function CloudDictionaryApplyPanel", start);
   const panel = source.slice(start, end);
 
-  expect(panel).toContain("const lifecycleRevision = useAsyncGeneration()");
+  expect(panel).toContain("const lifecycleRevision = useAsyncGeneration(client)");
+  expect(panel).not.toContain("const current = ++lifecycleRevision.current");
   expect(panel).not.toContain("const lifecycleRevision = useRef(0)");
 });
