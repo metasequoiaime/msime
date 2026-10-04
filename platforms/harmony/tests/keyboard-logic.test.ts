@@ -302,6 +302,10 @@ import {
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
+import {
+  EngineViewValuePolicy,
+  EngineViewNumericFields,
+} from "../entry/src/main/ets/keyboard/input/EngineViewValuePolicy";
 import { CandidatePreeditStylePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePreeditStylePolicy";
 import {
   KEY_SOUNDS_OFF,
@@ -11077,6 +11081,69 @@ group("a malformed candidate size cannot produce an unusable number", () => {
   check(CandidateNumberFontPolicy.size(0) === 1, "zero does not become zero");
   check(CandidateNumberFontPolicy.size(-4) === 1, "nor does a negative size");
   check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
+});
+
+group("malformed Engine view integers are refused", () => {
+  const valid: EngineViewNumericFields = {
+    editing_text: "nihao",
+    caret_position: 2,
+    page: 0,
+    page_count: 3,
+    generation: 7,
+    scheme: SchemeTraits.QUANPIN,
+  };
+  check(EngineViewValuePolicy.isValid(valid), "a complete Engine view is accepted");
+  for (const field of ["caret_position", "page", "page_count", "generation", "scheme"] as const) {
+    for (const invalid of [0.5, true, "1", null, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const malformed = { ...valid, [field]: invalid } as EngineViewNumericFields;
+      check(!EngineViewValuePolicy.isValid(malformed), `${field} rejects ${String(invalid)}`);
+    }
+  }
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, caret_position: valid.editing_text.length + 1 }),
+    "the caret cannot exceed the editing text",
+  );
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, scheme: SchemeTraits.NAMES.length }),
+    "unknown scheme numbers are refused",
+  );
+  check(
+    EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }),
+    "an empty candidate list has zero pages",
+  );
+});
+
+group("Engine view bounds preserve byte offsets and exact identities", () => {
+  const valid: EngineViewNumericFields = {
+    editing_text: "việt", caret_position: 6, page: 2, page_count: 3,
+    generation: Number.MAX_SAFE_INTEGER, scheme: SchemeTraits.VIETNAMESE,
+  };
+  check(EngineViewValuePolicy.isValid(valid), "a UTF-8 caret and largest exact generation survive");
+  for (const field of ["page", "page_count", "generation"] as const) {
+    check(
+      !EngineViewValuePolicy.isValid({ ...valid, [field]: Number.MAX_SAFE_INTEGER + 1 }),
+      `${field} cannot lose precision before reaching native code`,
+    );
+  }
+  check(!EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }), "UTF-8 bounds are enforced");
+  check(!EngineViewValuePolicy.isValid({ ...valid, page: 3 }), "a page must exist in the list");
+  check(!EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }), "no pages means page zero");
+  check(
+    EngineViewValuePolicy.isValid({ ...valid, editing_text: "", caret_position: 0, page: 0, page_count: 0 }),
+    "an idle Engine view is accepted",
+  );
+  for (const malformed of [null, undefined, {}, [], 1, "view"]) {
+    check(!EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields), "missing fields are refused");
+  }
+});
+
+group("candidate snapshots keep generation identities exact", () => {
+  check(EngineViewValuePolicy.isGeneration(0), "generation zero is valid while idle");
+  check(EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER), "the largest exact generation is valid");
+  for (const invalid of [0.5, true, "7", null, -1, Number.NaN,
+    Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    check(!EngineViewValuePolicy.isGeneration(invalid), `snapshot generation rejects ${String(invalid)}`);
+  }
 });
 
 group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {

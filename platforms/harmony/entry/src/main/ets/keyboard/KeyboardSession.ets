@@ -127,6 +127,7 @@ import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPo
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
+import { EngineViewNumericFields, EngineViewValuePolicy } from './input/EngineViewValuePolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -164,7 +165,7 @@ export interface CandidateEntry {
   readonly translation: string | null;
 }
 
-interface EngineView {
+interface EngineView extends EngineViewNumericFields {
   candidates: Candidate[];
   editing_text: string;
   /**
@@ -3551,6 +3552,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const value: EngineValue = response.value;
+    if (!EngineViewValuePolicy.isValid(value.view)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
+      return false;
+    }
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
     // stack trace into a keyboard four rows tall.
     this.editing = value.view.editing_text;
@@ -3591,6 +3596,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (!response.ok) {
       KeyboardLog.error(`engine refused: ${response.error}`);
+      return;
+    }
+    if (!EngineViewValuePolicy.isValid(response.value)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
       return;
     }
     this.render(response.value);
@@ -3657,6 +3666,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   private englishCandidates: boolean = false;
 
   private render(view: EngineView): void {
+    if (!EngineViewValuePolicy.isValid(view)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
+      return;
+    }
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
@@ -5647,6 +5660,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         JSON.parse(client.allCandidates(this.handle)) as SnapshotCandidates;
       if (!response.ok) {
         KeyboardLog.error(`candidate list refused: ${response.error}`);
+        return [];
+      }
+      if (response.value === undefined || response.value === null
+        || !EngineViewValuePolicy.isGeneration(response.value.generation)) {
+        KeyboardLog.error('candidate list has malformed generation');
         return [];
       }
       // The generation identifies the composition these belong to; selecting against a stale one
