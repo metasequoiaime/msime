@@ -223,6 +223,8 @@ final class BackendAccountClientTests: XCTestCase {
   func testClipboardRejectsOversizedUTF16AndUnsafeID() async throws {
     do { _ = try await client().addClipboard(String(repeating: "😀", count: 2001), token: "session"); XCTFail("too long") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
+    do { _ = try await client().addClipboard("safe\u{0007}text", token: "session"); XCTFail("control character") }
+    catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
     do { try await client().deleteClipboard(id: "../auth/logout", token: "session"); XCTFail("unsafe id") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 400) }
   }
