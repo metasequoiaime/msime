@@ -19,6 +19,24 @@ int main() {
     assert([initial[@"platform.macos.shuangpin_helpcode_schema"] isEqual:@0]);
     assert([initial[@"platform.macos.local_input_modes"] isEqual:@YES]);
     assert([initial[@"platform.macos.shuangpin_preedit_uses_raw"] isEqual:@YES]);
+    // 每套内置辅助码在全拼和双拼里都能导出，再导入回相同选择。
+    for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
+      for (NSUInteger index = 0; index < MSIMECloudHelpcodeSchemas().count; ++index) {
+        NSString *schema = MSIMECloudHelpcodeSchemas()[index];
+        [defaults setObject:@{scheme: @{@"schema": schema}} forKey:@"MSIMEClientHelpcodeOptions"];
+        NSDictionary *snapshot = MSIMECloudAppearanceSnapshot(defaults);
+        NSString *key = [NSString stringWithFormat:@"platform.macos.%@_helpcode_schema", scheme];
+        assert([snapshot[key] isEqual:@(index)]);
+        assert(MSIMEValidateCloudAppearance(snapshot));
+        [defaults removeObjectForKey:@"MSIMEClientHelpcodeOptions"];
+        assert(MSIMEApplyCloudAppearance(snapshot, defaults));
+        assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:snapshot]);
+        assert([[defaults dictionaryForKey:@"MSIMEClientHelpcodeOptions"][scheme][@"schema"] isEqual:schema]);
+        NSDictionary *narrowed = MSIMENarrowCloudAppearance(snapshot, @[@"quanpin", @"shuangpin"]);
+        assert(MSIMEApplyCloudAppearanceForSchemes(narrowed, defaults, @[@"quanpin", @"shuangpin"]));
+      }
+    }
+    assert(MSIMEApplyCloudAppearance(initial, defaults));
     for (NSString *key in @[@"autocorrect", @"helpcode", @"chinese_punctuation", @"input_mode_shortcut", @"floating_toolbar", @"candidate_learning"])
       assert([initial[[@"platform.macos." stringByAppendingString:key]] isEqual:@YES]);
     for (NSString *key in @[@"english_input_mode", @"full_width_input", @"smart_punctuation", @"smart_punctuation_repeat", @"traditional_chinese_output", @"wubi_auto_commit_unique", @"shuangpin_keymap"])
@@ -100,7 +118,7 @@ int main() {
       }
     }
     for (NSString *key in @[@"platform.macos.quanpin_helpcode_schema", @"platform.macos.shuangpin_helpcode_schema"]) {
-      for (id invalid in @[@YES, @5, @(-1), @1.5, @"1"]) {
+      for (id invalid in @[@YES, @(MSIMECloudHelpcodeSchemas().count), @(-1), @1.5, @"1"]) {
         NSMutableDictionary *bad = [saved mutableCopy]; bad[key] = invalid;
         assert(!MSIMEApplyCloudAppearance(bad, defaults));
         assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
