@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useRef, useState, type MutableRefObject } from "react";
+import { useAsyncGeneration } from "../settings/use-async-generation";
+import { useMountedRef } from "../settings/use-mounted-ref";
 
 export type PanelAction = (revision: number) => Promise<void>;
 
@@ -15,8 +17,8 @@ export interface PanelActionState {
 export function usePanelAction(onFailure: (message: string) => void): PanelActionState {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const revisionRef = useRef(0);
-  const mounted = useRef(true);
+  const revisionRef = useAsyncGeneration();
+  const mounted = useMountedRef();
 
   const isCurrent = useCallback(
     (revision: number) => mounted.current && revision === revisionRef.current,
@@ -50,15 +52,6 @@ export function usePanelAction(onFailure: (message: string) => void): PanelActio
     },
     [isCurrent, onFailure],
   );
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      revisionRef.current++;
-      busyRef.current = false;
-    };
-  }, []);
 
   return { busy, busyRef, revisionRef, run, invalidate, isCurrent };
 }
