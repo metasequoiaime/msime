@@ -89,6 +89,10 @@ public final class KeyboardSkinSmoke {
         check(CustomKeyboardSkin.patternValue("2") == 0);
         check(CustomKeyboardSkin.patternValue(true) == 0);
         check(CustomKeyboardSkin.patternValue(10) == 3);
+        check(CustomKeyboardSkin.doubleValue(8.5, 0) == 8.5);
+        check(CustomKeyboardSkin.doubleValue("8.5", 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Boolean.TRUE, 7) == 7);
+        check(CustomKeyboardSkin.doubleValue(Double.NaN, 7) == 7);
         KeyboardSkin custom = KeyboardSkin.customFixture(design, false);
         check("custom".equals(custom.id()) && "我的皮肤".equals(custom.title()) && custom.designed());
         check("#151022".equals(custom.background()) && "#30224A".equals(custom.gradientEnd()));
