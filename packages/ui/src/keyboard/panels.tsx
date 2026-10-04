@@ -2066,7 +2066,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   } | null>(null);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
   const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
-  const searchRef = useRef("");
+  const searchRef = useLatestRef(search);
 
   async function load(
     revision: number,
@@ -2232,7 +2232,6 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           inputClassName={cloud.dictionaryInput}
           onKindChange={changeKind}
           onQueryChange={(value) => {
-            searchRef.current = value;
             setSearch(value);
           }}
           onQuery={() => void refresh(0)}
