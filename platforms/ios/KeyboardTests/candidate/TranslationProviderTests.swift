@@ -88,16 +88,16 @@ final class TranslationProviderTests: XCTestCase {
     ]
     var fractionalTimeout = descriptor
     fractionalTimeout["timeout_ms"] = 2_500.5
-    XCTAssertNil(TranslationProviderPreference.urlRequest(fractionalTimeout))
+    XCTAssertNil(TranslationProviderClient.urlRequest(fractionalTimeout))
     var booleanLimit = descriptor
     booleanLimit["max_response_bytes"] = true
-    XCTAssertNil(TranslationProviderPreference.urlRequest(booleanLimit))
+    XCTAssertNil(TranslationProviderClient.urlRequest(booleanLimit))
     var negativeTimeout = descriptor
     negativeTimeout["timeout_ms"] = -1
-    XCTAssertNil(TranslationProviderPreference.urlRequest(negativeTimeout))
+    XCTAssertNil(TranslationProviderClient.urlRequest(negativeTimeout))
     var zeroLimit = descriptor
     zeroLimit["max_response_bytes"] = 0
-    XCTAssertNil(TranslationProviderPreference.urlRequest(zeroLimit))
+    XCTAssertNil(TranslationProviderClient.urlRequest(zeroLimit))
   }
 
   func testCacheScopeChangesWithProviderAndCredentials() {
@@ -107,11 +107,10 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertFalse(a.contains("one"), "the scope never carries a secret in clear")
   }
 
-  func testURLRequestIgnoresNonIntegerTransportLimits() throws {
+  func testURLRequestDefaultsAbsentTransportLimits() throws {
     let descriptor: [String: Any] = [
       "url": "https://example.com/translate",
-      "timeout_ms": true,
-      "max_response_bytes": 1.5,
+      "body": ["text": "x"],
     ]
     let request = try XCTUnwrap(TranslationProviderClient.urlRequest(descriptor))
     XCTAssertEqual(request.connectTimeout, 2.5)
