@@ -42,6 +42,34 @@ public final class AccountSessionRoutingSmoke {
             "a saturated Rust expiry is not treated as an eternal token");
         check(AccountSessionRoutingPolicy.legacyToken("E".repeat(64), now + 60_000L, now).isEmpty(), "a malformed Rust token is not used");
         check(AccountSessionRoutingPolicy.legacyToken(null, now + 60_000L, now).isEmpty(), "a missing Rust token is not used");
+        check(AccountTokenPolicy.strictSeconds(900) == 900,
+            "integer account lifetimes are accepted");
+        check(AccountTokenPolicy.strictSeconds(900.5) == 0,
+            "fractional account lifetimes are rejected");
+        check(AccountTokenPolicy.strictSeconds(true) == 0,
+            "boolean account lifetimes are rejected");
+        check(AccountTokenPolicy.strictSeconds("900") == 0,
+            "string account lifetimes are rejected");
+        check(AccountTokenPolicy.strictSeconds(null) == 0,
+            "missing account lifetimes are rejected");
+        check(AccountTokenPolicy.strictSeconds(AccountTokenPolicy.MAX_SESSION_SECONDS)
+                == AccountTokenPolicy.MAX_SESSION_SECONDS,
+            "the maximum integer lifetime is accepted");
+        check(AccountTokenPolicy.strictSeconds(AccountTokenPolicy.MAX_SESSION_SECONDS + 1) == 0,
+            "lifetimes beyond the maximum are rejected");
+        check(AccountTokenPolicy.strictLong(1_700_000_000_000L, -1) == 1_700_000_000_000L,
+            "integer saved expiries are accepted");
+        check(AccountTokenPolicy.strictLong(1_700_000_000_000.5, -1) == -1,
+            "fractional saved expiries are rejected");
+        check(AccountTokenPolicy.strictLong(Long.MAX_VALUE, -1) == Long.MAX_VALUE,
+            "exact long integers retain all their bits");
+        for (Object invalid : new Object[] {
+                null, true, "1700000000000", 1e40, Double.NaN, Double.POSITIVE_INFINITY,
+                new java.math.BigDecimal("9223372036854775808"),
+                new java.math.BigDecimal("900.000000000000000001")}) {
+            check(AccountTokenPolicy.strictLong(invalid, -1) == -1,
+                "non-integer or out-of-range account numbers are rejected");
+        }
 
         check(AccountSessionRoutingPolicy.stateFor(TOKEN).equals(AccountSessionRoutingPolicy.STATE_SIGNED_IN), "a token is reported as signed in");
         check(AccountSessionRoutingPolicy.stateFor("").equals(AccountSessionRoutingPolicy.STATE_SIGNED_OUT), "no token is reported as signed out");
