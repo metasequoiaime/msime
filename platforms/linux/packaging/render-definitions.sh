@@ -79,6 +79,7 @@ if want debian; then
   python3 "$here/render-sources.py" --version "$version" --changelog-out "$out/debian/changelog"
   docker run --rm -v "$out/debian":/d -v "$release":/release:ro debian:sid bash -euo pipefail -c '
     v='"$version"'
+    export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq && apt-get install -y -qq --no-install-recommends dpkg-dev xz-utils >/dev/null
     mkdir /work && cd /work
     cp /release/msime-$v.tar.xz msime_$v.orig.tar.xz
@@ -138,9 +139,9 @@ if want gentoo; then
       mkdir -p /etc/portage/repos.conf
       printf "[DEFAULT]\nmain-repo = gentoo\n\n[gentoo]\nlocation = /var/db/repos/gentoo\n" > /etc/portage/repos.conf/gentoo.conf
       printf "[msime]\nlocation = %s\n" "$overlay" > /etc/portage/repos.conf/msime.conf
-      # Manifest 记下每个 distfile 的校验值：Portage 下载 SRC_URI 里还没有的文件，已在 distfiles 里的直接计算。下载以 portage 用户进行（userfetch），挂进来的目录要让它可写。
+      # Manifest 记下每个 distfile 的校验值：Portage 下载 SRC_URI 里还没有的文件，已在 distfiles 里的直接计算。下载以 portage 用户进行（userfetch），挂进来的目录要让它可写。这些文件不在 Gentoo 的镜像上，清空 GENTOO_MIRRORS 直接取上游地址，免得每个文件先在镜像上 404 一次。
       chown portage:portage /var/cache/distfiles
-      ebuild "$overlay/app-i18n/msime/msime-$v.ebuild" manifest
+      GENTOO_MIRRORS="" ebuild "$overlay/app-i18n/msime/msime-$v.ebuild" manifest
       cd "$overlay"
       pkgcheck scan --exit error app-i18n/msime
     '
