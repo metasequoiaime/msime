@@ -180,9 +180,21 @@ struct TranslationProviderClient: Sendable {
     for (name, value) in descriptor["headers"] as? [String: String] ?? [:] {
       request.setValue(value, forHTTPHeaderField: name)
     }
-    let milliseconds = integer(descriptor["timeout_ms"]) ?? 2500
+    let milliseconds: Int
+    if descriptor["timeout_ms"] == nil {
+      milliseconds = 2500
+    } else {
+      guard let value = integer(descriptor["timeout_ms"]), value > 0 else { return nil }
+      milliseconds = value
+    }
     let timeout = TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
-    let maxBytes = min(1_048_576, max(1, integer(descriptor["max_response_bytes"]) ?? 1_048_576))
+    let maxBytes: Int
+    if descriptor["max_response_bytes"] == nil {
+      maxBytes = 1_048_576
+    } else {
+      guard let value = integer(descriptor["max_response_bytes"]), value > 0 else { return nil }
+      maxBytes = min(1_048_576, value)
+    }
     return OnlineCandidateRequest(urlRequest: request, connectTimeout: timeout, timeout: timeout, maxBytes: maxBytes)
   }
 

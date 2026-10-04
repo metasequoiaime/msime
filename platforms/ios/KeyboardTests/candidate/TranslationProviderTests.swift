@@ -81,6 +81,25 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertEqual(TranslationProviderPreference.route(in: incomplete), .none, "the account is never a fallback for the user's own service")
   }
 
+  func testURLRequestRejectsMalformedNumericDescriptorValues() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/translate", "method": "POST", "body": ["text": "x"],
+      "timeout_ms": 2_500, "max_response_bytes": 1_024,
+    ]
+    var fractionalTimeout = descriptor
+    fractionalTimeout["timeout_ms"] = 2_500.5
+    XCTAssertNil(TranslationProviderPreference.urlRequest(fractionalTimeout))
+    var booleanLimit = descriptor
+    booleanLimit["max_response_bytes"] = true
+    XCTAssertNil(TranslationProviderPreference.urlRequest(booleanLimit))
+    var negativeTimeout = descriptor
+    negativeTimeout["timeout_ms"] = -1
+    XCTAssertNil(TranslationProviderPreference.urlRequest(negativeTimeout))
+    var zeroLimit = descriptor
+    zeroLimit["max_response_bytes"] = 0
+    XCTAssertNil(TranslationProviderPreference.urlRequest(zeroLimit))
+  }
+
   func testCacheScopeChangesWithProviderAndCredentials() {
     let a = TranslationRoute.niutrans(appID: "app", apiKey: "one").cacheScope
     XCTAssertNotEqual(a, TranslationRoute.niutrans(appID: "app", apiKey: "two").cacheScope)
