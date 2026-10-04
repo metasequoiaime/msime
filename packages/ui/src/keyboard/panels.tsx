@@ -1810,6 +1810,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   } = usePanelAction(setNotice);
   const draftRevision = useRef(0);
   const searchRef = useRef("");
+  const cloudGeneration = useAsyncGeneration(client);
 
   async function load(revision: number, nextSearch: string) {
     let result;
@@ -1835,7 +1836,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   useEffect(() => {
-    let active = true;
+    const generation = cloudGeneration.current;
     busyRef.current = false;
     setItems([]);
     setLoaded(false);
@@ -1844,21 +1845,21 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       void client
         .canSendText()
         .then((available) => {
-          if (active) setInputAvailable(available && Boolean(client.sendText));
+          if (generation === cloudGeneration.current)
+            setInputAvailable(available && Boolean(client.sendText));
         })
         .catch(() => {
-          if (active) setInputAvailable(false);
+          if (generation === cloudGeneration.current) setInputAvailable(false);
         });
     if (client.rememberInputTarget)
       void client.rememberInputTarget().catch(() => {
-        if (active) setNotice("未能记录前台输入窗口");
+        if (generation === cloudGeneration.current) setNotice("未能记录前台输入窗口");
       });
     void refresh(searchRef.current);
     return () => {
-      active = false;
       invalidate();
     };
-  }, [client, invalidate]);
+  }, [client, cloudGeneration, invalidate]);
 
   function add() {
     if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
