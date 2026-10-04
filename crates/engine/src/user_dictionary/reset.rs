@@ -12,7 +12,7 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::user_dictionary::generation::weakly_canonical;
+use crate::user_dictionary::generation::{merge_split_wubi, weakly_canonical};
 use crate::user_dictionary::journal::{close_cached_journals, ensure_schema, open_database};
 
 /// SQLite files that sit beside the journal. A leftover `-wal` would bring the learned data the user just erased back on the next open.
@@ -83,7 +83,13 @@ pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
         return Err(EngineError::failed(diagnostics::RESET_JOURNAL_FAILED));
     }
 
-    let swapped = swap(&mut replacements, &main_source, &english_source, &journal);
+    let swapped = swap(
+        &mut replacements,
+        &paths.resources,
+        &main_source,
+        &english_source,
+        &journal,
+    );
     match swapped {
         Ok(()) => {
             // Every replacement is published; the originals are no longer needed.
@@ -101,6 +107,7 @@ pub fn reset_learned_data(paths: &RuntimePaths) -> Result<()> {
 
 fn swap(
     replacements: &mut [Replacement],
+    resources: &Path,
     main_source: &Path,
     english_source: &Path,
     journal: &Path,
@@ -113,6 +120,9 @@ fn swap(
         fs::copy(source, &replacement.temporary)
             .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
     }
+    // 与准备代次相同：单独发布的五笔码表并回新的工作主词库，否则重置之后五笔学习与删词都找不到表。
+    merge_split_wubi(resources, &replacements[0].temporary)
+        .map_err(|_| EngineError::failed(diagnostics::RESET_STAGE_DICTIONARIES_FAILED))?;
     for replacement in replacements.iter_mut() {
         replacement.had_original = replacement.target.exists();
         if replacement.had_original {

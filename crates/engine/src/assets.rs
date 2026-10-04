@@ -2,9 +2,9 @@
 
 pub const CONTRACT_VERSION: i32 = 1;
 
-/// The main dictionary (pinyin tables, `wubi86`, `quick_parases`); a working copy lives in each generation.
+/// 主词库（拼音各表与 `quick_parases`）。每个代次里有一份工作副本，准备代次时把 `WUBI_DICTIONARY` 的五笔码表并进这份副本。
 pub const MAIN_DICTIONARY: &str = "msime-pinyin.db";
-/// Separate immutable Wubi tables, split from the pinyin build output.
+/// 单独发布的只读五笔码表（`wubi86`、`wubi98`），从拼音构建产物中拆出。
 pub const WUBI_DICTIONARY: &str = "msime-wubi.db";
 /// The English dictionary; a working copy lives in each generation.
 pub const ENGLISH_DICTIONARY: &str = "msime-english.db";

@@ -716,6 +716,58 @@ mod tests {
         assert_eq!(words(&session)[0], "或");
     }
 
+    /// 发布布局：`msime-pinyin.db` 没有五笔表，码表单独在只读的 `msime-wubi.db` 里。准备出的代次把码表并回工作主词库，五笔选词学到的权重写得进去、下一次会话读得到，换一个代次（升级）时日志里的五笔行也能回放。
+    #[test]
+    fn wubi_learning_survives_the_split_dictionary_layout() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        std::fs::create_dir_all(resources.join("helpcodes")).unwrap();
+        std::fs::write(resources.join("helpcodes/helpcode.txt"), "你=ab\n").unwrap();
+        Connection::open(resources.join(assets::MAIN_DICTIONARY))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_1_n(key TEXT, jp TEXT, value TEXT, weight INTEGER);
+                 INSERT INTO tbl_1_n VALUES('ni','n','你',100);",
+            )
+            .unwrap();
+        Connection::open(resources.join(assets::WUBI_DICTIONARY))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE wubi86(key TEXT NOT NULL, value TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 0, UNIQUE(key, value));
+                 CREATE TABLE wubi98(key TEXT NOT NULL, value TEXT NOT NULL, weight INTEGER NOT NULL DEFAULT 0, UNIQUE(key, value));
+                 INSERT INTO wubi86 VALUES('aaaa','工',200),('aaaa','或',100);",
+            )
+            .unwrap();
+        crate::dictionary::english::ensure_english_schema(
+            &resources.join(assets::ENGLISH_DICTIONARY),
+        )
+        .unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let open = |content_id: &str| {
+            let paths = crate::user_dictionary::generation::prepare_runtime_paths(
+                &resources, &user, &cache, content_id,
+            )
+            .unwrap();
+            let mut options = SessionOptions::new(paths);
+            options.frequency = frequency(FrequencyAdjustmentMode::Pin, 1, 1);
+            options.scheme = SchemeType::Wubi;
+            Session::new(options).unwrap()
+        };
+        {
+            let mut session = open("v1");
+            type_text(&mut session, "aaaa");
+            assert_eq!(words(&session)[..2], ["工", "或"]);
+            assert_eq!(select_word(&mut session, "或").diagnostic, None);
+        }
+        flush_all();
+        for content_id in ["v1", "v2"] {
+            let mut session = open(content_id);
+            type_text(&mut session, "aaaa");
+            assert_eq!(words(&session)[0], "或", "{content_id}");
+        }
+    }
+
     /// F7 (test_input_session.cpp:1204-1217): the commit survives, and the diagnostic carries no input text.
     #[test]
     fn a_failed_write_keeps_the_commit_with_a_diagnostic() {

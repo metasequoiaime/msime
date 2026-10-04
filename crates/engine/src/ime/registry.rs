@@ -41,8 +41,20 @@ pub struct ProviderRegistry {
     stroke: Option<LanguageDictionary>,
 }
 
+/// 五笔码表所在的数据库。准备代次时单独发布的 `msime-wubi.db` 已并回工作主词库，学习、删词与个人词典也写那里，所以优先读代次的 `msime-pinyin.db`，读写落在同一个文件上。代次目录就是资源目录（只读布局）时读其中的 `msime-wubi.db`；没有代次工作副本时退回资源目录，先找拆分后的 `msime-wubi.db`，再找旧的合并发布。
+fn wubi_database(paths: &RuntimePaths) -> PathBuf {
+    [
+        paths.dictionary(assets::WUBI_DICTIONARY),
+        paths.dictionary(assets::MAIN_DICTIONARY),
+        paths.resource(assets::WUBI_DICTIONARY),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .unwrap_or_else(|| paths.resource(assets::MAIN_DICTIONARY))
+}
+
 impl ProviderRegistry {
-    /// Wubi reads the generation's `msime-pinyin.db`; the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `msime-japanese.dat`。
+    /// 五笔读 `wubi_database` 选出的文件，通常是代次里的 `msime-pinyin.db`； the Japanese model is the immutable resource (provider_registry.cpp:4-10). `japanese_path` 非空时改读这个位置（例如按需下载的那份），为空时读资源目录里的 `msime-japanese.dat`。
     pub fn new(
         profile_kind: ShuangpinProfileKind,
         paths: &RuntimePaths,
@@ -59,21 +71,7 @@ impl ProviderRegistry {
         Self {
             quanpin: QuanpinEngine::new(paths),
             shuangpin: ShuangpinEngine::new(profile(profile_kind), paths),
-            wubi: WubiProvider::new(&{
-                let split = paths.resource(assets::WUBI_DICTIONARY);
-                if split.is_file() {
-                    split
-                } else if paths.dictionary(assets::WUBI_DICTIONARY).is_file() {
-                    // Fixtures and transitional generations may stage the split beside the mutable dictionaries.
-                    paths.dictionary(assets::WUBI_DICTIONARY)
-                } else if paths.dictionary(assets::MAIN_DICTIONARY).is_file() {
-                    // Older generations kept Wubi tables in the pinyin database.
-                    paths.dictionary(assets::MAIN_DICTIONARY)
-                } else {
-                    // Old releases contain the Wubi tables in the packaged pinyin database.
-                    paths.resource(assets::MAIN_DICTIONARY)
-                }
-            }),
+            wubi: WubiProvider::new(&wubi_database(paths)),
             japanese: JapaneseProvider::new(&japanese_model),
             keymap: None,
             cantonese_path,
