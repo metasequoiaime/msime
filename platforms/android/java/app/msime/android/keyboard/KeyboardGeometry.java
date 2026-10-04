@@ -45,10 +45,11 @@ public final class KeyboardGeometry {
 
     public static int strictInt(Object raw, int fallback) {
         if (!(raw instanceof Number) || raw instanceof Boolean) return fallback;
-        double value = ((Number) raw).doubleValue();
-        if (!Double.isFinite(value) || value != Math.rint(value)
-                || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) return fallback;
-        return (int) value;
+        try {
+            return new BigDecimal(raw.toString()).intValueExact();
+        } catch (NumberFormatException | ArithmeticException error) {
+            return fallback;
+        }
     }
 
     public static long strictLong(Object raw, long fallback) {

@@ -1,6 +1,7 @@
 package app.msime.android.test;
 
 import app.msime.android.KeyboardGeometry;
+import java.math.BigDecimal;
 import org.json.JSONObject;
 
 /** Shared geometry values must not be silently truncated by JSONObject.optInt. */
@@ -19,6 +20,10 @@ public final class KeyboardGeometryStrictIntSmoke {
             if (KeyboardGeometry.strictInt(values, key, -1) != -1)
                 throw new AssertionError("malformed geometry value accepted: " + key);
         }
+        if (KeyboardGeometry.strictInt(new BigDecimal("45.0000000000000000001"), -1) != -1)
+            throw new AssertionError("precise fractional integer was rounded");
+        if (KeyboardGeometry.strictInt(new BigDecimal("2147483647.0000000001"), -1) != -1)
+            throw new AssertionError("precise fractional upper bound was rounded");
         if (KeyboardGeometry.strictLong(Long.MAX_VALUE - 1, -1) != Long.MAX_VALUE - 1)
             throw new AssertionError("large exact long was rounded");
         if (KeyboardGeometry.strictLong(9.223372036854776E18, -1) != -1)
