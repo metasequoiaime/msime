@@ -7,6 +7,8 @@
 - `installer/msime_setup.iss` 用一个只覆盖本脚本用到的那部分 ISPP 语法的预处理器按每个版本展开：每个版本的结果里出现本版本的 AppId、CLSID、安装目录、注册表键和看门狗任务名，不出现任何别的版本的，唯一的例外是 OtherEditionDataDirs 里别的全部版本的注册表键和安装目录名（安装器拿它们找出别的版本的数据目录，本版本的数据目录不能和它们重叠或互相包含）；所有版本（包括 full）都只结束可执行文件在本安装 server 目录里的进程，不按映像名结束（`taskkill /IM` 会停掉同时安装的其他版本）；所有版本的数据目录所有权都只认本版本的标记，目录里有别的版本的标记就不归它管，即使那是它的默认数据目录；不是 full 的版本的所有权标记还带着自己的版本 id；
 - full 的展开结果里没有任何只属于其他版本的写法，full 的标识（AppId、CLSID、名称、路径、注册表键、看门狗任务名）一个不变。full 的展开与引入版本之前的脚本相比只有两处不同，都是为了几个版本同时安装时互不越界：结束进程从按映像名改为按本安装的 server 目录，数据目录所有权多了「目录里没有别的版本的标记」这一条件（full 的标记文件名和内容不变，以前的 full 写下的标记照样认）。除此之外是「把字面量换成值相同的宏」，这一点在引入时用同一个预处理器对照旧脚本核对过；之后对安装脚本的普通修改照常进行，这里不冻结它的内容；
 - Windows 原生代码和 Rust 侧不再自己写 full 的 CLSID、管道名和状态目录名：这些名字只能出现在生成的头文件、版本表和本检查允许的地方，否则某个版本会悄悄用上 full 的名字。
+- 每个版本注册在它的默认方案所属的语言下（版本表 `langid`）：中文版本是简体中文 0x0804，日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下；
+- `release-windows.yml` 的发布矩阵恰好是有 Windows 段的全部版本：少了一个，那个版本就不出安装包，共存检查（按 `edition_windows.py editions` 找安装包）也会因找不到它而失败。
 
 ISPP 的真实编译只能在装了 Inno Setup 的 Windows 上做（`release-windows.yml`）；这里的预处理器只认 `#include`、`#define`、`#if`/`#ifdef`/`#ifndef`/`#elif`/`#else`/`#endif`、`#error` 和行内 `{#名字}`，遇到别的指令就失败，免得在它看不懂的地方给出错误的结论。
 """
@@ -24,6 +26,16 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 EDITIONS = ROOT / "shared/contracts/editions.json"
 INSTALLER = ROOT / "platforms/windows/installer"
 SETUP = INSTALLER / "msime_setup.iss"
+RELEASE_WORKFLOW = ROOT / ".github/workflows/release-windows.yml"
+# 默认方案到它所属语言的 LANGID。中文方案都是简体中文；一个版本的默认方案不在这里时，先想清楚它该注册在哪个语言下再补上。
+SCHEME_LANGID = {
+    "quanpin": "0x0804",
+    "shuangpin": "0x0804",
+    "wubi": "0x0804",
+    "japanese": "0x0411",
+    "vietnamese": "0x042A",
+    "tibetan": "0x0451",
+}
 GENERATOR = ROOT / "platforms/windows/scripts/edition_windows.py"
 FULL = "full"
 # 允许出现 full 的 Windows 标识的源文件：生成器的输入和输出，以及描述、检查它们的地方。
@@ -263,19 +275,42 @@ def check_hardcoded(errors: list[str], full: dict) -> None:
                 errors.append(f"{relative} spells {what} itself; take it from shared/contracts/msime_edition.h (C++) or the edition's WindowsIdentity (Rust)")
 
 
+def check_languages(errors: list[str], editions: list[dict]) -> None:
+    for entry in editions:
+        expected = SCHEME_LANGID.get(entry["default_scheme"])
+        actual = entry["platforms"]["windows"]["langid"]
+        if expected is None:
+            errors.append(f"edition {entry['id']}: no Windows language is known for its default scheme {entry['default_scheme']!r}; add it to SCHEME_LANGID")
+        elif actual != expected:
+            errors.append(f"edition {entry['id']}: platforms.windows.langid is {actual}, but its default scheme {entry['default_scheme']} belongs under {expected}")
+
+
+def check_release_matrix(errors: list[str], editions: list[dict]) -> None:
+    match = re.search(r"^\s+edition: \[([^\]]*)\]\s*$", RELEASE_WORKFLOW.read_text(encoding="utf-8"), re.MULTILINE)
+    if not match:
+        errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} has no edition matrix")
+        return
+    matrix = [item.strip() for item in match.group(1).split(",") if item.strip()]
+    expected = [entry["id"] for entry in editions]
+    if sorted(matrix) != sorted(expected) or len(set(matrix)) != len(matrix):
+        errors.append(f"{RELEASE_WORKFLOW.relative_to(ROOT)} builds editions {matrix}, but the editions with Windows identifiers are {expected}")
+
+
 def main() -> int:
     table = json.loads(EDITIONS.read_text(encoding="utf-8"))
     editions = [entry for entry in table["editions"] if entry["platforms"].get("windows") is not None]
     errors: list[str] = []
     check_generated(errors)
     check_installer(errors, editions)
+    check_languages(errors, editions)
+    check_release_matrix(errors, editions)
     full = next(entry for entry in editions if entry["id"] == FULL)["platforms"]["windows"]
     check_hardcoded(errors, full)
     if errors:
         for error in errors:
             print(f"FAIL: {error}")
         return 1
-    print(f"windows editions: generated identity files are current, msime_setup.iss expands to {len(editions)} disjoint installers, and no Windows source spells the full identifiers itself")
+    print(f"windows editions: generated identity files are current, msime_setup.iss expands to {len(editions)} disjoint installers, every edition registers under its default scheme's language and is in the release matrix, and no Windows source spells the full identifiers itself")
     return 0
 
 

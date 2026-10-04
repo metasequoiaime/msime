@@ -52,6 +52,8 @@ $resourceLock = if ($Edition -eq 'full') {
     Join-Path $RepoRoot "resources/editions/$Edition.lock.json"
 }
 $languageDictionaryNames = @($editionEntry[0].language_dictionaries)
+# 落定重排模型只给中文整句重排，不带中文主词库（版本表 resources.components 没有 chinese-main）的版本，例如日文、越南文和藏文版，用不上它，也不装它。
+$editionUsesSettledModel = @($editionEntry[0].resources.components) -contains 'chinese-main'
 $editionBuild = "target/windows-$Edition"
 if (-not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
     $DesktopExecutable = "$editionBuild/x64/bin/msime-client-settings.exe"
@@ -352,7 +354,10 @@ $settledTarget = Join-Path $targetServer 'settled-model'
 if (Test-Path -LiteralPath $settledTarget) {
     Remove-Item -LiteralPath $settledTarget -Recurse -Force
 }
-if (-not $Light) {
+if (-not $Light -and -not $editionUsesSettledModel) {
+    Write-Host "版本 $Edition 没有中文主词库，不装落定重排模型"
+}
+elseif (-not $Light) {
     $settledLock = Join-Path $RepoRoot 'resources/settled-model.lock.json'
     $settledManifest = Get-Content -LiteralPath $settledLock -Raw | ConvertFrom-Json
     $settledFiles = @()

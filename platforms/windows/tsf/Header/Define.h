@@ -5,7 +5,7 @@
 #define IME_NAME L"MetasequoiaImeTsf"
 
 #define TEXTSERVICE_MODEL L"Apartment"
-// 本版本注册的语言（版本表 platforms.windows.langid）；中文版本都是简体中文 0x0804，即 MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED)。
+// 本版本注册的语言（版本表 platforms.windows.langid）：中文版本都是简体中文 0x0804，即 MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED)；日文版是 0x0411（日语），越南文版是 0x042A（越南语），藏文版是 0x0451（藏语）。TSF 按它把文本服务列在设置的对应语言下，提交的文字也按它标上 GUID_PROP_LANGID。
 #define TEXTSERVICE_LANGID MSIME_EDITION_LANGID
 #define TEXTSERVICE_ICON_INDEX -IDIS_METASEQUOIAIME
 #define TEXTSERVICE_DIC L"MetasequoiaIMESimplifiedQuanPin.txt"

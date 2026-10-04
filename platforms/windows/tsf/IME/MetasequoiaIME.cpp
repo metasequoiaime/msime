@@ -3032,15 +3032,29 @@ HRESULT CMetasequoiaIME::GetDisplayName(_Out_ BSTR *pbstrDisplayName)
 //+---------------------------------------------------------------------------
 //
 // ITfFnGetPreferredTouchKeyboardLayout::GetLayout
-// The tkblayout will be Optimized layout.
+// The touch keyboard layout for the language this edition registers under (TEXTSERVICE_LANGID): the optimized Simplified Chinese Pinyin layout for the Chinese editions, the optimized Japanese layout for the Japanese edition, and the classic layout of the user's keyboard otherwise, since Windows has no optimized layout for Vietnamese or Tibetan.
 //----------------------------------------------------------------------------
 HRESULT CMetasequoiaIME::GetLayout(_Out_ TKBLayoutType *ptkblayoutType, _Out_ WORD *pwPreferredLayoutId)
 {
     HRESULT hr = E_INVALIDARG;
     if ((ptkblayoutType != nullptr) && (pwPreferredLayoutId != nullptr))
     {
-        *ptkblayoutType = TKBLT_OPTIMIZED;
-        *pwPreferredLayoutId = TKBL_OPT_SIMPLIFIED_CHINESE_PINYIN;
+        constexpr WORD language = PRIMARYLANGID(TEXTSERVICE_LANGID);
+        if constexpr (language == LANG_CHINESE)
+        {
+            *ptkblayoutType = TKBLT_OPTIMIZED;
+            *pwPreferredLayoutId = TKBL_OPT_SIMPLIFIED_CHINESE_PINYIN;
+        }
+        else if constexpr (language == LANG_JAPANESE)
+        {
+            *ptkblayoutType = TKBLT_OPTIMIZED;
+            *pwPreferredLayoutId = TKBL_OPT_JAPANESE_ABC;
+        }
+        else
+        {
+            *ptkblayoutType = TKBLT_CLASSIC;
+            *pwPreferredLayoutId = TKBL_UNDEFINED;
+        }
         hr = S_OK;
     }
     return hr;

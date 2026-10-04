@@ -180,7 +180,7 @@
               ],
               "properties": {
                 "langid": {
-                  "description": "输入法注册的语言（十六进制 LANGID）。中文版本都是 0x0804（简体中文）。",
+                  "description": "输入法注册的语言（十六进制 LANGID），即默认方案所属的语言：中文版本都是 0x0804（简体中文），日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下。",
                   "type": "string",
                   "pattern": "^0x[0-9A-F]{4}$"
                 },
