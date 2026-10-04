@@ -602,7 +602,13 @@ impl WebHost {
                 .commit
                 .as_deref()
                 .is_some_and(|text| !text.is_empty());
-            self.apply(result, seat_number(seat));
+            // 没有候选可选时引擎上屏的是原码，和上面空格的路径一样记为 -1，不算选了哪个候选位。
+            let number = if self.ordered.rows.is_empty() {
+                -1
+            } else {
+                seat_number(seat)
+            };
+            self.apply(result, number);
         }
         if let Some(mark) = quote_mark(&self.context, byte) {
             self.commit(mark.to_owned(), -1);

@@ -399,6 +399,23 @@ fn wubi_fifth_letter_top_commits() {
     assert_eq!(frame.preedit, "w");
 }
 
+// 空码时按标点结束组字，上屏的是原码，不应记成任何候选位。
+#[test]
+fn punctuation_on_an_empty_code_commits_raw_without_a_seat() {
+    let mut fixture = open(Scheme::Wubi86, false);
+    let frame = type_text(&mut fixture.host, "xyxy");
+    assert!(frame.page.is_empty());
+    let frame = type_text(&mut fixture.host, ",");
+    assert!(
+        frame
+            .out
+            .iter()
+            .all(|out| !matches!(out, Out::Commit { seat, .. } if *seat >= 0)),
+        "{:?}",
+        frame.out
+    );
+}
+
 #[test]
 fn wubi_empty_code_is_held_until_backspace() {
     let mut fixture = open(Scheme::Wubi86, false);
