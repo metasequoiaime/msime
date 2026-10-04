@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("personal dictionary import reuses the shared generation lifecycle", () => {
+test("personal dictionary import reuses the shared async action lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>(
       "../../../../packages/ui/src/settings/personal-dictionary-import-card.tsx",
@@ -8,6 +8,6 @@ test("personal dictionary import reuses the shared generation lifecycle", () => 
     ),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(");
-  expect(source).not.toContain("const dictionaryGeneration = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });
