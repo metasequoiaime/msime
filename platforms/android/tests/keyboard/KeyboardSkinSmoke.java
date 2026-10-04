@@ -81,6 +81,7 @@ public final class KeyboardSkinSmoke {
             new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0}, .8, 1);
         check(CustomKeyboardSkin.colorValue(Integer.valueOf(0x123456), 0) == 0x123456);
         check(CustomKeyboardSkin.colorValue(Long.valueOf(0xABCDEF), 0) == 0xABCDEF);
+        check(CustomKeyboardSkin.colorValue(Integer.valueOf(-1), 0x2468AC) == 0x2468AC);
         check(CustomKeyboardSkin.colorValue(Double.valueOf(1.5), 0x13579B) == 0x13579B);
         check(CustomKeyboardSkin.colorValue(Boolean.TRUE, 0x2468AC) == 0x2468AC);
         check(CustomKeyboardSkin.colorValue("123456", 0x369CF0) == 0x369CF0);
