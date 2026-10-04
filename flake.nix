@@ -54,6 +54,9 @@
       checks = forAllSystems (pkgs: {
         # 构建本身就跑 ctest（doCheck），所以这里只需要列出包。
         inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) msime-host-api msime-fcitx5;
+        # NixOS 配置用的是 overlay，按它构建一次。overlay 里的 callPackage 能从 pkgs 取到
+        # msime-resources，只查 packages 发现不了词库被意外装进插件包的问题。
+        msime-fcitx5-overlay = (pkgs.extend self.overlays.default).msime-fcitx5;
       });
 
       devShells = forAllSystems (pkgs: {

@@ -16,7 +16,12 @@ let
   msime-host-api = pkgs.callPackage ./host-api.nix { inherit craneLib; };
   msime-resources = pkgs.callPackage ./resources.nix { };
   # 需要随包词库时：msime-fcitx5.override { inherit msime-resources; }
-  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix { inherit msime-host-api; };
+  # msime-resources 必须显式传 null：用 overlay 时 pkgs 里就有 msime-resources，callPackage
+  # 会拿它填参数，fcitx5.nix 里的 `? null` 默认值不起作用，系统构建便去下载词库。
+  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix {
+    inherit msime-host-api;
+    msime-resources = null;
+  };
 in
 {
   inherit msime-host-api msime-resources msime-fcitx5;
