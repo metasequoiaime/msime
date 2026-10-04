@@ -43,7 +43,7 @@ public final class CustomKeyboardSkin {
         value.cornerRadius = KeyboardGeometry.bounded(object.optDouble("cornerRadius", value.cornerRadius), 0, 20, 8);
         value.borderWidth = KeyboardGeometry.bounded(object.optDouble("borderWidth", 0), 0, 2, 0);
         value.shadow = KeyboardGeometry.bounded(object.optDouble("shadow", 0), 0, .4, 0);
-        value.pattern = KeyboardGeometry.bounded(object.optInt("pattern", 0), 0, 3);
+        value.pattern = patternValue(object.opt("pattern"));
         value.monospaced = object.optBoolean("monospaced", false);
         value.keyShape = oneOf(object.optString("keyShape", "rounded"),
             "rounded", "capsule", "ticket", "pebble");
@@ -99,6 +99,10 @@ public final class CustomKeyboardSkin {
 
     static int colorValue(Object raw, int fallback) {
         return KeyboardGeometry.strictInt(raw, fallback) & 0xFFFFFF;
+    }
+
+    static int patternValue(Object raw) {
+        return KeyboardGeometry.bounded(KeyboardGeometry.strictInt(raw, 0), 0, 3);
     }
 
     private static String oneOf(String value, String first, String second, String third, String fourth) {
