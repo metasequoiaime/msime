@@ -5,6 +5,7 @@
 #   输出目录默认 target/arch-package/<包名>，构建好的 .pkg.tar.zst、.SRCINFO 与日志都留在那里。
 #   需要 docker；Apple Silicon 上经 Rosetta/QEMU 跑 linux/amd64 镜像（archlinux 官方镜像只有 x86_64）。
 #   CARGO_BUILD_JOBS 原样传进容器，用来在共用的 Docker 虚拟机上限制内存。
+#   MSIME_REUSE_HOME=1 不清空上一次的家目录，沿用其中的 rustup 工具链、Cargo 下载和 target/，用于改 PKGBUILD 后反复验证；默认每次从空目录开始。
 #   MSIME_SOURCE_DIR=<检出目录> 只对 msime 有效：不下载标签的源码归档，而是把这个目录（不含 target、node_modules 与 .git）打成同名归档，跳过校验和构建，用来在发版前验证 PKGBUILD 对当前代码仍然成立。
 set -euo pipefail
 
@@ -15,8 +16,13 @@ pkg=${1:?usage: check-in-container.sh <msime|msime-bin> [output-dir]}
 out=${2:-$repo_root/target/arch-package/$pkg}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-# 构建用户的家目录（源码、Cargo 产物、rustup 工具链、pnpm 仓库）放在宿主的输出目录里，不占 Docker 虚拟机自己的磁盘：完整构建要十几 GB。每次从空目录开始。
-rm -rf "$out/home"
+# 构建用户的家目录（源码、Cargo 产物、rustup 工具链、pnpm 仓库）放在宿主的输出目录里，不占 Docker 虚拟机自己的磁盘：完整构建要十几 GB。
+if [ "${MSIME_REUSE_HOME:-0}" != 1 ]; then
+  rm -rf "$out/home"
+else
+  # 上一次 makepkg 留下的打包目录与包文件不沿用，只留源码树和缓存。
+  rm -rf "$out/home/pkg/pkg" "$out"/home/pkg/*.pkg.tar.*
+fi
 mkdir -p "$out/home"
 
 docker run --rm --init --platform linux/amd64 \
@@ -32,7 +38,8 @@ docker run --rm --init --platform linux/amd64 \
     useradd -M -d /home/builder builder
     chown builder: /home/builder
     echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
-    cp -r /pkg /home/builder/pkg
+    mkdir -p /home/builder/pkg
+    cp -r /pkg/. /home/builder/pkg/
     chown -R builder: /home/builder/pkg
     cd /home/builder/pkg
     makepkg_args="-s --noconfirm"

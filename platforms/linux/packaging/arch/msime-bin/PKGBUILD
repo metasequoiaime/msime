@@ -1,6 +1,6 @@
 # Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
 #
-# 把 linux-v$pkgver 发布的 .rpm 原样重新打包，内容与 msime（源码包）相同，不在本机编译。选 .rpm 而不是 .deb：.deb 用 Debian 的多架构目录 usr/lib/<三元组>/，插件按相对 RUNPATH 找 Host API，挪到 Arch 的 /usr/lib/fcitx5 就断了；.rpm 用 /usr/lib64，Arch 上它本来就是指向 /usr/lib 的符号链接，整体挪进 /usr/lib 后相对 RUNPATH 与写死的 /usr/lib64 路径都照样解析。
+# 把 linux-v$pkgver 发布的 .rpm 重新打包，内容与 msime（源码包）相同，不在本机编译。选 .rpm 而不是 .deb：.deb 用 Debian 的多架构目录 usr/lib/<三元组>/，插件按相对 RUNPATH 找 Host API，挪到 Arch 的 /usr/lib/fcitx5 就断了；.rpm 用 /usr/lib64，Arch 上它本来就是指向 /usr/lib 的符号链接，整体挪进 /usr/lib、把相对路径里的 lib64 改成 lib 即可，其余写死 /usr/lib64 的地方照样经那个链接解析。
 #
 # 本文件在仓库 platforms/linux/packaging/arch/msime-bin/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布的 SHA256SUMS 改写，AUR 上的副本只是它的拷贝。发布只有 x86_64 的 .rpm。
 

@@ -48,6 +48,7 @@ pkgbase = msime
 	optdepends = pipewire: 用 pw-cat 录音
 	optdepends = alsa-utils: 用 arecord 录音
 	conflicts = msime-bin
+	options = !lto
 	backup = etc/xdg/autostart/msime-linux-clipboard.desktop
 	source = msime-0.9.1.tar.gz::https://github.com/metasequoiaime/msime/archive/refs/tags/linux-v0.9.1.tar.gz
 	sha256sums = d24ddfebe51d71752d2d431f06ba3e40569f259e3cce31ef8d9f531e1cf85b48

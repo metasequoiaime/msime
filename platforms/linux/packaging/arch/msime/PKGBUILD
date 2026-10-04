@@ -65,6 +65,8 @@ conflicts=('msime-bin')
 # 唯一不在 /usr 下的文件，对应 .deb 的 conffile 与 .rpm 的 %config(noreplace)。
 backup=('etc/xdg/autostart/msime-linux-clipboard.desktop')
 install=msime.install
+# makepkg 的 LTO 会让 cc crate 编出的 C 静态库（rusqlite 自带的 SQLite 等）带上 GCC 的 LTO 字节码，rustc 用的 rust-lld 读不懂，链接 msime-mcp 时报 sqlite3_* 未定义。
+options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/linux-v$pkgver.tar.gz")
 sha256sums=('d24ddfebe51d71752d2d431f06ba3e40569f259e3cce31ef8d9f531e1cf85b48')
 
