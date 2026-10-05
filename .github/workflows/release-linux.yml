@@ -234,3 +234,12 @@ jobs:
     with:
       version: ${{ needs.deb.outputs.version }}
     secrets: inherit
+  # 同一个版本作为签名源码包上传到 Launchpad PPA，用户用 add-apt-repository ppa:msime/ppa 安装；同样只对从 main 发出的正式版本，逻辑在 publish-linux-ppa.yml，失败时单独手动触发它。
+  ppa:
+    needs: [deb, package-definitions]
+    if: ${{ needs.package-definitions.result == 'success' }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/publish-linux-ppa.yml
+    with:
+      version: ${{ needs.deb.outputs.version }}
+    secrets: inherit

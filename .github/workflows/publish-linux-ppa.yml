@@ -1,0 +1,102 @@
+name: Publish Linux to Launchpad PPA
+
+# 把已发布的 linux-vX.Y.Z 作为签名的源码包上传到 Launchpad PPA（ppa:msime/ppa），由 Launchpad 为每个 Ubuntu 代号构建并托管，用户执行 add-apt-repository ppa:msime/ppa 后就能 apt install msime（见 platforms/linux/README.md「包管理器」）。Release Linux 发布成功后调用它；上传失败时也可以单独手动触发，重新上传同一个版本，不用重新发版。
+#
+# Launchpad 只收签名的源码上传，每个 Ubuntu 代号要一份自己的 debian/changelog，步骤与 platforms/linux/packaging/debian/README.source 的「上传到 PPA」相同。签名密钥是仓库 secret LAUNCHPAD_GPG_KEY（ASCII 导出的私钥，无口令，公钥已登记在 Launchpad 账号上）；没有配置时只留一条警告，不让发版失败。上传之后的构建在 Launchpad 上进行，结果看 https://launchpad.net/~msime/+archive/ubuntu/ppa/+packages。
+on:
+  workflow_call:
+    inputs:
+      version: {required: true, type: string}
+      ppa_revision: {required: false, default: "1", type: string}
+    secrets:
+      LAUNCHPAD_GPG_KEY: {required: false}
+  workflow_dispatch:
+    inputs:
+      version: {description: "Version of an existing linux-vX.Y.Z release (X.Y.Z)", required: true, type: string}
+      ppa_revision: {description: "PPA upload number; raise it to re-upload a version Launchpad already accepted", required: false, default: "1", type: string}
+permissions: {contents: read}
+concurrency: {group: publish-linux-ppa, cancel-in-progress: false}
+env:
+  PPA: msime/ppa
+  # 代号:版本号。Launchpad 构建器只取 Build-Depends 里的第一个候选，Ubuntu 24.04 的默认 cargo 是 1.75，所以给它上传前把 cargo、rustc 换成 cargo-1.91、rustc-1.91（见 debian/README.source）。
+  SERIES: "noble:24.04 resolute:26.04"
+jobs:
+  ppa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check credentials and version
+        id: check
+        env: {LAUNCHPAD_GPG_KEY: "${{ secrets.LAUNCHPAD_GPG_KEY }}", VERSION: "${{ inputs.version }}", PPA_REVISION: "${{ inputs.ppa_revision }}"}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
+          [[ "$PPA_REVISION" =~ ^[1-9][0-9]*$ ]] || { echo "ppa_revision must be a positive integer, got '$PPA_REVISION'" >&2; exit 1; }
+          if [[ -z "$LAUNCHPAD_GPG_KEY" ]]; then
+            echo "::warning::LAUNCHPAD_GPG_KEY is not set; linux-v$VERSION was not uploaded to the PPA."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install the source packaging tools
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        run: sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends devscripts debhelper dput
+      # 私钥只导入 runner 临时目录里的钥匙串，不出现在命令行或日志里。
+      - name: Import the signing key
+        id: key
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {LAUNCHPAD_GPG_KEY: "${{ secrets.LAUNCHPAD_GPG_KEY }}"}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          (umask 077; mkdir -p "$GNUPGHOME")
+          printf '%s\n' "$LAUNCHPAD_GPG_KEY" | gpg --batch --quiet --import
+          fpr=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/{print $10; exit}')
+          [[ -n "$fpr" ]] || { echo "LAUNCHPAD_GPG_KEY holds no secret key" >&2; exit 1; }
+          # dput 上传前用 gpg 核对 .changes 与 .dsc 的签名，只认可信的密钥；这把就是我们自己的签名密钥。
+          echo "$fpr:6:" | gpg --batch --quiet --import-ownertrust
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "fingerprint=$fpr" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        with: {ref: "linux-v${{ inputs.version }}", path: tag, persist-credentials: false}
+      - name: Download and verify the release's source tarballs
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ inputs.version }}"}
+        run: |
+          set -euo pipefail
+          mkdir -p work && cd work
+          gh release download "linux-v$VERSION" --pattern SHA256SUMS --pattern "msime-$VERSION.tar.xz" --pattern "msime-$VERSION-vendor.tar.xz"
+          grep -E " (msime-$VERSION\.tar\.xz|msime-$VERSION-vendor\.tar\.xz)$" SHA256SUMS | sha256sum -c -
+      - name: Build and upload a signed source package per Ubuntu series
+        if: ${{ steps.check.outputs.skip == 'false' }}
+        working-directory: work
+        env: {VERSION: "${{ inputs.version }}", PPA_REVISION: "${{ inputs.ppa_revision }}", FINGERPRINT: "${{ steps.key.outputs.fingerprint }}"}
+        run: |
+          set -euo pipefail
+          v=$VERSION
+          ln -sf "msime-$v.tar.xz" "msime_$v.orig.tar.xz"
+          ln -sf "msime-$v-vendor.tar.xz" "msime_$v.orig-vendor.tar.xz"
+          # 第一个代号带上两个 orig tarball（-sa），之后的代号复用 PPA 里已有的那两份（-sd）。
+          include=-sa
+          for entry in $SERIES; do
+            codename=${entry%%:*} release=${entry##*:}
+            revision="1~ppa${PPA_REVISION}~ubuntu$release"
+            tree="build-$codename/msime-$v"
+            rm -rf "build-$codename" && mkdir -p "$tree/vendor"
+            tar -xf "msime_$v.orig.tar.xz" -C "build-$codename"
+            tar -xf "msime_$v.orig-vendor.tar.xz" -C "$tree/vendor" --strip-components=1
+            ln -s "../msime_$v.orig.tar.xz" "../msime_$v.orig-vendor.tar.xz" "build-$codename/"
+            cp -a "$tree/platforms/linux/packaging/debian" "$tree/debian"
+            python3 "../tag/platforms/linux/packaging/render-sources.py" --version "$v" --changelog-out "$tree/debian/changelog" --debian-distribution "$codename" --debian-revision "$revision"
+            if [[ $codename == noble ]]; then
+              sed -i -e 's/^ cargo (>= 1\.90) | cargo-1\.91,$/ cargo-1.91,/' -e 's/^ rustc (>= 1\.90) | rustc-1\.91,$/ rustc-1.91,/' "$tree/debian/control"
+              if ! grep -q '^ cargo-1\.91,$' "$tree/debian/control" || ! grep -q '^ rustc-1\.91,$' "$tree/debian/control"; then
+                echo "debian/control no longer lists cargo/rustc as expected; update the noble rewrite" >&2
+                exit 1
+              fi
+            fi
+            (cd "$tree" && debuild -S $include -d -k"$FINGERPRINT")
+            dput "ppa:$PPA" "build-$codename/msime_${v}-${revision}_source.changes"
+            include=-sd
+          done
