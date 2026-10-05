@@ -21,7 +21,8 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
      */
     private static final float MARK_SCALE = 0.72f;
     private static final float DISC_DP = 30f;
-    private static final float DISC_MARK_DP = 18f;
+    /** 设计是 18 dp；圆盘与浅色键盘底色接近时 18 dp 的 logo 比旁边 24 dp 的工具栏图标小一圈，按用户要求放大到同为 24 dp。 */
+    private static final float DISC_MARK_DP = 24f;
     private static final float ACTIVE_SIDE_DP = 40f;
     private static final float ACTIVE_RADIUS_DP = 12f;
 
