@@ -347,7 +347,8 @@ hdiutil detach -quiet "$mount_point"
 mount_point=""
 
 # 体积报告：DMG 本身和 App 的 Contents/Resources。在 GitHub Actions 里同时写进这一步的摘要，方便逐次对比。
-dmg_bytes="$(stat -f %z "$dmg")"
+# /usr/bin/stat, not whatever is first on PATH: a GNU coreutils stat reads -f as --file-system and fails, after the package is already built.
+dmg_bytes="$(/usr/bin/stat -f %z "$dmg")"
 resources_kib="$(du -sk "$app/Contents/Resources" | cut -f1)"
 echo "DMG size: $dmg_bytes bytes; Contents/Resources: $resources_kib KiB"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
