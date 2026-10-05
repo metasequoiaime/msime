@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Locked downloads retry transient failures (5xx, 429, network errors) and fail at once on any other HTTP status."""
 
+import contextlib
+import email.message
+import io
 import socket
 import sys
 import urllib.error
@@ -61,6 +64,20 @@ def main():
         result, calls, sleeps = attempts([http_error(permanent), "response"])
         if not (isinstance(result, urllib.error.HTTPError) and result.code == permanent) or len(calls) != 1 or sleeps:
             failures.append(f"HTTP {permanent} was retried: result={result!r} calls={len(calls)} sleeps={sleeps}")
+
+    headers = email.message.Message()
+    headers["X-GitHub-Request-Id"] = "ABCD:1234"
+    redirected = urllib.error.HTTPError("https://release-assets.example.invalid/blob", 500, "synthetic", headers, None)
+    log = io.StringIO()
+    with contextlib.redirect_stderr(log):
+        attempts([redirected, "response"])
+    if "release-assets.example.invalid/blob" not in log.getvalue() or "ABCD:1234" not in log.getvalue():
+        failures.append(f"a retried HTTP error did not name the failing hop and its request id: {log.getvalue()!r}")
+    log = io.StringIO()
+    with contextlib.redirect_stderr(log):
+        attempts([redirected] * (len(delays) + 1))
+    if "giving up" not in log.getvalue() or log.getvalue().count("ABCD:1234") != len(delays) + 1:
+        failures.append(f"the final failure was not logged with its request id: {log.getvalue()!r}")
 
     request = urllib.request.Request(URL, headers={"User-Agent": "synthetic"})
     queue = [http_error(500), "response"]

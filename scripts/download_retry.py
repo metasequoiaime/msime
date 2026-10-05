@@ -23,10 +23,18 @@ def urlopen(url, timeout: float):
         try:
             return urllib.request.urlopen(url, timeout=timeout)
         except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-            if delay is None or not transient(error):
+            if not transient(error):
+                raise
+            target = url.full_url if isinstance(url, urllib.request.Request) else url
+            detail = ""
+            if isinstance(error, urllib.error.HTTPError):
+                # GitHub's release downloads redirect to release-assets.githubusercontent.com, so the hop that failed is named; GitHub Support can trace a failure by its X-GitHub-Request-Id.
+                request_id = error.headers.get("X-GitHub-Request-Id") if error.headers else None
+                detail = f" (from {error.url}" + (f", X-GitHub-Request-Id {request_id}" if request_id else "") + ")"
+            outcome = "giving up" if delay is None else f"retrying in {delay}s"
+            print(f"  {target}: {type(error).__name__}: {error}{detail}; {outcome}", file=sys.stderr)
+            if delay is None:
                 raise
             if isinstance(error, urllib.error.HTTPError):
                 error.close()
-            target = url.full_url if isinstance(url, urllib.request.Request) else url
-            print(f"  {target}: {error}; retrying in {delay}s", file=sys.stderr)
             time.sleep(delay)
