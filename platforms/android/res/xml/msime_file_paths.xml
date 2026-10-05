@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- FileProvider（authorities `${applicationId}.files`）能分享出去的目录，全部在应用缓存下：诊断包、下载的更新安装包、导出的词库与设置、随反馈附上的文件。其他目录一律不暴露。 -->
+<!-- FileProvider（authorities `${applicationId}.files`）能分享出去的目录，全部在应用缓存下：诊断包、下载的更新安装包、导出的词库与设置。其他目录一律不暴露。 -->
 <paths>
     <cache-path name="diagnostics" path="diagnostics/" />
     <cache-path name="updates" path="updates/" />
     <cache-path name="exports" path="exports/" />
-    <cache-path name="feedback" path="feedback/" />
 </paths>
