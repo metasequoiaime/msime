@@ -32,6 +32,8 @@ public final class CommunityCatalogSmoke {
             "dictionary pages allow the shared resource response bound");
         check((int) responseLimit.invoke(null, CommunityRequest.Kind.REPLY) == 48 * 1024 * 1024,
             "reply pages allow the shared resource response bound");
+        check((int) responseLimit.invoke(null, CommunityRequest.Kind.PHRASE) == 48 * 1024 * 1024,
+            "phrase pages allow the shared resource response bound");
         String token = "e".repeat(64);
         Method retryListing = CommunityCatalog.class.getDeclaredMethod(
             "shouldRetryListing", int.class, String.class, int.class);
@@ -58,12 +60,12 @@ public final class CommunityCatalogSmoke {
         validItem.setAccessible(true);
         CommunityCatalog.Item malformed = new CommunityCatalog.Item(
             "not-a-uuid", CommunityRequest.Kind.SKIN, "名称", "说明", "作者", 0, 0, 0, null,
-            CommunityRequest.Category.OTHER, false);
+            CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, malformed, CommunityRequest.Kind.SKIN),
             "malformed community items must be rejected");
         CommunityCatalog.Item invalidRating = new CommunityCatalog.Item(
             UUID.randomUUID().toString(), CommunityRequest.Kind.SKIN, "名称", "说明", "作者",
-            0, 0, 1, null, CommunityRequest.Category.OTHER, false);
+            0, 0, 1, null, CommunityRequest.Category.OTHER, false, 0, null);
         check(!(boolean) validItem.invoke(null, invalidRating, CommunityRequest.Kind.SKIN),
             "a rating average without ratings must be rejected");
         // 分类只属于皮肤：皮肤条目必须有分类（缺失时已解析成 other），词库和回复条目不能有。
@@ -78,6 +80,8 @@ public final class CommunityCatalogSmoke {
             CommunityRequest.Category.OTHER), "a dictionary carries no category");
         check((boolean) validCategory.invoke(null, CommunityRequest.Kind.REPLY, null),
             "a reply set without a category is valid");
+        check(!(boolean) validCategory.invoke(null, CommunityRequest.Kind.PHRASE,
+            CommunityRequest.Category.OTHER), "a phrase pack carries no category");
         Method strictString = CommunityCatalog.class.getDeclaredMethod("strictString", Object.class);
         strictString.setAccessible(true);
         check("synthetic name".equals(strictString.invoke(null, "synthetic name")),

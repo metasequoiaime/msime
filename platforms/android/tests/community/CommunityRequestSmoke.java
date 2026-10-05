@@ -5,7 +5,20 @@ import java.util.List;
 
 public final class CommunityRequestSmoke {
     public static void main(String[] args) {
-        check(CommunityRequest.kinds().size() == 3, "skins, dictionaries and replies");
+        check(CommunityRequest.kinds().size() == 4, "skins, dictionaries, replies and phrases");
+        check(List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE).equals(CommunityRequest.segments()),
+            "the tab shows skins, dictionaries and phrases; replies live inside phrases");
+        check("phrase".equals(Kind.PHRASE.id()) && "短语".equals(Kind.PHRASE.title()), "phrase kind");
+        check(CommunityRequest.path(Kind.PHRASE, "", "签名", 0).startsWith("/v1/community/resources?kind=phrase&"),
+            "phrase packs share the resource endpoint");
+        check(CommunityRequest.validPhraseCount(1) && CommunityRequest.validPhraseCount(200)
+            && !CommunityRequest.validPhraseCount(0) && !CommunityRequest.validPhraseCount(201), "1 to 200 phrases");
+        check(CommunityRequest.validPhraseText("此致\n敬礼") && CommunityRequest.validPhraseText("x".repeat(2000)),
+            "a phrase may span lines up to 2000 units");
+        check(!CommunityRequest.validPhraseText("") && !CommunityRequest.validPhraseText("x".repeat(2001))
+            && !CommunityRequest.validPhraseText("a\u0000b"), "empty, long and control text is refused");
+        check(CommunityRequest.validPhraseGroup("") && !CommunityRequest.validPhraseGroup("a\nb")
+            && !CommunityRequest.validPhraseGroup("x".repeat(33)), "phrase groups are short single lines");
         check("皮肤".equals(Kind.SKIN.title()) && !Kind.SKIN.searchHint().isEmpty(),
             "every kind is titled and says what its search covers");
 
@@ -70,7 +83,8 @@ public final class CommunityRequestSmoke {
 
         check("skins".equals(CommunityRequest.reportKind(Kind.SKIN))
             && "dictionaries".equals(CommunityRequest.reportKind(Kind.DICTIONARY))
-            && "replies".equals(CommunityRequest.reportKind(Kind.REPLY)),
+            && "replies".equals(CommunityRequest.reportKind(Kind.REPLY))
+            && "phrases".equals(CommunityRequest.reportKind(Kind.PHRASE)),
             "reports name each kind the way the server does");
         check(CommunityRequest.REPORT_REASONS.equals(java.util.List.of(
             "侵权/抄袭", "色情低俗", "违法违规", "垃圾广告", "恶意插件", "其他")),

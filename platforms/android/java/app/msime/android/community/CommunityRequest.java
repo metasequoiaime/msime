@@ -11,11 +11,13 @@ import java.util.List;
  * socket to check.
  */
 public final class CommunityRequest {
-    /** 目录里的三类内容。皮肤自成一个端点，词库和回复模板共用资源端点。 */
+    /** 目录里的四类内容。皮肤自成一个端点，词库、回复模板和短语共用资源端点。只增不改：首页按名字引用这几个值。 */
     public enum Kind {
         SKIN("skin", "皮肤", "搜索皮肤设计"),
         DICTIONARY("dictionary", "词库", "搜索词包"),
-        REPLY("reply", "回复模板", "搜索回复模板");
+        REPLY("reply", "回复模板", "搜索回复模板"),
+        /** 不带编码的常用语包，装进本机常用语；服务端的 `/apply` 不接受它，合并在本机完成。 */
+        PHRASE("phrase", "短语", "搜索短语");
 
         private final String id;
         private final String title;
@@ -90,6 +92,42 @@ public final class CommunityRequest {
 
     public static List<Kind> kinds() { return List.of(Kind.values()); }
 
+    /** 社区页顶部的三个分段，顺序即展示顺序；回复模板放在「短语」分段里作为第二个小节「AI 回复模板」。 */
+    public static List<Kind> segments() { return List.of(Kind.SKIN, Kind.DICTIONARY, Kind.PHRASE); }
+
+    /** 一个短语包最多 200 条。 */
+    public static final int MAX_PHRASES = 200;
+    /** 每条短语最多 2000 个 UTF-16 单元，与服务端的限制一致。 */
+    public static final int MAX_PHRASE_UNITS = 2000;
+    /** 分组名最多 32 个 UTF-16 单元。 */
+    public static final int MAX_PHRASE_GROUP_UNITS = 32;
+
+    /** 短语包的条数是否在 1–200 之间。 */
+    public static boolean validPhraseCount(int count) {
+        return count >= 1 && count <= MAX_PHRASES;
+    }
+
+    /** 一条短语：1–2000 个 UTF-16 单元，除换行和制表符外不含控制字符（签名之类需要换行）。 */
+    public static boolean validPhraseText(String text) {
+        if (text == null || text.isEmpty() || text.length() > MAX_PHRASE_UNITS) return false;
+        return !hasControl(text, true);
+    }
+
+    /** 分组名：可以为空，最多 32 个 UTF-16 单元，不含任何控制字符。 */
+    public static boolean validPhraseGroup(String group) {
+        return group != null && group.length() <= MAX_PHRASE_GROUP_UNITS && !hasControl(group, false);
+    }
+
+    private static boolean hasControl(String text, boolean multiline) {
+        for (int index = 0; index < text.length();) {
+            int codePoint = text.codePointAt(index);
+            if (Character.isISOControl(codePoint)
+                    && !(multiline && (codePoint == '\n' || codePoint == '\t'))) return true;
+            index += Character.charCount(codePoint);
+        }
+        return false;
+    }
+
     /**
      * 返回皮肤条目的请求都要带上它，服务端才会在每个条目里给出 `category`；不带的请求拿到的条目没有这个字段，以免读条目时拒绝未知字段的旧客户端出错。
      */
@@ -105,7 +143,7 @@ public final class CommunityRequest {
     /**
      * The catalogue path for one kind, scope, search term and category.
      *
-     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库和回复走资源端点，那里没有分类，传了也不带上。
+     * <p>分类只对皮肤有意义；`category` 为 null 时列出全部分类。词库、回复和短语走资源端点，那里没有分类，传了也不带上。
      */
     public static String path(Kind kind, String scope, String search, int offset,
             Category category) {
@@ -127,6 +165,7 @@ public final class CommunityRequest {
             case SKIN -> "skins";
             case DICTIONARY -> "dictionaries";
             case REPLY -> "replies";
+            case PHRASE -> "phrases";
         };
     }
 
@@ -198,6 +237,7 @@ public final class CommunityRequest {
             case "screening_unavailable" -> "审核服务暂时不可用，请稍后重试";
             case "account_banned" -> "该账号已被封禁，暂时无法使用账号相关功能";
             case "item_not_found" -> "作品不存在或已下架。";
+            case "unsupported_kind" -> "这类作品需要在本机添加，请更新到最新版本后重试。";
             case "invalid_report_reason", "invalid_report_detail", "invalid_report_kind" ->
                 "举报内容不符合要求，请重新选择原因。";
             default -> "";

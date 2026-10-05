@@ -16,7 +16,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 读社区目录：皮肤、词包和回复模板。
+ * 读社区目录：皮肤、词包、回复模板和短语包。
  *
  * <p>Read-only on purpose. Publishing, rating and deleting are the operations that need a real
  * signed-in account, and this host only has the keyboard's anonymous identity -- offering a publish
@@ -41,11 +41,12 @@ public final class CommunityCatalog {
     /**
      * One catalogue entry, flattened to what a list row shows.
      *
-     * <p>`category` 只有皮肤才有，词库和回复为 null。`owned` 是服务端按请求所带令牌判断的「这是你发布的」。
+     * <p>`category` 只有皮肤才有，词库、回复和短语为 null。`owned` 是服务端按请求所带令牌判断的「这是你发布的」。`downloads` 是服务端的下载计数，界面上读作「使用次数」。`raw` 是这个条目的原始 JSON，安装时原样交给本机存储（例如短语包交给常用语的导入），解析出的字段只用于展示。
      */
     public record Item(String id, CommunityRequest.Kind kind, String name, String description,
                        String author, long saves, long ratingCount, double ratingAverage,
-                       JSONObject payload, CommunityRequest.Category category, boolean owned) {}
+                       JSONObject payload, CommunityRequest.Category category, boolean owned,
+                       long downloads, JSONObject raw) {}
 
     /** 修改分类的结果：成功时是改过之后的条目，失败时是可以原样展示的原因。 */
     public record Update(Item item, String failure) {
@@ -348,8 +349,10 @@ public final class CommunityCatalog {
         JSONObject payload = skin ? value.optJSONObject("design") : value.optJSONObject("content");
         Long saves = count(value, "saves", skin ? "downloads" : null);
         Long ratings = count(value, "rating_count", null);
+        Long downloads = count(value, "downloads", null);
         Double average = decimal(value, "rating_average");
-        if (saves == null || ratings == null || average == null) return null;
+        if (saves == null || ratings == null || downloads == null || average == null) return null;
+        if (kind == CommunityRequest.Kind.PHRASE && !validPhrases(payload)) return null;
         CommunityRequest.Category category = null;
         if (skin) {
             Object raw = value.opt("category");
@@ -361,8 +364,23 @@ public final class CommunityCatalog {
         Boolean owned = value.has("owned") ? strictBoolean(value.opt("owned")) : Boolean.FALSE;
         if (description == null || author == null || owned == null) return null;
         Item item = new Item(id, kind, name, description.trim(), author.trim(), saves, ratings,
-            average, payload, category, owned);
+            average, payload, category, owned, downloads, value);
         return validItem(item, kind) ? item : null;
+    }
+
+    /** 短语包的内容 `{phrases:[{text,group}]}`：1–200 条，每条文字与分组都合规。 */
+    private static boolean validPhrases(JSONObject content) {
+        JSONArray phrases = content == null ? null : content.optJSONArray("phrases");
+        if (phrases == null || !CommunityRequest.validPhraseCount(phrases.length())) return false;
+        for (int index = 0; index < phrases.length(); index++) {
+            JSONObject phrase = phrases.optJSONObject(index);
+            if (phrase == null) return false;
+            String text = strictString(phrase.opt("text"));
+            Object rawGroup = phrase.opt("group");
+            String group = rawGroup == null || rawGroup == JSONObject.NULL ? "" : strictString(rawGroup);
+            if (!CommunityRequest.validPhraseText(text) || !CommunityRequest.validPhraseGroup(group)) return false;
+        }
+        return true;
     }
 
     /** org.json's optString/optBoolean coerce numbers and booleans; community responses are a typed contract. */
@@ -386,6 +404,7 @@ public final class CommunityCatalog {
                 || !validUuid(item.id()) || !validName(item.name(), MAX_NAME_CHARACTERS)
                 || !validDescription(item.description()) || !validName(item.author(), MAX_AUTHOR_CHARACTERS)
                 || item.saves() < 0 || item.saves() > MAX_JAVASCRIPT_INTEGER
+                || item.downloads() < 0 || item.downloads() > MAX_JAVASCRIPT_INTEGER
                 || item.ratingCount() < 0 || item.ratingCount() > MAX_JAVASCRIPT_INTEGER
                 || item.ratingAverage() < 0 || item.ratingAverage() > 5
                 || Double.isNaN(item.ratingAverage()) || Double.isInfinite(item.ratingAverage())
@@ -395,7 +414,7 @@ public final class CommunityCatalog {
         return item.ratingCount() != 0 || item.ratingAverage() == 0;
     }
 
-    /** 皮肤一定有分类（缺失已在解析时读作 other），词库和回复一定没有。 */
+    /** 皮肤一定有分类（缺失已在解析时读作 other），词库、回复和短语一定没有。 */
     static boolean validCategory(CommunityRequest.Kind kind, CommunityRequest.Category category) {
         return (kind == CommunityRequest.Kind.SKIN) == (category != null);
     }
