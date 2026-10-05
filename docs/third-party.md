@@ -40,7 +40,7 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定十二个产物的长度和 SHA-256，每个都带可匿名下载的 URL：十一个来自 `metasequoiaime/msime-dictionary` 的 `dict-v2.0.11` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。早先只供 Google 整句解码器使用的 `dict_pinyin.dat` 已随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定十二个产物的长度和 SHA-256，每个都带可匿名下载的 URL：十一个来自 `metasequoiaime/msime-dictionary` 的 `dict-v2.0.13` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。早先只供 Google 整句解码器使用的 `dict_pinyin.dat` 已随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
