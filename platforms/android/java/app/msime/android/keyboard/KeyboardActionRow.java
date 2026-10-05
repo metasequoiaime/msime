@@ -88,4 +88,63 @@ public final class KeyboardActionRow {
     public static String layerDescription(boolean symbols) {
         return symbols ? "切换到字母键盘" : "切换到数字和符号";
     }
+
+    // ---- 新设计的底行（plan §2.8，N/design-tokens.md §5）：123 1.25 / 中 1.05 / ， 1 / 空格 4 / 。 1 / ↵ 1.9 ----
+
+    /** 新设计底行的键，按排列顺序；地球键只在宿主允许切换输入法时插在中/英之后。 */
+    public enum DesignSlot { LAYER, LANGUAGE, GLOBE, COMMA, SPACE, PERIOD, RETURN }
+
+    /** 新设计底行里的一个键与它的宽度份额。 */
+    public record DesignEntry(DesignSlot slot, float weight) {}
+
+    public static final float DESIGN_LAYER_WEIGHT = 1.25f;
+    public static final float DESIGN_LANGUAGE_WEIGHT = 1.05f;
+    public static final float DESIGN_GLOBE_WEIGHT = 1f;
+    public static final float DESIGN_PUNCTUATION_WEIGHT = 1f;
+    public static final float DESIGN_SPACE_WEIGHT = 4f;
+    public static final float DESIGN_RETURN_WEIGHT = 1.9f;
+    /** 新设计第三行 ⇧ 与 ⌫ 的宽度份额。 */
+    public static final float DESIGN_LETTER_EDGE_WEIGHT = 1.4f;
+
+    /**
+     * 新设计的底行。九键与笔画键盘的标点在侧栏，不再放逗号句号；日文假名网格不带底行。
+     *
+     * @param touchLayout {@link KeyboardLayout} 的界面常量
+     * @param globe 宿主是否可以切换到下一个输入法（`shouldOfferSwitchingToNextInputMethod()`）
+     */
+    public static List<DesignEntry> designEntries(int touchLayout, boolean globe) {
+        if (touchLayout == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT) return List.of();
+        boolean sidebarPunctuation = touchLayout == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT;
+        List<DesignEntry> entries = new ArrayList<>();
+        entries.add(new DesignEntry(DesignSlot.LAYER, DESIGN_LAYER_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.LANGUAGE, DESIGN_LANGUAGE_WEIGHT));
+        if (globe) entries.add(new DesignEntry(DesignSlot.GLOBE, DESIGN_GLOBE_WEIGHT));
+        if (!sidebarPunctuation)
+            entries.add(new DesignEntry(DesignSlot.COMMA, DESIGN_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.SPACE, DESIGN_SPACE_WEIGHT));
+        if (!sidebarPunctuation)
+            entries.add(new DesignEntry(DesignSlot.PERIOD, DESIGN_PUNCTUATION_WEIGHT));
+        entries.add(new DesignEntry(DesignSlot.RETURN, DESIGN_RETURN_WEIGHT));
+        return List.copyOf(entries);
+    }
+
+    /** 新设计底行逗号 / 句号键的键面：中文标点模式 `，` `。`，否则 `,` `.`。 */
+    public static String punctuationFace(DesignSlot slot, boolean chinesePunctuation) {
+        if (slot == DesignSlot.COMMA) return chinesePunctuation ? "，" : ",";
+        if (slot == DesignSlot.PERIOD) return chinesePunctuation ? "。" : ".";
+        throw new IllegalArgumentException("Not a punctuation slot: " + slot);
+    }
+
+    /** 新设计底行各键的 contentDescription（§2.8）；回车由 {@link ReturnKeyAction} 决定，这里返回空闲时的「换行」。 */
+    public static String designDescription(DesignSlot slot, boolean chinesePunctuation) {
+        return switch (slot) {
+            case LAYER -> layerDescription(false);
+            case LANGUAGE -> "切换中英文";
+            case GLOBE -> "切换输入法";
+            case COMMA, PERIOD -> punctuationFace(slot, chinesePunctuation);
+            case SPACE -> "空格";
+            case RETURN -> "换行";
+        };
+    }
 }

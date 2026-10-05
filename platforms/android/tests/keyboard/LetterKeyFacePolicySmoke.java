@@ -2,10 +2,14 @@ import app.msime.android.LetterKeyFacePolicy;
 
 public final class LetterKeyFacePolicySmoke {
     public static void main(String[] args) {
-        check(LetterKeyFacePolicy.displaysUppercase(true, false, false),
-            "Chinese composition keys stay uppercase");
-        check(LetterKeyFacePolicy.face("a", true, false, false).equals("A"),
-            "Chinese face is uppercase");
+        check(!LetterKeyFacePolicy.displaysUppercase(true, false, false),
+            "新设计中文模式字母键画小写");
+        check(LetterKeyFacePolicy.face("a", true, false, false).equals("a"),
+            "Chinese face is lowercase");
+        check(LetterKeyFacePolicy.face("a", true, false, true).equals("a"),
+            "Chinese shift does not change the face");
+        check(LetterKeyFacePolicy.accessibilityLabel("a", true, false, true)
+            .equals("字母 A"), "Chinese shift keeps the letter description");
         check(LetterKeyFacePolicy.accessibilityLabel("a", true, false, false)
             .equals("字母 A"), "Chinese face is not announced as shift");
         check(!LetterKeyFacePolicy.displaysUppercase(false, false, false),

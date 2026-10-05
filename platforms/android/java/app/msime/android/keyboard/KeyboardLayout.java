@@ -76,4 +76,110 @@ public final class KeyboardLayout {
         if (layer == Layer.LETTERS && touchLayout == ZHUYIN_LAYOUT) return ZhuyinKeyboardLayout.rows();
         return rows(layer);
     }
+
+    // ---- 新设计的 123 层与 #+= 层（plan §2.8、N/design-screens.md IME · keys） ----
+
+    /** 新设计 123 / #+= 层里一个键的种类。 */
+    public enum LayerKeyKind {
+        /** 发出 {@link LayerKey#text()} 本身的字符键。 */
+        CHARACTER,
+        /** 123 层的 `#+=`（切到更多符号）或 #+= 层的 `123`（切回数字）。 */
+        LAYER_TOGGLE,
+        DELETE,
+        /** 底行左下：回到字母键盘（中文「拼音」、英文「ABC」）。 */
+        LETTERS,
+        /** 123 层底行的表情键。 */
+        EMOJI,
+        /** #+= 层底行原表情位的「符号」键，打开符号面板。 */
+        SYMBOL_PANEL,
+        SPACE,
+        /** 回车：文字与描述由视图按 {@link ReturnKeyAction} 替换，这里给的是空闲时的「换行」。 */
+        RETURN
+    }
+
+    /**
+     * 新设计层里的一个键。
+     *
+     * @param text 节点 text（字符键就是它发出的字符）
+     * @param description contentDescription
+     * @param kind 种类
+     * @param weight 在本行里的宽度份额
+     */
+    public record LayerKey(String text, String description, LayerKeyKind kind, float weight) {}
+
+    private static final List<String> NUMBER_DIGITS =
+        List.of("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
+    private static final List<String> CHINESE_NUMBER_SYMBOLS =
+        List.of("-", "/", "：", "；", "（", "）", "¥", "@", "“", "”");
+    private static final List<String> ENGLISH_NUMBER_SYMBOLS =
+        List.of("-", "/", ":", ";", "(", ")", "$", "@", "\"", "'");
+    private static final List<String> CHINESE_PUNCTUATION = List.of("。", "，", "、", "？", "！");
+    private static final List<String> ENGLISH_PUNCTUATION = List.of(".", ",", "?", "!", "…");
+    private static final List<String> MORE_SYMBOLS_FIRST =
+        List.of("[", "]", "{", "}", "#", "%", "^", "*", "+", "=");
+    private static final List<String> CHINESE_MORE_SYMBOLS_SECOND =
+        List.of("_", "\\", "|", "~", "《", "》", "€", "&", "·", "…");
+    private static final List<String> ENGLISH_MORE_SYMBOLS_SECOND =
+        List.of("_", "\\", "|", "~", "<", ">", "€", "&", "·", "£");
+
+    /** 第三行两端（`#+=` / `123` 与 ⌫）的宽度份额，与字母层的 ⇧ ⌫ 相同。 */
+    public static final float LAYER_EDGE_WEIGHT = 1.4f;
+    /** 层底行的宽度份额：返回字母 1.25、表情 / 符号 1.05、空格 6、回车 1.9，合计与字母层底行一样宽（10.2）。 */
+    public static final float LAYER_BACK_WEIGHT = 1.25f;
+    public static final float LAYER_EMOJI_WEIGHT = 1.05f;
+    public static final float LAYER_SPACE_WEIGHT = 6f;
+    public static final float LAYER_RETURN_WEIGHT = 1.9f;
+
+    /**
+     * 新设计的 123 层：1–0 / 十个符号 / `#+=` + 五个标点 + ⌫ / 拼音（或 ABC）| 😀 | 空格 | ↵。
+     *
+     * @param chinese 中文模式用全角符号与中文标点，英文模式用 ASCII 版，底行返回键为「ABC」
+     */
+    public static List<List<LayerKey>> numberLayer(boolean chinese) {
+        return layer(NUMBER_DIGITS, chinese ? CHINESE_NUMBER_SYMBOLS : ENGLISH_NUMBER_SYMBOLS,
+            new LayerKey("#+=", "更多符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
+            chinese, new LayerKey("😀", "表情", LayerKeyKind.EMOJI, LAYER_EMOJI_WEIGHT));
+    }
+
+    /**
+     * 新设计的 #+= 层：[ ] { } # % ^ * + = / _ \ | ~ 《 》 € & · … / `123` + 五个标点 + ⌫ / 拼音（或 ABC）| 符号 | 空格 | ↵。左下原表情位是打开符号面板的「符号」键。
+     */
+    public static List<List<LayerKey>> moreSymbolLayer(boolean chinese) {
+        return layer(MORE_SYMBOLS_FIRST,
+            chinese ? CHINESE_MORE_SYMBOLS_SECOND : ENGLISH_MORE_SYMBOLS_SECOND,
+            new LayerKey("123", "切换到数字和符号", LayerKeyKind.LAYER_TOGGLE, LAYER_EDGE_WEIGHT),
+            chinese, new LayerKey("符号", "切换符号键盘", LayerKeyKind.SYMBOL_PANEL,
+                LAYER_EMOJI_WEIGHT));
+    }
+
+    /** 层底行左下返回字母键盘的键面：中文「拼音」、英文「ABC」；描述都是「切换到字母键盘」。 */
+    public static String lettersKeyTitle(boolean chinese) {
+        return chinese ? "拼音" : "ABC";
+    }
+
+    private static List<List<LayerKey>> layer(List<String> first, List<String> second,
+            LayerKey toggle, boolean chinese, LayerKey panelKey) {
+        List<LayerKey> third = new java.util.ArrayList<>();
+        third.add(toggle);
+        for (String key : chinese ? CHINESE_PUNCTUATION : ENGLISH_PUNCTUATION)
+            third.add(character(key));
+        third.add(new LayerKey("⌫", "删除", LayerKeyKind.DELETE, LAYER_EDGE_WEIGHT));
+        List<LayerKey> bottom = List.of(
+            new LayerKey(lettersKeyTitle(chinese), "切换到字母键盘", LayerKeyKind.LETTERS,
+                LAYER_BACK_WEIGHT),
+            panelKey,
+            new LayerKey("空格", "空格", LayerKeyKind.SPACE, LAYER_SPACE_WEIGHT),
+            new LayerKey("换行", "换行", LayerKeyKind.RETURN, LAYER_RETURN_WEIGHT));
+        return List.of(characters(first), characters(second), List.copyOf(third), bottom);
+    }
+
+    private static List<LayerKey> characters(List<String> keys) {
+        List<LayerKey> row = new java.util.ArrayList<>();
+        for (String key : keys) row.add(character(key));
+        return List.copyOf(row);
+    }
+
+    private static LayerKey character(String key) {
+        return new LayerKey(key, key, LayerKeyKind.CHARACTER, 1f);
+    }
 }
