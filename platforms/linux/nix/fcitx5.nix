@@ -39,6 +39,11 @@
   # 一致；传 null 时 msime-voice-local 报告运行库缺失，本地识别不可用，云端识别不受影响。
   voiceRuntime ? null,
 }:
+let
+  # 安装出去的 provider 脚本用的解释器。豆包流式识别要 websockets 的同步客户端
+  # （scripts/msime_voice_doubao.py 按特性检查，不限主版本上限）；其余脚本只用标准库。
+  python = python3.withPackages (ps: [ ps.websockets ]);
+in
 stdenv.mkDerivation {
   pname = "msime-fcitx5";
   inherit version;
@@ -88,10 +93,10 @@ stdenv.mkDerivation {
     python3
     wayland-scanner
   ];
-  # python3 也放在这里，fixup 阶段才会把安装出去的脚本的 `#!/usr/bin/env python3` 改写到它。
+  # python 放在这里，postInstall 的 patchShebangs --host 才会把装出去的脚本改写到它。
   # wayland-protocols 只提供 .pc 和协议 XML，CMake 经 pkg-config 找到其中的 xdg-shell.xml。
   buildInputs = [
-    python3
+    python
     wayland-protocols
     fcitx5
     ibus
@@ -111,6 +116,11 @@ stdenv.mkDerivation {
   # 测试会直接执行源码树里的脚本，构建沙箱里没有 /usr/bin/env。
   postPatch = ''
     patchShebangs platforms/linux/scripts platforms/linux/tests platforms/linux/data
+  '';
+  # 上面改写的是源码树，装出去的脚本随之指向构建用的 python3；fixup 的 patchShebangs 不动已经指向
+  # store 的 shebang，所以在这里按宿主的 PATH 重新改写，换成带 websockets 的 python。
+  postInstall = ''
+    patchShebangs --update --host $out/bin
   '';
 
   cmakeFlags = [
