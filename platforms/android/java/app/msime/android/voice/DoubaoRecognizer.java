@@ -54,6 +54,23 @@ public final class DoubaoRecognizer {
     /** The plain socket under TLS, so cancel() can unblock a pending read without TLS I/O. */
     private volatile java.net.Socket transport;
 
+    /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把这次送出的 PCM 也留一份在内存里（最多 60 秒），识别结束后经 {@link #retainedAudio()} 取走。 */
+    private volatile ByteArrayOutputStream retained;
+
+    public void retainAudio(boolean value) {
+        retained = value ? new ByteArrayOutputStream(WavAudio.SAMPLE_RATE * 2 * 4) : null;
+    }
+
+    /** 留下的 16 kHz 单声道 16 位 PCM；没有打开留存时为 null。取走后清空。 */
+    public byte[] retainedAudio() {
+        ByteArrayOutputStream value = retained;
+        retained = null;
+        if (value == null) return null;
+        synchronized (value) {
+            return value.toByteArray();
+        }
+    }
+
     public void stop() {
         stopped.set(true);
     }
@@ -130,6 +147,10 @@ public final class DoubaoRecognizer {
             if (last) stopRecording(recorder);
             int read = last ? 0 : recorder.read(chunk, 0, chunk.length);
             if (read < 0) return null;
+            ByteArrayOutputStream keep = retained;
+            if (keep != null && read > 0) {
+                synchronized (keep) { keep.write(chunk, 0, read); }
+            }
             sent += read;
             byte[] frame = NativeClient.doubaoAudioFrame(sequence++, chunk, read, last);
             if (frame == null) return null;

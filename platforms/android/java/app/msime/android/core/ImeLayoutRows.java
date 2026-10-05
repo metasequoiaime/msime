@@ -15,6 +15,7 @@ import android.widget.PopupWindow;
 import android.widget.TextView;
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 /** 26 键以外的键区：手写、九键、笔画、日语九键（含 flick 与长按选项）、侧栏与九键拼音选择；从 MSIMEInputService 原样搬出。 */
 final class ImeLayoutRows {
@@ -24,7 +25,41 @@ final class ImeLayoutRows {
         this.s = s;
     }
 
+    /** 键盘服务自己的停笔防抖（MSIMEInputService.HANDWRITING_DEBOUNCE_MILLIS）；识别等待时间比它长时由这里补足差值。 */
+    static final long SERVICE_HANDWRITING_DEBOUNCE_MILLIS = 550;
+    /** 叠写自动上屏后，「已上屏」提示停留多久再回到书写提示。 */
+    static final long HANDWRITING_COMMITTED_NOTICE_MILLIS = 1500;
+    private HandwritingPreferences handwritingPreferences = HandwritingPreferences.defaults();
+    private Runnable pendingInk;
+    private Runnable handwritingNoticeReset;
+    private long pinyinGeneration;
+    private final java.util.concurrent.ExecutorService pinyinWorker =
+        java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "msime-handwriting-pinyin");
+            thread.setDaemon(true);
+            return thread;
+        });
+
+    /** 读共享偏好里的 `touch_handwriting`；读不到时用默认值。 */
+    HandwritingPreferences readHandwritingPreferences() {
+        JSONObject preferences = s.preferencesSnapshot == null ? null
+            : s.preferencesSnapshot.optJSONObject("preferences");
+        JSONObject value = preferences == null ? null : preferences.optJSONObject("touch_handwriting");
+        if (value == null) return HandwritingPreferences.defaults();
+        return HandwritingPreferences.of(value.optString("mode", "overlap"),
+            value.optInt("recognition_delay_ms", HandwritingPreferences.DELAY_DEFAULT),
+            value.optBoolean("show_pinyin", true), value.optString("stroke_color", "follow_skin"),
+            value.optInt("stroke_width", HandwritingPreferences.WIDTH_DEFAULT));
+    }
+
+    /**
+     * 手写键区：左列 ，。？！，中间书写区（「在此手写，停笔后选字」），右列 ⌫ 与「重写」。底行（123 / 写 / 空格 / ↵）由底行构建负责。
+     *
+     * <p>按 `touch_handwriting` 生效：单字一字一识别；叠写停笔后识别并自动上屏首选、清空画布；行写整行一次识别并把光标前的上文交给识别器。识别等待时间比服务的防抖长时补足差值；识别后可在书写区下方显示首选的拼音；笔迹颜色与粗细跟偏好。
+     */
     void rebuildHandwritingRows() {
+        cancelPendingInk();
+        handwritingPreferences = readHandwritingPreferences();
         s.handwritingStatus = new TextView(s);
         s.handwritingStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         s.handwritingStatus.setGravity(Gravity.CENTER);
@@ -33,10 +68,26 @@ final class ImeLayoutRows {
         s.handwritingStatus.setClickable(false);
         s.handwritingStatus.setFocusable(false);
 
-        FrameLayout row = new FrameLayout(s);
+        LinearLayout row = new LinearLayout(s);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+
+        LinearLayout punctuation = new LinearLayout(s);
+        punctuation.setOrientation(LinearLayout.VERTICAL);
+        for (String symbol : NineKeyLayout.punctuation()) {
+            Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
+                () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+            addNineKey(punctuation, key);
+        }
+        row.addView(punctuation, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
+
+        FrameLayout area = new FrameLayout(s);
         s.handwritingCanvas = new HandwritingCanvas(s);
-        s.handwritingCanvas.applySkin(s.skin);
-        row.addView(s.handwritingCanvas, new FrameLayout.LayoutParams(
+        s.handwritingCanvas.applySkin(s.handwritingSkin);
+        s.handwritingCanvas.setInk(handwritingPreferences.inkColor(),
+            s.pixels(handwritingPreferences.strokeWidth()));
+        area.addView(s.handwritingCanvas, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
         FrameLayout cardFrame = new FrameLayout(s);
@@ -44,8 +95,9 @@ final class ImeLayoutRows {
         cardFrame.setFocusable(false);
         FrameLayout.LayoutParams cardParams = new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-        cardParams.rightMargin = s.pixels(64);
-        row.addView(cardFrame, cardParams);
+        int inset = s.pixels(3);
+        cardParams.setMargins(inset, inset, inset, inset);
+        area.addView(cardFrame, cardParams);
         cardFrame.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> s.handwritingCanvas.setCardRect(
                     left, top, right, bottom));
@@ -65,32 +117,157 @@ final class ImeLayoutRows {
         downloadParams.leftMargin = s.pixels(16);
         downloadParams.rightMargin = s.pixels(16);
         cardFrame.addView(s.handwritingDownload, downloadParams);
+        row.addView(area, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 3f));
 
         LinearLayout tools = new LinearLayout(s);
         tools.setOrientation(LinearLayout.VERTICAL);
-        addNineKey(tools, s.keyboardKey("撤销", "撤销最后一笔", () -> {
-            if (s.handwritingCanvas != null) s.handwritingCanvas.undo();
-        }));
-        addNineKey(tools, s.keyboardKey("清空", "清空手写", s::clearHandwriting));
-        addNineKey(tools, s.keyId(s.keyboardKey("⌫", "删除", s::deleteFromHandwriting), "Backspace"));
-        row.addView(tools, new FrameLayout.LayoutParams(s.pixels(64),
-            FrameLayout.LayoutParams.MATCH_PARENT, Gravity.END));
+        Button delete = s.keyId(s.keyboardKey("⌫", "删除", s::deleteFromHandwriting), "Backspace");
+        if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(tools, delete);
+        Button rewrite = s.keyboardKey("重写", "清空手写", () -> {
+            cancelPendingInk();
+            s.clearHandwriting();
+        });
+        if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(tools, rewrite);
+        row.addView(tools, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
         s.imeStyler.adjustFixedHeight(row, KeyboardGeometry.HANDWRITING_BODY_HEIGHT_DP);
         s.keyRows.addView(row);
 
-        s.handwritingRecognizer = HandwritingRecognizerFactory.create(s);
+        s.handwritingRecognizer = new HandwritingResultTap(HandwritingRecognizerFactory.create(s),
+            (revision, candidates) -> s.main.post(() -> onHandwritingRecognized(revision, candidates)));
         s.handwritingCanvas.setListener(new HandwritingCanvas.Listener() {
             @Override public void onStrokeBegan() {
+                cancelPendingInk();
+                cancelHandwritingNotice();
                 s.invalidateHandwritingRecognition();
                 s.showHandwritingStatus("书写中…");
             }
 
             @Override public void onInkChanged(long revision,
                     java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
-                s.handwritingInkChanged(revision, strokes);
+                handwritingInkChanged(revision, strokes);
             }
         });
         s.refreshHandwritingAvailability();
+    }
+
+    /** 停笔：行写时先把上文交给识别器；识别等待时间比服务的防抖长时先等差值，再交给服务的识别流程。 */
+    private void handwritingInkChanged(long revision,
+                                       java.util.List<java.util.List<HandwritingInk.Point>> strokes) {
+        cancelPendingInk();
+        if (s.handwritingRecognizer != null) {
+            s.handwritingRecognizer.setPreContext(
+                handwritingPreferences.mode() == HandwritingPreferences.Mode.LINE ? textBeforeCursor() : "");
+        }
+        long extra = handwritingPreferences.extraDelay(SERVICE_HANDWRITING_DEBOUNCE_MILLIS);
+        if (extra == 0 || strokes.isEmpty()) {
+            s.handwritingInkChanged(revision, strokes);
+            return;
+        }
+        s.invalidateHandwritingRecognition();
+        s.showHandwritingStatus("停笔后识别…");
+        Runnable task = new Runnable() {
+            @Override public void run() {
+                if (pendingInk != this) return;
+                pendingInk = null;
+                if (s.handwritingCanvas == null || s.handwritingCanvas.revision() != revision) return;
+                s.handwritingInkChanged(revision, strokes);
+            }
+        };
+        pendingInk = task;
+        s.main.postDelayed(task, extra);
+    }
+
+    private void cancelPendingInk() {
+        if (pendingInk != null) s.main.removeCallbacks(pendingInk);
+        pendingInk = null;
+    }
+
+    private void cancelHandwritingNotice() {
+        if (handwritingNoticeReset != null) s.main.removeCallbacks(handwritingNoticeReset);
+        handwritingNoticeReset = null;
+    }
+
+    /** 光标前的上文，供行写识别；读不到时为空串。 */
+    private String textBeforeCursor() {
+        if (s.connection == null) return "";
+        CharSequence before = s.connection.getTextBeforeCursor(HandwritingRecognizer.MAX_PRE_CONTEXT, 0);
+        return HandwritingRecognizer.clipPreContext(before == null ? "" : before.toString());
+    }
+
+    /** 识别结果到了（主线程，排在服务显示候选之后）：叠写自动上屏首选并清空画布；需要时显示首选的拼音。 */
+    private void onHandwritingRecognized(long revision, java.util.List<String> values) {
+        if (!s.handwritingActive() || s.handwritingCanvas == null
+                || s.handwritingCanvas.revision() != revision) return;
+        java.util.List<String> candidates = HandwritingRecognizer.sanitizeCandidates(values);
+        if (candidates.isEmpty()) return;
+        String first = candidates.get(0);
+        if (handwritingPreferences.mode() == HandwritingPreferences.Mode.OVERLAP) {
+            if (s.connection == null) return;
+            long targetSession = s.session;
+            s.command(2);
+            if (targetSession != s.session || !s.handwritingActive()) return;
+            if (!s.commitText(s.chineseOutput(first, s.view), TypingSource.HANDWRITING)) return;
+            s.clearHandwriting();
+            showHandwritingNotice("已上屏：" + first, first, s.handwritingCanvas.revision());
+            return;
+        }
+        if (handwritingPreferences.showPinyin()) showHandwritingNotice(null, first, revision);
+    }
+
+    /**
+     * 在书写区显示一条识别提示：叠写上屏后显示「已上屏：字」，过一会儿回到书写提示；打开了「识别后显示拼音」时在后面接上拼音（内置词库查出的规范读音）。
+     *
+     * @param prefix 先显示的文字；null 表示只显示「字 拼音」
+     */
+    private void showHandwritingNotice(String prefix, String text, long revision) {
+        cancelHandwritingNotice();
+        if (prefix != null) s.showHandwritingStatus(prefix);
+        boolean committed = prefix != null;
+        if (committed) {
+            Runnable reset = new Runnable() {
+                @Override public void run() {
+                    if (handwritingNoticeReset != this) return;
+                    handwritingNoticeReset = null;
+                    if (s.handwritingCanvas != null && !s.handwritingCanvas.hasInk())
+                        s.showHandwritingStatus("在此手写，停笔后选字");
+                }
+            };
+            handwritingNoticeReset = reset;
+            s.main.postDelayed(reset, HANDWRITING_COMMITTED_NOTICE_MILLIS);
+        }
+        if (!handwritingPreferences.showPinyin()) return;
+        String resources = s.emojiResources;
+        if (resources == null || resources.isEmpty()) return;
+        long generation = ++pinyinGeneration;
+        try {
+            pinyinWorker.execute(() -> {
+                String pinyin = pinyinOf(text, resources);
+                if (pinyin.isEmpty()) return;
+                s.main.post(() -> {
+                    if (generation != pinyinGeneration || s.handwritingCanvas == null
+                            || s.handwritingCanvas.revision() != revision) return;
+                    if (committed && handwritingNoticeReset == null) return;
+                    s.showHandwritingStatus((committed ? prefix : text) + "  " + pinyin);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // 键盘正在退出，不再显示拼音。
+        }
+    }
+
+    /** 内置词库里这个词的规范读音（多个音节以空格分开）；查不到时为空串。在工作线程调用。 */
+    static String pinyinOf(String text, String resources) {
+        try {
+            JSONObject root = new JSONObject(NativeClient.dictionaryHansEntries(text, resources));
+            JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+            JSONArray entries = value == null ? null : value.optJSONArray("entries");
+            JSONObject entry = entries == null || entries.length() == 0 ? null : entries.optJSONObject(0);
+            return entry == null ? "" : entry.optString("key", "").replace('\'', ' ').trim();
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return "";
+        }
     }
 
     void addNineKey(LinearLayout parent, Button key) {
@@ -119,10 +296,12 @@ final class ImeLayoutRows {
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
-        for (String symbol : NineKeyLayout.punctuation()) {
+        // 设计里左列是 ，。？ 三个，！ 放在右列最下面，和 3×3 网格逐行对齐。
+        java.util.List<String> symbols = NineKeyLayout.punctuation();
+        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
-            // The four punctuation keys share one rail rather than wearing four caps of their own.
+            // The punctuation keys share one rail rather than wearing caps of their own.
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(KeyboardKeyRole.PLAIN);
             punctuation.addView(key, new LinearLayout.LayoutParams(
@@ -185,10 +364,19 @@ final class ImeLayoutRows {
         };
         Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
+        if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        addNineKey(actions, s.keyId(s.keyboardKey(".", "句点", this::commitNineKeyPeriod), "Period"));
-        addNineKey(actions, s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")),
-            "Nine0"));
+        // 重输：丢掉正在组的拼音，不上屏。
+        Button retype = s.keyboardKey("重输", "重新输入", () -> {
+            if (s.connection != null) s.command(3);
+        });
+        if (retype instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, retype);
+        String last = symbols.get(symbols.size() - 1);
+        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
+            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, exclamation);
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
     }

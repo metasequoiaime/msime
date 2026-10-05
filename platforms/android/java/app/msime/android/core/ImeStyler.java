@@ -82,9 +82,11 @@ final class ImeStyler {
         return changed;
     }
 
-    /** 渲染时调用：换季或换了应用主题就重新套一遍皮肤。 */
+    /** 渲染时调用：换季或换了应用主题就重新套一遍皮肤；同时让单手模式与调试开关跟上偏好。 */
     void refreshSeasonIfNeeded() {
         if (refreshAppTheme(false)) applySkin();
+        s.imeFrame.applyOneHanded();
+        s.imeDebugOverlay.refreshPreferences();
     }
 
     private static JSONObject resolveAppTheme(String theme, int month, boolean dark) {
@@ -422,6 +424,7 @@ final class ImeStyler {
             s.candidatePage.setTypeface(candidateTypeface());
         }
         if (s.layoutAdjustView != null) s.layoutAdjustView.updateSkin(s.skin);
+        s.imeFrame.applyOneHanded();
     }
 
     void applySkinBackground(View node) { applySkinBackground(node, s.skin); }

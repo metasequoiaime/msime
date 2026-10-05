@@ -63,6 +63,23 @@ public final class LocalAsrRecognizer {
     private final Object handleLock = new Object();
     private long handle;
 
+    /** 只在用户打开「上传语音以改进识别」且隐私判断允许时由键盘打开：把录到的 PCM 也留一份在内存里（录音本身最多 60 秒），识别结束后经 {@link #retainedAudio()} 取走。 */
+    private volatile java.io.ByteArrayOutputStream retained;
+
+    public void retainAudio(boolean value) {
+        retained = value ? new java.io.ByteArrayOutputStream(WavAudio.SAMPLE_RATE * 2 * 4) : null;
+    }
+
+    /** 留下的 16 kHz 单声道 16 位小端 PCM；没有打开留存时为 null。取走后清空。 */
+    public byte[] retainedAudio() {
+        java.io.ByteArrayOutputStream value = retained;
+        retained = null;
+        if (value == null) return null;
+        synchronized (value) {
+            return value.toByteArray();
+        }
+    }
+
     /** Stop recording and finish the transcript from what was captured. */
     public void stop() {
         stopped.set(true);
@@ -219,6 +236,15 @@ public final class LocalAsrRecognizer {
                 }
                 if (read == 0) continue;
                 captured += read;
+                java.io.ByteArrayOutputStream keep = retained;
+                if (keep != null) {
+                    byte[] bytes = new byte[read * 2];
+                    for (int index = 0; index < read; index++) {
+                        bytes[index * 2] = (byte) chunk[index];
+                        bytes[index * 2 + 1] = (byte) (chunk[index] >> 8);
+                    }
+                    synchronized (keep) { keep.write(bytes, 0, bytes.length); }
+                }
                 audio.add(read == chunk.length ? chunk : java.util.Arrays.copyOf(chunk, read));
             }
         } catch (IllegalStateException error) {
