@@ -42,7 +42,7 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         setContentDescription("更多快捷设置");
     }
 
-    /** 新设计的配色：圆盘 logoCirc、标记 logoBg（都由调用方从皮肤取）。 */
+    /** 新设计的配色：圆盘 logoCirc、logo 方框 logoBg（调用方从应用主题的季节色取，与设计一致，不随键盘皮肤变）。 */
     public void setLogoColors(int disc, int markFill) {
         if (designed && discColor == disc && markColor == markFill) return;
         designed = true;
@@ -100,9 +100,45 @@ public final class KeyboardBrandButton extends KeyboardPressButton {
         fill.setColor(discColor);
         canvas.drawCircle(centerX, centerY, disc / 2f, fill);
         float markSize = disc * (DISC_MARK_DP / DISC_DP);
-        mark.setColor(markColor);
-        mark.setAlpha(isEnabled() ? Color.alpha(markColor) : 96);
-        KeyboardBrandMark.draw(canvas, mark, centerX - markSize / 2f, centerY - markSize / 2f,
-            markSize, markSize, 1f);
+        drawOfficialLogo(canvas, centerX, centerY, markSize);
+    }
+
+    /** 官方 logo 的画布（msime_frame.svg 的 viewBox）。 */
+    private static final float LOGO_WIDTH = 116f;
+    private static final float LOGO_HEIGHT = 132f;
+    private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path logoStroke = officialStroke();
+
+    /** 官方笔画，逐段照抄设计与 packages/ui 用的 path：M80.394 18.8335 L34.3451 36.489 L80.394 49.7306 L34.3451 71.7999 C77.8789 79.1564 118.8 85.1887 31.8431 113.088。 */
+    private static android.graphics.Path officialStroke() {
+        android.graphics.Path path = new android.graphics.Path();
+        path.moveTo(80.394f, 18.8335f);
+        path.lineTo(34.3451f, 36.489f);
+        path.lineTo(80.394f, 49.7306f);
+        path.lineTo(34.3451f, 71.7999f);
+        path.cubicTo(77.8789f, 79.1564f, 118.8f, 85.1887f, 31.8431f, 113.088f);
+        return path;
+    }
+
+    /**
+     * 画官方 logo，不再自己画一枚近似的标：logoBg 填满 msime_frame.svg 的方框（M5.84314 5.8335H109.843V125.833H5.84314Z，与 packages/ui 一样去掉笔刷纹理），上面是 9 宽、圆头的白色官方笔画；按 116:132 等比放进 {@code size} 见方的区域中央。
+     */
+    private void drawOfficialLogo(Canvas canvas, float centerX, float centerY, float size) {
+        float scale = size / LOGO_HEIGHT;
+        int saved = canvas.save();
+        canvas.translate(centerX - LOGO_WIDTH * scale / 2f, centerY - LOGO_HEIGHT * scale / 2f);
+        canvas.scale(scale, scale);
+        fill.setColor(markColor);
+        fill.setAlpha(isEnabled() ? Color.alpha(markColor) : 96);
+        canvas.drawRect(5.84314f, 5.8335f, 109.843f, 125.833f, fill);
+        fill.setAlpha(255);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(9f);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+        stroke.setColor(Color.WHITE);
+        stroke.setAlpha(isEnabled() ? 255 : 96);
+        canvas.drawPath(logoStroke, stroke);
+        canvas.restoreToCount(saved);
     }
 }

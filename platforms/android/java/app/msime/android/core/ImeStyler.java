@@ -55,6 +55,12 @@ final class ImeStyler {
      * @param force 为假时一分钟内只检查一次
      * @return 种子是否因此变了
      */
+    /** 当前应用主题的种子；还没解析过时先解析一次。 */
+    AppThemePalette.Seed appThemeSeed() {
+        if (seed == null) refreshAppTheme(true);
+        return seed;
+    }
+
     boolean refreshAppTheme(boolean force) {
         long now = android.os.SystemClock.uptimeMillis();
         if (!force && seedCheckedAt != Long.MIN_VALUE && now - seedCheckedAt < SEASON_CHECK_INTERVAL_MS)
