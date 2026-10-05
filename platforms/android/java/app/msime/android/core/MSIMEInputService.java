@@ -3016,6 +3016,12 @@ public final class MSIMEInputService extends InputMethodService {
             String japaneseTitle = JapaneseNineKeyActions.returnTitle(composing);
             japaneseReturnKey.setText(japaneseTitle);
             japaneseReturnKey.setContentDescription(japaneseTitle);
+            // 与其他布局底栏的回车同一个角色，配色才一致。
+            KeyboardKeyRole role = imeBottomRow.returnKeyRole();
+            if (japaneseReturnKey instanceof KeyboardPressButton press && press.keyboardRole() != role) {
+                press.setKeyboardRole(role);
+                imeStyler.styleButton(japaneseReturnKey, role, skin);
+            }
         }
         if (japaneseSpaceKey != null) {
             japaneseSpaceKey.setText(spaceKeyTitle());

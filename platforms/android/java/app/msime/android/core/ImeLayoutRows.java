@@ -619,6 +619,7 @@ final class ImeLayoutRows {
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
+        if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         return button;
     }
 
@@ -639,6 +640,7 @@ final class ImeLayoutRows {
         Button variants = s.keyboardKey(symbols ? "（）" : "小゛゜",
             symbols ? "括号；长按选择其他括号" : "小假名、浊音和半浊音", () -> {});
         s.japaneseVariantsButton = variants;
+        if (variants instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
         variants.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(variants);
             if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS) showJapaneseBracketOptions(variants);
@@ -648,6 +650,8 @@ final class ImeLayoutRows {
     }
 
     void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
+        // 侧列是功能键（123、☺、英、切换、⌫、空白）。角色不显式给时由描述推导，假名键的描述被判成功能面、侧列反倒成了字母面，整块配色主次颠倒。回车的角色由 updateReturnKey 跟着组字状态改。
+        if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         column.addView(button, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, weight));
     }
