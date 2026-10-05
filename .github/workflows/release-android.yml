@@ -8,13 +8,13 @@ on:
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
-  # Resolves the source to one commit up front (main when dispatched from develop, otherwise the dispatched commit), so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # Resolves the dispatched commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", persist-credentials: false}
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
     outputs:
@@ -79,7 +79,7 @@ jobs:
       version: ${{ steps.version.outputs.value }}
   publish:
     needs: [source, release]
-    # The build takes main when dispatched from develop and the dispatched commit otherwise, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+    # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15

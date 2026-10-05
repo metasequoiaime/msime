@@ -26,7 +26,7 @@ jobs:
       MACOS_SIGNING_IDENTITY: "${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
       - id: version
         name: Resolve independent macOS version
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -133,7 +133,7 @@ jobs:
           name: msime-macos-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
-      # The build takes main when dispatched from develop and the dispatched commit otherwise, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent macOS release
         if: ${{ inputs.publish }}
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}

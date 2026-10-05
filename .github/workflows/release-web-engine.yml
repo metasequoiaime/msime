@@ -20,8 +20,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", persist-credentials: false}
-      # 在 develop（下拉框默认）上触发时构建 main，在其他分支或标签上触发时构建触发时的那个提交；清单里的 source_commit 和 release 的 tag 都以它为准。
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
+      # 构建触发时的那个提交；清单里的 source_commit 和 release 的 tag 都以它为准。
       - id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: version
