@@ -134,7 +134,7 @@ i18n.inputMethod = {
 environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
 ```
 
-切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
+切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希，词库放在包内的 `share/msime-client/resources`，旁边的 `share/doc/msime-resources` 带着逐项列出词库来源与上游条款的 `msime-engine-dictionary-NOTICE.md`；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
 
 每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
 

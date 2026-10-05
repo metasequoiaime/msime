@@ -118,10 +118,10 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "MSIME_HOST_LIBRARY" "${msime-host-api}/lib/libmsime_host_api.so")
   ]
   ++ lib.optional (bundledResources != null) (
-    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}"
+    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}/${bundledResources.directory}"
   )
   ++ lib.optional (handwritingModel != null) (
-    lib.cmakeFeature "MSIME_HANDWRITING_MODEL_DIR" "${handwritingModel}"
+    lib.cmakeFeature "MSIME_HANDWRITING_MODEL_DIR" "${handwritingModel}/${handwritingModel.directory}"
   )
   ++ lib.optional (voiceRuntime != null) (
     lib.cmakeFeature "MSIME_VOICE_RUNTIME_DIR" "${voiceRuntime}"

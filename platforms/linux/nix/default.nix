@@ -21,15 +21,22 @@ let
 
   msime-host-api = pkgs.callPackage ./host-api.nix (common // { inherit craneLib; });
   lockedArtifacts = pkgs.callPackage ./locked-artifacts.nix { };
-  # desktop-dictionary.lock.json 钉住的词库，默认不随包（见 fcitx5.nix 的 bundledResources）。
+  # desktop-dictionary.lock.json 钉住的词库，默认不随包（见 fcitx5.nix 的 bundledResources）。锁里只有
+  # SCOWL 与 Mozc 的许可文本，逐项列出词库数据来源与上游条款的 NOTICE 是仓库里的固定副本，与插件包
+  # 里 CMake 装的同名。
   msime-resources = lockedArtifacts {
     name = "msime-resources";
     lock = ../../../resources/desktop-dictionary.lock.json;
+    directory = "share/msime-client/resources";
+    notices."msime-engine-dictionary-NOTICE.md" =
+      ../../../resources/licenses/msime-engine-dictionary-NOTICE.md;
   };
-  # `msime-linux-handwriting --local` 用的 Zinnia 模型和它的许可证；许可证与 debian/copyright 的记载一致。
+  # `msime-linux-handwriting --local` 用的 Zinnia 模型和它的许可证（锁里的第二个 artifact）；许可证与
+  # debian/copyright 的记载一致。
   msime-handwriting-model = lockedArtifacts {
     name = "msime-handwriting-model";
     lock = ../../../resources/handwriting-model.lock.json;
+    directory = "share/msime-client/handwriting";
     meta.license = pkgs.lib.licenses.lgpl21Only;
   };
   msime-voice-runtime = pkgs.callPackage ./voice-runtime.nix { };
