@@ -1,0 +1,216 @@
+package app.msime.android.home;
+
+import android.content.Context;
+import android.content.res.ColorStateList;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import androidx.annotation.Nullable;
+import androidx.core.view.AccessibilityDelegateCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
+import androidx.fragment.app.Fragment;
+import app.msime.android.R;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.android.material.bottomsheet.BottomSheetDragHandleView;
+import java.util.List;
+import org.json.JSONObject;
+
+/**
+ * 「我的 → 应用主题」的选择面板：顶部是颜色模式分段（跟随系统 / 浅色 / 深色，共享偏好 `theme`），下面是水杉四季（自动）与四个固定季节（`app_theme`）。
+ *
+ * <p>外观与 {@link OptionSheet} 一致（M3 modal bottom sheet、居中小标题、56dp 强调色选项、当前项加粗打 ✓、末尾「取消」），只是多了顶部那一行分段，所以自己搭而不是往 OptionSheet 里塞。季节规则在 Rust：写入 `app_theme` 后交给 {@link AppThemeController#follow} 重新解析并更新缓存，缓存的季节变了才 `recreate()`；颜色模式写入后交给 {@link AppMode#follow}，由 AppCompat 重建打开着的页面。
+ */
+final class AppThemeSheet {
+    /** `app_theme` 的取值与显示名，顺序即面板顺序；与 Rust `AppTheme` 的序列化值一致。 */
+    static final String[][] THEMES = {
+        {"siji", "水杉四季（自动）"}, {"chunya", "春芽"}, {"xiayin", "夏荫"}, {"qiushan", "秋杉"}, {"dongxue", "冬雪"},
+    };
+    private static final String[][] MODES = {
+        {AppMode.SYSTEM, "跟随系统"}, {AppMode.LIGHT, "浅色"}, {AppMode.DARK, "深色"},
+    };
+
+    private AppThemeSheet() {}
+
+    /** 当前应用主题在「我的」行尾的写法：四季时带上这一季，例如「四季 · 秋杉」。 */
+    static String summary(Context context, @Nullable JSONObject preferences) {
+        String theme = theme(preferences);
+        if (!"siji".equals(theme)) return label(theme);
+        String season = seasonName(AppThemeController.cachedSeason(context));
+        return "四季 · " + season;
+    }
+
+    /**
+     * 打开面板。
+     *
+     * @param preferences 页面最近读到的偏好，用来标出当前项；可空
+     * @param refresh 保存成功但不需要重建页面时调用，让调用方重读偏好刷新行尾的值
+     */
+    static void show(Fragment host, @Nullable JSONObject preferences, Runnable refresh) {
+        Context context = host.requireContext();
+        BottomSheetDialog dialog = new BottomSheetDialog(context);
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.addView(new BottomSheetDragHandleView(context), new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout header = new LinearLayout(context);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setGravity(Gravity.CENTER_HORIZONTAL);
+        header.setPadding(dp(context, 16), 0, dp(context, 16), dp(context, 12));
+        TextView heading = new TextView(context);
+        heading.setText("应用主题");
+        heading.setGravity(Gravity.CENTER);
+        Ui.style(heading, Ui.TEXT_SHEET_HEADER, 600, Ui.subText(context));
+        heading.setAccessibilityHeading(true);
+        header.addView(heading);
+        TextView note = new TextView(context);
+        note.setText("四季会随季节自动更换配色");
+        note.setGravity(Gravity.CENTER);
+        Ui.style(note, Ui.TEXT_SHEET_HEADER, 400, Ui.subText(context));
+        LinearLayout.LayoutParams noteParams = wrap();
+        noteParams.topMargin = dp(context, 2);
+        header.addView(note, noteParams);
+
+        // 颜色模式：键盘和本应用的浅色 / 深色，与应用主题的季节无关。
+        String mode = preferences == null ? AppMode.SYSTEM : AppMode.of(preferences);
+        SegmentedControl modes = new SegmentedControl(context);
+        modes.setContentDescription("颜色模式");
+        int selectedMode = 0;
+        for (int index = 0; index < MODES.length; index++) if (MODES[index][0].equals(mode)) selectedMode = index;
+        modes.setOptions(List.of(MODES[0][1], MODES[1][1], MODES[2][1]), selectedMode);
+        modes.setOnSelect(index -> {
+            dialog.dismiss();
+            save(host, "theme", MODES[index][0], refresh);
+        });
+        LinearLayout.LayoutParams modeParams = wrap();
+        modeParams.topMargin = dp(context, 12);
+        header.addView(modes, modeParams);
+        root.addView(header);
+
+        String current = theme(preferences);
+        for (int index = 0; index < THEMES.length; index++) {
+            if (index > 0) root.addView(rule(context));
+            String id = THEMES[index][0];
+            root.addView(option(context, THEMES[index][1], id.equals(current), Ui.accent(context), () -> {
+                dialog.dismiss();
+                if (!id.equals(current)) save(host, "app_theme", id, refresh);
+            }));
+        }
+
+        View band = new View(context);
+        band.setBackgroundColor(Ui.page(context));
+        root.addView(band, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 8)));
+        root.addView(option(context, "取消", false, Ui.accent(context), dialog::cancel));
+        dialog.setContentView(root);
+        dialog.show();
+    }
+
+    /** 写一个偏好；应用主题写完后重新解析季节，季节变了就重建页面，颜色模式交给 AppMode。 */
+    private static void save(Fragment host, String key, String value, Runnable refresh) {
+        HostTask.run(host, context -> {
+            JSONObject saved = HostStore.putPreference(context, key, value);
+            if (saved == null) return null;
+            SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+            JSONObject preferences = saved.optJSONObject("preferences");
+            boolean recreate = "app_theme".equals(key) && AppThemeController.follow(context, preferences);
+            return new Object[] {preferences, recreate};
+        }, result -> {
+            if (result == null) {
+                MsToast.show(host.requireContext(), "没有保存，请重试");
+                return;
+            }
+            JSONObject preferences = result[0] instanceof JSONObject value ? value : null;
+            if ("theme".equals(key)) AppMode.follow(host.requireContext(), preferences);
+            if (Boolean.TRUE.equals(result[1])) {
+                host.requireActivity().recreate();
+            } else {
+                refresh.run();
+            }
+        });
+    }
+
+    private static String theme(@Nullable JSONObject preferences) {
+        String theme = preferences == null ? AppThemeController.DEFAULT_THEME
+            : preferences.optString("app_theme", AppThemeController.DEFAULT_THEME);
+        for (String[] entry : THEMES) if (entry[0].equals(theme)) return theme;
+        return AppThemeController.DEFAULT_THEME;
+    }
+
+    private static String label(String theme) {
+        for (String[] entry : THEMES) if (entry[0].equals(theme)) return entry[1];
+        return THEMES[0][1];
+    }
+
+    /** Rust 解析出的季节（spring / summer / autumn / winter）的中文名；没有缓存时是基础主题的秋杉。 */
+    static String seasonName(@Nullable String season) {
+        if (season == null) return "秋杉";
+        switch (season) {
+            case "spring": return "春芽";
+            case "summer": return "夏荫";
+            case "winter": return "冬雪";
+            default: return "秋杉";
+        }
+    }
+
+    private static View option(Context context, CharSequence label, boolean selected, int color, Runnable action) {
+        FrameLayout row = new FrameLayout(context);
+        row.setMinimumHeight(dp(context, Ui.SHEET_OPTION_HEIGHT));
+        row.setBackground(Ui.ripple(context));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setOnClickListener(ignored -> action.run());
+        TextView text = new TextView(context);
+        text.setText(label);
+        text.setGravity(Gravity.CENTER);
+        Ui.style(text, Ui.TEXT_SHEET_OPTION, selected ? 600 : 400, color);
+        FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER);
+        textParams.leftMargin = dp(context, 48);
+        textParams.rightMargin = dp(context, 48);
+        textParams.topMargin = dp(context, 8);
+        textParams.bottomMargin = dp(context, 8);
+        row.addView(text, textParams);
+        if (selected) {
+            ImageView check = new ImageView(context);
+            check.setImageResource(R.drawable.ms_w1_a2_check);
+            check.setImageTintList(ColorStateList.valueOf(Ui.accent(context)));
+            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(dp(context, 18), dp(context, 18),
+                Gravity.CENTER_VERTICAL | Gravity.END);
+            checkParams.setMarginEnd(dp(context, 20));
+            row.addView(check, checkParams);
+        }
+        ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
+            @Override public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfoCompat info) {
+                super.onInitializeAccessibilityNodeInfo(view, info);
+                info.setClassName(Button.class.getName());
+                if (selected) info.setStateDescription("已选择");
+            }
+        });
+        return row;
+    }
+
+    private static View rule(Context context) {
+        View rule = new View(context);
+        rule.setBackgroundColor(Ui.hairline(context));
+        rule.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            Math.max(1, dp(context, 0.5f))));
+        return rule;
+    }
+
+    private static LinearLayout.LayoutParams wrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private static int dp(Context context, float value) {
+        return Ui.dp(context, value);
+    }
+}

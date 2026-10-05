@@ -1,29 +1,50 @@
 package app.msime.android.home;
 
+import android.content.Context;
+import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
-import app.msime.android.AccountIdentity;
 import app.msime.android.AppIconStyle;
 import app.msime.android.BackendAccount;
+import app.msime.android.CloudApi;
+import app.msime.android.DeviceDataApi;
 import app.msime.android.R;
-import com.google.android.material.imageview.ShapeableImageView;
-import com.google.android.material.snackbar.Snackbar;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
- * The 我的 tab: who this device is to the backend, what the app looks like, and where content is.
+ * 「我的」tab：资料卡、我的内容、同步、通用，以及其他平台下载、帮助与反馈、关于、新手引导和开屏动画。
  *
- * 这台设备的身份是自己生成的，日常使用不需要登录。What it shows first is the device's own anonymous identity -- the one the community catalogue is read with -- then Google sign-in when the backend offers it and this build carries a client ID (see {@link SignIn}), and rows for the things this host can actually do.
+ * <p>资料卡在登录真实账号（Google / Apple / 邮箱）后显示头像、昵称和「已同步 · 最近 N 分钟前」，点了进个人资料；未登录时是「?」头像和「未登录」，点了打开登录面板。云同步开关只写本机的 {@link SyncSwitch}（P9）：打开时标记全部分类待同步，首次开启的「合并 / 使用云端」确认由宿主的同步控制器在回到前台时弹出；关闭时只关开关、保留游标。没有真实账号时开关置灰，副标题是「登录后可用」。
+ *
+ * <p>页面先读本机的状态（偏好、同步开关、是否登录）立即画出来，再读要联网的部分（资料、设备数、云剪贴板条数），后者读不到时对应的行只是不显示数字。
  */
 public final class AccountFragment extends HomeTabFragment {
-    private final SignInAttemptPolicy signInAttempt = new SignInAttemptPolicy();
+    /** 本机状态：偏好、是否登录、同步开关、是否绑定了真实账号、上次同步时间。 */
+    private record Local(@Nullable JSONObject preferences, boolean signedIn, boolean syncEnabled, boolean realAccount,
+            long lastSyncedAt) {}
+
+    /** 联网读到的：资料（读不到为 null）、头像、设备数与云剪贴板条数（读不到为 -1）、是否绑定了真实账号。 */
+    private record Remote(@Nullable DeviceDataApi.Profile profile, @Nullable Bitmap avatar, int devices,
+            int clipboard, boolean realAccount) {}
+
+    @Nullable private Local local;
+    @Nullable private Remote remote;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -31,171 +52,272 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
+        View card = view.findViewById(R.id.account_card);
+        card.setBackground(Ui.rippleOn(requireContext(), Ui.card(requireContext()), Ui.dp(requireContext(), 20)));
+        card.setOnClickListener(ignored -> openProfile());
         render();
     }
 
-    // The icon may have been changed elsewhere, and the keyboard may have created its identity
-    // while this screen was in the background.
-    @Override protected void onBecameVisible() { render(); }
+    // 键盘进程、同步和别的页面都可能在这一页藏着的时候改了偏好或登录状态。
+    @Override protected void onBecameVisible() { reload(); }
 
-    @Override public void onDestroy() {
-        // Activity 销毁后，旧的登录 challenge 可能不会再回调；释放本页的门禁让新页面可以重试。
-        signInAttempt.cancel();
-        super.onDestroy();
+    private void reload() {
+        HostTask.run(this, context -> new Local(snapshotPreferences(context), new BackendAccount(context).signedIn(),
+            SyncSwitch.enabled(context), SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)),
+            SyncSwitch.lastSyncedAt(context)), state -> {
+                if (state == null) return;
+                local = state;
+                if (!state.signedIn()) remote = null;
+                render();
+                if (state.signedIn()) reloadRemote();
+            });
+    }
+
+    @Nullable private static JSONObject snapshotPreferences(Context context) {
+        JSONObject snapshot = HostStore.loadPreferences(context);
+        return snapshot == null ? null : snapshot.optJSONObject("preferences");
+    }
+
+    private void reloadRemote() {
+        HostTask.run(this, context -> {
+            DeviceDataApi api = new DeviceDataApi(context);
+            DeviceDataApi.Profile profile;
+            try {
+                profile = api.profile();
+                // 登录时没读到用户 id 的话，这里补上同步要用的账号绑定。
+                ProfilePage.bindIfNeeded(context, profile);
+            } catch (CloudApi.Failure failure) {
+                profile = null;
+            }
+            int devices;
+            try {
+                devices = profile == null ? -1 : api.sessions().size();
+            } catch (CloudApi.Failure failure) {
+                devices = -1;
+            }
+            int clipboard;
+            try {
+                BackendAccount.ClipboardPage page = new BackendAccount(context).clipboard("");
+                clipboard = page.enabled() ? page.items().size() : -1;
+            } catch (Exception unavailable) {
+                clipboard = -1;
+            }
+            Bitmap avatar = profile == null ? null : ProfilePage.avatar(profile.avatarUrl());
+            return new Remote(profile, avatar, devices, clipboard,
+                SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)));
+        }, state -> {
+            if (state == null) return;
+            remote = state;
+            Local current = local;
+            if (current != null && state.realAccount() != current.realAccount()) {
+                local = new Local(current.preferences(), current.signedIn(), current.syncEnabled(),
+                    state.realAccount(), current.lastSyncedAt());
+            }
+            render();
+        });
     }
 
     private void render() {
         View view = getView();
         if (view == null) return;
-        HostTask.run(this, AccountIdentity::subject, subject -> bind(subject == null ? "" : subject));
-        bindSignIn();
-        bindIcons();
-        bindContent();
-        ((TextView) view.findViewById(R.id.account_note)).setText(
-            "这个身份由本机自动生成，不需要注册或登录。它只用来读取社区目录，不携带你的输入内容，也不在设备之间同步。");
+        bindCard(view);
+        LinearLayout groups = view.findViewById(R.id.account_groups);
+        groups.removeAllViews();
+        bindContent(groups);
+        bindSync(groups);
+        bindGeneral(groups);
+        bindMore(groups);
     }
 
-    private void bind(String subject) {
-        View view = getView();
-        if (view == null) return;
-        TextView subtitle = view.findViewById(R.id.account_subtitle);
-        subtitle.setText(subject.isEmpty()
-            ? "本机身份读取失败"
-            : "本机身份 " + AccountIdentity.shortSubject(subject));
+    // ---- 资料卡 ----
+
+    private void bindCard(View view) {
+        Context context = requireContext();
+        Local state = local;
+        Remote online = remote;
+        boolean signedIn = state != null && state.signedIn();
+        DeviceDataApi.Profile profile = online == null ? null : online.profile();
+        String name = !signedIn ? "未登录" : profile == null ? "已登录" : profile.displayName();
+        ((TextView) view.findViewById(R.id.account_title)).setText(name);
+        ((TextView) view.findViewById(R.id.account_subtitle)).setText(state == null ? ""
+            : !signedIn ? "登录后同步词库、皮肤和设置" : syncLine(state));
+        ViewGroup avatar = view.findViewById(R.id.account_avatar);
+        avatar.removeAllViews();
+        avatar.addView(ProfilePage.avatarView(context, 56, signedIn ? name : "",
+            online == null ? null : online.avatar()));
+        view.findViewById(R.id.account_card).setContentDescription(
+            signedIn ? name + "，个人资料" : "未登录，点按登录");
     }
 
-    /**
-     * 登录那一块。
-     *
-     * <p>Three states and they are not the same sentence: signed in, offered, and absent. {@link SignIn#state} decides which; absent draws nothing.
-     */
-    private void bindSignIn() {
-        View view = getView();
-        if (view == null) return;
-        LinearLayout rows = view.findViewById(R.id.account_sign_in_rows);
-        rows.removeAllViews();
-        HostTask.run(this, SignIn::state, state -> {
-            View current = getView();
-            if (current == null || state == null || state == SignIn.State.ABSENT) return;
-            LinearLayout list = current.findViewById(R.id.account_sign_in_rows);
-            list.removeAllViews();
-            View row = state == SignIn.State.SIGNED_IN
-                ? ListRows.add(list, R.drawable.ic_tab_account,
-                    getString(R.string.account_signed_in), getString(R.string.account_sign_out),
-                    this::signOut)
-                : ListRows.add(list, R.drawable.ic_tab_account,
-                    getString(R.string.account_sign_in_google),
-                    getString(R.string.account_sign_in_hint), this::signIn);
-            row.setEnabled(!signInAttempt.active());
-            // Inside the account card the row keeps the card's 16dp inset, so its glyph lines up with the avatar above it.
-            int inset = ListRows.dp(requireContext(), 16);
-            row.setPaddingRelative(inset, row.getPaddingTop(), inset, row.getPaddingBottom());
-        });
+    private static String syncLine(Local state) {
+        if (!state.realAccount()) return "已登录";
+        if (!state.syncEnabled()) return "云同步已关闭";
+        String ago = DeviceDataApi.relativeTime(System.currentTimeMillis(), state.lastSyncedAt());
+        return ago.isEmpty() ? "云同步已开启 · 尚未同步" : "已同步 · 最近 " + ago;
     }
 
-    private void signIn() {
-        if (!signInAttempt.begin()) return;
-        SignIn.start(requireActivity(), failure -> {
-            signInAttempt.finish();
-            // Credential Manager may finish after the user has left this tab; a detached fragment has no view to report into.
-            if (!isAdded() || getView() == null) return;
-            if (failure.isEmpty()) render();
-            else note(failure);
-        });
-    }
-
-    private void signOut() {
-        HostTask.run(this, context -> {
-            new BackendAccount(context).signOut();
-            return "";
-        }, result -> {
-            if (result == null) note("退出账号失败，请重试");
-            else render();
-        });
-    }
-
-    private void note(String message) {
-        View view = getView();
-        if (view != null) Snackbar.make(view, message, Snackbar.LENGTH_LONG).show();
-    }
-
-    /**
-     * The design's 工具, 个性化 and 我的内容 groups, holding what this host can open today.
-     *
-     * <p>The design's 同步 group (a cloud-sync switch and a device list) is left out: this host has no sync backend behind either, and a switch that changes nothing is worse than its absence. 我的内容 keeps only 社区作品 for the same reason -- skins, community dictionaries and phrases a user has collected are not tracked anywhere this host can read.
-     */
-    private void bindIcons() {
-        View view = getView();
-        if (view == null) return;
-        LinearLayout rows = view.findViewById(R.id.account_personal_rows);
-        rows.removeAllViews();
-        ListRows.heading(rows, "工具");
-        ListRows.add(rows, R.drawable.ic_feature_dictionary, "云剪贴板",
-            "在设备之间同步你明确添加的内容", () -> startActivity(new android.content.Intent(
-                requireContext(), CloudClipboardActivity.class)));
-        ListRows.add(rows, R.drawable.ic_feature_dictionary, "云词库",
-            "管理云端词条、个人候选和词库快照", this::openCloudDictionary);
-        ListRows.add(rows, R.drawable.ic_about_desktop, "其他平台下载",
-            "macOS、Windows、Linux 的安装包与指南", () -> startActivity(
-                new android.content.Intent(requireContext(), DesktopDownloadActivity.class)));
-
-        ListRows.heading(rows, "个性化");
-        AppIconStyle current = AppIcons.selected(requireContext());
-        ListRows.add(rows, R.drawable.ic_feature_skin, "App 图标",
-            current.title() + " · " + current.description(), this::showIcons);
-
-        ListRows.heading(rows, "我的内容");
-        ListRows.add(rows, R.drawable.ic_feature_ai, "社区作品",
-            "发布、收藏皮肤、词库和回复", this::openCommunityAccount);
-    }
-
-    /** Open the shared Tauri mobile panel; dictionary UI stays in the common settings surface. */
-    private void openCloudDictionary() {
-        if (!tauriAvailable()) {
-            note("云词库需要管理界面合包，请使用 Tauri 合包打开。您仍可在本机使用词库设置。 ");
+    private void openProfile() {
+        Local state = local;
+        if (state != null && state.signedIn()) {
+            SettingsNavigator.open(requireContext(), PageId.PROFILE, null);
             return;
         }
-        android.content.Intent intent = new android.content.Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_mobile_panel", "cloud-dictionary");
-        startActivity(intent);
+        SignIn.start(requireActivity(), failure -> {
+            // 登录面板可能在用户离开这一页之后才结束；没有视图就不再汇报。
+            if (!isAdded() || getView() == null) return;
+            if (failure.isEmpty()) {
+                MsToast.show(requireContext(), "已登录");
+                reload();
+            } else if (!LoginSheet.CANCELLED.equals(failure)) {
+                MsToast.show(requireContext(), failure);
+            }
+        });
+    }
+
+    // ---- 我的内容 ----
+
+    private void bindContent(LinearLayout groups) {
+        Context context = requireContext();
+        Local state = local;
+        Remote online = remote;
+        GroupCard group = GroupCard.add(groups, "我的内容").withDividers(56);
+        row(group, R.drawable.ic_ms_palette, "我的皮肤", null, skinName(state == null ? null : state.preferences()),
+            () -> SettingsNavigator.open(context, PageId.SKINS, null));
+        row(group, R.drawable.ic_ms_menu_book, "我的词库", null, null,
+            () -> SettingsNavigator.open(context, PageId.LEXICON, null));
+        row(group, R.drawable.ic_ms_star, "常用语", null, null,
+            () -> SettingsNavigator.open(context, PageId.PHRASES, null));
+        row(group, R.drawable.ic_ms_content_paste, "云剪贴板", null,
+            online == null || online.clipboard() < 0 ? null : online.clipboard() + " 条",
+            () -> SettingsNavigator.open(context, PageId.CLOUD_CLIPBOARD, null));
+        // 社区作品的管理界面只在 Tauri 合包里有（P21），保留原来的跳转。
+        if (tauriAvailable()) {
+            row(group, R.drawable.ic_ms_groups, "社区作品", "发布、收藏皮肤、词库和回复", null, this::openCommunityAccount);
+        }
+    }
+
+    /** 当前全局主题在共享目录里的名字；读不到时不显示。 */
+    @Nullable private static String skinName(@Nullable JSONObject preferences) {
+        if (preferences == null) return null;
+        String id = preferences.optString("global_theme", "system");
+        JSONArray themes = HostStore.themeCatalog();
+        for (int index = 0; index < themes.length(); index++) {
+            JSONObject entry = themes.optJSONObject(index);
+            if (entry != null && id.equals(entry.optString("id", ""))) return entry.optString("title", id);
+        }
+        return "custom".equals(id) ? "自定义" : null;
     }
 
     private void openCommunityAccount() {
-        if (!tauriAvailable()) {
-            note("社区管理需要管理界面合包，请使用 Tauri 合包打开。 ");
-            return;
-        }
-        android.content.Intent intent = new android.content.Intent();
+        Intent intent = new Intent();
         intent.setClassName(requireContext(), "app.msime.android.MainActivity");
         intent.putExtra("msime_settings_page", "account");
         startActivity(intent);
     }
 
-    /**
-     * The design's closing group, which has no title: the guide, the splash, help and about.
-     *
-     * <p>「开屏动画」 replays the splash on the home screen. A replay is only the animation: it never leads on into onboarding, whatever the first-run state is -- the prototype did, and a user who asked to watch a logo draw itself did not ask to be walked through setup again. The design's 隐私 row is not repeated here; the privacy statement sits in 关于, which this group already opens.
-     */
-    private void bindContent() {
-        View view = getView();
-        if (view == null) return;
-        LinearLayout rows = view.findViewById(R.id.account_storage_rows);
-        rows.removeAllViews();
-        ListRows.gap(rows);
-        ListRows.add(rows, R.drawable.ic_feature_keys, "新手引导",
-            "四步走完键盘的启用和设置", () -> startActivity(
-                new android.content.Intent(requireContext(), OnboardingActivity.class)));
-        ListRows.add(rows, R.drawable.ic_feature_skin, "开屏动画", "播放", () -> {
-            if (getActivity() instanceof HomeActivity home) home.replaySplash();
-        });
-        ListRows.add(rows, R.drawable.ic_about_help, "帮助与反馈",
-            "启用键盘、常见问题，或告诉我们哪里不好用", () -> startActivity(
-                new android.content.Intent(requireContext(), HelpActivity.class)));
-        ListRows.add(rows, R.drawable.ic_feature_system, "关于", version(), this::openAbout);
+    /** 独立的原生 APK 没有 WebView；Tauri 合包有。 */
+    private boolean tauriAvailable() {
+        try {
+            Class.forName("app.msime.android.MainActivity");
+            return true;
+        } catch (ClassNotFoundException error) {
+            return false;
+        }
     }
 
-    /** The installed version name, or a dash when the package manager will not say. */
+    // ---- 同步 ----
+
+    private void bindSync(LinearLayout groups) {
+        Context context = requireContext();
+        Local state = local;
+        Remote online = remote;
+        boolean signedIn = state != null && state.signedIn();
+        boolean real = signedIn && state.realAccount();
+        GroupCard group = GroupCard.add(groups, "同步").withDividers(56);
+        LinearLayout sync = row(group, R.drawable.ic_ms_sync, "云同步",
+            real ? "词库、自造词和设置在设备间同步" : "登录后可用", null, null);
+        MsSwitch toggle = new MsSwitch(context);
+        toggle.setChecked(real && state.syncEnabled());
+        toggle.setClickable(false);
+        toggle.setFocusable(false);
+        toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        switchParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+        sync.addView(toggle, switchParams);
+        sync.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setClassName(Switch.class.getName());
+                info.setCheckable(true);
+                info.setChecked(toggle.isChecked());
+            }
+        });
+        if (real) {
+            sync.setBackground(Ui.ripple(context));
+            sync.setClickable(true);
+            sync.setFocusable(true);
+            sync.setOnClickListener(ignored -> setSync(!toggle.isChecked()));
+        } else {
+            Ui.setEnabledLook(sync, false);
+        }
+
+        String devices = !signedIn ? "—" : online == null || online.devices() < 0 ? null : online.devices() + " 台";
+        row(group, R.drawable.ic_ms_devices, "我的设备", null, devices,
+            signedIn ? () -> SettingsNavigator.open(context, PageId.DEVICES, null) : null);
+    }
+
+    private void setSync(boolean enabled) {
+        HostTask.run(this, context -> {
+            SyncSwitch.setEnabled(context, enabled);
+            // 打开时把全部分类标成待上传；比对与首次合并确认由宿主的同步控制器负责。
+            if (enabled) for (String section : SyncSwitch.SECTIONS) SyncSignals.markDirty(context, section);
+            return enabled;
+        }, done -> {
+            if (done == null) {
+                MsToast.show(requireContext(), "登录后才能打开云同步");
+            } else {
+                MsToast.show(requireContext(), done ? "云同步已开启" : "云同步已关闭");
+            }
+            reload();
+        });
+    }
+
+    // ---- 通用 ----
+
+    private void bindGeneral(LinearLayout groups) {
+        Context context = requireContext();
+        Local state = local;
+        JSONObject preferences = state == null ? null : state.preferences();
+        GroupCard group = GroupCard.add(groups, "通用").withDividers(56);
+        row(group, R.drawable.ic_ms_brush, "应用主题", null, AppThemeSheet.summary(context, preferences),
+            preferences == null ? null : () -> AppThemeSheet.show(this, preferences, this::reload));
+        row(group, R.drawable.ic_ms_shield_lock, "隐私", null, "本地优先",
+            () -> SettingsNavigator.open(context, PageId.PRIVACY, null));
+        AppIconStyle icon = AppIcons.selected(context);
+        row(group, R.drawable.ic_ms_smartphone, "App 图标", null, icon.title(), this::showIcons);
+    }
+
+    // ---- 收尾组 ----
+
+    private void bindMore(LinearLayout groups) {
+        Context context = requireContext();
+        GroupCard group = GroupCard.add(groups, null).withDividers(56);
+        row(group, R.drawable.ic_ms_download, "其他平台下载", null, "7 个平台",
+            () -> SettingsNavigator.open(context, PageId.DOWNLOAD, null));
+        row(group, R.drawable.ic_ms_feedback, "帮助与反馈", null, null,
+            () -> SettingsNavigator.open(context, PageId.FEEDBACK, null));
+        row(group, R.drawable.ic_ms_info, "关于", null, version(),
+            () -> SettingsNavigator.open(context, PageId.ABOUT, null));
+        row(group, R.drawable.ic_ms_keyboard, "新手引导", "四步走完键盘的启用和设置", null,
+            () -> startActivity(new Intent(context, OnboardingActivity.class)));
+        // 「开屏动画」只重播开屏，不会接着进入新手引导。
+        row(group, R.drawable.ic_ms_circle, "开屏动画", null, "播放", () -> {
+            if (getActivity() instanceof HomeActivity home) home.replaySplash();
+        });
+    }
+
+    /** 已安装的版本名；包管理器不肯说时是一道横线。 */
     private String version() {
         try {
             String name = requireContext().getPackageManager()
@@ -206,70 +328,87 @@ public final class AccountFragment extends HomeTabFragment {
         }
     }
 
-    /** Keep Android's public about/help/feedback surface in the shared Tauri UI. */
-    private void openAbout() {
-        if (!tauriAvailable()) {
-            startActivity(new android.content.Intent(requireContext(), AboutActivity.class));
-            return;
-        }
-        android.content.Intent intent = new android.content.Intent();
-        intent.setClassName(requireContext(), "app.msime.android.MainActivity");
-        intent.putExtra("msime_settings_page", "about");
-        startActivity(intent);
-    }
-
-    /** The standalone native APK deliberately has no WebView; the Tauri bundle does. */
-    private boolean tauriAvailable() {
-        try {
-            Class.forName("app.msime.android.MainActivity");
-            return true;
-        } catch (ClassNotFoundException error) {
-            return false;
-        }
-    }
-
     private void showIcons() {
-        SettingsSheet sheet = new SettingsSheet(requireContext(), "App 图标",
-            "换掉主屏幕上的水杉。切换时桌面图标会短暂消失再出现，这是系统在重建启动项。");
-        AppIconStyle current = AppIcons.selected(requireContext());
+        Context context = requireContext();
+        AppIconStyle current = AppIcons.selected(context);
+        OptionSheet sheet = new OptionSheet(context, "App 图标",
+            "切换时桌面图标会短暂消失再出现，这是系统在重建启动项");
         for (AppIconStyle style : AppIconStyle.all()) {
-            LinearLayout row = (LinearLayout) LayoutInflater.from(requireContext())
-                .inflate(R.layout.item_setting_row, sheet.content(), false);
-            ShapeableImageView badge = row.findViewById(R.id.row_badge);
-            // 这一行画的是图标本身，不是字形：不着色，也不要那块底。
-            badge.setImageResource(icon(style));
-            badge.setImageTintList(null);
-            badge.getLayoutParams().width = ListRows.dp(requireContext(), 40);
-            badge.getLayoutParams().height = ListRows.dp(requireContext(), 40);
-            ((TextView) row.findViewById(R.id.row_title)).setText(style.title());
-            ((TextView) row.findViewById(R.id.row_value)).setText(style.description());
-            TextView chevron = row.findViewById(R.id.row_chevron);
-            chevron.setText(style == current ? "✓" : "");
-            chevron.setVisibility(View.VISIBLE);
-            chevron.setTextColor(ContextCompat.getColor(requireContext(), R.color.forest));
-            row.setOnClickListener(ignored -> {
-                boolean changed = AppIcons.select(requireContext(), style);
-                sheet.dismiss();
-                bindIcons();
-                View view = getView();
-                if (view != null) {
-                    Snackbar.make(view, changed
-                        ? "已切换为「" + style.title() + "」，桌面图标稍后更新。"
-                        : "系统拒绝了这次切换，图标保持不变。", Snackbar.LENGTH_LONG).show();
-                }
+            sheet.option(style.title() + " · " + style.description(), style == current, () -> {
+                boolean changed = AppIcons.select(context, style);
+                MsToast.show(context, changed
+                    ? "已切换为「" + style.title() + "」，桌面图标稍后更新"
+                    : "系统拒绝了这次切换，图标保持不变");
+                render();
             });
-            sheet.add(row);
         }
         sheet.show();
     }
 
-    @DrawableRes private static int icon(AppIconStyle style) {
-        return switch (style) {
-            case FOREST -> R.drawable.app_icon_forest;
-            case SKY -> R.drawable.app_icon_sky;
-            case DUSK -> R.drawable.app_icon_dusk;
-            case VERMILION -> R.drawable.app_icon_vermilion;
-            case CLASSIC -> R.drawable.app_icon_classic;
-        };
+    // ---- 行 ----
+
+    /**
+     * 设计里「我的」的行：前面 22dp 线框图标，标题（可带副标题），行尾是值和 ›；`action` 为 null 时没有 ›，整行不可点。
+     *
+     * @return 行本身，开关行在它末尾再加开关
+     */
+    private LinearLayout row(GroupCard group, @DrawableRes int icon, CharSequence title,
+            @Nullable CharSequence subtitle, @Nullable CharSequence value, @Nullable Runnable action) {
+        Context context = requireContext();
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(Ui.dp(context, subtitle == null ? 52 : Ui.ROW_MIN_HEIGHT));
+        row.setPadding(Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V),
+            Ui.dp(context, Ui.ROW_PADDING_H), Ui.dp(context, Ui.ROW_PADDING_V));
+
+        ImageView glyph = new ImageView(context);
+        glyph.setImageResource(icon);
+        glyph.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+        glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams glyphParams = new LinearLayout.LayoutParams(Ui.dp(context, 22), Ui.dp(context, 22));
+        glyphParams.setMarginEnd(Ui.dp(context, 18));
+        row.addView(glyph, glyphParams);
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView heading = new TextView(context);
+        heading.setText(title);
+        Ui.style(heading, Ui.TEXT_ROW_TITLE, 400, Ui.text(context));
+        texts.addView(heading);
+        if (subtitle != null) {
+            TextView detail = new TextView(context);
+            detail.setText(subtitle);
+            Ui.style(detail, 12, 400, Ui.subText(context));
+            texts.addView(detail);
+        }
+        row.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (value != null && value.length() > 0) {
+            TextView trailing = new TextView(context);
+            trailing.setText(value);
+            trailing.setSingleLine(true);
+            Ui.style(trailing, Ui.TEXT_ROW_SUBTITLE, 400, Ui.subText(context));
+            LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            valueParams.setMarginStart(Ui.dp(context, Ui.ROW_GAP));
+            row.addView(trailing, valueParams);
+        }
+        if (action != null) {
+            ImageView chevron = new ImageView(context);
+            chevron.setImageResource(R.drawable.ms_w1_a2_chevron);
+            chevron.setImageTintList(ColorStateList.valueOf(Ui.subText(context)));
+            chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout.LayoutParams chevronParams = new LinearLayout.LayoutParams(
+                Ui.dp(context, Ui.CHEVRON_SIZE), Ui.dp(context, Ui.CHEVRON_SIZE));
+            chevronParams.setMarginStart(Ui.dp(context, 6));
+            row.addView(chevron, chevronParams);
+            row.setBackground(Ui.ripple(context));
+            row.setClickable(true);
+            row.setFocusable(true);
+            row.setOnClickListener(ignored -> action.run());
+        }
+        group.addView(row);
+        return row;
     }
 }
