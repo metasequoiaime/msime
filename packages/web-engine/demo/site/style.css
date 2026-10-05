@@ -871,6 +871,16 @@ h1 {
 
 .code pre code { padding: 0; background: none; color: inherit; font-size: inherit; }
 
+/* Prism 的高亮配色，配代码面板的深色底，沿用水杉绿系。 */
+.code .token.comment { color: #7E9886; font-style: italic; }
+.code .token.keyword, .code .token.boolean, .code .token.important { color: #7FE08E; }
+.code .token.string, .code .token.attr-value, .code .token.template-string { color: #F2C97D; }
+.code .token.function, .code .token.class-name, .code .token.builtin { color: #8FD3FF; }
+.code .token.number { color: #D7A8FF; }
+.code .token.property, .code .token.attr-name, .code .token.parameter, .code .token.literal-property { color: #FFB38A; }
+.code .token.tag { color: #FF9C8F; }
+.code .token.punctuation, .code .token.operator { color: #9FB5A3; }
+
 .more { margin: 14px 0 0; font-size: 15px; }
 
 .footer {

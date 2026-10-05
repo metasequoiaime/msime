@@ -404,10 +404,37 @@ import { createMsimeEngine, attachInput } from "https://cdn.jsdelivr.net/npm/@ms
   }),
 };
 
+// ---- 代码高亮 ----
+
+const escapeHtml = (text) => text.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+// Prism 输出的 HTML 已经转义过，可以直接放进 innerHTML；Prism 没加载成功时退回转义后的纯文本。
+function highlight(code, language) {
+  const grammar = window.Prism?.languages[language];
+  return grammar ? window.Prism.highlight(code, grammar, language) : escapeHtml(code);
+}
+
+// 「部署方式」里混着 shell 命令、HTML 和 JS：按行分组，连续的同一种语言一起高亮。<script> 块交给 markup，Prism 会把里面的 JS 一并高亮。
+function highlightCode(code) {
+  const groups = [];
+  let inScript = false;
+  for (const line of code.split("\n")) {
+    let language = "javascript";
+    if (inScript || line.trimStart().startsWith("<")) language = "markup";
+    else if (/^(#|npm |npx )/.test(line)) language = "bash";
+    if (line.trimStart().startsWith("<script")) inScript = true;
+    if (line.includes("</script>")) inScript = false;
+    const last = groups.at(-1);
+    if (last && last.language === language) last.lines.push(line);
+    else groups.push({ language, lines: [line] });
+  }
+  return groups.map((group) => highlight(group.lines.join("\n"), group.language)).join("\n");
+}
+
 function renderCode() {
   const { note, code } = CODE[tab]();
   $("code-note").textContent = note;
-  $("code-body").textContent = code;
+  $("code-body").innerHTML = highlightCode(code);
   for (const button of document.querySelectorAll(".tabs button")) button.setAttribute("aria-selected", String(button.dataset.tab === tab));
 }
 
