@@ -501,7 +501,8 @@ def anonymous_access_token(server):
             saved = _anonymous_private_path(getattr(server, "anonymous_session_path", None))
         except (OSError, ValueError, UnicodeError, json.JSONDecodeError):
             saved = None
-        refresh = saved.get("tokens", {}).get("refresh_token") if isinstance(saved, dict) else None
+        saved_tokens = saved.get("tokens") if isinstance(saved, dict) else None
+        refresh = saved_tokens.get("refresh_token") if isinstance(saved_tokens, dict) else None
         if isinstance(refresh, str) and len(refresh) == 64 and all(ch in string.hexdigits for ch in refresh):
             refreshed = safely(fetch, ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/refresh", ANONYMOUS_ACCOUNT_TIMEOUT,
                                {"refresh_token": refresh})

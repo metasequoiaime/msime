@@ -160,6 +160,36 @@ class TranslationProviderSelection(unittest.TestCase):
             worker.join()
             http.server_close()
 
+    def test_malformed_saved_tokens_recover_with_the_existing_identity(self):
+        tokens = {
+            "access_token": "a" * 64, "refresh_token": "b" * 64,
+            "token_type": "Bearer", "expires_in": 3600,
+            "user": {"id": "synthetic-user"},
+        }
+        for malformed in (None, [], ["synthetic"], "synthetic", 7, True):
+            with self.subTest(tokens=malformed):
+                with tempfile.TemporaryDirectory(prefix="msime-malformed-session-") as directory:
+                    server = provider.anonymous_server(Path(directory))
+                    identity = provider._anonymous_identity(server)
+                    self.assertTrue(provider._write_anonymous_private(
+                        server.anonymous_session_path,
+                        {"tokens": malformed, "expires_at_unix_ms": 0}))
+                    with mock.patch.object(provider, "fetch", side_effect=[
+                        {"challenge_id": "synthetic-challenge"}, tokens,
+                    ]) as fetch:
+                        self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                        self.assertEqual(provider.anonymous_access_token(server), "a" * 64)
+                    self.assertEqual(provider._anonymous_identity(server), identity)
+                    self.assertEqual([call.args[0] for call in fetch.call_args_list], [
+                        provider.ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/challenges",
+                        provider.ANONYMOUS_ACCOUNT_ORIGIN + "/v1/auth/login",
+                    ])
+                    self.assertEqual(fetch.call_args_list[0].args[2]["target"], identity[0])
+                    self.assertEqual(fetch.call_args_list[1].args[2]["credential"], identity[1])
+                    saved = provider._anonymous_private_path(server.anonymous_session_path)
+                    self.assertEqual(saved["tokens"], tokens)
+                    self.assertGreater(saved["expires_at_unix_ms"], 0)
+
     def test_account_identity_is_generated_owner_only_and_stable(self):
         with tempfile.TemporaryDirectory(prefix="msime-anonymous-account-") as directory:
             path = Path(directory) / "anonymous-account.json"
