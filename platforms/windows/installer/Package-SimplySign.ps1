@@ -20,7 +20,6 @@ param(
     [string]$IsccPath,
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))),
     [string]$Generator = 'Visual Studio 17 2022',
-    [switch]$IncludeSymbols,
     # 产品版本（shared/contracts/editions.json 里有 Windows 段的 id），缺省是 full。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
     [switch]$Light,
@@ -45,7 +44,8 @@ $prepare = Join-Path $PSScriptRoot 'Prepare-PackageFiles.ps1'
 $payload = Join-Path $PSScriptRoot 'Sign-PackageBinaries-SimplySign.ps1'
 $compile = Join-Path $PSScriptRoot 'Compile-Installer.ps1'
 $installer = Join-Path $PSScriptRoot 'Sign-Installer-SimplySign.ps1'
-foreach ($path in @($build, $prepare, $payload, $compile, $installer)) {
+$symbols = Join-Path $PSScriptRoot 'Collect-Symbols.ps1'
+foreach ($path in @($build, $prepare, $payload, $compile, $installer, $symbols)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "发布入口缺失：$path" }
 }
 $editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
@@ -67,7 +67,6 @@ $prepareArgs = @{
 $signArgs = @{ PackageRoot=$PSScriptRoot; CertificateThumbprint=$CertificateThumbprint; TimestampUrl=$TimestampUrl; SignToolPath=$SignToolPath }
 $outerName = "$($editionEntry[0].platforms.windows.installer_base_name)_v$TargetVersion"
 if ($Light) { $outerName += '_light' }
-if ($IncludeSymbols) { $outerName += '_with_pdb' }
 $outerPath = Join-Path $PSScriptRoot "Output\$outerName.exe"
 Push-Location $RepoRoot
 try {
@@ -78,4 +77,6 @@ try {
     if (-not (Test-Path -LiteralPath $outerPath -PathType Leaf)) { throw "未生成安装包：$outerPath" }
     Invoke-Stage $installer @{ InstallerPath=$outerPath; CertificateThumbprint=$CertificateThumbprint; TimestampUrl=$TimestampUrl; SignToolPath=$SignToolPath }
     Write-Host "发布安装包已生成并签名：$outerPath"
+    # 发布上 CI 打的未签名安装包要换成这一份，CI 的符号包对不上这次构建的二进制，所以同时写出这次构建的符号包，两者一起替换。
+    Invoke-Stage $symbols @{ RepoRoot=$RepoRoot; Edition=$Edition; Version=$TargetVersion; OutputDirectory=(Split-Path -Parent $outerPath) }
 } finally { Pop-Location }

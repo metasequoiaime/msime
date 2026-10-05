@@ -152,35 +152,13 @@ jobs:
           -Tsf32ReleaseDirectory target/windows-$env:EDITION/x86/bin
           -Tsf64ReleaseDirectory target/windows-$env:EDITION/x64/bin
           -DesktopExecutable target/windows-$env:EDITION/x64/bin/msime-client-settings.exe
-      # The installer carries no PDBs (msime_setup.iss), so the symbols of this exact build are published beside it: crash dumps from users' machines can only be symbolized with them. Prepare-PackageFiles.ps1 stages the Server, settings, MCP and TSF PDBs and refuses a Server executable without one; the host DLL's PDB is not staged: Build-Client.ps1 copies it beside the host DLL in each architecture's bin directory at the moment the DLL is taken, because later cargo builds in the same target directory can rebuild host-api and overwrite the cargo output. Architectures go to separate folders because their PDBs share names.
+      # 安装包不带 PDB（msime_setup.iss），这次构建的符号作为单独的发布资产放在安装包旁边，收集逻辑和布局见 Collect-Symbols.ps1。维护者用 Package-SimplySign.ps1 打出签名安装包时，同一脚本会写出对应的符号包，连同安装包一起替换到发布上。
       - name: Collect debug symbols
         shell: pwsh
         env: {VERSION: "${{ steps.version.outputs.value }}", EDITION: "${{ matrix.edition }}"}
         run: |
           $ErrorActionPreference = 'Stop'
-          $staging = 'platforms/windows/installer'
-          $root = Join-Path $env:RUNNER_TEMP 'msime-symbols'
-          if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
-          $layout = [ordered]@{
-            'server' = @(Get-ChildItem -LiteralPath "$staging/server_exe" -File -Filter '*.pdb')
-            'tsf/x86' = @(Get-Item -LiteralPath "$staging/tsf_dll/32/MetasequoiaImeTsf.pdb")
-            'tsf/x64' = @(Get-Item -LiteralPath "$staging/tsf_dll/64/MetasequoiaImeTsf.pdb")
-            'host/x86' = @(Get-Item -LiteralPath "target/windows-$env:EDITION/x86/bin/msime_host_api.pdb")
-            'host/x64' = @(Get-Item -LiteralPath "target/windows-$env:EDITION/x64/bin/msime_host_api.pdb")
-          }
-          if ($layout['server'].Count -eq 0) { throw 'no Server PDBs staged' }
-          # The installer payload without symbols, so the log shows what each package carries, e.g. that tsf_dll\64 holds only the TIP, its host DLL and its own runtime DLLs.
-          Get-ChildItem -LiteralPath "$staging/server_exe", "$staging/tsf_dll" -Recurse -File |
-            Where-Object Extension -notin @('.pdb', '.ilk') |
-            ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, [IO.Path]::GetRelativePath($staging, $_.FullName) }
-          foreach ($entry in $layout.GetEnumerator()) {
-            $folder = Join-Path $root $entry.Key
-            New-Item -ItemType Directory -Force -Path $folder | Out-Null
-            $entry.Value | Copy-Item -Destination $folder
-          }
-          Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, [IO.Path]::GetRelativePath($root, $_.FullName) }
-          New-Item -ItemType Directory -Force -Path dist-symbols | Out-Null
-          Compress-Archive -Path (Join-Path $root '*') -DestinationPath "dist-symbols/msime-windows-$env:EDITION-$env:VERSION-symbols.zip" -CompressionLevel Optimal
+          ./platforms/windows/installer/Collect-Symbols.ps1 -Edition $env:EDITION -Version $env:VERSION -OutputDirectory dist-symbols
           Get-ChildItem dist-symbols | Format-Table Name, Length
       - name: Compile installer
         shell: pwsh
@@ -216,7 +194,7 @@ jobs:
           name: msime-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
-      # A separate artifact whose name the msime-windows-* patterns below do not match, so the coexistence job does not download the symbols; publish fetches both.
+      # 单独的产物，名字不匹配下面的 msime-windows-* 模式，所以 coexistence 任务不会下载符号；publish 两个都取。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-symbols-windows-${{ matrix.edition }}-${{ steps.version.outputs.value }}

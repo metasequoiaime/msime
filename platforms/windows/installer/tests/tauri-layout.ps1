@@ -11,7 +11,7 @@ $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
     throw 'Missing native WinUI/Tauri executable installation rule'
 }
-# Debug symbols and the linker's incremental state stay out of the package; release-windows.yml publishes the PDBs as their own asset.
+# 调试符号和链接器的增量状态不进安装包；PDB 由 Collect-Symbols.ps1 打成单独的发布资产。
 if (-not $server[0].Value.Contains('Excludes: "*.pdb,*.ilk"')) {
     throw 'Server files include PDB or .ilk files'
 }

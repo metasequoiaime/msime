@@ -35,7 +35,7 @@ Scoop 的惯例是便携应用：解压到 `scoop\apps\<名字>`，不写系统�
 
 ## 签名
 
-包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
+包管理器只能指向签过名的安装包。`release-windows.yml` 在 CI 上打出并先行发布的 `MetasequoiaIME_Setup_v<版本>.exe` 没有签名（签名证书是只在发布机上的 Certum SimplySign 卡）；它里面的 x64 Server 以 `MSIME_SERVER_UIACCESS=ON` 构建，未签名的 uiAccess 程序系统拒绝启动，装上之后只能打英文（见 `../installer/Sign-InstalledServer-Local.ps1`）。能用的是维护者用 `../installer/Package-SimplySign.ps1` 签名后、连同新的 `.sha256` 和同一次构建的 `msime-windows-<edition>-<version>-symbols.zip` 替换到同一个发布上的那一份。替换会改变摘要，所以包定义必须在替换之后渲染。
 
 因此：
 

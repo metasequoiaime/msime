@@ -89,7 +89,7 @@ Source: "{#MySourceRoot}\LICENSE.txt"; \
     DestDir: "{commonpf64}\{#MyEditionInstallDir}"; Flags: ignoreversion
 
 ; TSF DLL 使用版本独立目录，避免升级时覆盖仍被进程加载的 DLL。
-; PDB 不随安装包分发：release-windows.yml 把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip 发布，分析崩溃时让调试器指向解压出的目录。
+; PDB 不随安装包分发：Collect-Symbols.ps1（release-windows.yml 和 Package-SimplySign.ps1 都调用它）把暂存的符号打成单独的 msime-windows-<edition>-<version>-symbols.zip 发布，分析崩溃时让调试器指向解压出的目录。
 ; Install Host API and ordinary dependencies before registering the TIP.
 Source: "{#MySourceRoot}\tsf_dll\32\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
@@ -109,7 +109,7 @@ Source: "{#MySourceRoot}\tsf_dll\64\MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
     Flags: ignoreversion regserver
 
-; The Server, settings window and MCP server need the same x64 host DLL and runtime DLLs as the 64-bit TIP. Prepare-PackageFiles.ps1 stages them only under tsf_dll\64, and Inno stores a source file once however many entries install it, so the package carries one copy.
+; Server、设置窗口和 MCP 服务需要与 64 位 TIP 相同的 x64 宿主 DLL 和运行时 DLL。Prepare-PackageFiles.ps1 只把它们暂存在 tsf_dll\64 下，而 Inno 对同一个源文件无论有几条安装条目都只存一份，所以包里只有一份。
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \
     Excludes: "MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf64}\{#MyEditionInstallDir}\server"; \
@@ -134,7 +134,7 @@ Source: "{#MySourceRoot}\app_data\config.default.toml"; \
 #endif
 
 [InstallDelete]
-; Packages before the symbols moved to their own release asset installed every PDB, the settings app's incremental-link .ilk and a stray copy of the TSF DLL into the Server folder, which upgrades reuse; remove them so an upgrade reclaims the space. The TSF DLL there was never loaded or registered: the TIP runs from the version folder.
+; 符号改为单独发布资产之前的包会把所有 PDB、设置程序增量链接的 .ilk 和一份多余的 TSF DLL 装进 Server 目录，而升级沿用这个目录；这里删掉它们，让升级收回空间。那里的 TSF DLL 从未被加载或注册：TIP 从版本目录运行。
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.pdb"
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.ilk"
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\MetasequoiaImeTsf.dll"

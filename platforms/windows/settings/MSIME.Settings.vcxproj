@@ -49,7 +49,7 @@
     <!-- 本次构建的产品版本（shared/contracts/editions.json 的 id），选出 shared/contracts/msime_edition.h 里该版本的 CLSID、状态目录和方案；Build-Client.ps1 按 -Edition 传入，缺省是 full。 -->
     <MsimeEdition Condition="'$(MsimeEdition)' == ''">full</MsimeEdition>
   </PropertyGroup>
-  <!-- Optimized builds link once, without an incremental-link .ilk, and drop unreferenced and identical COMDATs; /DEBUG alone would otherwise switch both off. The PDB is still produced for the symbols release asset. -->
+  <!-- 优化构建只链接一次，不产生增量链接的 .ilk，并去掉未引用和相同的 COMDAT；只开 /DEBUG 时这两项都会被关掉。PDB 仍然生成，供符号发布资产使用。 -->
   <PropertyGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>

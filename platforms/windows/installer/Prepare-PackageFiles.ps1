@@ -182,8 +182,8 @@ foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
         throw "缺少对应架构 TSF 的 $hostDllName"
     }
 }
-# The TIP's runtime DLLs. The x86 output directory holds only the 32-bit TIP build, its host DLL and the vcpkg DLLs Copy-RuntimeDependencies.ps1 put there, so every other DLL in it is a TIP dependency. The x64 one is shared with the Server, the self-contained WinUI settings app and the voice runtime, so copying it wholesale put a second Windows App SDK and onnxruntime/sherpa beside the 64-bit TIP; both prefixes install the same vcpkg manifest, so the 64-bit TIP takes the names the 32-bit one has, each of which must exist beside it.
-# Another edition's host DLL is never a dependency of this edition's TIP.
+# TIP 的运行时 DLL。x86 输出目录里只有 32 位 TIP 的构建产物、它的宿主 DLL 和 Copy-RuntimeDependencies.ps1 放进去的 vcpkg DLL，所以其中其他 DLL 都是 TIP 的依赖。x64 输出目录与 Server、自包含的 WinUI 设置程序和语音运行时共用，整个复制会在 64 位 TIP 旁边多放一份 Windows App SDK 和 onnxruntime/sherpa；两个前缀装的是同一份 vcpkg 清单，所以 64 位 TIP 取 32 位 TIP 旁边那些名字，每一个都必须在它旁边存在。
+# 别的版本的宿主 DLL 永远不是本版本 TIP 的依赖。
 $editionHostDllNames = @($editionTable.editions | Where-Object { $null -ne $_.platforms.windows } | ForEach-Object { [string]$_.platforms.windows.host_dll })
 $tsf32Dependencies = @(
     Get-ChildItem -LiteralPath (Split-Path -Parent $tsf32Release) -File -Filter '*.dll' |
@@ -199,7 +199,7 @@ $tsf64Dependencies = @(
         $candidate
     }
 )
-# The installer puts the x64 host DLL and these dependencies into the Server folder from the tsf_dll\64 copy, so the package stores them once; a Server output carrying a different file under one of those names would be silently replaced by it, so it is refused here, before any previous staging is replaced.
+# 安装器从 tsf_dll\64 那一份把 x64 宿主 DLL 和这些依赖装进 Server 目录，包里只存一份；Server 输出里同名却内容不同的文件会被它悄悄替换，所以在替换任何旧的暂存内容之前就在这里拒绝。
 foreach ($shared in @($tsf64Host) + $tsf64Dependencies) {
     $serverCopy = Join-Path $serverRelease (Split-Path -Leaf $shared)
     if ((Test-Path -LiteralPath $serverCopy -PathType Leaf) -and
@@ -501,7 +501,7 @@ Get-ChildItem -LiteralPath $targetServer -Recurse -File |
         (Test-PackageTestArtifact -BaseName $_.BaseName)
     } |
     Remove-Item -Force
-# In CI the Server output is also the x64 TIP's build directory. The TIP and its symbols are staged under tsf_dll\64 and only ever loaded from the version folder, and the host DLL and the TIP's runtime DLLs reach the Server folder from that same tsf_dll\64 copy (msime_setup.iss), so none of them is staged twice. Build-Client.ps1 leaves the host DLL's PDB there too; the release workflow takes it from the build output for the symbols archive, so it is not staged at all.
+# CI 里 Server 输出目录同时也是 x64 TIP 的构建目录。TIP 和它的符号暂存在 tsf_dll\64 下，只从版本目录加载；宿主 DLL 和 TIP 的运行时 DLL 也从同一份 tsf_dll\64 进入 Server 目录（msime_setup.iss），所以它们都不重复暂存。Build-Client.ps1 也把宿主 DLL 的 PDB 留在这里；Collect-Symbols.ps1 直接从构建输出取它打进符号包，所以它完全不暂存。
 foreach ($name in @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', $hostDllName, 'msime_host_api.pdb') + @($tsf64Dependencies | ForEach-Object { Split-Path -Leaf $_ })) {
     $staged = Join-Path $targetServer $name
     if (Test-Path -LiteralPath $staged -PathType Leaf) { Remove-Item -LiteralPath $staged -Force }
@@ -524,7 +524,7 @@ Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
-# Build-Client collects architecture-checked release dependencies beside the TIP; only the ones named above, never the rest of the shared x64 directory.
+# Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。
 foreach ($dependency in $tsf32Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf32 -Force }
 foreach ($dependency in $tsf64Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf64 -Force }
 Copy-Item -LiteralPath $appIcon -Destination (Join-Path $PSScriptRoot 'MetasequoiaIME.ico') -Force
