@@ -126,14 +126,14 @@ compare() {
 # ---- scope ----
 # Every push used to wait for every platform phase, so a push that touched only crates/dict-builder still paid for the Linux container build, the Android and HarmonyOS checks and the Windows test run. --quick now works out which files the change touches and runs a platform phase only when one of them is among that phase's inputs. The change is the union of: everything the branch changes since it left origin/develop (`origin/develop...HEAD`), the commits on HEAD since it left its upstream, the ranges git hands the pre-push hook on stdin (when this runs under .githooks/pre-push; through rbuild stdin is empty), and whatever is modified, staged or untracked in the work tree, because that is what the phases build. The origin/develop part is what makes a skip safe: a phase is skipped only when nothing the whole branch changes reaches it, so it never leans on an earlier push having been verified (a push that ran on a machine without docker, NDK or hvigor, a --no-verify push, or a manual --quick on a branch already pushed). Under pre-merge-commit the merged-in files are staged and so arrive through the work-tree part. When any of that cannot be worked out every phase runs.
 #
-# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, .github, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), and the crates every native host links (path-trust, client-core, engine, input-runtime, host-api) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
+# Being wrong in the direction of skipping is the expensive mistake, so a file sends the run to "everything" unless it is known not to: this script and the contract runner, the known-failures baseline, the hooks, the workspace and package manifests and lockfiles, any CMake file, shared/ and platforms/common/ (the C/C++ headers and sources every host compiles), the crates every native host links (path-trust, client-core, engine, input-runtime, host-api), and the per-edition resource locks with their generator (resources/components/, resources/editions/, scripts/editions.py: client-core embeds the edition locks, and the Windows, macOS, Linux, Android and desktop packaging and staging all read them) all run everything, as does any deletion or rename and any path the table below does not know. A file under platforms/, resources/, scripts/ or tools/ also reaches every area whose tree names it (scope_named_by below): the macOS CMake build copies files out of platforms/linux and platforms/windows, the HarmonyOS build compiles platforms/windows/third_party/miniaudio, platform builds run scripts/fetch_voice_runtime.py, and the core crates embed resource files with include_str!/include_bytes! and parse them at run time, so a resource one of them names runs everything. Names on comment lines and in Markdown do not count, or a file a header comment cites would reach everything. crates/engine-wasm reaches only the wasm target check, since everything it is built from (engine, path-trust, the manifests) already runs everything; flake.nix and flake.lock reach the Linux phases, which build what the Nix packaging under platforms/linux/nix wraps. .github reaches only the workflow lint: no platform phase builds from it, and the contract checks that read release workflows (test-macos-package-resources.py, test-windows-editions.py) always run. The phases that always run are the contract checks, the Rust workspace check and the shared Apple bridge, which are either cheap or cut across every area.
 scope_all=1
 scope_why="full run"
 scope_areas=" "
 scope_count=0
 
 # The trees each area builds from, as area:pathspec, searched by scope_named_by for files one tree takes from another.
-scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-core all:crates/engine all:crates/input-runtime all:crates/host-api"
+scope_trees="linux:platforms/linux macos:platforms/macos windows:platforms/windows android:platforms/android harmony:platforms/harmony harmony:apps/harmony desktop:apps/desktop desktop:packages/ui harmony:packages/ui windows:crates/host-windows desktop:crates/host-windows macos:crates/host-macos desktop:crates/host-macos windows:scripts/test-windows-*.py harmony:scripts/test-harmony-*.py android:scripts/test-android-*.py all:shared all:platforms/common all:crates/path-trust all:crates/client-core all:crates/engine all:crates/input-runtime all:crates/host-api wasm:crates/engine-wasm"
 
 # What a tree names $1 by, one "<kind><TAB><text>" per line: F for the file itself, D for one of its directories, which counts only where the name is not followed by a deeper path (a directory handed to an include path, a copy or a define, as in `audios"`), and M for a Python module under scripts/, which counts in an import. A path under platforms/<os>/ is looked for without the platforms/ prefix, since sibling hosts reach it as ../<os>/...; directories are taken no shallower than platforms/<os>/<dir>, resources/<dir> and the like, because shallower ones name whole hosts.
 scope_needles() {
@@ -192,12 +192,16 @@ scope_tree_areas() {
 # The areas a path reaches, or "all", or nothing at all for a path no platform phase builds from; "named" sends the path to scope_named_by as well.
 scope_classify() {
   case "$1" in
-    scripts/verify-local.sh | scripts/run-checks.sh | scripts/known-failures.txt | .githooks/* | .github/* | \
+    scripts/verify-local.sh | scripts/run-checks.sh | scripts/known-failures.txt | .githooks/* | \
       Cargo.toml | Cargo.lock | rust-toolchain.toml | .cargo/* | \
       package.json | pnpm-lock.yaml | pnpm-workspace.yaml | vite.config.ts | .gitignore | .gitattributes | \
       CMakeLists.txt | */CMakeLists.txt | *.cmake | shared/* | platforms/common/* | \
-      crates/path-trust/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/*)
+      crates/path-trust/* | crates/client-core/* | crates/engine/* | crates/input-runtime/* | crates/host-api/* | \
+      resources/components/* | resources/editions/* | scripts/editions.py)
       echo all ;;
+    crates/engine-wasm/*) echo wasm ;;
+    # No platform phase reads .github: the contract checks that parse release workflows always run, and the workflow lint below is the only phase it reaches.
+    .github/*) echo workflows ;;
     platforms/windows/* | scripts/test-windows-*.py) echo windows; echo named ;;
     crates/host-windows/*) echo windows desktop ;;
     crates/host-macos/*) echo macos desktop ;;
@@ -206,6 +210,7 @@ scope_classify() {
     platforms/harmony/* | apps/harmony/* | scripts/test-harmony-*.py) echo harmony; echo named ;;
     platforms/android/* | scripts/test-android-*.py) echo android; echo named ;;
     platforms/linux/*) echo linux; echo named ;;
+    flake.nix | flake.lock) echo linux ;;
     platforms/macos/*) echo macos; echo named ;;
     platforms/ios/* | resources/* | scripts/* | tools/*) echo named ;;
     # Built by no --quick phase: the contract checks and the Rust workspace check, which always run, cover these.
@@ -371,6 +376,20 @@ fi
 # shellcheck source=scripts/run-checks.sh
 . scripts/run-checks.sh
 
+# The quality workflow runs actionlint on every pull request, so a workflow-only change used to be verified here by every platform phase and by nothing that reads YAML. Same tool and the same shellcheck severity as that workflow; skipped where actionlint is not installed.
+note "workflows: actionlint"
+if ! scoped workflows; then
+  :
+elif command -v actionlint >/dev/null 2>&1; then
+  if SHELLCHECK_OPTS=--severity=warning actionlint -no-color; then
+    echo "actionlint: workflows are valid"
+  else
+    fail "actionlint"
+  fi
+else
+  echo "skipped: actionlint not installed (the quality workflow runs it in CI)"
+fi
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On
@@ -452,7 +471,9 @@ if [ -z "$wasm_cc" ] || [ -z "$wasm_ar" ]; then
 fi
 [ -n "$wasm_cc" ] || wasm_cc="$(command -v clang || true)"
 [ -n "$wasm_ar" ] || wasm_ar="$(command -v llvm-ar || true)"
-if [ -n "$wasm_cc" ] && [ -n "$wasm_ar" ] \
+if ! scoped wasm; then
+  :
+elif [ -n "$wasm_cc" ] && [ -n "$wasm_ar" ] \
   && printf 'int x;\n' | "$wasm_cc" --target=wasm32-unknown-unknown -x c -c -o /dev/null - >/dev/null 2>&1 \
   && rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
   env "CC_wasm32_unknown_unknown=$wasm_cc" "AR_wasm32_unknown_unknown=$wasm_ar" \
