@@ -32,6 +32,14 @@ public final class WebSocketFramesSmoke {
         check(request.contains("Sec-WebSocket-Key: " + key + "\r\n"), "the key is sent");
         check(request.contains("X-Api-Key: secret\r\n"), "caller headers are carried");
         check(request.endsWith("\r\n\r\n"), "the request is terminated");
+        String injected = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key", "secret\r\nX-Injected: yes"});
+        check(!injected.contains("X-Injected: yes"),
+            "header values cannot inject additional handshake lines");
+        String injectedName = WebSocketFrames.handshakeRequest("example.invalid", "/v3/sauc", key,
+            new String[] {"X-Api-Key\r\nX-Injected", "secret"});
+        check(!injectedName.contains("X-Injected"),
+            "header names cannot inject additional handshake lines");
         // This host never offers an extension, so it must not advertise one either.
         check(!request.contains("Sec-WebSocket-Extensions"), "no extension is offered");
 

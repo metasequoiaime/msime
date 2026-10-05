@@ -61,10 +61,36 @@ public final class WebSocketFrames {
             .append("Sec-WebSocket-Version: 13\r\n");
         if (headers != null) {
             for (int index = 0; index + 1 < headers.length; index += 2) {
-                request.append(headers[index]).append(": ").append(headers[index + 1]).append("\r\n");
+                String name = headers[index];
+                String value = headers[index + 1];
+                if (validHeaderName(name) && validHeaderValue(value)) {
+                    request.append(name).append(": ").append(value).append("\r\n");
+                }
             }
         }
         return request.append("\r\n").toString();
+    }
+
+    private static boolean validHeaderName(String value) {
+        if (value == null || value.isEmpty()) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character > 0x7e || !(character >= 'a' && character <= 'z')
+                    && !(character >= 'A' && character <= 'Z')
+                    && !(character >= '0' && character <= '9')
+                    && !"!#$%&'*+-.^_`|~".contains(String.valueOf(character))) return false;
+        }
+        return true;
+    }
+
+    private static boolean validHeaderValue(String value) {
+        if (value == null) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character == '\r' || character == '\n'
+                    || (character < 0x20 && character != '\t') || character == 0x7f) return false;
+        }
+        return true;
     }
 
     /** Whether the response line and headers are a successful upgrade for this key. */
