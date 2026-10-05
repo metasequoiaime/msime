@@ -3942,6 +3942,49 @@ fn the_desktop_switch_gates_the_settled_rerank() {
     assert!(runtime.view().generation > generation);
 }
 
+/// Typing `kiss` in kaomoji mode showed the catalog's 646th entry first: the reranker took the catalog rows for readings of the key and promoted the one it scored higher. Quick phrases, emoji and kaomoji keep their catalog's order, and are not promoted over the readings they are mixed into.
+#[test]
+fn the_reranker_leaves_catalog_rows_in_catalog_order() {
+    let typed = |sources: Vec<u8>| -> Vec<String> {
+        let mut runtime = Runtime::new(
+            Fixture {
+                local_mode: "none".into(),
+                words: vec!["甲".into(), "乙".into()],
+                codes: vec!["k".into(), "k".into()],
+                sources,
+                ..Fixture::default()
+            },
+            5,
+        )
+        .unwrap();
+        let model = favouring_model(&['甲', '乙'], &['乙']);
+        runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+        runtime.focus(true).unwrap();
+        runtime
+            .dispatch(Action::Character {
+                value: b'k',
+                shift: false,
+            })
+            .unwrap();
+        runtime
+            .view()
+            .candidates
+            .iter()
+            .map(|candidate| candidate.text.clone())
+            .collect()
+    };
+    // Two lattice readings are reranked, so the model would promote 乙 wherever it is allowed to.
+    assert_eq!(typed(vec![LATTICE_SOURCE, LATTICE_SOURCE]), ["乙", "甲"]);
+    for source in [5, 6, 7] {
+        assert_eq!(typed(vec![source, source]), ["甲", "乙"], "source {source}");
+        assert_eq!(
+            typed(vec![LATTICE_SOURCE, source]),
+            ["甲", "乙"],
+            "source {source} mixed in"
+        );
+    }
+}
+
 /// A sentence model whose next-character distribution ignores the context: the final layer norm has zero gain, so every position's hidden state is its bias, and the tied embedding turns that into the same logits each time. Characters listed in `favoured` get a high logit and the rest of `characters` a low one, so the model prefers any candidate spelled with the favoured characters and nothing else about it is left to chance.
 fn favouring_model(characters: &[char], favoured: &[char]) -> SentenceModel {
     const CONTEXT: usize = 16;
