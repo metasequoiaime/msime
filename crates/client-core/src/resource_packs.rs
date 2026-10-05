@@ -1,4 +1,4 @@
-//! 按需下载的资源包：macOS 发布包不再内置的日文词典、粤拼/注音词库和手写模型。
+//! 按需下载的资源包：macOS 发布包不再内置的日文词典、粤拼/注音词库，桌面发布包不再内置的手写模型和桌面落定重排模型。
 //!
 //! 每个资源包安装在 `<state_root>/resource-packs/<id>/`，文件平铺，最后写入的 `msime-model.json` 标记安装完整。文件名、URL、长度和 SHA-256 全部来自仓库内审过的锁文件，下载、校验、暂存和整体发布复用 [`crate::voice::local_models::install_files`]。
 
@@ -17,6 +17,7 @@ pub const DIRECTORY: &str = "resource-packs";
 const DESKTOP_LOCK: &str = include_str!("../../../resources/desktop-dictionary.lock.json");
 const LANGUAGE_LOCK: &str = include_str!("../../../resources/language-dictionaries.lock.json");
 const HANDWRITING_LOCK: &str = include_str!("../../../resources/handwriting-model.lock.json");
+const SETTLED_MODEL_LOCK: &str = include_str!("../../../resources/settled-model.lock.json");
 
 /// 读语言词库包里 `msime-<方案>.db` 的输入方案，即偏好里的方案名。
 const LANGUAGE_DICTIONARY_SCHEMES: [&str; 3] = ["cantonese", "zhuyin", "stroke"];
@@ -27,6 +28,8 @@ pub enum ResourcePack {
     Japanese,
     LanguageDictionaries,
     Handwriting,
+    /// 桌面神经联想在输入停顿后使用的落定重排模型（`sentence-model-desktop.safetensors`）。
+    SettledModel,
 }
 
 /// 手写模型锁文件多一个说明来源的 `source` 字段，所以这里不拒绝未知字段，只取安装需要的两项。
@@ -37,10 +40,11 @@ struct PackLock {
 }
 
 impl ResourcePack {
-    pub const ALL: [ResourcePack; 3] = [
+    pub const ALL: [ResourcePack; 4] = [
         ResourcePack::Japanese,
         ResourcePack::LanguageDictionaries,
         ResourcePack::Handwriting,
+        ResourcePack::SettledModel,
     ];
 
     pub fn id(self) -> &'static str {
@@ -48,6 +52,7 @@ impl ResourcePack {
             ResourcePack::Japanese => "japanese",
             ResourcePack::LanguageDictionaries => "language-dictionaries",
             ResourcePack::Handwriting => "handwriting",
+            ResourcePack::SettledModel => "settled-model",
         }
     }
 
@@ -55,7 +60,7 @@ impl ResourcePack {
         ResourcePack::ALL.into_iter().find(|pack| pack.id() == id)
     }
 
-    /// 选用这些输入方案时需要该资源包。手写不对应输入方案。语言词库包只列出锁文件确实固定了 `msime-<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
+    /// 选用这些输入方案时需要该资源包。手写和落定重排模型不对应输入方案。语言词库包只列出锁文件确实固定了 `msime-<方案>.db` 的方案：词库还没发布的方案下载了也装不上，不能当作由这个包提供。
     pub fn schemes(self) -> &'static [&'static str] {
         static LANGUAGE_SCHEMES: OnceLock<Vec<&'static str>> = OnceLock::new();
         match self {
@@ -70,13 +75,13 @@ impl ResourcePack {
                     })
                     .collect()
             }),
-            ResourcePack::Handwriting => &[],
+            ResourcePack::Handwriting | ResourcePack::SettledModel => &[],
         }
     }
 
     /// 该资源包固定的文件清单，取自仓库内的锁文件。
     pub fn set(self) -> &'static ResourceSet {
-        static SETS: OnceLock<[ResourceSet; 3]> = OnceLock::new();
+        static SETS: OnceLock<[ResourceSet; 4]> = OnceLock::new();
         let sets = SETS.get_or_init(|| {
             let desktop: ResourceSet =
                 serde_json::from_str(DESKTOP_LOCK).expect("desktop dictionary lock is valid");
@@ -84,6 +89,8 @@ impl ResourcePack {
                 serde_json::from_str(LANGUAGE_LOCK).expect("language dictionaries lock is valid");
             let handwriting: PackLock =
                 serde_json::from_str(HANDWRITING_LOCK).expect("handwriting model lock is valid");
+            let settled: ResourceSet =
+                serde_json::from_str(SETTLED_MODEL_LOCK).expect("settled model lock is valid");
             [
                 desktop.only(&MACOS_ON_DEMAND_ARTIFACTS),
                 language,
@@ -91,16 +98,18 @@ impl ResourcePack {
                     source_commit: handwriting.source_commit,
                     artifacts: handwriting.artifacts,
                 },
+                settled,
             ]
         });
         match self {
             ResourcePack::Japanese => &sets[0],
             ResourcePack::LanguageDictionaries => &sets[1],
             ResourcePack::Handwriting => &sets[2],
+            ResourcePack::SettledModel => &sets[3],
         }
     }
 
-    /// 安装时写入的 `msime-model.json` 内容；锁文件变了它就变，已安装的旧版本据此识别为 outdated。
+    /// 安装时写入的 `msime-model.json` 内容。判断已安装的版本是否还能用只看其中每个文件的名字、SHA-256 和长度，见 [`ResourcePack::manifest_matches`]。
     pub fn manifest(self) -> Value {
         let set = self.set();
         serde_json::json!({
@@ -108,6 +117,46 @@ impl ResourcePack {
             "source_commit": set.source_commit,
             "artifacts": set.artifacts,
         })
+    }
+
+    /// 已安装的 `msime-model.json` 是否对应当前锁文件固定的同一组字节：资源包 id 相同，且文件的 (名字, SHA-256, 长度) 集合与锁文件一致。
+    ///
+    /// 不比较 URL 和 `source_commit`：词库每发一次新的 dict-v，没变的文件也会换一个带版本号的下载地址和来源提交，只按它们判断会把字节完全相同的已装文件当成过期，日文随之降级到没有词典。
+    fn manifest_matches(self, manifest: &Value) -> bool {
+        if manifest.get("pack").and_then(Value::as_str) != Some(self.id()) {
+            return false;
+        }
+        let Some(installed) = manifest.get("artifacts").and_then(Value::as_array) else {
+            return false;
+        };
+        let Some(mut installed) = installed
+            .iter()
+            .map(|artifact| {
+                Some((
+                    artifact.get("name")?.as_str()?,
+                    artifact.get("sha256")?.as_str()?.to_ascii_lowercase(),
+                    artifact.get("size")?.as_u64()?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let mut pinned = self
+            .set()
+            .artifacts
+            .iter()
+            .map(|artifact| {
+                (
+                    artifact.name.as_str(),
+                    artifact.sha256.to_ascii_lowercase(),
+                    artifact.size,
+                )
+            })
+            .collect::<Vec<_>>();
+        installed.sort_unstable();
+        pinned.sort_unstable();
+        installed == pinned
     }
 
     /// 下载总字节数。
@@ -176,7 +225,7 @@ pub fn installed_file(state_root: &Path, pack: ResourcePack, name: &str) -> Opti
     }
     let directory = published_directory(state_root, pack)?;
     let manifest = local_models::installed_manifest(&root(state_root), pack.id())?;
-    if manifest != pack.manifest() {
+    if !pack.manifest_matches(&manifest) {
         return None;
     }
     let path = directory.join(name);
@@ -187,12 +236,20 @@ pub fn installed_file(state_root: &Path, pack: ResourcePack, name: &str) -> Opti
         .then_some(path)
 }
 
+/// 资源包锁钉住的每个文件在已发布目录里都是普通文件，不是符号链接。
+fn artifacts_are_regular_files(directory: &Path, pack: ResourcePack) -> bool {
+    pack.set().artifacts.iter().all(|artifact| {
+        fs::symlink_metadata(directory.join(&artifact.name))
+            .is_ok_and(|metadata| metadata.file_type().is_file())
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PackState {
     Missing,
     Installed,
-    /// 已安装，但 `msime-model.json` 与当前锁文件不一致，需要重新下载。
+    /// 已安装，但 `msime-model.json` 记录的文件字节（名字、SHA-256、长度）与当前锁文件不一致，需要重新下载。
     Outdated,
 }
 
@@ -212,8 +269,14 @@ pub fn list(state_root: &Path) -> Vec<ResourcePackStatus> {
         .into_iter()
         .map(|pack| {
             let state = match published_directory(state_root, pack) {
-                Some(_) => match local_models::installed_manifest(&packs_root, pack.id()) {
-                    Some(manifest) if manifest == pack.manifest() => PackState::Installed,
+                Some(directory) => match local_models::installed_manifest(&packs_root, pack.id()) {
+                    // 与 `installed_file` 同一个标准：钉住的每个文件都得是普通文件（不是符号链接），少了或被换掉的按过期处理，补齐时会重新下载修复。
+                    Some(manifest)
+                        if pack.manifest_matches(&manifest)
+                            && artifacts_are_regular_files(&directory, pack) =>
+                    {
+                        PackState::Installed
+                    }
                     Some(_) => PackState::Outdated,
                     // 标记文件在但读不出来（损坏或过大）也按过期处理，重新下载即可修复。
                     None => PackState::Outdated,
@@ -308,6 +371,12 @@ mod tests {
         }
         assert_eq!(ResourcePack::LanguageDictionaries.set().artifacts.len(), 6);
         assert_eq!(ResourcePack::Handwriting.set().artifacts.len(), 2);
+        assert_eq!(ResourcePack::SettledModel.set().artifacts.len(), 1);
+        assert_eq!(
+            ResourcePack::SettledModel.set().artifacts[0].name,
+            "sentence-model-desktop.safetensors"
+        );
+        assert!(ResourcePack::SettledModel.schemes().is_empty());
     }
 
     #[test]
@@ -478,11 +547,119 @@ mod tests {
         );
     }
 
-    /// 资源包只从本项目的固定发布地址下载：msime-dictionary 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
+    /// 清单对得上但钉住的文件少了、是目录或是符号链接时，`installed_file` 找不到它，列表也不能报已安装，否则补齐会跳过它。
+    #[test]
+    fn list_reports_a_pack_with_a_missing_or_irregular_file_as_outdated() {
+        let state = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::LanguageDictionaries;
+        let state_of = || {
+            list(state.path())
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap()
+                .state
+        };
+        let directory = publish_fake(state.path(), pack);
+        assert_eq!(state_of(), PackState::Installed);
+
+        let file = directory.join("msime-cantonese.db");
+        fs::remove_file(&file).unwrap();
+        assert_eq!(state_of(), PackState::Outdated);
+
+        fs::create_dir(&file).unwrap();
+        assert_eq!(state_of(), PackState::Outdated);
+        fs::remove_dir(&file).unwrap();
+
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            let target = outside.path().join("msime-cantonese.db");
+            fs::write(&target, b"bytes").unwrap();
+            msime_path_trust::untrusted_symlink(&target, &file).unwrap();
+            assert_eq!(state_of(), PackState::Outdated);
+            fs::remove_file(&file).unwrap();
+        }
+
+        fs::write(&file, b"bytes").unwrap();
+        assert_eq!(state_of(), PackState::Installed);
+    }
+
+    /// 同一组字节换了下载地址和来源提交（词库发布新的 dict-v 时没变的文件就是这样）仍算已安装；任何一个文件的字节变了才算过期。
+    #[test]
+    fn only_changed_bytes_make_an_installed_pack_outdated() {
+        let state = tempfile::tempdir().unwrap();
+        let pack = ResourcePack::Japanese;
+        let directory = publish_fake(state.path(), pack);
+        let state_of = || {
+            list(state.path())
+                .into_iter()
+                .find(|status| status.id == pack.id())
+                .unwrap()
+                .state
+        };
+        let rewrite = |edit: &dyn Fn(&mut Value)| {
+            let mut manifest = pack.manifest();
+            edit(&mut manifest);
+            fs::write(
+                directory.join(MANIFEST_FILE),
+                serde_json::to_vec(&manifest).unwrap(),
+            )
+            .unwrap();
+        };
+
+        rewrite(&|manifest| {
+            manifest["source_commit"] = Value::String("0".repeat(40));
+            for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+                let url = artifact["url"]
+                    .as_str()
+                    .unwrap()
+                    .replace("dict-v", "dict-v0-old-");
+                artifact["url"] = Value::String(url);
+                // 摘要大小写不同不算字节不同。
+                let digest = artifact["sha256"].as_str().unwrap().to_ascii_uppercase();
+                artifact["sha256"] = Value::String(digest);
+            }
+            manifest["artifacts"].as_array_mut().unwrap().reverse();
+        });
+        assert_eq!(state_of(), PackState::Installed);
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-japanese.dat"),
+            Some(directory.join("msime-japanese.dat"))
+        );
+
+        rewrite(&|manifest| {
+            let artifact = &mut manifest["artifacts"][0];
+            artifact["size"] = Value::from(artifact["size"].as_u64().unwrap() + 1);
+        });
+        assert_eq!(state_of(), PackState::Outdated);
+        assert_eq!(
+            installed_file(state.path(), pack, "msime-japanese.dat"),
+            None
+        );
+
+        rewrite(&|manifest| {
+            manifest["artifacts"][0]["sha256"] = Value::String("0".repeat(64));
+        });
+        assert_eq!(state_of(), PackState::Outdated);
+
+        // 少一个文件、或者是别的资源包的清单，都不算同一组字节。
+        rewrite(&|manifest| {
+            manifest["artifacts"].as_array_mut().unwrap().pop();
+        });
+        assert_eq!(state_of(), PackState::Outdated);
+        rewrite(&|manifest| {
+            manifest["pack"] = Value::String("handwriting".into());
+        });
+        assert_eq!(state_of(), PackState::Outdated);
+    }
+
+    /// 资源包只从本项目的固定发布地址下载：msime-dictionary 和 chinese-ime-lm 的 GitHub Release 资产，或钉在 40 位提交上的 msime-engine 原始文件。
     #[test]
     fn every_url_is_immutable() {
         const RELEASE: &str =
             "https://github.com/metasequoiaime/msime-dictionary/releases/download/";
+        const MODEL_RELEASE: &str =
+            "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/";
         const ENGINE: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-engine/";
         for pack in ResourcePack::ALL {
             for artifact in &pack.set().artifacts {
@@ -491,7 +668,10 @@ mod tests {
                     rest.split_once('/')
                         .is_some_and(|(commit, _)| crate::is_lower_hex(commit, 40))
                 });
-                assert!(url.starts_with(RELEASE) || pinned_engine, "{url}");
+                assert!(
+                    url.starts_with(RELEASE) || url.starts_with(MODEL_RELEASE) || pinned_engine,
+                    "{url}"
+                );
             }
         }
     }
