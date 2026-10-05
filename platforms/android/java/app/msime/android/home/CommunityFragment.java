@@ -20,7 +20,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
-import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.R;
@@ -371,7 +370,7 @@ public final class CommunityFragment extends Fragment {
             JSONObject saved = KeyboardSheets.write(context, preferences ->
                 KeyboardSheets.applyDesign(preferences, design));
             if (saved == null) return Boolean.FALSE;
-            KeyboardSheets.applyLocalSound(context, CustomKeyboardSkin.from(design).soundPack());
+            KeyboardSheets.applyLocalFeedback(context, design);
             KeyboardSheets.recordSkin(context, item.id());
             return Boolean.TRUE;
         }, applied -> {

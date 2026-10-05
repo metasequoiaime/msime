@@ -340,7 +340,6 @@ import { useAiAssistant } from "./settings/use-ai-assistant";
 export { useAiAssistant, type UseAiAssistantOptions } from "./settings/use-ai-assistant";
 import type { FontCatalogReader } from "./candidate/font-catalog";
 import {
-  type AppTheme,
   type CustomTheme,
   type GlobalTheme,
   type ResolveThemeRequest,
@@ -355,15 +354,8 @@ export {
   isGlobalTheme,
   keyboardThemeId,
   themeCandidateStyle,
-  seasonForMonth,
-  seasonalThemeId,
   themeCatalog,
   themeEntry,
-  type AppTheme,
-  type AppThemeCatalogEntry,
-  type AppThemeColors,
-  type ResolvedAppTheme,
-  type Season,
   type BuiltinGlobalTheme,
   type CandidateThemePalette,
   type CustomCandidateColors,
@@ -1745,30 +1737,6 @@ export type Preferences = {
   touch_keyboard_height_adjustment?: number;
   touch_voice_shortcut?: boolean;
   touch_toolbar?: Partial<TouchToolbarPreferences>;
-  /** 单手模式；默认 `off`，默认值时不写进文档。 */
-  touch_one_handed?: "off" | "left" | "right";
-  /** 隐私模式：不学习、不统计、不做数据贡献；默认关闭。 */
-  touch_incognito?: boolean;
-  /** 按键气泡，默认开启。 */
-  touch_key_popup?: boolean;
-  /** 中文模式字母键的下滑符号，默认开启。 */
-  touch_swipe_down_symbols?: boolean;
-  /** 空格键水平拖动移动光标，默认开启。 */
-  touch_space_cursor?: boolean;
-  /** 长按空格开始语音，默认开启。 */
-  touch_space_voice?: boolean;
-  /** 按键动画，默认 `none`。 */
-  touch_key_animation?: "none" | "bounce" | "ripple" | "glow" | "lift";
-  /** 手写面板的识别方式与笔迹。 */
-  touch_handwriting?: {
-    mode?: "single" | "overlap" | "line";
-    /** 200-1500 毫秒，100 的倍数，默认 600。 */
-    recognition_delay_ms?: number;
-    show_pinyin?: boolean;
-    stroke_color?: "follow_skin" | "black" | "white" | "blue";
-    /** 1-8 像素，默认 3。 */
-    stroke_width?: number;
-  };
   default_ime_mode?: "chinese" | "english";
   ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: ChineseScheme | null;
@@ -1802,24 +1770,10 @@ export type Preferences = {
   show_candidate_page_number?: boolean;
   /** The one theme for the candidate window, floating toolbar, menus and touch keyboard. `theme` stays the light/dark mode that `system` and the settings window follow. */
   global_theme?: GlobalTheme;
-  /** 应用主题（Android 宿主页面的配色），默认 `siji`，默认值时不写进文档。 */
-  app_theme?: AppTheme;
   /** What the `custom` global theme is made of: an external candidate skin package, the seven candidate colour pickers and the keyboard editor design. */
   custom_theme?: CustomTheme;
   learning: boolean;
-  diagnostic_log?: { server?: boolean; tsf?: boolean; mobile?: boolean };
-  /** 开发者选项：只存在本机，不同步。 */
-  developer_options?: {
-    debug_overlay?: boolean;
-    log_level?: "error" | "warn" | "info" | "debug";
-    mcp_upload?: {
-      retention?: "one_hour" | "one_day" | "seven_days";
-      crash_logs?: boolean;
-      performance_logs?: boolean;
-      input_events?: boolean;
-      config_snapshot?: boolean;
-    };
-  };
+  diagnostic_log?: { server?: boolean; tsf?: boolean };
   quanpin?: {
     autocorrect_transposition?: boolean;
     autocorrect_neighbor?: boolean;
@@ -1976,10 +1930,6 @@ export type VoiceInputPreferences = {
   doubao_enable_punc?: boolean;
   doubao_enable_ddc?: boolean;
   doubao_boosting_table_id?: string;
-  /** 没有网络且装了本地模型时改用本地识别。 */
-  offline_fallback?: boolean;
-  /** 上传语音以改进识别；只是开关，开启前宿主要征得用户确认。 */
-  contribute_audio?: boolean;
   [key: string]: unknown;
 };
 export { AI_PROVIDER_OPTIONS, aiProviderOption } from "./settings/ai-provider-options";

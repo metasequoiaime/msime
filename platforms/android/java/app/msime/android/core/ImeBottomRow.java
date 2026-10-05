@@ -30,10 +30,8 @@ final class ImeBottomRow {
     }
 
     /** 偏好里的一个布尔触控开关；没有偏好快照或没有这个键时按 `fallback`。 */
-    boolean touchPreference(String key, boolean fallback) {
-        org.json.JSONObject preferences = s.preferencesSnapshot == null ? null
-            : s.preferencesSnapshot.optJSONObject("preferences");
-        return preferences == null ? fallback : preferences.optBoolean(key, fallback);
+    boolean touchPreference(String key) {
+        return s.localSettings.bool(key);
     }
 
     /** 把 SVC 建的空格、回车换成画图标的键（每次 onCreateInputView 新建控件后各换一次）。 */
@@ -129,7 +127,7 @@ final class ImeBottomRow {
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     spaceGesture.down(SystemClock.uptimeMillis(), event.getX() / density);
                     cancelSpaceLongPress();
-                    if (touchPreference("touch_space_voice", true)) {
+                    if (touchPreference(AndroidLocalSettings.SPACE_VOICE)) {
                         spaceLongPress = () -> {
                             spaceLongPress = null;
                             spaceGesture.tick(SystemClock.uptimeMillis());
@@ -148,7 +146,7 @@ final class ImeBottomRow {
                         SpaceGesturePolicy.State state = spaceGesture.state();
                         if (state == SpaceGesturePolicy.State.VOICE) {
                             cancelSpaceLongPress();
-                            if (touchPreference("touch_space_voice", true)) startVoice.run();
+                            if (touchPreference(AndroidLocalSettings.SPACE_VOICE)) startVoice.run();
                             else {
                                 cancelled[0] = true;
                                 button.setPressed(false);
@@ -166,7 +164,7 @@ final class ImeBottomRow {
                         }
                         // 拖动先越过阈值：这次按压不再算长按。
                         cancelSpaceLongPress();
-                        if (s.connection == null || !touchPreference("touch_space_cursor", true)) {
+                        if (s.connection == null || !touchPreference(AndroidLocalSettings.SPACE_CURSOR)) {
                             cancelled[0] = true;
                             button.setPressed(false);
                             return true;
@@ -202,7 +200,7 @@ final class ImeBottomRow {
                     button.setPressed(false);
                     if (!voiced[0] && !dragging[0] && !cancelled[0]
                             && outcome == SpaceGesturePolicy.Outcome.VOICE
-                            && touchPreference("touch_space_voice", true)) {
+                            && touchPreference(AndroidLocalSettings.SPACE_VOICE)) {
                         // 计时回调还没来得及跑就松手了：仍按长按处理。
                         startVoice.run();
                     }

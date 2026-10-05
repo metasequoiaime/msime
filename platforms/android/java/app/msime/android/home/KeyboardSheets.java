@@ -12,6 +12,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CustomKeyboardSkin;
 import app.msime.android.KeyboardFeedbackStore;
 import app.msime.android.R;
@@ -80,7 +81,7 @@ final class KeyboardSheets {
     }
 
     /**
-     * 选中一个自定义设计：与键盘自己的皮肤面板（`MSIMEInputService.saveKeyboardSkin`）写法相同——原来显示的主题记进 `custom_theme.base` 并清掉 `candidate_skin`，设计写进 `custom_theme.keyboard`，`global_theme` 改成 `custom`；另外按 P23 写设计带的按键动画和按键音包（静音不改音包，由 {@link #applyLocalSound} 关掉本地开关）。
+     * 选中一个自定义设计：与键盘自己的皮肤面板（`MSIMEInputService.saveKeyboardSkin`）写法相同——原来显示的主题记进 `custom_theme.base` 并清掉 `candidate_skin`，设计写进 `custom_theme.keyboard`，`global_theme` 改成 `custom`；另外按 P23 写设计带的按键音包（静音不改音包）。按键动画和本地按键音开关不在共享偏好里，由 {@link #applyLocalFeedback} 另写。
      */
     static void applyDesign(JSONObject preferences, JSONObject design) throws JSONException {
         String current = preferences.optString("global_theme", "system");
@@ -92,9 +93,46 @@ final class KeyboardSheets {
         customTheme.put("keyboard", new JSONObject(design.toString()));
         preferences.put("global_theme", "custom");
         CustomKeyboardSkin skin = CustomKeyboardSkin.from(design);
-        preferences.put("touch_key_animation", skin.pressAnimation());
         if (!CustomKeyboardSkin.SILENT_SOUND_PACK.equals(skin.soundPack()))
             child(child(preferences, "plugins"), "key_sound").put("pack", skin.soundPack());
+    }
+
+    /**
+     * 在后台写一项 Android 本地设置（{@link AndroidLocalSettings}）；失败时提示并调用 `failed`。
+     *
+     * @param value 新值；null 表示删掉这一项、回到默认值
+     * @param saved 写成功后在主线程上调用，可为 null
+     */
+    static void saveLocal(Fragment fragment, String key, @Nullable Object value, @Nullable Runnable saved,
+            Runnable failed) {
+        HostTask.run(fragment, context -> writeLocal(context, key, value) ? Boolean.TRUE : null, result -> {
+            if (result == null) {
+                MsToast.show(fragment.requireContext(), "保存失败，请重试");
+                failed.run();
+            } else if (saved != null) {
+                saved.run();
+            }
+        });
+    }
+
+    /** 写一项 Android 本地设置，参与同步的项同时标记设置有改动。要在工作线程上调用；写不进时为 false。 */
+    static boolean writeLocal(Context context, String key, @Nullable Object value) {
+        try {
+            AndroidLocalSettings.put(context, key, value);
+        } catch (java.io.IOException | IllegalArgumentException error) {
+            android.util.Log.w("MSIMESettings", "Android local setting was not saved", error);
+            return false;
+        }
+        if (AndroidLocalSettings.spec(key).synced) SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+        return true;
+    }
+
+    /** 选中自定义设计后，按 P23 写它带的按键反馈里不在共享偏好的部分：按键音包拨本地按键音开关，按键动画写本地设置。要在工作线程上调用。 */
+    static void applyLocalFeedback(Context context, JSONObject design) {
+        CustomKeyboardSkin skin = CustomKeyboardSkin.from(design);
+        applyLocalSound(context, skin.soundPack());
+        Object animation = AndroidLocalSettings.spec(AndroidLocalSettings.KEY_ANIMATION).accept(skin.pressAnimation());
+        if (animation != null) writeLocal(context, AndroidLocalSettings.KEY_ANIMATION, animation);
     }
 
     /** 按设计带的按键音包拨 Android 本地的按键音开关：静音关掉，其他打开。要在工作线程上调用。 */

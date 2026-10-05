@@ -217,8 +217,8 @@ struct HostSession {
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
-    /// 还没写进打字统计的上屏效率计数，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计。
-    pending_efficiency: CommitEfficiency,
+    /// 还没写进打字统计的上屏，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计；读音在写入时于后台线程查，不在输入线程上查。
+    pending_efficiency: Vec<EfficiencyCandidate>,
     /// 打字统计的开关，第一次要计效率时从统计文件读一次，每次写入后作废重读；`None` 是还没读。统计关闭时效率一项都不查。
     statistics_enabled: Option<bool>,
     /// Where this session's plugin packs, command tables and name list are read from.
@@ -321,19 +321,20 @@ impl HostSession {
                 .as_ref()
                 .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
     }
-    /// 隐私模式（`touch_incognito`）是否开着：已应用的偏好或还没应用的请求里有一份开着就算。
-    fn incognito(&self) -> bool {
-        self.applied.touch_incognito
-            || self
-                .requested
-                .as_ref()
-                .is_some_and(|snapshot| snapshot.preferences.touch_incognito)
+    /// Android 会话是否不记统计：宿主在隐私模式和不学习的输入框里以 `learning: false` 建立或更新会话，已应用的偏好或还没应用的请求里有一份关着学习就算。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
+    fn private_session(&self) -> bool {
+        PRIVATE_SESSIONS_SKIP_STATISTICS
+            && (!self.applied.learning
+                || self
+                    .requested
+                    .as_ref()
+                    .is_some_and(|snapshot| !snapshot.preferences.learning))
     }
 
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
     fn count_selection(&mut self, position: usize) {
-        // 隐私模式下不统计选词位置：已应用的或刚请求的偏好有一份开着就不计。
-        if self.incognito() {
+        // Android 的隐私模式与不学习输入框不统计选词位置。
+        if self.private_session() {
             return;
         }
         // Positions are one-based; zero is not a position, and the store has always refused it.
@@ -347,9 +348,9 @@ impl HostSession {
         }
     }
 
-    /// 选中的候选在派发前的样子，供上屏后计效率：隐私模式、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
+    /// 选中的候选在派发前的样子，供上屏后计效率：不记统计的会话、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
     fn efficiency_candidate(&mut self, action: &Action) -> Option<EfficiencyCandidate> {
-        if !COUNTS_COMMIT_EFFICIENCY || self.incognito() {
+        if !COUNTS_COMMIT_EFFICIENCY || self.private_session() {
             return None;
         }
         let id = match action {
@@ -377,7 +378,7 @@ impl HostSession {
         })
     }
 
-    /// 统计开关；读不到统计目录或文件时当作关闭。第一次读到开着时在后台把逐字读音表建好，免得第一次上屏在输入线程上扫单字表。
+    /// 统计开关；读不到统计目录或文件时当作关闭。
     fn statistics_enabled(&mut self) -> Option<bool> {
         if let Some(enabled) = self.statistics_enabled {
             return Some(enabled);
@@ -387,29 +388,15 @@ impl HostSession {
             && TypingStatisticsStore::new(directory)
                 .load()
                 .is_ok_and(|statistics| statistics.enabled);
-        static READINGS_WARMED: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
-        if enabled && !READINGS_WARMED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            let options = self.options.clone();
-            std::thread::spawn(move || {
-                let _ = msime_engine::host::canonical_spelling_keys(&options, "的");
-            });
-        }
         self.statistics_enabled = Some(enabled);
         Some(enabled)
     }
 
-    /// 计一次上屏：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。
+    /// 记下一次上屏，等下一次写统计时一起算。上限 [`EFFICIENCY_BATCH_LIMIT`]，超出的不计。
     fn count_efficiency(&mut self, candidate: EfficiencyCandidate) {
-        let spelled_keys =
-            msime_engine::host::canonical_spelling_keys(&self.options, &candidate.text)
-                .map_or(candidate.typed_keys, u64::from);
-        self.pending_efficiency.count_commit(
-            candidate.typed_keys,
-            spelled_keys,
-            candidate.sentence,
-            candidate.prediction,
-        );
+        if self.pending_efficiency.len() < EFFICIENCY_BATCH_LIMIT {
+            self.pending_efficiency.push(candidate);
+        }
     }
 
     /// Write the selections counted since the last flush, in the store the host already keeps.
@@ -431,8 +418,17 @@ impl HostSession {
         );
         let store = TypingStatisticsStore::new(directory);
         let _ = store.record_selections(&batch);
-        let efficiency = std::mem::take(&mut self.pending_efficiency);
-        let _ = store.record_efficiency(&efficiency);
+        let commits = std::mem::take(&mut self.pending_efficiency);
+        if !commits.is_empty() {
+            let options = self.options.clone();
+            let record = move || record_efficiency(&options, &commits);
+            // 查读音要打开词库，放到后台线程，不占输入线程；测试里同步写，好断言结果。
+            if cfg!(test) {
+                record();
+            } else {
+                std::thread::spawn(record);
+            }
+        }
         // 用户可能在设置里关掉或打开了统计，下一批重新读开关。
         self.statistics_enabled = None;
     }
@@ -468,8 +464,7 @@ impl HostSession {
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
         options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
-        // 隐私模式下不学习，与输入框要求不学习时走同一条路径。
-        options.learning = preferences.learning && !preferences.touch_incognito;
+        options.learning = preferences.learning;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
@@ -499,7 +494,8 @@ impl HostSession {
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         let plugin_root = self.plugin_roots.installed.as_deref();
-        let plugin_tables = plugin_tables::PluginTables::stamp(plugin_root, &options, &preferences);
+        let plugin_tables =
+            plugin_tables::PluginTables::stamp(plugin_root, &options, &preferences.plugins);
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
         options.sentence_association =
             engine_sentence_association(&preferences.sentence_association);
@@ -582,7 +578,7 @@ impl HostSession {
     /// 输入框获得焦点时，让 `/` 指令表、K 模式短语表、辅助码表和 `@` 名单跟上插件目录：设置页可能刚导入了表或改了名单。没有文件变动时什么都不读。
     fn refresh_plugin_tables(&mut self) -> Result<(), String> {
         let root = self.plugin_roots.installed.as_deref();
-        let tables = plugin_tables::PluginTables::stamp(root, &self.options, &self.applied);
+        let tables = plugin_tables::PluginTables::stamp(root, &self.options, &self.applied.plugins);
         if tables.commands_differ(&self.plugin_tables) {
             let table = tables.command_table(root);
             self.runtime
@@ -905,7 +901,7 @@ fn helpcode_for_scheme(
     preferences: &Preferences,
     scheme: InputScheme,
 ) -> msime_client_core::preferences::HelpcodePreferences {
-    let helpcode = if scheme == preferences.scheme {
+    if scheme == preferences.scheme {
         preferences.active_helpcode()
     } else {
         Preferences {
@@ -913,16 +909,7 @@ fn helpcode_for_scheme(
             ..preferences.clone()
         }
         .active_helpcode()
-    };
-    // 郑码目前只能保存：还没有带授权的内置码表，交给 Engine 会让会话以无效选项创建失败。在有码表之前按关闭辅助码处理，表名换回默认值。
-    if helpcode.schema == msime_client_core::preferences::HelpcodeSchema::Zhengma {
-        return msime_client_core::preferences::HelpcodePreferences {
-            enabled: false,
-            schema: msime_client_core::preferences::HelpcodeSchema::default(),
-            ..helpcode
-        };
     }
-    helpcode
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1058,8 +1045,7 @@ impl HostOptions {
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
-            // 隐私模式下不学习，与输入框要求不学习时走同一条路径。
-            learning: self.preferences.learning && !self.preferences.touch_incognito,
+            learning: self.preferences.learning,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),
@@ -1926,8 +1912,58 @@ fn selected_position(action: &Action) -> Option<usize> {
     }
 }
 
-/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它在每次上屏时多查一次读音。测试里也打开，好覆盖计法。
+/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它多查读音。测试里也打开，好覆盖计法。
 const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
+
+/// Android 宿主在隐私模式和不学习的输入框里以 `learning: false` 建立会话；这时选词位置和上屏效率都不计。其他宿主不变。
+const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", test));
+
+/// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
+const EFFICIENCY_BATCH_LIMIT: usize = 256;
+
+/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（全拼数读音字母，双拼每个音节 2 码）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
+    let directory = std::path::Path::new(&options.user_data);
+    if !directory.is_absolute() {
+        return;
+    }
+    let mut efficiency = CommitEfficiency::default();
+    for commit in commits {
+        let spelled_keys = spelling_keys(options, &commit.text).unwrap_or(commit.typed_keys);
+        efficiency.count_commit(
+            commit.typed_keys,
+            spelled_keys,
+            commit.sentence,
+            commit.prediction,
+        );
+    }
+    let _ = TypingStatisticsStore::new(directory).record_efficiency(&efficiency);
+}
+
+/// 用会话方案的拼音打出 `text` 要按的键数：只有全拼（含九键）和双拼有答案。读音来自 Engine 的 `hanzi_to_pinyin`，它先查整词、再逐字回退。
+fn spelling_keys(options: &EngineOptions, text: &str) -> Option<u64> {
+    let double_pinyin = match SchemeType::from_u8(options.scheme)? {
+        SchemeType::Quanpin => false,
+        SchemeType::Shuangpin => true,
+        _ => return None,
+    };
+    let reading = msime_engine::host::hanzi_to_pinyin(options, text);
+    if reading.is_empty() {
+        return None;
+    }
+    Some(
+        reading
+            .split('\'')
+            .map(|syllable| {
+                if double_pinyin {
+                    2
+                } else {
+                    syllable.bytes().filter(u8::is_ascii_alphabetic).count() as u64
+                }
+            })
+            .sum(),
+    )
+}
 
 /// 派发选择前从视图里读出的那个候选。
 struct EfficiencyCandidate {

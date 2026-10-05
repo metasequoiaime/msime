@@ -251,14 +251,16 @@ public final class MSIMEInputService extends InputMethodService {
     /** 常用语面板。 */
     ScrollView phraseScroll;
     LinearLayout phrasePanel;
-    /** `touch_toolbar` 的各个按钮开关与「显示方式：隐藏」。 */
+    /** Android 本地设置（{@link AndroidLocalSettings}）：单手、隐私、按键细节、手写、工具栏的常用语/输入方式/隐藏等不在共享偏好里的设置。onStartInputView 与每次偏好生效时按文件身份重读。 */
+    AndroidLocalSettings.Snapshot localSettings = AndroidLocalSettings.defaults();
+    /** `touch_toolbar` 的各个按钮开关；常用语、输入方式与「显示方式：隐藏」来自本地设置。 */
     boolean toolbarEmoji = true;
     boolean toolbarPhrase = true;
     boolean toolbarClipboard = true;
     boolean toolbarSkin = true;
     boolean toolbarScheme = true;
     boolean toolbarHidden;
-    /** 功能面板上直接切换的三个偏好：模糊音、单手模式（off / left / right）、隐私模式。 */
+    /** 功能面板上直接切换的三项：模糊音（共享偏好）、单手模式（off / left / right）与隐私模式（本地设置）。 */
     boolean fuzzyPinyinEnabled;
     String oneHandedMode = "off";
     boolean incognitoEnabled;
@@ -969,6 +971,7 @@ public final class MSIMEInputService extends InputMethodService {
         editorInputType = info == null ? 0 : info.inputType;
         currentEditorPackage = info == null || info.packageName == null ? "" : info.packageName;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
+        refreshLocalSettings();
         preferencesNotice = "";
         statisticsFailureReported = false;
         message = "直接输入";
@@ -1001,7 +1004,7 @@ public final class MSIMEInputService extends InputMethodService {
                 loadAppearanceWithoutSession(options.optString("preferences_directory", ""));
             }
             if (engineWanted) {
-                if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
+                if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
                 message = "共享运行时准备中";
                 scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
@@ -1062,6 +1065,7 @@ public final class MSIMEInputService extends InputMethodService {
                     effectiveInfo.inputType, effectiveInfo.imeOptions);
             }
             loadFeedbackPreferences();
+            refreshLocalSettings();
             refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
             render();
@@ -1367,9 +1371,7 @@ public final class MSIMEInputService extends InputMethodService {
             : KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
             : KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        touchKeyboardHeightAdjustment = KeyboardGeometry.designHeightAdjustment(preferences == null
-            ? Integer.MIN_VALUE : KeyboardGeometry.strictInt(preferences,
-                "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+        touchKeyboardHeightAdjustment = heightAdjustmentFrom(preferences);
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
     }
@@ -1378,16 +1380,41 @@ public final class MSIMEInputService extends InputMethodService {
     private void applyToolbarPreferences(JSONObject preferences) {
         JSONObject toolbar = preferences == null ? null : preferences.optJSONObject("touch_toolbar");
         toolbarEmoji = toolbar == null || toolbar.optBoolean("emoji", true);
-        toolbarPhrase = toolbar == null || toolbar.optBoolean("phrase", true);
         toolbarClipboard = toolbar == null || toolbar.optBoolean("clipboard", true);
         toolbarSkin = toolbar == null || toolbar.optBoolean("skin", true);
-        toolbarScheme = toolbar == null || toolbar.optBoolean("scheme", true);
-        toolbarHidden = toolbar != null && toolbar.optBoolean("hidden", false);
         JSONObject fuzzy = preferences == null ? null : preferences.optJSONObject("fuzzy_pinyin");
         fuzzyPinyinEnabled = fuzzy != null && fuzzy.optBoolean("enabled", false);
-        String hand = preferences == null ? "off" : preferences.optString("touch_one_handed", "off");
-        oneHandedMode = "left".equals(hand) || "right".equals(hand) ? hand : "off";
-        incognitoEnabled = preferences != null && preferences.optBoolean("touch_incognito", false);
+        applyLocalSettings();
+    }
+
+    /** 重读 Android 本地设置；文件没变时拿到的是缓存。 */
+    void refreshLocalSettings() {
+        localSettings = AndroidLocalSettings.load(this);
+        applyLocalSettings();
+    }
+
+    /** 本地设置里由服务直接持有的几项。 */
+    private void applyLocalSettings() {
+        toolbarPhrase = localSettings.bool(AndroidLocalSettings.TOOLBAR_PHRASE);
+        toolbarScheme = localSettings.bool(AndroidLocalSettings.TOOLBAR_SCHEME);
+        toolbarHidden = localSettings.bool(AndroidLocalSettings.TOOLBAR_HIDDEN);
+        oneHandedMode = localSettings.choice(AndroidLocalSettings.ONE_HANDED);
+        incognitoEnabled = localSettings.bool(AndroidLocalSettings.INCOGNITO);
+    }
+
+    /** 键盘高度：本地设置里有设计范围（-46..55）的值就用它，否则沿用共享偏好的 `touch_keyboard_height_adjustment`（-12..48）。 */
+    private int heightAdjustmentFrom(JSONObject preferences) {
+        if (localSettings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)) {
+            return KeyboardGeometry.designHeightAdjustment(
+                localSettings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT));
+        }
+        return KeyboardGeometry.designHeightAdjustment(preferences == null ? Integer.MIN_VALUE
+            : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+    }
+
+    /** 会话是否不学习：输入框不许个性化学习，或者隐私模式开着。 */
+    private boolean learningSuppressed() {
+        return !allowLearning || incognitoEnabled;
     }
 
     private void applyVoicePreferences(JSONObject preferences) {
@@ -1598,6 +1625,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applyPreferencesSnapshot(JSONObject snapshot) throws JSONException {
+        refreshLocalSettings();
         JSONObject accepted = new JSONObject(snapshot.toString());
         long revision = PreferencesRevisionPolicy.read(accepted.opt("revision"), -1);
         if (revision < 0) throw new JSONException("Invalid preferences revision");
@@ -1617,8 +1645,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        int nextHeightAdjustment = KeyboardGeometry.designHeightAdjustment(
-            KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
+        int nextHeightAdjustment = heightAdjustmentFrom(preferences);
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
         boolean nextVoiceEnabled = nextVoice == null || nextVoice.optBoolean("enabled", true);
@@ -1666,7 +1693,7 @@ public final class MSIMEInputService extends InputMethodService {
         SchemeConfiguration nextSchemeConfiguration = schemeConfiguration(preferences, nextScheme);
         JSONObject sessionSnapshot = new JSONObject(accepted.toString());
         // Keep the accepted disk snapshot intact while enforcing editor privacy in this session.
-        if (!allowLearning) sessionSnapshot.getJSONObject("preferences").put("learning", false);
+        if (learningSuppressed()) sessionSnapshot.getJSONObject("preferences").put("learning", false);
         JSONObject result = value(NativeClient.updatePreferences(session, sessionSnapshot.toString()));
         boolean geometryChanged = touchKeySpacingTenths != nextKeySpacing
             || touchRowSpacingTenths != nextRowSpacing
@@ -3856,6 +3883,7 @@ public final class MSIMEInputService extends InputMethodService {
         final JSONObject pending;
         final long expectedRevision;
         final JSONObject preferences;
+        String designAnimation = null;
         try {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
@@ -3879,6 +3907,7 @@ public final class MSIMEInputService extends InputMethodService {
                 preferences.put("custom_theme", customTheme);
                 preferences.put("global_theme", "custom");
                 applyDesignFeedback(preferences, design);
+                designAnimation = CustomKeyboardSkin.from(design).pressAnimation();
             }
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
@@ -3892,9 +3921,16 @@ public final class MSIMEInputService extends InputMethodService {
         imeStyler.applySkin();
         render();
         try {
+            final String animation = designAnimation == null ? null
+                : (String) AndroidLocalSettings.spec(AndroidLocalSettings.KEY_ANIMATION).accept(designAnimation);
             preferencesWorker.execute(() -> {
                 String response;
-                try { response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString()); }
+                try {
+                    if (animation != null) {
+                        AndroidLocalSettings.put(this, AndroidLocalSettings.KEY_ANIMATION, animation);
+                    }
+                    response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
+                }
                 catch (Exception | LinkageError error) { response = null; }
                 final String savedResponse = response;
                 main.post(() -> finishKeyboardSkinSave(operation, targetSession, targetDirectory, savedResponse));
@@ -3904,10 +3940,9 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
-    /** 自定义设计带的按键音与按键动画（P23）一起写进偏好：音效包进 `plugins.key_sound.pack`，动画进 `touch_key_animation`；「静音」不改音效包，只是不播（本地按键音开关）。 */
+    /** 自定义设计带的按键音（P23）写进偏好的 `plugins.key_sound.pack`；「静音」不改音效包，只是不播（本地按键音开关）。按键动画在本地设置里，由 saveKeyboardSkin 另外写。 */
     private static void applyDesignFeedback(JSONObject preferences, JSONObject design) throws JSONException {
         CustomKeyboardSkin feedback = CustomKeyboardSkin.from(design);
-        preferences.put("touch_key_animation", feedback.pressAnimation());
         if (CustomKeyboardSkin.SILENT_SOUND_PACK.equals(feedback.soundPack())) return;
         JSONObject plugins = preferences.optJSONObject("plugins");
         if (plugins == null) return;
@@ -4362,9 +4397,7 @@ public final class MSIMEInputService extends InputMethodService {
                     acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
                 && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
                     acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && KeyboardGeometry.designHeightAdjustment(KeyboardGeometry.strictInt(
-                    acceptedPreferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
-                    == touchKeyboardHeightAdjustment
+                && heightAdjustmentFrom(acceptedPreferences) == touchKeyboardHeightAdjustment
                 && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
                     == touchVoiceShortcutEnabled) return;
         final long targetSession = session;
@@ -4385,7 +4418,6 @@ public final class MSIMEInputService extends InputMethodService {
             } else {
                 preferences.put("touch_key_spacing_tenths", touchKeySpacingTenths);
                 preferences.put("touch_row_spacing_tenths", touchRowSpacingTenths);
-                preferences.put("touch_keyboard_height_adjustment", touchKeyboardHeightAdjustment);
                 preferences.put("touch_voice_shortcut", touchVoiceShortcutEnabled);
             }
         } catch (JSONException error) {
@@ -4400,11 +4432,14 @@ public final class MSIMEInputService extends InputMethodService {
         touchGeometrySaving = true;
         preferencesNotice = " · 正在保存键盘设置";
         final long operation = ++preferenceSaveGeneration;
+        // 高度是设计范围（75%..130%），共享偏好放不下，写进本地设置；恢复默认时删掉本地值。
+        final Integer height = reset ? null : touchKeyboardHeightAdjustment;
         renderLayoutSettingsState();
         render();
         Runnable save = () -> {
             String response;
             try {
+                AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
                 response = NativeClient.savePreferences(targetDirectory, expectedRevision,
                     pending.toString());
             } catch (Exception | LinkageError error) {
@@ -5456,6 +5491,7 @@ public final class MSIMEInputService extends InputMethodService {
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
         loadFeedbackPreferences();
+        refreshLocalSettings();
         File files = getFilesDir();
         // The shared store keeps its file under this directory, which is the same one the settings
         // page hands the shared entry; both sides therefore read one history.
@@ -6018,12 +6054,60 @@ public final class MSIMEInputService extends InputMethodService {
         String target = swapSide
             ? ("left".equals(oneHandedMode) ? "right" : "left")
             : ("off".equals(oneHandedMode) ? "right" : "off");
-        savePanelPreference("单手模式", preferences -> preferences.put("touch_one_handed", target));
+        saveLocalPanelSetting("单手模式", AndroidLocalSettings.ONE_HANDED, target);
     }
 
     void toggleIncognito() {
-        boolean target = !incognitoEnabled;
-        savePanelPreference("隐私模式", preferences -> preferences.put("touch_incognito", target));
+        saveLocalPanelSetting("隐私模式", AndroidLocalSettings.INCOGNITO, !incognitoEnabled);
+    }
+
+    /** 功能面板上写本地设置的开关（单手、隐私）：在偏好线程上写文件，写好后在主线程生效；隐私模式变了还要把会话的学习开关重新推给引擎。 */
+    private void saveLocalPanelSetting(String label, String key, Object value) {
+        if (panelPreferenceSaving) {
+            Toast.makeText(this, label + "设置尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        panelPreferenceSaving = true;
+        final long operation = ++preferenceSaveGeneration;
+        imeFunctionPanel.renderMoreTools();
+        Runnable save = () -> {
+            AndroidLocalSettings.Snapshot saved;
+            try {
+                saved = AndroidLocalSettings.put(this, key, value);
+            } catch (java.io.IOException | RuntimeException error) {
+                saved = null;
+            }
+            final AndroidLocalSettings.Snapshot result = saved;
+            main.post(() -> finishLocalPanelSetting(operation, label, result));
+        };
+        try {
+            preferencesWorker.execute(save);
+        } catch (RuntimeException error) {
+            finishLocalPanelSetting(operation, label, null);
+        }
+    }
+
+    private void finishLocalPanelSetting(long operation, String label, AndroidLocalSettings.Snapshot saved) {
+        panelPreferenceSaving = false;
+        if (operation != preferenceSaveGeneration) return;
+        if (saved == null) {
+            preferencesNotice = " · " + label + "保存失败，保留原设置";
+            Toast.makeText(this, label + "未能保存", Toast.LENGTH_SHORT).show();
+            render();
+            return;
+        }
+        boolean wasIncognito = incognitoEnabled;
+        localSettings = saved;
+        applyLocalSettings();
+        preferencesNotice = "";
+        if (wasIncognito != incognitoEnabled && session != 0 && preferencesSnapshot != null) {
+            try {
+                applyPreferencesSnapshot(preferencesSnapshot);
+            } catch (JSONException | LinkageError error) {
+                preferencesNotice = " · 隐私模式已保存，下次打开键盘时生效";
+            }
+        }
+        render();
     }
 
     /** 功能面板的手写：切到手写方案；已经是手写时切回上一个中文方案。 */

@@ -149,7 +149,7 @@ final class ImeDebugOverlay {
 
     private final MSIMEInputService s;
     private EventLog eventLog;
-    private JSONObject preferencesSeen;
+    private AndroidLocalSettings.Snapshot localSeen;
     private boolean overlayEnabled;
     private boolean mobileLogEnabled;
     /** 最近一次按键的时刻（uptime 毫秒），下一次引擎结果到达时据此算按键到候选更新的耗时；没有待测的按键时为 -1。 */
@@ -162,15 +162,12 @@ final class ImeDebugOverlay {
 
     /** 按当前偏好刷新调试开关与日志级别；偏好文档没变时什么都不做。 */
     void refreshPreferences() {
-        JSONObject preferences = s.preferencesSnapshot == null ? null
-            : s.preferencesSnapshot.optJSONObject("preferences");
-        if (preferences == preferencesSeen) return;
-        preferencesSeen = preferences;
-        JSONObject developer = preferences == null ? null : preferences.optJSONObject("developer_options");
-        overlayEnabled = developer != null && developer.optBoolean("debug_overlay", false);
-        ImeLog.applyLevel(developer == null ? null : developer.optString("log_level", "warn"));
-        JSONObject log = preferences == null ? null : preferences.optJSONObject("diagnostic_log");
-        mobileLogEnabled = log != null && log.optBoolean("mobile", false);
+        AndroidLocalSettings.Snapshot settings = s.localSettings;
+        if (settings == localSeen) return;
+        localSeen = settings;
+        overlayEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY);
+        ImeLog.applyLevel(settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL));
+        mobileLogEnabled = settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG);
     }
 
     /** 本地输入日志是否在写：用户打开了「记录输入日志」，而且当前输入框与隐私模式允许。 */

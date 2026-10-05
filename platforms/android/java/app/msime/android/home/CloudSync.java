@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CloudApi;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CustomSkinLibrary;
@@ -294,6 +295,7 @@ public final class CloudSync {
             JSONObject request = new JSONObject()
                 .put("preferences_directory", directory)
                 .put("feedback", feedback())
+                .put("android_local", new JSONObject(AndroidLocalSettings.load(context).synced()))
                 .put("schema", schema)
                 .put("cloud", document(cloud.revision(), cloud.settings()));
             JSONObject withoutSkins = settingsOf(nativeValue(NativeClient.accountSettingsExport(request.toString()))
@@ -313,7 +315,7 @@ public final class CloudSync {
             return SyncMergePolicy.withoutLocalOnly(map(merged));
         }
 
-        /** 把一份云端文档应用到本机：偏好由 client-core 按修订号保存，按键反馈与皮肤库由这里写回各自的存储。 */
+        /** 把一份云端文档应用到本机：偏好由 client-core 按修订号保存，按键反馈、皮肤库和 Android 本地设置由这里写回各自的存储。 */
         private void apply(SyncApi.Preferences cloud) throws IOException, JSONException {
             JSONObject request = new JSONObject()
                 .put("preferences_directory", directory)
@@ -330,6 +332,8 @@ public final class CloudSync {
             if (value.opt("custom_keyboard_skins") instanceof String library) {
                 CustomSkinLibrary.importDesigns(Paths.get(directory), library);
             }
+            JSONObject local = value.optJSONObject("android_local");
+            if (local != null) AndroidLocalSettings.applySynced(context, map(local));
             JSONArray skipped = value.optJSONArray("skipped");
             if (skipped != null && skipped.length() > 0) Log.i(TAG, "settings skipped on this device: " + skipped);
         }

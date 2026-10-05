@@ -257,7 +257,7 @@ std::string LocalizedReason(const std::string &reason)
     }
     if (reason == "base must be system or a built-in theme")
     {
-        return "base 必须是 system、siji 或内置主题（shuishan、light、paper、night、ink、chunya、xiayin、qiushan、dongxue）";
+        return "base 必须是 system 或内置主题（shuishan、light、paper、night、ink）";
     }
     for (std::string_view key : {"id ", "name ", "version ", "base ", "author ", "description "})
     {

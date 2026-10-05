@@ -39,7 +39,7 @@ final class ImeLetterRows {
 
     /** 偏好里的一个布尔触控开关。 */
     private boolean touchPreference(String key) {
-        return s.imeBottomRow.touchPreference(key, true);
+        return s.imeBottomRow.touchPreference(key);
     }
 
     /** 把 SVC 建的 ⇧ ⌫ 换成画图标的键（每次 onCreateInputView 新建控件后各换一次）。 */
@@ -108,11 +108,11 @@ final class ImeLetterRows {
                 case MotionEvent.ACTION_DOWN -> {
                     downY[0] = event.getY() / density;
                     swiped[0] = false;
-                    if (touchPreference("touch_key_popup")) showKeyPreview(key, face);
+                    if (touchPreference(AndroidLocalSettings.KEY_POPUP)) showKeyPreview(key, face);
                     return false;
                 }
                 case MotionEvent.ACTION_MOVE -> {
-                    if (hint != null && !swiped[0] && touchPreference("touch_swipe_down_symbols")
+                    if (hint != null && !swiped[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                             && SwipeDownHintPolicy.swiped(downY[0], event.getY() / density)) {
                         swiped[0] = true;
                         if (keyPreview != null) keyPreview.setLabel(hint);
@@ -295,7 +295,7 @@ final class ImeLetterRows {
         // 新设计的字母键：22 sp 键面，26 键（不含韩文与注音键面）右上角画下滑提示符。
         boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
             && !koreanKeycaps && !zhuyinKeycaps;
-        boolean cornerHints = standardLetters && touchPreference("touch_swipe_down_symbols");
+        boolean cornerHints = standardLetters && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS);
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));

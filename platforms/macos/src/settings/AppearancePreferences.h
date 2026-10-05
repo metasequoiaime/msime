@@ -81,7 +81,7 @@ extern BOOL (*MSIMEInputModeEnabledProbe)(NSString *identifier);
 @property(nonatomic, copy) NSString *themeMode;
 @property(nonatomic, copy) NSString *candidateTheme;
 @property(nonatomic, copy) NSString *toolbarTheme;
-/// The global theme: system, siji, shuishan, light, paper, night, ink, chunya, xiayin, qiushan, dongxue or custom (the ids of msime_client_theme_catalog). An id outside the catalog is ignored when set and reads as system.
+/// The global theme: system, shuishan, light, paper, night, ink or custom (the ids of msime_client_theme_catalog). An id outside the catalog is ignored when set and reads as system.
 @property(nonatomic, copy) NSString *globalTheme;
 /// `custom_theme.base`: system or a built-in theme id, the palette the custom theme starts from.
 @property(nonatomic, readonly, copy) NSString *customThemeBase;

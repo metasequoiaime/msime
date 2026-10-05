@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
 import app.msime.android.NativeClient;
@@ -37,7 +38,7 @@ import org.json.JSONObject;
  *
  * <p>P19：MCP 上传默认关闭，每次上传（包括重新上传）都要在「确认上传」组里点一次「上传」；「输入事件」默认不勾选。上传内容只来自 Rust 写出的诊断包，配置快照已在那里脱敏，输入事件和性能数据只有时间、耗时和事件种类，见 {@link DiagnosticsApi}。是否已上传、远程地址和令牌是服务端状态，每次进页从云端读回；完整令牌只在上传或重新生成的那一次回答里出现，只留在本页内存里。
  *
- * <p>偏好写在 `developer_options`（`debug_overlay`、`log_level`、`mcp_upload{retention,crash_logs,performance_logs,input_events,config_snapshot}`）和 `diagnostic_log.mobile`，经 {@link HostStore#savePreferences} 按修订号写回。
+ * <p>调试开关、日志级别、「记录输入日志」和 MCP 上传的内容与保留时长只在本机，存在 {@link AndroidLocalSettings}（`platform.android.developer.*`），不进共享偏好、不同步；「重置所有设置」同时把共享偏好和这份本地设置恢复为默认值。
  */
 public final class DeveloperPage extends DetailPage {
     private static final String PLATFORM = "android";
@@ -48,6 +49,7 @@ public final class DeveloperPage extends DetailPage {
 
     @Nullable private LinearLayout column;
     @Nullable private JSONObject snapshot;
+    private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     private DiagnosticsApi.State cloud = DiagnosticsApi.State.EMPTY;
     private boolean cloudLoaded;
     private boolean confirming;
@@ -73,8 +75,10 @@ public final class DeveloperPage extends DetailPage {
 
     private void reload() {
         if (getView() == null) return;
-        HostTask.run(this, HostStore::loadPreferences, loaded -> {
-            snapshot = loaded;
+        HostTask.run(this, context -> new Object[] {HostStore.loadPreferences(context),
+            AndroidLocalSettings.load(context)}, loaded -> {
+            snapshot = loaded[0] instanceof JSONObject value ? value : null;
+            if (loaded[1] instanceof AndroidLocalSettings.Snapshot settings) local = settings;
             render();
         });
         HostTask.run(this, context -> {
@@ -96,9 +100,9 @@ public final class DeveloperPage extends DetailPage {
         LinearLayout target = column;
         if (target == null) return;
         target.removeAllViews();
-        JSONObject developer = developerOptions();
-        JSONObject upload = mcpUpload(developer);
-        DiagnosticsApi.Retention retention = DiagnosticsApi.Retention.fromWire(upload.optString("retention", "one_day"));
+        AndroidLocalSettings.Snapshot settings = local;
+        DiagnosticsApi.Retention retention = DiagnosticsApi.Retention.fromWire(
+            settings.choice(AndroidLocalSettings.MCP_RETENTION));
         DiagnosticsApi.Snapshot uploaded = cloud.snapshot();
 
         GroupCard mcp = GroupCard.add(target, "MCP 开发者访问");
@@ -123,10 +127,10 @@ public final class DeveloperPage extends DetailPage {
                 }
             });
         mcpRow.setEnabled(!busy && snapshot != null);
-        mcp.nav("保留时长", null, retention.label(), snapshot == null ? null : () -> showRetentionSheet(retention));
+        mcp.nav("保留时长", null, retention.label(), () -> showRetentionSheet(retention));
 
         if (confirming) {
-            DiagnosticsApi.Include include = include(upload);
+            DiagnosticsApi.Include include = include(settings);
             GroupCard confirm = GroupCard.add(target, "确认上传");
             String summary = include.any()
                 ? categories(include) + " · " + retention.label() + "后自动删除，可随时删除"
@@ -140,10 +144,10 @@ public final class DeveloperPage extends DetailPage {
         }
 
         GroupCard logs = GroupCard.add(target, "可访问的日志");
-        uploadToggle(logs, "崩溃日志", "崩溃堆栈与引擎错误", upload, "crash_logs", true);
-        uploadToggle(logs, "性能日志", "候选耗时与内存占用", upload, "performance_logs", true);
-        uploadToggle(logs, "输入事件", "只含按键时序与事件种类，不含文字内容", upload, "input_events", false);
-        uploadToggle(logs, "配置快照", "当前设置与已安装词库", upload, "config_snapshot", true);
+        uploadToggle(logs, "崩溃日志", "崩溃堆栈与引擎错误", settings, AndroidLocalSettings.MCP_CRASH_LOGS);
+        uploadToggle(logs, "性能日志", "候选耗时与内存占用", settings, AndroidLocalSettings.MCP_PERFORMANCE_LOGS);
+        uploadToggle(logs, "输入事件", "只含按键时序与事件种类，不含文字内容", settings, AndroidLocalSettings.MCP_INPUT_EVENTS);
+        uploadToggle(logs, "配置快照", "当前设置与已安装词库", settings, AndroidLocalSettings.MCP_CONFIG_SNAPSHOT);
 
         if (uploaded != null) {
             renderUploaded(target, uploaded);
@@ -156,18 +160,12 @@ public final class DeveloperPage extends DetailPage {
         }
 
         GroupCard debug = GroupCard.add(target, "调试");
-        debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频", developer.optBoolean("debug_overlay", false),
-            on -> edit(prefs -> developerOptions(prefs).put("debug_overlay", on)))
-            .setEnabled(snapshot != null);
-        debug.toggle("记录输入日志", "仅保存在本机，不会上传", mobileLog(), on -> edit(prefs -> {
-            JSONObject log = prefs.optJSONObject("diagnostic_log");
-            if (log == null) {
-                log = new JSONObject();
-                prefs.put("diagnostic_log", log);
-            }
-            log.put("mobile", on);
-        })).setEnabled(snapshot != null);
-        String level = developer.optString("log_level", "warn");
+        debug.toggle("显示调试信息", "在候选栏显示引擎耗时与词频",
+            settings.bool(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY),
+            on -> edit(AndroidLocalSettings.DEVELOPER_DEBUG_OVERLAY, on));
+        debug.toggle("记录输入日志", "仅保存在本机，不会上传", settings.bool(AndroidLocalSettings.DEVELOPER_INPUT_LOG),
+            on -> edit(AndroidLocalSettings.DEVELOPER_INPUT_LOG, on));
+        String level = settings.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL);
         debug.nav("日志级别", null, levelLabel(level), snapshot == null ? null : () -> showLevelSheet(level));
 
         GroupCard data = GroupCard.add(target, "数据");
@@ -176,10 +174,9 @@ public final class DeveloperPage extends DetailPage {
             .setEnabled(!busy && snapshot != null);
     }
 
-    private void uploadToggle(GroupCard group, String title, String subtitle, JSONObject upload, String key,
-            boolean fallback) {
-        group.toggle(title, subtitle, upload.optBoolean(key, fallback),
-            on -> edit(prefs -> mcpUpload(developerOptions(prefs)).put(key, on))).setEnabled(snapshot != null);
+    private void uploadToggle(GroupCard group, String title, String subtitle, AndroidLocalSettings.Snapshot settings,
+            String key) {
+        group.toggle(title, subtitle, settings.bool(key), on -> edit(key, on));
     }
 
     private void renderUploaded(LinearLayout target, DiagnosticsApi.Snapshot uploaded) {
@@ -219,10 +216,9 @@ public final class DeveloperPage extends DetailPage {
     // ---- 操作 ----
 
     private void upload() {
-        JSONObject developer = developerOptions();
-        JSONObject upload = mcpUpload(developer);
-        DiagnosticsApi.Include include = include(upload);
-        DiagnosticsApi.Retention retention = DiagnosticsApi.Retention.fromWire(upload.optString("retention", "one_day"));
+        DiagnosticsApi.Include include = include(local);
+        DiagnosticsApi.Retention retention = DiagnosticsApi.Retention.fromWire(
+            local.choice(AndroidLocalSettings.MCP_RETENTION));
         if (!include.any()) return;
         busy = true;
         render();
@@ -367,9 +363,8 @@ public final class DeveloperPage extends DetailPage {
     }
 
     private void exportBundle() {
-        JSONObject upload = mcpUpload(developerOptions());
         DiagnosticsApi.Include include = new DiagnosticsApi.Include(true, true,
-            upload.optBoolean("input_events", false), true);
+            local.bool(AndroidLocalSettings.MCP_INPUT_EVENTS), true);
         busy = true;
         render();
         HostTask.run(this, context -> {
@@ -412,7 +407,14 @@ public final class DeveloperPage extends DetailPage {
                     if (directory.isEmpty() || current == null) return null;
                     long revision = PreferencesRevisionPolicy.read(current.opt("revision"), -1);
                     if (revision < 0) return null;
-                    return envelopeValue(NativeClient.restoreDefaultPreferences(directory, revision));
+                    JSONObject restored = envelopeValue(NativeClient.restoreDefaultPreferences(directory, revision));
+                    if (restored == null) return null;
+                    try {
+                        AndroidLocalSettings.restoreDefaults(context);
+                    } catch (java.io.IOException error) {
+                        return null;
+                    }
+                    return restored;
                 }, restored -> {
                     busy = false;
                     if (restored == null) {
@@ -430,103 +432,39 @@ public final class DeveloperPage extends DetailPage {
             .show();
     }
 
-    // ---- 偏好 ----
+    // ---- 本地设置 ----
 
-    private interface Edit {
-        void apply(JSONObject preferences) throws JSONException;
-    }
-
-    /** 在工作线程上读最新的快照、改一处、按修订号写回；写不进去时提示并按存储里的值重画。 */
-    private void edit(Edit change) {
-        if (snapshot != null) {
-            // 先在本地快照上改，界面立刻反映；写回失败再按存储里的值重画。
-            try {
-                change.apply(snapshot.getJSONObject("preferences"));
-            } catch (JSONException ignored) {
-                // 本地快照结构不对时只等存储的结果。
-            }
-        }
-        render();
+    /** 在工作线程上写一项本地设置；界面先按新值画，写不进去时提示并按文件里的值重画。 */
+    private void edit(String key, Object value) {
         HostTask.run(this, context -> {
-            JSONObject latest = HostStore.loadPreferences(context);
-            if (latest == null) return null;
             try {
-                change.apply(latest.getJSONObject("preferences"));
-            } catch (JSONException malformed) {
+                return AndroidLocalSettings.put(context, key, value);
+            } catch (java.io.IOException | IllegalArgumentException error) {
                 return null;
             }
-            return HostStore.savePreferences(context, latest);
         }, saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "保存失败，请重试");
                 reload();
                 return;
             }
-            snapshot = saved;
+            local = saved;
             render();
         });
     }
 
-    private JSONObject preferences() {
-        JSONObject prefs = snapshot == null ? null : snapshot.optJSONObject("preferences");
-        return prefs == null ? new JSONObject() : prefs;
-    }
-
-    private JSONObject developerOptions() {
-        try {
-            return developerOptions(preferences());
-        } catch (JSONException malformed) {
-            return new JSONObject();
-        }
-    }
-
-    /** `developer_options`，缺省时按默认值补全一份完整的对象（Rust 结构有 `deny_unknown_fields` 和 `default`，写全字段最稳）。 */
-    private static JSONObject developerOptions(JSONObject prefs) throws JSONException {
-        JSONObject developer = prefs.optJSONObject("developer_options");
-        if (developer == null) {
-            developer = new JSONObject();
-            prefs.put("developer_options", developer);
-        }
-        if (!developer.has("debug_overlay")) developer.put("debug_overlay", false);
-        if (!developer.has("log_level")) developer.put("log_level", "warn");
-        mcpUpload(developer);
-        return developer;
-    }
-
-    private static JSONObject mcpUpload(JSONObject developer) {
-        try {
-            JSONObject upload = developer.optJSONObject("mcp_upload");
-            if (upload == null) {
-                upload = new JSONObject();
-                developer.put("mcp_upload", upload);
-            }
-            if (!upload.has("retention")) upload.put("retention", "one_day");
-            if (!upload.has("crash_logs")) upload.put("crash_logs", true);
-            if (!upload.has("performance_logs")) upload.put("performance_logs", true);
-            if (!upload.has("input_events")) upload.put("input_events", false);
-            if (!upload.has("config_snapshot")) upload.put("config_snapshot", true);
-            return upload;
-        } catch (JSONException malformed) {
-            return new JSONObject();
-        }
-    }
-
-    private boolean mobileLog() {
-        JSONObject log = preferences().optJSONObject("diagnostic_log");
-        return log != null && log.optBoolean("mobile", false);
-    }
-
-    private static DiagnosticsApi.Include include(JSONObject upload) {
-        return new DiagnosticsApi.Include(upload.optBoolean("crash_logs", true),
-            upload.optBoolean("performance_logs", true), upload.optBoolean("input_events", false),
-            upload.optBoolean("config_snapshot", true));
+    private static DiagnosticsApi.Include include(AndroidLocalSettings.Snapshot settings) {
+        return new DiagnosticsApi.Include(settings.bool(AndroidLocalSettings.MCP_CRASH_LOGS),
+            settings.bool(AndroidLocalSettings.MCP_PERFORMANCE_LOGS),
+            settings.bool(AndroidLocalSettings.MCP_INPUT_EVENTS),
+            settings.bool(AndroidLocalSettings.MCP_CONFIG_SNAPSHOT));
     }
 
     private void showRetentionSheet(DiagnosticsApi.Retention current) {
         OptionSheet sheet = new OptionSheet(requireContext(), "保留时长", "到期后云端快照自动删除");
         for (DiagnosticsApi.Retention retention : DiagnosticsApi.Retention.values()) {
             sheet.option(retention.label(), retention == current,
-                () -> edit(prefs -> mcpUpload(developerOptions(prefs)).put("retention", retention.wire())));
+                () -> edit(AndroidLocalSettings.MCP_RETENTION, retention.wire()));
         }
         sheet.show();
     }
@@ -539,7 +477,7 @@ public final class DeveloperPage extends DetailPage {
         OptionSheet sheet = new OptionSheet(requireContext(), "日志级别", null);
         for (String[] level : LEVELS) {
             sheet.option(level[1], level[0].equals(current),
-                () -> edit(prefs -> developerOptions(prefs).put("log_level", level[0])));
+                () -> edit(AndroidLocalSettings.DEVELOPER_LOG_LEVEL, level[0]));
         }
         sheet.show();
     }

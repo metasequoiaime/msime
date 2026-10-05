@@ -18,11 +18,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 输入页：语言与方案、中文（字符集、拼音纠错、模糊音、云候选）、辅助码（方案、模式）和翻译（候选词翻译、离线英文释义、目标语言）。
+ * 输入页：语言与方案、中文（字符集、拼音纠错、模糊音、云候选）、辅助码方案和翻译（候选词翻译、离线英文释义、目标语言）。
  *
  * <p>语言列表是键盘自己的方案列表 `touch_keyboard_schemes.enabled` 按语言分组后的样子：普通话一直在，其他语言在列表里有它的方案时出现。在语言的面板里选一个方案，经 {@link SchemePreferences#withScheme} 同时写 `scheme` 那几个键和 `touch_keyboard_schemes.selected`（并在缺失时加进 `enabled`），否则键盘会按旧的 `selected` 解析方案；「移除」把这门语言的方案全部移出 `enabled`，键盘正用着它时先切回剩下的第一个方案；「添加语言」把这门语言的第一个方案加进 `enabled`，不切换。粤语只有粤拼（P18：仓颉、速成没有方案和码表）；英语没有自己的触屏方案（中英切换键一直在），所以不出现在列表里。
  *
- * <p>辅助码方案列表来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；方案和模式写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`）。
+ * <p>辅助码方案列表来自 `NativeClient.hostCapabilities` 的 `helpcode_schemas`，没有这个字段时用不含郑码的内置列表（P14）；方案写进当前方案所属的那一份（双拼用 `shuangpin_helpcode`，其余用 `quanpin_helpcode`）。共享的辅助码设置没有「部首 / 笔画 / 混合」模式，所以本页不提供模式选择。
  */
 public final class TypingPage extends DetailPage {
     /** 深链参数：打开时展开「添加语言」（键盘的输入方式面板「+ 添加语言」用）。 */
@@ -32,7 +32,6 @@ public final class TypingPage extends DetailPage {
         {"ziranma", "自然码"}, {"xiaohe", "小鹤"}, {"lantian", "蓝天小雨点"}, {"shouyou2_0", "首右2.0"},
         {"shouyouplus", "首右plus"}, {"jiajia", "加加"},
     };
-    private static final String[][] HELPCODE_MODES = {{"radical", "部首"}, {"stroke", "笔画"}, {"mixed", "混合"}};
     private static final String[][] TARGET_LANGUAGES = {
         {"en", "英语"}, {"ja", "日语"}, {"ko", "韩语"}, {"fr", "法语"}, {"de", "德语"}, {"es", "西班牙语"}, {"ru", "俄语"},
     };
@@ -186,12 +185,9 @@ public final class TypingPage extends DetailPage {
         String family = shuangpin ? "shuangpin_helpcode" : "quanpin_helpcode";
         JSONObject helpcode = preferences.optJSONObject(family);
         String schema = helpcode == null ? (shuangpin ? "lantian" : "ziranma") : helpcode.optString("schema", "ziranma");
-        String mode = helpcode == null ? "radical" : helpcode.optString("mode", "radical");
         GroupCard aux = GroupCard.add(target, "辅助码");
         aux.nav("辅助码方案", shuangpin ? "双拼" : "全拼", labelOf(state.helpcodeSchemas(), schema),
             () -> pickHelpcode(family, shuangpin, state.helpcodeSchemas(), schema));
-        aux.nav("辅助码模式", null, labelOf(List.of(HELPCODE_MODES), mode),
-            () -> pickHelpcodeMode(family, shuangpin, mode));
 
         GroupCard translation = GroupCard.add(target, "翻译");
         InputFeatureToggle translations = InputFeatureToggle.CANDIDATE_TRANSLATIONS;
@@ -415,15 +411,6 @@ public final class TypingPage extends DetailPage {
         for (String[] entry : schemas) {
             String id = entry[0];
             sheet.option(entry[1], id.equals(selected), () -> saveHelpcode(family, shuangpin, "schema", id));
-        }
-        sheet.show();
-    }
-
-    private void pickHelpcodeMode(String family, boolean shuangpin, String selected) {
-        OptionSheet sheet = new OptionSheet(requireContext(), "辅助码模式", null);
-        for (String[] entry : HELPCODE_MODES) {
-            String id = entry[0];
-            sheet.option(entry[1], id.equals(selected), () -> saveHelpcode(family, shuangpin, "mode", id));
         }
         sheet.show();
     }

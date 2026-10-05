@@ -14,6 +14,10 @@ import org.json.JSONObject;
 
 /** Device acceptance for Apple-compatible keyboard height adjustment and persistence. */
 public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
+    /** {@code AndroidLocalSettings.FILE_NAME} 与 {@code KEYBOARD_HEIGHT_ADJUSTMENT}；设备套件不编译宿主的设置类，这里写同样的字面值。 */
+    private static final String LOCAL_SETTINGS_FILE = "android-settings.json";
+    private static final String HEIGHT_SETTING = "platform.android.keyboard_height_adjustment";
+
     @Override protected String successDescription() {
         return "keyboard height live preview, composition preservation, persistence and restart";
     }
@@ -32,9 +36,16 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         JSONObject snapshot = new JSONObject().put("format_version", 1).put("revision", revision + 1)
             .put("preferences", new JSONObject(options.getJSONObject("preferences").toString())
                 .put("touch_keyboard_height_adjustment", 0));
+        // 设计范围的键盘高度（75%..130%）存在 Android 本地设置里，不在共享偏好里。
+        File localSettings = new File(new File(new File(root, "bootstrap"), "state"), LOCAL_SETTINGS_FILE);
+        byte[] originalLocal = localSettings.exists() ? Files.readAllBytes(localSettings.toPath()) : null;
+        JSONObject localBaseline = new JSONObject().put("version", 1).put("settings", new JSONObject());
         try {
             stage = "baseline preferences";
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
+            if (!localSettings.getParentFile().isDirectory() && !localSettings.getParentFile().mkdirs())
+                throw new AssertionError("Local settings directory unavailable");
+            publish(localSettings, localBaseline.toString().getBytes(StandardCharsets.UTF_8));
             rebindInputMethod();
             openEditor();
             stage = "baseline keyboard height";
@@ -46,7 +57,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             stage = "increase keyboard height";
             setHeight(130);
             tap(key("完成"));
-            long tallRevision = awaitHeightPreference(preferences, 55, revision + 2);
+            awaitHeightSetting(localSettings, 55);
             int tall = keyHeight("n");
             int minimumDelta = Math.round(8 * getTargetContext()
                 .getResources().getDisplayMetrics().density);
@@ -58,7 +69,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             openHeightBar();
             setHeight(75);
             tap(key("完成"));
-            long shortRevision = awaitHeightPreference(preferences, -46, tallRevision + 1);
+            awaitHeightSetting(localSettings, -46);
             int shortHeight = keyHeight("n");
             if (shortHeight >= standard)
                 throw new AssertionError("Shorter keyboard did not shrink key faces: "
@@ -78,9 +89,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (Math.round(await(heightSlider()).getRangeInfo().getCurrent()) != 100)
                 throw new AssertionError("重置 did not return the bar to 100%");
             tap(key("完成"));
-            long resetRevision = awaitHeightPreference(preferences, 0, shortRevision + 1);
-            if (resetRevision <= shortRevision)
-                throw new AssertionError("Height reset did not advance revision");
+            awaitHeightSetting(localSettings, 0);
             int resetHeight = keyHeight("n");
             if (Math.abs(resetHeight - standard) > 2)
                 throw new AssertionError("Reset keyboard height did not return to default: "
@@ -97,6 +106,8 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             shell("am start -W -n app.msime.android/app.msime.android.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
+            if (originalLocal == null) Files.deleteIfExists(localSettings.toPath());
+            else publish(localSettings, originalLocal);
         }
     }
 
@@ -159,24 +170,19 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         throw new AssertionError("Height adjustment never reached " + target);
     }
 
-    private long awaitHeightPreference(File file, int expected, long minimumRevision)
-            throws Exception {
+    private void awaitHeightSetting(File file, int expected) throws Exception {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
-            byte[] bytes = Files.readAllBytes(file.toPath());
             try {
+                byte[] bytes = Files.readAllBytes(file.toPath());
                 JSONObject current = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-                if (current.getLong("revision") >= minimumRevision
-                        && current.getJSONObject("preferences")
-                            .getInt("touch_keyboard_height_adjustment") == expected) {
-                    return current.getLong("revision");
-                }
-            } catch (RuntimeException ignored) {
-                // Atomic replacement can briefly expose no complete snapshot to this polling read.
+                if (current.getJSONObject("settings").optInt(HEIGHT_SETTING, Integer.MIN_VALUE) == expected) return;
+            } catch (java.io.IOException | RuntimeException | org.json.JSONException ignored) {
+                // Atomic replacement can briefly expose no complete file to this polling read.
             }
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Height preference was not saved");
+        throw new AssertionError("Height setting was not saved");
     }
 
     private void shell(String command) throws Exception {

@@ -112,9 +112,6 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     assert_eq!(
         keys,
         [
-            "general.app_theme",
-            "helpcode.quanpin_helpcode_mode",
-            "helpcode.shuangpin_helpcode_mode",
             "input.character_set",
             "input.chinese_punctuation",
             "input.frequency_linear_step",
@@ -131,39 +128,24 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.custom_keyboard_skin",
             "platform.android.custom_theme_base",
             "platform.android.global_theme",
-            "platform.android.handwriting_delay_ms",
-            "platform.android.handwriting_mode",
-            "platform.android.handwriting_show_pinyin",
-            "platform.android.handwriting_stroke_color",
-            "platform.android.handwriting_stroke_width",
             "platform.android.haptic_strength",
             "platform.android.haptics_enabled",
-            "platform.android.key_animation",
-            "platform.android.key_popup",
             "platform.android.key_sound_pack",
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
-            "platform.android.one_handed",
             "platform.android.sound_enabled",
-            "platform.android.space_cursor",
-            "platform.android.space_voice",
-            "platform.android.swipe_down_symbols",
             "platform.android.theme",
             "platform.android.toolbar_ai",
             "platform.android.toolbar_character_set",
             "platform.android.toolbar_clipboard",
             "platform.android.toolbar_emoji",
             "platform.android.toolbar_fullwidth",
-            "platform.android.toolbar_hidden",
             "platform.android.toolbar_layout",
-            "platform.android.toolbar_phrase",
             "platform.android.toolbar_punctuation",
-            "platform.android.toolbar_scheme",
             "platform.android.toolbar_skin",
             "platform.android.touch_key_spacing_tenths",
             "platform.android.touch_row_spacing_tenths",
             "platform.android.voice_language",
-            "platform.android.voice_offline_fallback",
             "platform.android.voice_shortcut",
         ]
     );
@@ -529,31 +511,10 @@ fn settings_sync_host_feedback_is_read_only_when_the_document_has_it() {
 
 #[test]
 fn settings_sync_new_android_keys_round_trip() {
-    use crate::preferences::{
-        HandwritingMode, HandwritingStrokeColor, HelpcodeMode, TouchKeyAnimation, TouchOneHanded,
-    };
-    let mut expected = Preferences {
-        app_theme: AppTheme::Qiushan,
-        touch_one_handed: TouchOneHanded::Left,
-        touch_key_popup: !Preferences::default().touch_key_popup,
-        touch_swipe_down_symbols: !Preferences::default().touch_swipe_down_symbols,
-        touch_space_cursor: !Preferences::default().touch_space_cursor,
-        touch_space_voice: !Preferences::default().touch_space_voice,
-        touch_key_animation: TouchKeyAnimation::Ripple,
-        ..Preferences::default()
-    };
+    let mut expected = Preferences::default();
     expected.touch_toolbar.ai = !expected.touch_toolbar.ai;
-    expected.touch_toolbar.hidden = !expected.touch_toolbar.hidden;
-    expected.touch_toolbar.phrase = !expected.touch_toolbar.phrase;
-    expected.touch_handwriting.mode = HandwritingMode::Line;
-    expected.touch_handwriting.recognition_delay_ms = 900;
-    expected.touch_handwriting.show_pinyin = false;
-    expected.touch_handwriting.stroke_color = HandwritingStrokeColor::Blue;
-    expected.touch_handwriting.stroke_width = 6;
+    expected.plugins.key_sound.pack = "msime-woodblock".into();
     expected.voice_input.language = "en-US".into();
-    expected.voice_input.offline_fallback = true;
-    expected.quanpin_helpcode.mode = HelpcodeMode::Stroke;
-    expected.shuangpin_helpcode.mode = HelpcodeMode::Mixed;
     expected.validate().unwrap();
     let exported = export_android_settings(&expected, None).unwrap();
     let applied = apply(&Preferences::default(), exported, &full_schema());
@@ -561,65 +522,173 @@ fn settings_sync_new_android_keys_round_trip() {
     assert_eq!(applied.preferences, expected);
 }
 
-#[test]
-fn settings_sync_never_exports_device_local_settings() {
-    let mut preferences = Preferences {
-        touch_incognito: true,
-        ..Preferences::default()
-    };
-    preferences.developer_options.debug_overlay = true;
-    preferences.diagnostic_log.mobile = true;
-    preferences.voice_input.contribute_audio = true;
-    let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
-    assert_eq!(
-        exported,
-        export_android_settings(&Preferences::default(), Some(&feedback())).unwrap()
-    );
-}
-
-#[test]
-fn settings_sync_new_keys_with_unknown_or_out_of_range_values_are_skipped() {
-    let settings = BTreeMap::from([
-        (
-            "general.app_theme".to_owned(),
-            AccountPreferenceValue::String("winter".into()),
-        ),
+/// 本地设置的全部同步键，取一组非默认值。
+fn local_values() -> BTreeMap<String, AccountPreferenceValue> {
+    use AccountPreferenceValue::{Boolean, Integer, String};
+    BTreeMap::from([
+        ("general.app_theme".to_owned(), String("qiushan".into())),
         (
             "platform.android.one_handed".to_owned(),
-            AccountPreferenceValue::String("middle".into()),
+            String("left".into()),
+        ),
+        ("platform.android.key_popup".to_owned(), Boolean(false)),
+        (
+            "platform.android.swipe_down_symbols".to_owned(),
+            Boolean(false),
+        ),
+        ("platform.android.space_cursor".to_owned(), Boolean(false)),
+        ("platform.android.space_voice".to_owned(), Boolean(false)),
+        (
+            "platform.android.key_animation".to_owned(),
+            String("ripple".into()),
+        ),
+        ("platform.android.toolbar_phrase".to_owned(), Boolean(false)),
+        ("platform.android.toolbar_scheme".to_owned(), Boolean(false)),
+        ("platform.android.toolbar_hidden".to_owned(), Boolean(true)),
+        (
+            "platform.android.handwriting_mode".to_owned(),
+            String("line".into()),
         ),
         (
             "platform.android.handwriting_delay_ms".to_owned(),
-            AccountPreferenceValue::Integer(5000),
+            Integer(900),
+        ),
+        (
+            "platform.android.handwriting_show_pinyin".to_owned(),
+            Boolean(false),
+        ),
+        (
+            "platform.android.handwriting_stroke_color".to_owned(),
+            String("blue".into()),
         ),
         (
             "platform.android.handwriting_stroke_width".to_owned(),
-            AccountPreferenceValue::Integer(0),
+            Integer(6),
         ),
         (
-            "helpcode.quanpin_helpcode_mode".to_owned(),
-            AccountPreferenceValue::String("zhengma".into()),
+            "platform.android.voice_offline_fallback".to_owned(),
+            Boolean(true),
         ),
-        (
-            "platform.android.key_popup".to_owned(),
-            AccountPreferenceValue::Boolean(!Preferences::default().touch_key_popup),
-        ),
-    ]);
-    let applied = apply(&Preferences::default(), settings, &full_schema());
+    ])
+}
+
+fn local_schema() -> AccountPreferenceSchema {
+    let mut schema = full_schema();
+    for (key, value) in local_values() {
+        schema.fields.insert(
+            key,
+            AccountPreferenceField {
+                value_type: value.kind().to_owned(),
+            },
+        );
+    }
+    schema
+}
+
+#[test]
+fn settings_sync_android_local_settings_round_trip() {
+    let local = local_values();
+    assert_eq!(local.len(), ANDROID_LOCAL_SETTINGS.len());
+    let mut settings = export_android_settings(&Preferences::default(), None).unwrap();
+    assert!(local.keys().all(|key| !settings.contains_key(key)));
+    assert!(insert_android_local_settings(&mut settings, &local).is_empty());
+    let cloud = document(settings);
+    let (accepted, skipped) = android_local_settings(&cloud, &local_schema()).unwrap();
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(accepted, local);
+    // 本地设置不改共享偏好。
+    let applied = apply(&Preferences::default(), cloud.settings, &local_schema());
+    assert_eq!(applied.preferences, Preferences::default());
+}
+
+#[test]
+fn settings_sync_android_local_settings_skip_unknown_keys_and_bad_values() {
+    use AccountPreferenceValue::{Boolean, Integer, Number, String};
+    let mut settings = BTreeMap::new();
+    let rejected = insert_android_local_settings(
+        &mut settings,
+        &BTreeMap::from([
+            ("platform.android.incognito".to_owned(), Boolean(true)),
+            (
+                "platform.android.developer_options".to_owned(),
+                Boolean(true),
+            ),
+            (
+                "platform.android.voice_contribute_audio".to_owned(),
+                Boolean(true),
+            ),
+            (
+                "platform.android.handwriting_delay_ms".to_owned(),
+                Integer(650),
+            ),
+            (
+                "platform.android.handwriting_stroke_width".to_owned(),
+                Number(4.0),
+            ),
+        ]),
+    );
     assert_eq!(
-        applied.skipped,
+        rejected,
         [
-            "general.app_theme",
-            "helpcode.quanpin_helpcode_mode",
+            "platform.android.developer_options",
             "platform.android.handwriting_delay_ms",
-            "platform.android.handwriting_stroke_width",
-            "platform.android.one_handed",
+            "platform.android.incognito",
+            "platform.android.voice_contribute_audio",
         ]
     );
     assert_eq!(
-        applied.preferences.touch_key_popup,
-        !Preferences::default().touch_key_popup
+        settings,
+        BTreeMap::from([(
+            "platform.android.handwriting_stroke_width".to_owned(),
+            Integer(4)
+        )])
     );
+    let cloud = document(BTreeMap::from([
+        ("general.app_theme".to_owned(), String("winter".into())),
+        (
+            "platform.android.one_handed".to_owned(),
+            String("middle".into()),
+        ),
+        (
+            "platform.android.handwriting_delay_ms".to_owned(),
+            Integer(5000),
+        ),
+        (
+            "platform.android.handwriting_stroke_width".to_owned(),
+            Integer(0),
+        ),
+        ("platform.android.key_popup".to_owned(), Boolean(false)),
+    ]));
+    let (accepted, skipped) = android_local_settings(&cloud, &local_schema()).unwrap();
+    assert_eq!(
+        skipped,
+        [
+            "general.app_theme",
+            "platform.android.one_handed",
+            "platform.android.handwriting_delay_ms",
+            "platform.android.handwriting_stroke_width",
+        ]
+    );
+    assert_eq!(
+        accepted,
+        BTreeMap::from([("platform.android.key_popup".to_owned(), Boolean(false))])
+    );
+    // 字段表没收录的键不交给宿主，类型冲突拒绝整份文档。
+    assert!(android_local_settings(&cloud, &full_schema())
+        .unwrap()
+        .0
+        .is_empty());
+    let conflicting = schema_for(&[("platform.android.key_popup", "string")]);
+    assert!(android_local_settings(&cloud, &conflicting).is_err());
+}
+
+#[test]
+fn settings_sync_app_theme_ids_follow_the_app_theme_picker() {
+    let ids: Vec<&str> = crate::skin::app_theme::AppTheme::ALL
+        .iter()
+        .map(|theme| theme.id())
+        .collect();
+    assert_eq!(ids, APP_THEME_IDS);
 }
 
 #[test]

@@ -16,20 +16,6 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
     )
 }
 
-/// 少按键统计用：按会话的方案，把上屏文字用拼音逐字打出来要按的键数。只有全拼（含九键）和双拼有答案，其他方案和查不到读音的文字为 `None`。
-pub fn canonical_spelling_keys(options: &EngineOptions, text: &str) -> Option<u32> {
-    let double_pinyin = match crate::types::SchemeType::from_u8(options.scheme)? {
-        crate::types::SchemeType::Quanpin => false,
-        crate::types::SchemeType::Shuangpin => true,
-        _ => return None,
-    };
-    crate::dictionary::hanzi::spelling_keys(
-        &runtime_paths(options).dictionary(assets::MAIN_DICTIONARY),
-        text,
-        double_pinyin,
-    )
-}
-
 pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     crate::pinyin::normalize::normalize_full_pinyin(input, expected_syllables)
 }

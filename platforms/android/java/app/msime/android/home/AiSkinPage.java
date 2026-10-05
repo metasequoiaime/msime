@@ -502,7 +502,7 @@ public final class AiSkinPage extends DetailPage {
         }
         JSONObject saved = KeyboardSheets.write(context, preferences -> KeyboardSheets.applyDesign(preferences, design));
         if (saved == null) return "皮肤已保存到我的设计，但切换失败，请在皮肤页里选它";
-        KeyboardSheets.applyLocalSound(context, CustomKeyboardSkin.from(design).soundPack());
+        KeyboardSheets.applyLocalFeedback(context, design);
         KeyboardSheets.recordSkin(context, id);
         return "";
     }

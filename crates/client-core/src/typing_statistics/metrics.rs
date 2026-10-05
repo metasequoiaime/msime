@@ -1,6 +1,6 @@
 //! 统计页的派生指标：从 [`TypingStatistics`] 算出概览、习惯、按键和徽章，所有平台读同一份结果。
 //!
-//! 口径和 `packages/ui/src/settings/typing-statistics.tsx` 里桌面设置页的 TS 实现逐条一致，`metrics_cases` 测试把两边锁在一起。这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
+//! 只有 Android 的统计页用这些派生指标。这里只有纯函数：日期由宿主传入，不读时钟，结果只取决于参数。
 
 use super::{TypingBreakdown, TypingStatistics, HOURS};
 use serde::{Deserialize, Serialize};

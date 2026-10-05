@@ -25,7 +25,6 @@ final class ImeStyler {
     }
 
     /** 偏好里没有 `app_theme` 时的默认值，与 Rust 的 `AppTheme::default()` 一致。 */
-    private static final String DEFAULT_APP_THEME = "siji";
     /** 换季检查的最短间隔：每次渲染都会问一次，但月份一分钟内不会变。 */
     private static final long SEASON_CHECK_INTERVAL_MS = 60_000;
     private String seedTheme;
@@ -61,11 +60,7 @@ final class ImeStyler {
         if (!force && seedCheckedAt != Long.MIN_VALUE && now - seedCheckedAt < SEASON_CHECK_INTERVAL_MS)
             return false;
         seedCheckedAt = now;
-        JSONObject preferences = s.preferencesSnapshot == null ? null
-            : s.preferencesSnapshot.optJSONObject("preferences");
-        String theme = preferences == null ? DEFAULT_APP_THEME
-            : preferences.optString("app_theme", DEFAULT_APP_THEME);
-        if (theme.isEmpty()) theme = DEFAULT_APP_THEME;
+        String theme = s.localSettings.choice(AndroidLocalSettings.APP_THEME);
         int month = LocalDate.now(ZoneId.systemDefault()).getMonthValue();
         if (seed != null && theme.equals(seedTheme) && month == seedMonth) return false;
         AppThemePalette.Seed next = AppThemePalette.Seed.fromResolved(

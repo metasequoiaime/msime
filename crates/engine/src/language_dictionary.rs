@@ -101,16 +101,6 @@ impl LanguageDictionary {
         Ok(result)
     }
 
-    /// 每个单字的前 `length` 个键码，单字按权重从重到轻、同权重按键码排序后取第一次出现的那条。笔画辅助码用它从 `msime-stroke.db` 推出每个字的前两笔；要扫整张表，调用方负责缓存。
-    pub fn single_character_key_prefixes(&self, length: usize) -> Result<Vec<(String, String)>> {
-        let length = i64::try_from(length).unwrap_or(i64::MAX);
-        let mut statement = self.connection.prepare_cached(
-            "SELECT text, substr(key, 1, ?1) FROM entries WHERE length(text) = 1 AND instr(key, ' ') = 0 ORDER BY weight DESC, key ASC",
-        )?;
-        let rows = statement.query_map((length,), |row| Ok((row.get(0)?, row.get(1)?)))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
     /// Whether `syllable` is in the scheme's syllable inventory.
     pub fn has_syllable(&self, syllable: &str) -> Result<bool> {
         Ok(self

@@ -387,16 +387,13 @@ final class KeyboardSkinTests: XCTestCase {
   /// Every theme but a design's custom one, in both modes: key labels on keys and function keys, the return key's label on the accent, and the selected candidate (the accent, no fill) on the keyboard.
   ///
   /// The selected candidate is held to 3:1 rather than 4.5:1. It is drawn semibold, and it is the design's own pairing: the native light accent `#2C7A4B` on `#D1D4DB` measures 3.5:1 and paper's `#2C7A4B` on `#E6E1D5` 4.0:1 (dc.html L1557-1559, client-core's built-in palettes). The floor still catches a theme that loses the selection outright.
-  ///
-  /// 春芽的选中候选是设计自己的配色 `#4E9A3A` 落在 `#DDEBCF` 上，只有 2.81:1（design-tokens.md §1.6），水杉四季在春季画的就是它，所以这两个主题的选中候选按 2.8:1 校验；其余检查不放宽。
   func testSkinTextContrastInBothAppearances() {
     for id in GlobalThemeCatalog.ids {
       let skin = KeyboardTheme.resolve(id, document: [:])
-      let accentFloor = id == "chunya" || id == "siji" ? 2.8 : 3
       for style in [UIUserInterfaceStyle.light, .dark] {
         for (name, foreground, background, floor) in [("key", skin.keyForeground, skin.keyBackground, 4.5),
           ("function", skin.keyForeground, skin.functionKeyBackground, 4.5),
-          ("action", skin.actionForeground, skin.actionBackground, 4.5), ("accent", skin.accent, skin.background, accentFloor)] {
+          ("action", skin.actionForeground, skin.actionBackground, 4.5), ("accent", skin.accent, skin.background, 3)] {
           let a = luminance(foreground, style: style), b = luminance(background, style: style)
           XCTAssertGreaterThanOrEqual((max(a, b) + 0.05) / (min(a, b) + 0.05), floor, "\(id) \(style.rawValue) \(name)")
         }

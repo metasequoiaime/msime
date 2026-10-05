@@ -1,8 +1,7 @@
-//! 派生指标的边界，以及和桌面设置页 TS 实现的一致性用例。
+//! 派生指标的边界用例。
 
 use super::super::{CommitEfficiency, SelectionCounts, TypingBreakdown, TypingRun};
 use super::*;
-use serde_json::{json, Value};
 
 /// 往 `statistics` 里加一天：`han`、`latin`、`digits` 三类字符，来源都记成 `source`，可选的活跃时间和逐小时分布。
 fn add_day(
@@ -379,7 +378,7 @@ fn streaks_cross_months_leap_days_and_years() {
     assert_eq!(current_streak(&recorded, "2028-01-01"), 3);
 }
 
-/// 一致性用例的输入文档：每组都是一个能通过 `validate` 的统计文件，加上宿主的今天和自定义词数。
+/// 边界用例的输入文档：每组都是一个能通过 `validate` 的统计文件，加上宿主的今天和自定义词数。
 fn parity_cases() -> Vec<(&'static str, &'static str, Option<u64>, TypingStatistics)> {
     let mut cases = Vec::new();
     cases.push(("an empty document", "2026-10-05", None, enabled()));
@@ -531,42 +530,19 @@ fn parity_cases() -> Vec<(&'static str, &'static str, Option<u64>, TypingStatist
     cases
 }
 
-/// 桌面设置页的 TS 实现照着这份用例跑：`apps/desktop/tests/settings/typing-metrics-parity.test.ts` 断言 `activityMetrics` 的 `averageSpeed`、`currentStreak`、`longestStreak` 和 `usualHours` 与这里一致。改了算法或用例以后，用 `MSIME_WRITE_STATISTICS_CASES=1 cargo test -p msime-client-core typing_statistics` 重新生成文件，再用 `pnpm exec vp fmt packages/ui/src/settings/typing-metrics-cases.json` 按仓库的格式排版（比较只看内容，不看空白）。
+/// 每组边界用例都是能通过校验的统计文件，并且能算出可序列化的概览。
 #[test]
-fn typing_metrics_cases_match_the_checked_in_copy() {
-    let mut cases = Vec::new();
+fn parity_cases_validate_and_summarize() {
     for (name, today, user_words, statistics) in parity_cases() {
         statistics
             .validate()
-            .expect("parity case is a valid document");
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
         let summary = summarize(&statistics, today, &SummaryInputs { user_words });
         let recorded: Vec<String> = statistics.days.keys().cloned().collect();
-        cases.push(json!({
-            "name": name,
-            "today": today,
-            "userWords": user_words,
-            "statistics": statistics,
-            "allTimeAverageSpeed": average_speed_over(&statistics, &recorded),
-            "summary": summary,
-        }));
+        let speed = average_speed_over(&statistics, &recorded);
+        assert!(
+            serde_json::to_value(&summary).is_ok() && serde_json::to_value(speed).is_ok(),
+            "{name}"
+        );
     }
-    let cases = Value::Array(cases);
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../packages/ui/src/settings/typing-metrics-cases.json"
-    );
-    // 两边都从文本解析再比较：serde_json 默认的浮点解析不保证逐位还原 `f64`，但同样的数字文本总是解析成同样的值；这样也不受仓库格式化工具改动空白的影响。
-    let text = serde_json::to_string_pretty(&cases).expect("cases print") + "\n";
-    if std::env::var_os("MSIME_WRITE_STATISTICS_CASES").is_some() {
-        std::fs::write(path, &text).expect("typing metrics cases are writable");
-    }
-    let expected: Value = serde_json::from_str(&text).expect("cases parse");
-    let copy: Value = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|copy| serde_json::from_str(&copy).ok())
-        .expect("packages/ui/src/settings/typing-metrics-cases.json is missing; rerun this test with MSIME_WRITE_STATISTICS_CASES=1");
-    assert!(
-        copy == expected,
-        "packages/ui/src/settings/typing-metrics-cases.json is stale; rerun this test with MSIME_WRITE_STATISTICS_CASES=1"
-    );
 }

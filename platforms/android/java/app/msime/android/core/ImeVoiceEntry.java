@@ -105,12 +105,12 @@ final class ImeVoiceEntry {
         boolean streamingConfigured = configured.streaming() != null;
         boolean needsNetwork = !localConfigured;
         Engine engine = choose(localConfigured, streamingConfigured, !needsNetwork || online(),
-            voice.optBoolean("offline_fallback", false), fallbackInstalled);
+            s.localSettings.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK), fallbackInstalled);
         if (engine == null) return false;
         String model = localConfigured ? configured.localModel() : fallbackModel;
         String provider = engine == Engine.LOCAL ? LocalAsrPolicy.PROVIDER : DoubaoAsrPolicy.PROVIDER;
         String language = voice.optString("language", "zh-CN");
-        boolean contribute = voice.optBoolean("contribute_audio", false) && s.imePrivacyGate.contributesVoice()
+        boolean contribute = s.localSettings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO) && s.imePrivacyGate.contributesVoice()
             && !EditorPolicy.password(s.editorInputType);
         show(keyArea);
         long session = ++generation;

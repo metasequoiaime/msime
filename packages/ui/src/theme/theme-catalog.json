@@ -5,22 +5,7 @@
     "id": "system",
     "keyboard": null,
     "preview": null,
-    "seasonal": false,
     "title": "跟随系统"
-  },
-  {
-    "appearance": null,
-    "candidate": null,
-    "id": "siji",
-    "keyboard": null,
-    "preview": {
-      "accent": "#B5562B",
-      "background": "#EFE0CC",
-      "panel": "#FAF3E8",
-      "text": "#2E1D12"
-    },
-    "seasonal": true,
-    "title": "水杉四季"
   },
   {
     "appearance": "dark",
@@ -53,7 +38,6 @@
       "panel": "#2A2B27",
       "text": "#FFFFFF"
     },
-    "seasonal": false,
     "title": "水杉"
   },
   {
@@ -87,7 +71,6 @@
       "panel": "#FFFFFF",
       "text": "#1A1A1A"
     },
-    "seasonal": false,
     "title": "浅色"
   },
   {
@@ -121,7 +104,6 @@
       "panel": "#F7F5F0",
       "text": "#1A1E1B"
     },
-    "seasonal": false,
     "title": "纸白"
   },
   {
@@ -155,7 +137,6 @@
       "panel": "#16262F",
       "text": "#E6F1F4"
     },
-    "seasonal": false,
     "title": "夜青"
   },
   {
@@ -189,144 +170,7 @@
       "panel": "#1A1A1A",
       "text": "#9A9A9A"
     },
-    "seasonal": false,
     "title": "墨"
-  },
-  {
-    "appearance": "light",
-    "candidate": {
-      "accent": "#4E9A3A",
-      "border": "#0000001F",
-      "hover": "#1E2A180F",
-      "number": "#5F7352",
-      "secondary": "#5F7352",
-      "selected": "#4E9A3A24",
-      "selected_number": "#5F7352",
-      "selected_text": "#4E9A3A",
-      "show_selected_bar": null,
-      "surface": "#F6FAF0",
-      "text": "#1E2A18"
-    },
-    "id": "chunya",
-    "keyboard": {
-      "accent": "#4E9A3A",
-      "background": "#DDEBCF",
-      "function_key": "#C2D9AE",
-      "key": "#F8FBF3",
-      "on_accent": "#000000",
-      "secondary": "#5F7352",
-      "text": "#1E2A18"
-    },
-    "preview": {
-      "accent": "#4E9A3A",
-      "background": "#E4EED9",
-      "panel": "#F6FAF0",
-      "text": "#1E2A18"
-    },
-    "seasonal": false,
-    "title": "春芽"
-  },
-  {
-    "appearance": "dark",
-    "candidate": {
-      "accent": "#8EE0A8",
-      "border": "#0000001F",
-      "hover": "#EAF5EE0F",
-      "number": "#93B8A2",
-      "secondary": "#93B8A2",
-      "selected": "#8EE0A824",
-      "selected_number": "#93B8A2",
-      "selected_text": "#8EE0A8",
-      "show_selected_bar": null,
-      "surface": "#1F4232",
-      "text": "#EAF5EE"
-    },
-    "id": "xiayin",
-    "keyboard": {
-      "accent": "#8EE0A8",
-      "background": "#163024",
-      "function_key": "#1B392C",
-      "key": "#24473A",
-      "on_accent": "#000000",
-      "secondary": "#93B8A2",
-      "text": "#EAF5EE"
-    },
-    "preview": {
-      "accent": "#8EE0A8",
-      "background": "#173326",
-      "panel": "#1F4232",
-      "text": "#EAF5EE"
-    },
-    "seasonal": false,
-    "title": "夏荫"
-  },
-  {
-    "appearance": "light",
-    "candidate": {
-      "accent": "#B5562B",
-      "border": "#0000001F",
-      "hover": "#2E1D120F",
-      "number": "#7D624A",
-      "secondary": "#7D624A",
-      "selected": "#B5562B24",
-      "selected_number": "#7D624A",
-      "selected_text": "#B5562B",
-      "show_selected_bar": null,
-      "surface": "#FAF3E8",
-      "text": "#2E1D12"
-    },
-    "id": "qiushan",
-    "keyboard": {
-      "accent": "#B5562B",
-      "background": "#EAD7BE",
-      "function_key": "#DABF9C",
-      "key": "#FBF5EC",
-      "on_accent": "#FFFFFF",
-      "secondary": "#7D624A",
-      "text": "#2E1D12"
-    },
-    "preview": {
-      "accent": "#B5562B",
-      "background": "#EFE0CC",
-      "panel": "#FAF3E8",
-      "text": "#2E1D12"
-    },
-    "seasonal": false,
-    "title": "秋杉"
-  },
-  {
-    "appearance": "light",
-    "candidate": {
-      "accent": "#3F6E7D",
-      "border": "#0000001F",
-      "hover": "#1A24280F",
-      "number": "#60727A",
-      "secondary": "#60727A",
-      "selected": "#3F6E7D24",
-      "selected_number": "#60727A",
-      "selected_text": "#3F6E7D",
-      "show_selected_bar": null,
-      "surface": "#F7FAFB",
-      "text": "#1A2428"
-    },
-    "id": "dongxue",
-    "keyboard": {
-      "accent": "#3F6E7D",
-      "background": "#E1E8EC",
-      "function_key": "#C6D2D8",
-      "key": "#FBFDFE",
-      "on_accent": "#FFFFFF",
-      "secondary": "#60727A",
-      "text": "#1A2428"
-    },
-    "preview": {
-      "accent": "#3F6E7D",
-      "background": "#E6ECEF",
-      "panel": "#F7FAFB",
-      "text": "#1A2428"
-    },
-    "seasonal": false,
-    "title": "冬雪"
   },
   {
     "appearance": null,
@@ -334,7 +178,6 @@
     "id": "custom",
     "keyboard": null,
     "preview": null,
-    "seasonal": false,
     "title": "自定义"
   }
 ]

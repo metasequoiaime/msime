@@ -1697,13 +1697,11 @@ fn helpcode_settings_switch_independently_after_composition() {
             enabled: false,
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
-            mode: Default::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
             enabled: true,
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
-            mode: Default::default(),
         },
         ..Preferences::default()
     };
@@ -1951,66 +1949,14 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
         .collect();
     assert_eq!(
         ids,
-        [
-            "system", "siji", "shuishan", "light", "paper", "night", "ink", "chunya", "xiayin",
-            "qiushan", "dongxue", "custom"
-        ]
+        ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
     );
-    let night = &catalog["value"]["themes"][5];
+    let night = &catalog["value"]["themes"][4];
     assert_eq!(night["title"], "夜青");
     assert_eq!(night["appearance"], "dark");
     assert_eq!(night["candidate"]["accent"], "#4FD1C5");
-    assert_eq!(night["seasonal"], false);
     assert_eq!(catalog["value"]["themes"][0]["candidate"], Value::Null);
-    assert_eq!(catalog["value"]["themes"][11]["keyboard"], Value::Null);
-    // 水杉四季带固定的秋杉预览，色板留给 resolve。
-    let siji = &catalog["value"]["themes"][1];
-    assert_eq!(siji["seasonal"], true);
-    assert_eq!(siji["preview"]["accent"], "#B5562B");
-    assert_eq!(siji["candidate"], Value::Null);
-}
-
-#[test]
-fn resolve_theme_reads_the_month_for_siji_only() {
-    let call = |request: Value| {
-        let request = request.to_string();
-        read(unsafe { msime_client_resolve_theme(request.as_ptr(), request.len()) })
-    };
-    let spring =
-        call(json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": 4}));
-    assert_eq!(spring["ok"], true, "{spring}");
-    assert_eq!(spring["value"]["id"], "siji");
-    assert_eq!(spring["value"]["season"], "spring");
-    assert_eq!(spring["value"]["source"], "builtin");
-    assert_eq!(spring["value"]["candidate"]["accent"], "#4E9A3A");
-    assert_eq!(spring["value"]["keyboard"]["background"], "#DDEBCF");
-    let summer =
-        call(json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": 7}));
-    assert_eq!(summer["value"]["appearance"], "dark");
-    assert_eq!(summer["value"]["keyboard"]["background"], "#163024");
-    // 自定义主题画在水杉四季上时也按月份。
-    let custom = call(json!({
-        "global_theme": "custom", "custom_theme": {"base": "siji"}, "dark": false,
-        "layout": "vertical", "month": 12,
-    }));
-    assert_eq!(custom["value"]["season"], "winter", "{custom}");
-    assert_eq!(custom["value"]["candidate"]["accent"], "#3F6E7D");
-    // 其他主题不看月份，结果里也没有 season。
-    let ink = call(json!({"global_theme": "ink", "dark": false, "layout": "vertical", "month": 4}));
-    assert_eq!(ink["ok"], true);
-    assert!(ink["value"].get("season").is_none());
-    // 不带月份的旧请求照常成功，按 UTC 月份。
-    let legacy = call(json!({"global_theme": "siji", "dark": true, "layout": "horizontal"}));
-    assert_eq!(legacy["ok"], true, "{legacy}");
-    let season = msime_client_core::skin::season::current_utc_season();
-    assert_eq!(legacy["value"]["season"], season.id());
-    for month in [0, 13] {
-        let refused = call(
-            json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": month}),
-        );
-        assert_eq!(refused["ok"], false, "{month}");
-        assert_eq!(refused["error"], "invalid theme request");
-    }
+    assert_eq!(catalog["value"]["themes"][6]["keyboard"], Value::Null);
 }
 
 #[test]
@@ -3149,17 +3095,16 @@ fn selection_statistics_reach_the_store_at_focus_out() {
     read(msime_client_destroy(handle));
     assert_eq!(store.load().unwrap().selections.total(), 3);
 }
-/// 隐私模式：引擎不学习，选词位置也不计入统计。
+/// Android 宿主在隐私模式和不学习的输入框里以 `learning: false` 建立会话：选词位置不计入统计。
 #[test]
-fn incognito_turns_learning_and_selection_statistics_off() {
+fn a_session_without_learning_counts_no_selection_statistics() {
     let dir = tempfile::tempdir().unwrap();
     let store = TypingStatisticsStore::new(dir.path().join("user"));
     store.set_enabled(true).unwrap();
     let preferences = Preferences {
-        touch_incognito: true,
+        learning: false,
         ..chinese_preferences()
     };
-    assert!(preferences.learning);
     let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
     SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.learning));
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
@@ -3169,9 +3114,9 @@ fn incognito_turns_learning_and_selection_statistics_off() {
     assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
     assert_eq!(store.load().unwrap().selections.total(), 0);
 
-    // 关掉隐私模式后照常学习、照常计数。
+    // 恢复学习后照常计数。
     let open = Preferences {
-        touch_incognito: false,
+        learning: true,
         ..preferences
     };
     assert_eq!(update(handle, 1, &open)["ok"], true);
@@ -3183,32 +3128,9 @@ fn incognito_turns_learning_and_selection_statistics_off() {
     read(msime_client_destroy(handle));
 }
 
-/// 郑码只能保存：没有内置码表时按关闭辅助码交给 Engine，会话照常创建。
+/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，不学习的会话什么都不计。
 #[test]
-fn a_zhengma_helpcode_is_stored_but_not_handed_to_the_engine() {
-    use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
-    let dir = tempfile::tempdir().unwrap();
-    let preferences = Preferences {
-        quanpin_helpcode: HelpcodePreferences {
-            enabled: true,
-            schema: HelpcodeSchema::Zhengma,
-            show_in_candidate_window: true,
-            mode: Default::default(),
-        },
-        ..chinese_preferences()
-    };
-    let handle = test_host_preferences(dir.path(), preferences);
-    SESSIONS.with(|sessions| {
-        let session = &sessions.borrow()[&handle];
-        assert!(!session.options.helpcode);
-        assert_eq!(session.options.helpcode_schema, "ziranma");
-    });
-    read(msime_client_destroy(handle));
-}
-
-/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，隐私模式下什么都不计。
-#[test]
-fn a_committed_selection_counts_its_efficiency_and_incognito_counts_nothing() {
+fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let (handle, store) = selection_statistics_host(dir.path(), true);
     commit_candidate_by_position(handle, 0);
@@ -3225,7 +3147,7 @@ fn a_committed_selection_counts_its_efficiency_and_incognito_counts_nothing() {
     let store = TypingStatisticsStore::new(dir.path().join("user"));
     store.set_enabled(true).unwrap();
     let preferences = Preferences {
-        touch_incognito: true,
+        learning: false,
         ..chinese_preferences()
     };
     let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
@@ -3248,55 +3170,6 @@ fn efficiency_is_not_counted_while_statistics_are_off() {
     });
     assert_eq!(store.load().unwrap().efficiency.commits, 0);
     read(msime_client_destroy(handle));
-}
-
-/// 辅助码取法：笔画与混合把码表改写后作为宿主表交给 Engine；部首不改；笔画词库不在时退回部首。
-#[test]
-fn helpcode_mode_rewrites_the_table_handed_to_the_engine() {
-    use msime_client_core::preferences::HelpcodeMode as Mode;
-    let dir = tempfile::tempdir().unwrap();
-    let stroke = dir.path().join("msime-stroke.db");
-    let connection = rusqlite::Connection::open(&stroke).unwrap();
-    connection
-        .execute_batch(msime_engine::language_dictionary::SCHEMA)
-        .unwrap();
-    connection
-        .execute_batch(
-            "INSERT INTO metadata VALUES('format_version','1');
-             INSERT INTO entries VALUES('pnhz','你',100);",
-        )
-        .unwrap();
-    drop(connection);
-    let mut preferences = chinese_preferences();
-    preferences.quanpin_helpcode.enabled = true;
-    let handle = test_host_preferences(dir.path(), preferences.clone());
-    let mut options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
-    read(msime_client_destroy(handle));
-    options.scheme = 0;
-    options.helpcode = true;
-    options.stroke_dictionary = stroke.to_string_lossy().into_owned();
-    let table = |mode: Mode, options: &EngineOptions| {
-        let mut preferences = preferences.clone();
-        preferences.quanpin_helpcode.mode = mode;
-        plugin_tables::PluginTables::stamp(None, options, &preferences)
-            .helpcode_table(None, options)
-    };
-    assert!(table(Mode::Radical, &options).is_none());
-    let stroke_table = table(Mode::Stroke, &options).unwrap();
-    assert_eq!(stroke_table.code("你"), Some("pn"));
-    let mixed = table(Mode::Mixed, &options).unwrap();
-    // 测试资源里没有码表，混合模式只剩笔画词库里也查不到部首的空表。
-    assert_eq!(mixed.code("你"), None);
-    // 取法变了，戳也变了，聚焦时会换表。
-    let mut stroke_preferences = preferences.clone();
-    stroke_preferences.quanpin_helpcode.mode = Mode::Stroke;
-    assert!(
-        plugin_tables::PluginTables::stamp(None, &options, &stroke_preferences).helpcode_differs(
-            &plugin_tables::PluginTables::stamp(None, &options, &preferences)
-        )
-    );
-    options.stroke_dictionary = dir.path().join("missing.db").to_string_lossy().into_owned();
-    assert!(table(Mode::Stroke, &options).is_none());
 }
 
 /// A result of the expression mode is picked, not typed: the preference opens the mode through the host, and the pick is kept out of the selection statistics as it is kept out of learning.
@@ -10738,18 +10611,22 @@ fn diagnostic_bundle_drops_text_lines_and_redacts_credentials() {
 #[test]
 fn account_settings_export_and_apply_round_trip_without_credentials() {
     let directory = tempfile::tempdir().unwrap();
-    let mut preferences = Preferences {
-        touch_incognito: true,
-        ..Preferences::default()
-    };
+    let mut preferences = Preferences::default();
     preferences.voice_input.asr_token = "SENTINEL-asr".into();
-    preferences.touch_key_popup = !Preferences::default().touch_key_popup;
+    preferences.touch_toolbar.ai = !Preferences::default().touch_toolbar.ai;
     PreferencesStore::new(directory.path())
         .save(0, preferences.clone())
         .unwrap();
     let exported = call_android_data(
         msime_client_account_settings_export,
-        json!({"preferences_directory": directory.path(), "custom_keyboard_skins": "[]"}),
+        json!({
+            "preferences_directory": directory.path(),
+            "custom_keyboard_skins": "[]",
+            "android_local": {
+                "platform.android.key_popup": false,
+                "platform.android.incognito": true,
+            },
+        }),
     );
     assert_eq!(exported["ok"], true, "{exported}");
     let text = exported.to_string();
@@ -10757,6 +10634,7 @@ fn account_settings_export_and_apply_round_trip_without_credentials() {
     assert!(!text.contains("incognito"));
     let settings = exported["value"]["settings"].clone();
     assert_eq!(settings["platform.android.custom_keyboard_skins"], "[]");
+    assert_eq!(settings["platform.android.key_popup"], false);
     let fields: serde_json::Map<String, Value> = settings
         .as_object()
         .unwrap()
@@ -10788,11 +10666,14 @@ fn account_settings_export_and_apply_round_trip_without_credentials() {
     );
     assert_eq!(applied["ok"], true, "{applied}");
     assert_eq!(applied["value"]["custom_keyboard_skins"], "[]");
+    assert_eq!(
+        applied["value"]["android_local"],
+        json!({"platform.android.key_popup": false})
+    );
     let saved = PreferencesStore::new(other.path()).load().unwrap();
     assert_eq!(
-        saved.preferences.touch_key_popup,
-        preferences.touch_key_popup
+        saved.preferences.touch_toolbar.ai,
+        preferences.touch_toolbar.ai
     );
-    assert!(!saved.preferences.touch_incognito);
     assert!(saved.preferences.voice_input.asr_token.is_empty());
 }

@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * 应用主题的派生色：种子色写死在这里（设计令牌 §1.2，深色 onAccent 用 `mix(accent 25%, #000)`），期望值是原型在浏览器里算出的结果（§1.3、§1.4）。秋杉浅深逐项核对，春夏冬抽样。
  *
- * <p>不读 `packages/ui/src/theme/app-theme-catalog.json`：那份文件和 Rust 种子的一致性由另外的检查负责，这里只锁住 Java 的公式。
+ * <p>不读 `platforms/android/tests/settings/app-theme-catalog.json`：那份文件和 Rust 种子的一致性由另外的检查负责，这里只锁住 Java 的公式。
  */
 public final class AppThemePaletteSmoke {
     private static final List<String> failures = new ArrayList<>();

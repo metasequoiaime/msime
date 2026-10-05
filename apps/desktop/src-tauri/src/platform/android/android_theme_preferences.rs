@@ -169,34 +169,6 @@ mod tests {
         assert_eq!(applied.custom_theme, preferences.custom_theme);
     }
 
-    /// 水杉四季与四个季节主题照样同步：作为全局主题，也作为自定义主题的底。
-    #[test]
-    fn the_seasonal_themes_survive_the_round_trip() {
-        for theme in [
-            GlobalTheme::Siji,
-            GlobalTheme::Chunya,
-            GlobalTheme::Xiayin,
-            GlobalTheme::Qiushan,
-            GlobalTheme::Dongxue,
-        ] {
-            let mut preferences = Preferences::default();
-            preferences.global_theme = theme;
-            assert_eq!(round_trip(&preferences).global_theme, theme);
-            preferences.global_theme = GlobalTheme::Custom;
-            preferences.custom_theme.base = theme;
-            assert_eq!(round_trip(&preferences).custom_theme.base, theme);
-        }
-        // 四季主题加入之前同步上去的同名皮肤选择仍然是合法值。
-        assert_eq!(
-            applying(CUSTOM_CANDIDATE_SKIN, "qiushan")
-                .unwrap()
-                .custom_theme
-                .candidate_skin
-                .as_deref(),
-            Some("qiushan")
-        );
-    }
-
     #[test]
     fn unknown_themes_non_base_bases_and_non_external_packages_are_refused() {
         for (key, value) in [

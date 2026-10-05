@@ -60,7 +60,7 @@ final class BackendPreferencesTests: XCTestCase {
     let old = BackendAccountClient.PreferenceSchema(fields: schema.fields, maximum_bytes: 65536, update_mode: "replace", revision_required: true)
     XCTAssertThrowsError(try BackendAccountClient.mergedPreferences(base, replacing: [key: .string(json)], schema: old))
   }
-  private let themes: Set<String> = ["system", "siji", "shuishan", "light", "paper", "night", "ink", "chunya", "xiayin", "qiushan", "dongxue", "custom"]
+  private let themes: Set<String> = ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
 
   func testUnsupportedCloudValuesFailBeforeAnApplicationPlanExists() throws {
     for settings: [String: BackendPreferenceValue] in [

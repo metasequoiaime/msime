@@ -14,6 +14,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.core.widget.NestedScrollView;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
 import app.msime.android.FirstRunPreparation;
 import app.msime.android.KeyboardGeometry;
@@ -34,6 +35,7 @@ import org.json.JSONObject;
 public final class KeyboardFragment extends HomeTabFragment {
 
     @Nullable private JSONObject snapshot;
+    private AndroidLocalSettings.Snapshot local = AndroidLocalSettings.defaults();
     /** The current scheme's title for the status line, or null until the preferences are read. */
     @Nullable private String schemeTitle;
     private final android.view.ViewTreeObserver.OnWindowFocusChangeListener focusWatch = focused -> {
@@ -142,10 +144,12 @@ public final class KeyboardFragment extends HomeTabFragment {
     private void reload() {
         HostTask.run(this, context -> {
             boolean ready = HostStore.prepared(context);
-            return new Object[] {ready, ready ? HostStore.loadPreferences(context) : null};
+            return new Object[] {ready, ready ? HostStore.loadPreferences(context) : null,
+                AndroidLocalSettings.load(context)};
         }, result -> {
             if (result != null) {
                 prepared = Boolean.TRUE.equals(result[0]);
+                if (result[2] instanceof AndroidLocalSettings.Snapshot settings) local = settings;
                 if (result[1] instanceof JSONObject value) {
                     snapshot = value;
                     JSONObject preferences = value.optJSONObject("preferences");
@@ -223,15 +227,15 @@ public final class KeyboardFragment extends HomeTabFragment {
     private String value(PageId page, JSONObject preferences, String skin, String scheme) {
         switch (page) {
             case SKINS: return skin;
-            case KEYBOARD_OPTIONS: return keysSummary(preferences);
+            case KEYBOARD_OPTIONS: return keysSummary(preferences, local);
             case TYPING: return scheme;
             case EXPRESSION:
                 return preferences.optBoolean("chinese_punctuation", true) ? "中文标点" : "英文标点";
             case LEXICON:
                 return preferences.optBoolean("learning", true) ? "记忆新词已开" : "记忆新词已关";
             case VOICE: return voiceLanguage(preferences);
-            case HANDWRITING: return handwritingMode(preferences);
-            case DEVELOPER: return developerSummary(preferences);
+            case HANDWRITING: return handwritingMode(local);
+            case DEVELOPER: return developerSummary(local);
             default: return "";
         }
     }
@@ -337,8 +341,10 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     // ---- row values ----
 
-    private static String keysSummary(JSONObject preferences) {
-        int height = KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", 0);
+    private static String keysSummary(JSONObject preferences, AndroidLocalSettings.Snapshot local) {
+        int height = local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
+            ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
+            : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", 0);
         String layout = "nine_key".equals(preferences.optString("touch_keyboard_layout", "twenty_six_key"))
             ? "九键" : "全键盘";
         return height == 0 ? layout + " · 标准高度" : layout + " · 高度 " + (height > 0 ? "+" : "") + height;
@@ -354,20 +360,16 @@ public final class KeyboardFragment extends HomeTabFragment {
         return language;
     }
 
-    private static String handwritingMode(JSONObject preferences) {
-        JSONObject handwriting = preferences.optJSONObject("touch_handwriting");
-        String mode = handwriting == null ? "overlap" : handwriting.optString("mode", "overlap");
-        switch (mode) {
+    private static String handwritingMode(AndroidLocalSettings.Snapshot local) {
+        switch (local.choice(AndroidLocalSettings.HANDWRITING_MODE)) {
             case "single": return "单字";
             case "line": return "行写";
             default: return "叠写";
         }
     }
 
-    private static String developerSummary(JSONObject preferences) {
-        JSONObject developer = preferences.optJSONObject("developer_options");
-        if (developer == null) return "日志级别 警告";
-        switch (developer.optString("log_level", "warn")) {
+    private static String developerSummary(AndroidLocalSettings.Snapshot local) {
+        switch (local.choice(AndroidLocalSettings.DEVELOPER_LOG_LEVEL)) {
             case "error": return "日志级别 错误";
             case "info": return "日志级别 信息";
             case "debug": return "日志级别 调试";

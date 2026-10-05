@@ -46,44 +46,6 @@ pub fn hanzi_to_pinyin(main_db: &Path, text: &str) -> String {
     readings.join("'")
 }
 
-/// 用拼音把 `text` 逐字打出来要按的键数，少按键统计的分母：全拼和九键是每个读音的字母数，双拼（`double_pinyin`）是每个音节 2 码。
-///
-/// 只查每个字的首选单字读音（与 `hanzi_to_pinyin` 的逐字回退共用同一份进程级缓存），不跑整词查询：它在每次上屏时于输入线程上调用，缓存命中后只是几次哈希查找。`text` 为空、超过 128 字、含非汉字或有字查不到读音时为 `None`。
-pub fn spelling_keys(main_db: &Path, text: &str, double_pinyin: bool) -> Option<u32> {
-    let length = text.chars().count();
-    if length == 0 || length > MAXIMUM_CHARACTERS || !text.chars().all(is_bridge_han) {
-        return None;
-    }
-    let singles = single_readings(main_db)?;
-    let mut keys = 0u32;
-    let mut buffer = [0; 4];
-    for character in text.chars() {
-        let reading = singles.get(character.encode_utf8(&mut buffer) as &str)?;
-        let count = if double_pinyin {
-            2
-        } else {
-            reading.bytes().filter(u8::is_ascii_alphabetic).count() as u32
-        };
-        keys = keys.saturating_add(count);
-    }
-    Some(keys)
-}
-
-/// 缓存里已有的逐字读音；没有时才打开数据库扫一遍单字表。
-fn single_readings(main_db: &Path) -> Option<Arc<HanziReadings>> {
-    if let Some(cache) = HANZI_CACHE.get() {
-        if let Some(found) = cache
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(main_db)
-        {
-            return Some(Arc::clone(found));
-        }
-    }
-    let connection = open(main_db)?;
-    Some(cached_single_hanzi_map(&connection, main_db))
-}
-
 /// The bridge's own Han ranges (bridge.cpp:143-148). Narrower than `text::is_han`: no U+3007 and nothing past U+2FA1F, and the import path keeps rejecting those.
 fn is_bridge_han(character: char) -> bool {
     matches!(character as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F)
@@ -282,19 +244,6 @@ mod tests {
         assert_eq!(hanzi_to_pinyin(&path, "行"), "hang");
         // Within one table: heaviest, then the smaller key.
         assert_eq!(hanzi_to_pinyin(&path, "好"), "hai");
-    }
-
-    #[test]
-    fn spelling_keys_count_letters_or_two_codes_per_syllable() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = fixture(directory.path());
-        // 逐字取首选读音：你 ni、们 men，行取权重最高的 xing。
-        assert_eq!(spelling_keys(&path, "你们", false), Some(5));
-        assert_eq!(spelling_keys(&path, "行", false), Some(4));
-        assert_eq!(spelling_keys(&path, "你们", true), Some(4));
-        assert_eq!(spelling_keys(&path, "你猫", false), None);
-        assert_eq!(spelling_keys(&path, "hello", false), None);
-        assert_eq!(spelling_keys(&path, "", false), None);
     }
 
     #[test]

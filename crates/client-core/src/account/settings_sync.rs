@@ -2,17 +2,17 @@
 //!
 //! 这份映射原来写在 Tauri 应用的 `android_account.rs` 里，安卓原生宿主拿不到；搬到这里以后 Tauri 和原生宿主（经 C ABI）共用一份。键名和取值与原来完全一致，唯一的行为变化是：云端某个键的取值超出本机范围或是本机不认识的枚举值时，只跳过这一个键并在结果里列出，其余的键照常应用，而不是让整份文档失败。值的类型与字段表不符、字段表本身与本机期望的类型冲突，仍然拒绝整份文档。
 //!
-//! 只映射设备之间应当一致的设置。凭据（各类 token、密钥）、隐私模式、开发者选项、诊断日志和语音数据贡献都是设备本地的，永远不出现在导出结果里，测试锁住了这一点。
+//! 只映射设备之间应当一致的设置。凭据（各类 token、密钥）和诊断日志是设备本地的，永远不出现在导出结果里，测试锁住了这一点。
+//!
+//! 设计改版新增的 Android 设置（应用主题、单手、按键细节、工具栏的常用语/输入方式/隐藏、手写、离线语音）不在共享偏好里，而在 Android 宿主自己的本地设置文件里。宿主把其中参与同步的值按同步键传进来（[`insert_android_local_settings`]），应用时拿回云端校验过的值写回本地文件（[`android_local_settings`]）。隐私模式、开发者选项和语音数据贡献也在那个文件里，但不在 [`ANDROID_LOCAL_SETTINGS`] 里，所以永远不同步。
 //!
 //! 按键音、振动开关和振动强度不在共享偏好里，而在宿主自己的本地存储（Android 的 `KeyboardFeedbackStore`），由调用方读出来作为 [`HostKeyboardFeedback`] 传入，应用后再由调用方写回。
 
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::preferences::{
-    FrequencyMode, HandwritingMode, HandwritingStrokeColor, HelpcodeMode, InputScheme, Preferences,
-    ShuangpinProfile, ThemeMode, TouchKeyAnimation, TouchKeyboardLayout, TouchOneHanded,
+    FrequencyMode, InputScheme, Preferences, ShuangpinProfile, ThemeMode, TouchKeyboardLayout,
     WubiProfile,
 };
-use crate::skin::app_theme::AppTheme;
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -37,19 +37,16 @@ const MAX_KEY_SOUND_PACK_CHARS: usize = 64;
 /// 语音识别语言的长度上限，与服务端字段表相同。
 const MAX_VOICE_LANGUAGE_CHARS: usize = 16;
 
-/// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。
-const TOOLBAR_KEYS: [&str; 11] = [
+/// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。常用语、输入方式和「隐藏」三个开关在 Android 本地设置里，见 [`ANDROID_LOCAL_SETTINGS`]。
+const TOOLBAR_KEYS: [&str; 8] = [
     "platform.android.toolbar_layout",
     "platform.android.toolbar_emoji",
-    "platform.android.toolbar_phrase",
     "platform.android.toolbar_clipboard",
     "platform.android.toolbar_skin",
     "platform.android.toolbar_ai",
     "platform.android.toolbar_character_set",
     "platform.android.toolbar_fullwidth",
     "platform.android.toolbar_punctuation",
-    "platform.android.toolbar_scheme",
-    "platform.android.toolbar_hidden",
 ];
 
 /// `touch_toolbar` 里与 [`TOOLBAR_KEYS`] 同序的成员。
@@ -60,68 +57,159 @@ fn toolbar_member(
     match index {
         0 => &mut toolbar.layout,
         1 => &mut toolbar.emoji,
-        2 => &mut toolbar.phrase,
-        3 => &mut toolbar.clipboard,
-        4 => &mut toolbar.skin,
-        5 => &mut toolbar.ai,
-        6 => &mut toolbar.character_set,
-        7 => &mut toolbar.fullwidth,
-        8 => &mut toolbar.punctuation,
-        9 => &mut toolbar.scheme,
-        _ => &mut toolbar.hidden,
+        2 => &mut toolbar.clipboard,
+        3 => &mut toolbar.skin,
+        4 => &mut toolbar.ai,
+        5 => &mut toolbar.character_set,
+        6 => &mut toolbar.fullwidth,
+        _ => &mut toolbar.punctuation,
     }
 }
 
-fn one_handed(value: TouchOneHanded) -> &'static str {
-    match value {
-        TouchOneHanded::Off => "off",
-        TouchOneHanded::Left => "left",
-        TouchOneHanded::Right => "right",
+/// Android 本地设置的一项在同步文档里允许的取值。
+#[derive(Clone, Copy, Debug)]
+enum LocalSetting {
+    Boolean,
+    Choice(&'static [&'static str]),
+    /// `min..=max` 里从 `min` 起每 `step` 一档的整数。
+    Integer {
+        min: i64,
+        max: i64,
+        step: i64,
+    },
+}
+
+impl LocalSetting {
+    fn schema_type(self) -> &'static str {
+        match self {
+            LocalSetting::Boolean => "boolean",
+            LocalSetting::Choice(_) => "string",
+            LocalSetting::Integer { .. } => "integer",
+        }
+    }
+
+    /// 合规时返回规范化的值（`number` 类型里不带小数的值换成整数），否则 `None`。
+    fn accept(self, value: &AccountPreferenceValue) -> Option<AccountPreferenceValue> {
+        match (self, value) {
+            (LocalSetting::Boolean, AccountPreferenceValue::Boolean(_)) => Some(value.clone()),
+            (LocalSetting::Choice(choices), AccountPreferenceValue::String(text)) => {
+                choices.contains(&text.as_str()).then(|| value.clone())
+            }
+            (LocalSetting::Integer { min, max, step }, AccountPreferenceValue::Integer(number)) => {
+                ((min..=max).contains(number) && (number - min) % step == 0)
+                    .then_some(AccountPreferenceValue::Integer(*number))
+            }
+            (LocalSetting::Integer { .. }, AccountPreferenceValue::Number(number))
+                if number.is_finite() && number.fract() == 0.0 =>
+            {
+                self.accept(&AccountPreferenceValue::Integer(*number as i64))
+            }
+            _ => None,
+        }
     }
 }
 
-fn key_animation(value: TouchKeyAnimation) -> &'static str {
-    match value {
-        TouchKeyAnimation::None => "none",
-        TouchKeyAnimation::Bounce => "bounce",
-        TouchKeyAnimation::Ripple => "ripple",
-        TouchKeyAnimation::Glow => "glow",
-        TouchKeyAnimation::Lift => "lift",
-    }
+/// 应用主题的 ID，与 [`crate::skin::app_theme::AppTheme`] 的选择器顺序相同，测试锁住两边一致。
+const APP_THEME_IDS: [&str; 5] = ["siji", "chunya", "xiayin", "qiushan", "dongxue"];
+
+/// Android 本地设置文件里参与同步的键（与服务端字段表的键相同）和允许的取值。这些设置只有 Android 宿主用，不在共享偏好里；隐私模式、开发者选项和语音数据贡献不在这张表里，永远不同步。
+const ANDROID_LOCAL_SETTINGS: [(&str, LocalSetting); 16] = [
+    ("general.app_theme", LocalSetting::Choice(&APP_THEME_IDS)),
+    (
+        "platform.android.one_handed",
+        LocalSetting::Choice(&["off", "left", "right"]),
+    ),
+    ("platform.android.key_popup", LocalSetting::Boolean),
+    ("platform.android.swipe_down_symbols", LocalSetting::Boolean),
+    ("platform.android.space_cursor", LocalSetting::Boolean),
+    ("platform.android.space_voice", LocalSetting::Boolean),
+    (
+        "platform.android.key_animation",
+        LocalSetting::Choice(&["none", "bounce", "ripple", "glow", "lift"]),
+    ),
+    ("platform.android.toolbar_phrase", LocalSetting::Boolean),
+    ("platform.android.toolbar_scheme", LocalSetting::Boolean),
+    ("platform.android.toolbar_hidden", LocalSetting::Boolean),
+    (
+        "platform.android.handwriting_mode",
+        LocalSetting::Choice(&["single", "overlap", "line"]),
+    ),
+    (
+        "platform.android.handwriting_delay_ms",
+        LocalSetting::Integer {
+            min: 200,
+            max: 1500,
+            step: 100,
+        },
+    ),
+    (
+        "platform.android.handwriting_show_pinyin",
+        LocalSetting::Boolean,
+    ),
+    (
+        "platform.android.handwriting_stroke_color",
+        LocalSetting::Choice(&["follow_skin", "black", "white", "blue"]),
+    ),
+    (
+        "platform.android.handwriting_stroke_width",
+        LocalSetting::Integer {
+            min: 1,
+            max: 8,
+            step: 1,
+        },
+    ),
+    (
+        "platform.android.voice_offline_fallback",
+        LocalSetting::Boolean,
+    ),
+];
+
+fn local_setting(key: &str) -> Option<LocalSetting> {
+    ANDROID_LOCAL_SETTINGS
+        .iter()
+        .find(|(name, _)| *name == key)
+        .map(|(_, setting)| *setting)
 }
 
-fn handwriting_mode(value: HandwritingMode) -> &'static str {
-    match value {
-        HandwritingMode::Single => "single",
-        HandwritingMode::Overlap => "overlap",
-        HandwritingMode::Line => "line",
+/// 把宿主本地设置里参与同步的值加进导出结果。不在 [`ANDROID_LOCAL_SETTINGS`] 里的键和取值不合规的键不导出，按键名排序返回。
+pub fn insert_android_local_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    local: &BTreeMap<String, AccountPreferenceValue>,
+) -> Vec<String> {
+    let mut rejected = Vec::new();
+    for (key, value) in local {
+        match local_setting(key).and_then(|setting| setting.accept(value)) {
+            Some(value) => {
+                settings.insert(key.clone(), value);
+            }
+            None => rejected.push(key.clone()),
+        }
     }
+    rejected
 }
 
-fn stroke_color(value: HandwritingStrokeColor) -> &'static str {
-    match value {
-        HandwritingStrokeColor::FollowSkin => "follow_skin",
-        HandwritingStrokeColor::Black => "black",
-        HandwritingStrokeColor::White => "white",
-        HandwritingStrokeColor::Blue => "blue",
+/// 云端文档里属于 Android 本地设置的值：字段表收录且取值合规的交给宿主写回本地文件；取值不合规的键名按序返回，调用方把它们并进 `skipped`。字段表与本机期望的类型冲突时拒绝整份文档。
+pub fn android_local_settings(
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+) -> Result<(BTreeMap<String, AccountPreferenceValue>, Vec<String>), AccountError> {
+    let mut accepted = BTreeMap::new();
+    let mut skipped = Vec::new();
+    for (key, setting) in ANDROID_LOCAL_SETTINGS {
+        let Some(value) = cloud.settings.get(key) else {
+            continue;
+        };
+        if !supports_schema_field(schema, key, setting.schema_type())? {
+            continue;
+        }
+        match setting.accept(value) {
+            Some(value) => {
+                accepted.insert(key.to_owned(), value);
+            }
+            None => skipped.push(key.to_owned()),
+        }
     }
-}
-
-fn helpcode_mode(value: HelpcodeMode) -> &'static str {
-    match value {
-        HelpcodeMode::Radical => "radical",
-        HelpcodeMode::Stroke => "stroke",
-        HelpcodeMode::Mixed => "mixed",
-    }
-}
-
-fn parse_helpcode_mode(value: &str) -> Option<HelpcodeMode> {
-    match value {
-        "radical" => Some(HelpcodeMode::Radical),
-        "stroke" => Some(HelpcodeMode::Stroke),
-        "mixed" => Some(HelpcodeMode::Mixed),
-        _ => None,
-    }
+    Ok((accepted, skipped))
 }
 
 /// 自定义键盘皮肤库的 JSON 是否可以同步：不超过字节上限、是一个 JSON 数组。
@@ -372,42 +460,11 @@ pub fn export_android_settings(
     Ok(settings)
 }
 
-/// 设计改版新增的键：应用主题、单手、按键细节、工具栏、手写、语音和辅助码模式。隐私模式、开发者选项、诊断日志和语音数据贡献是设备本地的，不在这里；辅助码方案（含郑码）也不写进公共键，其他平台不认识郑码。
+/// 设计改版新增、仍在共享偏好里的键：按键音包、工具栏按钮和语音识别语言。其余新增的 Android 设置在宿主的本地设置文件里，见 [`insert_android_local_settings`]。
 fn insert_new_android_settings(
     settings: &mut BTreeMap<String, AccountPreferenceValue>,
     preferences: &Preferences,
 ) {
-    insert_string(settings, "general.app_theme", preferences.app_theme.id());
-    insert_string(
-        settings,
-        "platform.android.one_handed",
-        one_handed(preferences.touch_one_handed),
-    );
-    insert_bool(
-        settings,
-        "platform.android.key_popup",
-        preferences.touch_key_popup,
-    );
-    insert_bool(
-        settings,
-        "platform.android.swipe_down_symbols",
-        preferences.touch_swipe_down_symbols,
-    );
-    insert_bool(
-        settings,
-        "platform.android.space_cursor",
-        preferences.touch_space_cursor,
-    );
-    insert_bool(
-        settings,
-        "platform.android.space_voice",
-        preferences.touch_space_voice,
-    );
-    insert_string(
-        settings,
-        "platform.android.key_animation",
-        key_animation(preferences.touch_key_animation),
-    );
     let pack = &preferences.plugins.key_sound.pack;
     if pack.chars().count() <= MAX_KEY_SOUND_PACK_CHARS {
         insert_string(settings, "platform.android.key_sound_pack", pack);
@@ -416,51 +473,10 @@ fn insert_new_android_settings(
     for (index, key) in TOOLBAR_KEYS.iter().enumerate() {
         insert_bool(settings, key, *toolbar_member(&mut toolbar, index));
     }
-    let handwriting = &preferences.touch_handwriting;
-    insert_string(
-        settings,
-        "platform.android.handwriting_mode",
-        handwriting_mode(handwriting.mode),
-    );
-    insert_integer(
-        settings,
-        "platform.android.handwriting_delay_ms",
-        i64::from(handwriting.recognition_delay_ms),
-    );
-    insert_bool(
-        settings,
-        "platform.android.handwriting_show_pinyin",
-        handwriting.show_pinyin,
-    );
-    insert_string(
-        settings,
-        "platform.android.handwriting_stroke_color",
-        stroke_color(handwriting.stroke_color),
-    );
-    insert_integer(
-        settings,
-        "platform.android.handwriting_stroke_width",
-        i64::from(handwriting.stroke_width),
-    );
     let language = &preferences.voice_input.language;
     if language.chars().count() <= MAX_VOICE_LANGUAGE_CHARS {
         insert_string(settings, "platform.android.voice_language", language);
     }
-    insert_bool(
-        settings,
-        "platform.android.voice_offline_fallback",
-        preferences.voice_input.offline_fallback,
-    );
-    insert_string(
-        settings,
-        "helpcode.quanpin_helpcode_mode",
-        helpcode_mode(preferences.quanpin_helpcode.mode),
-    );
-    insert_string(
-        settings,
-        "helpcode.shuangpin_helpcode_mode",
-        helpcode_mode(preferences.shuangpin_helpcode.mode),
-    );
 }
 
 /// 全局主题、自定义主题的底色、它的键盘设计和外部候选窗口皮肤包。设计是 JSON，包是 id；两者都用空串表示「没有」，这样清除也能同步。
@@ -815,43 +831,6 @@ pub fn apply_android_settings(
 
 /// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
 fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
-    applier.set_string("general.app_theme", |preferences, value| {
-        preferences.app_theme = AppTheme::from_id(value)?;
-        Some(())
-    })?;
-    applier.set_string("platform.android.one_handed", |preferences, value| {
-        preferences.touch_one_handed = match value {
-            "off" => TouchOneHanded::Off,
-            "left" => TouchOneHanded::Left,
-            "right" => TouchOneHanded::Right,
-            _ => return None,
-        };
-        Some(())
-    })?;
-    applier.set_bool("platform.android.key_popup", |preferences, value| {
-        preferences.touch_key_popup = value
-    })?;
-    applier.set_bool(
-        "platform.android.swipe_down_symbols",
-        |preferences, value| preferences.touch_swipe_down_symbols = value,
-    )?;
-    applier.set_bool("platform.android.space_cursor", |preferences, value| {
-        preferences.touch_space_cursor = value
-    })?;
-    applier.set_bool("platform.android.space_voice", |preferences, value| {
-        preferences.touch_space_voice = value
-    })?;
-    applier.set_string("platform.android.key_animation", |preferences, value| {
-        preferences.touch_key_animation = match value {
-            "none" => TouchKeyAnimation::None,
-            "bounce" => TouchKeyAnimation::Bounce,
-            "ripple" => TouchKeyAnimation::Ripple,
-            "glow" => TouchKeyAnimation::Glow,
-            "lift" => TouchKeyAnimation::Lift,
-            _ => return None,
-        };
-        Some(())
-    })?;
     applier.set_string("platform.android.key_sound_pack", |preferences, value| {
         if value.chars().count() > MAX_KEY_SOUND_PACK_CHARS {
             return None;
@@ -864,63 +843,11 @@ fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountEr
             *toolbar_member(&mut preferences.touch_toolbar, index) = value
         })?;
     }
-    applier.set_string("platform.android.handwriting_mode", |preferences, value| {
-        preferences.touch_handwriting.mode = match value {
-            "single" => HandwritingMode::Single,
-            "overlap" => HandwritingMode::Overlap,
-            "line" => HandwritingMode::Line,
-            _ => return None,
-        };
-        Some(())
-    })?;
-    applier.set_integer(
-        "platform.android.handwriting_delay_ms",
-        |preferences, value| {
-            preferences.touch_handwriting.recognition_delay_ms = u16::try_from(value).ok()?;
-            Some(())
-        },
-    )?;
-    applier.set_bool(
-        "platform.android.handwriting_show_pinyin",
-        |preferences, value| preferences.touch_handwriting.show_pinyin = value,
-    )?;
-    applier.set_string(
-        "platform.android.handwriting_stroke_color",
-        |preferences, value| {
-            preferences.touch_handwriting.stroke_color = match value {
-                "follow_skin" => HandwritingStrokeColor::FollowSkin,
-                "black" => HandwritingStrokeColor::Black,
-                "white" => HandwritingStrokeColor::White,
-                "blue" => HandwritingStrokeColor::Blue,
-                _ => return None,
-            };
-            Some(())
-        },
-    )?;
-    applier.set_integer(
-        "platform.android.handwriting_stroke_width",
-        |preferences, value| {
-            preferences.touch_handwriting.stroke_width = u8::try_from(value).ok()?;
-            Some(())
-        },
-    )?;
     applier.set_string("platform.android.voice_language", |preferences, value| {
         if value.chars().count() > MAX_VOICE_LANGUAGE_CHARS {
             return None;
         }
         preferences.voice_input.language = value.to_owned();
-        Some(())
-    })?;
-    applier.set_bool(
-        "platform.android.voice_offline_fallback",
-        |preferences, value| preferences.voice_input.offline_fallback = value,
-    )?;
-    applier.set_string("helpcode.quanpin_helpcode_mode", |preferences, value| {
-        preferences.quanpin_helpcode.mode = parse_helpcode_mode(value)?;
-        Some(())
-    })?;
-    applier.set_string("helpcode.shuangpin_helpcode_mode", |preferences, value| {
-        preferences.shuangpin_helpcode.mode = parse_helpcode_mode(value)?;
         Some(())
     })?;
     Ok(())

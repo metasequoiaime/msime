@@ -305,12 +305,9 @@ struct ResolveThemeRequest {
     layout: msime_client_core::preferences::CandidateLayout,
     skins_directory: Option<String>,
     package: Option<serde_json::Value>,
-    /// 宿主本地日历的月份（1..=12），只决定 `siji` 画哪一季；省略时用 UTC 月份。
-    #[serde(default)]
-    month: Option<u8>,
 }
 
-/// 请求里的月份所在的季节；没传月份时按 UTC 月份，月份不在 1..=12 时请求失败。
+/// 应用主题请求里的月份所在的季节；没传月份时按 UTC 月份，月份不在 1..=12 时请求失败。
 fn requested_season(
     month: Option<u8>,
     invalid: &str,
@@ -324,7 +321,7 @@ fn requested_season(
 
 /// Resolve the colours a host draws for a global theme.
 ///
-/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the twelve catalog ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
+/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the seven ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -341,7 +338,6 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: ResolveThemeRequest =
             serde_json::from_slice(bytes).map_err(|_| "invalid theme request")?;
-        let season = requested_season(request.month, "invalid theme request")?;
         request
             .custom_theme
             .validate()
@@ -375,13 +371,12 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
             (Some(_), None, entry) => entry,
             _ => None,
         };
-        let resolved = msime_client_core::skin::theme::resolve_in(
+        let resolved = msime_client_core::skin::theme::resolve(
             theme,
             &request.custom_theme,
             request.dark,
             request.layout,
             package.as_ref(),
-            season,
         );
         serde_json::to_value(resolved).map_err(|error| error.to_string())
     })

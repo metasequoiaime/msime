@@ -241,7 +241,7 @@ public final class SkinsPage extends DetailPage {
             else KeyboardSheets.applyDesign(preferences, design);
         });
         if (saved == null) return null;
-        if (design != null) KeyboardSheets.applyLocalSound(context, CustomKeyboardSkin.from(design).soundPack());
+        if (design != null) KeyboardSheets.applyLocalFeedback(context, design);
         KeyboardSheets.recordSkin(context, card.id());
         return saved;
     }

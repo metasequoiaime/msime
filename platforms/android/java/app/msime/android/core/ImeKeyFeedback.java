@@ -39,6 +39,7 @@ final class ImeKeyFeedback {
         return thread;
     });
     private JSONObject preferencesSeen;
+    private AndroidLocalSettings.Snapshot localSeen;
     private String packId = "default";
     private float volume = 1f;
     private KeyPressAnimator.Style animation = KeyPressAnimator.Style.NONE;
@@ -105,14 +106,15 @@ final class ImeKeyFeedback {
     private void refreshPreferences() {
         JSONObject preferences = s.preferencesSnapshot == null ? null
             : s.preferencesSnapshot.optJSONObject("preferences");
-        if (preferences == preferencesSeen) return;
+        if (preferences == preferencesSeen && s.localSettings == localSeen) return;
         preferencesSeen = preferences;
+        localSeen = s.localSettings;
         packId = packFor(preferences);
         JSONObject plugins = preferences == null ? null : preferences.optJSONObject("plugins");
         JSONObject keySound = plugins == null ? null : plugins.optJSONObject("key_sound");
         volume = volumeFor(keySound == null ? 100 : keySound.optInt("volume", 100));
-        animation = KeyPressAnimator.Style.fromPreference(preferences == null ? null
-            : preferences.optString("touch_key_animation", "none"));
+        animation = KeyPressAnimator.Style.fromPreference(
+            s.localSettings.choice(AndroidLocalSettings.KEY_ANIMATION));
         PackSounds loaded = sounds;
         if ("default".equals(packId)) {
             if (loaded != null) release(loaded);

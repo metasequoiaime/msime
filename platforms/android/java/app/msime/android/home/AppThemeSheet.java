@@ -15,6 +15,7 @@ import androidx.core.view.AccessibilityDelegateCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.fragment.app.Fragment;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.R;
 import app.msime.android.SyncSignals;
 import app.msime.android.SyncSwitch;
@@ -24,12 +25,12 @@ import java.util.List;
 import org.json.JSONObject;
 
 /**
- * 「我的 → 应用主题」的选择面板：顶部是颜色模式分段（跟随系统 / 浅色 / 深色，共享偏好 `theme`），下面是水杉四季（自动）与四个固定季节（`app_theme`）。
+ * 「我的 → 应用主题」的选择面板：顶部是颜色模式分段（跟随系统 / 浅色 / 深色，共享偏好 `theme`），下面是水杉四季（自动）与四个固定季节（Android 本地设置的 `general.app_theme`，见 {@link AndroidLocalSettings#APP_THEME}）。
  *
- * <p>外观与 {@link OptionSheet} 一致（M3 modal bottom sheet、居中小标题、56dp 强调色选项、当前项加粗打 ✓、末尾「取消」），只是多了顶部那一行分段，所以自己搭而不是往 OptionSheet 里塞。季节规则在 Rust：写入 `app_theme` 后交给 {@link AppThemeController#follow} 重新解析并更新缓存，缓存的季节变了才 `recreate()`；颜色模式写入后交给 {@link AppMode#follow}，由 AppCompat 重建打开着的页面。
+ * <p>外观与 {@link OptionSheet} 一致（M3 modal bottom sheet、居中小标题、56dp 强调色选项、当前项加粗打 ✓、末尾「取消」），只是多了顶部那一行分段，所以自己搭而不是往 OptionSheet 里塞。季节规则在 Rust：写入应用主题后交给 {@link AppThemeController#follow} 重新解析并更新缓存，缓存的季节变了才 `recreate()`；颜色模式写入后交给 {@link AppMode#follow}，由 AppCompat 重建打开着的页面。
  */
 final class AppThemeSheet {
-    /** `app_theme` 的取值与显示名，顺序即面板顺序；与 Rust `AppTheme` 的序列化值一致。 */
+    /** 应用主题的取值与显示名，顺序即面板顺序；与 Rust `AppTheme` 的序列化值一致。 */
     static final String[][] THEMES = {
         {"siji", "水杉四季（自动）"}, {"chunya", "春芽"}, {"xiayin", "夏荫"}, {"qiushan", "秋杉"}, {"dongxue", "冬雪"},
     };
@@ -41,7 +42,7 @@ final class AppThemeSheet {
 
     /** 当前应用主题在「我的」行尾的写法：四季时带上这一季，例如「四季 · 秋杉」。 */
     static String summary(Context context, @Nullable JSONObject preferences) {
-        String theme = theme(preferences);
+        String theme = theme(context);
         if (!"siji".equals(theme)) return label(theme);
         String season = seasonName(AppThemeController.cachedSeason(context));
         return "四季 · " + season;
@@ -95,13 +96,13 @@ final class AppThemeSheet {
         header.addView(modes, modeParams);
         root.addView(header);
 
-        String current = theme(preferences);
+        String current = theme(context);
         for (int index = 0; index < THEMES.length; index++) {
             if (index > 0) root.addView(rule(context));
             String id = THEMES[index][0];
             root.addView(option(context, THEMES[index][1], id.equals(current), Ui.accent(context), () -> {
                 dialog.dismiss();
-                if (!id.equals(current)) save(host, "app_theme", id, refresh);
+                if (!id.equals(current)) saveAppTheme(host, id, refresh);
             }));
         }
 
@@ -113,23 +114,42 @@ final class AppThemeSheet {
         dialog.show();
     }
 
-    /** 写一个偏好；应用主题写完后重新解析季节，季节变了就重建页面，颜色模式交给 AppMode。 */
+    /** 写共享偏好里的颜色模式 `theme`，交给 AppMode 重建打开着的页面。 */
     private static void save(Fragment host, String key, String value, Runnable refresh) {
         HostTask.run(host, context -> {
             JSONObject saved = HostStore.putPreference(context, key, value);
             if (saved == null) return null;
             SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
-            JSONObject preferences = saved.optJSONObject("preferences");
-            boolean recreate = "app_theme".equals(key) && AppThemeController.follow(context, preferences);
-            return new Object[] {preferences, recreate};
+            return new Object[] {saved.optJSONObject("preferences")};
         }, result -> {
             if (result == null) {
                 MsToast.show(host.requireContext(), "没有保存，请重试");
                 return;
             }
-            JSONObject preferences = result[0] instanceof JSONObject value ? value : null;
-            if ("theme".equals(key)) AppMode.follow(host.requireContext(), preferences);
-            if (Boolean.TRUE.equals(result[1])) {
+            JSONObject preferences = result[0] instanceof JSONObject saved ? saved : null;
+            AppMode.follow(host.requireContext(), preferences);
+            refresh.run();
+        });
+    }
+
+    /** 写本地设置里的应用主题，重新解析季节；季节变了就重建页面。 */
+    private static void saveAppTheme(Fragment host, String id, Runnable refresh) {
+        HostTask.run(host, context -> {
+            try {
+                AndroidLocalSettings.put(context, AndroidLocalSettings.APP_THEME, id);
+            } catch (java.io.IOException | IllegalArgumentException error) {
+                return null;
+            }
+            SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+            JSONObject loaded = HostStore.loadPreferences(context);
+            JSONObject preferences = loaded == null ? null : loaded.optJSONObject("preferences");
+            return new Boolean[] {AppThemeController.follow(context, preferences)};
+        }, result -> {
+            if (result == null) {
+                MsToast.show(host.requireContext(), "没有保存，请重试");
+                return;
+            }
+            if (Boolean.TRUE.equals(result[0])) {
                 host.requireActivity().recreate();
             } else {
                 refresh.run();
@@ -137,11 +157,8 @@ final class AppThemeSheet {
         });
     }
 
-    private static String theme(@Nullable JSONObject preferences) {
-        String theme = preferences == null ? AppThemeController.DEFAULT_THEME
-            : preferences.optString("app_theme", AppThemeController.DEFAULT_THEME);
-        for (String[] entry : THEMES) if (entry[0].equals(theme)) return theme;
-        return AppThemeController.DEFAULT_THEME;
+    private static String theme(Context context) {
+        return AndroidLocalSettings.load(context).choice(AndroidLocalSettings.APP_THEME);
     }
 
     private static String label(String theme) {

@@ -40,16 +40,14 @@ final class ImeLayoutRows {
             return thread;
         });
 
-    /** 读共享偏好里的 `touch_handwriting`；读不到时用默认值。 */
+    /** 读本地设置里的手写细项；没写过的取默认值。 */
     HandwritingPreferences readHandwritingPreferences() {
-        JSONObject preferences = s.preferencesSnapshot == null ? null
-            : s.preferencesSnapshot.optJSONObject("preferences");
-        JSONObject value = preferences == null ? null : preferences.optJSONObject("touch_handwriting");
-        if (value == null) return HandwritingPreferences.defaults();
-        return HandwritingPreferences.of(value.optString("mode", "overlap"),
-            value.optInt("recognition_delay_ms", HandwritingPreferences.DELAY_DEFAULT),
-            value.optBoolean("show_pinyin", true), value.optString("stroke_color", "follow_skin"),
-            value.optInt("stroke_width", HandwritingPreferences.WIDTH_DEFAULT));
+        AndroidLocalSettings.Snapshot settings = s.localSettings;
+        return HandwritingPreferences.of(settings.choice(AndroidLocalSettings.HANDWRITING_MODE),
+            settings.integer(AndroidLocalSettings.HANDWRITING_DELAY_MS),
+            settings.bool(AndroidLocalSettings.HANDWRITING_SHOW_PINYIN),
+            settings.choice(AndroidLocalSettings.HANDWRITING_STROKE_COLOR),
+            settings.integer(AndroidLocalSettings.HANDWRITING_STROKE_WIDTH));
     }
 
     /**

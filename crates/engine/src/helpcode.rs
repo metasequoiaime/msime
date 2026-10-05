@@ -41,77 +41,6 @@ impl HelpcodeKeymap {
     }
 }
 
-/// 辅助码怎么取。码表（内置方案、自定义表或辅助码表包）本身给的是部首码；笔画和混合从笔画词库推出。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum HelpcodeMode {
-    /// 码表原样：各家方案取首尾部首。
-    #[default]
-    Radical,
-    /// 前两笔，用 h/s/p/n/z 表示（横竖撇点折）。
-    Stroke,
-    /// 第一码取码表的首码（部首），第二码取首笔。
-    Mixed,
-}
-
-/// 按 `mode` 改写部首码表。`strokes` 是 [`stroke_helpcode_codes`] 读出的每字前两笔。
-///
-/// 笔画模式只含笔画词库里有的字；混合模式只含码表里有的字，查不到笔画的字只留部首首码。部首模式原样复制。
-pub fn helpcode_keymap_for_mode(
-    radical: &HelpcodeKeymap,
-    strokes: &HashMap<String, String>,
-    mode: HelpcodeMode,
-) -> HelpcodeKeymap {
-    match mode {
-        HelpcodeMode::Radical => radical.clone(),
-        HelpcodeMode::Stroke => HelpcodeKeymap::from_codes(strokes.clone()),
-        HelpcodeMode::Mixed => HelpcodeKeymap::from_codes(
-            radical
-                .codes
-                .iter()
-                .filter_map(|(character, code)| {
-                    let first = code.chars().next()?;
-                    let mut mixed = String::with_capacity(2);
-                    mixed.push(first);
-                    if let Some(stroke) = strokes.get(character).and_then(|s| s.chars().next()) {
-                        mixed.push(stroke);
-                    }
-                    Some((character.clone(), mixed))
-                })
-                .collect(),
-        ),
-    }
-}
-
-/// 每个字到它前两笔的表，进程里共享。
-pub type StrokeCodes = Arc<HashMap<String, String>>;
-
-/// 每个字的前两笔（`hspnz`），从笔画词库 `msime-stroke.db` 读出。整张表只扫一次：按路径缓存在进程里，宿主每次聚焦或重建会话都会再要。词库不在或读不出时报错，调用方退回部首码表。
-pub fn stroke_helpcode_codes(stroke_dictionary: &Path) -> Result<StrokeCodes> {
-    static CACHE: std::sync::Mutex<Option<(PathBuf, StrokeCodes)>> = std::sync::Mutex::new(None);
-    if let Some((path, codes)) = CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .as_ref()
-    {
-        if path == stroke_dictionary {
-            return Ok(Arc::clone(codes));
-        }
-    }
-    let dictionary = crate::language_dictionary::open_read_only(stroke_dictionary)?;
-    let mut codes = HashMap::new();
-    for (character, prefix) in dictionary.single_character_key_prefixes(2)? {
-        if !prefix.is_empty() && prefix.bytes().all(|byte| b"hspnz".contains(&byte)) {
-            codes.entry(character).or_insert(prefix);
-        }
-    }
-    let codes = Arc::new(codes);
-    *CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((stroke_dictionary.to_path_buf(), Arc::clone(&codes)));
-    Ok(codes)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SingleHelpcodeMatch {
     None,
@@ -620,42 +549,6 @@ mod tests {
                 .to_string(),
             UNKNOWN_HELPCODE_SCHEMA
         );
-    }
-
-    #[test]
-    fn stroke_and_mixed_modes_rewrite_the_radical_table() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("msime-stroke.db");
-        let connection = rusqlite::Connection::open(&path).unwrap();
-        connection
-            .execute_batch(crate::language_dictionary::SCHEMA)
-            .unwrap();
-        connection
-            .execute_batch(
-                "INSERT INTO metadata VALUES('format_version','1');
-                 INSERT INTO entries VALUES('pnhz','你',100),('hsh','王',90),('h','一',80),('hspn','你',1);",
-            )
-            .unwrap();
-        drop(connection);
-        let strokes = stroke_helpcode_codes(&path).unwrap();
-        // 同一个字有几种笔顺时取权重最重的那条；一笔的字只有一码。
-        assert_eq!(strokes.get("你").map(String::as_str), Some("pn"));
-        assert_eq!(strokes.get("王").map(String::as_str), Some("hs"));
-        assert_eq!(strokes.get("一").map(String::as_str), Some("h"));
-        let radical = keymap(&[("你", "rr"), ("好", "nz")]);
-        let stroke = helpcode_keymap_for_mode(&radical, &strokes, HelpcodeMode::Stroke);
-        assert_eq!(stroke.code("你"), Some("pn"));
-        assert_eq!(stroke.code("好"), None);
-        let mixed = helpcode_keymap_for_mode(&radical, &strokes, HelpcodeMode::Mixed);
-        assert_eq!(mixed.code("你"), Some("rp"));
-        // 笔画词库里没有的字只留部首首码。
-        assert_eq!(mixed.code("好"), Some("n"));
-        assert_eq!(mixed.code("王"), None);
-        assert_eq!(
-            helpcode_keymap_for_mode(&radical, &strokes, HelpcodeMode::Radical),
-            radical
-        );
-        assert!(stroke_helpcode_codes(&directory.path().join("missing.db")).is_err());
     }
 
     // engine-bridge/src/tests.rs:512-545: the carried jiajia table loads whole.

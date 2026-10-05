@@ -31,6 +31,8 @@ const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
 pub const MAX_VOICE_MS_PER_CALL: u64 = 600_000;
 /// `skins_tried` 最多记这么多款。徽章只要 5 款，上限只防止文件被一个出错的宿主无限撑大。
 pub const MAX_SKINS_TRIED: usize = 64;
+/// 连续输入（`current_run`、`longest_run`）只在 Android 上记：只有 Android 的统计页显示它，其他宿主写出的统计文件保持原样。测试里也打开，好覆盖计法。
+const TRACKS_TYPING_RUNS: bool = cfg!(any(target_os = "android", test));
 
 mod metrics;
 pub use metrics::{
@@ -350,6 +352,11 @@ pub struct TypingRun {
 }
 
 impl TypingRun {
+    /// 还没有任何一段连续输入。
+    pub fn is_empty(&self) -> bool {
+        self.characters == 0 && self.day.is_empty()
+    }
+
     fn validate(&self) -> Result<(), TypingStatisticsError> {
         if self.characters > MAX_COUNT
             || (self.characters > 0 && !crate::calendar::is_valid_day(&self.day))
@@ -587,23 +594,23 @@ pub struct TypingStatistics {
     /// what "first" is measured against. It is a day key, not a clock reading.
     #[serde(default)]
     pub last_pruned_day: String,
-    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零。
-    #[serde(default)]
+    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零。下面六项只有 Android 写入；为空时不序列化，其他宿主写出的文件与加这几项之前相同。
+    #[serde(default, skip_serializing_if = "CommitEfficiency::is_empty")]
     pub efficiency: CommitEfficiency,
-    /// 正在进行的这段连续输入，由 `record_at` 按活跃间隔累加或重新开始。
-    #[serde(default)]
+    /// 正在进行的这段连续输入，由 `record_at` 按活跃间隔累加或重新开始（只在 [`TRACKS_TYPING_RUNS`] 时）。
+    #[serde(default, skip_serializing_if = "TypingRun::is_empty")]
     pub current_run: TypingRun,
     /// 单次最长的连续输入；并列时保留先出现的那段。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "TypingRun::is_empty")]
     pub longest_run: TypingRun,
     /// 每个本地日的语音输入时长，单位毫秒，由 `record_voice` 写入。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub daily_voice_ms: BTreeMap<String, u64>,
     /// 用过的皮肤 ID，最多 [`MAX_SKINS_TRIED`] 个，由 `record_skin` 写入。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub skins_tried: BTreeSet<String>,
     /// 已解锁的徽章 ID 和解锁那天。只增不减：保留期删掉旧数据以后徽章也不会重新锁上；只有 reset 会清空。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub achievements: BTreeMap<String, String>,
 }
 
@@ -994,21 +1001,23 @@ impl TypingStatisticsStore {
                 .saturating_add(active_ms)
                 .min(MAX_ACTIVE_MS_PER_DAY);
         }
-        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。
-        if active_ms > 0 && value.current_run.characters > 0 {
-            value.current_run.characters = value
-                .current_run
-                .characters
-                .saturating_add(count)
-                .min(MAX_COUNT);
-        } else {
-            value.current_run = TypingRun {
-                characters: count,
-                day: day.to_owned(),
-            };
-        }
-        if value.current_run.characters > value.longest_run.characters {
-            value.longest_run = value.current_run.clone();
+        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。只有 Android 的统计页显示它。
+        if TRACKS_TYPING_RUNS {
+            if active_ms > 0 && value.current_run.characters > 0 {
+                value.current_run.characters = value
+                    .current_run
+                    .characters
+                    .saturating_add(count)
+                    .min(MAX_COUNT);
+            } else {
+                value.current_run = TypingRun {
+                    characters: count,
+                    day: day.to_owned(),
+                };
+            }
+            if value.current_run.characters > value.longest_run.characters {
+                value.longest_run = value.current_run.clone();
+            }
         }
         // Never moves backwards. A clock set back would otherwise make every later commit look
         // like it followed a huge pause, and the first one after the correction would be counted

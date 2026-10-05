@@ -10,10 +10,7 @@ pub mod session;
 mod tests;
 pub mod text;
 
-pub use crate::helpcode::{
-    helpcode_keymap_for_mode, load_helpcode_keymap, stroke_helpcode_codes, HelpcodeKeymap,
-    HelpcodeMode, SharedKeymap,
-};
+pub use crate::helpcode::{load_helpcode_keymap, HelpcodeKeymap, SharedKeymap};
 pub use crate::local::catalog::{EmojiCatalogItem, EmojiCatalogSlice, EmojiSymbolGroup};
 pub use crate::shuangpin::hints::ShuangpinKeyHint;
 pub use crate::types::{
@@ -39,7 +36,7 @@ pub use session::{
     Session,
 };
 pub use text::{
-    canonical_spelling_keys, emoji_catalog_filtered_page, emoji_catalog_groups,
-    emoji_catalog_slice, emoji_symbol_groups, handwriting_order_candidates, hanzi_to_pinyin,
-    normalize_full_pinyin, shuangpin_key_hints, shuangpin_zero_initials,
+    emoji_catalog_filtered_page, emoji_catalog_groups, emoji_catalog_slice, emoji_symbol_groups,
+    handwriting_order_candidates, hanzi_to_pinyin, normalize_full_pinyin, shuangpin_key_hints,
+    shuangpin_zero_initials,
 };

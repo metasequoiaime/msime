@@ -4,6 +4,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DoubaoAsrPolicy;
 import app.msime.android.VoiceConfiguration;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -13,9 +14,9 @@ import org.json.JSONObject;
 /**
  * 语音输入页：识别语言、自动添加标点、离线识别、启动方式，以及隐私组的「上传语音以改进识别」。
  *
- * <p>全部存在共享偏好里，键盘读同一份：语言是 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别是 `voice_input.offline_fallback`；启动方式没有自己的字段，由 `touch_space_voice` 和 `touch_voice_shortcut` 联合派生，选择时两个字段一起写。
+ * <p>键盘读同一批存储：语言是共享偏好的 `voice_input.language`（普通话 `zh-cn`、粤语 `yue`、英语 `en`、普通话 + 英语 `auto`）；自动标点绑定已有的 `voice_input.doubao_enable_punc`，只有豆包识别支持，其他识别器下置灰并写明原因；离线识别只有 Android 有，在 {@link AndroidLocalSettings} 的 `platform.android.voice_offline_fallback`；启动方式没有自己的字段，由本地设置的长按空格（`platform.android.space_voice`）和共享偏好的 `touch_voice_shortcut` 联合派生，选择时两个一起写。
  *
- * <p>「上传语音以改进识别」（`voice_input.contribute_audio`）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写偏好（P19）。
+ * <p>「上传语音以改进识别」（本地设置的 `platform.android.voice_contribute_audio`，只在本机、不同步）默认关闭；每次从关切到开都先弹确认框说明上传什么、保存多久，用户确认后才写（P19）。
  */
 public final class VoicePage extends DetailPage {
     private static final String[] LANGUAGES = {"zh-cn", "yue", "en", "auto"};
@@ -26,7 +27,7 @@ public final class VoicePage extends DetailPage {
     private static final int TRIGGER_NONE = 2;
 
     /** 页面渲染时读到的偏好与识别器。 */
-    private record State(JSONObject preferences, boolean punctuationSupported) {}
+    private record State(JSONObject preferences, AndroidLocalSettings.Snapshot local, boolean punctuationSupported) {}
 
     @Nullable private LinearLayout column;
     @Nullable private GroupCard.Row contributeRow;
@@ -55,7 +56,8 @@ public final class VoicePage extends DetailPage {
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
         if (preferences == null) return null;
         VoiceConfiguration configuration = VoiceConfiguration.read(HostStore.directory(context), "settings");
-        return new State(preferences, DoubaoAsrPolicy.PROVIDER.equals(configuration.provider()));
+        return new State(preferences, AndroidLocalSettings.load(context),
+            DoubaoAsrPolicy.PROVIDER.equals(configuration.provider()));
     }
 
     private void render(@Nullable State state) {
@@ -67,6 +69,7 @@ public final class VoicePage extends DetailPage {
             return;
         }
         JSONObject preferences = state.preferences();
+        AndroidLocalSettings.Snapshot local = state.local();
         JSONObject voice = preferences.optJSONObject("voice_input");
         if (voice == null) voice = new JSONObject();
 
@@ -83,16 +86,17 @@ public final class VoicePage extends DetailPage {
         punctuationRow.setEnabled(state.punctuationSupported());
 
         recognition.toggle("离线识别", "无网络时使用本地模型，准确率略低。需要先安装本地语音模型",
-            voice.optBoolean("offline_fallback", false), checked -> saveVoice("offline_fallback", checked));
+            local.bool(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK),
+            checked -> saveLocal(AndroidLocalSettings.VOICE_OFFLINE_FALLBACK, checked));
 
-        int trigger = trigger(preferences.optBoolean("touch_space_voice", true),
+        int trigger = trigger(local.bool(AndroidLocalSettings.SPACE_VOICE),
             preferences.optBoolean("touch_voice_shortcut", false));
         GroupCard.Row[] triggerRow = new GroupCard.Row[1];
         triggerRow[0] = recognition.nav("启动方式", null, TRIGGER_LABELS[trigger],
             () -> pickTrigger(trigger, triggerRow[0]));
 
         GroupCard privacy = GroupCard.add(target, "隐私");
-        boolean contribute = voice.optBoolean("contribute_audio", false);
+        boolean contribute = local.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO);
         contributeRow = privacy.toggle("上传语音以改进识别", "语音片段匿名处理，可随时关闭", contribute,
             this::onContributeChanged);
     }
@@ -127,7 +131,7 @@ public final class VoicePage extends DetailPage {
     private void onContributeChanged(boolean checked) {
         GroupCard.Row row = contributeRow;
         if (!checked) {
-            saveVoice("contribute_audio", false);
+            saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, false);
             return;
         }
         if (row != null) row.setChecked(false);
@@ -138,7 +142,7 @@ public final class VoicePage extends DetailPage {
             .setPositiveButton("开启", (dialog, which) -> {
                 GroupCard.Row current = contributeRow;
                 if (current != null) current.setChecked(true);
-                saveVoice("contribute_audio", true);
+                saveLocal(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO, true);
             })
             .show();
     }
@@ -154,10 +158,20 @@ public final class VoicePage extends DetailPage {
         });
     }
 
+    private void saveLocal(String key, Object value) {
+        KeyboardSheets.saveLocal(this, key, value, null, this::reload);
+    }
+
+    /** 长按空格在本地设置，工具栏按钮在共享偏好；先写本地，再写共享。 */
     private void saveTrigger(int trigger) {
-        save(preferences -> {
-            preferences.put("touch_space_voice", trigger == TRIGGER_SPACE);
-            preferences.put("touch_voice_shortcut", trigger == TRIGGER_TOOLBAR);
+        HostTask.run(this, context -> KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE,
+                trigger == TRIGGER_SPACE)
+            ? write(context, preferences -> preferences.put("touch_voice_shortcut", trigger == TRIGGER_TOOLBAR))
+            : null, saved -> {
+            if (saved == null) {
+                MsToast.show(requireContext(), "保存失败，请重试");
+                reload();
+            }
         });
     }
 

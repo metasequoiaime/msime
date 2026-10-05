@@ -60,9 +60,9 @@ int main(int argc, const char **argv) {
         NSTextField *diagnostics = [cards valueForKey:@"diagnosticsLabel"];
         NSTextField *empty = [cards valueForKey:@"emptyLabel"];
         // One card per global theme, in the shared catalog's order, ahead of any package.
-        assert(switches.count == 12 && previews.count == 12 && !empty.hidden && diagnostics.hidden);
-        NSArray<NSString *> *catalogIds = @[ @"system", @"siji", @"shuishan", @"light", @"paper", @"night", @"ink", @"chunya", @"xiayin", @"qiushan", @"dongxue", @"custom" ];
-        for (NSUInteger index = 0; index < 12; ++index) assert([switches[index].identifier isEqual:catalogIds[index]]);
+        assert(switches.count == 7 && previews.count == 7 && !empty.hidden && diagnostics.hidden);
+        NSArray<NSString *> *catalogIds = @[ @"system", @"shuishan", @"light", @"paper", @"night", @"ink", @"custom" ];
+        for (NSUInteger index = 0; index < 7; ++index) assert([switches[index].identifier isEqual:catalogIds[index]]);
         // A fresh install selects 跟随系统, the default the shared preferences give an unset theme.
         for (NSSwitch *card in switches)
             assert(card.state == ([card.identifier isEqual:@"system"] ? NSControlStateValueOn : NSControlStateValueOff));
@@ -70,20 +70,20 @@ int main(int argc, const char **argv) {
         assert(!cards.hasAmbiguousLayout && ![[cards valueForKey:@"externalCards"] hasAmbiguousLayout]);
         __block NSUInteger changes = 0;
         id observer = [NSNotificationCenter.defaultCenter addObserverForName:MSIMEAppearanceDidChangeNotification object:preferences queue:nil usingBlock:^(NSNotification *note) { (void)note; ++changes; }];
-        for (NSUInteger index = 0; index < 12; ++index) {
+        for (NSUInteger index = 0; index < 7; ++index) {
             [NSApp sendAction:switches[index].action to:switches[index].target from:switches[index]];
             assert([preferences.globalTheme isEqual:switches[index].identifier]);
             assert([[[[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:preferences.skinsRoot] globalTheme] isEqual:preferences.globalTheme]);
             assert([preferences resolvedSkinForDark:NO].id == preferences.globalTheme.UTF8String);
-            for (NSUInteger other = 0; other < 12; ++other) assert(switches[other].state == (other == index ? NSControlStateValueOn : NSControlStateValueOff));
+            for (NSUInteger other = 0; other < 7; ++other) assert(switches[other].state == (other == index ? NSControlStateValueOn : NSControlStateValueOff));
             [switches[index] performClick:nil];
             assert(switches[index].state == NSControlStateValueOn);
             NSDictionary *before = [defaults persistentDomainForName:suite];
             NSUInteger count = changes;
             BOOL dark = previews[index].previewUsesDark;
             const BOOL fixed = previews[index].previewSkin.fixedDark.has_value();
-            // The nine built-in themes and 水杉四季 (drawn in the season's built-in palette) fix their mode, so only 跟随系统 and 自定义 offer the other mode to preview.
-            assert(fixed == (index >= 1 && index <= 10) && themes[index].hidden == fixed);
+            // The five built-in themes fix their mode, so only 跟随系统 and 自定义 offer the other mode to preview.
+            assert(fixed == (index >= 1 && index <= 5) && themes[index].hidden == fixed);
             [NSApp sendAction:themes[index].action to:themes[index].target from:themes[index]];
             assert(previews[index].previewUsesDark == (fixed ? dark : !dark));
             assert([[defaults persistentDomainForName:suite] isEqual:before] && changes == count);
@@ -104,7 +104,7 @@ int main(int argc, const char **argv) {
         { std::ofstream invalid(root / "broken" / "skin.toml"); invalid << "schema_version = 2\n"; }
         for (NSUInteger iteration = 0; iteration < 3; ++iteration) {
             [cards reload];
-            assert(switches.count == 13 && previews.count == 13 && !diagnostics.hidden && empty.hidden);
+            assert(switches.count == 8 && previews.count == 8 && !diagnostics.hidden && empty.hidden);
             assert([diagnostics.stringValue containsString:@"1 个"] && [diagnostics.stringValue containsString:@"broken"]);
             [window.contentView layoutSubtreeIfNeeded];
             assert(![[cards valueForKey:@"externalCards"] hasAmbiguousLayout]);
@@ -117,23 +117,23 @@ int main(int argc, const char **argv) {
         assert(switches.lastObject.state == NSControlStateValueOn);
         assert(previews.lastObject.previewSkin.candidateSkin == "synthetic");
         // The package is drawn over the custom theme, so the custom card is on beside it, as in the React host.
-        for (NSUInteger index = 0; index < 11; ++index) assert(switches[index].state == NSControlStateValueOff);
-        assert(switches[11].state == NSControlStateValueOn);
+        for (NSUInteger index = 0; index < 6; ++index) assert(switches[index].state == NSControlStateValueOff);
+        assert(switches[6].state == NSControlStateValueOn);
         // 不使用外部皮肤 drops only the package: the custom theme stays, and its card is the one left on.
         NSButton *detach = [cards valueForKey:@"detachSkinButton"];
         assert(detach.enabled && [detach.accessibilityLabel isEqual:@"自定义主题不使用外部皮肤"]);
         [NSApp sendAction:detach.action to:detach.target from:detach];
         assert([preferences.globalTheme isEqual:@"custom"] && preferences.customCandidateSkin == nil && !detach.enabled);
-        assert(switches[11].state == NSControlStateValueOn && switches.lastObject.state == NSControlStateValueOff);
+        assert(switches[6].state == NSControlStateValueOn && switches.lastObject.state == NSControlStateValueOff);
         [NSApp sendAction:switches.lastObject.action to:switches.lastObject.target from:switches.lastObject];
         assert([preferences.customCandidateSkin isEqual:@"synthetic"] && switches.lastObject.state == NSControlStateValueOn);
         // Leaving for a built-in theme and coming back through the custom card selects the custom theme as it stands: the package is still drawn (THEME_CONTRACT §5).
-        [NSApp sendAction:switches[2].action to:switches[2].target from:switches[2]];
+        [NSApp sendAction:switches[1].action to:switches[1].target from:switches[1]];
         assert([preferences.globalTheme isEqual:@"shuishan"] && switches.lastObject.state == NSControlStateValueOff);
-        [NSApp sendAction:switches[11].action to:switches[11].target from:switches[11]];
+        [NSApp sendAction:switches[6].action to:switches[6].target from:switches[6]];
         assert([preferences.globalTheme isEqual:@"custom"] && [preferences.customCandidateSkin isEqual:@"synthetic"]);
         assert([preferences resolvedSkinForDark:NO].candidateSkin == "synthetic");
-        assert(switches[11].state == NSControlStateValueOn && switches.lastObject.state == NSControlStateValueOn);
+        assert(switches[6].state == NSControlStateValueOn && switches.lastObject.state == NSControlStateValueOn);
         // A package over a built-in base is drawn in that base's mode, so a light-only package over 夜色 is selectable in either host mode; over 跟随系统 the host mode still has to be one it lists. The layout rules out both.
         NSSwitch *(^card)(NSString *) = ^NSSwitch *(NSString *identifier) {
             for (NSSwitch *candidate in switches)
@@ -146,7 +146,7 @@ int main(int argc, const char **argv) {
         for (NSString *host in @[NSAppearanceNameDarkAqua, NSAppearanceNameAqua]) {
             window.appearance = [NSAppearance appearanceNamed:host];
             [cards reload];
-            assert(switches.count == 15 && [diagnostics.stringValue containsString:@"1 个"]);
+            assert(switches.count == 10 && [diagnostics.stringValue containsString:@"1 个"]);
             assert(card(@"a-night-light").enabled && card(@"b-system-light").enabled == [host isEqual:NSAppearanceNameAqua]);
             preferences.vertical = YES;
             [cards reload];
@@ -158,7 +158,7 @@ int main(int argc, const char **argv) {
         window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
         preferences.candidateTheme = @"dark";
         [cards reload];
-        assert(switches.count == 16 && card(@"c-system-dark").enabled && !card(@"b-system-light").enabled);
+        assert(switches.count == 11 && card(@"c-system-dark").enabled && !card(@"b-system-light").enabled);
         preferences.candidateTheme = @"light";
         preferences.globalTheme = @"night";
         window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
@@ -171,7 +171,7 @@ int main(int argc, const char **argv) {
         std::filesystem::remove_all(root / "b-system-light");
         std::filesystem::remove_all(root / "c-system-dark");
         [cards reload];
-        assert(switches.count == 13 && card(@"synthetic").state == NSControlStateValueOn);
+        assert(switches.count == 8 && card(@"synthetic").state == NSControlStateValueOn);
         preferences.vertical = YES;
         [cards reload];
         assert(!switches.lastObject.enabled &&
@@ -181,7 +181,7 @@ int main(int argc, const char **argv) {
         assert(switches.lastObject.enabled);
         std::filesystem::remove_all(root / "synthetic");
         [cards reload];
-        assert(switches.count == 12 && !empty.hidden);
+        assert(switches.count == 7 && !empty.hidden);
         // A package that is gone is not drawn, but the choice is kept for when it comes back.
         assert([preferences.customCandidateSkin isEqual:@"synthetic"] && [preferences resolvedSkinForDark:NO].id == "custom" &&
                [preferences resolvedSkinForDark:NO].candidateSkin.empty());

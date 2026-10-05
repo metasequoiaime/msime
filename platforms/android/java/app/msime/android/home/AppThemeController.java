@@ -3,6 +3,7 @@ package app.msime.android.home;
 import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.annotation.Nullable;
+import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppThemePalette;
 import app.msime.android.NativeClient;
 import java.time.LocalDate;
@@ -11,14 +12,14 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * 宿主的应用主题：读共享偏好里的 `app_theme`，按本地日期的月份交给 Rust 解析出这一季的种子色，再把季节和种子缓存进宿主自己的 `msime_home_v1`。
+ * 宿主的应用主题：读 Android 本地设置里的 `general.app_theme`（{@link AndroidLocalSettings#APP_THEME}，不在共享偏好里），按本地日期的月份交给 Rust 解析出这一季的种子色，再把季节和种子缓存进宿主自己的 `msime_home_v1`。
  *
  * <p>季节规则和种子色都只在 Rust（`msime_client_resolve_app_theme`）里：这里只问它，不自己按月份推季节，所以「水杉四季」在各平台同一天换季。缓存的季节由 {@link AppMode#restore} 在每个宿主 activity 的 `super.onCreate` 之前叠加成主题，缓存的种子供跟随系统皮肤的键盘预览取色（{@link HostStore#seed}）。
  *
- * <p>解析是纯计算，不读文件也不拿锁；但偏好本身只能在工作线程读，所以调用方在拿到偏好快照之后再调用 {@link #follow}。
+ * <p>解析是纯计算；本地设置文件很小、读一次有缓存，但仍和偏好一样只在工作线程读，所以调用方在拿到偏好快照之后再调用 {@link #follow}。
  */
 final class AppThemeController {
-    /** 偏好里没有 `app_theme` 时的默认值，与 Rust 的 `AppTheme::default()` 一致。 */
+    /** 本地设置里没有应用主题时的默认值，与 Rust 的 `AppTheme::default()` 一致。 */
     static final String DEFAULT_THEME = "siji";
 
     private static final String STORE = "msime_home_v1";
@@ -28,14 +29,13 @@ final class AppThemeController {
     private AppThemeController() {}
 
     /**
-     * 按这份偏好与今天的月份解析应用主题，并更新缓存。
+     * 按本地设置里的应用主题与今天的月份解析，并更新缓存。`preferences` 为 null（偏好还没读出来）时什么也不做。
      *
      * @return 缓存的季节因此变了时为 true：已经画出来的 activity 用的还是旧季节，调用方应 `recreate()`
      */
     static boolean follow(Context context, @Nullable JSONObject preferences) {
         if (preferences == null) return false;
-        String theme = preferences.optString("app_theme", DEFAULT_THEME);
-        if (theme.isEmpty()) theme = DEFAULT_THEME;
+        String theme = AndroidLocalSettings.load(context).choice(AndroidLocalSettings.APP_THEME);
         int month = LocalDate.now(ZoneId.systemDefault()).getMonthValue();
         JSONObject light = resolve(theme, month, false);
         JSONObject dark = resolve(theme, month, true);

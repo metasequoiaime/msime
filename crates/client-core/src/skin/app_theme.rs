@@ -1,4 +1,4 @@
-//! 应用主题（`Preferences::app_theme`）：Android 设置应用和键盘外框的强调色与底色。它和全局主题（`skin::theme`）是两回事：全局主题给候选窗和键盘配色，应用主题给宿主自己的页面配色，键盘皮肤为「跟随系统」时键盘颜色也从它推出。
+//! 应用主题（Android 本地设置文件里的 `app_theme`，不在共享 `Preferences` 里）：Android 设置应用和键盘外框的强调色与底色。它和全局主题（`skin::theme`）是两回事：全局主题给候选窗和键盘配色，应用主题给宿主自己的页面配色，键盘皮肤为「跟随系统」时键盘颜色也从它推出。
 //!
 //! 种子色来自设计原型的 `APPT` 表（design-tokens.md §1.2）。宿主只读 `catalog()` 画选择器、调 `resolve_app_theme` 取当季颜色，不自己存色值；`andCard`、`logoBg` 这类 `color-mix` 派生色属于宿主的呈现层，由宿主从这里给出的种子色推导。
 //!
@@ -434,7 +434,7 @@ mod tests {
         );
     }
 
-    /// Android 宿主的冒烟测试和桌面设置页读这份提交进仓库的副本；它必须与 `catalog()` 一致。改了种子色后带 `MSIME_WRITE_THEME_CATALOG=1` 重跑本测试来重写它。
+    /// Android 宿主的配色检查（scripts/test-android-app-theme-parity.py）读这份提交进仓库的副本；它必须与 `catalog()` 一致。改了种子色后带 `MSIME_WRITE_THEME_CATALOG=1` 重跑本测试来重写它。
     #[test]
     fn app_theme_copy_matches() {
         let catalog = serde_json::to_value(serde_json::json!({
@@ -445,18 +445,18 @@ mod tests {
         if std::env::var_os("MSIME_WRITE_THEME_CATALOG").is_some() {
             let path = concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../packages/ui/src/theme/app-theme-catalog.json"
+                "/../../platforms/android/tests/settings/app-theme-catalog.json"
             );
             let text = serde_json::to_string_pretty(&catalog).expect("catalog prints") + "\n";
             std::fs::write(path, text).expect("app theme catalog copy is writable");
         }
         let copy: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../packages/ui/src/theme/app-theme-catalog.json"
+            "../../../../platforms/android/tests/settings/app-theme-catalog.json"
         ))
         .expect("app theme catalog copy is JSON");
         assert_eq!(
             copy, catalog,
-            "packages/ui/src/theme/app-theme-catalog.json is stale; rerun this test with MSIME_WRITE_THEME_CATALOG=1"
+            "platforms/android/tests/settings/app-theme-catalog.json is stale; rerun this test with MSIME_WRITE_THEME_CATALOG=1"
         );
     }
 }

@@ -4,11 +4,12 @@
 
 use crate::*;
 use msime_client_core::account::settings_sync::{
-    apply_android_settings, custom_keyboard_skins, export_android_settings,
-    insert_custom_keyboard_skins, HostKeyboardFeedback, CUSTOM_KEYBOARD_SKINS,
+    android_local_settings, apply_android_settings, custom_keyboard_skins, export_android_settings,
+    insert_android_local_settings, insert_custom_keyboard_skins, HostKeyboardFeedback,
+    CUSTOM_KEYBOARD_SKINS,
 };
 use msime_client_core::account::{
-    merge_account_preferences, AccountPreferenceSchema, AccountPreferences,
+    merge_account_preferences, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences,
 };
 use msime_client_core::common_phrases::{CommonPhrasesAction, CommonPhrasesStore};
 use msime_client_core::diagnostics::{build_bundle, DiagnosticBundleRequest};
@@ -180,13 +181,16 @@ struct AccountSettingsExportRequest {
     feedback: Option<HostKeyboardFeedback>,
     #[serde(default)]
     custom_keyboard_skins: Option<String>,
+    /// Android 本地设置文件里参与同步的值，按同步键给出。
+    #[serde(default)]
+    android_local: Option<std::collections::BTreeMap<String, AccountPreferenceValue>>,
     #[serde(default)]
     schema: Option<AccountPreferenceSchema>,
     #[serde(default)]
     cloud: Option<AccountPreferences>,
 }
 
-/// 把本机设置导出成账号设置文档的键值。请求 `{preferences_directory, feedback?: {soundEnabled, hapticsEnabled, hapticStrength}|null, custom_keyboard_skins?: JSON 数组字符串|null, schema?: 服务端字段表|null, cloud?: 云端文档 {revision, settings}|null}`。结果 `{settings, merged?}`：`settings` 已按本机版本过滤，带 `schema` 时只留字段表收录的键；同时带 `schema` 和 `cloud` 时 `merged` 是合并后的整份文档，宿主拿它按 `revision` 做 CAS 上传。凭据、隐私模式、开发者选项、诊断日志和语音数据贡献永远不导出。
+/// 把本机设置导出成账号设置文档的键值。请求 `{preferences_directory, feedback?: {soundEnabled, hapticsEnabled, hapticStrength}|null, custom_keyboard_skins?: JSON 数组字符串|null, android_local?: {同步键: 值}|null, schema?: 服务端字段表|null, cloud?: 云端文档 {revision, settings}|null}`。`android_local` 是 Android 本地设置文件里参与同步的值（应用主题、单手、按键细节、工具栏的常用语/输入方式/隐藏、手写、离线语音），不在表里或取值不合规的键不导出。结果 `{settings, merged?}`：`settings` 已按本机版本过滤，带 `schema` 时只留字段表收录的键；同时带 `schema` 和 `cloud` 时 `merged` 是合并后的整份文档，宿主拿它按 `revision` 做 CAS 上传。凭据和诊断日志永远不导出；隐私模式、开发者选项和语音数据贡献只在 Android 本地设置里，也不在可同步的键里。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -214,6 +218,9 @@ pub unsafe extern "C" fn msime_client_account_settings_export(
                             .map_err(|error| error.to_string())?;
                     if let Some(library) = &request.custom_keyboard_skins {
                         insert_custom_keyboard_skins(&mut settings, library);
+                    }
+                    if let Some(local) = &request.android_local {
+                        insert_android_local_settings(&mut settings, local);
                     }
                     filter_uploaded_account_settings(Some(store.edition()), &mut settings);
                     if let Some(schema) = &request.schema {
@@ -248,7 +255,7 @@ struct AccountSettingsApplyRequest {
     feedback: Option<HostKeyboardFeedback>,
 }
 
-/// 把云端设置文档应用到本机偏好并保存。请求 `{preferences_directory, cloud: {revision, settings}, schema, feedback?: 宿主当前的按键反馈|null}`；文档里有按键反馈的键而没有传 `feedback` 时失败。取值不认识或超出本机范围的键只跳过它自己。结果 `{preferences: 保存后的快照, feedback: 应用后的按键反馈|null（宿主写回自己的存储）, custom_keyboard_skins: 云端的皮肤库 JSON|null（宿主合并进自己的皮肤库）, skipped: [键名]}`。偏好在锁内按读到的修订号比较并交换写回，期间被别处改过时以 `preferences changed; reload before saving` 失败。
+/// 把云端设置文档应用到本机偏好并保存。请求 `{preferences_directory, cloud: {revision, settings}, schema, feedback?: 宿主当前的按键反馈|null}`；文档里有按键反馈的键而没有传 `feedback` 时失败。取值不认识或超出本机范围的键只跳过它自己。结果 `{preferences: 保存后的快照, feedback: 应用后的按键反馈|null（宿主写回自己的存储）, custom_keyboard_skins: 云端的皮肤库 JSON|null（宿主合并进自己的皮肤库）, android_local: {同步键: 值}（宿主写回本地设置文件）, skipped: [键名]}`。偏好在锁内按读到的修订号比较并交换写回，期间被别处改过时以 `preferences changed; reload before saving` 失败。
 /// # Safety
 /// `request` must point to `length` readable bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -293,6 +300,13 @@ pub unsafe extern "C" fn msime_client_account_settings_apply(
                         }
                         None => None,
                     };
+                    let (android_local, local_skipped) =
+                        android_local_settings(&request.cloud, &request.schema)
+                            .map_err(|error| error.to_string())?;
+                    if !local_skipped.is_empty() {
+                        applied.skipped.extend(local_skipped);
+                        applied.skipped.sort();
+                    }
                     let snapshot = if applied.preferences == local.preferences {
                         local
                     } else {
@@ -304,6 +318,7 @@ pub unsafe extern "C" fn msime_client_account_settings_apply(
                         "preferences": serde_json::to_value(snapshot).map_err(|error| error.to_string())?,
                         "feedback": applied.feedback,
                         "custom_keyboard_skins": skins,
+                        "android_local": android_local,
                         "skipped": applied.skipped,
                     }))
                 },
