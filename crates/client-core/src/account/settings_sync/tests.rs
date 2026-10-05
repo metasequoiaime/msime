@@ -112,6 +112,9 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
     assert_eq!(
         keys,
         [
+            "general.app_theme",
+            "helpcode.quanpin_helpcode_mode",
+            "helpcode.shuangpin_helpcode_mode",
             "input.character_set",
             "input.chinese_punctuation",
             "input.frequency_linear_step",
@@ -128,14 +131,39 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "platform.android.custom_keyboard_skin",
             "platform.android.custom_theme_base",
             "platform.android.global_theme",
+            "platform.android.handwriting_delay_ms",
+            "platform.android.handwriting_mode",
+            "platform.android.handwriting_show_pinyin",
+            "platform.android.handwriting_stroke_color",
+            "platform.android.handwriting_stroke_width",
             "platform.android.haptic_strength",
             "platform.android.haptics_enabled",
+            "platform.android.key_animation",
+            "platform.android.key_popup",
+            "platform.android.key_sound_pack",
             "platform.android.keyboard_height_adjustment",
             "platform.android.keyboard_layout",
+            "platform.android.one_handed",
             "platform.android.sound_enabled",
+            "platform.android.space_cursor",
+            "platform.android.space_voice",
+            "platform.android.swipe_down_symbols",
             "platform.android.theme",
+            "platform.android.toolbar_ai",
+            "platform.android.toolbar_character_set",
+            "platform.android.toolbar_clipboard",
+            "platform.android.toolbar_emoji",
+            "platform.android.toolbar_fullwidth",
+            "platform.android.toolbar_hidden",
+            "platform.android.toolbar_layout",
+            "platform.android.toolbar_phrase",
+            "platform.android.toolbar_punctuation",
+            "platform.android.toolbar_scheme",
+            "platform.android.toolbar_skin",
             "platform.android.touch_key_spacing_tenths",
             "platform.android.touch_row_spacing_tenths",
+            "platform.android.voice_language",
+            "platform.android.voice_offline_fallback",
             "platform.android.voice_shortcut",
         ]
     );
@@ -150,6 +178,7 @@ fn settings_sync_export_is_exactly_the_shared_android_keys() {
             "secret",
             "password",
             "api_key",
+            "helpcode_schema",
         ] {
             assert!(!key.contains(forbidden), "{key}");
         }
@@ -496,4 +525,128 @@ fn settings_sync_host_feedback_is_read_only_when_the_document_has_it() {
         })
     );
     assert!(valid_haptic_strength("light") && !valid_haptic_strength("off"));
+}
+
+#[test]
+fn settings_sync_new_android_keys_round_trip() {
+    use crate::preferences::{
+        HandwritingMode, HandwritingStrokeColor, HelpcodeMode, TouchKeyAnimation, TouchOneHanded,
+    };
+    let mut expected = Preferences {
+        app_theme: AppTheme::Qiushan,
+        touch_one_handed: TouchOneHanded::Left,
+        touch_key_popup: !Preferences::default().touch_key_popup,
+        touch_swipe_down_symbols: !Preferences::default().touch_swipe_down_symbols,
+        touch_space_cursor: !Preferences::default().touch_space_cursor,
+        touch_space_voice: !Preferences::default().touch_space_voice,
+        touch_key_animation: TouchKeyAnimation::Ripple,
+        ..Preferences::default()
+    };
+    expected.touch_toolbar.ai = !expected.touch_toolbar.ai;
+    expected.touch_toolbar.hidden = !expected.touch_toolbar.hidden;
+    expected.touch_toolbar.phrase = !expected.touch_toolbar.phrase;
+    expected.touch_handwriting.mode = HandwritingMode::Line;
+    expected.touch_handwriting.recognition_delay_ms = 900;
+    expected.touch_handwriting.show_pinyin = false;
+    expected.touch_handwriting.stroke_color = HandwritingStrokeColor::Blue;
+    expected.touch_handwriting.stroke_width = 6;
+    expected.voice_input.language = "en-US".into();
+    expected.voice_input.offline_fallback = true;
+    expected.quanpin_helpcode.mode = HelpcodeMode::Stroke;
+    expected.shuangpin_helpcode.mode = HelpcodeMode::Mixed;
+    expected.validate().unwrap();
+    let exported = export_android_settings(&expected, None).unwrap();
+    let applied = apply(&Preferences::default(), exported, &full_schema());
+    assert!(applied.skipped.is_empty(), "{:?}", applied.skipped);
+    assert_eq!(applied.preferences, expected);
+}
+
+#[test]
+fn settings_sync_never_exports_device_local_settings() {
+    let mut preferences = Preferences {
+        touch_incognito: true,
+        ..Preferences::default()
+    };
+    preferences.developer_options.debug_overlay = true;
+    preferences.diagnostic_log.mobile = true;
+    preferences.voice_input.contribute_audio = true;
+    let exported = export_android_settings(&preferences, Some(&feedback())).unwrap();
+    assert_eq!(
+        exported,
+        export_android_settings(&Preferences::default(), Some(&feedback())).unwrap()
+    );
+}
+
+#[test]
+fn settings_sync_new_keys_with_unknown_or_out_of_range_values_are_skipped() {
+    let settings = BTreeMap::from([
+        (
+            "general.app_theme".to_owned(),
+            AccountPreferenceValue::String("winter".into()),
+        ),
+        (
+            "platform.android.one_handed".to_owned(),
+            AccountPreferenceValue::String("middle".into()),
+        ),
+        (
+            "platform.android.handwriting_delay_ms".to_owned(),
+            AccountPreferenceValue::Integer(5000),
+        ),
+        (
+            "platform.android.handwriting_stroke_width".to_owned(),
+            AccountPreferenceValue::Integer(0),
+        ),
+        (
+            "helpcode.quanpin_helpcode_mode".to_owned(),
+            AccountPreferenceValue::String("zhengma".into()),
+        ),
+        (
+            "platform.android.key_popup".to_owned(),
+            AccountPreferenceValue::Boolean(!Preferences::default().touch_key_popup),
+        ),
+    ]);
+    let applied = apply(&Preferences::default(), settings, &full_schema());
+    assert_eq!(
+        applied.skipped,
+        [
+            "general.app_theme",
+            "helpcode.quanpin_helpcode_mode",
+            "platform.android.handwriting_delay_ms",
+            "platform.android.handwriting_stroke_width",
+            "platform.android.one_handed",
+        ]
+    );
+    assert_eq!(
+        applied.preferences.touch_key_popup,
+        !Preferences::default().touch_key_popup
+    );
+}
+
+#[test]
+fn settings_sync_custom_keyboard_skin_library_is_bounded_and_an_array() {
+    let mut settings = BTreeMap::new();
+    assert!(insert_custom_keyboard_skins(
+        &mut settings,
+        "[{\"id\":\"a\"}]"
+    ));
+    assert!(!insert_custom_keyboard_skins(&mut settings, "{}"));
+    assert!(!insert_custom_keyboard_skins(
+        &mut settings,
+        &format!("[\"{}\"]", "a".repeat(MAX_CUSTOM_KEYBOARD_SKINS_BYTES))
+    ));
+    let schema = schema_for(&[(CUSTOM_KEYBOARD_SKINS, "string")]);
+    let cloud = document(settings.clone());
+    assert_eq!(
+        custom_keyboard_skins(&cloud, &schema).unwrap(),
+        Some(Ok("[{\"id\":\"a\"}]".to_owned()))
+    );
+    let bad = document(BTreeMap::from([(
+        CUSTOM_KEYBOARD_SKINS.to_owned(),
+        AccountPreferenceValue::String("nope".into()),
+    )]));
+    assert_eq!(custom_keyboard_skins(&bad, &schema).unwrap(), Some(Err(())));
+    assert_eq!(
+        custom_keyboard_skins(&cloud, &schema_for(&[])).unwrap(),
+        None
+    );
 }

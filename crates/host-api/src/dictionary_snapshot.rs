@@ -451,6 +451,136 @@ fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
     })
 }
 
+/// 把本机用户词库写成与 `GET /v1/users/me/dictionary/snapshot` 相同的 NDJSON（`msime-dictionary-snapshot` 第 1 版：header、每个词一条 `entry` 和一条同权重的 `overlay`、footer 带正文 SHA-256），写完再用 [`inspect_snapshot`] 按云端格式校验一遍，返回同样的元数据。
+///
+/// 这是离线导出：不需要登录，修订号固定为 1。位置调整和选词计数是 Engine 内部的学习状态，没有只读接口，不导出。调用方已经持有词库的会话访问权。
+pub(crate) fn export_local_snapshot(
+    options: &EngineOptions,
+    destination: &Path,
+) -> Result<Value, &'static str> {
+    use msime_engine::host::DictionaryKind;
+    const REVISION: i64 = 1;
+    const CHUNK: usize = 1000;
+    let parent = destination
+        .parent()
+        .filter(|_| destination.is_absolute() && destination.file_name().is_some())
+        .ok_or("invalid snapshot destination")?;
+    if destination.is_dir() {
+        return Err("invalid snapshot destination");
+    }
+    let now = time::OffsetDateTime::now_utc();
+    let updated_at = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        now.year(),
+        u8::from(now.month()),
+        now.day(),
+        now.hour(),
+        now.minute(),
+        now.second()
+    );
+    let mut rows = Vec::new();
+    let mut seen = HashSet::new();
+    let mut offset = 0usize;
+    loop {
+        let page = msime_engine::host::dictionary_entries(options, offset, CHUNK)
+            .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for entry in page.entries {
+            let kind = match entry.kind {
+                DictionaryKind::Pinyin => "pinyin",
+                DictionaryKind::Wubi => "wubi",
+                DictionaryKind::Wubi98 => "wubi98",
+                DictionaryKind::QuickPhrase => "quick",
+                DictionaryKind::English => "english",
+                _ => continue,
+            };
+            if entry.key.is_empty()
+                || entry.key.len() > 512
+                || entry.value.is_empty()
+                || entry.value.len() > 2048
+                || !seen.insert((kind, entry.key.clone(), entry.value.clone()))
+            {
+                continue;
+            }
+            rows.push((
+                kind,
+                entry.key,
+                entry.value,
+                entry.weight.clamp(1, 100_000_000),
+            ));
+        }
+        offset = offset.saturating_add(count);
+        if !page.has_more || count == 0 || rows.len() >= 100_000 {
+            break;
+        }
+    }
+    rows.truncate(100_000);
+    let mut body = Vec::new();
+    let mut push = |line: Value| {
+        body.extend_from_slice(line.to_string().as_bytes());
+        body.push(b'\n');
+    };
+    push(json!({
+        "type": "header",
+        "format": "msime-dictionary-snapshot",
+        "version": 1,
+        "revision": REVISION,
+    }));
+    let id = |kind: &str, code: &str, word: &str| {
+        let mut digest = Sha256::new();
+        digest.update(kind.as_bytes());
+        digest.update(b"\t");
+        digest.update(code.as_bytes());
+        digest.update(b"\t");
+        digest.update(word.as_bytes());
+        hex::encode(&digest.finalize()[..16])
+    };
+    for (kind, code, word, weight) in &rows {
+        push(json!({"type": "entry", "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": REVISION,
+            "updated_at": updated_at,
+        }}));
+    }
+    for (kind, code, word, weight) in &rows {
+        push(json!({"type": "overlay", "deleted": false, "data": {
+            "id": id(kind, code, word),
+            "kind": kind,
+            "code": code,
+            "word": word,
+            "weight": weight,
+            "revision": REVISION,
+            "updated_at": updated_at,
+            "user_inserted": true,
+        }}));
+    }
+    let records = 1 + rows.len() * 2;
+    let checksum = hex::encode(Sha256::digest(&body));
+    body.extend_from_slice(
+        json!({"type": "footer", "records": records, "sha256": checksum})
+            .to_string()
+            .as_bytes(),
+    );
+    body.push(b'\n');
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| "snapshot file unavailable")?;
+    temporary
+        .write_all(&body)
+        .and_then(|()| temporary.as_file().sync_all())
+        .map_err(|_| "snapshot file unavailable")?;
+    let metadata = inspect_snapshot(temporary.path())?;
+    temporary
+        .persist(destination)
+        .map_err(|_| "snapshot file unavailable")?;
+    let mut value = serde_json::to_value(metadata).map_err(|_| "snapshot file unavailable")?;
+    value["path"] = json!(destination.to_string_lossy());
+    Ok(value)
+}
+
 fn restore_snapshot_with(
     request: RestoreRequest,
     path: &Path,

@@ -8,9 +8,11 @@
 
 use super::{AccountError, AccountPreferenceSchema, AccountPreferenceValue, AccountPreferences};
 use crate::preferences::{
-    FrequencyMode, InputScheme, Preferences, ShuangpinProfile, ThemeMode, TouchKeyboardLayout,
+    FrequencyMode, HandwritingMode, HandwritingStrokeColor, HelpcodeMode, InputScheme, Preferences,
+    ShuangpinProfile, ThemeMode, TouchKeyAnimation, TouchKeyboardLayout, TouchOneHanded,
     WubiProfile,
 };
+use crate::skin::app_theme::AppTheme;
 use crate::skin::theme::GlobalTheme;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,6 +28,141 @@ const GLOBAL_THEME: &str = "platform.android.global_theme";
 const CUSTOM_THEME_BASE: &str = "platform.android.custom_theme_base";
 const CUSTOM_KEYBOARD_SKIN: &str = "platform.android.custom_keyboard_skin";
 const CUSTOM_CANDIDATE_SKIN: &str = "platform.android.custom_candidate_skin";
+/// 整个自定义键盘皮肤库（JSON 数组，只含设计参数），值来自宿主的皮肤库而不是共享偏好。
+pub const CUSTOM_KEYBOARD_SKINS: &str = "platform.android.custom_keyboard_skins";
+/// [`CUSTOM_KEYBOARD_SKINS`] 的字节上限，与服务端字段表相同。
+pub const MAX_CUSTOM_KEYBOARD_SKINS_BYTES: usize = 786_432;
+/// 按键音包 id 的长度上限，与服务端字段表相同。
+const MAX_KEY_SOUND_PACK_CHARS: usize = 64;
+/// 语音识别语言的长度上限，与服务端字段表相同。
+const MAX_VOICE_LANGUAGE_CHARS: usize = 16;
+
+/// 工具栏按钮在同步文档里的键，与 `touch_toolbar` 的成员一一对应。
+const TOOLBAR_KEYS: [&str; 11] = [
+    "platform.android.toolbar_layout",
+    "platform.android.toolbar_emoji",
+    "platform.android.toolbar_phrase",
+    "platform.android.toolbar_clipboard",
+    "platform.android.toolbar_skin",
+    "platform.android.toolbar_ai",
+    "platform.android.toolbar_character_set",
+    "platform.android.toolbar_fullwidth",
+    "platform.android.toolbar_punctuation",
+    "platform.android.toolbar_scheme",
+    "platform.android.toolbar_hidden",
+];
+
+/// `touch_toolbar` 里与 [`TOOLBAR_KEYS`] 同序的成员。
+fn toolbar_member(
+    toolbar: &mut crate::preferences::TouchToolbarPreferences,
+    index: usize,
+) -> &mut bool {
+    match index {
+        0 => &mut toolbar.layout,
+        1 => &mut toolbar.emoji,
+        2 => &mut toolbar.phrase,
+        3 => &mut toolbar.clipboard,
+        4 => &mut toolbar.skin,
+        5 => &mut toolbar.ai,
+        6 => &mut toolbar.character_set,
+        7 => &mut toolbar.fullwidth,
+        8 => &mut toolbar.punctuation,
+        9 => &mut toolbar.scheme,
+        _ => &mut toolbar.hidden,
+    }
+}
+
+fn one_handed(value: TouchOneHanded) -> &'static str {
+    match value {
+        TouchOneHanded::Off => "off",
+        TouchOneHanded::Left => "left",
+        TouchOneHanded::Right => "right",
+    }
+}
+
+fn key_animation(value: TouchKeyAnimation) -> &'static str {
+    match value {
+        TouchKeyAnimation::None => "none",
+        TouchKeyAnimation::Bounce => "bounce",
+        TouchKeyAnimation::Ripple => "ripple",
+        TouchKeyAnimation::Glow => "glow",
+        TouchKeyAnimation::Lift => "lift",
+    }
+}
+
+fn handwriting_mode(value: HandwritingMode) -> &'static str {
+    match value {
+        HandwritingMode::Single => "single",
+        HandwritingMode::Overlap => "overlap",
+        HandwritingMode::Line => "line",
+    }
+}
+
+fn stroke_color(value: HandwritingStrokeColor) -> &'static str {
+    match value {
+        HandwritingStrokeColor::FollowSkin => "follow_skin",
+        HandwritingStrokeColor::Black => "black",
+        HandwritingStrokeColor::White => "white",
+        HandwritingStrokeColor::Blue => "blue",
+    }
+}
+
+fn helpcode_mode(value: HelpcodeMode) -> &'static str {
+    match value {
+        HelpcodeMode::Radical => "radical",
+        HelpcodeMode::Stroke => "stroke",
+        HelpcodeMode::Mixed => "mixed",
+    }
+}
+
+fn parse_helpcode_mode(value: &str) -> Option<HelpcodeMode> {
+    match value {
+        "radical" => Some(HelpcodeMode::Radical),
+        "stroke" => Some(HelpcodeMode::Stroke),
+        "mixed" => Some(HelpcodeMode::Mixed),
+        _ => None,
+    }
+}
+
+/// 自定义键盘皮肤库的 JSON 是否可以同步：不超过字节上限、是一个 JSON 数组。
+pub fn valid_custom_keyboard_skins(value: &str) -> bool {
+    value.len() <= MAX_CUSTOM_KEYBOARD_SKINS_BYTES
+        && matches!(
+            serde_json::from_str::<serde_json::Value>(value),
+            Ok(serde_json::Value::Array(_))
+        )
+}
+
+/// 把宿主的自定义键盘皮肤库加进导出结果；不合规（超长或不是数组）时不导出，返回假。
+pub fn insert_custom_keyboard_skins(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    library: &str,
+) -> bool {
+    if !valid_custom_keyboard_skins(library) {
+        return false;
+    }
+    insert_string(settings, CUSTOM_KEYBOARD_SKINS, library);
+    true
+}
+
+/// 云端文档里的自定义键盘皮肤库：字段表收录、值是字符串时返回 `Ok(Some(Ok(值)))`；值不合规时返回 `Ok(Some(Err(())))`，调用方跳过它；没有这个键时为 `Ok(None)`。
+pub fn custom_keyboard_skins(
+    cloud: &AccountPreferences,
+    schema: &AccountPreferenceSchema,
+) -> Result<Option<Result<String, ()>>, AccountError> {
+    match cloud.settings.get(CUSTOM_KEYBOARD_SKINS) {
+        Some(AccountPreferenceValue::String(value))
+            if supports_schema_field(schema, CUSTOM_KEYBOARD_SKINS, "string")? =>
+        {
+            Ok(Some(if valid_custom_keyboard_skins(value) {
+                Ok(value.clone())
+            } else {
+                Err(())
+            }))
+        }
+        _ => Ok(None),
+    }
+}
 
 /// 宿主本地的按键反馈设置，字段名与 Android 插件的 JSON 相同。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -214,6 +351,7 @@ pub fn export_android_settings(
         "platform.android.voice_shortcut",
         preferences.touch_voice_shortcut,
     );
+    insert_new_android_settings(&mut settings, preferences);
     if let Some(feedback) = feedback {
         insert_bool(
             &mut settings,
@@ -232,6 +370,97 @@ pub fn export_android_settings(
         );
     }
     Ok(settings)
+}
+
+/// 设计改版新增的键：应用主题、单手、按键细节、工具栏、手写、语音和辅助码模式。隐私模式、开发者选项、诊断日志和语音数据贡献是设备本地的，不在这里；辅助码方案（含郑码）也不写进公共键，其他平台不认识郑码。
+fn insert_new_android_settings(
+    settings: &mut BTreeMap<String, AccountPreferenceValue>,
+    preferences: &Preferences,
+) {
+    insert_string(settings, "general.app_theme", preferences.app_theme.id());
+    insert_string(
+        settings,
+        "platform.android.one_handed",
+        one_handed(preferences.touch_one_handed),
+    );
+    insert_bool(
+        settings,
+        "platform.android.key_popup",
+        preferences.touch_key_popup,
+    );
+    insert_bool(
+        settings,
+        "platform.android.swipe_down_symbols",
+        preferences.touch_swipe_down_symbols,
+    );
+    insert_bool(
+        settings,
+        "platform.android.space_cursor",
+        preferences.touch_space_cursor,
+    );
+    insert_bool(
+        settings,
+        "platform.android.space_voice",
+        preferences.touch_space_voice,
+    );
+    insert_string(
+        settings,
+        "platform.android.key_animation",
+        key_animation(preferences.touch_key_animation),
+    );
+    let pack = &preferences.plugins.key_sound.pack;
+    if pack.chars().count() <= MAX_KEY_SOUND_PACK_CHARS {
+        insert_string(settings, "platform.android.key_sound_pack", pack);
+    }
+    let mut toolbar = preferences.touch_toolbar;
+    for (index, key) in TOOLBAR_KEYS.iter().enumerate() {
+        insert_bool(settings, key, *toolbar_member(&mut toolbar, index));
+    }
+    let handwriting = &preferences.touch_handwriting;
+    insert_string(
+        settings,
+        "platform.android.handwriting_mode",
+        handwriting_mode(handwriting.mode),
+    );
+    insert_integer(
+        settings,
+        "platform.android.handwriting_delay_ms",
+        i64::from(handwriting.recognition_delay_ms),
+    );
+    insert_bool(
+        settings,
+        "platform.android.handwriting_show_pinyin",
+        handwriting.show_pinyin,
+    );
+    insert_string(
+        settings,
+        "platform.android.handwriting_stroke_color",
+        stroke_color(handwriting.stroke_color),
+    );
+    insert_integer(
+        settings,
+        "platform.android.handwriting_stroke_width",
+        i64::from(handwriting.stroke_width),
+    );
+    let language = &preferences.voice_input.language;
+    if language.chars().count() <= MAX_VOICE_LANGUAGE_CHARS {
+        insert_string(settings, "platform.android.voice_language", language);
+    }
+    insert_bool(
+        settings,
+        "platform.android.voice_offline_fallback",
+        preferences.voice_input.offline_fallback,
+    );
+    insert_string(
+        settings,
+        "helpcode.quanpin_helpcode_mode",
+        helpcode_mode(preferences.quanpin_helpcode.mode),
+    );
+    insert_string(
+        settings,
+        "helpcode.shuangpin_helpcode_mode",
+        helpcode_mode(preferences.shuangpin_helpcode.mode),
+    );
 }
 
 /// 全局主题、自定义主题的底色、它的键盘设计和外部候选窗口皮肤包。设计是 JSON，包是 id；两者都用空串表示「没有」，这样清除也能同步。
@@ -553,6 +782,8 @@ pub fn apply_android_settings(
         preferences.touch_voice_shortcut = value
     })?;
 
+    apply_new_android_settings(&mut applier)?;
+
     if let Some(value) = applier.boolean(ANDROID_FEEDBACK_KEYS[0])? {
         applier.feedback_mut()?.sound_enabled = value;
     }
@@ -580,6 +811,119 @@ pub fn apply_android_settings(
         feedback,
         skipped,
     })
+}
+
+/// [`insert_new_android_settings`] 的反方向。取值不认识或超出本机范围时跳过这一个键。
+fn apply_new_android_settings(applier: &mut Applier<'_>) -> Result<(), AccountError> {
+    applier.set_string("general.app_theme", |preferences, value| {
+        preferences.app_theme = AppTheme::from_id(value)?;
+        Some(())
+    })?;
+    applier.set_string("platform.android.one_handed", |preferences, value| {
+        preferences.touch_one_handed = match value {
+            "off" => TouchOneHanded::Off,
+            "left" => TouchOneHanded::Left,
+            "right" => TouchOneHanded::Right,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_bool("platform.android.key_popup", |preferences, value| {
+        preferences.touch_key_popup = value
+    })?;
+    applier.set_bool(
+        "platform.android.swipe_down_symbols",
+        |preferences, value| preferences.touch_swipe_down_symbols = value,
+    )?;
+    applier.set_bool("platform.android.space_cursor", |preferences, value| {
+        preferences.touch_space_cursor = value
+    })?;
+    applier.set_bool("platform.android.space_voice", |preferences, value| {
+        preferences.touch_space_voice = value
+    })?;
+    applier.set_string("platform.android.key_animation", |preferences, value| {
+        preferences.touch_key_animation = match value {
+            "none" => TouchKeyAnimation::None,
+            "bounce" => TouchKeyAnimation::Bounce,
+            "ripple" => TouchKeyAnimation::Ripple,
+            "glow" => TouchKeyAnimation::Glow,
+            "lift" => TouchKeyAnimation::Lift,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_string("platform.android.key_sound_pack", |preferences, value| {
+        if value.chars().count() > MAX_KEY_SOUND_PACK_CHARS {
+            return None;
+        }
+        preferences.plugins.key_sound.pack = value.to_owned();
+        Some(())
+    })?;
+    for (index, key) in TOOLBAR_KEYS.iter().enumerate() {
+        applier.set_bool(key, |preferences, value| {
+            *toolbar_member(&mut preferences.touch_toolbar, index) = value
+        })?;
+    }
+    applier.set_string("platform.android.handwriting_mode", |preferences, value| {
+        preferences.touch_handwriting.mode = match value {
+            "single" => HandwritingMode::Single,
+            "overlap" => HandwritingMode::Overlap,
+            "line" => HandwritingMode::Line,
+            _ => return None,
+        };
+        Some(())
+    })?;
+    applier.set_integer(
+        "platform.android.handwriting_delay_ms",
+        |preferences, value| {
+            preferences.touch_handwriting.recognition_delay_ms = u16::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_bool(
+        "platform.android.handwriting_show_pinyin",
+        |preferences, value| preferences.touch_handwriting.show_pinyin = value,
+    )?;
+    applier.set_string(
+        "platform.android.handwriting_stroke_color",
+        |preferences, value| {
+            preferences.touch_handwriting.stroke_color = match value {
+                "follow_skin" => HandwritingStrokeColor::FollowSkin,
+                "black" => HandwritingStrokeColor::Black,
+                "white" => HandwritingStrokeColor::White,
+                "blue" => HandwritingStrokeColor::Blue,
+                _ => return None,
+            };
+            Some(())
+        },
+    )?;
+    applier.set_integer(
+        "platform.android.handwriting_stroke_width",
+        |preferences, value| {
+            preferences.touch_handwriting.stroke_width = u8::try_from(value).ok()?;
+            Some(())
+        },
+    )?;
+    applier.set_string("platform.android.voice_language", |preferences, value| {
+        if value.chars().count() > MAX_VOICE_LANGUAGE_CHARS {
+            return None;
+        }
+        preferences.voice_input.language = value.to_owned();
+        Some(())
+    })?;
+    applier.set_bool(
+        "platform.android.voice_offline_fallback",
+        |preferences, value| preferences.voice_input.offline_fallback = value,
+    )?;
+    applier.set_string("helpcode.quanpin_helpcode_mode", |preferences, value| {
+        preferences.quanpin_helpcode.mode = parse_helpcode_mode(value)?;
+        Some(())
+    })?;
+    applier.set_string("helpcode.shuangpin_helpcode_mode", |preferences, value| {
+        preferences.shuangpin_helpcode.mode = parse_helpcode_mode(value)?;
+        Some(())
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]

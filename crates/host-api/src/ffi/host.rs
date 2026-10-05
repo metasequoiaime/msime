@@ -609,6 +609,21 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             day: String,
             keys: std::collections::BTreeMap<String, u64>,
         },
+        /// 派生指标（概览、习惯、按键、徽章），新解锁的徽章在锁内写进 `achievements`。隐私模式不影响它：它只读已经记下的数据。
+        Summary {
+            day: String,
+            #[serde(default)]
+            user_words: Option<u64>,
+        },
+        /// 一次语音输入的时长，计在宿主的本地日 `day` 上。
+        RecordVoice {
+            day: String,
+            milliseconds: u64,
+        },
+        /// 用过一款皮肤（徽章「换装达人」）。
+        RecordSkin {
+            id: String,
+        },
         Reset,
     }
     response(|| {
@@ -659,6 +674,25 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 let recorded = store
                     .record_keys(&day, &keys)
                     .map_err(|error| error.to_string())?;
+                Ok(json!({"recorded": recorded}))
+            }
+            StatisticsAction::Summary { day, user_words } => serde_json::to_value(
+                store
+                    .summary(
+                        &day,
+                        &msime_client_core::typing_statistics::SummaryInputs { user_words },
+                    )
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|_| "typing statistics response failed".to_owned()),
+            StatisticsAction::RecordVoice { day, milliseconds } => {
+                let recorded = store
+                    .record_voice(&day, milliseconds)
+                    .map_err(|error| error.to_string())?;
+                Ok(json!({"recorded": recorded}))
+            }
+            StatisticsAction::RecordSkin { id } => {
+                let recorded = store.record_skin(&id).map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }
             StatisticsAction::SetEnabled { enabled } => serde_json::to_value(

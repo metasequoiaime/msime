@@ -196,6 +196,17 @@ enum Operation {
     DismissFailure {
         request_id: String,
     },
+    /// 词条数，只读。没有 `kind` 时数全部词库。`user_only` 为真时只数用户自己的词；为假（缺省）时拼音还计入学习过权重的内置词，与导出的口径相同。
+    Count {
+        #[serde(default)]
+        kind: Option<Kind>,
+        #[serde(default)]
+        user_only: bool,
+    },
+    /// 把用户词库导出成与 `/v1/users/me/dictionary/snapshot` 相同的 NDJSON 文件，`destination` 是绝对路径。
+    ExportSnapshot {
+        destination: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -752,6 +763,81 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         Operation::Retry { .. } | Operation::DismissFailure { .. } => {
             Err("dictionary failure actions require the Android personal dictionary API".into())
         }
+        Operation::Count { kind, user_only } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            count_entries(&options, kind, user_only)
+        }
+        Operation::ExportSnapshot { destination } => {
+            let _access = DictionaryAccess::try_session(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            crate::dictionary_snapshot::export_local_snapshot(&options, Path::new(&destination))
+                .map_err(str::to_owned)
+        }
+    }
+}
+
+/// `count` 的实现：分页扫完整个用户词库，最多扫一百万行。
+fn count_entries(
+    options: &msime_engine::host::EngineOptions,
+    kind: Option<Kind>,
+    user_only: bool,
+) -> Result<serde_json::Value, String> {
+    const CHUNK: usize = 1000;
+    const SCAN_LIMIT: usize = 1_000_000;
+    let mut counts = std::collections::BTreeMap::<&'static str, u64>::new();
+    let mut scanned = 0usize;
+    let mut complete = true;
+    loop {
+        let page = if user_only {
+            msime_engine::host::dictionary_entries(options, scanned, CHUNK)
+        } else {
+            msime_engine::host::dictionary_export_entries(
+                options,
+                scanned,
+                CHUNK,
+                kind.is_none_or(|kind| kind == Kind::Pinyin),
+            )
+        }
+        .map_err(|_| "dictionary read rejected")?;
+        let count = page.entries.len();
+        for entry in page.entries {
+            let Ok(entry) = Entry::try_from(entry) else {
+                continue;
+            };
+            if kind.is_some_and(|wanted| wanted != entry.kind) {
+                continue;
+            }
+            *counts.entry(kind_name(entry.kind)).or_default() += 1;
+        }
+        scanned = scanned.saturating_add(count);
+        if !page.has_more || count == 0 {
+            break;
+        }
+        if scanned >= SCAN_LIMIT {
+            complete = false;
+            break;
+        }
+    }
+    let total: u64 = counts.values().sum();
+    Ok(json!({ "count": total, "kinds": counts, "complete": complete }))
+}
+
+fn kind_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pinyin => "pinyin",
+        Kind::Wubi => "wubi",
+        Kind::QuickPhrase => "quick_phrase",
+        Kind::English => "english",
+        Kind::Wubi98 => "wubi98",
     }
 }
 
@@ -937,6 +1023,9 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
                 .map_err(personal_dictionary_error)?;
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "pending_count": state.pending_count() }))
+        }
+        Operation::Count { .. } | Operation::ExportSnapshot { .. } => {
+            Err("dictionary read operations require msime_client_dictionary".into())
         }
         Operation::DismissFailure { request_id } => {
             store

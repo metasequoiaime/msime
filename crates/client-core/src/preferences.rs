@@ -1382,7 +1382,7 @@ impl Default for TouchHandwritingPreferences {
 impl TouchHandwritingPreferences {
     fn is_valid(&self) -> bool {
         HANDWRITING_RECOGNITION_DELAY_MS.contains(&self.recognition_delay_ms)
-            && self.recognition_delay_ms % 100 == 0
+            && self.recognition_delay_ms.is_multiple_of(100)
             && HANDWRITING_STROKE_WIDTH.contains(&self.stroke_width)
     }
 }
@@ -2499,10 +2499,17 @@ impl Preferences {
     ) -> Self {
         let mut next = Self::for_edition_on(edition, platform);
 
+        // 凭据走 [`Preferences::credential_slots`] 这份清单（诊断脱敏用的是同一份）；下面是随凭据一起保留的服务配置。
+        let mut source = self.clone();
+        for ((_, from), (_, to)) in source
+            .credential_slots()
+            .into_iter()
+            .zip(next.credential_slots())
+        {
+            from.copy_into(to);
+        }
+
         next.voice_input.asr_provider = self.voice_input.asr_provider.clone();
-        next.voice_input.asr_app_key = self.voice_input.asr_app_key.clone();
-        next.voice_input.asr_token = self.voice_input.asr_token.clone();
-        next.voice_input.asr_tokens = self.voice_input.asr_tokens.clone();
         next.voice_input.asr_endpoint = self.voice_input.asr_endpoint.clone();
         next.voice_input.asr_model = self.voice_input.asr_model.clone();
         next.voice_input.asr_model_path = self.voice_input.asr_model_path.clone();
@@ -2510,30 +2517,101 @@ impl Preferences {
         next.voice_input.asr_resource_id = self.voice_input.asr_resource_id.clone();
         next.voice_input.doubao_auth_mode = self.voice_input.doubao_auth_mode.clone();
         next.voice_input.polish_provider = self.voice_input.polish_provider.clone();
-        next.voice_input.polish_token = self.voice_input.polish_token.clone();
-        next.voice_input.polish_tokens = self.voice_input.polish_tokens.clone();
         next.voice_input.polish_endpoint = self.voice_input.polish_endpoint.clone();
         next.voice_input.polish_model = self.voice_input.polish_model.clone();
 
         next.ai_assistant.provider = self.ai_assistant.provider.clone();
         next.ai_assistant.model = self.ai_assistant.model.clone();
-        next.ai_assistant.token = self.ai_assistant.token.clone();
-        next.ai_assistant.tokens = self.ai_assistant.tokens.clone();
         next.ai_assistant.endpoint = self.ai_assistant.endpoint.clone();
 
         next.custom_translation.endpoint = self.custom_translation.endpoint.clone();
-        next.custom_translation.api_key = self.custom_translation.api_key.clone();
 
-        next.tencent_tmt.secret_id = self.tencent_tmt.secret_id.clone();
-        next.tencent_tmt.secret_key = self.tencent_tmt.secret_key.clone();
         next.tencent_tmt.region = self.tencent_tmt.region.clone();
-
-        next.niutrans.app_id = self.niutrans.app_id.clone();
-        next.niutrans.apikey = self.niutrans.apikey.clone();
 
         next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
 
         next
+    }
+
+    /// 偏好里的全部服务凭据（token、密钥、应用 id），按文档里的路径列出。恢复默认设置时原样保留的、导出诊断包时换成 [`REDACTED`] 的，都是这一份清单；`preferences/tests.rs` 用字段名兜底，新加的凭据字段不进清单测试就失败。
+    pub fn credential_slots(&mut self) -> [(&'static str, CredentialSlot<'_>); 12] {
+        [
+            (
+                "voice_input.asr_app_key",
+                CredentialSlot::Text(&mut self.voice_input.asr_app_key),
+            ),
+            (
+                "voice_input.asr_token",
+                CredentialSlot::Text(&mut self.voice_input.asr_token),
+            ),
+            (
+                "voice_input.asr_tokens",
+                CredentialSlot::Map(&mut self.voice_input.asr_tokens),
+            ),
+            (
+                "voice_input.polish_token",
+                CredentialSlot::Text(&mut self.voice_input.polish_token),
+            ),
+            (
+                "voice_input.polish_tokens",
+                CredentialSlot::Map(&mut self.voice_input.polish_tokens),
+            ),
+            (
+                "ai_assistant.token",
+                CredentialSlot::Text(&mut self.ai_assistant.token),
+            ),
+            (
+                "ai_assistant.tokens",
+                CredentialSlot::Map(&mut self.ai_assistant.tokens),
+            ),
+            (
+                "custom_translation.api_key",
+                CredentialSlot::Text(&mut self.custom_translation.api_key),
+            ),
+            (
+                "tencent_tmt.secret_id",
+                CredentialSlot::Text(&mut self.tencent_tmt.secret_id),
+            ),
+            (
+                "tencent_tmt.secret_key",
+                CredentialSlot::Text(&mut self.tencent_tmt.secret_key),
+            ),
+            (
+                "niutrans.app_id",
+                CredentialSlot::Text(&mut self.niutrans.app_id),
+            ),
+            (
+                "niutrans.apikey",
+                CredentialSlot::Text(&mut self.niutrans.apikey),
+            ),
+        ]
+    }
+
+    /// 诊断包里的配置快照：整份偏好文档，凭据清单里的每个字段都换成 [`REDACTED`]；此外任何键名符合服务端脱敏规则（含 `token`、`secret`、`password`、`api_key` 或以 `key` 结尾，不分大小写）的值也一律换掉，这样快照上传时一定通过服务端的校验。
+    pub fn redacted_for_diagnostics(&self) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).unwrap_or(serde_json::Value::Null);
+        let mut copy = self.clone();
+        for (path, _) in copy.credential_slots() {
+            let mut cursor = &mut value;
+            let mut segments = path.split('.').peekable();
+            while let Some(segment) = segments.next() {
+                let Some(object) = cursor.as_object_mut() else {
+                    break;
+                };
+                if segments.peek().is_none() {
+                    if object.contains_key(segment) {
+                        object.insert(segment.to_owned(), REDACTED.into());
+                    }
+                    break;
+                }
+                let Some(next) = object.get_mut(segment) else {
+                    break;
+                };
+                cursor = next;
+            }
+        }
+        redact_sensitive_keys(&mut value);
+        value
     }
 
     pub fn validate(&self) -> Result<(), PreferencesError> {
@@ -3227,6 +3305,52 @@ fn sweep_stale_temporaries(directory: &Path) {
         if abandoned {
             let _ = std::fs::remove_file(entry.path());
         }
+    }
+}
+
+/// 诊断快照里替换凭据的值，与服务端校验要求的写法相同。
+pub const REDACTED: &str = "<redacted>";
+
+/// [`Preferences::credential_slots`] 里的一个凭据字段。
+pub enum CredentialSlot<'a> {
+    Text(&'a mut String),
+    Map(&'a mut BTreeMap<String, String>),
+}
+
+impl CredentialSlot<'_> {
+    /// 把这个字段的值复制到另一份偏好的同一个字段；两边是同一个路径时类型必然相同。
+    fn copy_into(self, target: CredentialSlot<'_>) {
+        match (self, target) {
+            (CredentialSlot::Text(from), CredentialSlot::Text(to)) => to.clone_from(from),
+            (CredentialSlot::Map(from), CredentialSlot::Map(to)) => to.clone_from(from),
+            _ => {}
+        }
+    }
+}
+
+/// 服务端（`POST /v1/users/me/diagnostics`）要求必须是 [`REDACTED`] 的键名：`(?i)token|secret|password|api_key|key$`。
+pub fn is_sensitive_key(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("token")
+        || name.contains("secret")
+        || name.contains("password")
+        || name.contains("api_key")
+        || name.ends_with("key")
+}
+
+fn redact_sensitive_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, child) in object.iter_mut() {
+                if is_sensitive_key(key) {
+                    *child = REDACTED.into();
+                } else {
+                    redact_sensitive_keys(child);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(redact_sensitive_keys),
+        _ => {}
     }
 }
 

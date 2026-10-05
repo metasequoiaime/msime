@@ -10493,3 +10493,213 @@ fn a_resource_pack_installed_after_the_session_opened_is_picked_up_on_focus() {
     });
     assert_eq!(read(msime_client_destroy(handle))["ok"], true);
 }
+
+fn call_android_data(
+    function: unsafe extern "C" fn(*const u8, usize) -> *mut c_char,
+    request: Value,
+) -> Value {
+    let bytes = serde_json::to_vec(&request).unwrap();
+    read(unsafe { function(bytes.as_ptr(), bytes.len()) })
+}
+
+#[test]
+fn typing_statistics_summary_and_new_records_cross_the_boundary() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        call_android_data(
+            msime_client_typing_statistics,
+            json!({"directory": directory.path(), "action": action}),
+        )
+    };
+    assert_eq!(
+        call(json!({"operation": "set_enabled", "enabled": true}))["ok"],
+        true
+    );
+    let voice =
+        call(json!({"operation": "record_voice", "day": "2026-10-05", "milliseconds": 1500}));
+    assert_eq!(voice["ok"], true, "{voice}");
+    let skin = call(json!({"operation": "record_skin", "id": "chunya"}));
+    assert_eq!(skin["ok"], true, "{skin}");
+    let summary = call(json!({"operation": "summary", "day": "2026-10-05", "user_words": 3}));
+    assert_eq!(summary["ok"], true, "{summary}");
+    for section in ["overview", "habits", "keys", "achievements"] {
+        assert!(!summary["value"][section].is_null(), "{section}: {summary}");
+    }
+    assert_eq!(
+        call(json!({"operation": "summary", "day": "05/10/2026"}))["ok"],
+        false
+    );
+}
+
+fn empty_host_options(root: &Path) -> Value {
+    json!({
+        "api_version": 1,
+        "resources": root.join("resources"),
+        "user_data": root.join("user"),
+        "cache": root.join("cache"),
+        "dictionaries": root.join("dictionaries"),
+        "preferences": Preferences::default(),
+        "preferences_directory": root,
+    })
+}
+
+#[test]
+fn dictionary_count_and_snapshot_export_answer_for_an_empty_store() {
+    let directory = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir_all(directory.path().join(name)).unwrap();
+    }
+    let options = empty_host_options(directory.path());
+    let count = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "count", "user_only": true}}),
+    );
+    assert_eq!(count["ok"], true, "{count}");
+    assert_eq!(count["value"]["count"], 0);
+    assert_eq!(count["value"]["complete"], true);
+    let destination = directory.path().join("snapshot.ndjson");
+    let exported = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": destination}}),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    assert_eq!(exported["value"]["entries"], 0);
+    let text = std::fs::read_to_string(&destination).unwrap();
+    assert!(
+        text.starts_with("{\"format\":\"msime-dictionary-snapshot\""),
+        "{text}"
+    );
+    let relative = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": "snapshot.ndjson"}}),
+    );
+    assert_eq!(relative["ok"], false);
+}
+
+#[test]
+fn common_phrases_and_collections_forward_to_client_core() {
+    let directory = tempfile::tempdir().unwrap();
+    let added = call_android_data(
+        msime_client_common_phrases,
+        json!({"directory": directory.path(), "action": {"operation": "add", "text": "稍后回复你\n谢谢"}}),
+    );
+    assert_eq!(added["ok"], true, "{added}");
+    assert_eq!(added["value"]["phrases"][0]["text"], "稍后回复你\n谢谢");
+    let duplicate = call_android_data(
+        msime_client_common_phrases,
+        json!({"directory": directory.path(), "action": {"operation": "add", "text": "稍后回复你\n谢谢"}}),
+    );
+    assert_eq!(duplicate["error"], "common_phrases_duplicate");
+    assert_eq!(
+        call_android_data(
+            msime_client_common_phrases,
+            json!({"directory": "relative", "action": {"operation": "load"}}),
+        )["ok"],
+        false
+    );
+
+    let loaded = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options": empty_host_options(directory.path()), "action": {"operation": "load"}}),
+    );
+    assert_eq!(loaded["ok"], true, "{loaded}");
+    let locked = call_android_data(
+        msime_client_dictionary_collections,
+        json!({"options": empty_host_options(directory.path()), "action": {"operation": "delete", "id": "builtin:pinyin"}}),
+    );
+    assert_eq!(locked["error"], "builtin_locked");
+}
+
+#[test]
+fn diagnostic_bundle_drops_text_lines_and_redacts_credentials() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences::default();
+    preferences.ai_assistant.token = "SENTINEL-ai".into();
+    PreferencesStore::new(directory.path())
+        .save(0, preferences)
+        .unwrap();
+    let events = directory.path().join("events.ndjson");
+    std::fs::write(
+        &events,
+        "{\"t_ms\":1,\"kind\":\"commit\"}\n{\"t_ms\":2,\"kind\":\"commit\",\"text\":\"SENTINEL-text\"}\n",
+    )
+    .unwrap();
+    let bundle = call_android_data(
+        msime_client_diagnostic_bundle,
+        json!({
+            "state_root": directory.path(),
+            "include": {"input_events": true, "config_snapshot": true},
+            "sources": {"input_events": events},
+        }),
+    );
+    assert_eq!(bundle["ok"], true, "{bundle}");
+    assert_eq!(bundle["value"]["counts"]["input_events"]["kept"], 1);
+    assert_eq!(bundle["value"]["counts"]["input_events"]["dropped"], 1);
+    assert!(!bundle.to_string().contains("SENTINEL"), "{bundle}");
+    assert_eq!(
+        bundle["value"]["sections"]["config_snapshot"]["ai_assistant"]["token"],
+        "<redacted>"
+    );
+}
+
+#[test]
+fn account_settings_export_and_apply_round_trip_without_credentials() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut preferences = Preferences {
+        touch_incognito: true,
+        ..Preferences::default()
+    };
+    preferences.voice_input.asr_token = "SENTINEL-asr".into();
+    preferences.touch_key_popup = !Preferences::default().touch_key_popup;
+    PreferencesStore::new(directory.path())
+        .save(0, preferences.clone())
+        .unwrap();
+    let exported = call_android_data(
+        msime_client_account_settings_export,
+        json!({"preferences_directory": directory.path(), "custom_keyboard_skins": "[]"}),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    let text = exported.to_string();
+    assert!(!text.contains("SENTINEL"));
+    assert!(!text.contains("incognito"));
+    let settings = exported["value"]["settings"].clone();
+    assert_eq!(settings["platform.android.custom_keyboard_skins"], "[]");
+    let fields: serde_json::Map<String, Value> = settings
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| {
+            let kind = match value {
+                Value::Bool(_) => "boolean",
+                Value::Number(_) => "integer",
+                _ => "string",
+            };
+            (key.clone(), json!({"type": kind}))
+        })
+        .collect();
+    let schema = json!({
+        "fields": fields,
+        "maximum_bytes": 1_048_576,
+        "update_mode": "replace",
+        "revision_required": true,
+    });
+
+    let other = tempfile::tempdir().unwrap();
+    let applied = call_android_data(
+        msime_client_account_settings_apply,
+        json!({
+            "preferences_directory": other.path(),
+            "cloud": {"revision": 4, "settings": settings},
+            "schema": schema,
+        }),
+    );
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(applied["value"]["custom_keyboard_skins"], "[]");
+    let saved = PreferencesStore::new(other.path()).load().unwrap();
+    assert_eq!(
+        saved.preferences.touch_key_popup,
+        preferences.touch_key_popup
+    );
+    assert!(!saved.preferences.touch_incognito);
+    assert!(saved.preferences.voice_input.asr_token.is_empty());
+}

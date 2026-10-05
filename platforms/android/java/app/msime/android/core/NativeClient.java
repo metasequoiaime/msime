@@ -122,6 +122,22 @@ public final class NativeClient {
     public static String communitySkinInstall(String request) { return text(communitySkinInstallRaw(utf8(request))); }
     /** 一个按键音包校验后的文件清单 `{state_root,sound_packs,pack}`。读文件，不在按键路径上调用。 */
     public static String keySoundPack(String request) { return text(keySoundPackRaw(utf8(request))); }
+    /** 无编码常用语 `{directory,action}`，返回整份文档；设置进程和键盘进程都用。持有文件锁，在工作线程调用。 */
+    public static String commonPhrases(String request) { return text(commonPhrasesRaw(utf8(request))); }
+    /** 命名词库 `{options,action}`，词条经个人词库队列送进 Engine。读写文件，在工作线程调用。 */
+    public static String dictionaryCollections(String request) {
+        return text(dictionaryCollectionsRaw(utf8(request)));
+    }
+    /** 诊断包 `{state_root,include,sources,destination}`：写 zip，或不带 destination 时返回上传用的 sections。输入事件只保留白名单字段，配置快照已脱敏。在工作线程调用。 */
+    public static String diagnosticBundle(String request) { return text(diagnosticBundleRaw(utf8(request))); }
+    /** 本机设置导出成账号设置文档的键值（可附带合并后的整份文档）；凭据与设备本地设置不导出。读偏好，在工作线程调用。 */
+    public static String accountSettingsExport(String request) {
+        return text(accountSettingsExportRaw(utf8(request)));
+    }
+    /** 把云端设置文档应用到本机偏好并按修订号保存，返回保存后的快照、按键反馈、皮肤库与跳过的键。在工作线程调用。 */
+    public static String accountSettingsApply(String request) {
+        return text(accountSettingsApplyRaw(utf8(request)));
+    }
 
     private static void validateMonth(int month) {
         if (month < 1 || month > 12) throw new IllegalArgumentException("Month must be between 1 and 12");
@@ -532,6 +548,11 @@ public final class NativeClient {
     private static native byte[] keyboardSkinTrialRaw(byte[] request);
     private static native byte[] communitySkinInstallRaw(byte[] request);
     private static native byte[] keySoundPackRaw(byte[] request);
+    private static native byte[] commonPhrasesRaw(byte[] request);
+    private static native byte[] dictionaryCollectionsRaw(byte[] request);
+    private static native byte[] diagnosticBundleRaw(byte[] request);
+    private static native byte[] accountSettingsExportRaw(byte[] request);
+    private static native byte[] accountSettingsApplyRaw(byte[] request);
     private static native byte[] vocabularyReviewRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);

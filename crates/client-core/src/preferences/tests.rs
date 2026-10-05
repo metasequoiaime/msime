@@ -4279,3 +4279,144 @@ fn a_legacy_document_naming_a_seasonal_skin_folder_still_loads() {
         crate::skin::theme::GlobalTheme::Siji
     );
 }
+
+/// 偏好里键名像凭据、但确实不是凭据的字段。新字段名含 token|key|secret|password 时，要么进 `Preferences::credential_slots`，要么在这里说明它不是凭据。
+const NOT_CREDENTIALS: &[&str] = &[
+    "floating_toolbar.screen_keyboard",
+    "keybindings",
+    "screen_keyboard_theme",
+    "sentence_association.neural_keyboard",
+    "touch_key_spacing_tenths",
+    "touch_keyboard_height_adjustment",
+    "touch_keyboard_layout",
+    "voice_input.hotkey_ctrl_f9",
+    "voice_input.hotkey_ctrl_win",
+    "voice_input.hotkey_hold_space_lock",
+    "voice_input.hotkey_ralt",
+    "voice_input.hotkey_rctrl_ralt",
+    "word_character.keys",
+];
+
+fn credential_like(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ["token", "key", "secret", "password"]
+        .iter()
+        .any(|pattern| name.contains(pattern))
+}
+
+fn credential_like_paths(value: &serde_json::Value, prefix: &str, into: &mut Vec<String>) {
+    if let serde_json::Value::Object(object) = value {
+        for (key, child) in object {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if credential_like(key) {
+                into.push(path.clone());
+            }
+            credential_like_paths(child, &path, into);
+        }
+    }
+}
+
+fn with_every_credential(mut preferences: Preferences) -> Preferences {
+    for (_, slot) in preferences.credential_slots() {
+        match slot {
+            CredentialSlot::Text(text) => *text = "secret-value".into(),
+            CredentialSlot::Map(map) => {
+                map.insert("provider".into(), "secret-value".into());
+            }
+        }
+    }
+    preferences
+}
+
+#[test]
+fn every_credential_like_preference_field_is_listed() {
+    let mut preferences = Preferences::default();
+    let credentials: Vec<&str> = preferences
+        .credential_slots()
+        .iter()
+        .map(|(path, _)| *path)
+        .collect();
+    let document = serde_json::to_value(with_every_credential(Preferences::default())).unwrap();
+    let mut paths = Vec::new();
+    credential_like_paths(&document, "", &mut paths);
+    let unlisted: Vec<_> = paths
+        .iter()
+        .filter(|path| {
+            !credentials.contains(&path.as_str())
+                && !NOT_CREDENTIALS.contains(&path.as_str())
+                && !credentials
+                    .iter()
+                    .any(|credential| path.starts_with(&format!("{credential}.")))
+        })
+        .collect();
+    assert!(
+        unlisted.is_empty(),
+        "credential-like preference fields neither in credential_slots nor NOT_CREDENTIALS: {unlisted:?}"
+    );
+    for path in &credentials {
+        let mut cursor = &document;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert!(!cursor.is_null(), "{path} is not a preference field");
+    }
+}
+
+#[test]
+fn diagnostic_snapshot_redacts_every_credential() {
+    let preferences = with_every_credential(Preferences::default());
+    let redacted = preferences.redacted_for_diagnostics();
+    let text = redacted.to_string();
+    assert!(!text.contains("secret-value"), "{text}");
+    let mut copy = preferences.clone();
+    for (path, _) in copy.credential_slots() {
+        let mut cursor = &redacted;
+        for segment in path.split('.') {
+            cursor = &cursor[segment];
+        }
+        assert_eq!(cursor, REDACTED, "{path}");
+    }
+    fn check(value: &serde_json::Value) {
+        if let serde_json::Value::Object(object) = value {
+            for (key, child) in object {
+                if is_sensitive_key(key) {
+                    assert_eq!(child, REDACTED, "{key}");
+                } else {
+                    check(child);
+                }
+            }
+        }
+    }
+    check(&redacted);
+    // 非凭据的设置照常保留，快照才有用。
+    assert_eq!(
+        redacted["candidate_page_size"],
+        serde_json::json!(preferences.candidate_page_size)
+    );
+}
+
+#[test]
+fn restoring_defaults_keeps_exactly_the_listed_credentials() {
+    let preferences = with_every_credential(Preferences::default());
+    let mut restored = preferences.restored_to_defaults();
+    let mut original = preferences.clone();
+    for ((path, before), (_, after)) in original
+        .credential_slots()
+        .into_iter()
+        .zip(restored.credential_slots())
+    {
+        match (before, after) {
+            (CredentialSlot::Text(before), CredentialSlot::Text(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            (CredentialSlot::Map(before), CredentialSlot::Map(after)) => {
+                assert_eq!(before, after, "{path}")
+            }
+            _ => panic!("{path} changed type"),
+        }
+    }
+}

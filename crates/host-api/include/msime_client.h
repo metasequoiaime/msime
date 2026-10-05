@@ -125,6 +125,8 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * Entry:{kind:"pinyin"|"wubi"|"wubi98"|"quick_phrase"|"english",key,value,weight,source?:"user"|"bundled"}.
  * List returns {entries,has_more} and sets source on every entry; edit returns {applied:true}. Errors are redacted.
  * A bundled entry passed back as previous can only be re-weighted (replacement with the same kind, key and value) or deleted (replacement null); anything else fails with "bundled dictionary entry is read-only". Export of pinyin also carries the weights set or learned for bundled words and omits single characters; the other kinds export user words only.
+ * Count (read-only): action:{operation:"count",kind?,user_only?:bool} returns {count,kinds:{kind:n},complete}; user_only:true counts the user's own words, otherwise pinyin also counts bundled words with a learned or set weight (the export's rows). complete is false when the scan stopped at 1,000,000 rows.
+ * Snapshot export: action:{operation:"export_snapshot",destination:absolute path} writes the user's words as the same NDJSON msime-dictionary-snapshot v1 document GET /v1/users/me/dictionary/snapshot returns (header, one entry and one overlay per word, footer with the body SHA-256; revision 1, no positions or selections), checks it with the cloud format's own validator and returns that metadata plus path. No account is needed.
  * Native host owns/authorizes paths; never accept arbitrary webview paths or log payloads.
  * Run on a worker thread. Edit returns busy until all participating sessions are
  * destroyed, then holds exclusive access; recreate sessions after success.
@@ -241,6 +243,12 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
  *   An unknown id or a zero count rejects the whole batch; never invent ids.
  *   Returns {recorded:n}, 0 when statistics are off (nothing is written).
  *   Hosts batch in memory and call this from a worker, never per key.
+ * {directory,action:{operation:"summary",day:"YYYY-MM-DD",user_words?:n}} returns the derived
+ *   metrics (overview, habits, keys, achievements) for the caller's local `day`; achievements
+ *   newly unlocked are written under the lock while statistics are on. user_words is the
+ *   dictionary "count" with user_only:true. Incognito does not affect it: it only reads.
+ * {directory,action:{operation:"record_voice",day,milliseconds}} adds one voice input's length;
+ *   {directory,action:{operation:"record_skin",id}} records a skin used. Both return {recorded}.
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Read only the aggregate-statistics master switch from an absolute UTF-8
@@ -787,6 +795,16 @@ char *msime_client_music_pack(const uint8_t *request, size_t length);
  * "save_mentions" {entries:[{text, key}]}: replaces the list; value null.
  * A failure is {ok:false, error: code, detail?}: the codes are the desktop shell's (invalid, storage, plugin_invalid, plugin_unsupported_source, plugin_archive, plugin_reserved, plugin_storage, mention_invalid, mention_format, mention_storage) and detail, when present, is the rule a refused pack or entry broke, in Chinese for the page. Reads and writes files, and an import copies up to a music pack's size: use a worker thread where the host has one. */
 char *msime_client_plugins(const uint8_t *request, size_t length);
+/* Uncoded common phrases (<=4 MiB): {directory: absolute preferences directory, action:{operation:"load"|"add"{text}|"remove"{id}|"replace"{id,text}|"move"{id,index}|"install_pack"{resource}|"remove_pack"{id}}}. Value is the whole document {phrases:[{id,text,pack}],packs:[{id,name,revision}],skipped?}; errors are stable codes (common_phrases_io, _corrupt, _invalid, _duplicate, _limit, _too_large, _not_found). Both the settings process and the keyboard process call it; it locks the file. Worker thread. */
+char *msime_client_common_phrases(const uint8_t *request, size_t length);
+/* Named dictionary collections (<=17 MiB): {options: HostOptions with preferences_directory, action:{operation:"load"|"create"|"rename"|"delete"|"set_enabled"|"add_words"|"remove_words"|"import"|"install_community"|"flush", ...}} as client-core dictionary::collections defines. Words travel through the personal dictionary queue the keyboard applies at its next session. Value is the collections view; errors are stable codes (collections_*, builtin_locked, unsupported_format, import_*, personal_dictionary_*). Worker thread. */
+char *msime_client_dictionary_collections(const uint8_t *request, size_t length);
+/* Diagnostic bundle (<=65536 bytes): {state_root: preferences directory, include:{crash_logs,performance_logs,input_events,config_snapshot}, sources:{crash_logs,performance_logs,input_events: absolute path|null}, destination: absolute .zip path|null}. Input event and performance lines are kept only when they are exactly {t_ms, kind (key_down|key_up|candidate_shown|candidate_selected|commit|backspace|panel_open|panel_close|ime_start|ime_finish), duration_ms}; any other key (text, key, candidate...) drops the whole line and is counted. The configuration snapshot replaces every credential with "<redacted>". With destination the zip is written and the value is {path,bytes,counts}; without it the value is {counts,sections}, sections being the upload body's object (crash_logs, perf_trace, input_events, config_snapshot). Errors: diagnostics_invalid, diagnostics_source, diagnostics_preferences, diagnostics_write. Worker thread. */
+char *msime_client_diagnostic_bundle(const uint8_t *request, size_t length);
+/* Account settings document export (<=4 MiB): {preferences_directory, feedback?:{soundEnabled,hapticsEnabled,hapticStrength}|null, custom_keyboard_skins?: JSON array string|null, schema?: preference schema|null, cloud?: {revision,settings}|null}. Value {settings, merged?}: settings filtered for this edition (and to the schema's fields when given); with schema and cloud, merged is the whole document to PUT with the cloud revision. Credentials, incognito, developer options, diagnostic logging and voice contribution are never exported. */
+char *msime_client_account_settings_export(const uint8_t *request, size_t length);
+/* Account settings document apply (<=4 MiB): {preferences_directory, cloud:{revision,settings}, schema, feedback?: current host feedback|null}. Applies the document to the local preferences and saves them by compare-and-swap on the revision it read. A key whose value is unknown or out of range here is skipped alone. Value {preferences: saved snapshot, feedback: applied feedback|null for the host to store, custom_keyboard_skins: cloud library JSON|null for the host to merge, skipped:[key]}. */
+char *msime_client_account_settings_apply(const uint8_t *request, size_t length);
 char *msime_client_destroy(uint64_t session);
 /* Write the selection counts held by every session on the calling thread and all queued personal-context learning, without ending any session. Call from the host's will-terminate hook (e.g. NSApplicationWillTerminateNotification) on the thread that owns the sessions; the C++ Engine did this from atexit. Returns null on success. */
 char *msime_client_flush_all(void);

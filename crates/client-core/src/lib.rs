@@ -26,6 +26,7 @@ pub mod cloud;
 pub mod common_phrases;
 pub mod community;
 pub mod credential;
+pub mod diagnostics;
 pub mod dictionary;
 pub mod edition;
 pub mod file_lock;

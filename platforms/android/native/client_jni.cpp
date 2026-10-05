@@ -757,6 +757,10 @@ constexpr jsize kAiSkinPlanLimit = 12 * 1024 * 1024;
 constexpr jsize kSkinTrialLimit = 16384;
 constexpr jsize kCommunitySkinInstallLimit = 9000000;
 constexpr jsize kKeySoundPackLimit = 65536;
+constexpr jsize kCommonPhrasesLimit = 4 * 1024 * 1024;
+constexpr jsize kDictionaryCollectionsLimit = 17 * 1024 * 1024;
+constexpr jsize kDiagnosticBundleLimit = 65536;
+constexpr jsize kAccountSettingsLimit = 4 * 1024 * 1024;
 constexpr jsize kAppThemeRequestLimit = 4096;
 constexpr jsize kPlatformLimit = 64;
 } // namespace
@@ -828,6 +832,21 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communitySkinIn
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keySoundPackRaw(JNIEnv *env, jclass, jbyteArray request) {
     return bounded_request(env, request, kKeySoundPackLimit, msime_client_key_sound_pack);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_commonPhrasesRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCommonPhrasesLimit, msime_client_common_phrases);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_dictionaryCollectionsRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kDictionaryCollectionsLimit, msime_client_dictionary_collections);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_diagnosticBundleRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kDiagnosticBundleLimit, msime_client_diagnostic_bundle);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountSettingsExportRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountSettingsLimit, msime_client_account_settings_export);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_accountSettingsApplyRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAccountSettingsLimit, msime_client_account_settings_apply);
 }
 JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_localSpeechAvailableRaw(JNIEnv *, jclass) {
     return msime::voice::sherpa_runtime_available() ? JNI_TRUE : JNI_FALSE;
