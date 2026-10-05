@@ -41,9 +41,19 @@ check(androidEditions.firstOrNull()?.let { it.id == "full" && it.applicationId =
     "shared/contracts/editions.json must list full first, with application_id $baseApplicationId"
 }
 
+// The ABIs the APK carries: arm64-v8a, or the comma-separated -PmsimeAbis that build-apk.sh passes from MSIME_ANDROID_ABIS (x86_64 for an x86_64 emulator). abiFilters is what keeps the third-party native libraries (ML Kit ships x86, x86_64 and armeabi-v7a too) to the ABIs whose msime libraries were built; without it the APK installs on those devices and crashes for want of the host library.
+val nativeAbis = (findProperty("msimeAbis") as String?)
+    ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }
+    ?: listOf("arm64-v8a")
+check(nativeAbis.all { it == "arm64-v8a" || it == "x86_64" }) {
+    "msimeAbis supports arm64-v8a and x86_64, got $nativeAbis"
+}
+
 android {
     namespace = "app.msime.android"
     compileSdk = 36
+    // The NDK build-native.sh pins. AGP strips the packaged .so files with this NDK's llvm-strip; without a configured NDK it packages them unstripped.
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "app.msime.android"
@@ -52,6 +62,7 @@ android {
         // Grows with every release, as the platform requires for an update to install: 0.1.0 is 1000, 1.2.3 is 1002003.
         versionCode = releaseVersionParts[0] * 1_000_000 + releaseVersionParts[1] * 1_000 + releaseVersionParts[2]
         versionName = releaseVersion
+        ndk { abiFilters += nativeAbis }
     }
 
     sourceSets.getByName("main") {

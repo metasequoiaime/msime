@@ -20,6 +20,24 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn('platforms/android-36/android.jar', build)
         self.assertNotIn('platforms/android-35/android.jar', build)
 
+    def test_native_apk_ships_arm64_only_unless_abis_are_requested(self):
+        gradle = (ROOT / "platforms/android/gradle-app/app/build.gradle.kts").read_text()
+        build = (ROOT / "platforms/android/build-apk.sh").read_text()
+        native = (ROOT / "platforms/android/build-native.sh").read_text()
+
+        # abiFilters keeps ML Kit's x86/x86_64/armeabi-v7a libraries out; the default is arm64 only.
+        self.assertIn("ndk { abiFilters += nativeAbis }", gradle)
+        self.assertIn('?: listOf("arm64-v8a")', gradle)
+        self.assertIn('findProperty("msimeAbis")', gradle)
+        # AGP strips the packaged .so files only with a configured NDK, and it must be the one build-native.sh pins.
+        self.assertIn('ndkVersion = "28.2.13676358"', gradle)
+        self.assertIn("28.2.13676358", native)
+        self.assertIn("${MSIME_ANDROID_ABIS:-arm64-v8a}", build)
+        self.assertIn('"-PmsimeAbis=$abi_list"', build)
+        self.assertNotIn("for abi in arm64-v8a x86_64", build)
+        # The built APK is checked to carry exactly the requested ABIs.
+        self.assertIn('if [ "$packaged_abis" != "$expected_abis" ]', build)
+
     def test_shared_voice_panel_is_wired_to_the_android_plugin(self):
         plugin_rust = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
         # The voice commands are split across two files: the recognition path moved out into

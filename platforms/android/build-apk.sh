@@ -20,7 +20,17 @@ tools_dir="$android_sdk/build-tools/35.0.0"
 android_jar="$android_sdk/platforms/android-36/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
-for abi in arm64-v8a x86_64; do bash platforms/android/build-native.sh "$abi"; done
+# Only arm64-v8a by default: every phone the package targets is arm64, and an x86_64 copy of the native libraries roughly doubled the APK. MSIME_ANDROID_ABIS (space- or comma-separated, e.g. "arm64-v8a x86_64") adds x86_64 for an x86_64 emulator; Gradle's abiFilters receives the same list through -PmsimeAbis, so the third-party libraries (ML Kit) are filtered to it as well.
+read -r -a abis <<< "$(tr ',' ' ' <<< "${MSIME_ANDROID_ABIS:-arm64-v8a}")"
+[ "${#abis[@]}" -gt 0 ] || { echo "MSIME_ANDROID_ABIS names no ABI" >&2; exit 1; }
+for abi in "${abis[@]}"; do
+  case "$abi" in
+    arm64-v8a|x86_64) ;;
+    *) echo "MSIME_ANDROID_ABIS: unsupported ABI $abi (supported: arm64-v8a, x86_64)" >&2; exit 1 ;;
+  esac
+done
+for abi in "${abis[@]}"; do bash platforms/android/build-native.sh "$abi"; done
+abi_list=$(IFS=,; echo "${abis[*]}")
 
 # The host is a Gradle build now: it uses AndroidX and Material, and those ship as AARs whose
 # resources have to be merged and whose R classes have to be generated per package. The previous
@@ -111,7 +121,7 @@ tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
 # The APK's versionName comes from version.txt; MSIME_ANDROID_VERSION (the release workflow's version input) overrides it.
 version_args=()
 [[ -n "${MSIME_ANDROID_VERSION:-}" ]] && version_args+=("-PmsimeVersion=$MSIME_ANDROID_VERSION")
-ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain ${version_args[@]+"${version_args[@]}"} "assemble${flavor}Release"
+ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain "-PmsimeAbis=$abi_list" ${version_args[@]+"${version_args[@]}"} "assemble${flavor}Release"
 
 unsigned="$gradle_dir/app/build/outputs/apk/$edition/release/app-$edition-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
@@ -140,6 +150,13 @@ for pair in $language_pairs; do
     grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
   done
 done
+# The APK carries native libraries for exactly the ABIs built above: a missing one installs and crashes at the first JNI call, and an extra one (a dependency's x86 or armeabi-v7a copy slipping past abiFilters) is dead weight that also lets the package install on a device it cannot run on.
+packaged_abis=$(sed -n 's|^lib/\([^/]*\)/.*|\1|p' <<< "$apk_entries" | sort -u)
+expected_abis=$(printf '%s\n' "${abis[@]}" | sort -u)
+if [ "$packaged_abis" != "$expected_abis" ]; then
+  echo "$output carries native libraries for ABIs [$(tr '\n' ' ' <<< "$packaged_abis")], expected [$(tr '\n' ' ' <<< "$expected_abis")]" >&2
+  exit 1
+fi
 # 不提供中文方案的版本不带非英文离线释义（见上面的暂存），打出来的 APK 里也不能有。
 if [ "$edition_offline_glosses" != true ] && grep -q '^assets/offline-glosses/' <<< "$apk_entries"; then
   echo "$output carries offline glosses, but edition $edition offers no Chinese scheme" >&2

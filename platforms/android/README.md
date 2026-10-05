@@ -4,7 +4,7 @@
 
 Java/Kotlin 宿主按 `java/app/msime/android/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。Tauri/React 设置仍复用 `packages/ui` 和 `apps/desktop/src-tauri/src/platform/android/`，不会在 Android 复制一套页面或 Rust 业务。
 
-验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a 与 x86_64 双 ABI 的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
+验证分三层，各有对应入口：`check-host.sh` 做契约守卫与 JVM 冒烟（CI 的 `ci-platforms.yml` android job 跑的就是这条），`build-native.sh` + `verify-native.sh` 做 arm64-v8a（按需加 x86_64）的原生构建与导出校验（包括在线候选的五个 host 导出与五个 JNI 方法），`tests/device/smoke.sh` 在固定的 API 35 arm64 专用 AVD 上跑 instrumentation，覆盖原生输入、Tauri/IME 合包、共享设置、统计与手写流程。
 
 本目录的正式 Android applicationId 与原生类所在的 namespace 都是 `app.msime.android`。设备 smoke 使用独立的 `app.msime.android.test` instrumentation APK。
 
@@ -241,11 +241,11 @@ ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-native.sh x86_64
 
 可用 `MSIME_VCPKG_ROOT`、`MSIME_ANDROID_NDK` 指定绝对路径。脚本校验固定版本后安装锁定依赖，构建 release Rust 宿主和 C++ JNI，SQLite 静态链接进宿主库；产物为 `target/android/jniLibs/<abi>/{libmsime_host_api.so,libmsime_android.so,libc++_shared.so}`。验证脚本检查 ELF 架构、16 KB LOAD 对齐、动态依赖白名单与宿主/JNI 导出。NDK 和 vcpkg 声明，以及 Engine 内置韩语汉字表的 libhangul BSD-3-Clause 声明（`libhangul-hanja.txt`）复制到 `target/android/notices/<abi>`，两条打包路径都把它们放进 `assets/native-notices/`；正式分发还需汇总 Rust/Engine 与词库许可材料。
 
-提供 arm64-v8a 与 x86_64 两条构建路径；不提供 32 位 ABI，也没有 Windows 构建脚本。原生库本身不是 APK，需用下述脚本打包。
+提供 arm64-v8a 与 x86_64 两条构建路径；不提供 32 位 ABI，也没有 Windows 构建脚本。原生库本身不是 APK，需用下述脚本打包。`build-apk.sh` 默认只构建并打包 arm64-v8a（发布包也是如此，arm64 真机和 Apple 芯片上的 arm64 AVD 都用它）；要在 x86_64 模拟器上跑，设 `MSIME_ANDROID_ABIS="arm64-v8a x86_64"`（或只写 `x86_64`），脚本把同一份列表经 `-PmsimeAbis` 交给 Gradle 的 `abiFilters`，ML Kit 等依赖自带的 x86、armeabi-v7a 库也按它过滤，打完再核对 APK 的 `lib/` 恰好是这几个 ABI。Gradle 工程固定 `ndkVersion` 为同一个 NDK，AGP 用它的 llvm-strip 去掉打包的 `.so` 的调试符号。
 
 ## 开发 APK 与首次准备
 
-本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建双 ABI 库，由 `platforms/android/gradle-app` 的 `assemble<版本>Release`（例如 `assembleFullRelease`）产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/<apk 名>.apk`（full 是 `msime-client.apk`）。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
+本地构建：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-apk.sh <已锁定词库目录>`。需要前述 NDK/vcpkg/JDK/Rust 工具及 zip；脚本先通过共享 ResourceStore 校验资源，再构建原生库（默认只有 arm64-v8a，`MSIME_ANDROID_ABIS` 加 x86_64，见上节），由 `platforms/android/gradle-app` 的 `assemble<版本>Release`（例如 `assembleFullRelease`）产出未签名 APK（AndroidX 与 Material 是 AAR，资源合并和 R 类生成必须交给 Gradle/AGP），最后用 SDK 的 zipalign/apksigner 对齐、签名并验证 `target/android/<apk 名>.apk`（full 是 `msime-client.apk`）。APK 随包带锁定词库、原生依赖声明和 `LICENSE`；签名前进行 16 KB zip 对齐，签名后再验证。
 
 开发密钥是 Android SDK 的调试密钥 `~/.android/debug.keystore`，不在仓库或 `target/` 里，不得用于正式发行。正式包由 `release-android.yml` 用仓库 secrets `ANDROID_RELEASE_KEYSTORE_BASE64`（PKCS12，别名 `msime-release`）与 `ANDROID_RELEASE_KEYSTORE_PASSWORD` 签名，`build-apk.sh` 在设置了 `MSIME_ANDROID_RELEASE_KEYSTORE` 与 `MSIME_ANDROID_RELEASE_KEYSTORE_PASSWORD` 时改用它；发布密钥不能更换，更换后已安装的用户无法覆盖升级。所有 worktree 与 Tauri、Android Studio 的调试构建共用它，所以换一个 worktree 构建也能直接覆盖安装。删除该文件会改变后续开发签名，之后不能直接覆盖安装由旧密钥签名的包。构建临时文件留在 target/android 便于排查，不触碰任何设备。
 
