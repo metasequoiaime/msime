@@ -100,7 +100,8 @@ jobs:
             apk_name="$(python3 platforms/android/scripts/edition_android.py field --edition "$edition" apk_name)"
             [[ -f "dist/$apk_name.apk" ]] || { echo "dist/$apk_name.apk for edition $edition is missing" >&2; exit 1; }
           done
-          start=$(git tag --list 'android-v*' --sort=-v:refname | head -1)
-          tag="android-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          tag="android-v${VERSION}"
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag.
+          start=$(git tag --list 'android-v*' --sort=-v:refname | grep -vxF "$tag" | head -1)
           python3 scripts/generate-release-notes.py --platform android --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" dist/*.apk --target "$(git rev-parse HEAD)" --title "Android ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Android ${VERSION}" release-notes.md dist/*.apk

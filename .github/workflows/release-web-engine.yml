@@ -121,6 +121,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     steps:
+      # Only for scripts/publish-release.sh, which overwrites a release of the same version.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {sparse-checkout: scripts/publish-release.sh, sparse-checkout-cone-mode: false, persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with: {name: "web-engine-${{ needs.build.outputs.version }}", path: dist}
       # 构建的可以是任意分支的提交，所以发布必须显式要求，不能默认发生；否则构建一次功能分支就会发出一个公开且不能撤回的 release。
@@ -133,5 +136,5 @@ jobs:
           dist=dist
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
           jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
-          tag="web-engine-v${VERSION}"; flags=(--latest=false); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          gh release create "$tag" "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt --target "$SOURCE_SHA" --title "Web engine ${VERSION}" --notes-file notes.md "${flags[@]}"
+          tag="web-engine-v${VERSION}"
+          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt

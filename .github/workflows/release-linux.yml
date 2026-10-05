@@ -175,10 +175,11 @@ jobs:
           shopt -s nullglob
           # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
-          start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
-          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          tag="linux-v${VERSION}"
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag.
+          start=$(git tag --list 'linux-v*' --sort=-v:refname | grep -vxF "$tag" | head -1)
           python3 scripts/generate-release-notes.py --platform linux --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Linux ${VERSION}" release-notes.md "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS"
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页地址取文件，SHA256SUMS 也以发布页上的为准。
   package-definitions:
     needs: [source, deb, publish]

@@ -157,7 +157,7 @@ jobs:
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="ios-v${VERSION}"
-          start=$(git tag --list 'ios-v*' --sort=-v:refname | head -1)
-          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag.
+          start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "$tag" | head -1)
           python3 scripts/generate-release-notes.py --platform ios --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$(git rev-parse HEAD)" --title "iOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "iOS ${VERSION}" release-notes.md "dist/msime-ios-${VERSION}.tar.gz"

@@ -140,10 +140,10 @@ jobs:
         env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           tag="macos-v${VERSION}"
-          start=$(git tag --list 'macos-v*' --sort=-v:refname | head -1)
-          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag.
+          start=$(git tag --list 'macos-v*' --sort=-v:refname | grep -vxF "$tag" | head -1)
           python3 scripts/generate-release-notes.py --platform macos --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" dist/*.dmg dist/SHA256SUMS --target "$(git rev-parse HEAD)" --title "macOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "macOS ${VERSION}" release-notes.md dist/*.dmg dist/SHA256SUMS
       # brew install --cask metasequoiaime/tap/msime（五笔版 msime-wubi，拼音版 msime-pinyin，日文版 msime-japanese，越南文版 msime-vietnamese，藏文版 msime-tibetan）. Only a notarized final release goes to the tap: an ad-hoc package installs but macOS will not register its input method, and a prerelease is not what someone installing from Homebrew asked for. stapler validate checks the ticket in the DMG itself rather than trusting which secrets were set. 每个版本一个 cask，由 platforms/macos/scripts/edition_bundle.py 从同一个模板渲染；full 的渲染结果与原来的 sed 替换相同，只有 full 把 msime-mcp 放上 PATH。
       - name: Update the Homebrew casks
         if: ${{ inputs.publish && !inputs.prerelease }}
