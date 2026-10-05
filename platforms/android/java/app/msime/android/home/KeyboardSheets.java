@@ -49,9 +49,7 @@ final class KeyboardSheets {
         } catch (JSONException error) {
             return null;
         }
-        JSONObject saved = HostStore.savePreferences(context, snapshot);
-        if (saved != null) SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
-        return saved;
+        return HostStore.savePreferences(context, snapshot);
     }
 
     /**

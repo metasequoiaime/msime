@@ -8,8 +8,7 @@ import android.widget.LinearLayout;
 import androidx.annotation.Nullable;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.R;
-import app.msime.android.SyncSignals;
-import app.msime.android.SyncSwitch;
+import app.msime.android.core.Telemetry;
 import java.util.EnumMap;
 import java.util.Map;
 import org.json.JSONObject;
@@ -77,15 +76,13 @@ public final class PrivacyPage extends DetailPage {
     }
 
     private void save(InputFeatureToggle toggle, boolean value) {
-        HostTask.run(this, context -> {
-            JSONObject saved = HostStore.putPreference(context, toggle.key(), value);
-            if (saved != null) SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
-            return saved;
-        }, saved -> {
+        HostTask.run(this, context -> HostStore.putPreference(context, toggle.key(), value), saved -> {
             if (saved == null) {
                 MsToast.show(requireContext(), "没有保存，请重试");
             } else {
                 preferences = saved.optJSONObject("preferences");
+                // 关闭要当场停止上报并清空待发数据，不能等下次启动才读到偏好。
+                if (toggle == InputFeatureToggle.USAGE_REPORTING) Telemetry.setEnabled(requireContext(), value);
             }
             render();
         });

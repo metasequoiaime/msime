@@ -35,9 +35,9 @@ import org.json.JSONObject;
  * <p>页面先读本机的状态（偏好、同步开关、是否登录）立即画出来，再读要联网的部分（资料、设备数、云剪贴板条数），后者读不到时对应的行只是不显示数字。
  */
 public final class AccountFragment extends HomeTabFragment {
-    /** 本机状态：偏好、是否登录、同步开关、是否绑定了真实账号、上次同步时间。 */
+    /** 本机状态：偏好、是否登录、同步开关、是否绑定了真实账号、上次同步时间、同步控制器留下的状态提示（没有时为空串）。 */
     private record Local(@Nullable JSONObject preferences, boolean signedIn, boolean syncEnabled, boolean realAccount,
-            long lastSyncedAt) {}
+            long lastSyncedAt, String syncStatus) {}
 
     /** 联网读到的：资料（读不到为 null）、头像、设备数与云剪贴板条数（读不到为 -1）、是否绑定了真实账号。 */
     private record Remote(@Nullable DeviceDataApi.Profile profile, @Nullable Bitmap avatar, int devices,
@@ -64,7 +64,7 @@ public final class AccountFragment extends HomeTabFragment {
     private void reload() {
         HostTask.run(this, context -> new Local(snapshotPreferences(context), new BackendAccount(context).signedIn(),
             SyncSwitch.enabled(context), SyncSwitch.validLoginKind(SyncSwitch.loginKind(context)),
-            SyncSwitch.lastSyncedAt(context)), state -> {
+            SyncSwitch.lastSyncedAt(context), CloudSync.statusLine(context)), state -> {
                 if (state == null) return;
                 local = state;
                 if (!state.signedIn()) remote = null;
@@ -111,7 +111,7 @@ public final class AccountFragment extends HomeTabFragment {
             Local current = local;
             if (current != null && state.realAccount() != current.realAccount()) {
                 local = new Local(current.preferences(), current.signedIn(), current.syncEnabled(),
-                    state.realAccount(), current.lastSyncedAt());
+                    state.realAccount(), current.lastSyncedAt(), current.syncStatus());
             }
             render();
         });
@@ -152,6 +152,8 @@ public final class AccountFragment extends HomeTabFragment {
     private static String syncLine(Local state) {
         if (!state.realAccount()) return "已登录";
         if (!state.syncEnabled()) return "云同步已关闭";
+        // 最近一次失败的原因等提示优先于「已同步」，否则同步失败了页面也看不出来。
+        if (!state.syncStatus().isEmpty()) return state.syncStatus();
         String ago = DeviceDataApi.relativeTime(System.currentTimeMillis(), state.lastSyncedAt());
         return ago.isEmpty() ? "云同步已开启 · 尚未同步" : "已同步 · 最近 " + ago;
     }
@@ -278,6 +280,8 @@ public final class AccountFragment extends HomeTabFragment {
                 MsToast.show(requireContext(), "登录后才能打开云同步");
             } else {
                 MsToast.show(requireContext(), done ? "云同步已开启" : "云同步已关闭");
+                // 打开后马上比对一次，首次的「合并 / 使用云端」选择也当场弹出，不等下次回到前台。
+                if (done) CloudSync.runNow(requireActivity());
             }
             reload();
         });

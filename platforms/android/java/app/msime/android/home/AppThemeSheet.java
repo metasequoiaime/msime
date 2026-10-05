@@ -119,7 +119,6 @@ final class AppThemeSheet {
         HostTask.run(host, context -> {
             JSONObject saved = HostStore.putPreference(context, key, value);
             if (saved == null) return null;
-            SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
             return new Object[] {saved.optJSONObject("preferences")};
         }, result -> {
             if (result == null) {

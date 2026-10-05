@@ -46,6 +46,10 @@ import javax.net.ssl.HttpsURLConnection;
 public final class ProfilePage extends DetailPage {
     private static final String[][] PROVIDERS = {{"apple", "Apple"}, {"google", "Google"}, {"email", "邮箱"}};
     private static final String EXPORTS = "exports";
+    /** 头像解码后的长边上限（像素）：最大的头像画 88dp，xxxhdpi 下约 352 像素，留一点余量。 */
+    private static final int AVATAR_DECODE_EDGE = 384;
+    /** 允许上传的头像长边上限（像素）：1 MiB 的平涂 PNG 可以有上万像素宽，解码会吃掉上 GB 内存。 */
+    private static final int MAX_AVATAR_UPLOAD_EDGE = 8192;
 
     private final ActivityResultLauncher<String> picker =
         registerForActivityResult(new ActivityResultContracts.GetContent(), this::onPicked);
@@ -113,7 +117,7 @@ public final class ProfilePage extends DetailPage {
                 if (connection.getResponseCode() / 100 != 2) return null;
                 try (InputStream input = connection.getInputStream()) {
                     byte[] bytes = readAtMost(input, DeviceDataApi.MAX_AVATAR_BYTES);
-                    return bytes == null ? null : BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                    return bytes == null ? null : decodeAvatar(bytes);
                 }
             } finally {
                 connection.disconnect();
@@ -121,6 +125,25 @@ public final class ProfilePage extends DetailPage {
         } catch (IOException | RuntimeException unavailable) {
             return null;
         }
+    }
+
+    /** 读图片的像素尺寸，不解码像素；不是图片时为 null。 */
+    @Nullable private static BitmapFactory.Options bounds(byte[] bytes) {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        return bounds.outWidth <= 0 || bounds.outHeight <= 0 ? null : bounds;
+    }
+
+    /** 按头像实际显示的大小降采样解码：只限字节数挡不住高度可压缩的大尺寸图片，全尺寸解码会 OutOfMemoryError。 */
+    @Nullable private static Bitmap decodeAvatar(byte[] bytes) {
+        BitmapFactory.Options bounds = bounds(bytes);
+        if (bounds == null) return null;
+        int sample = 1;
+        while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= AVATAR_DECODE_EDGE) sample *= 2;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
     }
 
     /** 读完整个流；超过 `limit` 字节时返回 null。 */
@@ -375,6 +398,9 @@ public final class ProfilePage extends DetailPage {
             }
             if (image == null) return "图片超过 1 MB，请换一张小一些的";
             if (DeviceDataApi.avatarType(image) == null) return "头像只支持 PNG 或 JPEG 图片";
+            BitmapFactory.Options size = bounds(image);
+            if (size == null) return "读不到这张图片";
+            if (Math.max(size.outWidth, size.outHeight) > MAX_AVATAR_UPLOAD_EDGE) return "图片尺寸太大，请换一张小一些的";
             new DeviceDataApi(context).uploadAvatar(image);
             return "";
         }, "头像已更新");

@@ -6,6 +6,8 @@ import app.msime.android.AppThemePalette;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
 import app.msime.android.TypingStatisticsDocument;
 import app.msime.android.TypingStatisticsModel;
 import app.msime.android.policy.HostOptionsPolicy;
@@ -83,7 +85,7 @@ public final class HostStore {
      * Write one edited snapshot back, refusing if the keyboard changed it first.
      *
      * @param snapshot the object {@link #loadPreferences} returned, with `preferences` edited
-     * @return the saved snapshot, or null when the write was refused or failed
+     * @return the saved snapshot, or null when the write was refused or failed; a saved write also marks the settings sync section dirty
      */
     @Nullable public static JSONObject savePreferences(Context context, JSONObject snapshot) {
         String directory = directory(context);
@@ -99,7 +101,10 @@ public final class HostStore {
         } catch (JSONException error) {
             return null;
         }
-        return value(call(() -> NativeClient.savePreferences(directory, revision, document)));
+        JSONObject saved = value(call(() -> NativeClient.savePreferences(directory, revision, document)));
+        // Every user write marks settings dirty here, so no caller can forget it and lose the edit to the next cloud download. Cloud downloads go through NativeClient.accountSettingsApply, not this method, so they never mark themselves dirty.
+        if (saved != null) SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
+        return saved;
     }
 
     /** One preference edited and saved in a single read-modify-write. */

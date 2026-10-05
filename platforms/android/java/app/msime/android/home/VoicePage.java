@@ -8,7 +8,6 @@ import app.msime.android.AndroidLocalSettings;
 import app.msime.android.DoubaoAsrPolicy;
 import app.msime.android.VoiceConfiguration;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
@@ -166,37 +165,18 @@ public final class VoicePage extends DetailPage {
     private void saveTrigger(int trigger) {
         HostTask.run(this, context -> KeyboardSheets.writeLocal(context, AndroidLocalSettings.SPACE_VOICE,
                 trigger == TRIGGER_SPACE)
-            ? write(context, preferences -> preferences.put("touch_voice_shortcut", trigger == TRIGGER_TOOLBAR))
-            : null, saved -> {
-            if (saved == null) {
-                MsToast.show(requireContext(), "保存失败，请重试");
-                reload();
-            }
-        });
+            ? KeyboardSheets.write(context, preferences -> preferences.put("touch_voice_shortcut", trigger == TRIGGER_TOOLBAR))
+            : null, this::afterSave);
     }
 
-    private interface Edit {
-        void apply(JSONObject preferences) throws JSONException;
+    private void save(KeyboardSheets.Edit edit) {
+        HostTask.run(this, context -> KeyboardSheets.write(context, edit), this::afterSave);
     }
 
-    private void save(Edit edit) {
-        HostTask.run(this, context -> write(context, edit), saved -> {
-            if (saved == null) {
-                MsToast.show(requireContext(), "保存失败，请重试");
-                reload();
-            }
-        });
-    }
-
-    @Nullable private static JSONObject write(Context context, Edit edit) {
-        JSONObject snapshot = HostStore.loadPreferences(context);
-        if (snapshot == null) return null;
-        try {
-            edit.apply(snapshot.getJSONObject("preferences"));
-        } catch (JSONException error) {
-            return null;
-        }
-        return HostStore.savePreferences(context, snapshot);
+    /** 成功失败都重新渲染：选择行的点击回调捕获的是渲染时的值，不重建的话再次打开会勾着旧选项。 */
+    private void afterSave(@Nullable JSONObject saved) {
+        if (saved == null) MsToast.show(requireContext(), "保存失败，请重试");
+        reload();
     }
 
     /** 启动方式由两个开关派生：长按空格优先，其次是工具栏按钮，都关时没有语音入口。 */

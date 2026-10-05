@@ -15,6 +15,8 @@ import app.msime.android.CloudApi;
 import app.msime.android.DiagnosticsApi;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.io.File;
 import java.time.Instant;
@@ -414,6 +416,8 @@ public final class DeveloperPage extends DetailPage {
                     } catch (java.io.IOException error) {
                         return null;
                     }
+                    // 重置绕过了 HostStore.savePreferences，要自己标脏，否则下一轮同步会用云端设置覆盖回去。
+                    SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
                     return restored;
                 }, restored -> {
                     busy = false;

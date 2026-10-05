@@ -239,6 +239,18 @@ if ! rg -qU 'void scheduleCandidateTranslations\(\) \{\s*if \(!candidateTranslat
   echo "Android must fetch candidate translations from the account only after an explicit choice" >&2
   exit 1
 fi
+# Turning 匿名使用统计 off has to stop reporting and clear the queue at once (the toggle promises it), not on the next start: the host process keeps Telemetry's own flag, so the privacy page must hand the saved value to Telemetry.setEnabled.
+if ! rg -q 'toggle == InputFeatureToggle\.USAGE_REPORTING\) Telemetry\.setEnabled\(' \
+    "$repo_root/platforms/android/java/app/msime/android/home/PrivacyPage.java"; then
+  echo "Android privacy page must apply the usage-reporting toggle to Telemetry when it is saved" >&2
+  exit 1
+fi
+# Sync rounds download over any section that is not dirty, so a preference write that forgets to mark settings dirty is reverted by the next cloud change. HostStore.savePreferences owns that mark for every caller.
+if ! rg -qU 'NativeClient\.savePreferences\(directory, revision, document\)\)\);\s*(//[^\n]*\s*)?if \(saved != null\) SyncSignals\.markDirty\(context, SyncSwitch\.SETTINGS\);' \
+    "$repo_root/platforms/android/java/app/msime/android/home/HostStore.java"; then
+  echo "Android HostStore.savePreferences must mark the settings sync section dirty after a saved write" >&2
+  exit 1
+fi
 # The shared translation query answers Korean Hanja rows, so neither the offline targets nor the account path may gate the Korean scheme out again; only Japanese stays ungated into other languages.
 if rg -n 'KOREAN_SCHEME' <(sed -n '/void scheduleCandidateGlosses()/,/^    }$/p;/void scheduleCandidateTranslations()/,/^    }$/p' "$account_service") \
   || ! rg -q 'CandidateGlossPolicy\.hanjaAnnotation' "$account_service" \
@@ -457,7 +469,7 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
   echo "No Android client sources selected for compilation; the source filter is wrong" >&2
   exit 1
 fi
-# 冒烟测试按文件自动发现：`tests/` 下除设备套件外的每个 `.java` 都参与编译，每个以 `Smoke.java` 结尾且带 `static void main(` 的类都会运行，新加冒烟不必再登记到这里。排除的三处各有原因：`tests/device/**` 是要装进模拟器的设备套件，`core/NativeSmoke.java` 要加载 `libmsime_android.so`，`settings/KeyboardGeometryStrictIntSmoke.java` 要真实的 `org.json`，而这里只有 android.jar 里抛 `Stub!` 的桩。路径同样按仓库内的相对路径匹配，理由见上面那段关于 /home/runner 的说明。
+# 冒烟测试按文件自动发现：`tests/` 下除设备套件外的每个 `.java` 都参与编译，每个以 `Smoke.java` 结尾的类都会运行，没有 `static void main(` 入口的会让检查直接失败而不是被跳过，新加冒烟不必再登记到这里。排除的三处各有原因：`tests/device/**` 是要装进模拟器的设备套件，`core/NativeSmoke.java` 要加载 `libmsime_android.so`，`settings/KeyboardGeometryStrictIntSmoke.java` 要真实的 `org.json`，而这里只有 android.jar 里抛 `Stub!` 的桩。路径同样按仓库内的相对路径匹配，理由见上面那段关于 /home/runner 的说明。
 test_sources=()
 smoke_classes=()
 while IFS= read -r source; do
@@ -470,14 +482,17 @@ while IFS= read -r source; do
     *Smoke.java) ;;
     *) continue ;;
   esac
-  if ! rg -q 'static void main\(' "$source"; then continue; fi
+  if ! rg -q 'static void main\(' "$source"; then
+    echo "Android JVM smoke has no 'static void main(' entry point: ${source#"$repo_root/"}" >&2
+    exit 1
+  fi
   package=$(sed -n 's/^package \([A-Za-z0-9_.]*\);.*/\1/p' "$source" | head -n 1)
   class=$(basename "$source" .java)
   smoke_classes+=("${package:+$package.}$class")
 done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
-# 改成自动发现时现有的冒烟是 108 个；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。
-if [[ ${#smoke_classes[@]} -lt 108 ]]; then
-  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 108" >&2
+# 下限就是当前发现的冒烟数（139）；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。有意删掉冒烟时要同时把这个数调低。
+if [[ ${#smoke_classes[@]} -lt 139 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 139" >&2
   exit 1
 fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
