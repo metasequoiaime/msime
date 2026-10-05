@@ -5560,7 +5560,8 @@ public final class MSIMEInputService extends InputMethodService {
             float density = getResources().getDisplayMetrics().density;
             cellWidth = Math.max(anchor.getWidth(), Math.round(40 * density));
             cellHeight = Math.max(anchor.getHeight(), Math.round(36 * density));
-            gap = Math.round(6 * density);
+            // 五格紧挨着拼成一个十字浮层；原先各隔 6 dp、和底下的键同色同大，看起来像键盘被挤乱了，而不是一个弹框。
+            gap = 0;
             root.bringChildToFront(this);
             setVisibility(View.VISIBLE);
             invalidate();
@@ -5570,29 +5571,48 @@ public final class MSIMEInputService extends InputMethodService {
 
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            float textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 22,
+            float density = getResources().getDisplayMetrics().density;
+            float textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 24,
                 getResources().getDisplayMetrics());
-            float radius = 8 * getResources().getDisplayMetrics().density;
+            float radius = 10 * density;
+            float stepX = cellWidth + gap;
+            float stepY = cellHeight + gap;
+            int keyColor = Color.parseColor(skin.keyBackground());
+            // 先整体画一层投影，再盖上格子：浮层要看得出是压在键盘上面的，而不是键盘本身的一部分。
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(keyColor);
+            paint.setShadowLayer(10 * density, 0, 3 * density, 0x40000000);
+            for (int index = 0; index < labels.length; index++) {
+                if (labels[index] == null || labels[index].isEmpty()) continue;
+                float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
+                float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
+                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
+            }
+            paint.clearShadowLayer();
             paint.setTextSize(textSize);
             paint.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
             Paint.FontMetrics metrics = paint.getFontMetrics();
-            float stepX = cellWidth + gap;
-            float stepY = cellHeight + gap;
             for (int index = 0; index < labels.length; index++) {
                 String label = labels[index];
                 if (label == null || label.isEmpty()) continue;
                 boolean selected = index == selectedDirection;
                 float x = centerX + X_OFFSETS[index] * stepX - cellWidth / 2;
                 float y = centerY + Y_OFFSETS[index] * stepY - cellHeight / 2;
-                paint.setColor(Color.parseColor(selected ? skin.accent() : skin.keyBackground()));
-                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight,
-                    radius, radius, paint);
-                paint.setColor(Color.parseColor(
-                    selected ? skin.actionForeground() : skin.keyForeground()));
-                float baseline = y + (cellHeight - metrics.bottom - metrics.top) / 2
-                    - metrics.top;
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(selected ? Color.parseColor(skin.accent()) : keyColor);
+                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(1, density));
+                paint.setColor(Color.parseColor(skin.hairline()));
+                canvas.drawRoundRect(x, y, x + cellWidth, y + cellHeight, radius, radius, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.parseColor(selected ? skin.onAccent() : skin.keyForeground()));
+                paint.setFakeBoldText(selected);
+                // 字身中线对准格子中线。原式多减了一次 top，字整体下移大半个字高，落到格子下沿、被下一格盖住。
+                float baseline = y + cellHeight / 2 - (metrics.ascent + metrics.descent) / 2;
                 float textWidth = paint.measureText(label);
                 canvas.drawText(label, x + (cellWidth - textWidth) / 2, baseline, paint);
+                paint.setFakeBoldText(false);
             }
         }
 
