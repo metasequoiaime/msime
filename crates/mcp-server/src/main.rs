@@ -111,7 +111,7 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             Ok(config::Command::Version) => {
-                eprintln!("{} {}", config::program(), env!("CARGO_PKG_VERSION"));
+                eprintln!("{} {}", config::program(), env!("MSIME_APP_VERSION"));
                 return ExitCode::SUCCESS;
             }
             Err(error) => {

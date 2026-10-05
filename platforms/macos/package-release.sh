@@ -148,7 +148,8 @@ fi
 
 # ---- MCP server ----
 # The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
-CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
+# MSIME_VERSION 是 msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs），与这个包的版本相同。
+MSIME_VERSION="$version" CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
   cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
 
 # tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.

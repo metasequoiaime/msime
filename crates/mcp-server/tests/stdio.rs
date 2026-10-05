@@ -760,6 +760,39 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
     assert!(lines[1]["error"].is_string());
 }
 
+/// `--version` 报告输入法本身的版本：所编平台的 `version.txt`（构建时没有显式的 `MSIME_VERSION`），而不是 crate 的 0.1.0。
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn the_version_is_the_input_method_s() {
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "windows"
+    };
+    let expected = option_env!("MSIME_VERSION")
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            std::fs::read_to_string(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../platforms")
+                    .join(platform)
+                    .join("version.txt"),
+            )
+            .unwrap()
+        });
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_msime-mcp"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap().trim(),
+        format!("msime-mcp {}", expected.trim())
+    );
+}
+
 #[test]
 fn writes_from_separate_runs_are_spaced_out_too() {
     let directory = tempfile::tempdir().unwrap();
