@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install a built RPM into a clean Fedora container and remove it again: the check #2095 needed. An RPM whose Requires name libraries or symbol versions Fedora does not provide (Debian's libcurl CURL_OPENSSL_4, boost 1.83) builds and lints fine and fails only here, at dnf's dependency resolution.
 #
-# It also asserts that the package requires none of the libraries it carries in its private directory, which rpmbuild would otherwise turn into unsatisfiable Requires, and runs the maintainer scripts through a real install and erase.
+# It also asserts that the package requires none of the libraries it carries in its private directory, which rpmbuild would otherwise turn into unsatisfiable Requires, that its payload is xz at level 9 as packaging.cmake asks, that every installed ELF file is stripped (CPACK_STRIP_FILES for the CMake targets, CARGO_PROFILE_RELEASE_STRIP for the Rust ones; the prebuilt sherpa-onnx and ONNX Runtime libraries ship as upstream builds them and are exempt), the same check release-linux.yml runs on the .deb, and runs the maintainer scripts through a real install and erase.
 #
 # Usage: platforms/linux/tests/tools/check-rpm-install.sh <package.rpm>...
 #
@@ -33,6 +33,8 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
       echo "the package requires a library it carries privately or one only Debian provides" >&2
       exit 1
     fi
+    payload=$(rpm -qp --qf "%{PAYLOADCOMPRESSOR} %{PAYLOADFLAGS}" "/dist/$file")
+    [ "$payload" = "xz 9" ] || { echo "$file: payload is $payload, not the xz 9 packaging.cmake sets" >&2; exit 1; }
     packages+=("$(rpm -qp --qf "%{NAME}" "/dist/$file")")
     files+=("/dist/$file")
   done
@@ -40,6 +42,16 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
   for package in "${packages[@]}"; do
     rpm -q "$package"
     test -x "/usr/bin/$package-setup"
+  done
+  # Installed after the packages so it cannot satisfy a dependency they fail to declare.
+  dnf install -y --setopt=install_weak_deps=False file
+  for package in "${packages[@]}"; do
+    unstripped=$(rpm -ql "$package" | while IFS= read -r path; do
+      [ -f "$path" ] && [ ! -L "$path" ] || continue
+      case "$(basename "$path")" in (libonnxruntime.so*|libsherpa-onnx-c-api.so*) continue ;; esac
+      file "$path"
+    done | grep ": *ELF" | grep -v ", stripped" || true)
+    [ -z "$unstripped" ] || { echo "$package has unstripped ELF files:" >&2; echo "$unstripped" >&2; exit 1; }
   done
   for index in "${!packages[@]}"; do
     dnf remove -y "${packages[$index]}"

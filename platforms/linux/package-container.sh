@@ -88,6 +88,8 @@ docker run --rm --init \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
+    # Strip the symbol tables of the Rust binaries here rather than in the workspace [profile.release]: CMake installs them with install(FILES/PROGRAMS), which CPACK_STRIP_FILES does not reach, while debian/rules and rpm/msime.spec build the same crates with line-tables-only debug info that dh_strip and find-debuginfo split into dbgsym and debuginfo packages.
+    export CARGO_PROFILE_RELEASE_STRIP=symbols
     cargo build --release --locked -p msime-host-api
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
     desktop_args=()
@@ -162,6 +164,13 @@ docker run --rm --init \
     if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
       sha256sum -- *.rpm > SHA256SUMS
     else
+      # CPack in this bookworm image (CMake 3.25) compresses data.tar.xz only at xz preset 6 and has no CPACK_DEBIAN_COMPRESSION_LEVEL, so each .deb is repacked at -9, which saves about a further fifth. One compressor thread keeps memory at the 674 MiB xz -9 needs per thread, and a single block compresses best. The repack also turns control.tar.gz into control.tar.xz, which release-linux.yml checks to know it ran.
+      for deb in *.deb; do
+        repack=$(mktemp -d)
+        dpkg-deb --raw-extract "$deb" "$repack/root"
+        dpkg-deb --root-owner-group --threads-max=1 -Zxz -z9 --build "$repack/root" "$deb" >/dev/null
+        rm -rf "$repack"
+      done
       sha256sum -- *.deb *.tar.gz > SHA256SUMS
     fi
     cat SHA256SUMS

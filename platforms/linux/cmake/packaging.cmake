@@ -26,8 +26,12 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SET_DESTDIR ON)
 set(CPACK_PACKAGE_RELOCATABLE FALSE)
+# Strip what CMake builds and installs with install(TARGETS): the native hosts, the Fcitx5 addon and msime-voice-local. The Rust binaries come in through install(FILES/PROGRAMS), which this does not reach, so package-container.sh builds them stripped; the sherpa-onnx and ONNX Runtime libraries are upstream's prebuilt files and stay as they come, as debian/rules keeps them. Only CPack reads this: debian/rules, rpm/msime.spec and the PKGBUILD install with cmake --install, so dh_strip and find-debuginfo still get the debug info they split out.
+set(CPACK_STRIP_FILES TRUE)
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+# xz rather than gzip for data.tar. The CMake 3.25 in Dockerfile.package has no CPACK_DEBIAN_COMPRESSION_LEVEL and uses xz preset 6, so package-container.sh repacks each .deb at -9 with dpkg-deb. Every dpkg the package supports reads xz members. The .tar.gz stays gzip: the in-app update check falls back to it by name.
+set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 # procps provides the pgrep msime-linux-setup uses to see whether the input method is running before it switches dictionaries; a system without it fails every dictionary switch. Debian marks procps important rather than required, so a minimal install can lack it.
@@ -60,8 +64,10 @@ endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
 # The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
+# The payload is xz at level 9, as for the .deb, instead of rpmbuild's default zstd; CPACK_RPM_COMPRESSION_TYPE xz would only give level 7. Without a T in the payload string rpm compresses on one thread, so the 674 MiB xz -9 needs is not multiplied by the core count.
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
-%global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$")
+%global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$
+%define _binary_payload w9.xzdio")
 # Directories the base system owns. An RPM that lists them conflicts with the filesystem package and with the desktop, IBus, Fcitx5 and systemd packages that own them.
 list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
   /etc/xdg /etc/xdg/autostart
