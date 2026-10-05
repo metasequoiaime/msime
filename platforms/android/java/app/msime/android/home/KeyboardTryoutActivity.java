@@ -2,6 +2,9 @@ package app.msime.android.home;
 
 import android.content.res.ColorStateList;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 试用键盘：一个只为了把键盘调出来而存在的输入框，按设计做成聊天样式。
@@ -39,6 +43,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private static final int DRAFT_LIMIT = 2000;
     /** 对话区最多保留的气泡数，超过时从最早的开始丢。 */
     private static final int BUBBLE_LIMIT = 60;
+    /** 流式回复两次重画之间的最短间隔：最多每秒 20 次。 */
+    private static final long STREAM_FRAME_MS = 50;
+    private static final String FAILURE = "请求失败，请检查登录状态或稍后重试。";
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final List<BackendAccount.ChatModel> models = new ArrayList<>();
     private final List<BackendAccount.ChatMessage> messages = new ArrayList<>();
@@ -49,6 +57,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private boolean loadingModels;
     /** 目录还没到时就发出的一句：已经画成气泡，目录到了再真正发给模型。 */
     private String pendingSend;
+    /** 正在流式到达的那条回复；没有请求在进行时为 null。只在界面线程上读写。 */
+    private StreamingReply streaming;
 
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
@@ -181,7 +191,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         pendingSend = null;
         if (text == null) return;
         if (models.isEmpty()) {
-            appendBubble("请求失败，请检查登录状态或稍后重试。", false);
+            appendBubble(FAILURE, false);
             finishChat(send);
             return;
         }
@@ -217,19 +227,24 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         int token = ++generation;
         List<BackendAccount.ChatMessage> request = new ArrayList<>(messages);
         final String selectedModel = models.get(0).id();
+        StreamingReply reply = new StreamingReply(token);
+        streaming = reply;
         operation = worker.submit(() -> {
             try {
-                String reply = new BackendAccount(this).chat(request, selectedModel);
+                String full = new BackendAccount(this).chatStream(request, selectedModel, reply.call, reply::append);
                 runOnUiThread(() -> {
                     if (token != generation) return;
-                    messages.add(new BackendAccount.ChatMessage("assistant", reply));
-                    appendBubble(reply, false);
+                    streaming = null;
+                    reply.show(full);
+                    messages.add(new BackendAccount.ChatMessage("assistant", full));
                     finishChat(send);
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (token != generation) return;
-                    appendBubble("请求失败，请检查登录状态或稍后重试。", false);
+                    streaming = null;
+                    // 已经到了一部分就留着它；一个字都没到才说失败。
+                    if (!keepPartial(reply)) appendBubble(FAILURE, false);
                     finishChat(send);
                 });
             }
@@ -237,10 +252,80 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     }
 
     private void cancelChat(MaterialButton send) {
+        StreamingReply reply = streaming;
+        streaming = null;
         generation++;
         pendingSend = null;
+        if (reply != null) {
+            reply.call.cancel();
+            // 停止时保留已经到达的部分，并让它进入上下文，和屏幕上看到的一致。
+            keepPartial(reply);
+        }
         if (operation != null) operation.cancel(true);
         finishChat(send);
+    }
+
+    /** 把一条没收完的回复里已经到达的文字画出来并记进上下文；一个字都没到时返回 false。 */
+    private boolean keepPartial(StreamingReply reply) {
+        String partial = reply.text();
+        if (partial.isEmpty()) return false;
+        reply.show(partial);
+        messages.add(new BackendAccount.ChatMessage("assistant", partial));
+        return true;
+    }
+
+    /**
+     * 正在流式到达的一条回复。worker 线程把增量追加进 {@code received}，界面线程最多每 {@link #STREAM_FRAME_MS} 毫秒重画一次气泡；第一段增量到达时才创建气泡。
+     */
+    private final class StreamingReply {
+        final int token;
+        final BackendAccount.ChatCall call = new BackendAccount.ChatCall();
+        private final StringBuilder received = new StringBuilder();
+        private final AtomicBoolean scheduled = new AtomicBoolean();
+        /** 上一次重画的时刻；worker 线程读它算延迟，界面线程写。 */
+        private volatile long shownAt;
+        /** 只在界面线程上读写。 */
+        private TextView bubble;
+
+        StreamingReply(int token) {
+            this.token = token;
+        }
+
+        /** worker 线程：追加一段增量，没有排着的重画就排一次。 */
+        void append(String delta) {
+            synchronized (received) {
+                received.append(delta);
+            }
+            if (scheduled.compareAndSet(false, true)) {
+                long wait = Math.max(0, shownAt + STREAM_FRAME_MS - SystemClock.uptimeMillis());
+                mainHandler.postDelayed(this::render, wait);
+            }
+        }
+
+        String text() {
+            synchronized (received) {
+                return received.toString();
+            }
+        }
+
+        /** 界面线程：先清掉排队标记再取文字，这之后到的增量会再排一次重画，不会丢。 */
+        private void render() {
+            scheduled.set(false);
+            if (token != generation || isFinishing() || isDestroyed()) return;
+            show(text());
+        }
+
+        /** 界面线程：把气泡更新成 {@code text}，第一次调用时创建气泡。 */
+        void show(String text) {
+            if (text.isEmpty()) return;
+            shownAt = SystemClock.uptimeMillis();
+            if (bubble == null) {
+                bubble = appendBubble(text, false);
+            } else {
+                setBubbleText(bubble, text);
+                scrollToEnd();
+            }
+        }
     }
 
     private void finishChat(MaterialButton send) {
@@ -254,11 +339,11 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     /**
      * 加一个气泡：自己的消息靠右、accent 底 onAccent 字；水杉和 AI 的靠左、andCard 底。圆角 18，最宽到对话区的八成。
      */
-    private void appendBubble(String text, boolean mine) {
+    private TextView appendBubble(String text, boolean mine) {
         LinearLayout chat = findViewById(R.id.tryout_chat);
         while (chat.getChildCount() >= BUBBLE_LIMIT) chat.removeViewAt(0);
         TextView bubble = new TextView(this);
-        bubble.setText(text.length() > 8_000 ? text.substring(0, 8_000) : text);
+        setBubbleText(bubble, text);
         bubble.setTextIsSelectable(true);
         Ui.style(bubble, 15, 400, mine ? Ui.onAccent(this) : Ui.text(this));
         bubble.setLineSpacing(Ui.dp(this, 3), 1f);
@@ -270,6 +355,16 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         params.gravity = mine ? Gravity.END : Gravity.START;
         if (chat.getChildCount() > 0) params.topMargin = Ui.dp(this, 10);
         chat.addView(bubble, params);
+        scrollToEnd();
+        return bubble;
+    }
+
+    private static void setBubbleText(TextView bubble, String text) {
+        bubble.setText(text.length() > 8_000 ? text.substring(0, 8_000) : text);
+    }
+
+    private void scrollToEnd() {
+        LinearLayout chat = findViewById(R.id.tryout_chat);
         ScrollView scroll = findViewById(R.id.tryout_scroll);
         // 只滚动不移焦点：fullScroll 会把焦点交给可选中的气泡，键盘就收起了。
         scroll.post(() -> scroll.smoothScrollTo(0, chat.getHeight()));
@@ -277,6 +372,9 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         generation++;
+        if (streaming != null) streaming.call.cancel();
+        streaming = null;
+        mainHandler.removeCallbacksAndMessages(null);
         if (operation != null) operation.cancel(true);
         worker.shutdownNow();
         super.onDestroy();

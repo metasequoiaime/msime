@@ -11,6 +11,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.FutureTask;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONObject;
@@ -33,6 +35,12 @@ public final class BackendAccount {
     private static final String DEFAULT_USER_AGENT = "MSIME/Android";
     /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
+    /** 一条 AI 回复的字符上限，流式与非流式相同。 */
+    private static final int MAX_CHAT_REPLY_CHARS = 10_000;
+    /** 流式回复整个响应体的上限：最多 2048 个 token 的增量块，每块几十到一两百字节的 JSON 外壳。 */
+    static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
+    /** SSE 单行上限；一个增量块远小于它。 */
+    static final int MAX_EVENT_LINE_BYTES = 64 * 1024;
     private static final long MAX_SESSION_MILLISECONDS = AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L;
     private static final Object SESSION_LOCK = new Object();
     private static FutureTask<String> refreshFlight;
@@ -423,6 +431,80 @@ public final class BackendAccount {
     /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
     public String chat(List<ChatMessage> messages, String model) throws Exception {
         String token = accessToken();
+        JSONObject body = chatBody(messages, model, token).put("stream", false);
+        return chatContent(authorizedRequest("POST", "/v1/chat/completions", body, token));
+    }
+
+    /**
+     * 流式发送一次对话：每到一段增量就交给 {@code listener}，返回拼好的完整回复。调用方必须在后台线程上调用。
+     *
+     * <p>请求与 {@link #chat} 相同，只多了 `"stream": true`；服务端回 OpenAI 兼容的 SSE（`data: <chat.completion.chunk>`，以 `data: [DONE]` 结束）。不认识 stream 的旧后端回 HTTP 400，这时退回 {@link #chat}，把整段回复一次交给 listener。{@code call} 可以从任何线程取消，取消会断开连接，阻塞中的读取立刻失败。
+     */
+    public String chatStream(List<ChatMessage> messages, String model, ChatCall call, ChatStreamListener listener)
+            throws Exception {
+        String token = accessToken();
+        JSONObject body = chatBody(messages, model, token).put("stream", true);
+        try {
+            try {
+                return streamChat(body, token, call, listener);
+            } catch (RequestException error) {
+                if (error.status != 401) throw error;
+                String fresh = currentAccessToken(token);
+                if (fresh.isEmpty() || fresh.equals(token)) throw error;
+                return streamChat(body, fresh, call, listener);
+            }
+        } catch (RequestException error) {
+            if (error.status != 400) throw error;
+            // 旧后端不认识 stream：退回非流式请求，整段回复一次交出去。
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
+            String reply = chat(messages, model);
+            if (call.cancelled()) throw new CancellationException("chat cancelled");
+            listener.onDelta(reply);
+            return reply;
+        }
+    }
+
+    /** 流式回复的接收方：每到一段非空增量调用一次，在发起请求的那个后台线程上。 */
+    public interface ChatStreamListener {
+        void onDelta(String delta);
+    }
+
+    /** 一次流式对话的取消把手。 */
+    public static final class ChatCall {
+        private HttpsURLConnection connection;
+        private boolean cancelled;
+
+        /**
+         * 取消这次请求：之后不再交出增量，正在进行的连接被断开。
+         *
+         * <p>断开放到一个短命线程上做：界面线程调用这里时，关闭 TLS 连接可能写出 close_notify，在主线程上会被 StrictMode 当成网络访问拦下。
+         */
+        public void cancel() {
+            HttpsURLConnection open;
+            synchronized (this) {
+                cancelled = true;
+                open = connection;
+                connection = null;
+            }
+            if (open != null) new Thread(open::disconnect, "msime-chat-cancel").start();
+        }
+
+        public synchronized boolean cancelled() { return cancelled; }
+
+        /** 记下正在用的连接；已经取消时返回 false，调用方不要再用它。 */
+        synchronized boolean attach(HttpsURLConnection value) {
+            if (cancelled) return false;
+            connection = value;
+            return true;
+        }
+
+        synchronized void detach(HttpsURLConnection value) {
+            if (connection == value) connection = null;
+        }
+    }
+
+    /** 校验对话请求并组装请求体（不含 stream 字段），{@link #chat} 和 {@link #chatStream} 共用同一套上限。 */
+    private static JSONObject chatBody(List<ChatMessage> messages, String model, String token) throws Exception {
         if (token.isEmpty() || model == null || model.isBlank() || model.length() > 256)
             throw new IllegalStateException("invalid chat request");
         if (messages == null || messages.isEmpty() || messages.size() > 14)
@@ -437,15 +519,137 @@ public final class BackendAccount {
                 throw new IllegalStateException("invalid chat request");
             payloadMessages.put(new JSONObject().put("role", message.role()).put("content", content));
         }
-        JSONObject body = new JSONObject().put("messages", payloadMessages)
-            .put("model", model).put("max_tokens", 2048).put("stream", false);
-        JSONObject response = authorizedRequest("POST", "/v1/chat/completions", body, token);
+        return new JSONObject().put("messages", payloadMessages).put("model", model).put("max_tokens", 2048);
+    }
+
+    /** 非流式回复里的 choices[0].message.content，空的或超过 {@link #MAX_CHAT_REPLY_CHARS} 都算无效。 */
+    private static String chatContent(JSONObject response) {
         org.json.JSONArray choices = response.optJSONArray("choices");
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
         String content = message == null ? "" : requiredStringField(message.opt("content"));
-        if (content.isEmpty() || content.length() > 10_000) throw new IllegalStateException("invalid chat response");
+        if (content.isEmpty() || content.length() > MAX_CHAT_REPLY_CHARS) throw new IllegalStateException("invalid chat response");
         return content;
+    }
+
+    /** 一个 chat.completion.chunk 里的 choices[0].delta.content；只带 role 或 finish_reason 的块没有内容，返回空串。 */
+    private static String chunkDelta(JSONObject chunk) {
+        org.json.JSONArray choices = chunk.optJSONArray("choices");
+        JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
+        JSONObject delta = first == null ? null : first.optJSONObject("delta");
+        Object content = delta == null ? null : delta.opt("content");
+        if (content == null || content == JSONObject.NULL) return "";
+        return requiredStringField(content);
+    }
+
+    /** SSE 一行里 `data:` 字段的值（去掉冒号后一个可选空格）；不是 data 行（空行、注释、其他字段）返回 null。 */
+    static String eventData(String line) {
+        if (!line.startsWith("data:")) return null;
+        String value = line.substring(5);
+        return value.startsWith(" ") ? value.substring(1) : value;
+    }
+
+    /**
+     * 按行读 SSE 响应体：以 LF 分行、去掉行尾 CR，整行凑齐后才按 UTF-8 解码，多字节字符跨读缓冲也不会被切坏。
+     *
+     * <p>单行超过 {@link #MAX_EVENT_LINE_BYTES} 或整个响应超过 {@link #MAX_STREAM_BYTES} 都直接失败，不让服务端把内存撑爆。
+     */
+    static final class EventLines {
+        private final InputStream input;
+        private final byte[] buffer = new byte[4096];
+        private final ByteArrayOutputStream line = new ByteArrayOutputStream();
+        private int position;
+        private int limit;
+        private long total;
+
+        EventLines(InputStream input) {
+            this.input = input;
+        }
+
+        /** 下一行，不含换行符；读到流尾时返回 null（流尾前没有换行的最后一段仍作为一行返回）。 */
+        String next() throws Exception {
+            line.reset();
+            while (true) {
+                if (position == limit) {
+                    int count = input.read(buffer);
+                    if (count == -1) return line.size() == 0 ? null : decode();
+                    total += count;
+                    if (total > MAX_STREAM_BYTES) throw new IllegalStateException("response too large");
+                    position = 0;
+                    limit = count;
+                    continue;
+                }
+                byte value = buffer[position++];
+                if (value == '\n') return decode();
+                if (line.size() >= MAX_EVENT_LINE_BYTES) throw new IllegalStateException("event too large");
+                line.write(value);
+            }
+        }
+
+        private String decode() {
+            byte[] bytes = line.toByteArray();
+            int length = bytes.length > 0 && bytes[bytes.length - 1] == '\r' ? bytes.length - 1 : bytes.length;
+            return new String(bytes, 0, length, StandardCharsets.UTF_8);
+        }
+    }
+
+    /** 发一次流式请求并读完 SSE；连接前或响应头之前的非 2xx 抛 {@link RequestException}，流开始后的失败抛 {@link IllegalStateException}。 */
+    private static String streamChat(JSONObject body, String token, ChatCall call, ChatStreamListener listener)
+            throws Exception {
+        byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+        HttpsURLConnection connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/chat/completions").openConnection();
+        try {
+            if (!call.attach(connection)) throw new CancellationException("chat cancelled");
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(30_000);
+            connection.setReadTimeout(30_000);
+            connection.setRequestProperty("Accept", "text/event-stream");
+            connection.setRequestProperty("User-Agent", DEFAULT_USER_AGENT);
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(payload.length);
+            connection.setRequestProperty("Content-Type", "application/json");
+            try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
+            int status = connection.getResponseCode();
+            if (status / 100 != 2) throw new RequestException(status);
+            String type = connection.getContentType();
+            try (InputStream input = connection.getInputStream()) {
+                if (type == null || !type.toLowerCase(Locale.ROOT).startsWith("text/event-stream")) {
+                    // 没按流式回答（例如中间层吞掉了 stream）：按普通 JSON 回复读，整段一次交出去。
+                    String reply = chatContent(new JSONObject(new String(readBounded(input), StandardCharsets.UTF_8)));
+                    if (call.cancelled()) throw new CancellationException("chat cancelled");
+                    listener.onDelta(reply);
+                    return reply;
+                }
+                StringBuilder reply = new StringBuilder();
+                EventLines lines = new EventLines(input);
+                String line;
+                while ((line = lines.next()) != null) {
+                    if (Thread.currentThread().isInterrupted() || call.cancelled())
+                        throw new CancellationException("chat cancelled");
+                    String data = eventData(line);
+                    if (data == null) continue;
+                    if ("[DONE]".equals(data)) {
+                        if (reply.length() == 0) throw new IllegalStateException("invalid chat response");
+                        return reply.toString();
+                    }
+                    JSONObject chunk = new JSONObject(data);
+                    if (chunk.has("error")) throw new IllegalStateException("chat stream failed");
+                    String delta = chunkDelta(chunk);
+                    if (delta.isEmpty()) continue;
+                    if (reply.length() + delta.length() > MAX_CHAT_REPLY_CHARS)
+                        throw new IllegalStateException("invalid chat response");
+                    reply.append(delta);
+                    listener.onDelta(delta);
+                }
+                // 没等到 [DONE] 流就断了：回复不完整，按失败处理，已经交出去的增量由调用方决定是否保留。
+                throw new IllegalStateException("chat stream ended early");
+            }
+        } finally {
+            call.detach(connection);
+            connection.disconnect();
+        }
     }
 
     public ClipboardPage clipboard(String search) throws Exception {
