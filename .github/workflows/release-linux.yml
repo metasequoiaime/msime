@@ -9,6 +9,7 @@ permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
   # Resolves the source to one commit up front (main when dispatched from develop, otherwise the dispatched commit), so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # 从 develop 触发时这个文件取自 develop、源码却是 main，main 可能还没有 platforms/linux/packaging/ 的脚本；packaging 输出记下源码里有没有它们，没有时跳过 distro-sources 与 package-definitions，发布只带 deb、rpm 和 tar.gz。
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -16,9 +17,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", persist-credentials: false}
       - id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ -f platforms/linux/packaging/make-source-tarballs.sh && -f platforms/linux/packaging/render-definitions.sh ]]; then echo "packaging=true" >> "$GITHUB_OUTPUT"; else echo "packaging=false" >> "$GITHUB_OUTPUT"; echo "::notice::$(git rev-parse --short HEAD) has no platforms/linux/packaging scripts; skipping distro source tarballs and package definitions"; fi
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      packaging: ${{ steps.commit.outputs.packaging }}
   deb:
     needs: source
     runs-on: ubuntu-24.04
@@ -126,6 +130,7 @@ jobs:
   # 发行版源码构建要的 tarball（COPR、OBS 与 PPA 用源码与 vendor 包，Gentoo 只用前端包；AUR 的 msime 从 GitHub 的标签归档构建，不用这些）：当前提交的源码、离线构建用的 vendor 包（crate、构建好的前端、按锁文件取回的数据）和单独的前端包，见 platforms/linux/packaging/make-source-tarballs.sh。随发布一起上传，各包定义按发布页地址引用它们。只打 full。
   distro-sources:
     needs: source
+    if: ${{ needs.source.outputs.packaging == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -148,7 +153,8 @@ jobs:
           if-no-files-found: error
   publish:
     needs: [source, deb, rpm, distro-sources]
-    if: ${{ inputs.publish }}
+    # distro-sources 被跳过时照样发布（见 source 的说明），它失败时不发布。
+    if: ${{ !cancelled() && inputs.publish && needs.deb.result == 'success' && needs.rpm.result == 'success' && (needs.distro-sources.result == 'success' || needs.distro-sources.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,6 +170,8 @@ jobs:
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
+          # 没有 distro-sources 时 dist 里没有 .tar.xz，nullglob 让这个模式展开为空而不是原样传给 sha256sum 和 gh。
+          shopt -s nullglob
           # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
           start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
@@ -173,7 +181,7 @@ jobs:
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页地址取文件，SHA256SUMS 也以发布页上的为准。
   package-definitions:
     needs: [source, deb, publish]
-    if: ${{ inputs.publish }}
+    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
