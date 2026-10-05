@@ -155,9 +155,9 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
 #[cfg(unix)]
 #[test]
 fn inspection_rejects_a_snapshot_below_a_symlinked_parent() {
+    use msime_path_trust::untrusted_symlink as symlink;
     use sha2::{Digest, Sha256};
     use std::fs;
-    use std::os::unix::fs::symlink;
 
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();

@@ -118,7 +118,7 @@ fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
     std::fs::create_dir(outside.path().join("state")).unwrap();
     let parent = tempfile::tempdir().unwrap();
     let linked = parent.path().join("linked");
-    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
     let state = linked.join("state");
 
     assert!(
@@ -8551,7 +8551,7 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
 #[cfg(unix)]
 #[test]
 fn refresh_rejects_a_symlinked_options_parent() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let directory = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();

@@ -61,7 +61,7 @@ fn provider_connect_rejects_untrusted_filesystem_endpoints() {
     let target = root.path().join("target.sock");
     let listener = UnixListener::bind(&target).unwrap();
     let alias = root.path().join("alias.sock");
-    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    msime_path_trust::untrusted_symlink(&target, &alias).unwrap();
     assert!(UnixSocketProvider::new(&alias).connect().is_none());
     drop(listener);
 
@@ -74,7 +74,7 @@ fn provider_connect_rejects_untrusted_filesystem_endpoints() {
     let listener = UnixListener::bind(&outside_socket).unwrap();
     let inside = root.path().join("inside");
     std::fs::create_dir(&inside).unwrap();
-    std::os::unix::fs::symlink(&outside, inside.join("linked")).unwrap();
+    msime_path_trust::untrusted_symlink(&outside, inside.join("linked")).unwrap();
     assert!(
         UnixSocketProvider::new(inside.join("linked/nested/provider.sock"))
             .connect()

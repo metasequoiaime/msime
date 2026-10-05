@@ -527,7 +527,7 @@ fn symlinked_root_ancestors_are_rejected_before_installing() {
     let target = tempfile::tempdir().unwrap();
     let parent = tempfile::tempdir().unwrap();
     let linked = parent.path().join("linked");
-    crate::storage::untrusted_symlink(target.path(), &linked).unwrap();
+    msime_path_trust::untrusted_symlink(target.path(), &linked).unwrap();
     let root = linked.join("missing").join("models");
     let archive = good_archive();
     let model = fixture_model(&archive);
@@ -552,7 +552,7 @@ fn symlinked_root_ancestors_with_existing_descendants_are_rejected() {
     let parent = tempfile::tempdir().unwrap();
     fs::create_dir_all(target.path().join("inner/models")).unwrap();
     let linked = parent.path().join("linked");
-    crate::storage::untrusted_symlink(target.path(), &linked).unwrap();
+    msime_path_trust::untrusted_symlink(target.path(), &linked).unwrap();
     let root = linked.join("inner/models");
     let archive = good_archive();
     let model = fixture_model(&archive);
