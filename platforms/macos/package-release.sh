@@ -80,10 +80,31 @@ if [ -z "$identity" ]; then
   echo "warning: MACOS_SIGNING_IDENTITY is not set; signing ad-hoc. The settings app will run, but macOS will not register the embedded input method as an input source until it is re-signed with a Developer ID (platforms/macos/scripts/install.sh)." >&2
 fi
 
+# 带安全时间戳的 codesign。时间戳要现场向 Apple 的时间戳服务器取，服务器偶尔会回 "The timestamp service is not available."，这时重试即可，不能让一次抖动白白废掉整次发版（2026-10-05 的 Release macOS 就是在 wubi 版签名时这样失败的）。其他错误不是抖动，原样失败。
+codesign_timestamped() {
+  local attempt output
+  for attempt in 1 2 3 4 5; do
+    if output="$(codesign --timestamp "$@" 2>&1)"; then
+      [ -z "$output" ] || printf '%s\n' "$output"
+      return 0
+    fi
+    printf '%s\n' "$output" >&2
+    case "$output" in
+      *"timestamp service is not available"*) ;;
+      *) return 1 ;;
+    esac
+    if [ "$attempt" -lt 5 ]; then
+      echo "codesign: the timestamp service is not available, retrying in $((attempt * 15))s" >&2
+      sleep $((attempt * 15))
+    fi
+  done
+  return 1
+}
+
 # codesign for one path. A Developer ID signature carries a secure timestamp, which notarization requires; an ad-hoc signature cannot carry one.
 sign() {
   if [ -n "$identity" ]; then
-    codesign --force --options runtime --timestamp --sign "$identity" "$@"
+    codesign_timestamped --force --options runtime --sign "$identity" "$@"
   else
     codesign --force --options runtime --sign - "$@"
   fi
@@ -181,7 +202,7 @@ staged_bundle="$(only target/macos/*.app)"
 python3 "$edition_tool" apply --edition "$edition" "$staged_bundle"
 # --deep, as scripts/install.sh does: Sparkle arrives signed by its publisher, and under the hardened runtime a process cannot load a library whose Team ID differs from its own. The entitlements carry microphone access for voice input.
 if [ -n "$identity" ]; then
-  codesign --force --deep --options runtime --timestamp --entitlements "$entitlements" --sign "$identity" "$staged_bundle"
+  codesign_timestamped --force --deep --options runtime --entitlements "$entitlements" --sign "$identity" "$staged_bundle"
 else
   codesign --force --deep --options runtime --entitlements "$entitlements" --sign - "$staged_bundle"
 fi
@@ -325,7 +346,7 @@ dmg="$out_dir/$dmg_prefix-$version-$arch.dmg"
 rm -f "$dmg"
 hdiutil create -quiet -volname "$display_name $version" -srcfolder "$stage" -format UDZO -fs HFS+ "$dmg"
 if [ -n "$identity" ]; then
-  codesign --force --timestamp --sign "$identity" "$dmg"
+  codesign_timestamped --force --sign "$identity" "$dmg"
   codesign --verify --strict "$dmg"
 fi
 

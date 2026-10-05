@@ -3504,23 +3504,69 @@ async fn uninstall_input_source(
     let input_methods = PathBuf::from(home).join("Library/Input Methods");
     // 只卸载本设置应用所属版本的输入法，同时安装的其他版本不动。
     let bundle = input_methods.join(macos_input_source::input_source_bundle_name());
-    tauri::async_runtime::spawn_blocking(move || {
+    let marker_state = state.clone();
+    let listed = tauri::async_runtime::spawn_blocking(move || {
         // Wait for a start-time refresh or a manual install that is still writing the bundle.
         let _guard = macos_input_source::install_lock();
-        msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
-            HostActionError {
+        // macOS 27 lets only System Settings change the enabled input source list: TISDisableInputSource from any other process, the input method's own IMK server included, ends in cfprefsd refusing the write to com.apple.inputsources, and so does writing that domain directly. Once the bundle is gone TIS no longer knows its sources, and their entries stay in System Settings until the user removes each one. So the user removes them first, while the bundle can still answer for them, and the uninstall waits until the list no longer has this input method.
+        if macos_input_source::input_source_enabled() == Some(true) {
+            // While the input method runs, TextInputMenuAgent keeps syncing its own copy of the list back over the one System Settings writes, and an entry the user just removed comes back. The marker keeps imklaunchagent's relaunches from going into service until this uninstall completes or is cancelled.
+            macos_input_source::write_uninstall_marker(&state).map_err(|_| HostActionError {
                 code: "unavailable",
-            }
-        })
+            })?;
+            return Ok(true);
+        }
+        msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data)
+            .map(|()| false)
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })
     })
     .await
     .map_err(|_| HostActionError {
         code: "unavailable",
     })??;
+    // Stop the IMK process either way: before the user removes its sources, so it is not running while they do, and after the bundle is trashed, since trashing does not stop it and it would keep serving input from the trashed copy. The uninstall itself does not depend on it, so a process that refuses to quit is not an error.
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    if app
+        .run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::stop_input_method());
+        })
+        .is_ok()
+    {
+        let _ = received.recv();
+    }
+    if listed {
+        let _ = open_input_source_settings();
+        return Err(HostActionError {
+            code: "input_source_listed",
+        });
+    }
+    // Kept user data keeps the state directory; the marker is not part of it.
+    macos_input_source::clear_uninstall_marker(&marker_state);
     // The installed bundle is gone after a successful operation. Exit the
     // settings shell too, matching the native Apple flow and avoiding a UI
     // process that can no longer repair the removed installation.
     app.exit(0);
+    Ok(())
+}
+
+/// The user backed out of an uninstall that was waiting for them to remove the input sources: let the input method serve again.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn cancel_input_source_uninstall(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<(), HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    if let Some(state) = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .filter(|path| std::path::Path::new(path).is_absolute())
+    {
+        macos_input_source::clear_uninstall_marker(std::path::Path::new(state));
+    }
     Ok(())
 }
 
@@ -5438,6 +5484,8 @@ pub fn run() {
             open_translation_language_settings,
             #[cfg(target_os = "macos")]
             uninstall_input_source,
+            #[cfg(target_os = "macos")]
+            cancel_input_source_uninstall,
             #[cfg(target_os = "macos")]
             pick_voice_model_path,
             #[cfg(target_os = "android")]

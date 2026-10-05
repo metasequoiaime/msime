@@ -9,7 +9,7 @@ export interface UninstallSectionProps {
   removeUserData: boolean;
   uninstallBusy: boolean;
   uninstallConfirmation: boolean;
-  uninstallResult: "success" | "error" | null;
+  uninstallResult: "success" | "error" | "listed" | null;
   onRemoveUserDataChange: (value: boolean) => void;
   onRequestUninstall: () => void;
   onConfirmUninstall: () => void;
@@ -55,6 +55,13 @@ export function UninstallSection({
             />
             {uninstallResult === "success" && <span role="status">输入法已移到废纸篓。</span>}
             {uninstallResult === "error" && <span role="alert">卸载未能完成，请稍后重试。</span>}
+            {uninstallResult === "listed" && (
+              <span role="alert">
+                系统设置的输入源列表里还有水杉输入法，已为你打开「键盘」设置。请先切换到其他输入法，再在「文字输入
+                ›
+                输入源」里逐个选中水杉输入法的各项并点「−」移除，然后回来点「确认卸载」。卸载完成前水杉输入法暂停工作，点「取消」即可恢复。
+              </span>
+            )}
           </div>
           {uninstallConfirmation && (
             <div
@@ -68,7 +75,8 @@ export function UninstallSection({
                 {removeUserData
                   ? "已选择同时删除词库、偏好与语音密钥。"
                   : "词库、学习记录和偏好会保留，重新安装后可以继续使用。"}{" "}
-                卸载后请重新登录系统，让它从输入源列表中消失。
+                卸载前要先在系统设置的输入源列表里移除水杉输入法：macOS
+                只允许在系统设置里移除，先删掉输入法的话，列表里会一直留着它。
               </p>
               <div>
                 <ActionButton

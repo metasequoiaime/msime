@@ -282,6 +282,7 @@ const client: SettingsClient = {
     openSettings: () => invoke("open_translation_language_settings"),
   },
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
+  cancelInputSourceUninstall: () => invoke("cancel_input_source_uninstall"),
   dataDirectory: {
     status: () => invoke("data_directory_status"),
     pick: () => invoke("pick_data_directory"),

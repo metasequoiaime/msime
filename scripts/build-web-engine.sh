@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/。
+# 构建网页内置输入法用的引擎包：msime-engine-wasm 编译成 wasm，经 wasm-bindgen 和 wasm-opt 处理，再加上裁剪后的词库、整句模型、NOTICE、清单和校验和，全部写到 target/web-engine/dist/；再把 packages/web-engine 的 SDK 和这些文件组装成 npm 包 target/web-engine/npm/msime-web-engine-<版本>.tgz。
 #
 # TapTapGo 按 web-engine-manifest.json 里每个文件的 sha256 和大小钉住 release（data/msime/web-engine.lock.json），所以同一提交、同一输入构建出来的文件必须逐字节相同：gzip 用 -n 去掉文件名和时间戳，词库由 `msime-dict-build web` 确定性地生成。
 #
@@ -9,7 +9,7 @@
 #
 # --pinyin 和 --wubi 是词库 release 的 msime-pinyin.db 和 msime-wubi.db，与 --keep-multi 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
 #
-# 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
+# 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip，以及打 npm 包用的 npm。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -58,7 +58,7 @@ else
   [[ "$keep_multi" =~ ^[0-9]+$ ]] || die "--keep-multi must be a number, got '$keep_multi'"
 fi
 
-for tool in cargo jq gzip git; do
+for tool in cargo jq gzip git npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool not found"
 done
 if command -v sha256sum >/dev/null 2>&1; then
@@ -205,7 +205,39 @@ if [ "$no_data" -eq 0 ]; then
   echo "msime-pinyin.db.gz: $pinyin_bytes bytes (gate $MAX_PINYIN_GZ_BYTES)"
 fi
 
+step "npm package"
+# 9. SDK（packages/web-engine）和这次构建的加载代码、资源组装成 @msime/web-engine，打成 target/web-engine/npm/msime-web-engine-<版本>.tgz。它不进 dist/：dist 的清单和校验和是 TapTapGo 钉住的，多一个文件就会改变它们。assets.js 从清单生成，SDK 靠它知道每个资源的名字和大小，所以 SDK 与 wasm、词库永远是同一次构建。
+npm_dir="$out/npm"
+npm_pkg="$npm_dir/package"
+rm -rf "$npm_dir"
+mkdir -p "$npm_pkg/assets" "$npm_pkg/bin"
+sdk="packages/web-engine"
+cp "$sdk/src/index.js" "$sdk/src/index.d.ts" "$sdk/src/keys.js" "$sdk/src/input.js" "$sdk/src/worker.js" "$sdk/README.md" "$npm_pkg/"
+cp "$sdk/bin/msime-web-engine.mjs" "$npm_pkg/bin/"
+cp LICENSE "$npm_pkg/LICENSE"
+cp "$dist/msime_engine.js" "$npm_pkg/"
+# 加载代码在包的根目录（worker.js 旁边）；SHA256SUMS.txt 按 dist 的目录结构列文件，放进 assets/ 就对不上了，包里的校验信息以 web-engine-manifest.json 为准。
+for file in "$dist"/*; do
+  case "$(basename "$file")" in
+    msime_engine.js | SHA256SUMS.txt) ;;
+    *) cp "$file" "$npm_pkg/assets/" ;;
+  esac
+done
+jq --arg version "$version" '.version = $version' "$sdk/package.json" > "$npm_pkg/package.json"
+{
+  echo "// 由 scripts/build-web-engine.sh 从 web-engine-manifest.json 生成，不要手改。"
+  jq -r '"export const version = \(.version | tojson);",
+    "export const sourceCommit = \(.source_commit | tojson);",
+    "export const files = \([.artifacts[] | select(.role != "glue" and .role != "notice") | {key: .role, value: {name, size, rawSize: .raw_size}}] | from_entries | tojson);"' \
+    "$dist/web-engine-manifest.json"
+} > "$npm_pkg/assets.js"
+npm pack --silent --pack-destination "$npm_dir" "$npm_pkg" > /dev/null
+npm_tgz="$npm_dir/msime-web-engine-$version.tgz"
+[ -f "$npm_tgz" ] || die "npm pack did not produce $npm_tgz"
+echo "$npm_tgz: $(size_of "$npm_tgz") bytes"
+
 step "done"
 jq -r '.artifacts[] | "\(.name)\t\(.size)\t\(.raw_size)\t\(.sha256)"' "$dist/web-engine-manifest.json" |
   awk -F '\t' '{ printf "  %-32s %10d B  (raw %10d B)  %s\n", $1, $2, $3, $4 }'
 echo "web engine $version ($short_commit) written to $dist"
+echo "npm package @msime/web-engine $version written to $npm_tgz"

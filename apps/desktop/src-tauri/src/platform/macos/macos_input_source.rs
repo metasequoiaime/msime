@@ -73,6 +73,17 @@ pub(crate) fn install_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poison| poison.into_inner())
 }
 
+/// The file in the state directory that keeps the input method out of service while an uninstall waits for the user to remove its input sources in System Settings. It holds this settings app's process id; the input method (`input_method_main.mm`, same file name) exits at launch while that process is alive and is the settings app, so a marker left by a crash or a reused process id never keeps it from starting.
+pub(crate) const UNINSTALL_MARKER: &str = "uninstall-pending";
+
+pub(crate) fn write_uninstall_marker(state: &Path) -> io::Result<()> {
+    fs::write(state.join(UNINSTALL_MARKER), std::process::id().to_string())
+}
+
+pub(crate) fn clear_uninstall_marker(state: &Path) {
+    let _ = fs::remove_file(state.join(UNINSTALL_MARKER));
+}
+
 fn is_symlink(path: &Path) -> io::Result<bool> {
     Ok(fs::symlink_metadata(path)?.file_type().is_symlink())
 }
@@ -868,6 +879,21 @@ mod tests {
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
+    }
+
+    #[test]
+    fn uninstall_marker_names_this_process_and_clears() {
+        let state = tempdir().unwrap();
+        write_uninstall_marker(state.path()).unwrap();
+        // input_method_main.mm reads the same file name and parses the process id from it.
+        assert_eq!(
+            fs::read_to_string(state.path().join("uninstall-pending")).unwrap(),
+            std::process::id().to_string()
+        );
+        clear_uninstall_marker(state.path());
+        assert!(!state.path().join(UNINSTALL_MARKER).exists());
+        // Clearing a marker that is not there is the cancel after a completed or never-started wait.
+        clear_uninstall_marker(state.path());
     }
 
     #[test]

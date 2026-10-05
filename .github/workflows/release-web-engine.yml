@@ -1,6 +1,6 @@
 name: Release Web Engine
 
-# 构建网页内置输入法用的引擎包（msime-engine-wasm 的 wasm、加载代码、裁剪后的拼音库和五笔 86 库、整句模型、NOTICE、清单和校验和），只有 publish 为 true 时才发布为 web-engine-vX.Y.Z release。
+# 构建网页内置输入法用的引擎包（msime-engine-wasm 的 wasm、加载代码、裁剪后的拼音库和五笔 86 库、整句模型、NOTICE、清单和校验和）以及 npm 包 @msime/web-engine，只有 publish 为 true 时才发布为 web-engine-vX.Y.Z release 并发布到 npm。
 #
 # TapTapGo 在 data/msime/web-engine.lock.json 里按 sha256 和大小钉住这个 release 的每个文件，构建时下载并逐个校验。因此发布出去的 release 不能删除，附件也不能替换：哪怕只是重新上传同名文件，已经钉住它的每个构建都会校验失败。要修正就发一个新版本号。
 #
@@ -95,6 +95,10 @@ jobs:
         run: |
           cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
           node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
+      - name: Test the web engine SDK
+        run: |
+          node --test packages/web-engine/test/keys.test.mjs
+          node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
       - name: Keystroke latency
         env: {MAX_P95: "${{ inputs.max_p95_ms }}"}
         run: node crates/engine-wasm/bench/latency.mjs --max-p95 "$MAX_P95"
@@ -112,6 +116,12 @@ jobs:
           name: web-engine-${{ steps.version.outputs.value }}
           path: target/web-engine/dist/
           if-no-files-found: error
+      # npm 包 @msime/web-engine 单独上传：它不属于 dist，不能出现在 TapTapGo 钉住的清单和校验和里。
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-engine-npm-${{ steps.version.outputs.value }}
+          path: target/web-engine/npm/msime-web-engine-${{ steps.version.outputs.value }}.tgz
+          if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
       sha: ${{ steps.source.outputs.sha }}
@@ -126,6 +136,8 @@ jobs:
         with: {sparse-checkout: scripts/publish-release.sh, sparse-checkout-cone-mode: false, persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with: {name: "web-engine-${{ needs.build.outputs.version }}", path: dist}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: {name: "web-engine-npm-${{ needs.build.outputs.version }}", path: npm}
       # 构建的可以是任意分支的提交，所以发布必须显式要求，不能默认发生；否则构建一次功能分支就会发出一个公开且不能撤回的 release。
       # 5. 发布 web-engine-vX.Y.Z，带上 dist/ 里的全部文件。不标为 latest：仓库的最新版本应当仍是客户端的发布。
       - name: Publish web engine release
@@ -137,4 +149,14 @@ jobs:
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
           jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
           tag="web-engine-v${VERSION}"
-          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt
+          RELEASE_LATEST=false bash scripts/publish-release.sh "$tag" "$SOURCE_SHA" "Web engine ${VERSION}" notes.md "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt "npm/msime-web-engine-${VERSION}.tgz"
+  # 6. 把附到 release 上的同一个 tgz 发布为 npm 包 @msime/web-engine。发布逻辑在 publish-web-engine-npm.yml：npm 失败时单独触发它补发这个版本，不用重跑这里，也不会再动已经发布的 release；npm 上已有的版本不能替换，同一版本重新发布时 npm 保留最初那次的包。预发布版本打 next 标签，不会成为 npm install 的默认版本。
+  npm:
+    needs: [build, publish]
+    if: ${{ inputs.publish }}
+    permissions: {contents: read, id-token: write}
+    uses: ./.github/workflows/publish-web-engine-npm.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+      prerelease: ${{ inputs.prerelease }}
+    secrets: inherit

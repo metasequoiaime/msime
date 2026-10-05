@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>水杉输入法网页引擎</title>
+    <style>
+      html, body { background-color: #fafafa; color: #222; }
+      body { max-width: 720px; margin: 40px auto; padding: 0 16px; font: 16px/1.6 system-ui, sans-serif; }
+      textarea { width: 100%; height: 200px; padding: 8px; font: inherit; box-sizing: border-box; }
+      .bar { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+      #status { color: #666; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <h1>水杉输入法网页引擎</h1>
+    <div class="bar">
+      <label>方案
+        <select id="scheme">
+          <option value="quanpin">全拼</option>
+          <option value="xiaohe">小鹤双拼</option>
+          <option value="ziranma">自然码双拼</option>
+          <option value="wubi86">五笔 86</option>
+        </select>
+      </label>
+      <span id="status">加载中…</span>
+    </div>
+    <textarea id="text" placeholder="加载完成后在这里打字。单按 Shift 切换中英文。" disabled></textarea>
+    <p><small>引擎完全运行在你的浏览器里，输入的内容不会发送到任何服务器。<a href="msime/assets/NOTICE.md">第三方许可声明</a></small></p>
+    <script type="module">
+      // msime/ 是 `msime-web-engine copy site/msime` 复制出来的目录；改用 CDN 时把这里换成 https://cdn.jsdelivr.net/npm/@msime/web-engine@<版本>/index.js。
+      import { createMsimeEngine, attachInput } from "./msime/index.js";
+
+      const text = document.getElementById("text");
+      const status = document.getElementById("status");
+      const select = document.getElementById("scheme");
+      let engine = null;
+      let detach = () => {};
+
+      async function load(scheme) {
+        // 拼音方案之间只需切换；和五笔互换要换词库，新建一个引擎。
+        if (engine && scheme !== "wubi86" && engine.scheme !== "wubi86") {
+          await engine.setScheme(scheme);
+          return;
+        }
+        detach();
+        engine?.dispose();
+        engine = null;
+        text.disabled = true;
+        status.textContent = "加载中…";
+        try {
+          engine = await createMsimeEngine({
+            scheme,
+            onProgress: (loaded, total) => (status.textContent = `下载中 ${Math.round((loaded / total) * 100)}%`),
+          });
+        } catch (e) {
+          status.textContent = `加载失败（${e.code}）：${e.message}`;
+          return;
+        }
+        engine.onError((e) => (status.textContent = `引擎出错：${e.message}`));
+        detach = attachInput(text, engine);
+        text.disabled = false;
+        text.focus();
+        status.textContent = `就绪：${engine.build}`;
+      }
+
+      select.addEventListener("change", () => load(select.value));
+      load(select.value);
+    </script>
+  </body>
+</html>
