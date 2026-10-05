@@ -1,5 +1,4 @@
-# Run from a Windows MSVC build environment with both Rust MSVC targets and
-# prebuilt native dependency prefixes. This script never signs or installs.
+# Run from a Windows MSVC build environment with the x64, x86 and ARM64 Rust MSVC targets, the MSVC ARM64 and ARM64EC build tools, clang on PATH (ring builds its ARM64 assembly with it) and prebuilt native dependency prefixes. This script never signs or installs.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$X64Dependencies,
@@ -52,6 +51,9 @@ $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxrunt
 $previousPrefix = $env:CMAKE_PREFIX_PATH
 $previousTarget = $env:CARGO_TARGET_DIR
 $previousDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
+$previousArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
+# The ARM64 host DLL that the native half of the Arm64X TIP imports (edition_windows.py arm64_host_dll): it sits beside the x64 host in the same version directory.
+$arm64HostDll = [IO.Path]::GetFileNameWithoutExtension($hostDll) + '_arm64.dll'
 Push-Location $RepoRoot
 try {
     $env:CARGO_TARGET_DIR = Join-Path $RepoRoot 'target'
@@ -92,6 +94,7 @@ try {
         # 现在就把 PDB 取到它所属的 DLL 旁边：后面的 MCP 和桌面端构建共用这个 target 目录，可能重建 host-api，用同一个名字改写 PDB。复制时保留 DLL 内嵌的文件名；Collect-Symbols.ps1 把它打进符号包。
         Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.pdb'), (Join-Path $bin 'msime_host_api.pdb'))
         if ($arch -eq 'x64') {
+            $x64HostLibrary = $hostLibrary
             # msime-mcp --version 和 MCP 握手报告的版本（crates/mcp-server/build.rs）；没给 TargetVersion 时它读 platforms/windows/version.txt。
             if ($TargetVersion -ne '') { $env:MSIME_VERSION = $TargetVersion }
             Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
@@ -152,6 +155,38 @@ try {
     Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
         @($voiceRuntimeLibraries | ForEach-Object { Join-Path $voiceRuntime $_ }) +
         @((Join-Path $buildRoot 'x64/bin')))
+    # Windows on Arm: the 64-bit TIP there is Arm64X (tsf/CMakeLists.txt, MSIME_TSF_ARM64X), linked from an ARM64 and an ARM64EC build of the same sources. Its ARM64 half imports an ARM64 host built here under its own name; its ARM64EC half runs in emulated x64 processes and imports the x64 host built above. Everything else stays x64 and runs emulated. The host links the C runtime statically, as the TIP does, so it needs no ARM64 Visual C++ runtime. The TIP takes only header-only libraries from its prefix, so both passes use the x64 one.
+    $arm64Triple = 'aarch64-pc-windows-msvc'
+    $arm64Release = Join-Path $env:CARGO_TARGET_DIR "$arm64Triple/release"
+    $arm64Output = Join-Path $buildRoot 'arm64'
+    $arm64Bin = Join-Path $arm64Output 'bin'
+    $env:CMAKE_PREFIX_PATH = $X64Dependencies
+    $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS = '-C target-feature=+crt-static'
+    Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $arm64Triple, '-p', 'msime-host-api')
+    New-Item -ItemType Directory -Force -Path $arm64Output | Out-Null
+    $arm64HostDefinition = Join-Path $arm64Output ([IO.Path]::ChangeExtension($arm64HostDll, '.def'))
+    Invoke-ClientBuild python @((Join-Path $RepoRoot 'platforms/windows/scripts/edition_windows.py'), 'host-def',
+        '--edition', $Edition, '--arm64', '--dll', (Join-Path $arm64Release 'msime_host_api.dll'), '--output', $arm64HostDefinition)
+    $arm64HostLibrary = Join-Path $arm64Output "$arm64HostDll.lib"
+    Invoke-ClientBuild lib @('/NOLOGO', "/DEF:$arm64HostDefinition", "/OUT:$arm64HostLibrary", '/MACHINE:ARM64')
+    $arm64Response = Join-Path $arm64Output 'msime-tsf-arm64.rsp'
+    foreach ($pass in @('ARM64', 'ARM64EC')) {
+        $passOutput = Join-Path $arm64Output $pass.ToLowerInvariant()
+        # The ARM64 pass's own DLL is only an input to the Arm64X link, so it stays in its build tree.
+        $passBin = if ($pass -eq 'ARM64EC') { $arm64Bin } else { Join-Path $passOutput 'bin' }
+        $passHost = if ($pass -eq 'ARM64EC') { $x64HostLibrary } else { $arm64HostLibrary }
+        $configure = @('-S', (Join-Path $RepoRoot 'platforms/windows/tsf'), '-B', $passOutput,
+            '-G', $Generator, '-A', $pass,
+            "-DCMAKE_PREFIX_PATH=$X64Dependencies",
+            "-DMSIME_HOST_LIBRARY=$passHost", "-DMSIME_EDITION=$Edition",
+            "-DMSIME_TSF_ARM64X=$pass", "-DMSIME_TSF_ARM64X_RESPONSE=$arm64Response",
+            "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$passBin")
+        if ($TargetVersion -ne '') { $configure += "-DMSIME_WINDOWS_VERSION=$TargetVersion" }
+        Invoke-ClientBuild cmake $configure
+        Invoke-ClientBuild cmake @('--build', $passOutput, '--config', 'RelWithDebInfo', '--parallel', '4', '--target', 'msime-tsf')
+    }
+    Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $arm64Release 'msime_host_api.dll'), (Join-Path $arm64Bin $arm64HostDll))
+    Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $arm64Release 'msime_host_api.pdb'), (Join-Path $arm64Bin 'msime_host_api.pdb'))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $buildRoot "$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }
@@ -171,10 +206,13 @@ try {
             }
         }
     }
+    & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin 'MetasequoiaImeTsf.dll') -Architecture arm64x -Kind dll
+    & (Join-Path $PSScriptRoot 'Test-PortableExecutable.ps1') -LiteralPath (Join-Path $arm64Bin $arm64HostDll) -Architecture arm64 -Kind dll
     Write-Output 'Client build commands and PE architecture checks completed; no signing, packaging or installation performed.'
 } finally {
     $env:CMAKE_PREFIX_PATH = $previousPrefix
     $env:CARGO_TARGET_DIR = $previousTarget
     $env:CARGO_PROFILE_RELEASE_DEBUG = $previousDebug
+    $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS = $previousArm64Flags
     Pop-Location
 }

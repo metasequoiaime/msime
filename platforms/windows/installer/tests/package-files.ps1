@@ -72,6 +72,14 @@ try {
     Write-Fixture 'windows/build64-release/Release/msime_host_api.dll' 'synthetic x64 host'
     Write-Fixture 'windows/build32-release/Release/synthetic-runtime.dll' 'synthetic x86 dependency'
     Write-Fixture 'windows/build64-release/Release/synthetic-runtime.dll' 'synthetic x64 dependency'
+    # Build-Client.ps1 的 Arm64X TIP、它的 PDB 和 ARM64 宿主 DLL；宿主 DLL 的 PDB 也留在这里，从不暂存。
+    foreach ($edition in @('full', 'wubi', 'vietnamese')) {
+        $suffix = if ($edition -eq 'full') { '' } else { "_$edition" }
+        Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeTsf.dll" "synthetic $edition Arm64X TIP"
+        Write-Fixture "target/windows-$edition/arm64/bin/MetasequoiaImeTsf.pdb" "synthetic $edition Arm64X TIP symbols"
+        Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api$($suffix)_arm64.dll" "synthetic $edition ARM64 host"
+        Write-Fixture "target/windows-$edition/arm64/bin/msime_host_api.pdb" "synthetic $edition ARM64 host symbols"
+    }
     $english = Join-Path $fixture 'target/desktop-resources/msime-english.db'
     New-Item -ItemType Directory -Force (Split-Path -Parent $english) | Out-Null
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
@@ -91,6 +99,19 @@ try {
     Write-Fixture 'target/desktop-resources/unlisted-private-file.txt' 'synthetic excluded data'
     Write-Fixture 'server/build-release/bin/Release/resources/stale.txt' 'synthetic stale bundle'
     & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -TargetVersion '2026.9.1'
+    # tsf_dll\arm64 只有 Arm64X TIP、它的 PDB 和 ARM64 宿主 DLL：TIP 的 ARM64EC 那一半用的 x64 宿主由 tsf_dll\64 装进同一个版本目录。
+    $arm64Staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/arm64') -File | ForEach-Object Name | Sort-Object)
+    if (($arm64Staged -join ',') -ne 'MetasequoiaImeTsf.dll,MetasequoiaImeTsf.pdb,msime_host_api_arm64.dll' -or
+        [IO.File]::ReadAllText((Join-Path $installer 'tsf_dll/arm64/MetasequoiaImeTsf.dll')) -ne 'synthetic full Arm64X TIP' -or
+        [IO.File]::ReadAllText((Join-Path $installer 'tsf_dll/arm64/msime_host_api_arm64.dll')) -ne 'synthetic full ARM64 host') {
+        throw "tsf_dll/arm64 is not the Arm64X TIP and its ARM64 host: $($arm64Staged -join ', ')"
+    }
+    $arm64Tip = Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll'
+    Move-Item -LiteralPath $arm64Tip -Destination "$arm64Tip.moved"
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'Arm64X TSF' }
+    if (-not $rejected) { throw 'Package without the Arm64X TIP was accepted' }
+    Move-Item -LiteralPath "$arm64Tip.moved" -Destination $arm64Tip
     foreach ($artifact in $artifacts) {
         $path = Join-Path $installer "server_exe/resources/$($artifact.name)"
         if ((Get-FileHash $path).Hash -ne $artifact.sha256) { throw 'Packaged resource hash mismatch' }
@@ -435,6 +456,11 @@ try {
             (Test-Path (Join-Path $installer "tsf_dll/$arch/msime_host_api.dll"))) {
             throw "Edition host DLL not packaged under its own name ($arch)"
         }
+    }
+    if (-not (Test-Path (Join-Path $installer 'tsf_dll/arm64/msime_host_api_wubi_arm64.dll')) -or
+        (Test-Path (Join-Path $installer 'tsf_dll/arm64/msime_host_api_arm64.dll')) -or
+        [IO.File]::ReadAllText((Join-Path $installer 'tsf_dll/arm64/MetasequoiaImeTsf.dll')) -ne 'synthetic wubi Arm64X TIP') {
+        throw 'Edition Arm64X TIP or ARM64 host not packaged from the edition build'
     }
     # 五笔版提供中文方案，非英文离线释义照常装；手写模型和落定重排模型和其他版本一样不进安装包。
     if (-not (Test-Path (Join-Path $installer 'server_exe/offline-glosses/zh-fr.db'))) { throw 'Chinese edition lost server_exe/offline-glosses/zh-fr.db' }

@@ -6,6 +6,7 @@ $originalLocation = (Get-Location).Path
 $originalPrefix = $env:CMAKE_PREFIX_PATH
 $originalTarget = $env:CARGO_TARGET_DIR
 $originalDebug = $env:CARGO_PROFILE_RELEASE_DEBUG
+$originalArm64Flags = $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS
 . (Join-Path $PSScriptRoot 'pe_fixture.ps1')
 try {
     $desktopSymbols = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_desktop.pdb'
@@ -21,6 +22,8 @@ try {
             Write-PEFixture (Join-Path $fixture "target/windows-full/$arch/bin/$dll") $arch dll
         }
     }
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/msime_host_api_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
         'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-full/x64/bin/$exe") x64 exe
@@ -56,6 +59,7 @@ try {
     function global:pnpm { Invoke-ClientCommandProbe pnpm $args }
     function global:python { Invoke-ClientCommandProbe python $args }
     function global:msbuild { Invoke-ClientCommandProbe msbuild $args }
+    function global:lib { Invoke-ClientCommandProbe lib $args }
     $entry = Join-Path $PSScriptRoot '../../Build-Client.ps1'
     $global:ClientBuildCalls = [Collections.Generic.List[object]]::new()
     $global:ClientBuildFailAt = 0
@@ -71,7 +75,7 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 21) { throw "Unexpected build stage count: $count" }
+    if ($count -ne 30) { throw "Unexpected build stage count: $count" }
     # host-api 的 PDB 在每个架构里紧跟着 DLL 复制进 bin：之后的 MCP 与桌面构建共用同一个 target 目录，可能重编 host-api 并以同名覆盖它。
     foreach ($arch in @('x64', 'x86')) {
         $pdbCopies = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.pdb") })
@@ -104,7 +108,29 @@ try {
     if (@($global:ClientBuildCalls | Where-Object { $_.Name -eq 'python' -and ($_.Values -match 'fetch_(handwriting|settled)_model') }).Count -ne 0) {
         throw 'Build fetched a model the installer no longer carries'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20)) {
+    # The Arm64X TIP (21-29): the ARM64 host, its import library under the ARM64 name, the ARM64 then the ARM64EC pass over the TIP sources, and the ARM64 host staged beside the Arm64X DLL.
+    $arm64 = Join-Path $fixture 'target/windows-full/arm64'
+    $arm64Library = Join-Path $arm64 'msime_host_api_arm64.dll.lib'
+    $x64Library = Join-Path $fixture 'target/x86_64-pc-windows-msvc/release/msime_host_api.dll.lib'
+    $response = "-DMSIME_TSF_ARM64X_RESPONSE=$(Join-Path $arm64 'msime-tsf-arm64.rsp')"
+    $calls = $global:ClientBuildCalls
+    if ($calls[21].Name -ne 'cargo' -or $calls[21].Values -notcontains 'aarch64-pc-windows-msvc' -or $calls[21].Values -notcontains 'msime-host-api' -or
+        $calls[22].Name -ne 'python' -or $calls[22].Values -notcontains 'host-def' -or $calls[22].Values -notcontains '--arm64' -or
+        $calls[23].Name -ne 'lib' -or $calls[23].Values -notcontains "/OUT:$arm64Library" -or $calls[23].Values -notcontains '/MACHINE:ARM64' -or
+        $calls[24].Values -notcontains 'ARM64' -or $calls[24].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64' -or
+        $calls[24].Values -notcontains "-DMSIME_HOST_LIBRARY=$arm64Library" -or $calls[24].Values -notcontains $response -or
+        $calls[25].Values -notcontains (Join-Path $arm64 'arm64') -or $calls[25].Values -notcontains 'msime-tsf' -or
+        $calls[26].Values -notcontains 'ARM64EC' -or $calls[26].Values -notcontains '-DMSIME_TSF_ARM64X=ARM64EC' -or
+        $calls[26].Values -notcontains "-DMSIME_HOST_LIBRARY=$x64Library" -or $calls[26].Values -notcontains $response -or
+        $calls[26].Values -notcontains "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO=$(Join-Path $arm64 'bin')" -or
+        $calls[26].Values -notcontains '-DMSIME_WINDOWS_VERSION=2026.9.1' -or
+        $calls[27].Values -notcontains (Join-Path $arm64 'arm64ec') -or
+        $calls[28].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api_arm64.dll') -or
+        $calls[28].Values -notcontains (Join-Path $fixture 'target/aarch64-pc-windows-msvc/release/msime_host_api.dll') -or
+        $calls[29].Values[-1] -ne (Join-Path $arm64 'bin/msime_host_api.pdb')) {
+        throw 'Arm64X TIP build mismatch'
+    }
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
     foreach ($index in @(9, 10, 11, 12, 13)) {
@@ -131,7 +157,8 @@ try {
         if (-not $rejected -or $global:ClientBuildCalls.Count -ne $failure) { throw 'Build continued after failure' }
         if ((Get-Location).Path -ne $originalLocation -or $env:CMAKE_PREFIX_PATH -ne $originalPrefix -or
             $env:CARGO_TARGET_DIR -ne $originalTarget -or
-            $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug) { throw 'Build leaked caller environment' }
+            $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug -or
+            $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags) { throw 'Build leaked caller environment' }
     }
     $global:ClientBuildCalls.Clear()
     $global:ClientBuildFailAt = 0
@@ -164,6 +191,8 @@ try {
             Write-PEFixture (Join-Path $fixture "target/windows-wubi/$arch/bin/$dll") $arch dll
         }
     }
+    Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
+    Write-PEFixture (Join-Path $fixture 'target/windows-wubi/arm64/bin/msime_host_api_wubi_arm64.dll') arm64 dll
     foreach ($exe in @('MetasequoiaImeServer.exe', 'MetasequoiaImeWatchdog.exe', 'msime-client-prepare.exe',
         'msime-mcp.exe', 'msime-client-settings.exe', 'MSIME.exe')) {
         Write-PEFixture (Join-Path $fixture "target/windows-wubi/x64/bin/$exe") x64 exe
@@ -172,13 +201,20 @@ try {
         Write-PEFixture (Join-Path $fixture "target/windows-wubi/x64/bin/$dll") x64 dll
     }
     [IO.File]::WriteAllText((Join-Path $fixture 'target/windows-wubi/x64/bin/msime-client-settings.pdb'), 'synthetic WinUI symbols')
-    function global:lib { Invoke-ClientCommandProbe lib $args }
     $global:ClientBuildCalls.Clear()
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -Edition wubi
     $calls = @($global:ClientBuildCalls)
     $definitions = @($calls | Where-Object { $_.Name -eq 'python' -and $_.Values -contains 'host-def' })
     $libraries = @($calls | Where-Object { $_.Name -eq 'lib' })
-    if ($definitions.Count -ne 2 -or $libraries.Count -ne 2) { throw 'Edition host DLL import libraries were not generated for both architectures' }
+    if ($definitions.Count -ne 3 -or $libraries.Count -ne 3) { throw 'Edition host DLL import libraries were not generated for every architecture' }
+    # The Arm64X TIP's two halves link the edition's ARM64 and x64 hosts.
+    $wubiArm64Library = Join-Path $fixture 'target/windows-wubi/arm64/msime_host_api_wubi_arm64.dll.lib'
+    if (@($libraries | Where-Object { $_.Values -contains "/OUT:$wubiArm64Library" -and $_.Values -contains '/MACHINE:ARM64' }).Count -ne 1 -or
+        @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_TSF_ARM64X=ARM64' -and $_.Values -contains "-DMSIME_HOST_LIBRARY=$wubiArm64Library" -and $_.Values -contains '-DMSIME_EDITION=wubi' }).Count -ne 1 -or
+        @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values -contains '-DMSIME_TSF_ARM64X=ARM64EC' -and $_.Values -contains ('-DMSIME_HOST_LIBRARY=' + (Join-Path $fixture 'target/windows-wubi/x64/msime_host_api_wubi.dll.lib')) }).Count -ne 1 -or
+        @($calls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture 'target/windows-wubi/arm64/bin/msime_host_api_wubi_arm64.dll') }).Count -ne 1) {
+        throw 'Edition Arm64X TIP build mismatch'
+    }
     foreach ($arch in @('x64', 'x86')) {
         $library = Join-Path $fixture "target/windows-wubi/$arch/msime_host_api_wubi.dll.lib"
         if (@($libraries | Where-Object { $_.Values -contains "/OUT:$library" }).Count -ne 1) { throw "Edition import library missing for $arch" }
@@ -201,7 +237,13 @@ try {
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 -Edition klingon }
     catch { $rejected = $_.Exception.Message -like 'Edition klingon has no Windows identifiers*' }
     if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Unknown edition reached build tools' }
-    Remove-Item Function:/lib
+    # A plain ARM64 TIP would load in native processes only; emulated x64 ones need the ARM64EC half.
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll') arm64 dll
+    $rejected = $false
+    try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
+    catch { $rejected = $_.Exception.Message -eq 'PE Arm64X hybrid metadata mismatch' }
+    if (-not $rejected) { throw 'Build accepted an ARM64 TIP without its ARM64EC half' }
+    Write-PEFixture (Join-Path $fixture 'target/windows-full/arm64/bin/MetasequoiaImeTsf.dll') arm64x dll
     Write-PEFixture (Join-Path $fixture 'target/windows-full/x64/bin/onnxruntime.dll') x86 dll
     $rejected = $false
     try { & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86 }
@@ -214,7 +256,8 @@ try {
     catch { $rejected = $_.Exception.Message -eq 'PE architecture mismatch' }
     if (-not $rejected) { throw 'Build accepted mixed-architecture output' }
     if ((Get-Location).Path -ne $originalLocation -or $env:CMAKE_PREFIX_PATH -ne $originalPrefix -or
-        $env:CARGO_TARGET_DIR -ne $originalTarget -or $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug) {
+        $env:CARGO_TARGET_DIR -ne $originalTarget -or $env:CARGO_PROFILE_RELEASE_DEBUG -ne $originalDebug -or
+        $env:CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS -ne $originalArm64Flags) {
         throw 'PE verification failure leaked caller environment'
     }
     Write-Output 'Client build orchestration: targets, dependency scopes, failure stages and PE gate passed'

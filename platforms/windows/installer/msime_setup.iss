@@ -107,7 +107,17 @@ Source: "{#MySourceRoot}\tsf_dll\32\MetasequoiaImeTsf.dll"; \
 
 Source: "{#MySourceRoot}\tsf_dll\64\MetasequoiaImeTsf.dll"; \
     DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
-    Flags: ignoreversion regserver
+    Flags: ignoreversion regserver; Check: not IsArm64
+
+; Windows on Arm 上 64 位 TIP 换成 Arm64X 的那一份：原生 ARM64 进程（资源管理器、Edge、记事本等）和模拟运行的 x64 进程共用同一个 InprocServer32 路径，x64 TIP 只能被后者加载。它原生的那一半导入同目录的 ARM64 宿主 DLL，ARM64EC 那一半导入上面装进同一目录的 x64 宿主 DLL。Server 和其余程序仍是 x64，在模拟下运行。
+Source: "{#MySourceRoot}\tsf_dll\arm64\*.dll"; \
+    Excludes: "MetasequoiaImeTsf.dll"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion; Check: IsArm64
+
+Source: "{#MySourceRoot}\tsf_dll\arm64\MetasequoiaImeTsf.dll"; \
+    DestDir: "{commonpf64}\{#MyEditionInstallDir}\{code:GetVersionDir}"; \
+    Flags: ignoreversion regserver; Check: IsArm64
 
 ; Server、设置窗口和 MCP 服务需要与 64 位 TIP 相同的 x64 宿主 DLL 和运行时 DLL。Prepare-PackageFiles.ps1 只把它们暂存在 tsf_dll\64 下，而 Inno 对同一个源文件无论有几条安装条目都只存一份，所以包里只有一份。
 Source: "{#MySourceRoot}\tsf_dll\64\*.dll"; \

@@ -62,6 +62,7 @@ $prepareArgs = @{
     ServerReleaseDirectory="$editionBuild/x64/bin"
     Tsf32ReleaseDirectory="$editionBuild/x86/bin"
     Tsf64ReleaseDirectory="$editionBuild/x64/bin"
+    TsfArm64ReleaseDirectory="$editionBuild/arm64/bin"
     DesktopExecutable="$editionBuild/x64/bin/msime-client-settings.exe"
 }
 $signArgs = @{ PackageRoot=$PSScriptRoot; CertificateThumbprint=$CertificateThumbprint; TimestampUrl=$TimestampUrl; SignToolPath=$SignToolPath }

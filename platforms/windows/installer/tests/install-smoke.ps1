@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory)][string]$Installer,
     # 安装包所属的版本（shared/contracts/editions.json 里有 Windows 段的 id）。CLSID、注册表键、看门狗任务名、安装目录和 host DLL 名都按它取。
-    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full'
+    [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full',
+    # Windows on Arm only: an x64 pwsh.exe, which runs emulated, to activate the TIP from an x64 process as well. Windows on Arm ships no x64 PowerShell.
+    [string]$X64PowerShell = ''
 )
 # Installs the built package silently on a disposable Windows machine, checks what it leaves on disk, in the registry and in Task Scheduler, then uninstalls it silently and checks the same places are clean. Requires an elevated session; the release runner is one.
 $ErrorActionPreference = 'Stop'
@@ -78,6 +80,26 @@ $installedSymbols = @(Get-ChildItem -LiteralPath $pf64, $pf32 -Recurse -File -In
 Check ($installedSymbols.Count -eq 0) "no PDB or .ilk installed ($($installedSymbols -join ', '))"
 Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
 Check (Test-Path -LiteralPath $tip32 -PathType Leaf) '32-bit TSF DLL installed'
+# Windows on Arm installs the Arm64X TIP in place of the x64 one, with the ARM64 host its native half imports beside it (msime_setup.iss).
+$onArm = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
+$arm64Host = Join-Path $pf64 "$versionDir\$([IO.Path]::GetFileNameWithoutExtension($identity.host_dll))_arm64.dll"
+function ImageIs([string]$Path, [string]$Architecture) {
+    try { & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') -LiteralPath $Path -Architecture $Architecture -Kind dll; $true } catch { $false }
+}
+if ($onArm) {
+    Check (ImageIs $tip64 'arm64x') '64-bit TSF DLL is the Arm64X one'
+    Check ((Test-Path -LiteralPath $arm64Host -PathType Leaf) -and (ImageIs $arm64Host 'arm64')) "ARM64 host installed beside the Arm64X TSF DLL ($arm64Host)"
+} else {
+    Check (ImageIs $tip64 'x64') '64-bit TSF DLL is the x64 one'
+    Check (-not (Test-Path -LiteralPath $arm64Host)) 'no ARM64 host outside Windows on Arm'
+}
+# Create the TIP through its COM registration, as an application does, in a child process so that this one holds no DLL the uninstaller must remove. On Windows on Arm the native process loads the ARM64 half and its host, and an emulated x64 one the ARM64EC half and the x64 host.
+function Activate([string]$PowerShell, [string]$What) {
+    $output = (& $PowerShell -NoProfile -NonInteractive -Command "[void][Activator]::CreateInstance([Type]::GetTypeFromCLSID([Guid]'$clsid')); 'activated'" 2>&1 | Out-String).Trim()
+    Check ($LASTEXITCODE -eq 0 -and $output -eq 'activated') "TIP activates in $What ($output)"
+}
+Activate (Get-Process -Id $PID).Path "a $([Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) process"
+if ($onArm -and $X64PowerShell) { Activate $X64PowerShell 'an emulated x64 process' }
 Check ((InprocServer 'HKLM:\SOFTWARE\Classes') -eq $tip64) '64-bit COM server registered to the installed DLL'
 Check ((InprocServer 'HKLM:\SOFTWARE\WOW6432Node\Classes') -eq $tip32) '32-bit COM server registered to the installed DLL'
 Check (Test-Path -LiteralPath "HKLM:\SOFTWARE\Microsoft\CTF\TIP\$clsid") 'TIP registered with the text services framework'

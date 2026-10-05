@@ -19,6 +19,8 @@ param(
     [string]$DesktopResourcesDirectory = 'target/desktop-resources',
     [string]$Tsf32ReleaseDirectory = '',
     [string]$Tsf64ReleaseDirectory = '',
+    # Build-Client.ps1 的 Arm64X TIP 和它原生那一半导入的 ARM64 宿主 DLL；安装器只在 Windows on Arm 上用它们代替 64 位 TIP。
+    [string]$TsfArm64ReleaseDirectory = '',
     # THIRD_PARTY_NOTICES.txt used to sit next to the tip's sources. In the consolidated repository
     # the notice covers the whole product and lives at the root, one level above windows/, so where
     # to read it is no longer answered by where the tip is.
@@ -132,6 +134,12 @@ if ($Tsf64ReleaseDirectory) {
     $tsf64Release = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.dll'
     $tsf64Pdb = Join-Path (Join-Path $RepoRoot $Tsf64ReleaseDirectory) 'MetasequoiaImeTsf.pdb'
 }
+if (-not $TsfArm64ReleaseDirectory) { $TsfArm64ReleaseDirectory = "$editionBuild/arm64/bin" }
+$tsfArm64Directory = Join-Path $RepoRoot $TsfArm64ReleaseDirectory
+$tsfArm64Release = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.dll'
+$tsfArm64Pdb = Join-Path $tsfArm64Directory 'MetasequoiaImeTsf.pdb'
+$arm64HostDllName = [IO.Path]::GetFileNameWithoutExtension($hostDllName) + '_arm64.dll'
+$tsfArm64Host = Join-Path $tsfArm64Directory $arm64HostDllName
 $tsf32Host = Join-Path (Split-Path -Parent $tsf32Release) $hostDllName
 $tsf64Host = Join-Path (Split-Path -Parent $tsf64Release) $hostDllName
 $factoryConfig = Join-Path $PSScriptRoot 'config.default.toml'
@@ -169,6 +177,9 @@ Assert-PathExists -LiteralPath $tsf32Release -Description '32 位 TSF Release DL
 Assert-PathExists -LiteralPath $tsf64Release -Description '64 位 TSF Release DLL'
 Assert-PathExists -LiteralPath $tsf32Pdb -Description '32 位 TSF Release PDB'
 Assert-PathExists -LiteralPath $tsf64Pdb -Description '64 位 TSF Release PDB'
+Assert-PathExists -LiteralPath $tsfArm64Release -Description 'Arm64X TSF Release DLL'
+Assert-PathExists -LiteralPath $tsfArm64Pdb -Description 'Arm64X TSF Release PDB'
+Assert-PathExists -LiteralPath $tsfArm64Host -Description "Arm64X TSF 的 $arm64HostDllName"
 foreach ($hostDll in @($tsf32Host, $tsf64Host)) {
     if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
         throw "缺少对应架构 TSF 的 $hostDllName"
@@ -446,13 +457,16 @@ if ($Edition -ne 'full') {
 Reset-Directory -LiteralPath $targetTsf
 $targetTsf32 = Join-Path $targetTsf '32'
 $targetTsf64 = Join-Path $targetTsf '64'
-New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64 -Force | Out-Null
+$targetTsfArm64 = Join-Path $targetTsf 'arm64'
+New-Item -ItemType Directory -Path $targetTsf32, $targetTsf64, $targetTsfArm64 -Force | Out-Null
 Copy-Item -LiteralPath $tsf32Release -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf32Pdb -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Release -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf64Pdb -Destination $targetTsf64 -Force
 Copy-Item -LiteralPath $tsf32Host -Destination $targetTsf32 -Force
 Copy-Item -LiteralPath $tsf64Host -Destination $targetTsf64 -Force
+# Arm64X TIP 的 ARM64EC 那一半导入 x64 宿主，它由 tsf_dll\64 那一份装进同一个版本目录；这里只放 TIP 和 ARM64 宿主。两者都静态链接 C 运行时，没有别的运行时 DLL。
+Copy-Item -LiteralPath $tsfArm64Release, $tsfArm64Pdb, $tsfArm64Host -Destination $targetTsfArm64 -Force
 # Build-Client 把检查过架构的发布依赖收集到 TIP 旁边；只复制上面列出的那些，绝不复制共用 x64 目录里的其余文件。
 foreach ($dependency in $tsf32Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf32 -Force }
 foreach ($dependency in $tsf64Dependencies) { Copy-Item -LiteralPath $dependency -Destination $targetTsf64 -Force }

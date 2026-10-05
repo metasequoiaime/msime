@@ -14,10 +14,10 @@ full 是现有产品本身：它的名字后缀是空串，管道、事件、互
 
     edition_windows.py gen [--check]                 # 重新生成上面两个文件；--check 只比较，有差异时以非零状态退出
     edition_windows.py editions                      # 有 Windows 段的版本 id，逗号分隔，full 在最前
-    edition_windows.py field --edition ID KEY        # 打印 Windows 段的字段，或 id、display_name.zh-Hans/en、default_scheme
+    edition_windows.py field --edition ID KEY        # 打印 Windows 段的字段，或 id、display_name.zh-Hans/en、default_scheme、arm64_host_dll
     edition_windows.py marker --edition ID --output edition.json   # Server 目录里的版本声明；full 不写，已有的删掉
-    edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def
-                                                     # 按 DLL 的导出表写出改名用的模块定义文件，交给 lib.exe /DEF 或 dlltool 生成同名导入库
+    edition_windows.py host-def --edition ID --dll msime_host_api.dll --output msime_host_api_<id>.def [--arm64]
+                                                     # 按 DLL 的导出表写出改名用的模块定义文件，交给 lib.exe /DEF 或 dlltool 生成同名导入库；--arm64 用 ARM64 宿主的名字（见 arm64_host_dll）
 """
 
 from __future__ import annotations
@@ -251,6 +251,8 @@ def field(entry: dict, key: str) -> str:
     if key.startswith("display_name."):
         return entry["display_name"][key.split(".", 1)[1]]
     windows = entry["platforms"]["windows"]
+    if key == "arm64_host_dll":
+        return arm64_host_dll(windows["host_dll"])
     if key in windows and isinstance(windows[key], str):
         return windows[key]
     raise SystemExit(f"unknown field {key}")
@@ -303,9 +305,19 @@ def pe_exports(dll: bytes) -> list[str]:
     return result
 
 
-def host_def(edition_id: str, dll: pathlib.Path) -> str:
-    """把 msime-host-api 的 DLL 改成本版本的名字（版本表 `host_dll`）时用的模块定义文件。导出的函数与原 DLL 一个不差，只换模块名；拿它生成的导入库让 TSF DLL、Server 和设置窗口按新名字加载。"""
+def arm64_host_dll(host_dll: str) -> str:
+    """Windows on Arm 上 Arm64X TIP 的原生 ARM64 那一半导入的宿主 DLL 名。它与 x64 宿主装在同一个版本目录里，ARM64EC 那一半在模拟的 x64 进程里导入 x64 宿主（`host_dll`），所以 ARM64 宿主换一个名字：`msime_host_api.dll` 对应 `msime_host_api_arm64.dll`。"""
+    stem, dot, extension = host_dll.rpartition(".")
+    if not dot or extension.lower() != "dll":
+        raise SystemExit(f"host DLL name {host_dll} does not end in .dll")
+    return f"{stem}_arm64.{extension}"
+
+
+def host_def(edition_id: str, dll: pathlib.Path, arm64: bool = False) -> str:
+    """把 msime-host-api 的 DLL 改成本版本的名字（版本表 `host_dll`，`arm64` 时是 `arm64_host_dll` 的名字）时用的模块定义文件。导出的函数与原 DLL 一个不差，只换模块名；拿它生成的导入库让 TSF DLL、Server 和设置窗口按新名字加载。"""
     name = edition_entry(edition_id)["platforms"]["windows"]["host_dll"]
+    if arm64:
+        name = arm64_host_dll(name)
     exports = pe_exports(dll.read_bytes())
     if not exports:
         raise SystemExit(f"{dll} exports nothing")
@@ -327,6 +339,7 @@ def main() -> int:
             command.add_argument("--output", type=pathlib.Path, required=True)
         if name == "host-def":
             command.add_argument("--dll", type=pathlib.Path, required=True)
+            command.add_argument("--arm64", action="store_true")
     args = parser.parse_args()
 
     if args.command == "gen":
@@ -338,7 +351,7 @@ def main() -> int:
         print(field(edition_entry(args.edition), args.key))
         return 0
     if args.command == "host-def":
-        args.output.write_text(host_def(args.edition, args.dll), encoding="utf-8", newline="\n")
+        args.output.write_text(host_def(args.edition, args.dll, args.arm64), encoding="utf-8", newline="\n")
         return 0
     if args.command == "marker":
         text = marker(args.edition)
