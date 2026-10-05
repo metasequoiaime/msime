@@ -536,6 +536,12 @@ elseif(MSIME_ENABLE_PACKAGING)
   # A package without the runtime would offer on-device recognition that fails at the first dictation.
   message(FATAL_ERROR "Packaging requires MSIME_VOICE_RUNTIME_DIR; fetch it with scripts/fetch_voice_runtime.py (package-container.sh does)")
 endif()
+# 上面只核对运行库的文件在不在；这里让构建出的 msime-voice-local 真正打开它（dlopen 并解析全部符号），各打包路线的 ctest 都会跑到。
+if(BUILD_TESTING AND MSIME_VOICE_RUNTIME_DIR)
+  add_test(NAME linux-voice-local-runtime
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/local_runtime.py"
+                   $<TARGET_FILE:msime-voice-local> "${MSIME_VOICE_RUNTIME_DIR}/libsherpa-onnx-c-api.so")
+endif()
 install(FILES scripts/requirements-voice.txt DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
 file(RELATIVE_PATH MSIME_VOICE_CUE_RELATIVE "${CMAKE_INSTALL_FULL_BINDIR}"
      "${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
