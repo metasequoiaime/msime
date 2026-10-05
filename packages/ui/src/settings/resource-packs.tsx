@@ -90,7 +90,7 @@ export type ResourcePacks = {
   /** 正在下载的资源包及其进度；有条目即表示在下载。 */
   progress: Partial<Record<ResourcePackId, LocalVoiceModelProgress>>;
   errors: Partial<Record<ResourcePackId, string>>;
-  /** 列表已读到、资源包还没装好、也没有在下载时才开始下载。 */
+  /** 资源包列出、还没装好、也没有在下载时开始下载。列表还没读到时先记下，读到后再按同样的条件下载。 */
   ensure(id: ResourcePackId): void;
   install(id: ResourcePackId): void;
   cancel(id: ResourcePackId): void;
@@ -126,6 +126,8 @@ export function useResourcePacks(
   statusesRef.current = statuses;
   // 本页发起、尚未结束的下载；进度事件可能晚到，所以不能只看 progress 判断。
   const running = useRef(new Set<ResourcePackId>());
+  // 列表读到之前请求的 ensure：读到列表后再判断要不要下载，免得开关打开得早、下载就悄悄没了。
+  const pendingEnsure = useRef(new Set<ResourcePackId>());
 
   const current = (expected: ResourcePackClient) =>
     mounted.current && activeClient.current === expected;
@@ -150,6 +152,7 @@ export function useResourcePacks(
   useEffect(() => {
     const generation = clientGeneration.current;
     running.current = new Set();
+    pendingEnsure.current = new Set();
     setStatuses(undefined);
     setProgress({});
     setErrors({});
@@ -209,10 +212,22 @@ export function useResourcePacks(
   };
 
   const ensure = (id: ResourcePackId) => {
+    if (!client) return;
+    if (!statusesRef.current) {
+      pendingEnsure.current.add(id);
+      return;
+    }
     const status = resourcePackStatus({ statuses: statusesRef.current }, id);
     if (!status || status.state === "installed" || running.current.has(id)) return;
     install(id);
   };
+
+  useEffect(() => {
+    if (!statuses || pendingEnsure.current.size === 0) return;
+    const pending = [...pendingEnsure.current];
+    pendingEnsure.current = new Set();
+    pending.forEach(ensure);
+  }, [statuses]);
 
   const cancel = (id: ResourcePackId) => {
     const expected = client;

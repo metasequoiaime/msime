@@ -1154,6 +1154,29 @@ fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
     );
 }
 
+#[test]
+fn ink_handwriting_answer_reports_no_result_when_no_model_can_follow() {
+    let candidates = vec!["中".to_string()];
+    // Ink 认出了内容：不论有没有模型都直接用。
+    assert_eq!(
+        super::ink_handwriting_answer(Some(candidates.clone()), true),
+        Some(candidates.clone())
+    );
+    assert_eq!(
+        super::ink_handwriting_answer(Some(candidates.clone()), false),
+        Some(candidates)
+    );
+    // Ink 正常运行但没认出内容：有模型就再问模型，没有模型就返回空结果（面板显示未识别到内容），而不是报识别失败。
+    assert_eq!(super::ink_handwriting_answer(Some(Vec::new()), true), None);
+    assert_eq!(
+        super::ink_handwriting_answer(Some(Vec::new()), false),
+        Some(Vec::new())
+    );
+    // Ink 出错或没有中文识别器：交给模型；没有模型时调用方照旧报不可用。
+    assert_eq!(super::ink_handwriting_answer(None, true), None);
+    assert_eq!(super::ink_handwriting_answer(None, false), None);
+}
+
 /// 在 `state_root` 下伪造一个已完整安装的手写资源包，返回其中的模型路径。
 fn publish_fake_handwriting_pack(state_root: &std::path::Path) -> std::path::PathBuf {
     use msime_client_core::resource_packs::{self, ResourcePack};

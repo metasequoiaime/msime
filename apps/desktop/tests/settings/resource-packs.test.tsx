@@ -88,12 +88,16 @@ function fakePacks(
   };
 }
 
-function renderSettings(platform: string, resourcePacks?: ResourcePackClient, snapshot = initial) {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+function renderSettings(
+  platform: string,
+  resourcePacks?: ResourcePackClient,
+  snapshot = initial,
+  save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...snapshot,
     revision: snapshot.revision + 1,
     preferences,
-  }));
+  })),
+) {
   render(
     <SettingsPage
       initialPage="input"
@@ -284,6 +288,51 @@ test("turning on 桌面神经联想 downloads its model and shows the progress",
   expect(screen.queryByText(/需下载约/)).toBeNull();
 });
 
+test("turning on 桌面神经联想 before the pack list arrives still downloads its model", async () => {
+  const packs = fakePacks({}, ["settled-model"]);
+  // 列表由测试决定何时读到：开关在那之前就打开。
+  let releaseList!: () => void;
+  const listHeld = new Promise<void>((resolve) => {
+    releaseList = resolve;
+  });
+  const list = packs.client.list.getMockImplementation()!;
+  packs.client.list.mockImplementation(async () => {
+    await listHeld;
+    return list();
+  });
+  renderSettings("windows", packs.client);
+  await settingsFormReady();
+  await waitFor(() => expect(packs.client.list).toHaveBeenCalled());
+  fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
+  expect(packs.client.install).not.toHaveBeenCalled();
+
+  await act(async () => releaseList());
+  await waitFor(() => expect(packs.client.install).toHaveBeenCalledWith("settled-model"));
+  expect(packs.client.install).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("button", { name: "取消下载桌面神经联想模型" })).toBeTruthy();
+});
+
+test("an early 桌面神经联想 request downloads nothing once the list shows the model installed", async () => {
+  const packs = fakePacks({ "settled-model": "installed" }, ["settled-model"]);
+  let releaseList!: () => void;
+  const listHeld = new Promise<void>((resolve) => {
+    releaseList = resolve;
+  });
+  const list = packs.client.list.getMockImplementation()!;
+  packs.client.list.mockImplementation(async () => {
+    await listHeld;
+    return list();
+  });
+  renderSettings("windows", packs.client);
+  await settingsFormReady();
+  fireEvent.click(await screen.findByRole("switch", { name: "桌面神经联想" }));
+  await act(async () => releaseList());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(packs.client.install).not.toHaveBeenCalled();
+});
+
 test("a bundled 桌面神经联想 model needs no download", async () => {
   // 随包带着落定重排模型时，宿主不列出它。
   const packs = fakePacks({}, ["handwriting"]);
@@ -348,6 +397,52 @@ test("retrying right after typing a mirror saves the mirror before downloading",
     ([, preferences]) => preferences.voice_input?.asr_model_mirror === "https://mirror.example.com",
   );
   expect(saved).toBeGreaterThanOrEqual(0);
+  expect(save.mock.invocationCallOrder[saved]).toBeLessThan(
+    packs.client.install.mock.invocationCallOrder[1],
+  );
+});
+
+test("retrying while a save is in flight waits for it and saves the mirror before downloading", async () => {
+  const packs = fakePacks({}, ["settled-model"]);
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, sentence_association: { neural_desktop: true } },
+  };
+  // 第一次保存由测试决定何时完成，之后的保存立即完成。
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  let revision = snapshot.revision;
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => {
+    if (save.mock.calls.length === 1) await firstHeld;
+    revision += 1;
+    return { ...snapshot, revision, preferences };
+  });
+  renderSettings("windows", packs.client, snapshot, save);
+  await settingsFormReady();
+  fireEvent.click(await screen.findByRole("button", { name: "下载桌面神经联想模型" }));
+  await packs.fail("settled-model", "local_model_network");
+  fireEvent.click(await screen.findByRole("button", { name: "设置下载镜像" }));
+  const input = screen.getByRole("textbox", { name: "模型下载镜像" });
+  fireEvent.change(input, { target: { value: "https://old.example.com" } });
+  saveSettingsNow();
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+  // 第一次保存还没回来时改镜像并点重试：重试必须等这次保存写完，再把新镜像也写进去，才开始下载。
+  fireEvent.change(input, { target: { value: "https://mirror.example.com" } });
+  fireEvent.click(screen.getByRole("button", { name: "重新下载桌面神经联想模型" }));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  expect(packs.client.install).toHaveBeenCalledTimes(1);
+
+  await act(async () => releaseFirst());
+  await waitFor(() => expect(packs.client.install).toHaveBeenCalledTimes(2));
+  const saved = save.mock.calls.findIndex(
+    ([, preferences]) => preferences.voice_input?.asr_model_mirror === "https://mirror.example.com",
+  );
+  expect(saved).toBeGreaterThan(0);
   expect(save.mock.invocationCallOrder[saved]).toBeLessThan(
     packs.client.install.mock.invocationCallOrder[1],
   );

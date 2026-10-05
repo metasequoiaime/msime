@@ -3860,17 +3860,12 @@ async fn recognize_handwriting(
         .map_err(|_| HostActionError {
             code: "unavailable",
         })?;
-        match recognized {
-            Ok(candidates) if !candidates.is_empty() => {
-                let result = HandwritingRecognitionResult { candidates };
-                result.validate().map_err(|_| HostActionError {
-                    code: "invalid_stroke",
-                })?;
-                return Ok(result);
-            }
-            // Recognized nothing, or Windows has no Chinese recognizer. Either
-            // way the packaged model below is still worth asking.
-            _ => {}
+        if let Some(candidates) = ink_handwriting_answer(recognized.ok(), model.is_some()) {
+            let result = HandwritingRecognitionResult { candidates };
+            result.validate().map_err(|_| HostActionError {
+                code: "invalid_stroke",
+            })?;
+            return Ok(result);
         }
     }
     let Some(model) = model else {
@@ -3893,6 +3888,15 @@ async fn recognize_handwriting(
         code: "invalid_stroke",
     })?;
     Ok(result)
+}
+
+/// Windows Ink 识别完后是否直接作答。`ink` 为 `None` 表示 Ink 出错或本机没有中文识别器。Ink 认出了内容就用它；Ink 正常运行却没认出内容时，有手写模型就再问模型，没有模型（装了 Ink 中文识别器时设置应用不提供模型下载）就返回空结果，让面板显示「未识别到内容」而不是识别失败。返回 `None` 表示交给模型。
+#[cfg(any(windows, test))]
+fn ink_handwriting_answer(ink: Option<Vec<String>>, has_model: bool) -> Option<Vec<String>> {
+    match ink {
+        Some(candidates) if !candidates.is_empty() || !has_model => Some(candidates),
+        _ => None,
+    }
 }
 
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
