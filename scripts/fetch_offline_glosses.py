@@ -12,8 +12,9 @@ import hashlib
 import json
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/offline-glosses.lock.json"
@@ -39,7 +40,7 @@ def fetch(artifact: dict, destination: Path) -> None:
     staged_path = Path(staged.name)
     try:
         with staged:
-            with urllib.request.urlopen(url, timeout=300) as response:
+            with download_retry.urlopen(url, timeout=300) as response:
                 advertised = response.headers.get("Content-Length")
                 if advertised is not None:
                     try:

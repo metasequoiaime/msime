@@ -30,8 +30,9 @@ import hashlib
 import json
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
+
+import download_retry
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/wordbook.lock.json"
@@ -65,7 +66,7 @@ def fetch(artifact: dict, cache: Path) -> Path:
         temporary = Path(handle.name)
     try:
         size = 0
-        with urllib.request.urlopen(artifact["url"], timeout=300) as response:
+        with download_retry.urlopen(artifact["url"], timeout=300) as response:
             with temporary.open("wb") as out:
                 while True:
                     chunk = response.read(1024 * 1024)

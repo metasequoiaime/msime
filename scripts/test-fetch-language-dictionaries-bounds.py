@@ -8,6 +8,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -50,7 +51,7 @@ def main():
         "size": len(expected),
     }
     module = fetch_language_dictionaries
-    original_urlopen = module.urllib.request.urlopen
+    original_urlopen = urllib.request.urlopen
     original_lock = module.LOCK
     original_argv = sys.argv
     failures = []
@@ -62,7 +63,7 @@ def main():
             # No lock yet: packaging calls the fetcher unconditionally, so it must skip with exit 0 and download nothing.
             module.LOCK = module.ROOT / "target" / "no-such-language-dictionaries.lock.json"
             sys.argv = ["fetch_language_dictionaries.py", "--out", str(root / "out")]
-            module.urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("downloaded without a lock")
+            urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("downloaded without a lock")
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 module.main()
@@ -84,7 +85,7 @@ def main():
                 {"name": "alpha.db"}, {"name": "alpha_LICENSE.txt"}, {"name": "beta.db"}, {"name": "beta_LICENSE.txt"},
             ]}), encoding="utf-8")
             module.LOCK = synthetic_lock
-            module.urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("downloaded while listing databases")
+            urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("downloaded while listing databases")
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
                 module.main()
@@ -94,7 +95,7 @@ def main():
             module.LOCK = original_lock
             sys.argv = original_argv
 
-            module.urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("opened a non-HTTPS source")
+            urllib.request.urlopen = lambda *_args, **_kwargs: failures.append("opened a non-HTTPS source")
             rejects(failures, "a non-HTTPS source", lambda: module.fetch({**artifact, "url": "http://example.invalid/msime-zhuyin.db"}, destination), "non-HTTPS")
 
             with contextlib.redirect_stderr(io.StringIO()):
@@ -102,24 +103,24 @@ def main():
                     ("an oversized Content-Length", Response([], "4")),
                     ("an oversized stream", Response([b"ab", b"cd"])),
                 ]:
-                    module.urllib.request.urlopen = lambda *_args, **_kwargs: response
+                    urllib.request.urlopen = lambda *_args, **_kwargs: response
                     rejects(failures, label, lambda: module.fetch(artifact, destination), "larger than the lock")
                     if label == "an oversized Content-Length" and response.reads:
                         failures.append("read a body after an oversized Content-Length")
                     if list(root.iterdir()):
                         failures.append(f"left a partial file after {label}")
 
-                module.urllib.request.urlopen = lambda *_args, **_kwargs: Response([b"abd"])
+                urllib.request.urlopen = lambda *_args, **_kwargs: Response([b"abd"])
                 rejects(failures, "a digest mismatch", lambda: module.fetch(artifact, destination), "expected")
                 if list(root.iterdir()):
                     failures.append("left a file after a digest mismatch")
 
-                module.urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
+                urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
                 module.fetch(artifact, destination)
             if not destination.is_file() or destination.read_bytes() != expected:
                 failures.append("rejected a valid response without Content-Length")
     finally:
-        module.urllib.request.urlopen = original_urlopen
+        urllib.request.urlopen = original_urlopen
         module.LOCK = original_lock
         sys.argv = original_argv
 

@@ -6,10 +6,12 @@ import pathlib
 import sys
 import tempfile
 import urllib.error
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import download_retry  # noqa: E402
 import fetch_handwriting_model  # noqa: E402
 import fetch_language_dictionaries  # noqa: E402
 import fetch_offline_glosses  # noqa: E402
@@ -37,7 +39,8 @@ def exercise(module, failures):
     staged = []
     original_named = tempfile.NamedTemporaryFile
     original_unlink = pathlib.Path.unlink
-    original_urlopen = module.urllib.request.urlopen
+    original_urlopen = urllib.request.urlopen
+    original_delays = download_retry.RETRY_DELAYS
 
     def named(*args, **kwargs):
         handle = original_named(*args, **kwargs)
@@ -55,7 +58,9 @@ def exercise(module, failures):
 
     module.tempfile.NamedTemporaryFile = named
     pathlib.Path.unlink = unlink
-    module.urllib.request.urlopen = unavailable
+    urllib.request.urlopen = unavailable
+    # A 500 is transient and would be retried with real waits; with no delays the first one is final, which is the failed download this checks.
+    download_retry.RETRY_DELAYS = ()
     try:
         with tempfile.TemporaryDirectory() as directory:
             destination = pathlib.Path(directory) / artifact["name"]
@@ -71,7 +76,8 @@ def exercise(module, failures):
     finally:
         module.tempfile.NamedTemporaryFile = original_named
         pathlib.Path.unlink = original_unlink
-        module.urllib.request.urlopen = original_urlopen
+        urllib.request.urlopen = original_urlopen
+        download_retry.RETRY_DELAYS = original_delays
 
 
 def main():

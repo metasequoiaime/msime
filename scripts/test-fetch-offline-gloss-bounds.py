@@ -5,6 +5,7 @@ import hashlib
 import pathlib
 import sys
 import tempfile
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -37,7 +38,7 @@ def main():
         "sha256": hashlib.sha256(expected).hexdigest(),
         "size": len(expected),
     }
-    original_urlopen = fetch_offline_glosses.urllib.request.urlopen
+    original_urlopen = urllib.request.urlopen
     failures = []
     try:
         with tempfile.TemporaryDirectory() as directory:
@@ -46,7 +47,7 @@ def main():
                 ("header", Response([], "4")),
                 ("stream", Response([b"ab", b"cd"])),
             ]:
-                fetch_offline_glosses.urllib.request.urlopen = lambda *_args, **_kwargs: response
+                urllib.request.urlopen = lambda *_args, **_kwargs: response
                 try:
                     fetch_offline_glosses.fetch(artifact, destination)
                     failures.append(f"accepted oversized {label}")
@@ -58,12 +59,12 @@ def main():
                 if destination.exists() or list(pathlib.Path(directory).iterdir()):
                     failures.append(f"left a partial file after oversized {label}")
 
-            fetch_offline_glosses.urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
+            urllib.request.urlopen = lambda *_args, **_kwargs: Response([expected])
             fetch_offline_glosses.fetch(artifact, destination)
             if destination.read_bytes() != expected:
                 failures.append("rejected a valid response without Content-Length")
     finally:
-        fetch_offline_glosses.urllib.request.urlopen = original_urlopen
+        urllib.request.urlopen = original_urlopen
 
     for failure in failures:
         print(f"FAIL: {failure}")
