@@ -102,6 +102,10 @@ def check_installer_facts(render) -> None:
     check('"dist/$name.sha256"' in workflow, "release-windows.yml no longer uploads <installer>.sha256; render.py reads it")
     check("'^\\d+\\.\\d+\\.\\d+$'" in workflow and render.VERSION_PATTERN.pattern == r"^\d+\.\d+\.\d+$", "release versions are no longer MAJOR.MINOR.PATCH in both release-windows.yml and render.py")
 
+    # 各包都以 /VERYSILENT /SUPPRESSMSGBOXES 运行安装包，拒绝数据目录时弹普通 MsgBox 会让静默安装（尤其是看不见对话框的 SYSTEM 托管部署）一直挂着；只有 SuppressibleMsgBox 会被压掉，NextButtonClick 返回 False 后静默安装随即退出。
+    next_click = re.search(r"(?ms)^function NextButtonClick\(.*?^end;", setup)
+    check(next_click is not None and "SuppressibleMsgBox(Reason" in next_click.group(0) and not re.search(r"(?<!Suppressible)MsgBox\(", next_click.group(0)), "msime_setup.iss NextButtonClick must reject a data directory with SuppressibleMsgBox, not MsgBox, or silent installs hang on the dialog")
+
     smoke = SMOKE.read_text(encoding="utf-8")
     check(all(f"'{switch}'" in smoke for switch in SILENT), "install-smoke.ps1 no longer installs with the switches the packages use")
 
@@ -125,6 +129,9 @@ def check_installer_facts(render) -> None:
     check(product_code in uninstall_script, f"Scoop uninstaller does not read the {product_code} uninstall key")
     check("$cmd -eq 'update'" in uninstall_script, "Scoop uninstaller must skip 'scoop update': the Inno uninstaller deletes the data directory")
     check(set(scoop["architecture"]) == {"64bit"}, "Scoop offers an architecture other than 64bit")
+    # Inno 卸载程序从临时副本重新启动后立即返回，退出码拦不住第二阶段的失败；等待之后文件还在就必须让 scoop uninstall 失败，否则 Scoop 删掉记录而输入法还装着。
+    wait_index = next((i for i, line in enumerate(scoop["uninstaller"]["script"]) if "$deadline" in line and "while" in line), None)
+    check(wait_index is not None and any("Test-Path -LiteralPath $uninstaller" in line and "throw" in line for line in scoop["uninstaller"]["script"][wait_index + 1:]), "Scoop uninstaller must throw when the Inno uninstaller is still there after waiting")
     # CI 先发布的是未签名的安装包；checkver/autoupdate 会让 Excavator 把它写进 bucket，绕过 render.py 的签名检查。
     check("checkver" not in scoop and "autoupdate" not in scoop, "the Scoop manifest must not autoupdate: Excavator would pick up the unsigned CI installer before the signed one replaces it")
 

@@ -816,7 +816,9 @@ begin
     Reason := DataDirRejectionReason(Chosen);
     if Reason <> '' then
     begin
-      MsgBox(Reason, mbError, MB_OK);
+      { 静默安装（winget、Chocolatey、以 SYSTEM 运行的托管部署）不能停在一个看不见的对话框上：/SUPPRESSMSGBOXES 只压得住 SuppressibleMsgBox，返回 False 时静默安装直接退出，包管理器拿到失败的退出码，原因写进日志。}
+      Log('数据目录被拒绝：' + Chosen + '：' + Reason);
+      SuppressibleMsgBox(Reason, mbError, MB_OK, IDOK);
       Result := False;
       Exit;
     end;

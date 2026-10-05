@@ -26,7 +26,7 @@ Tags:
   - shuangpin
   - wubi
   - tsf
-InstallationNotes: Uninstalling removes the input method's data directory, including your own dictionary words, settings and skins. Upgrading keeps it.
+InstallationNotes: Uninstalling removes the input method's data directory, including your own dictionary words, settings and skins. Upgrading keeps it. Install as a signed-in user, not as SYSTEM (Intune, winget-autoupdate, scheduled tasks), because the data directory defaults to the installing account's local app data, which for SYSTEM lies inside C:\Windows, and the installer rejects it.
 ReleaseNotesUrl: "@RELEASE_NOTES_URL@"
 ManifestType: defaultLocale
 ManifestVersion: 1.12.0

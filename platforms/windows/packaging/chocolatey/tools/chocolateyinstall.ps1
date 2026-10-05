@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 
 $silentArgs = "/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=`"$env:TEMP\$env:ChocolateyPackageName.$env:ChocolateyPackageVersion.Install.log`""
 
-# /DataDir: is passed to the installer's /DATADIR= switch, which takes the same directory its wizard page offers; the installer rejects a directory it may not use, and Chocolatey reports that as a failed install.
+# /DataDir: is passed to the installer's /DATADIR= switch, which takes the same directory its wizard page offers. The installer rejects a directory it may not use (not empty and not an earlier MSIME data directory, or inside Windows or Program Files); in a silent install it only logs the reason and exits with a non-zero code, which Chocolatey reports as a failed install. Run as SYSTEM, the installer's default directory is under the system profile inside C:\Windows and is always rejected, so SYSTEM installs need /DataDir:.
 $pp = Get-PackageParameters
 if ($pp['DataDir']) {
     $silentArgs += " /DATADIR=`"$($pp['DataDir'].TrimEnd('\'))`""
