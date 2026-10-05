@@ -152,7 +152,7 @@ static NSString *const CandidateCornerRadiusKey = @"MSIMEClientCandidateCornerRa
 /// A whole number in [minimum, maximum], as the shared document's integer fields are: a boolean or a fraction is not one.
 static BOOL ValidCandidateStyleInteger(id value, NSInteger minimum, NSInteger maximum) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= minimum && [value integerValue] <= maximum;
 }
 /// The ranges crates/client-core validates. The sliders offer less of them (75-150% and 0-16pt), but a value another surface wrote inside the shared range is honoured rather than refused.
 static BOOL ValidCandidateScale(id value) { return ValidCandidateStyleInteger(value, 50, 200); }
@@ -2617,7 +2617,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
-    if ([preeditFont isKindOfClass:NSNumber.class] && !LocalModeBoolean(preeditFont) && [preeditFont doubleValue] == [preeditFont integerValue] && [preeditFont integerValue] >= 12 && [preeditFont integerValue] <= 32) _sharedPreeditFontSize = preeditFont;
+    if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;
     if ([@[@"pinyin", @"empty"] containsObject:preeditStyle]) _sharedCandidatePreedit = preeditStyle;
     // The shared serializer leaves out a style value at its default, so an omitted key always reads as 100% or as following the skin, on the first document too: these keys are newer than the shared document, so there is no native-only value to keep the way 候选窗英文字体 above does, and a stored value that outlived a reset elsewhere would otherwise draw and then be published back. A value outside the shared ranges is ignored rather than clamped.
     id scale = preferences[@"candidate_scale_percent"];
@@ -2631,8 +2631,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     else if (!cornerRadius || cornerRadius == NSNull.null) _sharedCandidateCornerRadius = NSNull.null;
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
-    if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
-    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9)
+    if (ValidCandidateStyleInteger(font, 12, 32)) _sharedFontSize = font;
+    if (ValidCandidateStyleInteger(page, 1, 9))
         _sharedPageSize = @(msime::mac::NormalizeCandidatePageSize([page unsignedIntegerValue]));
     id theme = preferences[@"theme"];
     if ([ThemeModes() containsObject:theme]) _sharedTheme = [theme copy];

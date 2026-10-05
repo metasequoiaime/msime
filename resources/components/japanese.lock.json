@@ -1,17 +1,23 @@
 {
-  "source_commit": "42256e7924c2dc91d0f3f7849d68b3bef2ea9a2b",
+  "source_commit": "607f351a7c354c86e74474d2d381985049435669",
   "artifacts": [
     {
       "name": "msime-japanese.dat",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.6/msime-japanese.dat",
-      "sha256": "8baafcfc3881d0280cdda8bda7cf3968d8f8fbc94243fea94847cff2b6e2cd66",
-      "size": 66538457
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.7/msime-japanese.dat",
+      "sha256": "83e093c5697ee81e3ccde63856e9131446e373d452854b4012ad34eb6efbe469",
+      "size": 66547565
     },
     {
       "name": "msime-mozc_dictionary_oss_README.txt",
-      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.6/msime-mozc_dictionary_oss_README.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.7/msime-mozc_dictionary_oss_README.txt",
       "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
       "size": 5750
+    },
+    {
+      "name": "msime-mozc_LICENSE.txt",
+      "url": "https://github.com/metasequoiaime/msime-dictionary/releases/download/dict-v2.0.7/msime-mozc_LICENSE.txt",
+      "sha256": "44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c",
+      "size": 5734
     }
   ]
 }

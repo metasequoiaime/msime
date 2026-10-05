@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the installable macOS release: the Tauri settings app with the pinned core dictionaries (EngineResources), the licence files and the InputMethodKit bundle 水杉输入法.app embedded as resources, packed into a DMG with a SHA256SUMS beside it.
 #
-# 包里只带装好就能打中文的核心词库（msime-pinyin.db、msime-wubi.db、bigram/trigram、msime-english.db、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
-#   japanese              msime-japanese.dat 与 mozc README，用户选日文方案时下载
+# 包里只带装好就能打中文的核心词库（msime-pinyin.db、msime-wubi.db、bigram/trigram、msime-english.db、SCOWL 许可声明 msime-scowl_Copyright.txt、msime-others.db、sentence-model、helpcodes/、msime-dictionary-manifest.json）。其余三个资源包由 App 在首次用到时下载到 <state_root>/resource-packs/<id>/（state_root 默认 ~/Library/Application Support/app.msime.macos），查找时下载的优先、包内或旧版本记录的副本次之，两者都没有时对应功能显示为不可用：
+#   japanese              msime-japanese.dat 与两份 Mozc 许可文本（mozc_dictionary_oss_README、mozc_LICENSE），用户选日文方案时下载
 #   language-dictionaries 粤拼、注音与笔画词库及其许可证（resources/language-dictionaries.lock.json），用户选粤拼、注音或笔画时下载
 #   handwriting           手写模型及其许可证（resources/handwriting-model.lock.json），首次打开手写面板时下载
 # 打包时在编译之前先把三个资源包按 App 用的同一套安装器、URL 和哈希装一遍，链接失效或内容漂移的资源包不会随发布包出去。
@@ -168,7 +168,7 @@ offline_glosses="$(python3 "$edition_tool" field --edition "$edition" features.o
 echo "packaging edition $edition: $bundle_name ($bundle_id)"
 
 # ---- Core dictionaries for this edition ----
-# 只暂存核心词库：日文词典那一对文件不进 EngineResources，粤拼、注音、笔画词库和手写模型也不再取回，三者都由 App 按需下载。MSIME_EDITION 让不是 full 的版本只带自己资源锁里的文件。
+# 只暂存核心词库：日文词典那一组文件（词典与两份 Mozc 许可文本）不进 EngineResources，粤拼、注音、笔画词库和手写模型也不再取回，三者都由 App 按需下载。MSIME_EDITION 让不是 full 的版本只带自己资源锁里的文件。
 MSIME_EDITION="$edition" MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
 
 # ---- Input method bundle for this edition ----
@@ -248,14 +248,17 @@ check_app() {
   # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（macos_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
   test ! -e "$resources_dir/EngineResources/msime-japanese.dat"
   test ! -e "$resources_dir/EngineResources/msime-mozc_dictionary_oss_README.txt"
+  test ! -e "$resources_dir/EngineResources/msime-mozc_LICENSE.txt"
+  # SCOWL 的条款要求它的版权与许可声明随 msime-english.db 一起分发；verify_resources 已按锁文件要求它在场，这里再明确查一次，免得有人把它当成可有可无的文本挪走。
+  test -f "$resources_dir/EngineResources/msime-scowl_Copyright.txt"
   test ! -e "$resources_dir/language-dictionaries"
   test ! -e "$resources_dir/handwriting/handwriting-zh_CN.model"
   test -f "$resources_dir/handwriting/Zinnia-LICENSE.txt"
-  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。dict-v2.0.5 把五笔码表拆进单独的 msime-wubi.db，它与 msime-pinyin.db 合计比 dict-v2.0.2 的 msime.db 大约 5.7 MB，核心文件按锁文件大小合计约 116350 KiB，加上 helpcodes/ 约 116900 KiB；预算在此之上留约 4 MB 余量，与拆分前（约 111000 KiB 对 115000 KiB）相同。
+  # 核心词库的体积预算（KiB）。按需资源包被误放回 EngineResources，或者核心词库意外变大，都会在这里报出来。dict-v2.0.5 把五笔码表拆进单独的 msime-wubi.db，它与 msime-pinyin.db 合计比 dict-v2.0.2 的 msime.db 大约 5.7 MB，当时核心文件加 helpcodes/ 约 116900 KiB，预算 121000 KiB。dict-v2.0.7 的 msime-english.db 并入 SCOWL 英文词表，从 1626112 字节涨到 4521984 字节（约 +2.8 MB），另加 4 KiB 的 msime-scowl_Copyright.txt；核心文件按锁文件大小逐个向上取整到 4 KiB 合计 119224 KiB，加上 helpcodes/ 的 528 KiB 约 119752 KiB，原预算只剩约 1.2 MB 余量，所以抬到 124000 KiB，保持与此前相同的约 4 MB 余量。
   local engine_kib
   engine_kib="$(du -sk "$resources_dir/EngineResources" | cut -f1)"
-  test "$engine_kib" -le 121000 || {
-    echo "EngineResources is ${engine_kib} KiB, over the 121000 KiB core-dictionary budget: $resources_dir/EngineResources" >&2
+  test "$engine_kib" -le 124000 || {
+    echo "EngineResources is ${engine_kib} KiB, over the 124000 KiB core-dictionary budget: $resources_dir/EngineResources" >&2
     exit 1
   }
   test -f "$resources_dir/Licenses/THIRD_PARTY_NOTICES.txt"

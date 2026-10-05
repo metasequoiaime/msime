@@ -151,19 +151,25 @@ function accepts(declared: string, actual: string): boolean {
 }
 
 export function validateAccountPreferences(value: AccountPreferences): void {
-  if (!Number.isInteger(value.revision) || value.revision < 0) refuse("account_unavailable");
+  if (!Number.isSafeInteger(value.revision) || value.revision < 0) refuse("account_unavailable");
   const keys = Object.keys(value.settings);
   if (keys.length > MAX_FIELDS) refuse("account_unavailable");
   for (const key of keys) {
     if (!validKey(key)) refuse("account_unavailable");
     const entry = value.settings[key];
-    if (typeof entry === "number" && !Number.isFinite(entry)) refuse("account_unavailable");
+    if (typeof entry === "boolean") continue;
+    if (typeof entry === "number") {
+      if (!Number.isFinite(entry)) refuse("account_unavailable");
+      continue;
+    }
     if (typeof entry === "string") {
       // eslint-disable-next-line no-control-regex
       if (utf8Length(entry) > MAX_STRING_BYTES || /[\u0000-\u001f\u007f]/.test(entry)) {
         refuse("account_unavailable");
       }
+      continue;
     }
+    refuse("account_unavailable");
   }
 }
 
@@ -190,6 +196,70 @@ export function validatePreferenceSchema(value: AccountPreferenceSchema): void {
       refuse("account_unavailable");
     }
   }
+}
+
+/** Decode the snake_case schema returned by the account service at the native boundary. */
+export function preferenceSchemaFromDocument(document: Document): AccountPreferenceSchema | null {
+  const fields = member(document, "fields");
+  const maximumBytes = member(document, "maximum_bytes");
+  const updateMode = member(document, "update_mode");
+  const revisionRequired = member(document, "revision_required");
+  if (
+    fields === undefined ||
+    fields === null ||
+    typeof fields !== "object" ||
+    Array.isArray(fields) ||
+    typeof maximumBytes !== "number" ||
+    typeof updateMode !== "string" ||
+    typeof revisionRequired !== "boolean"
+  ) {
+    return null;
+  }
+  const schema: AccountPreferenceSchema = {
+    fields: fields as AccountPreferenceFields,
+    maximumBytes,
+    updateMode,
+    revisionRequired,
+  };
+  try {
+    validatePreferenceSchema(schema);
+    return schema;
+  } catch {
+    return null;
+  }
+}
+
+/** Decode and validate the account document before it is shown or merged by a host. */
+export function accountPreferencesFromDocument(document: Document): AccountPreferences | null {
+  const revision = member(document, "revision");
+  const settings = member(document, "settings");
+  if (
+    typeof revision !== "number" ||
+    settings === undefined ||
+    settings === null ||
+    typeof settings !== "object" ||
+    Array.isArray(settings)
+  ) {
+    return null;
+  }
+  const preferences: AccountPreferences = {
+    revision,
+    settings: settings as AccountPreferenceSettings,
+  };
+  try {
+    validateAccountPreferences(preferences);
+    return preferences;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the native preferences revision without allowing JSON numbers to lose precision. */
+export function localPreferenceRevision(document: Document): number | null {
+  const revision = member(document, "revision");
+  return typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : null;
 }
 
 /**
@@ -251,7 +321,7 @@ function flag(value: Object | undefined, fallback: boolean): boolean {
 }
 
 function whole(value: Object | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : fallback;
 }
 
 /**

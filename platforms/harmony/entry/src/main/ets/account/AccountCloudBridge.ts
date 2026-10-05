@@ -110,6 +110,12 @@ const MAX_COMMUNITY_SEARCH = 128;
 export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
 export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
+export function parseResponseContentLength(raw: string): number {
+  if (!/^[0-9]+$/.test(raw)) return -1;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : -1;
+}
+
 /**
  * A publication id, checked before it is put in a path.
  *
@@ -693,8 +699,7 @@ function validateSession(value: unknown): value is Session {
     validToken(session.access_token) &&
     validToken(session.refresh_token) &&
     session.token_type === "Bearer" &&
-    typeof session.expires_at === "number" &&
-    Number.isFinite(session.expires_at) &&
+    safeInteger(session.expires_at) &&
     session.expires_at <= Date.now() + MAX_SESSION_MILLISECONDS &&
     validateUser(session.user)
   );
@@ -705,8 +710,7 @@ function sessionFromTokens(value: Action): Session | null {
     !validToken(value.access_token) ||
     !validToken(value.refresh_token) ||
     value.token_type !== "Bearer" ||
-    typeof value.expires_in !== "number" ||
-    !Number.isFinite(value.expires_in) ||
+    !safeInteger(value.expires_in) ||
     value.expires_in <= 0 ||
     value.expires_in > MAX_SESSION_SECONDS ||
     !validateUser(value.user)
@@ -998,8 +1002,8 @@ export class AccountCloudBridge {
       // Under the lock, so a refresh the keyboard is in the middle of cannot write the previous session over this one.
       return await this.locked(async (): Promise<string> => {
         if (generation !== this.generation) return error("account_cancelled");
-        this.session = session;
         this.store.save(JSON.stringify(session));
+        this.session = session;
         return success({ user: session.user });
       });
     } catch {
@@ -1564,7 +1568,7 @@ export class AccountCloudBridge {
       if (parsed.ok !== true) return catalog;
       const value = parsed.value as Action;
       const revision = value.revision;
-      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) {
+      if (!safeInteger(revision) || revision < 0) {
         return error("community_unavailable");
       }
       dictionaryRevision = revision;

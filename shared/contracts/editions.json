@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "resource_components": {
-    "core": ["msime-english.db", "msime-others.db", "msime-dictionary-manifest.json"],
+    "core": ["msime-english.db", "msime-scowl_Copyright.txt", "msime-others.db", "msime-dictionary-manifest.json"],
     "chinese-main": ["msime-pinyin.db", "msime-wubi.db"],
     "ngram": ["msime-bigram.bin", "msime-trigram.bin"],
     "sentence-model": ["sentence-model.safetensors"],
-    "japanese": ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]
+    "japanese": ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt", "msime-mozc_LICENSE.txt"]
   },
   "editions": [
     {

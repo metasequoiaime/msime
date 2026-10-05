@@ -559,6 +559,11 @@ export {
   type AsyncActionState,
 } from "./core/async-action";
 export {
+  useAsyncActionRunner,
+  type AsyncActionOperation,
+  type AsyncActionRunner,
+} from "./core/use-async-action";
+export {
   ChatPage,
   type ChatClient,
   type ChatMessage,
@@ -1341,6 +1346,11 @@ export {
   useCommunityClientLifecycle,
   type CommunityClientLifecycle,
 } from "./community/use-community-client-lifecycle";
+export {
+  useCommunityDetailHistory,
+  type CommunityDetailHistoryOptions,
+} from "./community/use-community-detail-history";
+export { useMobilePopState, type MobilePopStateHandler } from "./settings/use-mobile-pop-state";
 export {
   CommunityRightsAgreement,
   type CommunityRightsAgreementProps,

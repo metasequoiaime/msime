@@ -5,8 +5,11 @@
 #import "../core/EditionIdentity.h"
 
 static inline BOOL MSIMECloudAppearanceIntegerInRange(id value, NSInteger minimum, NSInteger maximum) {
-    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID()) return NO;
+    if (CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSInteger integer = [value integerValue];
+    return integer >= minimum && integer <= maximum;
 }
 
 // The whole range the shared preferences accept, not the three sizes this platform's window used to
@@ -161,8 +164,12 @@ static inline BOOL MSIMEValidateCloudAppearanceForSchemes(NSDictionary *values, 
     if (!MSIMECloudCustomCandidateSkin(values[@"platform.macos.custom_candidate_skin"])) return NO;
     if (!MSIMECloudAppearanceIntegerInRange(values[@"platform.macos.candidate_font_size"], 12, 32) ||
         !MSIMECloudAppearanceCandidatePageSize(values[@"platform.macos.candidate_page_size"])) return NO;
-    NSDictionary *options = @{@"platform.macos.quanpin_helpcode_schema": @[@0,@1,@2,@3,@4],
-                              @"platform.macos.shuangpin_helpcode_schema": @[@0,@1,@2,@3,@4],
+    // 校验与导出、应用共用方案目录，新增方案时不会漏掉允许的编号。
+    NSMutableArray<NSNumber *> *helpcodeValues = [NSMutableArray array];
+    for (NSUInteger index = 0; index < MSIMECloudHelpcodeSchemas().count; ++index)
+        [helpcodeValues addObject:@(index)];
+    NSDictionary *options = @{@"platform.macos.quanpin_helpcode_schema": helpcodeValues,
+                              @"platform.macos.shuangpin_helpcode_schema": helpcodeValues,
                               @"platform.macos.candidate_panel_style": @[@0,@1],
                               @"platform.macos.input_scheme": MSIMECloudInputSchemeValues(offered),
                               @"platform.macos.candidate_page_shortcut": @[@0,@1,@2]};

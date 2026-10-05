@@ -98,7 +98,8 @@ public final class CustomKeyboardSkin {
     }
 
     static int colorValue(Object raw, int fallback) {
-        return KeyboardGeometry.strictInt(raw, fallback) & 0xFFFFFF;
+        int value = KeyboardGeometry.strictInt(raw, fallback);
+        return value < 0 || value > 0xFFFFFF ? fallback : value;
     }
 
     static int patternValue(Object raw) {

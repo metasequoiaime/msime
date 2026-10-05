@@ -148,7 +148,7 @@ Engine 是工作区内的纯 Rust crate `crates/engine`（`msime-engine`），�
 
 Xcode 27 的 SwiftPM 会把静态库中的 `@_cdecl` 导出内部化；当前 `swift-rs` 构建桥会使用 `llvm-tools` 中的 `llvm-objcopy` 恢复应用 package 的符号。仓库同时固定到上游 PR #79 的提交 `a83e2b2f196e3fa9605cb21c7d3b82652205c279`，使传递嵌入的 SwiftRs runtime 导出在优化构建中保持公开。缺少该组件或移除补丁时，Tauri iOS Rust 动态库会在链接阶段报告 Swift 桥符号未定义。
 
-词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把允许的六个运行资源复制到 `target/ios/EngineResources`：
+词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把锁文件列出的文件（含日文词库与英文词库各自的许可文本）复制到 `target/ios/EngineResources`：
 
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"

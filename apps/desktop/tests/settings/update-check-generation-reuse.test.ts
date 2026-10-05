@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("update checks reuse the shared generation lifecycle", () => {
+test("update checks reuse the shared async action lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/settings/use-update-check.ts", {
       eager: true,
@@ -9,6 +9,6 @@ test("update checks reuse the shared generation lifecycle", () => {
     }),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(");
-  expect(source).not.toContain("const requestGeneration = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });

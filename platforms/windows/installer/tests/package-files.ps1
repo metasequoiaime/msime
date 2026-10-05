@@ -67,8 +67,9 @@ try {
     python -c "import sqlite3,sys; sqlite3.connect(sys.argv[1]).execute('CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER,PRIMARY KEY(word,display))')" $english
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging fixture' }
     $artifacts = @(
-        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-others.db', 'msime-japanese.dat',
-                            'msime-mozc_dictionary_oss_README.txt', 'msime-dictionary-manifest.json')) {
+        foreach ($name in @('msime-pinyin.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db',
+                            'msime-japanese.dat', 'msime-mozc_dictionary_oss_README.txt', 'msime-mozc_LICENSE.txt',
+                            'msime-dictionary-manifest.json')) {
             if ($name -ne 'msime-english.db') { Write-Fixture "target/desktop-resources/$name" "synthetic pinned $name" }
             $path = Join-Path $fixture "target/desktop-resources/$name"
             @{ name = $name; size = (Get-Item $path).Length; sha256 = (Get-FileHash $path).Hash.ToLowerInvariant() }
@@ -374,7 +375,7 @@ try {
     }
     Write-Fixture 'windows/build32-release/Release/msime_host_api_wubi.dll' 'synthetic x86 wubi host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_wubi.dll' 'synthetic x64 wubi host'
-    $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-others.db', 'msime-dictionary-manifest.json') })
+    $wubiArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-pinyin.db', 'msime-wubi.db', 'msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/wubi.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $wubiArtifacts
     } | ConvertTo-Json -Depth 5)
@@ -399,7 +400,7 @@ try {
     # 越南文版没有中文方案（版本表 features.handwriting 和 features.offline_glosses 为 false）：手写模型和非英文离线释义都不装，即使构建目录里有它们。
     Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'
-    $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-english.db', 'msime-others.db', 'msime-dictionary-manifest.json') })
+    $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db', 'msime-dictionary-manifest.json') })
     Write-Fixture 'resources/editions/vietnamese.lock.json' (@{
         source_commit = ('a' * 40); artifacts = $vietnameseArtifacts
     } | ConvertTo-Json -Depth 5)

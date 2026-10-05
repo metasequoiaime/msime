@@ -360,10 +360,10 @@ actor SkinCommunityAPI {
     return page
   }
 
-  private static func validPage<T: Identifiable>(_ items: [T], hasMore: Bool) -> Bool {
+  private static func validPage<T: Identifiable>(_ items: [T], hasMore: Bool) -> Bool where T.ID == String {
     guard items.count <= maximumPageItems, !(hasMore && items.isEmpty) else { return false }
-    var ids = Set<AnyHashable>()
-    return items.allSatisfy { ids.insert(AnyHashable($0.id)).inserted }
+    var ids = Set<String>()
+    return items.allSatisfy { ids.insert($0.id.lowercased()).inserted }
   }
 
   func resource(_ id: String) async throws -> CommunityResource {

@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import javax.net.ssl.HttpsURLConnection;
@@ -239,7 +240,7 @@ public final class CommunityCatalog {
             if (item == null) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
-            if (!ids.add(item.id())) {
+            if (!ids.add(idKey(item.id()))) {
                 return new Page(List.of(), false, CommunityRequest.message(null, 500));
             }
             items.add(item);
@@ -248,6 +249,10 @@ public final class CommunityCatalog {
             return new Page(List.of(), false, CommunityRequest.message(null, 500));
         }
         return new Page(List.copyOf(items), hasMore, "");
+    }
+
+    static String idKey(String value) {
+        return value.toLowerCase(Locale.ROOT);
     }
 
     /** 一个条目，读不出或不合规时为 null。 */
@@ -345,11 +350,14 @@ public final class CommunityCatalog {
         Object raw = value.opt(primary);
         if ((raw == null || raw == JSONObject.NULL) && fallback != null) raw = value.opt(fallback);
         if (raw == null || raw == JSONObject.NULL) return 0L;
+        return countNumber(raw);
+    }
+
+    static Long countNumber(Object raw) {
         if (!(raw instanceof Number number)) return null;
-        double decimal = number.doubleValue();
+        if (!(raw instanceof Integer) && !(raw instanceof Long)) return null;
         long integer = number.longValue();
-        return Double.isFinite(decimal) && decimal >= 0 && decimal == integer
-            && integer <= MAX_JAVASCRIPT_INTEGER ? integer : null;
+        return integer >= 0 && integer <= MAX_JAVASCRIPT_INTEGER ? integer : null;
     }
 
     private static Double decimal(JSONObject value, String key) {

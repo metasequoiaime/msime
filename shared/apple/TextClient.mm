@@ -9,6 +9,18 @@ static BOOL MSIMEPreeditSeparator(unichar character) {
     return character == '\'' || character == ' ';
 }
 
+static BOOL MSIMEStrictCaretPosition(id value, NSUInteger *result) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t position = number.unsignedLongLongValue;
+    if ([number compare:@(position)] != NSOrderedSame || position > NSUIntegerMax) return NO;
+    if (result) *result = (NSUInteger)position;
+    return YES;
+}
+
 static NSString *MSIMEPreeditLetters(NSString *text) {
     NSMutableString *letters = [NSMutableString string];
     for (NSUInteger i = 0; i < text.length; ++i) {
@@ -21,8 +33,9 @@ static NSString *MSIMEPreeditLetters(NSString *text) {
 }
 
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position) {
-    if (![position isKindOfClass:NSNumber.class]) return preedit.length;
-    NSUInteger rawCaret = MIN([position unsignedIntegerValue], editing.length);
+    NSUInteger rawCaret = 0;
+    if (!MSIMEStrictCaretPosition(position, &rawCaret)) return preedit.length;
+    rawCaret = MIN(rawCaret, editing.length);
     if ([preedit isEqual:editing]) return rawCaret;
     // Only map lossless separator formatting. Expanded shuangpin, converted words
     // and corrections need an Engine-provided offset map, not host-side guesses.
@@ -116,20 +129,21 @@ void MSIMEApplyTransitionTrackingMarkedText(NSDictionary *transition, id<MSIMETe
     // the wrong place, that case keeps showing what the caret belongs to. Typing never reaches it:
     // the caret sits at the end until an arrow key moves it.
     NSString *reading = view[@"reading"];
+    NSUInteger rawCaret = 0;
+    BOOL validCaret = MSIMEStrictCaretPosition(position, &rawCaret);
     if ([reading isKindOfClass:NSString.class] && reading.length &&
-        (![position isKindOfClass:NSNumber.class] ||
-         [position unsignedIntegerValue] >= editing.length)) {
+        (!validCaret || rawCaret >= editing.length)) {
         editing = reading;
         preedit = reading;
         position = @(reading.length);
+        rawCaret = reading.length;
+        validCaret = YES;
     }
     NSString *marked = preedit;
     NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, position);
     if (style == MSIMEInlinePreeditStyleRaw) {
         marked = editing;
-        caret = [position isKindOfClass:NSNumber.class]
-            ? MIN([position unsignedIntegerValue], editing.length)
-            : editing.length;
+        caret = validCaret ? MIN(rawCaret, editing.length) : editing.length;
     } else if (style == MSIMEInlinePreeditStyleEmpty) {
         marked = @"";
         caret = 0;

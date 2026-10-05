@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { StatusMessage } from "../core/status-message";
-import { runAsyncAction } from "../core/async-action";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import { ActionButton } from "../core/action-button";
 import { SettingActionHeader } from "../settings/setting-action-header";
-import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type VoiceCaptureDevice = {
   backend: "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
@@ -24,30 +23,19 @@ export function VoiceDevicePicker({
   choose: (backend: VoiceCaptureDevice["backend"], device: string) => void;
 }) {
   const [devices, setDevices] = useState<VoiceCaptureDevice[]>([]);
-  const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("点击刷新读取可用录音设备");
-  const pending = useRef(false);
-  const generation = useAsyncGeneration(read);
+  const { busy, run } = useAsyncActionRunner(
+    (message) => {
+      if (message) setNotice(message);
+    },
+    undefined,
+    read,
+  );
   useEffect(() => {
-    pending.current = false;
-    setBusy(false);
     setDevices([]);
   }, [read]);
   async function refresh() {
-    if (pending.current) return;
-    const current = generation.current;
-    void runAsyncAction(
-      {
-        busy: pending.current,
-        isCurrent: () => current === generation.current,
-        setBusy: (value) => {
-          pending.current = value;
-          setBusy(value);
-        },
-        setError: (message) => {
-          if (message) setNotice(message);
-        },
-      },
+    void run(
       async (isCurrent) => {
         const result = await read();
         if (!isCurrent()) return;

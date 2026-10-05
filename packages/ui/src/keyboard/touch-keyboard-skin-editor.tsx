@@ -408,11 +408,9 @@ export function TouchKeyboardSkinEditor({
   const mounted = useMountedRef();
   const libraryGeneration = useAsyncGeneration(library);
   const libraryActionBusy = useRef(false);
-  useEffect(() => {
+  const runLibraryAction = (operation: (isCurrent: () => boolean) => Promise<void>) => {
     const generation = libraryGeneration.current;
-    if (!library) return;
-    libraryActionBusy.current = true;
-    void runAsyncAction(
+    return runAsyncAction(
       {
         busy: false,
         isCurrent: () => mounted.current && generation === libraryGeneration.current,
@@ -422,12 +420,17 @@ export function TouchKeyboardSkinEditor({
         },
         setError: setLibraryNotice,
       },
-      async (isCurrent) => {
-        const items = await library.load();
-        if (isCurrent()) setSaved(items);
-      },
+      operation,
       { formatError: libraryError },
     );
+  };
+  useEffect(() => {
+    if (!library) return;
+    libraryActionBusy.current = true;
+    void runLibraryAction(async (isCurrent) => {
+      const items = await library.load();
+      if (isCurrent()) setSaved(items);
+    });
     return () => {
       libraryActionBusy.current = false;
     };
@@ -474,27 +477,14 @@ export function TouchKeyboardSkinEditor({
   const mutateLibrary = async (action: CustomSkinLibraryAction, success: string) => {
     if (!library || libraryActionBusy.current) return false;
     libraryActionBusy.current = true;
-    const generation = libraryGeneration.current;
     let succeeded = false;
-    await runAsyncAction(
-      {
-        busy: false,
-        isCurrent: () => mounted.current && generation === libraryGeneration.current,
-        setBusy: (busy) => {
-          libraryActionBusy.current = busy;
-          setLibraryBusy(busy);
-        },
-        setError: setLibraryNotice,
-      },
-      async (isCurrent) => {
-        const items = await library.mutate(action);
-        if (!isCurrent()) return;
-        setSaved(items);
-        setLibraryNotice(success);
-        succeeded = true;
-      },
-      { formatError: libraryError },
-    );
+    await runLibraryAction(async (isCurrent) => {
+      const items = await library.mutate(action);
+      if (!isCurrent()) return;
+      setSaved(items);
+      setLibraryNotice(success);
+      succeeded = true;
+    });
     libraryActionBusy.current = false;
     return succeeded;
   };

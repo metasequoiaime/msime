@@ -118,9 +118,10 @@ function realFile(path: string): boolean {
   return LocalAsrPathTrust.trusted(path, true, lstatPath, statPath);
 }
 
-function readPlan(directory: string): LocalModelPlan {
+function readPlan(directory: string, root: string): LocalModelPlan {
   const manifest: string = `${directory}/${LOCAL_MODEL_MANIFEST}`;
-  if (!trustedDirectory(directory) || !realFile(manifest)) {
+  if (LocalAsrPolicy.modelUnderRoot(directory, root).length === 0
+      || !trustedDirectory(directory) || !realFile(manifest)) {
     throw new Error('所选路径不是已安装的本地语音模型');
   }
   const plan: LocalModelPlan | null = LocalAsrPolicy.plan(
@@ -200,7 +201,7 @@ function createOffline(plan: LocalModelPlan, language: string, hotwords: string,
 
 /** Reuses the loaded recognizer when everything baked into it matches; otherwise drops it first, because two resident models would double the largest allocation the keyboard makes. */
 function acquire(request: LocalAsrRequest): LoadedModel {
-  const plan: LocalModelPlan = readPlan(request.directory);
+  const plan: LocalModelPlan = readPlan(request.directory, request.root);
   const threads: number = LocalAsrPolicy.threads(request.threads);
   let hotwords: string = '';
   let language: string = '';

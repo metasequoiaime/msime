@@ -11,4 +11,6 @@ test("data directory actions reuse the shared generation lifecycle", () => {
 
   expect(source).toContain("useAsyncGeneration(");
   expect(source).not.toContain("const generation = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });

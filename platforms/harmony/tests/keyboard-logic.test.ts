@@ -231,6 +231,7 @@ import {
   MAX_SNAPSHOT_DOWNLOAD_BYTES,
   COMMUNITY_REPORT_REASONS,
   dictionaryChangePageChanged,
+  parseResponseContentLength,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   CrashDestination,
@@ -267,6 +268,9 @@ import {
   AccountPreferenceError,
   AccountPreferenceSchema,
   AccountPreferences,
+  accountPreferencesFromDocument,
+  localPreferenceRevision,
+  preferenceSchemaFromDocument,
   applyAccountPreferences,
   localAccountPreferences,
   mergeAccountPreferences,
@@ -302,6 +306,10 @@ import {
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
+import {
+  EngineViewValuePolicy,
+  EngineViewNumericFields,
+} from "../entry/src/main/ets/keyboard/input/EngineViewValuePolicy";
 import { CandidatePreeditStylePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidatePreeditStylePolicy";
 import {
   KEY_SOUNDS_OFF,
@@ -7399,6 +7407,18 @@ group("Harmony HTTP requests stop before following redirects", () => {
   check(options.maxRedirects === 0, "the native redirect limit is also set to zero when available");
 });
 
+group("account response lengths accept only decimal octets", () => {
+  check(parseResponseContentLength("0") === 0, "zero is a valid response length");
+  check(parseResponseContentLength("0012") === 12, "leading zeroes are valid decimal syntax");
+  check(
+    parseResponseContentLength("1.0000000000000000001") === -1,
+    "fractional response lengths are rejected before numeric rounding",
+  );
+  check(parseResponseContentLength("1e0") === -1, "exponent response lengths are rejected");
+  check(parseResponseContentLength(" 1 ") === -1, "whitespace response lengths are rejected");
+  check(parseResponseContentLength("9007199254740993") === -1, "unsafe lengths are rejected");
+});
+
 group("account and cloud clipboard bridge keeps secrets native", () => {
   let oversizedCleared = false;
   const oversizedStore: AccountSessionStore = {
@@ -7570,6 +7590,66 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("a failed login save preserves the last committed session", () => {
+  for (const signedIn of [false, true]) {
+    let stored: string | null = signedIn
+      ? JSON.stringify({
+          access_token: "a".repeat(64),
+          refresh_token: "b".repeat(64),
+          token_type: "Bearer",
+          expires_at: Date.now() + 600000,
+          user: { id: "synthetic-old", display_name: "Old", created_at: "2026-01-01" },
+        })
+      : null;
+    const previous = stored;
+    let saveFails = true;
+    const bridge = new AccountCloudBridge(
+      {
+        request: async () => ({
+          status: 200,
+          body: JSON.stringify({
+            access_token: "c".repeat(64),
+            refresh_token: "d".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "synthetic-new", display_name: "New", created_at: "2026-01-01" },
+          }),
+        }),
+      },
+      {
+        load: () => stored,
+        save: (value) => {
+          if (saveFails) throw new Error("synthetic storage failure");
+          stored = value;
+        },
+        clear: () => { stored = null; },
+      },
+    );
+    void bridge
+      .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+      .then(async (reply) => {
+        check(JSON.parse(reply).error === "account_unavailable", "a failed save refuses login");
+        check(stored === previous, "the failed save preserves the stored session");
+        check(
+          bridge.currentUserId() === (signedIn ? "synthetic-old" : null),
+          "a refused login preserves the in-memory account",
+        );
+        const status = JSON.parse(await bridge.handle('{"operation":"status"}'));
+        check(
+          (status.value.user?.id ?? null) === (signedIn ? "synthetic-old" : null),
+          "status agrees with the committed session after failure",
+        );
+        saveFails = false;
+        const retry = await bridge.handle(
+          '{"operation":"login","challenge_id":"challenge","credential":"123456"}',
+        );
+        check(JSON.parse(retry).ok === true, "login can be retried when storage recovers");
+        check(bridge.currentUserId() === "synthetic-new", "a saved login switches the account");
+        check(JSON.parse(stored ?? "{}").user?.id === "synthetic-new", "the new session is stored");
+      });
+  }
+});
+
 group("account session generation changes on same-user re-login", () => {
   let stored: string | null = null;
   const session = (access: string, refresh: string) =>
@@ -7684,6 +7764,60 @@ group("account sessions reject unbounded lifetimes", () => {
   );
   void persistedBridge.handle('{"operation":"status"}').then((reply) => {
     check(JSON.parse(reply).value.user === null, "an unbounded persisted lifetime is discarded");
+  });
+
+  let fractionalStored: string | null = null;
+  const fractionalBridge = new AccountCloudBridge(
+    {
+      request: async (_method, path) => {
+        if (path === "/v1/auth/login") {
+          return {
+            status: 200,
+            body: JSON.stringify({
+              access_token: "e".repeat(64),
+              refresh_token: "f".repeat(64),
+              token_type: "Bearer",
+              expires_in: 900.5,
+              user: { id: "fractional-user", display_name: "Test", created_at: "2026-01-01" },
+            }),
+          };
+        }
+        return { status: 500, body: "" };
+      },
+    },
+    {
+      load: () => fractionalStored,
+      save: (value) => {
+        fractionalStored = value;
+      },
+      clear: () => {
+        fractionalStored = null;
+      },
+    },
+  );
+  void fractionalBridge
+    .handle(JSON.stringify({ operation: "login", challenge_id: "challenge", credential: "123456" }))
+    .then((reply) => {
+      check(
+        JSON.parse(reply).error === "account_unavailable",
+        "fractional account lifetime is refused",
+      );
+      check(fractionalStored === null, "a fractional account lifetime is never persisted");
+    });
+
+  const fractionalPersisted = JSON.stringify({
+    access_token: "g".repeat(64),
+    refresh_token: "h".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000.5,
+    user: { id: "fractional-persisted", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const fractionalPersistedBridge = new AccountCloudBridge(
+    { request: async () => ({ status: 500, body: "" }) },
+    { load: () => fractionalPersisted, save: () => {}, clear: () => {} },
+  );
+  void fractionalPersistedBridge.handle('{"operation":"status"}').then((reply) => {
+    check(JSON.parse(reply).value.user === null, "a fractional persisted lifetime is discarded");
   });
 });
 
@@ -8830,6 +8964,14 @@ group("the account settings sync maps this host's document, not another's", () =
     "the custom design travels as one string, as the other hosts send it",
   );
   check(values["platform.harmony.haptic_strength"] === "light", "feedback comes from its own file");
+  const malformedNumeric = localAccountPreferences(
+    { touch_key_spacing_tenths: Number.MAX_SAFE_INTEGER + 1 },
+    syncFeedback,
+  );
+  check(
+    malformedNumeric["platform.harmony.touch_key_spacing_tenths"] === 60,
+    "an unsafe local integer falls back before upload",
+  );
 
   // A document written by an older build is missing the keys that build did not have. Refusing to
   // sync at all because of one absent field would help nobody.
@@ -8910,6 +9052,50 @@ group("uploading keeps what other devices wrote", () => {
       error instanceof AccountPreferenceError && error.message === "account_invalid";
   }
   check(refusedLegacyLimit, "the same photo is refused by an older negotiated 64 KiB limit");
+});
+
+group("account preference envelopes reject malformed numeric metadata", () => {
+  const fields = { "input.learning": { type: "boolean" } };
+  check(
+    preferenceSchemaFromDocument({
+      fields,
+      maximum_bytes: 64.5,
+      update_mode: "replace",
+      revision_required: true,
+    }) === null,
+    "a fractional schema byte limit is unavailable",
+  );
+  check(
+    preferenceSchemaFromDocument({
+      fields,
+      maximum_bytes: 64 * 1024,
+      update_mode: "replace",
+      revision_required: false,
+    }) === null,
+    "a schema that disables revision checks is unavailable",
+  );
+  check(
+    accountPreferencesFromDocument({ revision: 2.5, settings: {} }) === null,
+    "a fractional cloud revision is unavailable",
+  );
+  check(
+    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) === null,
+    "an unsafe cloud revision is unavailable",
+  );
+  for (const malformed of [null, [], {}]) {
+    check(
+      accountPreferencesFromDocument({
+        revision: 1,
+        settings: { "input.learning": malformed as never },
+      } as never) === null,
+      `a non-scalar cloud value (${malformed === null ? "null" : Array.isArray(malformed) ? "array" : "object"}) is unavailable`,
+    );
+  }
+  check(
+    localPreferenceRevision({ revision: 3.25 }) === null,
+    "a fractional local revision is unavailable",
+  );
+  check(localPreferenceRevision({ revision: 3 }) === 3, "a safe local revision is preserved");
 });
 
 group("applying writes only what the schema declares", () => {
@@ -9478,6 +9664,7 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
   };
   const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] =
     [];
+  let catalogRevision = 12;
   const transport: AccountTransport = {
     request: async (method, path, token, body) => {
       calls.push({ method, path, token, body });
@@ -9493,9 +9680,14 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
           }),
         };
       if (path.includes("/dictionaries/quick/catalog"))
-        return { status: 200, body: '{"revision":12}' };
-      if (path.endsWith("/apply"))
-        return { status: 200, body: '{"revision":14,"imported":2,"resource_revision":3}' };
+        return { status: 200, body: JSON.stringify({ revision: catalogRevision }) };
+      if (path.endsWith("/apply")) {
+        const revision = Number(body?.dictionary_revision ?? 0);
+        return {
+          status: 200,
+          body: JSON.stringify({ revision: revision + 2, imported: 2, resource_revision: 3 }),
+        };
+      }
       if (path === "/v1/community/resources")
         return {
           status: 200,
@@ -9558,6 +9750,17 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
           "and it carries the revision the catalog just reported",
         );
         check(applied?.body?.resource_revision === 3, "together with the resource revision");
+        catalogRevision = Number.MAX_SAFE_INTEGER + 1;
+        return resources({ resource_operation: "apply", id, resource_revision: 3 });
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_unavailable",
+          "an unsafe dictionary revision is unavailable",
+        );
+        check(
+          calls.filter((call) => call.path.endsWith("/apply")).length === 1,
+          "an unsafe dictionary revision is rejected before the apply request",
+        );
       });
 
       // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared
@@ -11079,6 +11282,69 @@ group("a malformed candidate size cannot produce an unusable number", () => {
   check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
 });
 
+group("malformed Engine view integers are refused", () => {
+  const valid: EngineViewNumericFields = {
+    editing_text: "nihao",
+    caret_position: 2,
+    page: 0,
+    page_count: 3,
+    generation: 7,
+    scheme: SchemeTraits.QUANPIN,
+  };
+  check(EngineViewValuePolicy.isValid(valid), "a complete Engine view is accepted");
+  for (const field of ["caret_position", "page", "page_count", "generation", "scheme"] as const) {
+    for (const invalid of [0.5, true, "1", null, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const malformed = { ...valid, [field]: invalid } as EngineViewNumericFields;
+      check(!EngineViewValuePolicy.isValid(malformed), `${field} rejects ${String(invalid)}`);
+    }
+  }
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, caret_position: valid.editing_text.length + 1 }),
+    "the caret cannot exceed the editing text",
+  );
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, scheme: SchemeTraits.NAMES.length }),
+    "unknown scheme numbers are refused",
+  );
+  check(
+    EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }),
+    "an empty candidate list has zero pages",
+  );
+});
+
+group("Engine view bounds preserve byte offsets and exact identities", () => {
+  const valid: EngineViewNumericFields = {
+    editing_text: "việt", caret_position: 6, page: 2, page_count: 3,
+    generation: Number.MAX_SAFE_INTEGER, scheme: SchemeTraits.VIETNAMESE,
+  };
+  check(EngineViewValuePolicy.isValid(valid), "a UTF-8 caret and largest exact generation survive");
+  for (const field of ["page", "page_count", "generation"] as const) {
+    check(
+      !EngineViewValuePolicy.isValid({ ...valid, [field]: Number.MAX_SAFE_INTEGER + 1 }),
+      `${field} cannot lose precision before reaching native code`,
+    );
+  }
+  check(!EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }), "UTF-8 bounds are enforced");
+  check(!EngineViewValuePolicy.isValid({ ...valid, page: 3 }), "a page must exist in the list");
+  check(!EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }), "no pages means page zero");
+  check(
+    EngineViewValuePolicy.isValid({ ...valid, editing_text: "", caret_position: 0, page: 0, page_count: 0 }),
+    "an idle Engine view is accepted",
+  );
+  for (const malformed of [null, undefined, {}, [], 1, "view"]) {
+    check(!EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields), "missing fields are refused");
+  }
+});
+
+group("candidate snapshots keep generation identities exact", () => {
+  check(EngineViewValuePolicy.isGeneration(0), "generation zero is valid while idle");
+  check(EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER), "the largest exact generation is valid");
+  for (const invalid of [0.5, true, "7", null, -1, Number.NaN,
+    Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
+    check(!EngineViewValuePolicy.isGeneration(invalid), `snapshot generation rejects ${String(invalid)}`);
+  }
+});
+
 group("「候选栏预编辑：不显示」 hides the spelling on the phone line", () => {
   // Windows candidate_window_preedit_style = "empty" is preeditVisible=false. The phone showed the spelling whatever the setting said; Android honours it through the same policy.
   const shown = CandidatePreeditStylePolicy.visible(true, "", "nihao", "none");
@@ -11218,12 +11484,22 @@ group("the settings page is refreshed on a changed document, not on every visit"
     "an unusable observation announces nothing",
   );
   check(!PreferenceRevisionPolicy.changed(4, Number.NaN), "and neither does an unusable reading");
+  check(!PreferenceRevisionPolicy.changed(4, 2.5), "a fractional reading announces nothing");
+  check(
+    !PreferenceRevisionPolicy.changed(4, Number.MAX_SAFE_INTEGER + 1),
+    "an unsafe reading announces nothing",
+  );
 });
 
 group("an unreadable revision does not replace a good one", () => {
   check(PreferenceRevisionPolicy.observe(5, 9) === 9, "a usable revision is remembered");
   check(PreferenceRevisionPolicy.observe(5, Number.NaN) === 5, "NaN leaves the previous in place");
   check(PreferenceRevisionPolicy.observe(5, -2) === 5, "and so does a negative one");
+  check(PreferenceRevisionPolicy.observe(5, 2.5) === 5, "a fractional revision is unusable");
+  check(
+    PreferenceRevisionPolicy.observe(5, Number.MAX_SAFE_INTEGER + 1) === 5,
+    "an unsafe revision is unusable",
+  );
   // -1 is what the bridge starts with, and it must not compare equal to any real revision.
   check(PreferenceRevisionPolicy.changed(-1, 0), "the initial value counts as not yet observed");
 });
@@ -12455,15 +12731,15 @@ group("LocalAsrPolicy", () => {
     "local model text files use bounded manifest and token limits",
   );
   check(
-    LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer"),
+    LocalAsrPolicy.usesLocalModel("local", "/data/models/zipformer", "/data"),
     "an absolute directory under the local provider is a model",
   );
   check(
-    !LocalAsrPolicy.usesLocalModel("system", "/data/models/zipformer"),
+    !LocalAsrPolicy.usesLocalModel("system", "/data/models/zipformer", "/data"),
     "another provider never loads a local model",
   );
-  check(!LocalAsrPolicy.usesLocalModel("local", ""), "no picked model is not a model");
-  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer"), "a relative path is refused");
+  check(!LocalAsrPolicy.usesLocalModel("local", "", "/data"), "no picked model is not a model");
+  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"), "a relative path is refused");
   check(
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
@@ -12471,6 +12747,33 @@ group("LocalAsrPolicy", () => {
   check(
     LocalAsrPolicy.modelDirectory("/data/files/../outside") === "",
     "model paths cannot escape through parent components",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot(
+      "/data/files/voice-models/zipformer",
+      "/data/files/voice-models",
+    ) === "/data/files/voice-models/zipformer",
+    "a model below the managed voice-model root is accepted",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot("/data/other/zipformer", "/data/files/voice-models") === "",
+    "a model outside the managed voice-model root is refused",
+  );
+  check(
+    LocalAsrPolicy.modelUnderRoot("/data/files/voice-models", "/data/files/voice-models") === "",
+    "the managed root itself is not a model directory",
+  );
+  check(
+    LocalAsrPolicy.usesLocalModel(
+      "local", "/data/files/voice-models/zipformer", "/data/files/voice-models",
+    ),
+    "local recognition accepts a model only with its managed root",
+  );
+  check(
+    !LocalAsrPolicy.usesLocalModel(
+      "local", "/data/other/zipformer", "/data/files/voice-models",
+    ),
+    "local recognition refuses a model outside its managed root",
   );
   check(
     LocalAsrPolicy.modelDirectory("/data/files/./model") === "",

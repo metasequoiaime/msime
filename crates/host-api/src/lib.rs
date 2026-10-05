@@ -1117,7 +1117,7 @@ fn reject_symlinked_state_root(path: &Path) -> Result<(), std::io::Error> {
     })
 }
 
-/// 当前平台发布包不内置、改为按需下载的资源文件：macOS 是日文词典与它的 Mozc 许可说明，其余平台照旧全部内置。
+/// 当前平台发布包不内置、改为按需下载的资源文件：macOS 是日文词典与它的两份 Mozc 许可文本，其余平台照旧全部内置。
 pub(crate) const ON_DEMAND_ARTIFACTS: &[&str] = if cfg!(target_os = "macos") {
     &msime_client_core::resources::MACOS_ON_DEMAND_ARTIFACTS
 } else {

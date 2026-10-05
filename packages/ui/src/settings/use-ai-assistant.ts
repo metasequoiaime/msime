@@ -30,7 +30,7 @@ export function useAiAssistant({
   const modelsActionBusy = useRef(false);
   const modelsActionOwner = useAsyncGeneration();
   const testActionBusy = useRef(false);
-  const testActionOwner = useRef(0);
+  const testActionOwner = useAsyncGeneration();
   const origin = aiCredentialOrigin(ai.endpoint);
   const token = origin ? (ai.tokens?.[origin] ?? "") : "";
 

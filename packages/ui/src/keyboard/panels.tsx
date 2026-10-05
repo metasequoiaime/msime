@@ -30,6 +30,7 @@ import { StatusMessage } from "../core/status-message";
 import { VoiceLanguageOptions } from "../voice/voice-language-options";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { useMountedRef } from "../settings/use-mounted-ref";
+import { useLatestRef } from "../core/use-latest-ref";
 import {
   isImeCommitKey,
   keyboardKeyWeight,
@@ -881,14 +882,14 @@ export function HandwritingPanel({
   const [candidates, setCandidates] = useState<string[]>([]);
   const [notice, setNotice] = useState("请在左侧书写，松开鼠标后自动识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
-  const recognitionRevision = useRef(0);
+  const recognitionRevision = useAsyncGeneration();
   const [recognizing, setRecognizing] = useState(false);
   const recognitionQueue = useRef<{
     active: boolean;
     running: boolean;
     pending: { revision: number; strokes: InkStroke[] } | null;
   }>({ active: true, running: false, pending: null });
-  const submissionRevision = useRef(0);
+  const submissionRevision = useAsyncGeneration();
   const closingRef = useRef(false);
   const [closing, setClosing] = useState(false);
   const submittingRef = useRef(false);
@@ -1426,7 +1427,7 @@ export function VoicePanel({
   const [text, setText] = useState("");
   const exceedsSubmitLimit =
     client.maxSubmitBytes !== undefined && utf8ByteLength(text) > client.maxSubmitBytes;
-  const textRevision = useRef(0);
+  const textRevision = useAsyncGeneration();
   function updateText(value: string) {
     textRevision.current++;
     setText(value);
@@ -1434,12 +1435,12 @@ export function VoicePanel({
   const [submitting, setSubmitting] = useState(false);
   const [copying, setCopying] = useState(false);
   const submittingRef = useRef(false);
-  const submissionRevision = useRef(0);
+  const submissionRevision = useAsyncGeneration();
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [stopping, setStopping] = useState(false);
   const stoppingRef = useRef(false);
-  const recognitionRevision = useRef(0);
+  const recognitionRevision = useAsyncGeneration();
   const [notice, setNotice] = useState("点击开始后由宿主录音并进行语音识别");
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const voiceGeneration = useAsyncGeneration(client);
@@ -1809,8 +1810,8 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     run,
     invalidate,
   } = usePanelAction(setNotice);
-  const draftRevision = useRef(0);
-  const searchRef = useRef("");
+  const draftRevision = useAsyncGeneration();
+  const searchRef = useLatestRef(search);
   const cloudGeneration = useAsyncGeneration(client);
 
   async function load(revision: number, nextSearch: string) {
@@ -1972,7 +1973,6 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
             aria-label="搜索云端历史"
             value={search}
             onChange={(event) => {
-              searchRef.current = event.target.value;
               setSearch(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -2066,7 +2066,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   } | null>(null);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
   const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
-  const searchRef = useRef("");
+  const searchRef = useLatestRef(search);
 
   async function load(
     revision: number,
@@ -2232,7 +2232,6 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           inputClassName={cloud.dictionaryInput}
           onKindChange={changeKind}
           onQueryChange={(value) => {
-            searchRef.current = value;
             setSearch(value);
           }}
           onQuery={() => void refresh(0)}
@@ -2329,15 +2328,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     expectedRevision: number;
   } | null>(null);
   const mounted = useMountedRef();
-  const lifecycleRevision = useRef(0);
+  const lifecycleRevision = useAsyncGeneration(client);
 
   useEffect(() => {
-    const current = ++lifecycleRevision.current;
     invalidate();
     setSnapshotBusy(false);
     setRestorePreview(null);
     return () => {
-      if (current === lifecycleRevision.current) lifecycleRevision.current++;
       invalidate();
       if (client.snapshotNative) void client.request({ operation: "snapshot_restore_cancel" });
     };
@@ -2744,7 +2741,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     invalidate,
     isCurrent,
   } = usePanelAction(setNotice);
-  const lifecycleRevision = useRef(0);
+  const lifecycleRevision = useAsyncGeneration(client);
 
   async function refreshStatus() {
     if (busyRef.current) return;
@@ -2822,7 +2819,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   }
 
   useEffect(() => {
-    const lifecycle = ++lifecycleRevision.current;
     invalidate();
     setPreview(null);
     setPreviewToken(null);
@@ -2831,7 +2827,6 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
       void refreshStatus();
     }, 2000);
     return () => {
-      if (lifecycle === lifecycleRevision.current) lifecycleRevision.current++;
       invalidate();
       window.clearInterval(timer);
     };
@@ -3248,7 +3243,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("仅在点击查询时发送编码；修改只保存到当前账号");
   const { busy, busyRef, run, invalidate, isCurrent } = usePanelAction(setNotice);
-  const textRef = useRef("");
+  const textRef = useLatestRef(text);
 
   useEffect(() => {
     invalidate();
@@ -3460,7 +3455,6 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           queryDisabled={!text.trim()}
           onKindChange={changeKind}
           onQueryChange={(value) => {
-            textRef.current = value;
             setText(value);
           }}
           onQuery={() => void queryCandidates()}
@@ -3767,14 +3761,18 @@ export function EmojiPanel({
     }
   });
   const [clipboard, setClipboard] = useState<string[]>([]);
-  const [clipboardBusy, setClipboardBusy] = useState(false);
+  const {
+    busy: clipboardBusy,
+    busyRef: clipboardMutation,
+    revisionRef: operationRevision,
+    run: runOperation,
+    invalidate,
+  } = usePanelAction(setNotice);
   const [clipboardLoadFailed, setClipboardLoadFailed] = useState(false);
   const [clipboardRefresh, setClipboardRefresh] = useState(0);
   const [activationMode, setActivationMode] = useState<"copy" | "input">("copy");
-  const operationRevision = useRef(0);
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
-  const clipboardMutation = useRef(false);
-  const clipboardGeneration = useRef(0);
+  const clipboardGeneration = useAsyncGeneration();
   const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
     null,
   );
@@ -3808,31 +3806,13 @@ export function EmojiPanel({
   useEffect(() => {
     clipboardMutation.current = false;
     deletedRowFocus.current = null;
-    setClipboardBusy(false);
     setNotice("");
     return () => {
-      operationRevision.current++;
+      invalidate();
       if (noticeTimer.current !== null) clearTimeout(noticeTimer.current);
       noticeTimer.current = null;
     };
-  }, [client]);
-
-  async function runOperation(action: (revision: number) => Promise<void>, failure: string) {
-    if (clipboardMutation.current) return;
-    const revision = ++operationRevision.current;
-    clipboardMutation.current = true;
-    setClipboardBusy(true);
-    try {
-      await action(revision);
-    } catch {
-      if (revision === operationRevision.current) setNotice(failure);
-    } finally {
-      if (revision === operationRevision.current) {
-        clipboardMutation.current = false;
-        setClipboardBusy(false);
-      }
-    }
-  }
+  }, [client, invalidate]);
 
   useEffect(() => {
     try {

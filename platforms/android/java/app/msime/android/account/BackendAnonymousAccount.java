@@ -70,21 +70,22 @@ final class BackendAnonymousAccount {
                 new JSONObject().put("provider", "anonymous")
                     .put("target", identity.getString("subject"))
                     .put("purpose", "login"), null);
-            String challengeID = challenge.optString("challenge_id", "");
+            String challengeID = BackendAccount.optionalStringField(challenge.opt("challenge_id"), "");
             if (challengeID.isEmpty() || TextPolicy.hasControl(challengeID)) {
                 throw new IllegalStateException("anonymous account unavailable");
             }
             JSONObject tokens = request("POST", "/v1/auth/login",
                 new JSONObject().put("challenge_id", challengeID)
                     .put("credential", identity.getString("secret")), null);
-            String token = AccountTokenPolicy.validToken(tokens.optString("access_token", ""))
-                ? tokens.optString("access_token", "") : null;
-            String refresh = AccountTokenPolicy.validToken(tokens.optString("refresh_token", ""))
-                ? tokens.optString("refresh_token", "") : null;
-            if (token == null || refresh == null || !"Bearer".equals(tokens.optString("token_type", "")))
+            String tokenValue = BackendAccount.optionalStringField(tokens.opt("access_token"), "");
+            String refreshValue = BackendAccount.optionalStringField(tokens.opt("refresh_token"), "");
+            String tokenType = BackendAccount.optionalStringField(tokens.opt("token_type"), "");
+            String token = AccountTokenPolicy.validToken(tokenValue) ? tokenValue : null;
+            String refresh = AccountTokenPolicy.validToken(refreshValue) ? refreshValue : null;
+            if (token == null || refresh == null || !"Bearer".equals(tokenType))
                 throw new IllegalStateException("anonymous account unavailable");
             long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
-            if (!AccountTokenPolicy.validSession(tokens.optString("token_type", ""), token,
+            if (!AccountTokenPolicy.validSession(tokenType, token,
                     refresh, expires)) throw new IllegalStateException("anonymous account unavailable");
             JSONObject savedSession = new JSONObject().put("tokens", tokens)
                 .put("expires_at_unix_ms", System.currentTimeMillis() + expires * 1000L);
@@ -115,7 +116,7 @@ final class BackendAnonymousAccount {
         try {
             String saved = credentials.load();
             if (saved == null) return "";
-            String subject = new JSONObject(saved).optString("subject", "");
+            String subject = BackendAccount.optionalStringField(new JSONObject(saved).opt("subject"), "");
             return subject.matches("msime-[a-z0-9]{16}") ? subject : "";
         } catch (Exception error) {
             return "";
@@ -143,8 +144,8 @@ final class BackendAnonymousAccount {
         String saved = credentials.load();
         if (saved != null) {
             JSONObject identity = new JSONObject(saved);
-            if (identity.optString("subject", "").matches("msime-[a-z0-9]{16}")
-                    && identity.optString("secret", "").matches("[a-z0-9]{48}")) return identity;
+            if (BackendAccount.optionalStringField(identity.opt("subject"), "").matches("msime-[a-z0-9]{16}")
+                    && BackendAccount.optionalStringField(identity.opt("secret"), "").matches("[a-z0-9]{48}")) return identity;
         }
         JSONObject identity = new JSONObject().put("subject", "msime-" + random(16))
             .put("secret", random(48));
@@ -164,7 +165,8 @@ final class BackendAnonymousAccount {
             JSONObject session = new JSONObject(encoded);
             long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
             if (!AccountTokenPolicy.validExpiry(expiry, System.currentTimeMillis())) return null;
-            String token = session.getJSONObject("tokens").optString("access_token", "");
+            String token = BackendAccount.optionalStringField(
+                session.getJSONObject("tokens").opt("access_token"), "");
             return AccountTokenPolicy.validToken(token) ? token : null;
         } catch (Exception ignored) { return null; }
     }

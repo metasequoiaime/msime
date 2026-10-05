@@ -1,7 +1,9 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import util from '@ohos.util';
-import { AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
+import {
+  AccountSessionStore, AccountTransport, AccountTransportResponse, parseResponseContentLength
+} from './AccountCloudBridge';
 import { installNoRedirectGuard, noRedirectOptions } from '../network/HarmonyHttpSecurity';
 
 /**
@@ -146,8 +148,7 @@ export function responseHeader(headers: Object, name: string): string | undefine
 export function responseContentLength(headers: Object): number | undefined {
   const raw: string | undefined = responseHeader(headers, 'content-length');
   if (raw === undefined) return undefined;
-  const parsed: number = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+  return parseResponseContentLength(raw);
 }
 
 export function responseContentType(headers: Object): string | undefined {

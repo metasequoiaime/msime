@@ -1,8 +1,8 @@
 import { SettingsGroupNote } from "./settings-group-note";
 import { SettingsManagerNote } from "./settings-manager-note";
 import { SettingsManagerActions } from "./settings-manager-actions";
-import { useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
+import { useRef, useState } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   parsePersonalDictionaryImport,
   personalDictionaryExample,
@@ -14,8 +14,6 @@ import { rowTitle } from "../core/platform-controls-style";
 import { personalDictionaryKindTitle } from "../dictionary/dictionary-messages";
 import * as settings from "./settings-style";
 import { SettingsManagerBlock } from "./settings-manager-block";
-import { useMountedRef } from "./use-mounted-ref";
-import { useAsyncGeneration } from "./use-async-generation";
 import { ActionButton } from "./action-button";
 import { ErrorAlert } from "../core/error-alert";
 import { SettingsNotice } from "./settings-notice";
@@ -44,41 +42,9 @@ export function PersonalDictionaryImportCard({
   const input = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [entries, setEntries] = useState<PersonalDictionaryImportEntry[] | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const mounted = useMountedRef();
-  const actionRunning = useRef(false);
-  const dictionaryGeneration = useAsyncGeneration(dictionary);
-
-  useEffect(() => {
-    actionRunning.current = false;
-    setBusy(false);
-  }, [dictionary]);
-
-  async function runDictionaryAction(
-    operation: (isCurrent: () => boolean) => Promise<void>,
-    formatError: (error: unknown) => string,
-  ) {
-    if (actionRunning.current || !mounted.current) return;
-    actionRunning.current = true;
-    const generation = dictionaryGeneration.current;
-    try {
-      await runAsyncAction(
-        {
-          busy: false,
-          isCurrent: () => mounted.current && generation === dictionaryGeneration.current,
-          setBusy,
-          setError,
-          setNotice,
-        },
-        operation,
-        { formatError },
-      );
-    } finally {
-      actionRunning.current = false;
-    }
-  }
+  const { busy, run: runDictionaryAction } = useAsyncActionRunner(setError, setNotice, dictionary);
 
   const chooseFile = async (file: File | undefined) => {
     if (!file || busy) return;
@@ -91,7 +57,10 @@ export function PersonalDictionaryImportCard({
         if (!isCurrent()) return;
         setEntries(parsed);
       },
-      (cause) => (cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。"),
+      {
+        formatError: (cause) =>
+          cause instanceof Error ? cause.message : "无法读取所选文件，请重新选择。",
+      },
     );
   };
 
@@ -109,7 +78,9 @@ export function PersonalDictionaryImportCard({
         setEntries(null);
         setFileName("");
       },
-      (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+      {
+        formatError: (cause) => (cause instanceof Error ? cause.message : "导入失败，请稍后重试。"),
+      },
     );
   };
 

@@ -6925,6 +6925,7 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
     for absent in [
         "msime-japanese.dat",
         "msime-mozc_dictionary_oss_README.txt",
+        "msime-mozc_LICENSE.txt",
         "sentence-model.safetensors",
     ] {
         assert!(!resources.join(absent).exists(), "{absent}");
@@ -6943,7 +6944,7 @@ fn the_wubi_lock_accepts_resources_without_japanese_and_gates_temporary_japanese
             full_names.artifacts.push(artifact.clone());
         }
     }
-    assert_eq!(full_names.artifacts.len(), 10);
+    assert_eq!(full_names.artifacts.len(), 12);
     assert!(ResourceStore::new(&resources)
         .verify(&resources, &full_names)
         .is_err());
@@ -9881,7 +9882,7 @@ fn community_moderation_abi_lists_reasons_builds_reports_and_words_refusals() {
     assert!(generic["message"].is_null());
 }
 
-/// 合成的桌面词库锁：`msime-pinyin.db` 与 `msime-english.db` 是可以复制进代次的 SQLite 小库，另有日文词典与 Mozc 说明这一对 macOS 按需下载的文件。文件写在 `resources` 里，清单按实际内容计算长度与 SHA-256。
+/// 合成的桌面词库锁：`msime-pinyin.db` 与 `msime-english.db` 是可以复制进代次的 SQLite 小库，另有日文词典与两份 Mozc 许可文本这一组 macOS 按需下载的文件。文件写在 `resources` 里，清单按实际内容计算长度与 SHA-256。
 pub(crate) fn synthetic_desktop_lock(resources: &Path) -> ResourceSet {
     std::fs::create_dir_all(resources).unwrap();
     for name in ["msime-pinyin.db", "msime-english.db"] {
@@ -9896,11 +9897,13 @@ pub(crate) fn synthetic_desktop_lock(resources: &Path) -> ResourceSet {
         b"readme",
     )
     .unwrap();
+    std::fs::write(resources.join("msime-mozc_LICENSE.txt"), b"license").unwrap();
     let artifacts = [
         "msime-pinyin.db",
         "msime-english.db",
         "msime-japanese.dat",
         "msime-mozc_dictionary_oss_README.txt",
+        "msime-mozc_LICENSE.txt",
     ]
     .into_iter()
     .map(|name| {
@@ -10054,7 +10057,11 @@ fn a_downloaded_japanese_pack_keeps_temporary_japanese_available() {
     let pack = publish_resource_pack(
         &state,
         ResourcePack::Japanese,
-        &["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"],
+        &[
+            "msime-japanese.dat",
+            "msime-mozc_dictionary_oss_README.txt",
+            "msime-mozc_LICENSE.txt",
+        ],
     );
     let with = options();
     assert_eq!(
@@ -10089,7 +10096,17 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     )
     .unwrap();
 
-    // 只缺一半：两种规则都拒绝。
+    // 只缺 Mozc 许可：两种规则都拒绝。
+    std::fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
+    assert!(verify_resources_once(
+        &resources,
+        &specification,
+        &fresh_state("no-license"),
+        &MACOS_ON_DEMAND_ARTIFACTS,
+    )
+    .is_err());
+
+    // 只剩词典：两种规则都拒绝。
     std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
     assert!(verify_resources_once(
         &resources,
@@ -10099,7 +10116,7 @@ fn verification_accepts_resources_shipped_without_the_on_demand_pair() {
     )
     .is_err());
 
-    // 整对缺席：macOS 的发货规则通过，完整规则仍然拒绝。
+    // 整组缺席：macOS 的发货规则通过，完整规则仍然拒绝。
     std::fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
     assert!(verify_resources_once(&resources, &specification, &fresh_state("slim"), &[]).is_err());
     verify_resources_once(
@@ -10139,6 +10156,7 @@ fn the_platform_shipping_rule_decides_whether_a_slim_bundle_prepares() {
     let specification = synthetic_desktop_lock(&resources);
     std::fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
     std::fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
+    std::fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
     let prepared = prepare_shipped_host_configuration(
         &resources,
         &root.path().join("state"),

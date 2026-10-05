@@ -798,7 +798,7 @@ mod tests {
             .collect()
     }
 
-    /// full 的资源锁逐字节就是原文件，代次与引入版本之前相同：用户词库目录 `user/dictionaries/<代次>` 不变，升级不会重新准备。期望值是按 develop 当前这份锁（msime-dictionary 的 `dict-v2.0.6`）算出的代次；换词库版本时它理应变化，届时连同锁文件一起更新。
+    /// full 的资源锁逐字节就是原文件，代次与引入版本之前相同：用户词库目录 `user/dictionaries/<代次>` 不变，升级不会重新准备。期望值是按当前这份锁（msime-dictionary 的 `dict-v2.0.7`）算出的代次；换词库版本时它理应变化，届时连同锁文件一起更新。
     #[test]
     fn full_keeps_the_desktop_lock_and_its_generation() {
         let full = Edition::full();
@@ -809,10 +809,10 @@ mod tests {
             ))
         );
         let set = full.resource_set().unwrap();
-        assert_eq!(set.artifacts.len(), 10);
+        assert_eq!(set.artifacts.len(), 12);
         assert_eq!(
             set.generation().unwrap(),
-            "e583738d166b43ee38da9bcb786ff4ad056f3e71496448a60e13d7732a6f262f"
+            "b7c435956c0ad609f0350b4d26c8c18943df08c2b91621d8194904f5b9be8238"
         );
     }
 
@@ -858,6 +858,7 @@ mod tests {
                 "msime-english.db",
                 "msime-pinyin.db",
                 "msime-others.db",
+                "msime-scowl_Copyright.txt",
                 "msime-trigram.bin",
                 "msime-wubi.db",
             ])
@@ -872,16 +873,21 @@ mod tests {
         );
     }
 
-    /// 日文、越南文和藏文版只带核心资源（英文词库、符号表和清单），日文版另带日文词典；三者都不带 msime-pinyin.db、msime-wubi.db、n-gram 表和整句模型。
+    /// 日文、越南文和藏文版只带核心资源（英文词库及其 SCOWL 许可声明、符号表和清单），日文版另带日文词典和两份 Mozc 许可文本；三者都不带 msime-pinyin.db、msime-wubi.db、n-gram 表和整句模型。
     #[test]
     fn the_language_edition_locks_carry_no_chinese_dictionary() {
         let core = BTreeSet::from([
             "msime-dictionary-manifest.json",
             "msime-english.db",
             "msime-others.db",
+            "msime-scowl_Copyright.txt",
         ]);
         let mut japanese = core.clone();
-        japanese.extend(["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]);
+        japanese.extend([
+            "msime-japanese.dat",
+            "msime-mozc_dictionary_oss_README.txt",
+            "msime-mozc_LICENSE.txt",
+        ]);
         let full_generation = Edition::full()
             .resource_set()
             .unwrap()

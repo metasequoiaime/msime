@@ -4,6 +4,7 @@ import android.content.Context;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -79,8 +80,12 @@ public final class BackendTranslationClient implements CandidateTranslationStore
     /** A successful response status is an integer JSON number, never a coerced fraction or boolean. */
     static boolean successStatusCode(Object value) {
         if (!(value instanceof Number) || value instanceof Boolean) return false;
-        double number = ((Number) value).doubleValue();
-        return Double.isFinite(number) && number == 200.0;
+        if (value instanceof Double || value instanceof Float) return false;
+        try {
+            return new BigDecimal(value.toString()).intValueExact() == 200;
+        } catch (NumberFormatException | ArithmeticException exception) {
+            return false;
+        }
     }
 
     /** Validate already-decoded values without org.json's coercing accessors. */
