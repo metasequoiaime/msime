@@ -32,12 +32,14 @@ let
     lock = ../../../resources/handwriting-model.lock.json;
     meta.license = pkgs.lib.licenses.lgpl21Only;
   };
+  msime-voice-runtime = pkgs.callPackage ./voice-runtime.nix { };
   # 需要随包词库时：msime-fcitx5.override { bundledResources = msime-resources; }
   msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (
     common
     // {
       inherit msime-host-api;
       handwritingModel = msime-handwriting-model;
+      voiceRuntime = msime-voice-runtime;
     }
   );
 in
@@ -47,6 +49,7 @@ in
       msime-host-api
       msime-resources
       msime-handwriting-model
+      msime-voice-runtime
       msime-fcitx5
       ;
   };

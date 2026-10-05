@@ -110,7 +110,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务、语音运行库和设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务和设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
 
 ```sh
 nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
