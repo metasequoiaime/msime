@@ -703,8 +703,8 @@ final class ImeLayoutRows {
         Button language = s.keyId(s.keyboardKey("英", "切换到英文输入", s::toggleInputLanguage),
             "SoftLanguage");
         addJapaneseSideKey(modeColumn, language,
-            s.shouldOfferSwitchingToNextInputMethod() ? 1 : 2);
-        if (s.shouldOfferSwitchingToNextInputMethod()) {
+            s.offersGlobeKey() ? 1 : 2);
+        if (s.offersGlobeKey()) {
             addJapaneseSideKey(modeColumn, s.keyId(s.keyboardKey("切换", "切换到下一个输入法",
                 s::switchToNextInputMethodAfterCommit), "SoftGlobe"), 1);
         }

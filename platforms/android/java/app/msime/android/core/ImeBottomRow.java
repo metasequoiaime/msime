@@ -271,7 +271,7 @@ final class ImeBottomRow {
         s.imeStyler.refreshSeasonIfNeeded();
         s.imeLetterRows.updateSecondRowIndent();
         int layout = s.displayedTouchLayout(s.view);
-        boolean globe = s.shouldOfferSwitchingToNextInputMethod();
+        boolean globe = s.offersGlobeKey();
         boolean ownBottom = layerOwnsBottomRow();
         boolean chinesePunctuation = s.sendsChinesePunctuation();
         if (periodButton != null) {

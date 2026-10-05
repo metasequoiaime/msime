@@ -3409,6 +3409,13 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    /**
+     * 键盘里要不要放切换输入法的地球键（底栏的 🌐、日语九键侧列的「切换」）。最低支持 Android 9（API 28）：从 9 起，只要能切换到别的输入法，系统导航栏右下角就有切换按钮，键盘里再放一个是重复的，还占掉底栏一个键位。所以只在系统不给按钮的版本上才放，目前支持的版本都不放。
+     */
+    boolean offersGlobeKey() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.P && shouldOfferSwitchingToNextInputMethod();
+    }
+
     boolean hasEngineComposition() {
         return view != null && !view.optString("editing_text", "").isEmpty();
     }
