@@ -192,18 +192,7 @@ cd aur-msime && git add PKGBUILD .SRCINFO msime.install && git commit -m "Update
 copr-cli build <owner>/msime defs/rpm/msime-V-1.src.rpm
 ```
 
-**openSUSE OBS**（首次：`osc meta pkg -e home:<user> msime`，仓库选 `openSUSE_Tumbleweed`、`openSUSE_Leap_16.0`，架构 x86_64 与 aarch64）：
-
-```sh
-osc checkout home:<user>/msime && cd home:<user>/msime
-rm -f msime-*.tar.xz
-cp ../../defs/rpm/msime.spec ../../defs/rpm/msime-rpmlintrc .
-curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V.tar.xz
-curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V-vendor.tar.xz
-osc addremove && osc commit -m "Update to V" && osc results
-```
-
-OBS 也能构建 Debian/Ubuntu：把 `defs/debian/` 的 `.dsc`、`.debian.tar.xz` 和两个 orig tarball（发布页的 `msime-V.tar.xz`、`msime-V-vendor.tar.xz` 分别改名为 `msime_V.orig.tar.xz`、`msime_V.orig-vendor.tar.xz`）放进同一个包，再打开对应的 Debian/xUbuntu 仓库。
+**openSUSE OBS** 是官方的发行版仓库：项目 `home:msime`（<https://build.opensuse.org/project/show/home:msime>），同时构建 RPM 与 Debian 包，目前覆盖 Fedora 43/44（x86_64、aarch64）、openSUSE Tumbleweed、Ubuntu 24.04/26.04 与 Debian testing/unstable（x86_64）。用户经 `curl -fsSL https://msime.app/install.sh | sh` 安装（脚本在 msime-web 仓库的 `public/install.sh`），它按发行版添加 `https://download.opensuse.org/repositories/home:/msime/<仓库>/` 和签名公钥，再用 dnf、zypper 或 apt 安装 `msime`；之后的升级随系统更新到来。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-obs.yml`，把这个版本的打包定义和源码包提交到 OBS（需要仓库 secret `OBS_USER`/`OBS_PASSWORD`，缺少时跳过并告警）；补发或重发某个版本用 `gh workflow run publish-linux-obs.yml -f version=V`。项目配置在 `packaging/obs/`：`repositories.txt` 列出构建哪些仓库（Ubuntu 要显式列出 `universe-update`、`update`、`universe`、`standard` 四个源，rustc 1.91 只在 `universe-update` 里），`prjconf` 固定 Ubuntu 上 cargo/rustc 的候选包与 Debian 上 libselinux 的提供者，`_constraints` 要求 8 GB 内存与 40 GB 磁盘，`publish.sh VERSION DEFS RELEASE` 据此写入项目 meta 并提交，本地运行时用 `osc` 当前登录的账号。Debian 12/13、Ubuntu 22.04 和 openSUSE Leap 不在其中：前两者的 rustc 低于 1.90，Ubuntu 22.04 的 Fcitx5 低于 5.0.20，Leap 不在 OBS 的发行版列表里（见 `repositories.txt` 的注释）。
 
 **Launchpad PPA**：Launchpad 只收签名的源码上传，每个 Ubuntu 代号要单独的 `debian/changelog`，所以在本地按 `debian/README.source` 的「上传到 PPA」重新生成并签名，例如 Ubuntu 26.04：`render-sources.py --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04`，`debuild -S -sa -d -k<密钥>`（`-d` 跳过 Build-Depends 核对，打源码包的机器只需 `devscripts`、`debhelper` 与 `dput`），`dput ppa:<owner>/msime ../msime_V-1~ppa1~ubuntu26.04_source.changes`。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。Ubuntu 24.04 的默认 rustc 太旧，见 `debian/README.source`；Debian 13（rustc 1.85）不能作为目标。
 
