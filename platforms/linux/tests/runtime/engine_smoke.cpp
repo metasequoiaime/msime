@@ -53,6 +53,9 @@ struct Observation {
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
   guint second_candidate_background = 0;
+  // The second row is not highlighted, so it carries the picked text and number colours themselves.
+  guint second_candidate_color = 0;
+  guint second_candidate_number_color = 0;
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
@@ -276,10 +279,17 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
         seen.first_candidate_color = ibus_attribute_get_value(attribute);
       if (auto attribute = ibus_attr_list_get(attributes, 1))
         seen.first_candidate_background = ibus_attribute_get_value(attribute);
-      if (ibus_lookup_table_get_number_of_candidates(table) > 1)
-        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1)))
+      if (ibus_lookup_table_get_number_of_candidates(table) > 1) {
+        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1))) {
+          if (auto attribute = ibus_attr_list_get(second, 0))
+            seen.second_candidate_color = ibus_attribute_get_value(attribute);
           if (auto attribute = ibus_attr_list_get(second, 1))
             seen.second_candidate_background = ibus_attribute_get_value(attribute);
+        }
+        if (auto label_attributes = ibus_text_get_attributes(ibus_lookup_table_get_label(table, 1)))
+          if (auto attribute = ibus_attr_list_get(label_attributes, 0))
+            seen.second_candidate_number_color = ibus_attribute_get_value(attribute);
+      }
       auto label = ibus_lookup_table_get_label(table, 0);
       if (auto label_attributes = ibus_text_get_attributes(label))
         if (auto attribute = ibus_attr_list_get(label_attributes, 0))
@@ -377,7 +387,7 @@ int main(int argc, char **argv) {
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["global_theme"] = "custom";
     options["preferences"]["custom_theme"]["candidate_colors"] = {
-        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#fedcba"}};
+        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#204060"}};
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
     options["preferences"]["smart_punctuation_space_convert"] = true;
@@ -2650,11 +2660,14 @@ int main(int argc, char **argv) {
             "Candidate signal mismatch");
     require(!seen.labels.empty() && seen.labels.front().rfind("1", 0) == 0,
             "Candidate numeric label missing");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.second_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    require(seen.first_candidate_background == 0xfedcba,
+    // A picked selection colour carries black or white text by its luminance (client-core skin/theme.rs), so the dark fixture fill gives white.
+    require(seen.first_candidate_color == 0xffffff,
+            "Highlighted candidate text is not readable on the picked selection colour");
+    require(seen.first_candidate_background == 0x204060,
             "Selected candidate color attribute missing");
-    require(seen.first_candidate_number_color == 0xabcdef,
+    require(seen.second_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
     // The host publishes the candidate menu on a 400ms timer after the page changes, so wait for it rather than reading it in the turn that drew the page.
     const auto candidate_actions_deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
@@ -2671,7 +2684,7 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定1") != std::string::npos,
             "Candidate position action did not fix the highlighted candidate");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
     invoke("PropertyActivate",
            g_variant_new("(su)", seen.first_candidate_clear_name.c_str(),
@@ -3386,7 +3399,7 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 3,
             "Deferred preferences did not apply after reset");
-    require(seen.first_candidate_color == 0xabcdef,
+    require(seen.second_candidate_color == 0xabcdef,
             "Reloaded candidate text color did not apply");
     std::ofstream(root / "preferences.json") << "invalid";
     settle();
