@@ -20,8 +20,8 @@ pub mod mcp_clients;
 pub mod system_fonts;
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
-    TouchKeyboardLayout, VietnameseInputMethod, VietnamesePreferences, VietnameseToneStyle,
-    WubiProfile,
+    TouchKeyboardLayout, TouchKeyboardScheme, VietnameseInputMethod, VietnamesePreferences,
+    VietnameseToneStyle, WubiProfile,
 };
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
@@ -532,17 +532,15 @@ impl HostSession {
         }
         let layout_changed =
             preferences.touch_keyboard_layout != self.applied.touch_keyboard_layout;
-        let nine_key_scheme = SchemeType::from_u8(options.scheme).is_some_and(SchemeType::nine_key);
+        let scheme = SchemeType::from_u8(options.scheme);
+        let nine_key_scheme = scheme.is_some_and(SchemeType::nine_key);
         let next_nine_key_override = if nine_key_scheme && !layout_changed {
             self.nine_key_override
         } else {
             None
         };
         let nine_key_mode = nine_key_scheme
-            && next_nine_key_override.unwrap_or(matches!(
-                preferences.touch_keyboard_layout,
-                TouchKeyboardLayout::NineKey
-            ));
+            && next_nine_key_override.unwrap_or(layout_starts_nine_key(scheme, &preferences));
         if nine_key_mode {
             engine
                 .set_nine_key_enabled(true)
@@ -2034,3 +2032,29 @@ const SELECTION_BATCH: u64 = 32;
 
 #[cfg(test)]
 mod tests;
+
+/// Whether a session running `scheme` starts in the engine's nine-key mode from the preferences alone (a host's `msime_client_set_nine_key_mode` still overrides it). Quanpin follows `touch_keyboard_layout`. Zhuyin also needs the 注音 9 键 touch scheme, which only the Android keyboard writes: `touch_keyboard_layout` is one field for every scheme, and desktop hosts set it for the Quanpin grid (the Linux 九键 toggle), so a Zhuyin session there has to stay on the Dachen keys rather than inherit the grid.
+pub(crate) fn layout_starts_nine_key(
+    scheme: Option<SchemeType>,
+    preferences: &Preferences,
+) -> bool {
+    if !matches!(
+        preferences.touch_keyboard_layout,
+        TouchKeyboardLayout::NineKey
+    ) {
+        return false;
+    }
+    match scheme {
+        Some(SchemeType::Quanpin) => true,
+        Some(SchemeType::Zhuyin) => {
+            let schemes = &preferences.touch_keyboard_schemes;
+            // Android may drop `selected` when the user edits the enabled list, so an enabled 注音 9 键 with nothing selected still counts.
+            schemes.selected == Some(TouchKeyboardScheme::ZhuyinNineKey)
+                || (schemes.selected.is_none()
+                    && schemes
+                        .enabled
+                        .contains(&TouchKeyboardScheme::ZhuyinNineKey))
+        }
+        _ => false,
+    }
+}

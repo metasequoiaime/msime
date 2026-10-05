@@ -1475,11 +1475,30 @@ fn zhuyin_with_the_nine_key_layout_starts_in_nine_key_mode() {
         )
         .unwrap();
     drop(connection);
-    let preferences = Preferences {
+    // The layout field alone is what a desktop host's Quanpin 九键 toggle leaves behind; Zhuyin there keeps the Dachen keys.
+    let layout_only = Preferences {
         scheme: InputScheme::Zhuyin,
         touch_keyboard_layout: TouchKeyboardLayout::NineKey,
         ..chinese_preferences()
     };
+    let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": layout_only, "language_dictionaries": language_dictionaries }).to_string();
+    let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
+    assert_eq!(created["ok"], true, "{created}");
+    let dachen = created["value"]["session"].as_u64().unwrap();
+    read(msime_client_focus(dachen, true));
+    assert_eq!(read(msime_client_view(dachen))["value"]["nine_key"], false);
+    read(msime_client_destroy(dachen));
+
+    let mut preferences = Preferences {
+        scheme: InputScheme::Zhuyin,
+        touch_keyboard_layout: TouchKeyboardLayout::NineKey,
+        ..chinese_preferences()
+    };
+    preferences
+        .touch_keyboard_schemes
+        .enabled
+        .insert(TouchKeyboardScheme::ZhuyinNineKey);
+    preferences.touch_keyboard_schemes.selected = Some(TouchKeyboardScheme::ZhuyinNineKey);
     let options = json!({ "api_version": 1, "resources": path("resources"), "user_data": path("user"), "cache": path("cache"), "dictionaries": path("dictionaries"), "preferences": preferences, "language_dictionaries": language_dictionaries }).to_string();
     let created = read(unsafe { msime_client_create(options.as_ptr(), options.len()) });
     assert_eq!(created["ok"], true, "{created}");
