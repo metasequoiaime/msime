@@ -30,6 +30,16 @@ public final class SpaceGesturePolicySmoke {
 
         policy.down(4_000, 100);
         check(policy.up(4_500) == Outcome.VOICE, "release past 450 ms without a tick still counts as voice");
+
+        policy.down(0, 0, false);
+        check(!policy.tick(1_000), "with voice off the long press never fires");
+        check(policy.state() == State.PRESSED, "with voice off a long hold stays pressed");
+        check(policy.move(1_100, 20), "with voice off a drag after a pause still moves the cursor");
+        check(policy.state() == State.CURSOR, "with voice off the drag wins");
+        policy.up(1_200);
+
+        policy.down(0, 0, false);
+        check(policy.up(600) == Outcome.SPACE, "with voice off a long hold types a space");
         System.out.println("Android space gesture: 450 ms long press vs horizontal drag, first wins passed");
     }
 

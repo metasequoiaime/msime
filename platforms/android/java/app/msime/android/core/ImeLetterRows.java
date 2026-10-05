@@ -23,6 +23,8 @@ final class ImeLetterRows {
     /** 按键气泡的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。 */
     FrameLayout keyPreviewLayer;
     private KeyboardKeyPreview keyPreview;
+    /** 气泡当前跟随的键；多指交替时只有它的松手才收起气泡。 */
+    private Button keyPreviewOwner;
     /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
     private boolean moreSymbols;
     /** 第二行（a–l）两侧各 5% 的缩进占位；微软双拼的第十个键出现时收起。 */
@@ -90,10 +92,18 @@ final class ImeLetterRows {
             ? params.weight : 1f;
         preview.show(label, keyAt[0] - layerAt[0], keyAt[1] - layerAt[1], key.getWidth(), weight,
             keyPreviewLayer.getWidth());
+        keyPreviewOwner = key;
     }
 
+    /** 无条件收起气泡（整体复位用）。 */
     void hideKeyPreview() {
         if (keyPreview != null) keyPreview.hide();
+        keyPreviewOwner = null;
+    }
+
+    /** 只在气泡仍属于这个键时收起，避免先松开的手指收掉另一根仍按着的键的气泡。 */
+    private void hideKeyPreview(Button key) {
+        if (keyPreviewOwner == key) hideKeyPreview();
     }
 
     /**
@@ -115,12 +125,12 @@ final class ImeLetterRows {
                     if (hint != null && !swiped[0] && touchPreference(AndroidLocalSettings.SWIPE_DOWN_SYMBOLS)
                             && SwipeDownHintPolicy.swiped(downY[0], event.getY() / density)) {
                         swiped[0] = true;
-                        if (keyPreview != null) keyPreview.setLabel(hint);
+                        if (keyPreview != null && keyPreviewOwner == key) keyPreview.setLabel(hint);
                     }
                     return swiped[0];
                 }
                 case MotionEvent.ACTION_UP -> {
-                    hideKeyPreview();
+                    hideKeyPreview(key);
                     if (!swiped[0]) return false;
                     MotionEvent cancel = MotionEvent.obtain(event);
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -133,7 +143,7 @@ final class ImeLetterRows {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    hideKeyPreview();
+                    hideKeyPreview(key);
                     return false;
                 }
                 default -> { return false; }

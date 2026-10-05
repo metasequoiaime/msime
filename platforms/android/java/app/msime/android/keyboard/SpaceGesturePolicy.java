@@ -19,10 +19,17 @@ public final class SpaceGesturePolicy {
     private State state = State.IDLE;
     private long downAt;
     private float downX;
+    private boolean voiceEnabled = true;
 
     public State state() { return state; }
 
     public void down(long nowMs, float xDp) {
+        down(nowMs, xDp, true);
+    }
+
+    /** 按下；{@code voiceEnabled} 为 false 时长按不进入语音，停顿后拖动仍可移光标、松手仍是空格。 */
+    public void down(long nowMs, float xDp, boolean voiceEnabled) {
+        this.voiceEnabled = voiceEnabled;
         state = State.PRESSED;
         downAt = nowMs;
         downX = xDp;
@@ -49,6 +56,7 @@ public final class SpaceGesturePolicy {
      * @return 这一刻是否刚好进入语音（只在进入的那一次为 true）
      */
     public boolean tick(long nowMs) {
+        if (!voiceEnabled) return false;
         if (state != State.PRESSED) return false;
         if (nowMs - downAt >= LONG_PRESS_MS) {
             state = State.VOICE;

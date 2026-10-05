@@ -21,6 +21,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
     private String schemeLabel = "";
     private int faceColor = 0xFF56685A;
     private boolean showsMic = true;
+    private String transientLabel = "";
 
     public SpaceKeyFace(Context context) {
         super(context);
@@ -42,6 +43,14 @@ public final class SpaceKeyFace extends KeyboardPressButton {
     public void setFaceColor(int color) {
         if (faceColor == color) return;
         faceColor = color;
+        invalidate();
+    }
+
+    /** 手势进行中的临时键面文字（如「移动光标」）；非空时只画这段文字，不画麦克风与方案短名。空串恢复常态。 */
+    public void setTransientLabel(String value) {
+        String next = value == null ? "" : value;
+        if (transientLabel.equals(next)) return;
+        transientLabel = next;
         invalidate();
     }
 
@@ -91,12 +100,13 @@ public final class SpaceKeyFace extends KeyboardPressButton {
     @Override protected void onDraw(Canvas canvas) {
         if (getWidth() <= 0 || getHeight() <= 0) return;
         float density = getResources().getDisplayMetrics().density;
-        float mic = showsMic ? Math.min(MIC_DP * density, getHeight()) : 0f;
         label.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, LABEL_SP,
             getResources().getDisplayMetrics()));
         label.setColor(faceColor);
+        boolean overlay = !transientLabel.isEmpty();
+        float mic = (showsMic && !overlay) ? Math.min(MIC_DP * density, getHeight()) : 0f;
         float available = getWidth() - mic - GAP_DP * density - 8 * density;
-        String text = schemeLabel;
+        String text = overlay ? transientLabel : schemeLabel;
         while (!text.isEmpty() && label.measureText(text) > available && text.length() > 1) {
             text = text.substring(0, text.length() - 1);
         }

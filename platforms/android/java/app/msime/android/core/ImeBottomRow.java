@@ -75,6 +75,7 @@ final class ImeBottomRow {
             s.spaceButton.setPressed(false);
             s.spaceButton.setText(s.spaceKeyTitle());
             s.spaceButton.setContentDescription(s.spaceKeyDescription());
+            if (s.spaceButton instanceof SpaceKeyFace face) face.setTransientLabel("");
         }
         if (s.japaneseSpaceKey != null && s.japaneseSpaceKey != s.spaceButton) {
             s.japaneseSpaceKey.setPressed(false);
@@ -112,8 +113,7 @@ final class ImeBottomRow {
             cancelled[0] = true;
             button.setPressed(false);
             s.imeKeyFeedback.playFeedback(button);
-            // SVC 的 startVoiceRecognition 是 private；语音结果面板里的「开始语音识别」走的就是它。
-            s.showVoiceResult();
+            s.startVoiceRecognition();
         };
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
@@ -125,13 +125,16 @@ final class ImeBottomRow {
                     voiced[0] = false;
                     button.setPressed(true);
                     button.getParent().requestDisallowInterceptTouchEvent(true);
-                    spaceGesture.down(SystemClock.uptimeMillis(), event.getX() / density);
+                    // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
+                    boolean voice = touchPreference(AndroidLocalSettings.SPACE_VOICE) && s.voiceInsertionReady();
+                    spaceGesture.down(SystemClock.uptimeMillis(), event.getX() / density, voice);
                     cancelSpaceLongPress();
-                    if (touchPreference(AndroidLocalSettings.SPACE_VOICE)) {
+                    if (voice) {
                         spaceLongPress = () -> {
                             spaceLongPress = null;
                             spaceGesture.tick(SystemClock.uptimeMillis());
-                            if (spaceGesture.state() == SpaceGesturePolicy.State.VOICE) startVoice.run();
+                            if (spaceGesture.state() == SpaceGesturePolicy.State.VOICE
+                                    && s.voiceInsertionReady()) startVoice.run();
                         };
                         s.main.postDelayed(spaceLongPress, SpaceGesturePolicy.LONG_PRESS_MS);
                     }
@@ -145,12 +148,9 @@ final class ImeBottomRow {
                         spaceGesture.move(SystemClock.uptimeMillis(), event.getX() / density);
                         SpaceGesturePolicy.State state = spaceGesture.state();
                         if (state == SpaceGesturePolicy.State.VOICE) {
+                            // VOICE is only reachable when long-press voice was on at ACTION_DOWN.
                             cancelSpaceLongPress();
-                            if (touchPreference(AndroidLocalSettings.SPACE_VOICE)) startVoice.run();
-                            else {
-                                cancelled[0] = true;
-                                button.setPressed(false);
-                            }
+                            if (s.voiceInsertionReady()) startVoice.run();
                             return true;
                         }
                         if (state == SpaceGesturePolicy.State.PRESSED) {
@@ -176,6 +176,7 @@ final class ImeBottomRow {
                         button.setPressed(false);
                         if (dragging[0]) {
                             button.setText("移动光标");
+                            if (button instanceof SpaceKeyFace face) face.setTransientLabel("移动光标");
                             button.setContentDescription("正在移动光标");
                             moveEditorCursor(s.cursorMovement.advance(
                                 event.getX(), s.connection, s.pixels(12)));
@@ -200,7 +201,8 @@ final class ImeBottomRow {
                     button.setPressed(false);
                     if (!voiced[0] && !dragging[0] && !cancelled[0]
                             && outcome == SpaceGesturePolicy.Outcome.VOICE
-                            && touchPreference(AndroidLocalSettings.SPACE_VOICE)) {
+                            && touchPreference(AndroidLocalSettings.SPACE_VOICE)
+                            && s.voiceInsertionReady()) {
                         // 计时回调还没来得及跑就松手了：仍按长按处理。
                         startVoice.run();
                     }
@@ -276,7 +278,8 @@ final class ImeBottomRow {
             periodButton.setText(KeyboardActionRow.punctuationFace(
                 KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation));
             periodButton.setContentDescription("按键 " + periodButton.getText());
-            periodButton.setEnabled(s.session != 0);
+            // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
+            periodButton.setEnabled(s.connection != null);
         }
         if (s.spaceButton instanceof SpaceKeyFace face) face.setSchemeLabel(spaceLabel());
         if (s.globeButton != null) s.globeButton.setContentDescription("切换输入法");

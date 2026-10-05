@@ -132,7 +132,8 @@ final class ImeKeyFeedback {
         } else if (inside(source, s.keyRows) || inside(source, s.actionRow)) {
             s.imeDebugOverlay.onKeyPressed(keyClass == KEY_BACKSPACE);
             if (animation != KeyPressAnimator.Style.NONE) {
-                KeyPressAnimator.play(source, animation, Color.parseColor(s.skin.accent()));
+                KeyPressAnimator.play(source, s.imeLetterRows.keyPreviewLayer, animation,
+                    Color.parseColor(s.skin.accent()));
             }
         }
         if (s.soundEnabled) playSound(keyClass);
