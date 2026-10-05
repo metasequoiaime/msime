@@ -50,6 +50,25 @@ test("uninstall section renders and cancels an uninstall confirmation", () => {
   expect(onCancelUninstall).toHaveBeenCalledOnce();
 });
 
+test("uninstall section asks for the input sources to be removed in System Settings first", () => {
+  render(
+    <UninstallSection
+      uninstallInputSource={vi.fn(async () => {})}
+      removeUserData={false}
+      uninstallBusy={false}
+      uninstallConfirmation
+      uninstallResult="listed"
+      onRemoveUserDataChange={vi.fn()}
+      onRequestUninstall={vi.fn()}
+      onConfirmUninstall={vi.fn()}
+      onCancelUninstall={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole("alert").textContent).toContain("输入源");
+  expect(screen.getByRole("button", { name: "确认卸载" })).toBeTruthy();
+});
+
 test("uninstall section draws nothing on a host that cannot uninstall", () => {
   const { container } = render(
     <UninstallSection

@@ -31,3 +31,15 @@ test("ignores a same-tick duplicate uninstall confirmation", async () => {
     await second;
   });
 });
+
+test("keeps the confirmation open while System Settings still lists the input method", async () => {
+  const uninstallInputSource = vi.fn().mockRejectedValue({ code: "input_source_listed" });
+  const { result } = renderHook(() => useInputSourceUninstall({ uninstallInputSource }));
+
+  act(() => result.current.requestUninstall());
+  await act(async () => {
+    await result.current.confirmUninstall();
+  });
+  expect(result.current.result).toBe("listed");
+  expect(result.current.confirmation).toBe(true);
+});
