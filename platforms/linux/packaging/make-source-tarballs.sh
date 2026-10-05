@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生成各发行版源码包离线构建所需的 tarball，随 linux-vVERSION 发布一起上传：Fedora COPR、openSUSE OBS 的 RPM 与 Launchpad PPA 的 Debian 源码包用前两个，AUR 的 msime 与 Gentoo 的版本 ebuild 用源码 tarball 和前端 tarball。
+# 生成各发行版源码包离线构建所需的 tarball，随 linux-vVERSION 发布一起上传：Fedora COPR、openSUSE OBS 的 RPM 与 Launchpad PPA 的 Debian 源码包用前两个，Gentoo 的版本 ebuild 只用前端 tarball（源码取 GitHub 为 linux-vVERSION 标签生成的归档）。AUR 的 msime 一个都不用：它从同一个标签归档构建，前端由 build() 自己用 pnpm 构建。
 #
 # 这些构建农场在构建时都没有网络，而完整版要的东西有一半不在仓库里：Cargo 依赖、由 pnpm 构建并嵌进设置窗口的前端，以及 package-container.sh 构建时下载的语音运行库、手写模型、离线释义和方言词库。这里把它们一次取齐：
 #

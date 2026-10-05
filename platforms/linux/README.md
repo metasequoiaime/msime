@@ -152,7 +152,7 @@ environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msim
 
 所有定义的构建步骤都照搬 `package-container.sh`（同样的 cargo 目标、同样的 `-DMSIME_*` 选项、`-DMSIME_EDITION=full`），跑与门禁相同的 ctest，装完核对插件按 RUNPATH 找到的是本包里的 Host API；包描述和主页 `https://github.com/metasequoiaime/msime` 在各定义里一致；许可证除了项目自己的 `GPL-3.0-only`，还列出随包的第三方代码与数据（静态链接的 Rust crate 与 npm 包、sherpa-onnx 与 ONNX Runtime、手写模型、方言词库、离线释义等，涉及 Apache-2.0、MIT、LGPL、CC-BY-4.0、CC-BY-SA-4.0 等），AUR 的 `license` 与 RPM 的 `License` 是同一份 SPDX 清单，Gentoo 用它自己的许可证名，Debian 写在 `debian/copyright`。资源的哈希只记在 `resources/*.lock.json`，各定义不另抄：构建时由同一批 fetch 脚本核对。`scripts/test-linux-distro-packaging.py` 核对五份定义传给 CMake 的选项与 `package-container.sh` 相同，`scripts/test-arch-gentoo-packaging.py` 核对 AUR 与 Gentoo 的维护脚本、单元列表、`.SRCINFO` 与 Rust 版本，两者都由 `scripts/run-checks.sh` 自动运行。各目录的 README（`arch/README.md`、`gentoo/README.md`、`debian/README.source`）写了更细的取舍，`arch/check-in-container.sh` 与 `gentoo/check-in-container.sh` 在容器里做完整构建或检查。
 
-**每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball，随发布上传；发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 与 tarball 的校验值只来自发布页的 `SHA256SUMS`。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
+**每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball，随发布上传；发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 与三个 tarball 的校验值只来自发布页的 `SHA256SUMS`；AUR 的 `msime` 与 Gentoo 的版本 ebuild 还要 GitHub 为 `linux-v<版本>` 标签生成的源码归档，它不是发布资产、不在 `SHA256SUMS` 里，校验值由 `arch/render.py` 与 `ebuild manifest` 下载后现算，GitHub 改变归档的生成方式时这两个包的校验会失败。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
 
 **上架之后的安装方式：**
 
@@ -161,8 +161,12 @@ yay -S msime            # 或 yay -S msime-bin
 sudo dnf copr enable <owner>/msime && sudo dnf install msime
 sudo zypper addrepo https://download.opensuse.org/repositories/home:/<user>/openSUSE_Tumbleweed/home:<user>.repo && sudo zypper install msime
 sudo add-apt-repository ppa:<owner>/msime && sudo apt install msime
-sudo eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git && sudo emaint sync -r msime && sudo emerge app-i18n/msime
+sudo eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git && sudo emaint sync -r msime
+echo 'app-i18n/msime ~amd64' | sudo tee /etc/portage/package.accept_keywords/msime   # arm64 上写 ~arm64
+sudo emerge app-i18n/msime
 ```
+
+Gentoo 的版本 ebuild 只有 `~amd64 ~arm64` 关键字，稳定分支的系统要先像上面那样放行，否则 Portage 报 `masked by: ~amd64 keyword`。
 
 发行版仓库里的包名是 `msime`；它与发布页的 `msime-linux` 文件完全重合，RPM 以 `Provides`/`Obsoletes`、Debian 以 `Conflicts`/`Replaces` 替换掉后者，AUR 的 `msime` 与 `msime-bin` 也互相冲突。被替换的包按卸载处理：它的卸载脚本对每个已登录用户停用 MSIME 的用户单元并运行 `msime-linux-setup --unregister`，输入法从 IBus 与 Fcitx5 的列表里消失。所以新包在替换完成后替每个已登录用户以临时单元运行 `msime-linux-setup --register` 恢复两者：RPM 在 `%triggerpostun -- msime-linux`（msime-linux 移除之后），Debian 在本包每次安装（不含升级）后的 postinst（`debian/postinst-register`，由 `debian/msime.preinst` 留下的标记区分安装与升级：从 config-files 状态重装时 postinst 拿到的参数和升级一样），AUR 在 `post_install`。Debian 与 AUR 分不出这次安装替换了谁，所以卸载时保留了配置、之后重新安装的用户同样被恢复（包括 `apt remove msime` 后停在 config-files 状态再装回来）；没配置过的用户什么也不会发生。替换时没有登录的用户不受影响，被替换的包的卸载脚本也够不到他们；systemd 用户实例连不上的用户会在包管理器的输出里看到提示，登录后自己运行一次 `msime-linux-setup --register`。其他版本（`msime-linux-<id>`）装在 `/opt` 下，与它不冲突。
 
@@ -199,7 +203,7 @@ osc addremove && osc commit -m "Update to V" && osc results
 
 OBS 也能构建 Debian/Ubuntu：把 `defs/debian/` 的 `.dsc`、`.debian.tar.xz` 和两个 orig tarball（发布页的 `msime-V.tar.xz`、`msime-V-vendor.tar.xz` 分别改名为 `msime_V.orig.tar.xz`、`msime_V.orig-vendor.tar.xz`）放进同一个包，再打开对应的 Debian/xUbuntu 仓库。
 
-**Launchpad PPA**：Launchpad 只收签名的源码上传，每个 Ubuntu 代号要单独的 `debian/changelog`，所以在本地按 `debian/README.source` 的「上传到 PPA」重新生成并签名，例如 Ubuntu 26.04：`render-sources.py --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04`，`debuild -S -sa -k<密钥>`，`dput ppa:<owner>/msime ../msime_V-1~ppa1~ubuntu26.04_source.changes`。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。Ubuntu 24.04 的默认 rustc 太旧，见 `debian/README.source`；Debian 13（rustc 1.85）不能作为目标。
+**Launchpad PPA**：Launchpad 只收签名的源码上传，每个 Ubuntu 代号要单独的 `debian/changelog`，所以在本地按 `debian/README.source` 的「上传到 PPA」重新生成并签名，例如 Ubuntu 26.04：`render-sources.py --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04`，`debuild -S -sa -d -k<密钥>`（`-d` 跳过 Build-Depends 核对，打源码包的机器只需 `devscripts`、`debhelper` 与 `dput`），`dput ppa:<owner>/msime ../msime_V-1~ppa1~ubuntu26.04_source.changes`。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。Ubuntu 24.04 的默认 rustc 太旧，见 `debian/README.source`；Debian 13（rustc 1.85）不能作为目标。
 
 **Gentoo**（建议单独的 overlay 仓库，例如 `metasequoiaime/gentoo-overlay`）：
 

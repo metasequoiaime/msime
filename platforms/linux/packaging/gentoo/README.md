@@ -45,4 +45,4 @@ cd gentoo-overlay/app-i18n/msime && pkgdev manifest && pkgcheck scan --exit erro
 cd ../.. && git add -A && git commit -m "app-i18n/msime: add <版本>" && git push
 ```
 
-用户以 `eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git` 添加后 `emerge app-i18n/msime`（版本 ebuild 只有 `~amd64 ~arm64` 关键字）。
+用户以 `eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git` 添加后 `emerge app-i18n/msime`。版本 ebuild 只有 `~amd64 ~arm64` 关键字，稳定分支的系统先放行：`echo 'app-i18n/msime ~amd64' > /etc/portage/package.accept_keywords/msime`（arm64 上写 `~arm64`），否则 Portage 报 `masked by: ~amd64 keyword`。

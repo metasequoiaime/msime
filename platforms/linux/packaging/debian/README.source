@@ -15,6 +15,8 @@ msime 的 Debian 源码包
 上传到 PPA
 ----------
 
+打源码包的机器只需要 `sudo apt install devscripts debhelper dput`，不必装 Build-Depends：`debuild -S` 默认也会先用 dpkg-checkbuilddeps 核对完整的 Build-Depends（cargo、rustc、WebKitGTK、Fcitx5 的开发包……），缺了就退出，`-d` 跳过这一步。打源码包前它仍要跑 `debian/rules clean`，那一步用到 debhelper。
+
     v=0.9.1
     curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-v$v/msime-$v.tar.xz
     curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-v$v/msime-$v-vendor.tar.xz
@@ -27,7 +29,7 @@ msime 的 Debian 源码包
     python3 msime-$v/platforms/linux/packaging/render-sources.py --version $v \
       --changelog-out msime-$v/debian/changelog \
       --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04
-    cd msime-$v && debuild -S -sa -k<签名密钥>
+    cd msime-$v && debuild -S -sa -d -k<签名密钥>
     dput ppa:<launchpad 用户>/msime ../msime_$v-1~ppa1~ubuntu26.04_source.changes
 
 同一版本上传到多个 Ubuntu 代号时，每个代号换一个 --debian-distribution 和 --debian-revision。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。
