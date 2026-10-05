@@ -4122,6 +4122,8 @@ int main(int argc, char **argv) {
           std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
       require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");
       languages["preferences"]["scheme"] = "quanpin";
+      // The shared fixture pages two candidates at a time; the stroke lists below are read as one page.
+      languages["preferences"]["candidate_page_size"] = 5;
       restart();
       require(offered("Scheme/Stroke") && offered("Scheme/Zhuyin") && !checked("Scheme/Stroke") &&
                   checked("Scheme/Quanpin"),
