@@ -2859,7 +2859,8 @@ public final class MSIMEInputService extends InputMethodService {
         quickPunctuationButton.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (!visible) return;
         String face = entries.get(0).face();
-        quickPunctuationButton.setText(face);
+        // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
+        quickPunctuationButton.setText(CenteredGlyphSpan.of(face, 1.3f));
         quickPunctuationButton.setContentDescription("常用标点：" + face
             + "；长按选择常用标点");
     }

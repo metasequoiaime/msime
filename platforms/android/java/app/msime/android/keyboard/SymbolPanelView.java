@@ -70,9 +70,14 @@ public final class SymbolPanelView extends LinearLayout {
         LinearLayout body = new LinearLayout(context);
         body.setOrientation(HORIZONTAL);
         categories.setOrientation(VERTICAL);
-        categories.setGravity(Gravity.CENTER);
+        categories.setGravity(Gravity.TOP);
         // 空白网格的根因：body 是横排 LinearLayout，权重只分宽度；这里和网格原先写的高度 0 是字面上的 0 像素，分类列和网格都被测成零高，面板中间于是什么都没有（面板本身又没底色，透出底下的字母键）。高度要铺满 body。
-        body.addView(categories, new LinearLayout.LayoutParams(dp(76), LayoutParams.MATCH_PARENT));
+        // 分类列放进可滚动的容器、每类固定 40 dp：键盘区扣掉标题和底栏只剩百来 dp，五类按权重平分时每类二十来 dp，按钮默认的 48 dp 最小高度和内边距把字挤没了，只剩选中那块底色。
+        ScrollView categoryScroll = new ScrollView(context);
+        categoryScroll.setVerticalScrollBarEnabled(false);
+        categoryScroll.addView(categories, new ScrollView.LayoutParams(
+            LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+        body.addView(categoryScroll, new LinearLayout.LayoutParams(dp(76), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -99,9 +104,13 @@ public final class SymbolPanelView extends LinearLayout {
             Button button = buttons.create(values.get(index).title(),
                 "符号分类 " + values.get(index).title(), () -> select(category), true);
             button.setGravity(Gravity.CENTER);
+            button.setMinHeight(0);
+            button.setMinimumHeight(0);
+            button.setPadding(0, 0, 0, 0);
+            button.setTextSize(13);
             categoryButtons.add(button);
             categories.addView(button, new LinearLayout.LayoutParams(
-                LayoutParams.MATCH_PARENT, 0, 1));
+                LayoutParams.MATCH_PARENT, dp(40)));
         }
         select(0);
     }

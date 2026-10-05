@@ -74,6 +74,8 @@ final class ImeLayoutRows {
         for (String symbol : NineKeyLayout.punctuation()) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
             addNineKey(punctuation, key);
         }
@@ -299,6 +301,8 @@ final class ImeLayoutRows {
         for (String symbol : symbols.subList(0, symbols.size() - 1)) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
             // The punctuation keys share one rail rather than wearing caps of their own.
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(KeyboardKeyRole.PLAIN);
@@ -399,6 +403,8 @@ final class ImeLayoutRows {
         for (String symbol : NineKeyLayout.punctuation()) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
+            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(KeyboardKeyRole.PLAIN);
             punctuation.addView(key, new LinearLayout.LayoutParams(
