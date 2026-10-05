@@ -66,10 +66,6 @@ public final class NativeClient {
     public static String themeCatalog() { return text(themeCatalogRaw()); }
     /** Resolves the colours of the selected global theme for one mode. Pure computation, safe on the main thread. */
     public static String resolveTheme(String request) { return text(resolveThemeRaw(request.getBytes(StandardCharsets.UTF_8))); }
-    /** 同 {@link #resolveTheme(String)}，并在请求里写入宿主本地日历的月份（1..12），只决定「水杉四季」画哪一季。 */
-    public static String resolveTheme(String request, int month) {
-        return resolveTheme(withMonth(request, month));
-    }
     /** 应用主题目录：`{app_themes:[{id,title,season,seasonal,light,dark}],default}`。纯计算。 */
     public static String appThemeCatalog() { return text(appThemeCatalogRaw()); }
     /** 应用主题在本地月份与明暗模式下的颜色：`{id,season,accent,accent_soft,on_accent,background,card,hair}`。纯计算，可在主线程调用。 */
@@ -143,14 +139,6 @@ public final class NativeClient {
         if (month < 1 || month > 12) throw new IllegalArgumentException("Month must be between 1 and 12");
     }
 
-    private static String withMonth(String request, int month) {
-        validateMonth(month);
-        try {
-            return new JSONObject(request).put("month", month).toString();
-        } catch (org.json.JSONException error) {
-            throw new IllegalArgumentException("Invalid theme request", error);
-        }
-    }
     /** Classifies committed text and adds batched per-key press counts in native memory, and persists only aggregate counts. Call on a worker. */
     public static String typingStatistics(String request) {
         return text(typingStatisticsRaw(request.getBytes(StandardCharsets.UTF_8)));
