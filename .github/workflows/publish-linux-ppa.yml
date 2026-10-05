@@ -8,12 +8,14 @@ on:
     inputs:
       version: {required: true, type: string}
       ppa_revision: {required: false, default: "1", type: string}
+      series: {required: false, default: "", type: string}
     secrets:
       LAUNCHPAD_GPG_KEY: {required: false}
   workflow_dispatch:
     inputs:
       version: {description: "Version of an existing linux-vX.Y.Z release (X.Y.Z)", required: true, type: string}
       ppa_revision: {description: "PPA upload number; raise it to re-upload a version Launchpad already accepted", required: false, default: "1", type: string}
+      series: {description: "Space-separated Ubuntu codenames to upload (default: all in SERIES), e.g. to finish an upload that failed part-way", required: false, default: "", type: string}
 permissions: {contents: read}
 concurrency: {group: publish-linux-ppa, cancel-in-progress: false}
 env:
@@ -71,7 +73,7 @@ jobs:
       - name: Build and upload a signed source package per Ubuntu series
         if: ${{ steps.check.outputs.skip == 'false' }}
         working-directory: work
-        env: {VERSION: "${{ inputs.version }}", PPA_REVISION: "${{ inputs.ppa_revision }}", FINGERPRINT: "${{ steps.key.outputs.fingerprint }}"}
+        env: {VERSION: "${{ inputs.version }}", PPA_REVISION: "${{ inputs.ppa_revision }}", ONLY_SERIES: "${{ inputs.series }}", FINGERPRINT: "${{ steps.key.outputs.fingerprint }}"}
         run: |
           set -euo pipefail
           v=$VERSION
@@ -81,6 +83,8 @@ jobs:
           include=-sa
           for entry in $SERIES; do
             codename=${entry%%:*} release=${entry##*:}
+            # 只补传指定的代号：同一版本 Launchpad 不收第二次，部分代号上传失败时只重传剩下的。
+            if [[ -n "$ONLY_SERIES" && " $ONLY_SERIES " != *" $codename "* ]]; then continue; fi
             revision="1~ppa${PPA_REVISION}~ubuntu$release"
             tree="build-$codename/msime-$v"
             rm -rf "build-$codename" && mkdir -p "$tree/vendor"
@@ -97,6 +101,14 @@ jobs:
               fi
             fi
             (cd "$tree" && debuild -S $include -d -k"$FINGERPRINT")
-            dput "ppa:$PPA" "build-$codename/msime_${v}-${revision}_source.changes"
+            # Launchpad 的 FTP 偶尔返回 550 internal server error，过一会儿再传就好；dput 只在没有留下 .upload 记录时才会重传。
+            changes="build-$codename/msime_${v}-${revision}_source.changes"
+            for attempt in 1 2 3 4; do
+              if dput "ppa:$PPA" "$changes"; then break; fi
+              if (( attempt == 4 )); then echo "dput failed 4 times for $codename" >&2; exit 1; fi
+              rm -f "${changes%.changes}.ppa.upload"
+              echo "::warning::dput to the PPA failed for $codename (attempt $attempt); retrying in 60 s"
+              sleep 60
+            done
             include=-sd
           done
