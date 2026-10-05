@@ -12,6 +12,8 @@
   ninja,
   pkg-config,
   python3,
+  makeWrapper,
+  wl-clipboard,
   wayland-scanner,
   wayland-protocols,
   fcitx5,
@@ -91,6 +93,7 @@ stdenv.mkDerivation {
     ninja
     pkg-config
     python3
+    makeWrapper
     wayland-scanner
   ];
   # python 放在这里，postInstall 的 patchShebangs --host 才会把装出去的脚本改写到它。
@@ -145,6 +148,16 @@ stdenv.mkDerivation {
     procps
     dbus
   ];
+
+  # 剪贴板监视器在 Wayland 上只靠 wl-paste 取剪贴板（--watch 与读取都是），找不到它时一直空转，
+  # 剪贴板历史什么也记不下。录音、提示音和静音用的音频工具不随包：provider 取 PATH 上找到的第一个
+  # （parec、pw-cat、arecord），带上 PulseAudio 的工具会让只有 PipeWire、没开 pipewire-pulse 的
+  # 系统选到连不上的 parec，所以交给系统的音频栈。
+  postFixup = ''
+    wrapProgram $out/bin/msime-linux-clipboard-monitor --prefix PATH : ${
+      lib.makeBinPath [ wl-clipboard ]
+    }
+  '';
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
   # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。语音运行库同理，另外它的依赖都要
