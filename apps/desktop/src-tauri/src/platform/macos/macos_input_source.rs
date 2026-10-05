@@ -443,7 +443,73 @@ fn install_unlocked(resource_directory: Option<&Path>) -> Result<(), InstallErro
     let target =
         install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)?;
     stop_running_copies(&target);
+    refresh_system_input_source_lists();
     Ok(())
+}
+
+/// The keyboard settings extension that hosts System Settings' 「添加」 dialog: its bundle identifier names its per-user cache directory.
+const KEYBOARD_SETTINGS_EXTENSION_ID: &str = "com.apple.Keyboard-Settings.extension";
+const KEYBOARD_SETTINGS_EXTENSION_EXECUTABLE: &str =
+    "/System/Library/ExtensionKit/Extensions/KeyboardSettings.appex/Contents/MacOS/KeyboardSettings";
+/// The input source cache files a process keeps in its own directory under the per-user cache directory (`getconf DARWIN_USER_CACHE_DIR`), `com.apple.IntlDataCache.le.kbdx` and its siblings.
+const INPUT_SOURCE_CACHE_PREFIX: &str = "com.apple.IntlDataCache.le";
+
+fn pkill(signal: Option<&str>, arguments: &[&OsStr]) {
+    let mut command = Command::new("/usr/bin/pkill");
+    if let Some(signal) = signal {
+        command.arg(signal);
+    }
+    let _ = command
+        .args(arguments)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+/// Make the system's input source pickers show the input modes and icons of the bundle that was just installed, as `scripts/install.sh` does, so that a mode an update adds can be added without logging out.
+///
+/// System Settings' 「添加」 dialog runs in the keyboard settings extension, which reads the input source list from its own `com.apple.IntlDataCache.le*` files in the per-user cache directory. The system writes them at login and not when an input method is replaced, so a mode an update adds (藏 and 笔画 after 0.51.1) is registered - `TISCreateInputSourceList` returns it - yet missing from the dialog. With the files gone, the extension's next launch rebuilds them from the current registry and the new modes are listed; measured on macOS 27.0.1. A running extension keeps the list it already read, and an open System Settings does not start a new one for the pane it is showing, so both are stopped: System Settings holds no unsaved state, and the next time it is opened it starts the extension afresh.
+///
+/// The Ctrl+Space switcher beside the caret (CursorUIViewService) and the held-shortcut switcher (TextInputSwitcher) read the list and its icons once per process; both ignore SIGTERM, and launchd starts each again when it is next needed.
+///
+/// Best-effort, like `refresh_launch_services`: the install has already succeeded, and if this does nothing the new modes appear after the next login as before.
+fn refresh_system_input_source_lists() {
+    pkill(None, &[OsStr::new("-x"), OsStr::new("System Settings")]);
+    pkill(
+        None,
+        &[
+            OsStr::new("-f"),
+            OsStr::new(&literal_process_pattern(Path::new(
+                KEYBOARD_SETTINGS_EXTENSION_EXECUTABLE,
+            ))),
+        ],
+    );
+    if let Some(output) = bounded_command_output(
+        Command::new("/usr/bin/getconf").arg("DARWIN_USER_CACHE_DIR"),
+        4096,
+    ) {
+        let cache = PathBuf::from(String::from_utf8_lossy(&output).trim())
+            .join(KEYBOARD_SETTINGS_EXTENSION_ID);
+        if cache.is_absolute() {
+            for entry in fs::read_dir(&cache).into_iter().flatten().flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(INPUT_SOURCE_CACHE_PREFIX)
+                {
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    pkill(
+        Some("-KILL"),
+        &[OsStr::new("-x"), OsStr::new("CursorUIViewService")],
+    );
+    pkill(
+        Some("-KILL"),
+        &[OsStr::new("-x"), OsStr::new("TextInputSwitcher")],
+    );
 }
 
 /// A pattern for `pkill -f` that matches `path` literally: the text is an extended regular expression, and a bundle path holds at least the `.` of `.app`.

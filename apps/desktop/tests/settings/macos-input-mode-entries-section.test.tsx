@@ -72,7 +72,7 @@ test("leads with the current scheme's entry when it is missing", async () => {
 
   const text = (await screen.findByText(/还没加入的/)).textContent ?? "";
   expect(text.startsWith("菜单栏里还没有「水杉输入法 · 粤」")).toBe(true);
-  expect(text).toContain("要注销并重新登录一次才会出现在「添加」对话框里");
+  expect(text).not.toContain("重新登录");
 });
 
 test("leads with the Stroke entry when Stroke is the current scheme", async () => {
