@@ -86,6 +86,11 @@ pub fn build_quanpin(connection: &mut Connection, inputs: &QuanpinInputs) -> Res
             "\ncreate index idx_key_{suffix} on {table}(key);\n"
         ))?;
         transaction.execute_batch(&format!("\ncreate index idx_jp_{suffix} on {table}(jp);\n"))?;
+        // A reading listed by two inputs is one entry: without the licensing record both single-chars.txt and rime-ice.txt list every common character, and dict-v2.0.7 shipped 8740 single-character rows twice. The higher weight stays, the first loaded on a tie, as `parse_word_list` treats a word listed twice. Runs after the key index exists, which it uses.
+        count -= transaction.execute(
+            &format!("\ndelete from {table} where exists (select 1 from {table} as kept where kept.key = {table}.key and kept.value = {table}.value and (kept.weight > {table}.weight or (kept.weight = {table}.weight and kept.rowid < {table}.rowid)));\n"),
+            [],
+        )?;
     }
     transaction.commit()?;
     Ok(count)
@@ -671,6 +676,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(indexes, 2 * 8 * 23);
+    }
+
+    #[test]
+    fn a_reading_listed_by_two_inputs_is_stored_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let single = write(dir.path(), "single.txt", SINGLE_CHARS);
+        // Like rime-ice.txt, the phrase input repeats single characters: 宣 lower, 昊 equal, 昍 higher.
+        let phrases = write(
+            dir.path(),
+            "phrases.txt",
+            "宣\txuan\t300\n昊\thao\t100\n昍\txuan\t7\n你好\tni'hao\t9000\n你好\tni'hao\t9000\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        let count = build_quanpin(
+            &mut connection,
+            &QuanpinInputs {
+                single_chars: &single,
+                whitelist: None,
+                phrases: vec![&phrases],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            rows(
+                &connection,
+                "select key, jp, value, weight from tbl_1_x order by weight"
+            ),
+            [
+                ("xuan".into(), "x".into(), "昍".into(), 7),
+                ("xuan".into(), "x".into(), "宣".into(), 500)
+            ]
+        );
+        assert_eq!(
+            rows(&connection, "select key, jp, value, weight from tbl_1_h"),
+            [("hao".into(), "h".into(), "昊".into(), 100)]
+        );
+        assert_eq!(
+            rows(&connection, "select key, jp, value, weight from tbl_2_n"),
+            [("ni'hao".into(), "nh".into(), "你好".into(), 9000)]
+        );
+        assert_eq!(count, 4, "the row count reports what is stored");
     }
 
     #[test]
