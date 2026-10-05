@@ -365,8 +365,11 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        // 拆分：在拼音之间插入分隔符（xian → xi'an）。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
-        Button split = s.keyboardKey("拆分", "拼音分词", () -> s.character(NineKeyLayout.SEPARATOR));
+        // 拆分：引擎的九键只收 2–9，分隔符 ' 送进去会被忽略；九键切分音节靠左侧拼音列（choose_spelling）。所以拆分就是锁定拼音列当前的第一个拼音，等同点它：例如 94664 先拆出 xi，余下的接着打。没在组字时什么也不做。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
+        Button split = s.keyboardKey("拆分", "拆分音节", () -> {
+            if (!s.nineKeySpellingIndices.isEmpty())
+                chooseNineKeySpelling(s.nineKeySpellingGeneration, s.nineKeySpellingIndices.get(0));
+        });
         if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, split);
         String last = symbols.get(symbols.size() - 1);

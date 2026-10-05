@@ -12,8 +12,6 @@ public final class NineKeyLayout {
      */
     public record Key(int digit, String label, char input, String description) {}
 
-    /** 拼音分隔符：右列「拆分」键送进引擎的字符（原来在 1 键上，叫「分词」）。 */
-    public static final char SEPARATOR = '\'';
 
     /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。 */
     public static boolean opensSymbols(Key key, boolean digits) {
