@@ -19,6 +19,7 @@ use crate::shared::account_dto::{
     providers_response, ChallengeResponse, ProfileResponse, ProvidersResponse, StatusResponse,
 };
 use crate::shared::account_dto::{ChatModelsResponse, ChatResponse, PreferenceSchemaResponse};
+#[cfg(target_os = "ios")]
 use std::collections::BTreeMap;
 #[cfg(target_os = "ios")]
 use std::collections::HashMap;

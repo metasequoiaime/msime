@@ -88,9 +88,9 @@ use msime_tauri_mobile_platform::{AndroidVoicePlatform, AndroidVoicePolishReques
 use msime_tauri_mobile_platform::IosKeyboardAiPreferences;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::MobilePlatform;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use msime_tauri_mobile_platform::MobileVoiceRequestHeader;
-#[cfg(any(target_os = "ios", target_os = "android", test))]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use msime_tauri_mobile_platform::MobileVoiceTranscriptionRequest;
 // The packaged recognizer runs on every host; only the socket provider is unix.
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
@@ -106,7 +106,7 @@ use std::collections::HashMap;
     test
 ))]
 use std::fs;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(target_os = "windows")]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
@@ -139,6 +139,10 @@ use shared::voice::voice_output;
 ))]
 use shared::voice::voice_sessions;
 
+#[cfg(any(
+    not(any(target_os = "android", target_os = "ios", target_os = "macos")),
+    test
+))]
 const MAX_RUNTIME_OPTIONS_CANDIDATE_CAPACITY: usize = 4;
 
 #[tauri::command]
@@ -1291,9 +1295,10 @@ enum PanelInputTarget {
 #[derive(Clone, Copy, Debug)]
 struct PanelInputTarget(msime_host_windows::InputTarget);
 
+// macOS 上 `remember_input_target` 会写入它，但面板改走原生 `macos_panel_session` 以后，没有地方再读这个目标。
 #[cfg(target_os = "macos")]
 #[derive(Clone, Debug)]
-struct PanelInputTarget(msime_host_macos::LaunchTarget);
+struct PanelInputTarget(#[allow(dead_code)] msime_host_macos::LaunchTarget);
 
 #[cfg(all(
     not(target_os = "linux"),
@@ -1730,7 +1735,7 @@ async fn test_api_credential(
     #[cfg(target_os = "linux")]
     {
         let runtime = runtime.inner().clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let document = runtime.snapshot().map_err(|_| CommandError {
                 code: "unavailable",
             })?;
@@ -1746,7 +1751,7 @@ async fn test_api_credential(
         .await
         .map_err(|_| CommandError {
             code: "unavailable",
-        })?;
+        })?
     }
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
@@ -3542,6 +3547,7 @@ async fn uninstall_input_source(
     Ok(())
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn windows_restart_payload() -> Vec<u8> {
     "RestartServer"
         .encode_utf16()
@@ -3680,10 +3686,13 @@ fn remember_input_target(
             *state.0.lock().map_err(|_| HostActionError {
                 code: "unavailable",
             })? = Some(PanelInputTarget(target));
-            return Ok(());
+            Ok(())
         }
-        let _ = (window, state);
-        Ok(())
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (window, state);
+            Ok(())
+        }
     }
 }
 
@@ -3711,11 +3720,11 @@ async fn send_key(
         // an async command could otherwise observe a different editor than
         // the one captured for this queued key.
         let target = panel_input_target(&state, window.label())?;
-        return tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
+        tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
             .await
             .map_err(|_| HostActionError {
                 code: "unavailable",
-            })?;
+            })?
     }
     #[cfg(target_os = "windows")]
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
@@ -3925,6 +3934,8 @@ fn discover_session_provider_in(
 }
 
 /// 查找引擎的手写模型：先看 HostOptions 的 `handwriting_model`，再看 `MSIME_HANDWRITING_MODEL`，macOS 上接着是偏好目录（同一份文档里的绝对 `preferences_directory`）下已下载的手写资源包，然后是旧版本打进 app 的模型，最后是各安装器的固定布局。只接受指向已存在文件的绝对路径，过期的设置不会把笔画送给别的文件。
+// 非 macOS 上中间那步只剩 `|| None`，闭包是 cfg 分支留下的，不是多余的惰性求值。
+#[cfg_attr(not(target_os = "macos"), allow(clippy::unnecessary_lazy_evaluations))]
 fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
     let document = serde_json::from_str::<Value>(host_options).ok();
     document
@@ -4235,7 +4246,7 @@ async fn paste_clipboard_text(
     }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit_clipboard(app, window, text).await;
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         let _ = (app, window, state, text);
         Err(HostActionError {
@@ -4326,7 +4337,7 @@ async fn send_voice_text(
         let _ = &store;
         let target = panel_input_target(&state, window.label())?;
         let typing_statistics = typing_statistics.0.clone();
-        return tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let result = send_panel_voice_text(&app, &target, &text);
             if result.is_ok() {
                 record_panel_typing_statistics(&typing_statistics, &text, TypingSource::Voice);
@@ -4336,7 +4347,7 @@ async fn send_voice_text(
         .await
         .map_err(|_| HostActionError {
             code: "unavailable",
-        })?;
+        })?
     }
     #[cfg(target_os = "macos")]
     return macos_panel_session::submit(app, window, text).await;
@@ -4471,11 +4482,11 @@ fn launch_external_url(url: &str) -> Result<(), HostActionError> {
     {
         // Generic-mode xdg-open waits on the browser; a launcher still running
         // after the check has opened the page.
-        return linux_process::launch("xdg-open", &[url], std::time::Duration::from_secs(1))
+        linux_process::launch("xdg-open", &[url], std::time::Duration::from_secs(1))
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",
-            });
+            })
     }
     #[cfg(target_os = "windows")]
     {

@@ -792,7 +792,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert_eq!(
         options.get("doubao_auth_mode").and_then(|v| v.as_str()),
         Some("legacy")
@@ -805,7 +807,9 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     });
     let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
-    let options = result.ok().expect("voice options should be valid");
+    let Ok(options) = result else {
+        panic!("voice options should be valid");
+    };
     assert!(options.get("doubao_auth_mode").is_none());
 }
 
@@ -1781,8 +1785,10 @@ fn runtime_options_sync_replaces_preferences_atomically() {
         document: Arc::new(Mutex::new(document)),
         skins: None,
     };
-    let mut preferences = Preferences::default();
-    preferences.candidate_page_size = 9;
+    let preferences = Preferences {
+        candidate_page_size: 9,
+        ..Preferences::default()
+    };
     sync_runtime_options(&state, &preferences).unwrap();
     let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);

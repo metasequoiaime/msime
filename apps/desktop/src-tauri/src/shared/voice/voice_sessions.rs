@@ -42,6 +42,7 @@ impl VoiceSessions {
         Some(session)
     }
 
+    #[cfg(test)]
     pub fn active(&self, request_id: &str) -> Option<VoiceSession> {
         let state = self.0.lock().ok()?;
         state

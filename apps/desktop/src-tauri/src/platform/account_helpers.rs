@@ -1,14 +1,17 @@
 use msime_client_core::account::AccountError;
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 use std::path::Path;
 use std::sync::Arc;
 
 /// Create a snapshot scratch directory only when every path component is a real directory.
 /// Snapshot writers pass paths in this directory to native bridges, so following a replaced
 /// temporary-directory symlink would redirect cloud data outside the app's scratch area.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn prepare_snapshot_directory(directory: &Path) -> std::io::Result<()> {
     crate::shared::atomic_file::create_directory_and_check(directory).map(|_| ())
 }
 
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Result<()> {
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
@@ -25,42 +28,9 @@ pub(crate) fn cleanup_stale_snapshot_previews(directory: &Path) -> std::io::Resu
 }
 
 /// Keep restore requests from copying data that the native snapshot inspectors will reject.
+#[cfg(any(target_os = "ios", target_os = "android", test))]
 pub(crate) fn snapshot_text_within_limit(bytes: usize) -> bool {
     bytes <= 512 * 1024 * 1024
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{cleanup_stale_snapshot_previews, prepare_snapshot_directory};
-
-    #[test]
-    fn stale_snapshot_cleanup_removes_only_download_ndjson_files() {
-        let directory = tempfile::tempdir().unwrap();
-        std::fs::write(directory.path().join("download-old.ndjson"), b"stale").unwrap();
-        std::fs::write(directory.path().join("download-in-progress"), b"keep").unwrap();
-        std::fs::write(directory.path().join("export-old.ndjson"), b"keep").unwrap();
-
-        cleanup_stale_snapshot_previews(directory.path()).unwrap();
-
-        assert!(!directory.path().join("download-old.ndjson").exists());
-        assert!(directory.path().join("download-in-progress").exists());
-        assert!(directory.path().join("export-old.ndjson").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn snapshot_directory_rejects_symlinked_ancestors() {
-        use std::os::unix::fs::symlink;
-
-        let outside = tempfile::tempdir().unwrap();
-        let parent = tempfile::tempdir().unwrap();
-        let linked = parent.path().join("snapshots");
-        symlink(outside.path(), &linked).unwrap();
-
-        let nested = linked.join("missing");
-        assert!(prepare_snapshot_directory(&nested).is_err());
-        assert!(!outside.path().join("missing").exists());
-    }
 }
 
 pub(crate) fn account_command_error(error: AccountError) -> crate::CommandError {
@@ -140,4 +110,38 @@ where
             code: "account_unavailable",
         })?
         .map_err(account_command_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cleanup_stale_snapshot_previews, prepare_snapshot_directory};
+
+    #[test]
+    fn stale_snapshot_cleanup_removes_only_download_ndjson_files() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("download-old.ndjson"), b"stale").unwrap();
+        std::fs::write(directory.path().join("download-in-progress"), b"keep").unwrap();
+        std::fs::write(directory.path().join("export-old.ndjson"), b"keep").unwrap();
+
+        cleanup_stale_snapshot_previews(directory.path()).unwrap();
+
+        assert!(!directory.path().join("download-old.ndjson").exists());
+        assert!(directory.path().join("download-in-progress").exists());
+        assert!(directory.path().join("export-old.ndjson").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn snapshot_directory_rejects_symlinked_ancestors() {
+        use msime_path_trust::untrusted_symlink as symlink;
+
+        let outside = tempfile::tempdir().unwrap();
+        let parent = tempfile::tempdir().unwrap();
+        let linked = parent.path().join("snapshots");
+        symlink(outside.path(), &linked).unwrap();
+
+        let nested = linked.join("missing");
+        assert!(prepare_snapshot_directory(&nested).is_err());
+        assert!(!outside.path().join("missing").exists());
+    }
 }

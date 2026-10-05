@@ -804,8 +804,10 @@ mod tests {
         let mut native = native();
         native.input_scheme = "japaneseNineKey".into();
         native.global_theme = "night".into();
-        let mut preferences = Preferences::default();
-        preferences.clipboard_history = true;
+        let mut preferences = Preferences {
+            clipboard_history: true,
+            ..Preferences::default()
+        };
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Japanese);
         assert_eq!(

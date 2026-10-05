@@ -22,10 +22,10 @@ pub(crate) struct VoiceRecognitionResult {
 
 // Resolved in the shared layer so the Android keyboard, which never goes through this shell,
 // reads the same answer through the C ABI rather than growing a second implementation.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub(crate) use msime_client_core::voice::provider::mobile_voice_polish_configuration;
 #[cfg(any(target_os = "ios", target_os = "android", test))]
-pub(crate) use msime_client_core::voice::provider::{
-    mobile_voice_polish_configuration, mobile_voice_provider_configuration,
-};
+pub(crate) use msime_client_core::voice::provider::mobile_voice_provider_configuration;
 
 #[cfg(any(unix, windows))]
 #[derive(serde::Serialize, Clone)]
