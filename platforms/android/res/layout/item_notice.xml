@@ -1,18 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One app notice on the 设置 tab (NoticeBanner): the title, the Markdown body rendered by Markwon with links opened in the browser, and 知道了, which hides this notice for good on this device. -->
+<!-- 设置首页上的一条应用通知（NoticeBanner）：标题、Markwon 渲染的 Markdown 正文（链接在浏览器打开）和「知道了」，点了之后这台设备不再显示这条。按设计放在 r24 的 accentSoft 卡片里，左右不再留边距：首页内容自己已有 16dp 页边。 -->
 <com.google.android.material.card.MaterialCardView
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="16dp"
     android:layout_marginTop="12dp"
-    android:layout_marginEnd="16dp"
-    app:cardBackgroundColor="@color/search_field"
+    app:cardBackgroundColor="?attr/colorPrimaryContainer"
     app:cardCornerRadius="24dp"
     app:cardElevation="0dp"
-    app:strokeColor="@color/hairline"
-    app:strokeWidth="1dp">
+    app:strokeWidth="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -29,7 +26,7 @@
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
             android:accessibilityHeading="true"
-            android:textColor="@color/ink"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -39,8 +36,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:layout_marginEnd="8dp"
-            android:textColor="@color/text_secondary"
-            android:textColorLink="@color/forest"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textColorLink="?attr/colorPrimary"
             android:textSize="14sp" />
 
         <com.google.android.material.button.MaterialButton

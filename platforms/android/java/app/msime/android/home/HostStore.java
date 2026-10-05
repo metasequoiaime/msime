@@ -2,6 +2,7 @@ package app.msime.android.home;
 
 import android.content.Context;
 import androidx.annotation.Nullable;
+import app.msime.android.AppThemePalette;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.NativeClient;
 import app.msime.android.PreferencesRevisionPolicy;
@@ -138,6 +139,42 @@ public final class HostStore {
             dark, customTheme == null ? null : customTheme.optJSONObject("keyboard"));
     }
 
+    /**
+     * {@link #keyboardSkin(JSONObject, boolean)} with the app theme's seed for the 跟随系统 skin.
+     *
+     * <p>跟随系统（`global_theme` 为 `system`）时键盘颜色由应用主题当前季节的种子推导（设计令牌 §1.4），与 `:ime` 画出来的一致，所以这里直接用 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}，不再问解析器；其他皮肤与两参数形式相同。与两参数形式一样不拿锁。
+     *
+     * @param seed the app theme's seed, normally {@link #seed(Context)}; null draws the unseeded palette
+     */
+    public static KeyboardSkin keyboardSkin(JSONObject preferences, boolean systemDark,
+            AppThemePalette.Seed seed) {
+        if (!"system".equals(preferences.optString("global_theme", "system")))
+            return keyboardSkin(preferences, systemDark);
+        boolean dark = KeyboardSkin.resolveDark(
+            preferences.optString("screen_keyboard_theme", "follow"),
+            preferences.optString("theme", "system"), systemDark);
+        return KeyboardSkin.system(dark, seed);
+    }
+
+    /**
+     * The app theme's seed colours the host last resolved for today's season, or 秋杉 (the base theme) before the first resolution. Reads only this app's own SharedPreferences, so it may run on the main thread.
+     */
+    public static AppThemePalette.Seed seed(Context context) {
+        return AppThemeController.cachedSeed(context);
+    }
+
+    /**
+     * Run one typing-statistics action against the same directory the keyboard records into and return the raw `value` of the answer.
+     *
+     * <p>For the operations whose answers are not the statistics document itself (the derived summary, badges and the like). The directory is chosen by {@link #statisticsDirectory} so that the page and the input service never read two different stores. Takes the statistics lock; call it on a worker.
+     *
+     * @param action the action object, e.g. {@code {"operation": "summary", ...}}
+     * @return the envelope's `value`, or null when the store is unavailable or refused the action
+     */
+    @Nullable public static JSONObject statisticsAction(Context context, JSONObject action) {
+        return statisticsValue(context, action);
+    }
+
     @Nullable public static TypingStatisticsModel loadStatistics(Context context) {
         return statistics(context, action("load"));
     }
@@ -172,6 +209,11 @@ public final class HostStore {
     }
 
     @Nullable private static TypingStatisticsModel statistics(Context context, JSONObject action) {
+        return TypingStatisticsDocument.from(statisticsValue(context, action));
+    }
+
+    /** One statistics request in the shared directory; the envelope's `value`, or null for any failure. */
+    @Nullable private static JSONObject statisticsValue(Context context, @Nullable JSONObject action) {
         String directory = statisticsDirectory(context);
         if (directory.isEmpty() || action == null) return null;
         final String request;
@@ -180,7 +222,7 @@ public final class HostStore {
         } catch (JSONException error) {
             return null;
         }
-        return TypingStatisticsDocument.from(value(call(() -> NativeClient.typingStatistics(request))));
+        return value(call(() -> NativeClient.typingStatistics(request)));
     }
 
     /**

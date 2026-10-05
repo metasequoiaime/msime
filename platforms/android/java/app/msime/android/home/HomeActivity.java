@@ -16,8 +16,13 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import android.graphics.drawable.Animatable;
 import android.view.View;
+import android.view.animation.LinearInterpolator;
 import android.view.animation.PathInterpolator;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.json.JSONObject;
 import androidx.fragment.app.FragmentTransaction;
 import app.msime.android.AccountIdentity;
 import app.msime.android.CommunityRequest;
@@ -49,8 +54,10 @@ public final class HomeActivity extends AppCompatActivity {
     private static final int FIRST_TAB = R.id.tab_settings;
     private static final String STORE = "msime_home_v1";
     private static final String SPLASH_SEEN = "splash_seen";
-    /** 开屏停留的总时长：描边在 1.45 s 写完，名字和「轻点跳过」在 2.1 s 前都已站定，再留一口气。 */
+    /** 开屏停留的总时长：进度条 2.4 s 走满，再停一口气，2.8 s 交接。 */
     private static final long INTRO_HOLD_MILLIS = 2800;
+    /** 底部进度条走满的时长。 */
+    private static final long INTRO_PROGRESS_MILLIS = 2400;
     private static final long INTRO_FADE_MILLIS = 260;
     /** The design's msPop curve, cubic-bezier(.16, 1, .3, 1). */
     private static final PathInterpolator POP = new PathInterpolator(0.16f, 1f, 0.3f, 1f);
@@ -70,9 +77,16 @@ public final class HomeActivity extends AppCompatActivity {
     @Nullable private ValueAnimator breath;
     /** Whether dismissing the splash on screen should start onboarding: only a first-launch splash does, never a replay. */
     private boolean onboardingAfterIntro;
+    @Nullable private ValueAnimator progress;
+    /** 这个 activity 画出来时叠的季节（`AppMode.restore` 用的那份缓存）；没有缓存时是基础主题的秋杉。 */
+    private String drawnSeason = "autumn";
+    /** 回到前台时读共享偏好、解析应用主题用的工作线程。 */
+    private final ExecutorService themeWorker = Executors.newSingleThreadExecutor();
 
     @Override protected void onCreate(Bundle state) {
         AppMode.restore(this);
+        String cached = AppThemeController.cachedSeason(this);
+        if (cached != null) drawnSeason = cached;
         super.onCreate(state);
         Telemetry.start(this);
         AccountIdentity.register(this);
@@ -148,6 +162,40 @@ public final class HomeActivity extends AppCompatActivity {
         openDeepLink(intent);
     }
 
+    /** 每次回到前台都按今天的月份重新解析一次应用主题：「水杉四季」跨季节时，开着的页面要换成新季节的颜色。 */
+    @Override protected void onResume() {
+        super.onResume();
+        themeWorker.execute(() -> {
+            JSONObject snapshot = HostStore.prepared(this) ? HostStore.loadPreferences(this) : null;
+            JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
+            if (preferences == null) return;
+            AppThemeController.follow(this, preferences);
+            runOnUiThread(this::recreateIfSeasonChanged);
+        });
+    }
+
+    /**
+     * 刚读到的一份共享偏好：按它更新应用主题缓存，季节变了就重建。设置首页读完偏好时也调用它，所以在应用里改「应用主题」或换季都会立即生效。
+     *
+     * <p>解析是纯计算，可以在主线程调用。
+     */
+    void followAppTheme(@Nullable JSONObject preferences) {
+        if (preferences == null) return;
+        AppThemeController.follow(this, preferences);
+        recreateIfSeasonChanged();
+    }
+
+    private void recreateIfSeasonChanged() {
+        if (isFinishing() || isDestroyed()) return;
+        String season = AppThemeController.cachedSeason(this);
+        if (season == null || season.equals(drawnSeason)) return;
+        // 开屏正在放时不打断它：放完之后下一次回到前台再换。
+        View intro = findViewById(R.id.home_intro);
+        if (intro != null && intro.getVisibility() == View.VISIBLE) return;
+        drawnSeason = season;
+        recreate();
+    }
+
     @Override protected void onPostResume() {
         super.onPostResume();
         Intent link = pendingLink;
@@ -198,9 +246,9 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     /**
-     * 开场：光晕浮起，那枚标自己写一遍，名字随后升上来，停满 2.8 秒或被轻点后让开。
+     * 开场：本季底色上光晕浮起，浅色圆盘弹入，那枚标随后旋入并自己写一遍，名字与拉丁名升上来，底部进度条 2.4 秒走满，停满 2.8 秒或被轻点后让开。
      *
-     * <p>Drawn by the app rather than by the platform's splash screen. The theme attributes for it were configured and on this device nothing used them — a splash background set to pure red never appeared in a hundred recorded frames. Timing follows the design's keyframes: msPop for the halo (0.8 s) and the mark (0.7 s), msDraw for the stroke (1.05 s from 0.4 s, in the animated vector), msFadeUp for the three lines of text at 1.1, 1.35 and 1.6 s, and msBreath on the halo from 1.4 s.
+     * <p>Drawn by the app rather than by the platform's splash screen. Timing follows the design's keyframes: msCircIn for the disc (0.65 s), msLogoIn for the mark (0.6 s from 0.25 s, turning in from -30°), the stroke drawn by the animated vector, msRipple on the ring twice from 1.45 s, the name and the Latin line fading up at 0.9 and 1.1 s, and msBreath on the halo from 1.4 s.
      */
     private void playIntro(boolean leadsToOnboarding) {
         View intro = findViewById(R.id.home_intro);
@@ -214,17 +262,34 @@ public final class HomeActivity extends AppCompatActivity {
         View glow = findViewById(R.id.home_intro_glow);
         stopBreath();
         pop(glow, 800, 0, EASE);
+        View disc = findViewById(R.id.home_intro_disc);
+        pop(disc, 650, 0, POP);
         ImageView mark = findViewById(R.id.home_intro_mark);
-        pop(mark, 700, 0, POP);
+        mark.animate().cancel();
+        mark.setAlpha(0f);
+        mark.setScaleX(0.6f);
+        mark.setScaleY(0.6f);
+        mark.setRotation(-30f);
+        mark.animate().alpha(1f).scaleX(1f).scaleY(1f).rotation(0f)
+            .setDuration(600).setStartDelay(250).setInterpolator(POP).start();
         if (mark.getDrawable() instanceof Animatable animatable) {
             animatable.stop();
             animatable.start();
         }
-        fadeUp(findViewById(R.id.home_intro_name), 1100);
-        fadeUp(findViewById(R.id.home_intro_latin), 1350);
-        fadeUp(findViewById(R.id.home_intro_skip), 1600);
+        ripple(findViewById(R.id.home_intro_ring));
+        fadeUp(findViewById(R.id.home_intro_name), 900);
+        fadeUp(findViewById(R.id.home_intro_latin), 1100);
 
-        // One half-cycle of msBreath is 1.2 s, run back and forth until the splash leaves. It starts from where the pop ends (fully lit, full size) and dims while it swells, so there is no jump at 1.4 s; the prototype's keyframes restart at 55 % opacity there.
+        ProgressBar bar = findViewById(R.id.home_intro_progress);
+        if (progress != null) progress.cancel();
+        bar.setProgress(0);
+        progress = ValueAnimator.ofInt(0, bar.getMax());
+        progress.setDuration(INTRO_PROGRESS_MILLIS);
+        progress.setInterpolator(new LinearInterpolator());
+        progress.addUpdateListener(animation -> bar.setProgress((int) animation.getAnimatedValue()));
+        progress.start();
+
+        // One half-cycle of msBreath is 1.2 s, run back and forth until the splash leaves. It starts from where the pop ends (fully lit, full size) and dims while it swells, so there is no jump at 1.4 s.
         breath = ValueAnimator.ofFloat(0f, 1f);
         breath.setDuration(1200);
         breath.setStartDelay(1400);
@@ -241,6 +306,24 @@ public final class HomeActivity extends AppCompatActivity {
 
         intro.removeCallbacks(dismissIntro);
         intro.postDelayed(dismissIntro, INTRO_HOLD_MILLIS);
+    }
+
+    /** 设计的 msRipple：圆盘外的圆环从圆盘大小放到 1.2 倍并淡出，1.45 s 起放两次，每次 1.2 s。 */
+    private static void ripple(View ring) {
+        ring.animate().cancel();
+        ring.setAlpha(0f);
+        ring.setScaleX(1f);
+        ring.setScaleY(1f);
+        ring.animate().setStartDelay(1450).setDuration(0).withEndAction(() -> rippleOnce(ring, 2)).start();
+    }
+
+    private static void rippleOnce(View ring, int remaining) {
+        if (remaining <= 0) return;
+        ring.setAlpha(0.5f);
+        ring.setScaleX(1f);
+        ring.setScaleY(1f);
+        ring.animate().alpha(0f).scaleX(1.2f).scaleY(1.2f).setStartDelay(0).setDuration(1200)
+            .setInterpolator(EASE).withEndAction(() -> rippleOnce(ring, remaining - 1)).start();
     }
 
     private final Runnable dismissIntro = this::dismissIntro;
@@ -268,6 +351,8 @@ public final class HomeActivity extends AppCompatActivity {
     private void stopBreath() {
         if (breath != null) breath.cancel();
         breath = null;
+        if (progress != null) progress.cancel();
+        progress = null;
     }
 
     /** Light status and navigation bar icons over the splash's dark field; the theme's own choice for the day or night page afterwards. */
@@ -298,6 +383,7 @@ public final class HomeActivity extends AppCompatActivity {
 
     @Override protected void onDestroy() {
         stopBreath();
+        themeWorker.shutdownNow();
         super.onDestroy();
     }
 
