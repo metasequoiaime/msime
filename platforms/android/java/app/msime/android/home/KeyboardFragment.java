@@ -13,6 +13,9 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import app.msime.android.AndroidLocalSettings;
 import app.msime.android.AppEdition;
@@ -77,8 +80,9 @@ public final class KeyboardFragment extends HomeTabFragment {
 
         View bar = view.findViewById(R.id.keyboard_bar);
         int threshold = Ui.dp(requireContext(), Ui.COLLAPSE_THRESHOLD);
-        ((NestedScrollView) view.findViewById(R.id.keyboard_scroll)).setOnScrollChangeListener(
-            (NestedScrollView.OnScrollChangeListener) (scroll, x, y, oldX, oldY) -> {
+        NestedScrollView scroll = view.findViewById(R.id.keyboard_scroll);
+        scroll.setOnScrollChangeListener(
+            (NestedScrollView.OnScrollChangeListener) (scrolled, x, y, oldX, oldY) -> {
                 boolean collapsed = y > threshold;
                 if (collapsed == (bar.getVisibility() == View.VISIBLE)) return;
                 bar.animate().cancel();
@@ -90,6 +94,17 @@ public final class KeyboardFragment extends HomeTabFragment {
                     bar.setAlpha(0f);
                 }
             });
+        // 和 DetailPage 一样：底部留出 tab 栏加系统导航栏的高度，键盘弹出时改留键盘的高度，最后一组和搜索结果才能滚到可见处。
+        int base = Ui.dp(requireContext(), Ui.PAGE_PADDING_BOTTOM);
+        int tabs = Ui.dp(requireContext(), Ui.TAB_BAR_HEIGHT);
+        ViewCompat.setOnApplyWindowInsetsListener(scroll, (target, insets) -> {
+            Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+            int bottom = Math.max(bars.bottom + tabs, ime.bottom) + base;
+            target.setPadding(target.getPaddingLeft(), target.getPaddingTop(), target.getPaddingRight(), bottom);
+            return insets;
+        });
+        ViewCompat.requestApplyInsets(scroll);
         buildRows(view);
         render();
         reload();
@@ -144,8 +159,10 @@ public final class KeyboardFragment extends HomeTabFragment {
     private void reload() {
         HostTask.run(this, context -> {
             boolean ready = HostStore.prepared(context);
-            return new Object[] {ready, ready ? HostStore.loadPreferences(context) : null,
-                AndroidLocalSettings.load(context)};
+            JSONObject loadedSnapshot = ready ? HostStore.loadPreferences(context) : null;
+            // 应用主题要读本地设置文件并调两次 Rust 解析，留在工作线程做；主线程只比较缓存的季节。
+            if (loadedSnapshot != null) AppThemeController.follow(context, loadedSnapshot.optJSONObject("preferences"));
+            return new Object[] {ready, loadedSnapshot, AndroidLocalSettings.load(context)};
         }, result -> {
             if (result != null) {
                 prepared = Boolean.TRUE.equals(result[0]);
@@ -156,7 +173,7 @@ public final class KeyboardFragment extends HomeTabFragment {
                     // The colour mode may have been changed in the keyboard, the shared settings page or by sync since the host last looked; a change recreates this activity in the new mode.
                     AppMode.follow(requireContext(), preferences);
                     // 应用主题同理：换了主题或换了季节，HomeActivity 用新季节重建。
-                    if (getActivity() instanceof HomeActivity home) home.followAppTheme(preferences);
+                    if (getActivity() instanceof HomeActivity home) home.recreateIfSeasonChanged();
                 }
             }
             loaded = true;
@@ -342,12 +359,16 @@ public final class KeyboardFragment extends HomeTabFragment {
     // ---- row values ----
 
     private static String keysSummary(JSONObject preferences, AndroidLocalSettings.Snapshot local) {
-        int height = local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-            ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
-            : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", 0);
+        // 和键盘页一样按百分比显示：存的是 dp 调整量，MIN_VALUE 表示没有设置（即 100 %），超出范围的旧值先夹紧再换算。
+        int percent = KeyboardGeometry.heightAdjustmentToPercent(
+            local.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
+                ? local.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
+                : KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         String layout = "nine_key".equals(preferences.optString("touch_keyboard_layout", "twenty_six_key"))
             ? "九键" : "全键盘";
-        return height == 0 ? layout + " · 标准高度" : layout + " · 高度 " + (height > 0 ? "+" : "") + height;
+        return percent == KeyboardGeometry.DEFAULT_HEIGHT_PERCENT
+            ? layout + " · 标准高度"
+            : layout + " · 高度 " + KeyboardGeometry.displayPercent(percent);
     }
 
     private static String voiceLanguage(JSONObject preferences) {

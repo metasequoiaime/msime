@@ -68,7 +68,7 @@ public final class ExpressionPage extends DetailPage {
     }
 
     private void loadDiscover() {
-        HostTask.run(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.PHRASE, "", 0, null),
+        HostTask.runNetwork(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.PHRASE, "", 0, null),
             page -> {
                 if (page == null || page.failed()) {
                     discover = null;

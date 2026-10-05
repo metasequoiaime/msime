@@ -176,17 +176,9 @@ public final class HomeActivity extends AppCompatActivity {
     }
 
     /**
-     * 刚读到的一份共享偏好：按它更新应用主题缓存，季节变了就重建。设置首页读完偏好时也调用它，所以在应用里改「应用主题」或换季都会立即生效。
-     *
-     * <p>解析是纯计算，可以在主线程调用。
+     * 缓存的季节和画出来的不一样时重建。设置首页在工作线程里按刚读到的偏好 {@link AppThemeController#follow} 之后也调用它，所以在应用里改「应用主题」或换季都会立即生效。只比较 SharedPreferences 里的缓存，不读文件、不调 Rust。
      */
-    void followAppTheme(@Nullable JSONObject preferences) {
-        if (preferences == null) return;
-        AppThemeController.follow(this, preferences);
-        recreateIfSeasonChanged();
-    }
-
-    private void recreateIfSeasonChanged() {
+    void recreateIfSeasonChanged() {
         if (isFinishing() || isDestroyed()) return;
         String season = AppThemeController.cachedSeason(this);
         if (season == null || season.equals(drawnSeason)) return;

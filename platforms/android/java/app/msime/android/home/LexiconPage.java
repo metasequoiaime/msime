@@ -136,7 +136,7 @@ public final class LexiconPage extends DetailPage {
     }
 
     private void loadDiscover() {
-        HostTask.run(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.DICTIONARY, "", 0, null),
+        HostTask.runNetwork(this, context -> new CommunityCatalog(context).list(CommunityRequest.Kind.DICTIONARY, "", 0, null),
             page -> {
                 if (page == null || page.failed()) {
                     discover = null;
