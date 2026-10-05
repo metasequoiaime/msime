@@ -54,6 +54,13 @@ public final class CandidateGlossModelSmoke {
             "strict fallback rejects fractions");
         check(CandidateGlossPolicy.strictOr(Boolean.TRUE, -1) == -1,
             "strict fallback rejects booleans");
+        check(CandidateGlossPolicy.strictString("hello").equals("hello"),
+            "JSON strings are accepted");
+        for (Object invalid : new Object[] {
+                null, Long.valueOf(7), Boolean.TRUE, java.util.List.of("hello"),
+                java.util.Map.of("text", "hello")}) {
+            expectFailure(() -> CandidateGlossPolicy.strictString(invalid));
+        }
 
         System.out.println("Android candidate gloss model: bounds, priority and stale guards passed");
     }

@@ -34,6 +34,12 @@ public final class CandidateGlossPolicy {
         }
     }
 
+    /** Read a JSON string without org.json's implicit scalar-to-string coercion. */
+    public static String strictString(Object value) {
+        if (!(value instanceof String)) throw new IllegalArgumentException("Expected JSON string");
+        return (String) value;
+    }
+
     /** Engine annotations (for example Wubi codes) occupy the shared hint slot first. */
     public static String annotation(
             String engineAnnotation, String translation, boolean glossEnabled) {

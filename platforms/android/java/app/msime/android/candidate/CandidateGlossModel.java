@@ -37,7 +37,7 @@ public final class CandidateGlossModel {
         for (int index = 0; index < candidates.length(); index++) {
             JSONObject candidate = candidates.optJSONObject(index);
             if (candidate == null) throw new IllegalArgumentException("Invalid candidate entry");
-            String text = candidate.optString("text", "");
+            String text = CandidateGlossPolicy.strictString(candidate.opt("text"));
             long source = CandidateGlossPolicy.strictInteger(candidate.opt("source"));
             if (!CandidateGlossPolicy.validEntry(text) || source < 0 || source > 255)
                 throw new IllegalArgumentException("Invalid candidate entry");
@@ -68,8 +68,8 @@ public final class CandidateGlossModel {
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.optJSONObject(index);
             if (entry == null) throw new IllegalArgumentException("Invalid candidate gloss entry");
-            String text = entry.optString("text", "");
-            String translation = entry.optString("translation", "");
+            String text = CandidateGlossPolicy.strictString(entry.opt("text"));
+            String translation = CandidateGlossPolicy.strictString(entry.opt("translation"));
             if (!CandidateGlossPolicy.validEntry(text)
                     || !CandidateGlossPolicy.validEntry(translation))
                 throw new IllegalArgumentException("Invalid candidate gloss entry");
