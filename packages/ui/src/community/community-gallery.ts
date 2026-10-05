@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import { appendUniqueById } from "./community-helpers";
 import { communityReportedNotice, type CommunityReportReason } from "./community-report";
-import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 
 export type CommunityGalleryPage<T> = {
@@ -53,7 +52,6 @@ export function useCommunityGallery<T extends { id: string }>({
   const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<T | null>(null);
-  const [actionBusy, setActionBusy] = useState(false);
   const [actionNotice, setActionNotice] = useState("");
   const [mineOnly, setMineOnly] = useState(initialMine);
   const [signInRequired, setSignInRequired] = useState(false);
@@ -64,11 +62,16 @@ export function useCommunityGallery<T extends { id: string }>({
   const activeSearch = useRef("");
   const activeMine = useRef(initialMine);
   const {
+    busy: actionBusy,
     mounted,
-    clientGeneration,
-    actionRunning: actionBusyRef,
-    isCurrent,
-  } = useCommunityClientLifecycle(client, errorMessage, needsSignIn);
+    running: actionBusyRef,
+    generation: clientGeneration,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, undefined, client, errorMessage, needsSignIn);
+  const isCurrent = useCallback(
+    (generation: number) => mounted.current && generation === clientGeneration.current,
+    [],
+  );
 
   const fail = useCallback(
     (failure: unknown) => {
@@ -127,7 +130,6 @@ export function useCommunityGallery<T extends { id: string }>({
   );
 
   useEffect(() => {
-    setActionBusy(false);
     void requestList("", false, activeMine.current);
   }, [client, requestList]);
 
@@ -174,22 +176,6 @@ export function useCommunityGallery<T extends { id: string }>({
     setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   }, []);
 
-  const beginAction = useCallback(() => {
-    if (!selected || actionBusy) return null;
-    if (actionBusyRef.current) return null;
-    actionBusyRef.current = true;
-    setActionBusy(true);
-    return clientGeneration.current;
-  }, [actionBusy, selected]);
-
-  const endAction = useCallback(
-    (generation: number) => {
-      if (isCurrent(generation)) setActionBusy(false);
-      if (isCurrent(generation)) actionBusyRef.current = false;
-    },
-    [isCurrent],
-  );
-
   const runAction = useCallback(
     (
       action: (generation: number) => Promise<void>,
@@ -197,30 +183,20 @@ export function useCommunityGallery<T extends { id: string }>({
     ) => {
       if (actionBusyRef.current || actionBusy) return Promise.resolve();
       const generation = clientGeneration.current;
-      actionBusyRef.current = true;
       setSignInRequired(false);
-      return runAsyncAction(
-        {
-          busy: actionBusy,
-          isCurrent: () => isCurrent(generation),
-          setBusy: setActionBusy,
-          setError,
-          setNotice: options.clearNotice ? setActionNotice : undefined,
-        },
-        () => action(generation),
-        {
+      if (options.clearNotice) setActionNotice("");
+      return (
+        runAsyncAction(() => action(generation), {
           formatError: errorMessage,
           ignoreError: options.ignoreError,
           onError: (failure) => {
             setSignInRequired(needsSignIn(failure));
             options.onError?.(failure);
           },
-        },
-      ).finally(() => {
-        if (isCurrent(generation)) actionBusyRef.current = false;
-      });
+        }) ?? Promise.resolve()
+      );
     },
-    [actionBusy, errorMessage, isCurrent, needsSignIn],
+    [actionBusy, actionBusyRef, clientGeneration, errorMessage, needsSignIn, runAsyncAction],
   );
 
   const rateSelected = useCallback(
@@ -300,9 +276,7 @@ export function useCommunityGallery<T extends { id: string }>({
     rateSelected,
     unpublishSelected,
     reportSelected,
-    beginAction,
     isCurrent,
-    endAction,
     runAction,
   };
 }
