@@ -17,7 +17,8 @@ export type TouchKeyboardScheme =
   | "zhuyin"
   | "vietnamese"
   | "tibetan"
-  | "stroke";
+  | "stroke"
+  | "zhuyin_nine_key";
 export type TouchKeyboardSchemePreferences = {
   enabled: TouchKeyboardScheme[];
   selected?: TouchKeyboardScheme;
@@ -39,6 +40,8 @@ export function touchKeyboardSchemeInputScheme(scheme: TouchKeyboardScheme): Inp
     case "japanese":
     case "japanese_nine_key":
       return "japanese";
+    case "zhuyin_nine_key":
+      return "zhuyin";
     case "wubi":
     case "korean":
     case "cantonese":
@@ -76,6 +79,7 @@ export function touchKeyboardSchemeTitle(preferences: Preferences): string {
       vietnamese: "越南语 26 键",
       tibetan: "藏文 26 键",
       stroke: "笔画",
+      zhuyin_nine_key: "注音 9 键",
     }[selected];
   }
   // 韩语、粤拼、注音、越南语、藏文和笔画各只有一个键盘，不管文档里记的是哪种布局。
@@ -111,6 +115,7 @@ export const touchKeyboardSchemeOptions: [TouchKeyboardScheme, string][] = [
   ["vietnamese", "越南语 26 键"],
   ["tibetan", "藏文 26 键"],
   ["stroke", "笔画"],
+  ["zhuyin_nine_key", "注音 9 键"],
 ];
 /** Every touch scheme in picker order; schemes are appended, never reordered. Mirrors `TouchKeyboardScheme::ALL` in client-core. */
 export const allTouchKeyboardSchemes = touchKeyboardSchemeOptions.map(([scheme]) => scheme);
@@ -121,7 +126,8 @@ export const defaultTouchKeyboardSchemes: TouchKeyboardScheme[] = allTouchKeyboa
     scheme !== "zhuyin" &&
     scheme !== "vietnamese" &&
     scheme !== "tibetan" &&
-    scheme !== "stroke",
+    scheme !== "stroke" &&
+    scheme !== "zhuyin_nine_key",
 );
 
 /**
@@ -135,6 +141,13 @@ export function inferredTouchKeyboardScheme(
   const selected = preferences.touch_keyboard_schemes?.selected;
   if (selected && enabled.includes(selected)) return selected;
   const scheme = preferences.scheme;
+  // 注音的九键布局只有 Android 写（zhuyin_nine_key 打开且布局是 nine_key 时）；桌面为全拼九宫格留下的 nine_key 不算。
+  if (
+    scheme === "zhuyin" &&
+    preferences.touch_keyboard_layout === "nine_key" &&
+    enabled.includes("zhuyin_nine_key")
+  )
+    return "zhuyin_nine_key";
   // 粤拼、注音、越南语、藏文和笔画有各自的触屏键盘（笔画键盘在 26 键和九键布局下都显示）；键盘没打开时显示记住的中文方案的键盘。
   if (
     (scheme === "cantonese" ||
@@ -235,6 +248,14 @@ export function selectTouchKeyboardScheme(
       scheme: selected,
       last_chinese_scheme: rememberedChineseScheme(preferences),
       touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes,
+    };
+  if (selected === "zhuyin_nine_key")
+    return {
+      ...preferences,
+      scheme: "zhuyin",
+      last_chinese_scheme: "zhuyin",
+      touch_keyboard_layout: "nine_key",
       touch_keyboard_schemes,
     };
   if (selected === "cantonese" || selected === "zhuyin" || selected === "stroke")

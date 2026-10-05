@@ -379,9 +379,24 @@ test("touch hosts offering Cantonese, Zhuyin, Vietnamese, Tibetan and Stroke lis
     within(group)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace("✓", "")),
-  ).toEqual([...touchSchemeLabels, "粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]);
-  expect(within(group).getAllByRole("switch")).toHaveLength(16);
-  for (const label of ["粤拼 26 键", "大千注音", "越南语 26 键", "藏文 26 键", "笔画"]) {
+  ).toEqual([
+    ...touchSchemeLabels,
+    "粤拼 26 键",
+    "大千注音",
+    "越南语 26 键",
+    "藏文 26 键",
+    "笔画",
+    "注音 9 键",
+  ]);
+  expect(within(group).getAllByRole("switch")).toHaveLength(17);
+  for (const label of [
+    "粤拼 26 键",
+    "大千注音",
+    "越南语 26 键",
+    "藏文 26 键",
+    "笔画",
+    "注音 9 键",
+  ]) {
     expect(
       (screen.getByRole("switch", { name: `显示输入方案 ${label}` }) as HTMLInputElement).checked,
     ).toBe(false);
