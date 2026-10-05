@@ -8,7 +8,11 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.view.View;
 
-/** Small deterministic keyboard miniature used by the in-keyboard skin picker. */
+/**
+ * Small deterministic keyboard miniature used by the in-keyboard skin picker.
+ *
+ * <p>{@link #drawTile} 是新皮肤面板瓷砖用的版本：圆角裁切的面板底色上画三行无字的小键帽和一个 accent 回车，瓷砖只有七八十 dp 宽，字已经看不清。{@link #drawPreview} 保留给仍需要带字缩略图的地方。
+ */
 public final class KeyboardSkinPreview extends View {
     private KeyboardSkin skin;
 
@@ -72,4 +76,63 @@ public final class KeyboardSkinPreview extends View {
             }
         }
     }
+
+    /** 瓷砖缩略图：裁成圆角，铺皮肤背景，画三行键帽（无字），最后一行右端是 accent 回车。 */
+    public static void drawTile(Canvas canvas, RectF bounds, float radius, KeyboardSkin skin,
+                                float density) {
+        if (bounds.width() <= 0 || bounds.height() <= 0) return;
+        int saved = canvas.save();
+        android.graphics.Path clip = new android.graphics.Path();
+        clip.addRoundRect(bounds, radius, radius, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clip);
+        KeyboardSkinBackgroundDrawable background =
+            new KeyboardSkinBackgroundDrawable(skin, density);
+        background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
+            Math.round(bounds.right), Math.round(bounds.bottom));
+        background.draw(canvas);
+        int[] counts = tileRowCounts();
+        float pad = bounds.width() * .1f;
+        float gap = Math.max(1f, bounds.width() * .035f);
+        float area = bounds.height() - pad * 2;
+        float rowHeight = (area - gap * (counts.length - 1)) / counts.length;
+        Paint key = new Paint(Paint.ANTI_ALIAS_FLAG);
+        RectF rect = new RectF();
+        float keyRadius = Math.max(1f, rowHeight * .22f);
+        for (int row = 0; row < counts.length; row++) {
+            int count = counts[row];
+            float width = (bounds.width() - pad * 2 - gap * (count - 1)) / count;
+            float top = bounds.top + pad + row * (rowHeight + gap);
+            for (int index = 0; index < count; index++) {
+                float left = bounds.left + pad + index * (width + gap);
+                boolean enter = row == counts.length - 1 && index == count - 1;
+                key.setColor(Color.parseColor(enter ? skin.accent() : skin.keyBackground()));
+                rect.set(left, top, left + width, top + rowHeight);
+                canvas.drawRoundRect(rect, keyRadius, keyRadius, key);
+            }
+        }
+        canvas.restoreToCount(saved);
+    }
+
+    /** 「跟随系统」瓷砖：135° 对角线把浅色与深色对半分。 */
+    public static void drawSplit(Canvas canvas, RectF bounds, float radius, int light, int dark) {
+        if (bounds.width() <= 0 || bounds.height() <= 0) return;
+        int saved = canvas.save();
+        android.graphics.Path clip = new android.graphics.Path();
+        clip.addRoundRect(bounds, radius, radius, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clip);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(light);
+        canvas.drawRect(bounds, paint);
+        android.graphics.Path half = new android.graphics.Path();
+        half.moveTo(bounds.right, bounds.top);
+        half.lineTo(bounds.right, bounds.bottom);
+        half.lineTo(bounds.left, bounds.bottom);
+        half.close();
+        paint.setColor(dark);
+        canvas.drawPath(half, paint);
+        canvas.restoreToCount(saved);
+    }
+
+    /** 瓷砖缩略图每行的键数。 */
+    public static int[] tileRowCounts() { return new int[] {5, 5, 3}; }
 }

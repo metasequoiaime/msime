@@ -20,6 +20,8 @@ import android.widget.TextView;
  * <p>Every card takes the skin's accent, as the master does. The per-family colours this replaced
  * -- 双拼蓝, 五笔棕, 日语粉, 手写青, 回复橙 -- were fixed system colours, so under a dark or custom skin
  * they were not grouping anything, only sitting apart from the keys and the candidate strip.
+ *
+ * <p>新设计的网格瓷砖样式走 {@link #paintTile}：没有卡片底色，未选中的字形、角标和标题用 kbFg，选中的用 accent、标题加粗，对勾挪到字形右下角（替换角标的位置）。旧的 {@link #paint} 保留，调用方切换前行为不变。
  */
 public final class KeyboardSchemeCard extends FrameLayout {
     private static final float CARD_RADIUS_DP = 13f;
@@ -37,6 +39,8 @@ public final class KeyboardSchemeCard extends FrameLayout {
     private final TextView badge;
     private final TextView title;
     private final View check;
+    private final FrameLayout.LayoutParams checkCornerParams;
+    private final FrameLayout.LayoutParams checkBadgeParams;
     private boolean selected;
 
     public KeyboardSchemeCard(Context context, String glyphText, String badgeText,
@@ -89,6 +93,10 @@ public final class KeyboardSchemeCard extends FrameLayout {
 
         FrameLayout.LayoutParams checkParams = new FrameLayout.LayoutParams(checkSize, checkSize);
         checkParams.leftMargin = glyphSize + pixels(1);
+        checkCornerParams = checkParams;
+        checkBadgeParams = new FrameLayout.LayoutParams(checkSize, checkSize);
+        checkBadgeParams.leftMargin = glyphSize + pixels(4) - checkSize;
+        checkBadgeParams.topMargin = top + glyphSize + pixels(OVERHANG_BOTTOM_DP) - checkSize;
         cluster.addView(check, checkParams);
 
         LinearLayout column = new LinearLayout(context);
@@ -127,6 +135,9 @@ public final class KeyboardSchemeCard extends FrameLayout {
      */
     public void paint(int accent, int keyBackground, boolean isSelected) {
         selected = isSelected;
+        if (check.getLayoutParams() != checkCornerParams) check.setLayoutParams(checkCornerParams);
+        badge.setVisibility(View.VISIBLE);
+        title.setTypeface(android.graphics.Typeface.DEFAULT);
         // 选中与未选中的差别落在底色和这一档透明度上，不落在色相上。
         int face = isSelected ? accent : fade(accent, .78f);
         setBackground(rounded(isSelected ? fade(accent, .12f) : Color.TRANSPARENT,
@@ -138,6 +149,28 @@ public final class KeyboardSchemeCard extends FrameLayout {
         badge.setBackgroundColor(keyBackground);
         title.setTextColor(face);
         check.setBackground(checkMark(accent, keyBackground));
+        check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * 按新设计的网格瓷砖样式上色：无底色，未选中用 {@code foreground}（kbFg），选中用 {@code accent} 且标题加粗，对勾落在字形右下角并替换角标。
+     *
+     * <p>和 {@link #paint} 一样要在键盘的样式通道之后调用。{@code panelBackground} 是面板底色（kbBg），用来断开字形框边线。
+     */
+    public void paintTile(int accent, int foreground, int panelBackground, boolean isSelected) {
+        selected = isSelected;
+        int face = isSelected ? accent : foreground;
+        setBackground(null);
+        glyph.setTextColor(face);
+        glyph.setBackground(outlined(face, pixels(GLYPH_RADIUS_DP), pixels(GLYPH_BORDER_DP)));
+        badge.setTextColor(face);
+        badge.setBackgroundColor(panelBackground);
+        badge.setVisibility(isSelected || badge.getText().length() == 0 ? View.INVISIBLE : View.VISIBLE);
+        title.setTextColor(face);
+        title.setTypeface(isSelected ? android.graphics.Typeface.DEFAULT_BOLD
+            : android.graphics.Typeface.DEFAULT);
+        if (check.getLayoutParams() != checkBadgeParams) check.setLayoutParams(checkBadgeParams);
+        check.setBackground(checkMark(accent, panelBackground));
         check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
     }
 
