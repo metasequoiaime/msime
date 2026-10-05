@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("Linux setup page reuses the shared mounted lifecycle hook", () => {
+test("Linux setup page reuses the shared async action lifecycle", () => {
   const source = Object.values(
     import.meta.glob<string>("../../../../packages/ui/src/account/linux-setup-page.tsx", {
       eager: true,
@@ -9,6 +9,7 @@ test("Linux setup page reuses the shared mounted lifecycle hook", () => {
     }),
   )[0];
 
-  expect(source).toContain("useMountedRef()");
   expect(source).not.toContain("const mounted = useRef(true)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });
