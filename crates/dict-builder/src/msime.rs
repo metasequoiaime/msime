@@ -397,7 +397,7 @@ const QUICK_PHRASES: CodeTable = CodeTable {
     code_first: true,
 };
 
-fn parse_code_line(line: &str, code_first: bool) -> Option<(String, &str, i64)> {
+pub(crate) fn parse_code_line(line: &str, code_first: bool) -> Option<(String, &str, i64)> {
     let comment = if code_first {
         line.trim_start_matches(text::is_space)
     } else {
@@ -470,8 +470,18 @@ fn write_code_table<'a>(
     Ok((imported, skipped))
 }
 
-pub fn build_wubi(connection: &mut Connection, path: &Path) -> Result<(usize, usize)> {
-    build_code_table(connection, &WUBI86, path)
+/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight.
+pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize)> {
+    let sources = paths
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let rows = sources.iter().flat_map(|source| {
+        text::universal_lines(text::without_bom(source))
+            .into_iter()
+            .map(|line| parse_code_line(line, false))
+    });
+    write_code_table(connection, &WUBI86, rows)
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
@@ -526,7 +536,7 @@ pub fn build_wubi98_sources(
     write_code_table(connection, &WUBI98, rows).map(|(imported, _)| (imported, skipped))
 }
 
-fn decode_utf16le(bytes: &[u8]) -> Result<String> {
+pub(crate) fn decode_utf16le(bytes: &[u8]) -> Result<String> {
     if !bytes.len().is_multiple_of(2) || !bytes.starts_with(&[0xff, 0xfe]) {
         bail!("not UTF-16LE with a byte-order mark");
     }
@@ -538,7 +548,7 @@ fn decode_utf16le(bytes: &[u8]) -> Result<String> {
 }
 
 /// `value<TAB>code`, the code one to four of the letters a to y (z is the wildcard and the pinyin fallback, never a code).
-fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
+pub(crate) fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
     let [value, key] = line.split('\t').collect::<Vec<_>>()[..] else {
         return None;
     };
@@ -547,7 +557,7 @@ fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
 }
 
 /// 解析 Fcitx5 table-extra 的 UTF-8 98 五笔表中的“编码 空格 词语”行。表头和规则区忽略，只接受由一到四个小写字母组成的编码。
-fn parse_fcitx_wubi98_line(line: &str) -> Option<(&str, String)> {
+pub(crate) fn parse_fcitx_wubi98_line(line: &str) -> Option<(&str, String)> {
     let (key, value) = line.split_once(' ')?;
     let key = key.trim();
     let value = value.trim();
@@ -920,7 +930,7 @@ mod tests {
             "\u{feff}工\ta\t20\r\n工\tA\t30\r\n戈\ta\t10\n# c\nx\t1a\t1\n戒\taa\n戒\taa\t-1\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi(&mut connection, &wubi).unwrap(), (3, 4));
+        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (3, 4));
         let wubi_rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi86 order by weight")
             .unwrap()

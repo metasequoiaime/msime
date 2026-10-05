@@ -8,6 +8,7 @@
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
 //! msime-dict-build places-supplement --cache <dir> --out <places.txt> [--offline]
 //! msime-dict-build english-supplement --cache <dir> --out <scowl-words.txt> [--offline]
+//! msime-dict-build wubi86-supplement --cache <dir> --out <wubi86-supplement.txt> [--offline]
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
 //! msime-dict-build languages --cache <dir> [--out <dir>] [--offline] [--dictionary <msime-dictionary checkout>]
@@ -36,6 +37,7 @@ mod sqlite;
 mod stroke;
 mod text;
 mod web;
+mod wubi86_supplement;
 mod zhuyin;
 
 use std::collections::HashSet;
@@ -57,7 +59,7 @@ enum Stage {
     CustomWords,
     /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
     ReadingCorrections,
-    /// 86 wubi table in msime-pinyin.db
+    /// 86 wubi table in msime-pinyin.db, from sources/wubi/wubi86-jidian.txt and then sources/wubi/wubi86-supplement.txt (both pinned from msime-dictionary)
     Wubi,
     /// 98 wubi table in msime-pinyin.db
     Wubi98,
@@ -152,6 +154,8 @@ enum Command {
     PlacesSupplement(PlacesSupplement),
     /// Write msime-dictionary's sources/english/scowl-words.txt: the words of SCOWL's size-60 Aspell dictionary (American plus British -ise spellings, pinned under scowl/) that the pinned rime-ice word lists (entries and commented-out entries) and custom/english.txt lack, less slurs, capitalised-only names spelling a pinyin key and words without a Google count (see english_supplement.rs).
     EnglishSupplement(EnglishSupplement),
+    /// Write msime-dictionary's sources/wubi/wubi86-supplement.txt: the words of two or more Han characters the pinned 86 table (sources/wubi/wubi86-jidian.txt) lacks that the 98 tables list or that sources/pinyin/rime-ice.txt has as two-character words at a weight of 5000 or more, coded by the 86 word rules from the 86 table's single-character codes and weighted below the 86 table's rows of the same code (see wubi86_supplement.rs).
+    Wubi86Supplement(Wubi86Supplement),
     /// 从 sources lock 固定的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
     /// Write msime-dictionary's sources/cantonese/hkcancor-word-counts.txt: how often each word of two or more Han characters occurs in the HKCanCor transcriptions pinned under hkcancor/ in the sources lock.
@@ -421,6 +425,80 @@ fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
     eprintln!(
         "[done] {} words -> {}",
         supplement.words.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct Wubi86Supplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/wubi/wubi86-supplement.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+}
+
+fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
+    let root = &arguments.repository;
+    let sources = Sources {
+        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: None,
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let wubi98_path = sources.pinned(wubi86_supplement::WUBI98)?;
+    let wubi98 = msime::decode_utf16le(&std::fs::read(&wubi98_path)?)
+        .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+    let (jidian, wubi98_fcitx, base) = (
+        read(wubi86_supplement::JIDIAN)?,
+        read(wubi86_supplement::WUBI98_FCITX)?,
+        read(wubi86_supplement::BASE)?,
+    );
+    let supplement = wubi86_supplement::build(&wubi86_supplement::Inputs {
+        jidian: &jidian,
+        wubi98: &wubi98,
+        wubi98_fcitx: &wubi98_fcitx,
+        base: &base,
+    })?;
+    let inputs = [
+        wubi86_supplement::JIDIAN,
+        wubi86_supplement::WUBI98,
+        wubi86_supplement::WUBI98_FCITX,
+        wubi86_supplement::BASE,
+    ]
+    .into_iter()
+    .map(|path| {
+        let file = sources
+            .lock
+            .files
+            .iter()
+            .find(|file| file.path == path)
+            .with_context(|| format!("{path} is not pinned in the sources lock"))?;
+        Ok((path, file.sha256.as_str()))
+    })
+    .collect::<Result<Vec<_>>>()?;
+    let rendered = wubi86_supplement::render(
+        &supplement,
+        &wubi86_supplement::Provenance { inputs: &inputs },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in wubi86_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    eprintln!(
+        "[done] {} words -> {}",
+        supplement.entries.len(),
         arguments.out.display()
     );
     Ok(())
@@ -780,9 +858,11 @@ impl Build {
                 Ok(format!("{} entries: {removed} rows removed", entries.len()))
             }
             Stage::Wubi => {
+                let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
+                let supplement = self.sources.pinned(wubi86_supplement::OUTPUT)?;
                 let (imported, skipped) = msime::build_wubi(
                     &mut self.database("msime-pinyin.db")?,
-                    &self.sources.pinned("sources/wubi/wubi86-jidian.txt")?,
+                    &[jidian.as_path(), supplement.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
@@ -1023,6 +1103,9 @@ fn main() -> Result<()> {
     }
     if let Some(Command::EnglishSupplement(supplement)) = &arguments.command {
         return build_english_supplement(supplement);
+    }
+    if let Some(Command::Wubi86Supplement(supplement)) = &arguments.command {
+        return build_wubi86_supplement(supplement);
     }
     if let Some(Command::Hanja(hanja)) = &arguments.command {
         return build_hanja(hanja);
