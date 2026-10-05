@@ -327,6 +327,7 @@ final class ImeLayoutRows {
                 previous.removeView(s.nineKeySpellingScroll);
             sidebar.addView(s.nineKeySpellingScroll, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            placeSpellingRow(false);
         }
         container.addView(sidebar, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
@@ -525,6 +526,9 @@ final class ImeLayoutRows {
         // 最后一行：@# 符号面板、0（仍在 8 的正下方）、逗号和句号各占半格。
         LinearLayout lastRow = new LinearLayout(s);
         Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号面板", s.imePanels::showSymbolPanel), "SoftSymbol");
+        // 四行挤进三行高，键比标准键矮；按钮默认的上下内边距和字体留白会把 @# 的下半截裁掉。
+        symbolsKey.setIncludeFontPadding(false);
+        symbolsKey.setPadding(symbolsKey.getPaddingLeft(), 0, symbolsKey.getPaddingRight(), 0);
         if (symbolsKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(lastRow, symbolsKey);
         addNineKey(lastRow, zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.zero()));
@@ -582,6 +586,22 @@ final class ImeLayoutRows {
                 previous.removeView(s.nineKeySpellingScroll);
             s.candidateViewport.addView(s.nineKeySpellingScroll, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+            placeSpellingRow(true);
+        }
+    }
+
+    /**
+     * 选择条里那排按钮在两个位置的摆法：叠在候选行上（注音 9 键）时铺满整行高并垂直居中，否则按内容高度贴在行顶，下面空出一截；挂回拼音九键侧栏时恢复按内容高度、贴顶，侧栏第一格才是当前拼音。
+     */
+    private void placeSpellingRow(boolean candidateRow) {
+        if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
+        s.nineKeySpellingScroll.setFillViewport(candidateRow);
+        s.nineKeySpellings.setGravity(candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
+        if (s.nineKeySpellings.getLayoutParams() != null) {
+            s.nineKeySpellings.getLayoutParams().height = candidateRow
+                ? android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                : android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+            s.nineKeySpellings.requestLayout();
         }
     }
 
