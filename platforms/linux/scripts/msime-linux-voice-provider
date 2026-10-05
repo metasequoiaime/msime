@@ -1416,8 +1416,9 @@ def main():
     server.hotword_corrector = msime_voice_local.HotwordCorrector(host_library_path())
     identity = args.socket.stat() if service_lock is not None else None
 
+    # Raising from the handler lost the stop whenever the signal landed in a weakref callback, where Python reports the exception and carries on, and the provider then served on past its terminate. Stop the loop from another thread instead: shutdown() waits for serve_forever, which this thread is running.
     def stop(signum, frame):
-        raise KeyboardInterrupt()
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, stop)
     try:
