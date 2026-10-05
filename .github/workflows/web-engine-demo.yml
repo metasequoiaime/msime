@@ -1,6 +1,6 @@
 name: Web Engine Demo
 
-# 把 packages/web-engine/demo 部署到 GitHub Pages（https://metasequoiaime.github.io/msime/），作为 @msime/web-engine 的在线演示和宣传页。examples/static-site 是给开发者照抄的最简模板，不在这里部署。
+# 把 packages/web-engine/demo 部署到 GitHub Pages（https://wasm.msime.app/，自定义域名在仓库的 Pages 设置里，DNS 是 Cloudflare 上 msime.app 的 CNAME wasm → metasequoiaime.github.io，必须是 DNS only，否则 GitHub 签不了证书），作为 @msime/web-engine 的在线演示和宣传页。examples/static-site 是给开发者照抄的最简模板，不在这里部署。
 #
 # 演示页在 demo/package.json 里写死它用的 SDK 版本，SDK 取那个版本的 web-engine-vX.Y.Z release 附带的 msime-web-engine-X.Y.Z.tgz（与 npm 上的包逐字节相同，也不受 npm 刚发布时的同步延迟影响）。页面跟着 develop 改，随时部署；要用新版 SDK 的功能，就在新版本发布后把那里的版本号改上去，页面代码和 SDK 永远对得上。
 on:
