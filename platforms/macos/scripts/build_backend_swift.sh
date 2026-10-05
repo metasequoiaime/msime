@@ -10,7 +10,7 @@ while IFS= read -r source; do
   if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
 done < <(find "$root/shared/backend/account" "$root/shared/backend/clients" "$root/shared/backend/content" "$root/shared/backend/storage" "$root/shared/backend-ui" "$root/platforms/macos/src/backend" -type f -name '*.swift' -print | sort)
 deployment=${MACOSX_DEPLOYMENT_TARGET:-13.0}
-# CMake passes its build configuration here. A Release build is what package-release.sh ships, so it is optimised for size as one module, dead-stripped and, once built, stripped of local symbols; strip -x keeps the global @_cdecl entry points (_MSIME*) the input method binds and the Objective-C classes it looks up by name. Any other configuration, and a run without CMake, keeps swiftc's default -Onone for debugging. The test harnesses compile the same sources themselves with an explicit -Onone and do not go through this script.
+# CMake 把构建配置传到这里。package-release.sh 发布的是 Release 构建，所以它按整模块优化体积、做 dead strip，编完再剥掉局部符号；`strip -x` 保留输入法要绑定的全局 `@_cdecl` 入口（`_MSIME*`）和它按名字查找的 Objective-C 类。其他配置以及不经过 CMake 的运行都保持 swiftc 默认的 `-Onone`，便于调试。测试框架自己用显式的 `-Onone` 编译同一批源文件，不经过这个脚本。
 release=false
 if [[ ${MSIME_SWIFT_CONFIGURATION:-} == Release ]]; then release=true; fi
 optimisation=()

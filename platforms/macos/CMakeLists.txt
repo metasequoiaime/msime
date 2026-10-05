@@ -123,10 +123,12 @@ if(NOT MSIME_BUNDLE_ARCHITECTURES)
 endif()
 string(REPLACE ";" " " MSIME_SWIFT_ARCHS "${MSIME_BUNDLE_ARCHITECTURES}")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
-# MSIME_SWIFT_CONFIGURATION lets the script optimise, dead-strip and strip the Release dylib the package ships; every other configuration stays at -Onone.
+# `MSIME_SWIFT_CONFIGURATION` 让脚本对发布包用的 Release dylib 做优化、dead strip 和剥离符号，其他配置都保持 `-Onone`。命令行上的配置变了 Makefile 生成器不会重跑这条命令，所以用 `file(CONFIGURE)` 把当前配置写进一个只在内容变化时才重写的 stamp 文件并加入 DEPENDS，换配置后复用的构建目录也会重新编 MSIMEBackend.dylib，不会把 `-Onone` 的后端打进包里。
+set(MSIME_SWIFT_CONFIGURATION_STAMP "${CMAKE_CURRENT_BINARY_DIR}/swift-backend-configuration.txt")
+file(CONFIGURE OUTPUT "${MSIME_SWIFT_CONFIGURATION_STAMP}" CONTENT "${CMAKE_BUILD_TYPE}\n")
 add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
   COMMAND "${CMAKE_COMMAND}" -E env "MSIME_SWIFT_ARCHS=${MSIME_SWIFT_ARCHS}" "MSIME_SWIFT_CONFIGURATION=$<CONFIG>" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
-  DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh")
+  DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_CONFIGURATION_STAMP}")
 add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTPUT}")
@@ -1116,7 +1118,7 @@ set(MSIME_OPTIONAL_BACKEND_SYMBOLS
   _msime_macos_uninstall_input_source)
 # The input method links MSIMEBackend.dylib itself, but a toolchain older than Swift 6.2 builds that without the on-device translation entry point (BackendOnDeviceGloss.swift), which the controller then finds null.
 target_link_options(MSIMEClientInputMethod PRIVATE "LINKER:-U,_MSIMEFetchOnDeviceCandidateGlosses")
-# CMake links the Rust host staticlib into the input method, so Cargo's own -dead_strip never reaches it, and without it ld64 keeps every archive member one export touches (image, rink, rustls and more that the input method never calls). Release only: in a link experiment it cut the arm64 executable from 43 MB to 27 MB. Objective-C classes and categories stay because ld64 treats __objc_classlist as a root, and nothing resolves the executable's own symbols by name; the _MSIME* entry points it binds live in MSIMEBackend.dylib.
+# Rust 宿主的 staticlib 由 CMake 链进输入法，Cargo 自己的 `-dead_strip` 管不到这里；不加它的话，ld64 会保留任何一个导出牵连到的所有归档成员（image、rink、rustls 等输入法从不调用的库）。只在 Release 加：链接实验里 arm64 可执行文件从 43 MB 降到 27 MB。Objective-C 类和 category 不受影响，因为 ld64 把 `__objc_classlist` 当作根；也没有任何地方按名字解析可执行文件自己的符号，它绑定的 `_MSIME*` 入口都在 MSIMEBackend.dylib 里。
 target_link_options(MSIMEClientInputMethod PRIVATE "$<$<CONFIG:Release>:LINKER:-dead_strip>")
 get_property(MSIME_DIRECTORY_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
