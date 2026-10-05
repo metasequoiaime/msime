@@ -34,6 +34,15 @@ impl AiSkinRequests {
     }
 }
 
+pub(crate) fn finish_after_worker<T, E>(
+    requests: &AiSkinRequests,
+    id: &str,
+    result: Result<T, E>,
+) -> Result<T, E> {
+    requests.finish(id);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +79,15 @@ mod tests {
         requests.cancel("synthetic-request").unwrap();
         assert!(!first.load(Ordering::Acquire));
         assert!(second.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn worker_failure_still_releases_request_id() {
+        let requests = AiSkinRequests::default();
+        let _ = requests.begin("synthetic-request").unwrap();
+        let failed: Result<(), &str> =
+            finish_after_worker(&requests, "synthetic-request", Err("worker"));
+        assert_eq!(failed, Err("worker"));
+        assert!(requests.begin("synthetic-request").is_ok());
     }
 }

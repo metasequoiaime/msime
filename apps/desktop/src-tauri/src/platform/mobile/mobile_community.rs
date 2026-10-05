@@ -30,7 +30,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use tauri::{Emitter, State, Wry};
 
-use super::mobile_ai_skin_requests::AiSkinRequests;
+use super::mobile_ai_skin_requests::{finish_after_worker, AiSkinRequests};
 use super::MobileStorage;
 
 type Session = BackendAccountSession<BackendAccountClient, MobileStorage>;
@@ -144,7 +144,7 @@ pub async fn ai_skin_generate(
     let service = Arc::clone(&state.ai_skin);
     let progress_app = app.clone();
     let progress_request_id = request_id.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let worker_result = tauri::async_runtime::spawn_blocking(move || {
         service.generate(&prompt, &cancelled, move |completed| {
             let _ = progress_app.emit(
                 "ai-skin-progress",
@@ -155,13 +155,12 @@ pub async fn ai_skin_generate(
             );
         })
     })
-    .await
-    .map_err(|_| crate::CommandError {
-        code: "ai_skin_unavailable",
-    })?
-    .map_err(ai_skin_error);
-    state.ai_skin_requests.finish(&request_id);
-    result
+    .await;
+    finish_after_worker(&state.ai_skin_requests, &request_id, worker_result)
+        .map_err(|_| crate::CommandError {
+            code: "ai_skin_unavailable",
+        })
+        .and_then(|result| result.map_err(ai_skin_error))
 }
 
 #[tauri::command]
