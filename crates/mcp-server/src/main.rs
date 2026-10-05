@@ -50,6 +50,37 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            Ok(config::Command::Expand {
+                config,
+                code,
+                scheme,
+                limit,
+                json,
+            }) => {
+                let mut arguments = serde_json::Map::new();
+                arguments.insert("code".into(), code.into());
+                if let Some(scheme) = scheme {
+                    arguments.insert("scheme".into(), scheme.into());
+                }
+                if let Some(limit) = limit {
+                    arguments.insert("limit".into(), limit.into());
+                }
+                (config, Some(cli::Action::Expand { arguments, json }))
+            }
+            Ok(config::Command::ShowConfig { config, json }) => {
+                (config, Some(cli::Action::ShowConfig { json }))
+            }
+            Ok(config::Command::SetConfig {
+                config,
+                changes,
+                json,
+            }) => (
+                config,
+                Some(cli::Action::SetConfig {
+                    changes: changes.into_iter().collect(),
+                    json,
+                }),
+            ),
             Ok(config::Command::Help) => {
                 eprintln!("{}", config::USAGE);
                 return ExitCode::SUCCESS;

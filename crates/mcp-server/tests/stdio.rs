@@ -670,6 +670,56 @@ fn the_command_line_runs_the_same_tools() {
 }
 
 #[test]
+fn expand_and_config_print_lines_for_testing_by_hand() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = fixture(directory.path());
+
+    // expand 不需要另加 --allow-dictionary-read；方案默认是用户当前的（这里是全拼），五笔词要指定 --scheme。
+    let (code, lines, error) =
+        run_cli_text(&options, &["expand", "aaaa", "--scheme", "wubi"], None);
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+    let (code, view, error) = run_cli(
+        &options,
+        &["expand", "aaaa", "--scheme", "wubi", "--json"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(view["candidates"][0]["text"], "合成工");
+    let (code, _, error) = run_cli_text(&options, &["expand", "AAAA"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("lowercase"), "{error}");
+
+    let (code, before, error) = run_cli_text(&options, &["config"], None);
+    assert_eq!(code, 0, "{error}");
+    assert!(
+        before.lines().any(|line| line == "scheme = quanpin"),
+        "{before}"
+    );
+
+    // config set 自己读 revision，并且不需要另加 --allow-write。
+    let (code, after, error) = run_cli_text(
+        &options,
+        &["config", "set", "scheme=wubi", "candidate_page_size=9"],
+        None,
+    );
+    assert_eq!(code, 0, "{error}");
+    assert!(after.lines().any(|line| line == "scheme = wubi"), "{after}");
+    assert!(
+        after.lines().any(|line| line == "candidate_page_size = 9"),
+        "{after}"
+    );
+    // 下一次运行读到的就是新的偏好：expand 不指定方案也按五笔查。
+    let (code, lines, error) = run_cli_text(&options, &["expand", "aaaa"], None);
+    assert_eq!(code, 0, "{error}");
+    assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
+
+    let (code, _, error) = run_cli_text(&options, &["config", "set", "no_such_key=1"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("no_such_key"), "{error}");
+}
+
+#[test]
 fn writes_from_separate_runs_are_spaced_out_too() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());

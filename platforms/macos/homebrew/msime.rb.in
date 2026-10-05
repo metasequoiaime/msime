@@ -20,6 +20,8 @@ cask "msime" do
   app "MSIME.app"
   # The MCP server AI assistants run, on PATH for those configured from a terminal.
   binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp"
+  # 同一个程序再以 msime 的名字放上 PATH，方便在终端里手动敲 msime expand、msime config。
+  binary "#{appdir}/MSIME.app/Contents/MacOS/msime-mcp", target: "msime"
 
   # The settings app copies the input method here on its first launch.
   uninstall quit:   ["app.msime.macos", "app.msime.inputmethod.MetasequoiaIME"],
