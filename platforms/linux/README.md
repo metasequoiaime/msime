@@ -186,11 +186,7 @@ cd aur-msime && git add PKGBUILD .SRCINFO msime.install && git commit -m "Update
 
 `msime-bin` 同理，仓库换成 `ssh://aur@aur.archlinux.org/msime-bin.git`，文件取 `defs/arch/msime-bin/`。再把 `defs/arch/` 下的两个目录拷回 `platforms/linux/packaging/arch/`，经普通 PR 合入 `develop`，让仓库里的副本与 AUR 一致。
 
-**Fedora COPR**（首次：`copr-cli create msime --chroot fedora-43-x86_64 --chroot fedora-43-aarch64 --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 --description '水杉输入法'`，构建默认不联网，正合需要）：
-
-```sh
-copr-cli build <owner>/msime defs/rpm/msime-V-1.src.rpm
-```
+**Fedora COPR**：项目 `msime/msime`（<https://copr.fedorainfracloud.org/coprs/msime/msime/>），chroot 为 Fedora 43/44 的 x86_64 与 aarch64，构建不联网。Fedora 用户执行 `sudo dnf copr enable msime/msime && sudo dnf install msime`。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-copr.yml`：从 `linux-vV` 的 spec 打出 SRPM，`copr-cli build` 提交并等待构建结束，失败会显示在这次运行上（需要仓库 secret `COPR_CONFIG`，即 <https://copr.fedorainfracloud.org/api/> 给出的整段 `~/.config/copr`；缺少时跳过并告警）。COPR 的 API token 有效期 180 天，过期时工作流报错并指向重新生成的页面，剩不到 30 天时告警。补发或重建某个版本用 `gh workflow run publish-linux-copr.yml -f version=V`。新增 Fedora 版本时在项目设置里勾选对应 chroot，或用 `copr-cli modify msime --chroot <每个要保留和新增的 chroot>`（这个选项给的是完整列表）。
 
 **openSUSE OBS** 是官方的发行版仓库：项目 `home:msime`（<https://build.opensuse.org/project/show/home:msime>），同时构建 RPM 与 Debian 包，目前覆盖 Fedora 43/44（x86_64、aarch64）、openSUSE Tumbleweed、Ubuntu 24.04/26.04 与 Debian testing/unstable（x86_64）。用户经 `curl -fsSL https://msime.app/install.sh | sh` 安装（脚本在 msime-web 仓库的 `public/install.sh`），它按发行版添加 `https://download.opensuse.org/repositories/home:/msime/<仓库>/` 和签名公钥，再用 dnf、zypper 或 apt 安装 `msime`；之后的升级随系统更新到来。Release Linux 在发布页生成后自动调用 `.github/workflows/publish-linux-obs.yml`，把这个版本的打包定义和源码包提交到 OBS（需要仓库 secret `OBS_USER`/`OBS_PASSWORD`，缺少时跳过并告警）；补发或重发某个版本用 `gh workflow run publish-linux-obs.yml -f version=V`。项目配置在 `packaging/obs/`：`repositories.txt` 列出构建哪些仓库（Ubuntu 要显式列出 `universe-update`、`update`、`universe`、`standard` 四个源，rustc 1.91 只在 `universe-update` 里），`prjconf` 固定 Ubuntu 上 cargo/rustc 的候选包与 Debian 上 libselinux 的提供者，`_constraints` 要求 8 GB 内存与 40 GB 磁盘，`publish.sh VERSION DEFS RELEASE` 据此写入项目 meta 并提交，本地运行时用 `osc` 当前登录的账号。Debian 12/13、Ubuntu 22.04 和 openSUSE Leap 不在其中：前两者的 rustc 低于 1.90，Ubuntu 22.04 的 Fcitx5 低于 5.0.20，Leap 不在 OBS 的发行版列表里（见 `repositories.txt` 的注释）。
 
