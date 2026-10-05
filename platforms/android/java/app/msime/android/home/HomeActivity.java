@@ -22,12 +22,13 @@ import androidx.fragment.app.FragmentTransaction;
 import app.msime.android.AccountIdentity;
 import app.msime.android.CommunityRequest;
 import app.msime.android.FirstRunPreparation;
+import app.msime.android.HostDeepLink;
 import app.msime.android.core.Telemetry;
 import app.msime.android.R;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
- * The host app: four tabs over one fragment container, matching the Apple app's shell.
+ * 宿主主界面：底部四个 tab 共用一个 Fragment 容器，详情页压在同一个容器里。
  *
  * First-run dictionary preparation is started from here, because this is the launcher and there is
  * nowhere else the user reliably arrives. It never enables or selects the input method on their
@@ -36,6 +37,10 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
  * Each tab is created once and then hidden rather than replaced. Replacing tore the page down on
  * every switch: coming back to 社区 re-fetched the listing over the network and threw away how far
  * the user had scrolled, and 统计 forgot which of its four segments was open.
+ *
+ * <p>导航只有一个回退栈：{@link SettingsNavigator} 把详情页压进 `home_content`（底部导航保持可见），返回一层弹出一页，栈空了再回到第一个 tab，再返回才离开应用。切到别的 tab 或再点一次当前 tab 都先清空栈，所以返回不会把用户带回另一个 tab 里的旧页面。进程被杀后 FragmentManager 自己恢复 tab 页和栈，这里不会再添加一遍。
+ *
+ * <p>本 Activity 是 exported 的：{@link HostDeepLink} 形式的 Intent 在 `onCreate`（首次创建时）和 `onNewIntent` 里解析，页面只按 `PageId` 的枚举名映射，不认识的忽略，参数只影响导航。
  */
 public final class HomeActivity extends AppCompatActivity {
     private static final String STATE_TAB = "home-tab";
@@ -56,6 +61,8 @@ public final class HomeActivity extends AppCompatActivity {
 
     private BottomNavigationView tabs;
     private OnBackPressedCallback back;
+    /** 保存状态之后才到达的深链，等回到前台再执行。 */
+    @Nullable private Intent pendingLink;
     private int selected = FIRST_TAB;
     @Nullable private CommunityRequest.Kind pendingKind;
     /** A tab whose kept instance is stale and has to be built again on the next switch to it. */
@@ -87,13 +94,18 @@ public final class HomeActivity extends AppCompatActivity {
         });
         intro.setOnClickListener(ignored -> dismissIntro());
 
-        // Back returns to the first tab before it leaves the app, which is what a bottom bar leads
-        // the user to expect. On the first tab the callback is off and the system default runs, so
-        // leaving still gets the platform's own back animation rather than a bare finish().
+        // 返回先一层层弹出详情页，栈空了回到第一个 tab，最后才离开应用，这是底部导航让用户预期的顺序。
+        // 只用这一个回调：它在 FragmentManager 自己的回调之后注册、优先级更高，两个都处理返回会在有栈时把 tab 也切走。
+        // 在第一个 tab 的根页时回调关闭，交给系统默认处理，离开应用仍有平台自己的返回动画，而不是光秃秃的 finish()。
         back = new OnBackPressedCallback(false) {
-            @Override public void handleOnBackPressed() { tabs.setSelectedItemId(FIRST_TAB); }
+            @Override public void handleOnBackPressed() {
+                FragmentManager manager = getSupportFragmentManager();
+                if (manager.getBackStackEntryCount() > 0) manager.popBackStack();
+                else tabs.setSelectedItemId(FIRST_TAB);
+            }
         };
         getOnBackPressedDispatcher().addCallback(this, back);
+        getSupportFragmentManager().addOnBackStackChangedListener(this::updateBack);
 
         // 第一次打开：先放开屏，放完（或被轻点跳过）再走引导——这台设备还没见过它，而它讲的正是「键盘怎么用起来」。
         // A rotation is not an arrival and plays nothing; if it lands mid-splash, the handover to onboarding that the splash owed is paid here instead.
@@ -109,17 +121,58 @@ public final class HomeActivity extends AppCompatActivity {
         }
 
         if (state != null) selected = state.getInt(STATE_TAB, FIRST_TAB);
+        // 先在没有监听器时标出选中项，再装监听器：否则这一下会被当成「再点一次当前 tab」而清掉恢复回来的回退栈。
+        tabs.setSelectedItemId(selected);
         tabs.setOnItemSelectedListener(item -> {
-            show(item.getItemId());
+            selectTab(item.getItemId());
             return true;
         });
-        show(selected);
-        tabs.setSelectedItemId(selected);
+        // 再点一次当前 tab：回到这个 tab 的根页。
+        tabs.setOnItemReselectedListener(item -> clearStack());
+        // 进程恢复时 FragmentManager 已经把 tab 页和回退栈原样还原（包括谁被藏起来），有栈时再 show 会把栈底的 tab 页叠到详情页上面。
+        if (getSupportFragmentManager().getBackStackEntryCount() == 0) show(selected);
+        updateBack();
 
         // The shipped dictionary is prepared on first run without the user having to find a button
         // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
         // out of. Existing configurations are reported, never overwritten.
         FirstRunPreparation.startIfNeeded(this);
+
+        // 只有首次创建才执行 Intent 里的深链：旋转、换深浅模式和进程恢复时 getIntent() 还是那一个，再执行一遍会把用户已经离开的页面又压回来。
+        if (state == null) openDeepLink(getIntent());
+    }
+
+    @Override protected void onNewIntent(@NonNull Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openDeepLink(intent);
+    }
+
+    @Override protected void onPostResume() {
+        super.onPostResume();
+        Intent link = pendingLink;
+        pendingLink = null;
+        if (link != null) openDeepLink(link);
+    }
+
+    /**
+     * 执行一个 {@link HostDeepLink}：先回到目标 tab 的根页，再按需压入页面。
+     *
+     * <p>页面名只经 {@link PageId#fromName} 映射，不认识就当作只给了 tab；参数原样交给页面，并带着 `HostDeepLink.ARG_EXTERNAL`，页面据此只把它用于导航和滚动。
+     */
+    private void openDeepLink(@Nullable Intent intent) {
+        HostDeepLink.Request request = HostDeepLink.read(intent);
+        if (request.isEmpty()) return;
+        if (getSupportFragmentManager().isStateSaved()) {
+            pendingLink = intent;
+            return;
+        }
+        PageId page = PageId.fromName(request.page);
+        int tab = page != null ? page.tab() : request.tab;
+        if (tab == HostDeepLink.NO_TAB) return;
+        selectTabIndex(tab);
+        clearStack();
+        if (page != null) SettingsNavigator.push(this, page, request.args);
     }
 
     /**
@@ -259,6 +312,40 @@ public final class HomeActivity extends AppCompatActivity {
         if (tabs != null) tabs.setSelectedItemId(itemId);
     }
 
+    /** 当前 tab 的下标，取值是 `HostDeepLink.TAB_*`。 */
+    int selectedTabIndex() {
+        for (int i = 0; i < TAB_IDS.length; i++) {
+            if (TAB_IDS[i] == selected) return i;
+        }
+        return HostDeepLink.TAB_SETTINGS;
+    }
+
+    /** 按下标切 tab（`HostDeepLink.TAB_*`）；切换时清空回退栈。 */
+    void selectTabIndex(int index) {
+        if (!HostDeepLink.isTab(index)) return;
+        openTab(TAB_IDS[index]);
+    }
+
+    /** 底部导航的选中项变了：换 tab 之前先把详情页全部弹出。 */
+    private void selectTab(int itemId) {
+        if (itemId != selected) clearStack();
+        show(itemId);
+    }
+
+    /** 弹出所有详情页，回到当前 tab 的根页。 */
+    private void clearStack() {
+        FragmentManager manager = getSupportFragmentManager();
+        if (manager.getBackStackEntryCount() == 0 || manager.isStateSaved()) return;
+        manager.popBackStackImmediate(manager.getBackStackEntryAt(0).getId(),
+            FragmentManager.POP_BACK_STACK_INCLUSIVE);
+    }
+
+    /** 返回键由我们处理的条件：有详情页可弹，或者不在第一个 tab。 */
+    private void updateBack() {
+        if (back == null) return;
+        back.setEnabled(getSupportFragmentManager().getBackStackEntryCount() > 0 || selected != FIRST_TAB);
+    }
+
     /**
      * Switch to the community tab and open it on one kind of work.
      *
@@ -268,6 +355,7 @@ public final class HomeActivity extends AppCompatActivity {
     public void openCommunity(CommunityRequest.Kind kind) {
         pendingKind = kind;
         rebuild = R.id.tab_community;
+        clearStack();
         if (selected == R.id.tab_community) show(R.id.tab_community);
         else openTab(R.id.tab_community);
     }
@@ -275,7 +363,7 @@ public final class HomeActivity extends AppCompatActivity {
     private void show(int itemId) {
         boolean switching = selected != itemId;
         selected = itemId;
-        back.setEnabled(itemId != FIRST_TAB);
+        updateBack();
         FragmentManager manager = getSupportFragmentManager();
         FragmentTransaction transaction = manager.beginTransaction();
         // Fade-through between tabs: the page arriving fades in from 94 % scale while the one leaving is hidden at once, as the M3 navigation bar pattern prescribes. The first show on create and a rebuild of the tab already on screen are not arrivals, so they appear without it.

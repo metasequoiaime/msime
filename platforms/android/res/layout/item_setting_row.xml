@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A Material 3 list row: a 24dp leading glyph in the secondary text colour, the title, and the current value as a supporting line under it. No chevron and no divider: M3 lists separate groups by space, and the value line already says the row leads somewhere. row_chevron stays for the pickers that put a check mark there; it is hidden otherwise. -->
+<!-- 设置首页那种导航行：24dp 的线框图标用次要文字色，标题下面一行是当前值，没有 › 也没有分隔线，按压时是主题的波纹。尺寸按设计：最小高 60、左右 20、图标与文字间 12、两行文字间 1。row_chevron 留给在这一位置放 ✓ 的选择器，平时隐藏。颜色全部取 M3 主题属性，季节主题改的就是这些属性。 -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -9,11 +9,11 @@
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
-    android:minHeight="56dp"
+    android:minHeight="60dp"
     android:orientation="horizontal"
-    android:paddingStart="24dp"
+    android:paddingStart="20dp"
     android:paddingTop="8dp"
-    android:paddingEnd="24dp"
+    android:paddingEnd="20dp"
     android:paddingBottom="8dp">
 
     <com.google.android.material.imageview.ShapeableImageView
@@ -21,21 +21,22 @@
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:importantForAccessibility="no"
-        app:tint="@color/text_secondary"
+        android:scaleType="fitCenter"
+        app:tint="?attr/colorOnSurfaceVariant"
         app:shapeAppearanceOverlay="@style/Shape.Badge" />
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="12dp"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/row_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/ink"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="16sp" />
 
         <TextView
@@ -43,7 +44,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="1dp"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/colorOnSurfaceVariant"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -52,7 +53,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
-        android:textColor="@color/forest"
+        android:textColor="?attr/colorPrimary"
         android:textSize="18sp"
         android:visibility="gone" />
 </LinearLayout>
