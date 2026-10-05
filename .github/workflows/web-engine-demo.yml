@@ -1,0 +1,58 @@
+name: Web Engine Demo
+
+# 把 packages/web-engine/examples/static-site 部署到 GitHub Pages（https://metasequoiaime.github.io/msime/），作为 @msime/web-engine 的在线演示。
+#
+# 演示页的代码和它加载的 SDK 必须是同一个版本：examples 里的页面跟着 develop 走，可能已经用上还没发布的 SDK 选项。所以这里不取 develop，而是取最新 web-engine-vX.Y.Z 标签那个提交上的示例，SDK 用同一个 release 附带的 msime-web-engine-X.Y.Z.tgz（与 npm 上的包逐字节相同，也不受 npm 刚发布时的同步延迟影响）。Release Web Engine 发布成功后自动部署一次，也可以手动触发。
+on:
+  workflow_run:
+    workflows: [Release Web Engine]
+    types: [completed]
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: web-engine-demo, cancel-in-progress: false}
+jobs:
+  build:
+    # 只构建、不发布的 Release Web Engine 运行不产生新的 release，没有必要重新部署。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Find the latest web engine release
+        id: release
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}"}
+        run: |
+          set -euo pipefail
+          tag=$(gh release list --limit 100 --json tagName,isDraft --jq '[.[] | select(.isDraft | not) | select(.tagName | test("^web-engine-v[0-9]+\\.[0-9]+\\.[0-9]+$"))][0].tagName')
+          [[ -n "$tag" && "$tag" != null ]] || { echo "no web-engine-vX.Y.Z release found" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#web-engine-v}" >> "$GITHUB_OUTPUT"
+          echo "Deploying the demo for $tag"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ steps.release.outputs.tag }}", persist-credentials: false}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Build the demo site with the release's SDK
+        working-directory: packages/web-engine/examples/static-site
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", TAG: "${{ steps.release.outputs.tag }}", VERSION: "${{ steps.release.outputs.version }}"}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --pattern "msime-web-engine-${VERSION}.tgz" --dir "$RUNNER_TEMP"
+          # 本地 tgz 路径要以 ./ 或绝对路径给出，否则 npm 会把它当成 GitHub 简写。
+          npm install --no-audit --no-fund --no-save "$RUNNER_TEMP/msime-web-engine-${VERSION}.tgz"
+          npm run build
+          test -f site/msime/assets/msime_engine_bg.wasm
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with: {path: packages/web-engine/examples/static-site/site}
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {pages: write, id-token: write}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
