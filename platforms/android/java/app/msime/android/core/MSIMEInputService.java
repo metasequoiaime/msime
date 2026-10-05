@@ -4,6 +4,7 @@ import android.inputmethodservice.InputMethodService;
 import app.msime.android.core.Telemetry;
 import android.app.AlertDialog;
 import android.content.ClipDescription;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -158,7 +159,6 @@ public final class MSIMEInputService extends InputMethodService {
     LinearLayout emojiTabs;
     ScrollView emojiGridScroll;
     LinearLayout emojiGrid;
-    TextView emojiStatus;
     private SeekBar keySpacingSlider;
     private SeekBar rowSpacingSlider;
     private SeekBar keyboardHeightSlider;
@@ -3694,7 +3694,7 @@ public final class MSIMEInputService extends InputMethodService {
                 emojiLoading = false;
                 if (result == null) {
                     emojiComplete = true;
-                    if (emojiStatus != null) emojiStatus.setText("表情目录暂时不可用；点分类重试");
+                    imePanels.showEmojiStatus("表情目录暂时不可用；点分类重试");
                     return;
                 }
                 java.util.ArrayList<EmojiCatalogModel.Item> combined =
@@ -3878,6 +3878,7 @@ public final class MSIMEInputService extends InputMethodService {
                 customTheme.put("keyboard", new JSONObject(design.toString()));
                 preferences.put("custom_theme", customTheme);
                 preferences.put("global_theme", "custom");
+                applyDesignFeedback(preferences, design);
             }
         } catch (JSONException error) {
             showKeyboardSkinStatus("皮肤切换失败，保留当前皮肤");
@@ -3901,6 +3902,32 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (RuntimeException error) {
             finishKeyboardSkinSave(operation, targetSession, targetDirectory, null);
         }
+    }
+
+    /** 自定义设计带的按键音与按键动画（P23）一起写进偏好：音效包进 `plugins.key_sound.pack`，动画进 `touch_key_animation`；「静音」不改音效包，只是不播（本地按键音开关）。 */
+    private static void applyDesignFeedback(JSONObject preferences, JSONObject design) throws JSONException {
+        CustomKeyboardSkin feedback = CustomKeyboardSkin.from(design);
+        preferences.put("touch_key_animation", feedback.pressAnimation());
+        if (CustomKeyboardSkin.SILENT_SOUND_PACK.equals(feedback.soundPack())) return;
+        JSONObject plugins = preferences.optJSONObject("plugins");
+        if (plugins == null) return;
+        JSONObject keySound = plugins.optJSONObject("key_sound");
+        if (keySound == null) return;
+        keySound.put("pack", feedback.soundPack());
+    }
+
+    /** 用户在键盘里换了一款皮肤：记进打字统计（徽章「换装达人」），隐私情况下不记。 */
+    void recordSkinStatistics(String id) {
+        String directory = typingStatisticsDirectory();
+        if (id == null || id.isEmpty() || !ImePrivacyGate.recordsTyping(directory, id)) return;
+        final String request;
+        try {
+            request = new JSONObject().put("directory", directory).put("action",
+                new JSONObject().put("operation", "record_skin").put("id", id)).toString();
+        } catch (JSONException error) {
+            return;
+        }
+        submitTypingStatistics(request, null, engineStartGeneration);
     }
 
     private void finishKeyboardSkinSave(long operation, long targetSession, String targetDirectory,
@@ -3933,6 +3960,7 @@ public final class MSIMEInputService extends InputMethodService {
         }
         imeStyler.applySkin();
         render();
+        imePanels.finishSkinPick();
     }
 
     /** Finish the Engine composition before handing the input connection to another IME. */
@@ -5387,6 +5415,38 @@ public final class MSIMEInputService extends InputMethodService {
         @Override public boolean onTouchEvent(MotionEvent event) { return false; }
     }
 
+    /**
+     * 键盘外框：高度只由第一个子视图（键区本身）决定，其余子视图都是盖在键区上的面板，按键区的高度排布，底边让出键区的系统栏内边距。
+     *
+     * <p>表情面板曾经覆盖整屏，根因在这里：外框原是普通 FrameLayout，输入法窗口给它 AT_MOST 整屏高度，它取所有可见子视图里最高的那个；表情面板是竖排 LinearLayout，里面权重为 1、高度为 0 的网格 ScrollView 在非 EXACTLY 测量下按 WRAP_CONTENT 测，ScrollView 再以 UNSPECIFIED 测整张表情表，于是面板想要几千像素高，被截到整屏，外框跟着变成整屏，键盘窗口也就盖满了屏幕。现在面板永远拿到键区的 EXACTLY 高度，内容再多也只能在面板里滚动。
+     */
+    static final class PanelSurface extends FrameLayout {
+        /** 需要铺满整块键区（含系统栏内边距）的覆盖层，例如按键气泡；其余面板不压在手势条上。 */
+        final java.util.Set<View> fullBleed = new java.util.HashSet<>();
+
+        PanelSurface(Context context) {
+            super(context);
+        }
+
+        @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            View base = getChildCount() == 0 ? null : getChildAt(0);
+            if (base == null || base.getVisibility() == GONE) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+            measureChildWithMargins(base, widthMeasureSpec, 0, heightMeasureSpec, 0);
+            int height = base.getMeasuredHeight() + getPaddingTop() + getPaddingBottom();
+            int inset = base.getPaddingBottom();
+            for (int index = 1; index < getChildCount(); index++) {
+                View child = getChildAt(index);
+                if (fullBleed.contains(child)
+                        || !(child.getLayoutParams() instanceof FrameLayout.LayoutParams params)) continue;
+                params.bottomMargin = inset;
+            }
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+    }
+
     @Override public View onCreateInputView() {
         cancelInputViewRefresh();
         deactivateHandwriting();
@@ -5405,7 +5465,8 @@ public final class MSIMEInputService extends InputMethodService {
         communityReplyLibrary = files == null ? null : new CommunityReplyLibrary(files.toPath());
         if (!clipboardHistoryEnabled) clipboardHistory.clearQuietly();
         keyboardRoot = new FrameLayout(this);
-        keyboardSurface = new FrameLayout(this);
+        PanelSurface surface = new PanelSurface(this);
+        keyboardSurface = surface;
         keyboardRoot.addView(keyboardSurface);
         imeStyler.applyKeyboardSurfaceGeometry();
         LinearLayout keyboard = new LinearLayout(this);
@@ -5417,7 +5478,9 @@ public final class MSIMEInputService extends InputMethodService {
         keyboardSurface.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
+        surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
+        surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
         keyboardSurface.addView(imeLetterRows.keyPreviewLayer, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         LinearLayout candidateRegion = new LinearLayout(this);
@@ -5777,11 +5840,12 @@ public final class MSIMEInputService extends InputMethodService {
         return keyboardRoot;
     }
 
-    /** 把功能面板、候选展开网格和常用语面板的顶边对齐到顶部一行的底边。 */
+    /** 把从工具栏打开的面板（功能、候选展开、常用语、表情、符号、剪贴板、皮肤、输入方式、AI）的顶边对齐到顶部一行的底边：设计里这些面板打开时工具栏仍在上面。 */
     private void alignOverlaysBelowTopRow(View region) {
         View parent = (View) region.getParent();
         int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
-        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll}) {
+        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll,
+                emojiPanel, symbolPanel, clipboardScroll, skinScroll, schemeScroll, aiPolishContainer}) {
             if (overlay == null) continue;
             if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
                     || params.topMargin == top) continue;
@@ -5980,8 +6044,13 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** 词库、设置、反馈、关于：经 HostDeepLink 打开宿主的对应页面；系统拒绝从后台启动时说出来。 */
     void openHostPage(String page) {
+        openHostPage(page, null);
+    }
+
+    /** 同上，带页面参数（例如输入方式面板「+ 添加语言」打开 TYPING 并带 add_language=true）。 */
+    void openHostPage(String page, android.os.Bundle args) {
         Intent intent = page == null ? HostDeepLink.tab(this, HostDeepLink.TAB_SETTINGS)
-            : HostDeepLink.page(this, page, null);
+            : HostDeepLink.page(this, page, args);
         try {
             startActivity(intent);
             requestHideSelf(0);

@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** Android equivalent of Apple's full-screen, categorized symbol surface. */
+/** 分类符号面板：盖在键区上（不盖顶部一行），左列分类、右侧五列网格，底部返回 / 锁定 / 删除；从 #+= 层的「符号」键进入。 */
 public final class SymbolPanelView extends LinearLayout {
     public interface ButtonFactory {
         Button create(String title, String description, Runnable action, boolean actionStyle);
@@ -71,7 +71,8 @@ public final class SymbolPanelView extends LinearLayout {
         body.setOrientation(HORIZONTAL);
         categories.setOrientation(VERTICAL);
         categories.setGravity(Gravity.CENTER);
-        body.addView(categories, new LinearLayout.LayoutParams(dp(76), 0, 1));
+        // 空白网格的根因：body 是横排 LinearLayout，权重只分宽度；这里和网格原先写的高度 0 是字面上的 0 像素，分类列和网格都被测成零高，面板中间于是什么都没有（面板本身又没底色，透出底下的字母键）。高度要铺满 body。
+        body.addView(categories, new LinearLayout.LayoutParams(dp(76), LayoutParams.MATCH_PARENT));
         grid.setColumnCount(SymbolPanelModel.COLUMNS);
         grid.setUseDefaultMargins(false);
         grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
@@ -79,7 +80,7 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.setContentDescription("符号网格；每行五个");
         gridScroll.addView(grid, new ScrollView.LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        body.addView(gridScroll, new LinearLayout.LayoutParams(0, 0, 4));
+        body.addView(gridScroll, new LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1));
         addView(body, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1));
 
         LinearLayout bottom = new LinearLayout(context);

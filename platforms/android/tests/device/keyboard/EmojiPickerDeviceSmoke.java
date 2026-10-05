@@ -19,17 +19,16 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         tap(key("i"));
         await(field("msime-test-plain").and(node -> equalsText("ni", node.getText())));
 
-        // The candidate strip takes the shortcut row while a composition is open, the way Apple
-        // has it, so 更多 is only reachable once the composition is done. Commit it first and let
-        // the rest of this case derive the committed prefix from the field.
+        // 组词时候选条占着顶部一行，工具栏的「表情」要等组词结束才出现；先上屏，后面的前缀从输入框里读。
         stage = "composition committed before emoji";
         tap(key("空格"));
-        await(key("更多").and(AccessibilityNodeInfo::isClickable));
+        await(description("表情").and(AccessibilityNodeInfo::isClickable));
 
-        stage = "emoji more entry";
-        tap(key("更多"));
+        stage = "emoji toolbar entry";
         tap(description("表情"));
         await(description("表情面板"));
+        stage = "emoji panel stays inside the keyboard";
+        assertPanelBelowEditor();
 
         stage = "emoji category navigation";
         tap(description("表情分类 笑脸"));
@@ -83,6 +82,16 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         await(key("n").and(AccessibilityNodeInfo::isClickable));
     }
 
+    /** 表情面板覆盖整屏的回归：面板顶边必须在输入框底边之下，即仍在键盘窗口里。 */
+    private void assertPanelBelowEditor() throws Exception {
+        android.graphics.Rect panel = new android.graphics.Rect();
+        android.graphics.Rect editor = new android.graphics.Rect();
+        await(description("表情面板")).getBoundsInScreen(panel);
+        await(field("msime-test-plain")).getBoundsInScreen(editor);
+        if (panel.top < editor.bottom)
+            throw new AssertionError("Emoji panel covered the editor: panel " + panel + ", editor " + editor);
+    }
+
     private void openEditor() throws Exception {
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -115,9 +124,9 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             java.util.function.IntPredicate accepted) {
         return node -> {
             if (!equalsText("app.msime.android", node.getPackageName())
-                    || node.getText() == null) return false;
-            String text = node.getText().toString();
-            // 状态行形如「笑脸 · 116 个表情」，数量是「 个表情」前的最后一个词。
+                    || node.getStateDescription() == null) return false;
+            String text = node.getStateDescription().toString();
+            // 网格的状态描述形如「笑脸 · 116 个表情」，数量是「 个表情」前的最后一个词。
             int separator = text.indexOf(" 个表情");
             if (separator <= 0) return false;
             String count = text.substring(text.lastIndexOf(' ', separator - 1) + 1, separator);
