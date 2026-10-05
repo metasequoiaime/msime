@@ -639,7 +639,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn enqueue_rejects_a_snapshot_below_a_symlinked_parent() {
-        use std::os::unix::fs::symlink;
+        use crate::storage::untrusted_symlink as symlink;
 
         let parent = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();

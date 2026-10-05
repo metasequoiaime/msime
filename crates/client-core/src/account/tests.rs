@@ -1872,12 +1872,12 @@ fn avatar_uploads_are_read_by_their_contents() {
     let empty = directory.path().join("empty.png");
     std::fs::write(&empty, b"").unwrap();
     let link = directory.path().join("link.png");
-    std::os::unix::fs::symlink(&png, &link).unwrap();
+    crate::storage::untrusted_symlink(&png, &link).unwrap();
     let outside = tempfile::tempdir().unwrap();
     let outside_png = outside.path().join("outside.png");
     std::fs::write(&outside_png, b"\x89PNG\r\n\x1a\nexternal").unwrap();
     let linked_parent = directory.path().join("linked-parent");
-    std::os::unix::fs::symlink(outside.path(), &linked_parent).unwrap();
+    crate::storage::untrusted_symlink(outside.path(), &linked_parent).unwrap();
     let nested_link = linked_parent.join("outside.png");
     for path in [&gif, &webp, &large, &empty, &link, directory.path()] {
         assert_eq!(

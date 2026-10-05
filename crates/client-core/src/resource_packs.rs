@@ -395,7 +395,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn installed_file_rejects_symlinks() {
-        use std::os::unix::fs::symlink;
+        use crate::storage::untrusted_symlink as symlink;
         let state = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let pack = ResourcePack::LanguageDictionaries;

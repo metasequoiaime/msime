@@ -46,6 +46,21 @@ pub(crate) fn create_directory_and_check(path: &Path) -> io::Result<bool> {
     Ok(fs::symlink_metadata(path)?.file_type().is_dir())
 }
 
+/// A symbolic link `msime-path-trust` never takes for a system alias, for tests of the rejection. On Linux it trusts a root-owned link in a directory only root can write, which is what every link a test makes while running as root is (a test container, a CI job in one), so there the link is handed to `nobody`.
+#[cfg(all(test, unix))]
+pub(crate) fn untrusted_symlink(
+    original: impl AsRef<Path>,
+    link: impl AsRef<Path>,
+) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let link = link.as_ref();
+    std::os::unix::fs::symlink(original, link)?;
+    if fs::symlink_metadata(link)?.uid() == 0 {
+        std::os::unix::fs::lchown(link, Some(65534), Some(65534))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,7 +68,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_existing_and_missing_paths_below_a_symlinked_ancestor() {
-        use std::os::unix::fs::symlink;
+        use crate::storage::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();

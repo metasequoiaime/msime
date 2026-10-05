@@ -338,7 +338,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinked_user_data_is_rejected_without_writing_outside() {
-        use std::os::unix::fs::symlink;
+        use crate::storage::untrusted_symlink as symlink;
 
         let target = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();
@@ -351,7 +351,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn existing_lease_below_a_symlinked_parent_is_rejected() {
-        use std::os::unix::fs::symlink;
+        use crate::storage::untrusted_symlink as symlink;
 
         let target = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();

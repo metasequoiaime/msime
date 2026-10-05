@@ -999,7 +999,7 @@ fn a_symlinked_sync_state_does_not_delete_a_local_skin() {
 #[cfg(unix)]
 #[test]
 fn a_symlinked_sync_state_parent_does_not_write_outside() {
-    use std::os::unix::fs::symlink;
+    use crate::storage::untrusted_symlink as symlink;
 
     let fixture = Fixture::new();
     write_skin(&fixture.root, "sakura", "樱花", 1);

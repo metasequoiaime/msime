@@ -233,7 +233,7 @@ fn cache_read_ignores_a_symlinked_cache_file() {
 #[cfg(unix)]
 #[test]
 fn cache_read_ignores_a_symlinked_cache_directory() {
-    use std::os::unix::fs::symlink;
+    use crate::storage::untrusted_symlink as symlink;
 
     let directory = tempfile::tempdir().unwrap();
     let external = tempfile::tempdir().unwrap();
