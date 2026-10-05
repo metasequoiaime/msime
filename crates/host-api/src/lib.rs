@@ -308,12 +308,13 @@ impl HostSession {
             prompt_custom_3: ai.prompt_custom_3.clone(),
         });
     }
+    /// The latest requested preference decides, in both directions: a change deferred until the composition ends would otherwise keep a just-disabled cloud answering, or keep a just-enabled one silent for the rest of the composition. Engine takes a cloud row on the query's own eligibility, not on the applied preferences.
     fn cloud_candidates_enabled(&self) -> bool {
-        self.applied.cloud_candidates
-            && self
-                .requested
-                .as_ref()
-                .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
+        self.requested
+            .as_ref()
+            .map_or(self.applied.cloud_candidates, |snapshot| {
+                snapshot.preferences.cloud_candidates
+            })
     }
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
     fn count_selection(&mut self, position: usize) {

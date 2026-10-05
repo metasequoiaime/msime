@@ -1888,7 +1888,7 @@ void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
 void render_translation_candidates(IBusEngine *engine);
 void apply_live_preferences(IBusEngine *engine, Json snapshot);
-void sync_translation_preferences(IBusEngine *engine) {
+void sync_session_preferences(IBusEngine *engine) {
   auto &s = state(engine);
   apply_live_preferences(engine, Json{
       {"format_version", 1},
@@ -4920,6 +4920,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.cloud_candidates_override = enabled;
       s.cloud_candidates = enabled;
       s.invalidate_providers();
+      // The session refuses cloud answers its own preferences turn off, and one opened while the override was off keeps them off until it hears otherwise.
+      sync_session_preferences(engine);
       publish_mode(engine);
       if (enabled) online_schedule(engine);
       return;
@@ -4936,7 +4938,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.candidate_translations_override = enabled;
       s.candidate_translations = enabled;
       s.invalidate_providers();
-      sync_translation_preferences(engine);
+      sync_session_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (enabled)
@@ -4963,7 +4965,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.translation_target_language_override = selected;
       s.translation_target_language = selected;
       s.invalidate_providers();
-      sync_translation_preferences(engine);
+      sync_session_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (s.candidate_translations)
