@@ -8,11 +8,12 @@ import { errorCode } from "../core/error-code";
 import type { ExternalSkin, SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { renderSkinPreview } from "../skin/skin-preview-render";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import {
   candidateSkinMegabytes,
   candidateSkinMessage,
   communityLicenseLine,
-  runCommunityPublishAction,
+  communityNeedsSignIn,
 } from "./community-helpers";
 import * as style from "./community-style";
 import { CommunityMetrics } from "./community-metrics";
@@ -26,7 +27,6 @@ import { CommunitySkinCategorySelect } from "./community-skin-category";
 import { CommunitySelectField } from "./community-select-field";
 import { ActionButton } from "../core/action-button";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
-import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import {
   type CandidateSkinCategory,
@@ -110,11 +110,15 @@ export function CandidateSkinPublishDialog({
   } = useCommunityPublicationDraft();
   const [visibility, setVisibility] = useState<CandidateSkinVisibility>("public");
   const [category, setCategory] = useState<CandidateSkinCategory>("other");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
-  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localSkins);
+  const {
+    busy,
+    generation: clientGeneration,
+    running: actionRunning,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, undefined, client, localSkins);
   const packGeneration = useAsyncGeneration(client, skinId, visibility, packRevision);
   const drawRunning = useRef(false);
   const drawOwner = useAsyncGeneration();
@@ -129,7 +133,6 @@ export function CandidateSkinPublishDialog({
     drawRunning.current = false;
     licenseOwner.current++;
     licenseRunning.current = false;
-    setBusy(false);
     setDrawing(false);
     setWritingLicense(false);
     if (localSkins) {
@@ -279,17 +282,9 @@ export function CandidateSkinPublishDialog({
 
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !skinId) return;
-    const generation = clientGeneration.current;
-    await runCommunityPublishAction({
-      busy,
-      generation,
-      clientGeneration,
-      actionRunning,
-      setBusy,
-      setError,
-      setSignInRequired,
-      formatError: (publishError) => candidateSkinMessage(publishError, true),
-      operation: async (isCurrent) => {
+    setSignInRequired(false);
+    await runAsyncAction(
+      async (isCurrent) => {
         const published = await client.publish(
           skinId,
           publicationId,
@@ -301,7 +296,11 @@ export function CandidateSkinPublishDialog({
         if (!isCurrent()) return;
         await onPublished(published);
       },
-    });
+      {
+        formatError: (publishError) => candidateSkinMessage(publishError, true),
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   const openFolder = async () => {

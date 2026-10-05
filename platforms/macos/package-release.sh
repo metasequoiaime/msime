@@ -315,11 +315,11 @@ ln -s /Applications "$stage/Applications"
 printf '%s\n' \
   "$display_name macOS 安装说明" \
   '' \
-  "1. 把「$display_name」拖到「应用程序」文件夹。" \
-  "2. 打开「应用程序」里的「$display_name」，点「立即安装」把输入法安装到本机，再按设置页的提示在「系统设置」→「键盘」→「文字输入」→「输入法」中添加它。" \
-  "3. 添加后在菜单栏的输入法菜单中选「$display_name」，或按 Control+空格 切换。" \
+  "1. 把「${display_name}」拖到「应用程序」文件夹。" \
+  "2. 打开「应用程序」里的「${display_name}」，点「立即安装」把输入法安装到本机，再按设置页的提示在「系统设置」→「键盘」→「文字输入」→「输入法」中添加它。" \
+  "3. 添加后在菜单栏的输入法菜单中选「${display_name}」，或按 Control+空格 切换。" \
   '' \
-  "只把「$display_name」拖进「应用程序」而不打开它，系统里不会出现这个输入法。" \
+  "只把「${display_name}」拖进「应用程序」而不打开它，系统里不会出现这个输入法。" \
   > "$stage/安装说明.txt"
 dmg="$out_dir/$dmg_prefix-$version-$arch.dmg"
 rm -f "$dmg"
@@ -347,7 +347,8 @@ hdiutil detach -quiet "$mount_point"
 mount_point=""
 
 # 体积报告：DMG 本身和 App 的 Contents/Resources。在 GitHub Actions 里同时写进这一步的摘要，方便逐次对比。
-dmg_bytes="$(stat -f %z "$dmg")"
+# /usr/bin/stat, not whatever is first on PATH: a GNU coreutils stat reads -f as --file-system and fails, after the package is already built.
+dmg_bytes="$(/usr/bin/stat -f %z "$dmg")"
 resources_kib="$(du -sk "$app/Contents/Resources" | cut -f1)"
 echo "DMG size: $dmg_bytes bytes; Contents/Resources: $resources_kib KiB"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
