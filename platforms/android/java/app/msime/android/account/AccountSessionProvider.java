@@ -12,7 +12,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Hands the signed-in account's access token to this app's other processes.
+ * 向本应用的其他进程提供登录账号或匿名账号的 access token。
  *
  * <p>Declared in the main process and not exported, so only this uid can reach it. The `:ime` keyboard therefore never holds a refresh token and never refreshes, which is what keeps the rotating refresh token from being spent twice. Which session answers is {@link AccountSessionRoutingPolicy#source}: the native sign-in's own session, refreshed by {@link BackendAccount#owningSession} under the existing in-process lock, or else the combined package's Rust-owned session, read but never refreshed here. The token is returned in the reply and nowhere else: nothing here logs it.
  */
@@ -29,7 +29,8 @@ public final class AccountSessionProvider extends ContentProvider {
         String state;
         try {
             if (context == null) throw new IllegalStateException("account session");
-            token = currentToken(context);
+            token = AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
+                ? currentAnonymousToken(context) : currentToken(context);
             state = AccountSessionRoutingPolicy.stateFor(token);
         } catch (Exception | LinkageError error) {
             token = "";
@@ -56,6 +57,11 @@ public final class AccountSessionProvider extends ContentProvider {
             }
             case NONE -> "";
         };
+    }
+
+    /** 匿名会话也只能由主进程读写，避免键盘进程各自刷新同一枚轮换令牌。 */
+    private static String currentAnonymousToken(Context context) throws Exception {
+        return new BackendAnonymousAccount(context).accessToken();
     }
 
     static String legacyAccessToken(Object value) {

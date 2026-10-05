@@ -1,6 +1,9 @@
 package app.msime.android;
 
+import android.app.Application;
 import android.content.Context;
+import android.net.Uri;
+import android.os.Bundle;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -48,13 +51,19 @@ final class BackendAnonymousAccount {
     private static long nextAttemptAtMillis;
     private final AndroidAccountSessionStorage sessions;
     private final AndroidAccountSessionStorage credentials;
+    private final Context application;
 
     BackendAnonymousAccount(Context context) {
-        sessions = new AndroidAccountSessionStorage(context, SESSION_STORE);
-        credentials = new AndroidAccountSessionStorage(context, CREDENTIAL_STORE);
+        application = context.getApplicationContext();
+        sessions = new AndroidAccountSessionStorage(application, SESSION_STORE);
+        credentials = new AndroidAccountSessionStorage(application, CREDENTIAL_STORE);
     }
 
     String accessToken() throws Exception {
+        if (!AccountSessionRoutingPolicy.ownsSession(
+                Application.getProcessName(), application.getPackageName())) {
+            return ownerToken();
+        }
         synchronized (LOCK) {
             String saved = sessions.load();
             if (saved != null) {
@@ -92,6 +101,18 @@ final class BackendAnonymousAccount {
             sessions.save(savedSession.toString());
             return token;
         }
+    }
+
+    /** 从主进程取匿名令牌，避免跨进程 SharedPreferences 缓存和 refresh rotation 竞态。 */
+    private String ownerToken() throws Exception {
+        Uri uri = Uri.parse("content://"
+            + AccountSessionRoutingPolicy.authority(application.getPackageName()));
+        Bundle reply = application.getContentResolver().call(
+            uri, AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN, null, null);
+        if (reply == null) throw new IllegalStateException("anonymous account unavailable");
+        return AccountSessionRoutingPolicy.anonymousTokenFromReply(
+            reply.getString(AccountSessionRoutingPolicy.KEY_STATE),
+            reply.getString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN));
     }
 
     /**

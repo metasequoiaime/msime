@@ -1,16 +1,18 @@
 package app.msime.android;
 
 /**
- * Which process owns the signed-in account session, and how the others reach it.
+ * 规定哪个进程拥有登录和匿名会话，以及其他进程如何取得令牌。
  *
  * <p>The service rotates the refresh token on every refresh and revokes the whole session when a used one is presented again. Two processes that each refresh from their own copy of the session can therefore sign the user out, and the settings app and the isolated `:ime` keyboard process both need a token. So exactly one process refreshes: the app's main process, the one sign-in and sign-out already run in. Every other process asks it for the current access token through a non-exported provider and never reads or writes the session store itself.
  */
 public final class AccountSessionRoutingPolicy {
     /** The provider authority, after the package name; the manifests declare `${applicationId}` + this. */
     public static final String AUTHORITY_SUFFIX = ".account-session";
-    /** The one `ContentProvider.call` method the provider answers. */
+    /** Provider 接受的 `ContentProvider.call` 方法。 */
     public static final String METHOD_ACCESS_TOKEN = "access_token";
-    /** The reply key carrying the token, or an empty string when the device is not signed in. */
+    /** 主进程独占的匿名账号令牌方法；键盘进程不能直接碰匿名会话存储。 */
+    public static final String METHOD_ANONYMOUS_ACCESS_TOKEN = "anonymous_access_token";
+    /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
     /** The reply key saying which of the three answers this is. */
     public static final String KEY_STATE = "state";
@@ -74,8 +76,15 @@ public final class AccountSessionRoutingPolicy {
         throw new IllegalStateException("account session unavailable");
     }
 
-    /** The provider answers only our own uid and only the access token method; `exported="false"` is the first line, this is the second. */
+    /** 匿名账号必须始终有令牌；主进程暂时拿不到时让键盘重试，不把它当成已退出。 */
+    public static String anonymousTokenFromReply(String state, String token) {
+        if (STATE_SIGNED_IN.equals(state) && AccountTokenPolicy.validToken(token)) return token;
+        throw new IllegalStateException("anonymous account unavailable");
+    }
+
+    /** Provider 只回答本 UID 的两种令牌方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */
     public static boolean accepts(String method, int callingUid, int ownUid) {
-        return METHOD_ACCESS_TOKEN.equals(method) && callingUid == ownUid;
+        return (METHOD_ACCESS_TOKEN.equals(method) || METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method))
+            && callingUid == ownUid;
     }
 }

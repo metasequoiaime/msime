@@ -24,6 +24,10 @@ public final class AccountSessionRoutingSmoke {
         check(AccountSessionRoutingPolicy.accepts("access_token", 10123, 10123), "our own uid gets the token");
         check(!AccountSessionRoutingPolicy.accepts("access_token", 10124, 10123), "another uid is refused");
         check(!AccountSessionRoutingPolicy.accepts("refresh_token", 10123, 10123), "no other method is answered");
+        check(AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10123, 10123),
+            "our own uid gets the anonymous token");
+        check(!AccountSessionRoutingPolicy.accepts("anonymous_access_token", 10124, 10123),
+            "another uid cannot get the anonymous token");
         check(!AccountSessionRoutingPolicy.accepts(null, 10123, 10123), "a missing method is refused");
 
         check(AccountSessionRoutingPolicy.source(true, true) == AccountSessionRoutingPolicy.Source.OWN, "a native sign-in session wins");
@@ -83,6 +87,9 @@ public final class AccountSessionRoutingSmoke {
         check(AccountSessionRoutingPolicy.stateFor("").equals(AccountSessionRoutingPolicy.STATE_SIGNED_OUT), "no token is reported as signed out");
         check(AccountSessionRoutingPolicy.tokenFromReply(AccountSessionRoutingPolicy.STATE_SIGNED_IN, TOKEN).equals(TOKEN), "a signed-in reply yields its token");
         check(AccountSessionRoutingPolicy.tokenFromReply(AccountSessionRoutingPolicy.STATE_SIGNED_OUT, "").isEmpty(), "a signed-out reply yields no token");
+        check(AccountSessionRoutingPolicy.anonymousTokenFromReply(
+                AccountSessionRoutingPolicy.STATE_SIGNED_IN, TOKEN).equals(TOKEN),
+            "an anonymous signed-in reply yields its token");
         for (String[] reply : new String[][] {
                 {AccountSessionRoutingPolicy.STATE_UNAVAILABLE, ""},
                 {AccountSessionRoutingPolicy.STATE_SIGNED_IN, ""},
@@ -96,6 +103,20 @@ public final class AccountSessionRoutingSmoke {
                 unavailable = true;
             }
             check(unavailable, "reply " + reply[0] + " is a retry, not a sign-out");
+        }
+        for (String[] reply : new String[][] {
+                {AccountSessionRoutingPolicy.STATE_UNAVAILABLE, ""},
+                {AccountSessionRoutingPolicy.STATE_SIGNED_OUT, ""},
+                {AccountSessionRoutingPolicy.STATE_SIGNED_IN, "not-a-token"},
+                {null, TOKEN},
+                {"unknown", TOKEN}}) {
+            boolean unavailable = false;
+            try {
+                AccountSessionRoutingPolicy.anonymousTokenFromReply(reply[0], reply[1]);
+            } catch (IllegalStateException expected) {
+                unavailable = true;
+            }
+            check(unavailable, "anonymous reply " + reply[0] + " is unavailable");
         }
 
         // A process that does not own the session neither reads nor writes the store and never calls the service; the token comes from the owner alone.
