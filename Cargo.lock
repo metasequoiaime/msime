@@ -2729,6 +2729,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "msime-backend-engine"
+version = "0.1.0"
+dependencies = [
+ "msime-client-core",
+ "msime-engine",
+]
+
+[[package]]
 name = "msime-client-core"
 version = "0.1.0"
 dependencies = [
