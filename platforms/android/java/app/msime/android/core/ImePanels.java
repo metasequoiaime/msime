@@ -978,9 +978,9 @@ final class ImePanels {
     }
 
     void showSchemePicker() {
-        if (s.touchGeometrySaving || s.traditionalOutputSaving
-                || s.session == 0 || s.preferencesSnapshot == null
-                || s.preferencesDirectory.isEmpty()) {
+        // 其他设置正在保存时只是这一下不打开：保存一瞬间就完成，不必弹「尚未就绪」。
+        if (s.touchGeometrySaving || s.traditionalOutputSaving) return;
+        if (s.session == 0 || s.preferencesSnapshot == null || s.preferencesDirectory.isEmpty()) {
             Toast.makeText(s, "输入方案尚未就绪", Toast.LENGTH_SHORT).show();
             return;
         }

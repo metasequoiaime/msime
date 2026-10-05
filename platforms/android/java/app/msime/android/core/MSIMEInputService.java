@@ -6546,9 +6546,8 @@ public final class MSIMEInputService extends InputMethodService {
             schemeButton.setSelected(schemeScroll != null && schemeScroll.getVisibility() == View.VISIBLE);
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge(wubiProfile));
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title(wubiProfile));
-            boolean schemeReady = session != 0 && preferencesSnapshot != null
-                && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving;
-            schemeButton.setEnabled(schemeReady);
+            // 只按「会话与偏好是否就绪」决定可用：简繁、键高、方案的保存都在一瞬间完成，若跟着保存状态禁用，图标每切一次简繁就变灰再变回来。保存进行中的点按由 showSchemePicker 忽略。
+            schemeButton.setEnabled(session != 0 && preferencesSnapshot != null);
             if (Build.VERSION.SDK_INT >= 30) {
                 String schemeState = session == 0 ? "输入会话未就绪"
                     : preferencesSnapshot == null ? "设置加载中"
@@ -6561,7 +6560,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (skinButton != null) {
             skinButton.setVisibility(toolbarSkin ? View.VISIBLE : View.GONE);
             skinButton.setSelected(skinScroll != null && skinScroll.getVisibility() == View.VISIBLE);
-            skinButton.setEnabled(canSaveKeyboardSkin());
+            // 同上：保存进行中的点按由 ImePanels.showSkinPicker 按 canSaveKeyboardSkin 忽略，图标不跟着变灰。
+            skinButton.setEnabled(session != 0 && preferencesSnapshot != null && !preferencesDirectory.isEmpty());
             skinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
             if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
         }
