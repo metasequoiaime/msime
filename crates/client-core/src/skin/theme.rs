@@ -1,12 +1,13 @@
 //! The global theme: one id that colours the candidate window, the floating toolbar, the menus and the touch keyboard on every host.
 //!
-//! There are seven ids. `system` leaves every colour to the host's own platform tokens; `shuishan`, `light`, `paper`, `night` and `ink` are the built-in palettes, copied from the design's `THEMES` table; `custom` is whatever the user assembled in `Preferences::custom_theme` (an external candidate skin package, the seven candidate colour pickers, and the keyboard design produced by the editor, the community library or the AI generator).
+//! 共有十二个 ID。`system` 把每个颜色都交给宿主自己的平台色；`shuishan`、`light`、`paper`、`night`、`ink` 以及四季的 `chunya`、`xiayin`、`qiushan`、`dongxue` 是内置色板，抄自设计的 `THEMES` 表；`siji`（水杉四季）没有自己的色板，按月份画当季的那一个（`season` 模块的规则）；`custom` 是用户在 `Preferences::custom_theme` 里拼出来的主题（一个外部候选窗皮肤包、七个候选颜色选择器，以及编辑器、社区或 AI 生成的键盘设计）。
 //!
 //! Hosts do not keep their own copy of these palettes. They read the catalog (`catalog`) to draw the picker and call `resolve` for the colours on screen, so a palette is changed here once and every host follows.
 //!
 //! Every colour this module emits is `#RRGGBB` or `#RRGGBBAA` (uppercase, alpha last). A `None` slot means "the host's own platform token for that slot", never "transparent".
 
 use super::catalog::{CandidatePalette, SkinSummary};
+use super::season::Season;
 use crate::preferences::{CandidateLayout, CustomTheme, TouchKeyboardSkinDesign};
 use serde::{Deserialize, Serialize};
 
@@ -17,34 +18,56 @@ pub enum GlobalTheme {
     /// Follow the platform: every slot is the host's native token, in the host's current light or dark mode.
     #[default]
     System,
+    /// 水杉四季：按季节画春芽、夏荫、秋杉或冬雪的色板。
+    Siji,
     Shuishan,
     Light,
     Paper,
     Night,
     Ink,
+    Chunya,
+    Xiayin,
+    Qiushan,
+    Dongxue,
     /// The user's own theme, assembled from `Preferences::custom_theme`.
     Custom,
 }
 
 impl GlobalTheme {
-    pub const ALL: [GlobalTheme; 7] = [
+    /// 选择器的顺序，与设计皮肤页一致。
+    pub const ALL: [GlobalTheme; 12] = [
         GlobalTheme::System,
+        GlobalTheme::Siji,
         GlobalTheme::Shuishan,
         GlobalTheme::Light,
         GlobalTheme::Paper,
         GlobalTheme::Night,
         GlobalTheme::Ink,
+        GlobalTheme::Chunya,
+        GlobalTheme::Xiayin,
+        GlobalTheme::Qiushan,
+        GlobalTheme::Dongxue,
         GlobalTheme::Custom,
+    ];
+
+    /// 加入四季主题之前就有的七个 ID。候选窗皮肤文件夹以前可以叫 `qiushan` 这类后来才成为主题 ID 的名字，偏好里保存的皮肤选择（`catalog::is_selectable_id`）因此只和这七个比较，旧设置不会因为新主题而被整份拒绝。
+    pub const LEGACY_IDS: [&'static str; 7] = [
+        "system", "shuishan", "light", "paper", "night", "ink", "custom",
     ];
 
     pub fn id(self) -> &'static str {
         match self {
             GlobalTheme::System => "system",
+            GlobalTheme::Siji => "siji",
             GlobalTheme::Shuishan => "shuishan",
             GlobalTheme::Light => "light",
             GlobalTheme::Paper => "paper",
             GlobalTheme::Night => "night",
             GlobalTheme::Ink => "ink",
+            GlobalTheme::Chunya => "chunya",
+            GlobalTheme::Xiayin => "xiayin",
+            GlobalTheme::Qiushan => "qiushan",
+            GlobalTheme::Dongxue => "dongxue",
             GlobalTheme::Custom => "custom",
         }
     }
@@ -54,7 +77,7 @@ impl GlobalTheme {
         Self::ALL.into_iter().find(|theme| theme.id() == id)
     }
 
-    /// Whether a custom theme or a skin package may be drawn over this theme: `system` or a built-in theme, never `custom` itself.
+    /// Whether a custom theme or a skin package may be drawn over this theme: `system`, `siji` (drawn in the season's palette) or a built-in theme, never `custom` itself.
     pub fn is_base(self) -> bool {
         self != GlobalTheme::Custom
     }
@@ -63,18 +86,39 @@ impl GlobalTheme {
     pub fn title(self) -> &'static str {
         match self {
             GlobalTheme::System => "跟随系统",
+            GlobalTheme::Siji => "水杉四季",
             GlobalTheme::Shuishan => "水杉",
             GlobalTheme::Light => "浅色",
             GlobalTheme::Paper => "纸白",
             GlobalTheme::Night => "夜青",
             GlobalTheme::Ink => "墨",
+            GlobalTheme::Chunya => "春芽",
+            GlobalTheme::Xiayin => "夏荫",
+            GlobalTheme::Qiushan => "秋杉",
+            GlobalTheme::Dongxue => "冬雪",
             GlobalTheme::Custom => "自定义",
         }
     }
 
-    /// The built-in palette, for the five themes that have one.
+    /// The built-in palette, for the nine themes that have one. `siji` has none of its own: see `builtin_in`.
     pub fn builtin(self) -> Option<&'static BuiltinTheme> {
         BUILTIN_THEMES.iter().find(|theme| theme.id == self)
+    }
+
+    /// 本主题在 `season` 里画的内置色板：`siji` 换成当季的春芽、夏荫、秋杉或冬雪，其他主题与 `builtin()` 相同。
+    pub fn builtin_in(self, season: Season) -> Option<&'static BuiltinTheme> {
+        self.seasonal_theme(season).builtin()
+    }
+
+    /// `siji` 在 `season` 里代表的那个季节主题；其他主题原样返回。
+    pub fn seasonal_theme(self, season: Season) -> GlobalTheme {
+        match (self, season) {
+            (GlobalTheme::Siji, Season::Spring) => GlobalTheme::Chunya,
+            (GlobalTheme::Siji, Season::Summer) => GlobalTheme::Xiayin,
+            (GlobalTheme::Siji, Season::Autumn) => GlobalTheme::Qiushan,
+            (GlobalTheme::Siji, Season::Winter) => GlobalTheme::Dongxue,
+            (theme, _) => theme,
+        }
     }
 }
 
@@ -110,8 +154,8 @@ pub struct BuiltinTheme {
     pub keyboard_secondary: &'static str,
 }
 
-/// The five built-in palettes, in picker order.
-pub const BUILTIN_THEMES: [BuiltinTheme; 5] = [
+/// The nine built-in palettes, in picker order. 四季色板的数值来自 design-tokens.md §1.6。
+pub const BUILTIN_THEMES: [BuiltinTheme; 9] = [
     BuiltinTheme {
         id: GlobalTheme::Shuishan,
         appearance: ThemeAppearance::Dark,
@@ -177,7 +221,62 @@ pub const BUILTIN_THEMES: [BuiltinTheme; 5] = [
         keyboard_text: "#F2F2F2",
         keyboard_secondary: "#9A9A9A",
     },
+    BuiltinTheme {
+        id: GlobalTheme::Chunya,
+        appearance: ThemeAppearance::Light,
+        background: "#E4EED9",
+        panel: "#F6FAF0",
+        accent: "#4E9A3A",
+        text: "#1E2A18",
+        keyboard_background: "#DDEBCF",
+        keyboard_key: "#F8FBF3",
+        keyboard_function_key: "#C2D9AE",
+        keyboard_text: "#1E2A18",
+        keyboard_secondary: "#5F7352",
+    },
+    BuiltinTheme {
+        id: GlobalTheme::Xiayin,
+        appearance: ThemeAppearance::Dark,
+        background: "#173326",
+        panel: "#1F4232",
+        accent: "#8EE0A8",
+        text: "#EAF5EE",
+        keyboard_background: "#163024",
+        keyboard_key: "#24473A",
+        keyboard_function_key: "#1B392C",
+        keyboard_text: "#EAF5EE",
+        keyboard_secondary: "#93B8A2",
+    },
+    BuiltinTheme {
+        id: GlobalTheme::Qiushan,
+        appearance: ThemeAppearance::Light,
+        background: "#EFE0CC",
+        panel: "#FAF3E8",
+        accent: "#B5562B",
+        text: "#2E1D12",
+        keyboard_background: "#EAD7BE",
+        keyboard_key: "#FBF5EC",
+        keyboard_function_key: "#DABF9C",
+        keyboard_text: "#2E1D12",
+        keyboard_secondary: "#7D624A",
+    },
+    BuiltinTheme {
+        id: GlobalTheme::Dongxue,
+        appearance: ThemeAppearance::Light,
+        background: "#E6ECEF",
+        panel: "#F7FAFB",
+        accent: "#3F6E7D",
+        text: "#1A2428",
+        keyboard_background: "#E1E8EC",
+        keyboard_key: "#FBFDFE",
+        keyboard_function_key: "#C6D2D8",
+        keyboard_text: "#1A2428",
+        keyboard_secondary: "#60727A",
+    },
 ];
+
+/// 目录里「水杉四季」卡片固定画的那一季。目录不读时钟，所以生成的 `theme-catalog.json` 不随月份变化；宿主要画当季颜色时调 `resolve`。
+pub const SEASONAL_PREVIEW: Season = Season::Autumn;
 
 /// The candidate window border every built-in theme draws: the design's `rgba(0,0,0,.12)`.
 pub const BUILTIN_CANDIDATE_BORDER: &str = "#0000001F";
@@ -247,9 +346,12 @@ pub struct ThemePreview {
 pub struct ThemeCatalogEntry {
     pub id: GlobalTheme,
     pub title: &'static str,
-    /// `None` for `system` and `custom`, whose appearance depends on the platform or on what the user assembled.
+    /// `None` for `system`, `siji` and `custom`, whose appearance depends on the platform, the season or on what the user assembled.
     pub appearance: Option<ThemeAppearance>,
+    /// `siji` 的预览固定是 `SEASONAL_PREVIEW` 那一季的色板（秋杉），`system` 和 `custom` 没有预览。
     pub preview: Option<ThemePreview>,
+    /// 是否按季节变化，只有 `siji` 为真；宿主据此画「水杉四季 · 秋杉」这样的卡片。
+    pub seasonal: bool,
     pub candidate: Option<CandidateThemePalette>,
     pub keyboard: Option<KeyboardThemePalette>,
 }
@@ -297,7 +399,7 @@ impl BuiltinTheme {
     }
 }
 
-/// Every theme the picker offers, in order. `system` and `custom` carry no palette here: `system` never has one, and `custom` has one only once `resolve` combines it with the user's `custom_theme`.
+/// Every theme the picker offers, in order. `system` and `custom` carry no palette here: `system` never has one, and `custom` has one only once `resolve` combines it with the user's `custom_theme`. `siji` carries only a fixed preview (`SEASONAL_PREVIEW`): its palettes depend on the month, which only `resolve` knows.
 pub fn catalog() -> Vec<ThemeCatalogEntry> {
     GlobalTheme::ALL
         .into_iter()
@@ -307,7 +409,8 @@ pub fn catalog() -> Vec<ThemeCatalogEntry> {
                 id,
                 title: id.title(),
                 appearance: builtin.map(|theme| theme.appearance),
-                preview: builtin.map(BuiltinTheme::preview),
+                preview: id.builtin_in(SEASONAL_PREVIEW).map(BuiltinTheme::preview),
+                seasonal: id == GlobalTheme::Siji,
                 candidate: builtin.map(BuiltinTheme::candidate),
                 keyboard: builtin.map(BuiltinTheme::keyboard),
             }
@@ -450,6 +553,9 @@ pub struct ResolvedTheme {
     pub keyboard: Option<KeyboardThemePalette>,
     /// The external package drawn on this surface: the custom theme names it, it was found, and its manifest declares both `layout` and the mode drawn. Hosts draw the package's decoration and minimum width only when this is set.
     pub candidate_skin: Option<String>,
+    /// 画的是哪一季：只在主题是 `siji`、或自定义主题画在 `siji` 上时有值，其他时候不写进结果。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub season: Option<Season>,
 }
 
 /// Resolve the colours for `theme`.
@@ -461,6 +567,8 @@ pub struct ResolvedTheme {
 /// Candidate colours are layered: the base, then the package palette, then every picker the user set. A text picker also sets the numbers to that colour at `PICKED_NUMBER_ALPHA` unless the number picker is set. `secondary` is the package's `translation` colour, and otherwise follows `number`. Over a built-in base the slots that base derives keep following their sources unless the package or a picker set them: `selected` is `accent` at `SELECTED_ALPHA`, `hover` is `text` at `HOVER_ALPHA`, `selected_text` is `accent` and `selected_number` is `number`. When the selected picker is set, on any base, `selected_text` is black or white by that colour's luminance and `selected_number` is the same colour at `PICKED_NUMBER_ALPHA`, so the highlighted candidate stays readable whatever colour was picked. A custom theme over `system` with no package slots and no pickers has no candidate palette at all and draws the platform's own.
 ///
 /// The keyboard is the user's design when there is one, otherwise the base theme's keyboard (`None`, the platform keyboard, over `system`).
+///
+/// `siji`, as the theme or as the base, is drawn in the palette of the current UTC month's season; a host that knows its local month calls `resolve_in`.
 pub fn resolve(
     theme: GlobalTheme,
     custom: &CustomTheme,
@@ -468,7 +576,27 @@ pub fn resolve(
     layout: CandidateLayout,
     package: Option<&ThemePackage>,
 ) -> ResolvedTheme {
-    if let Some(builtin) = theme.builtin() {
+    resolve_in(
+        theme,
+        custom,
+        dark,
+        layout,
+        package,
+        super::season::current_utc_season(),
+    )
+}
+
+/// `resolve`，只是 `siji`（作为主题或作为底）按 `season` 取色板。纯函数，不读时钟。
+pub fn resolve_in(
+    theme: GlobalTheme,
+    custom: &CustomTheme,
+    dark: bool,
+    layout: CandidateLayout,
+    package: Option<&ThemePackage>,
+    season: Season,
+) -> ResolvedTheme {
+    let seasonal = |theme: GlobalTheme| (theme == GlobalTheme::Siji).then_some(season);
+    if let Some(builtin) = theme.builtin_in(season) {
         return ResolvedTheme {
             id: theme,
             source: ThemeSource::Builtin,
@@ -476,6 +604,7 @@ pub fn resolve(
             candidate: Some(builtin.candidate()),
             keyboard: Some(builtin.keyboard()),
             candidate_skin: None,
+            season: seasonal(theme),
         };
     }
     if theme == GlobalTheme::System {
@@ -486,12 +615,12 @@ pub fn resolve(
             candidate: None,
             keyboard: None,
             candidate_skin: None,
+            season: None,
         };
     }
     let package = package.filter(|package| custom.candidate_skin.as_deref() == Some(&package.id));
-    let base = package
-        .map_or(custom.base, |package| package.base)
-        .builtin();
+    let base_theme = package.map_or(custom.base, |package| package.base);
+    let base = base_theme.builtin_in(season);
     let dark = base.map_or(dark, |base| base.appearance == ThemeAppearance::Dark);
     let drawn = package
         .filter(|package| package.layouts.contains(&layout))
@@ -562,6 +691,7 @@ pub fn resolve(
             .map(custom_keyboard)
             .or_else(|| base.map(BuiltinTheme::keyboard)),
         candidate_skin: drawn.map(|(package, _)| package.id.clone()),
+        season: seasonal(base_theme),
     }
 }
 

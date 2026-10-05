@@ -1,8 +1,9 @@
 use super::*;
 use crate::preferences::CustomCandidateColors;
+use crate::skin::season::{season_for_month, Season};
 
-/// The design's `THEMES` table (dc.html L1484-1491), in its own order: id, bg, panel, accent, text, kb.bg, kb.key, kb.spec, kb.fg, kb.sub.
-const DESIGN: [(&str, [&str; 9]); 5] = [
+/// The design's `THEMES` table (dc.html L1484-1491), in its own order: id, bg, panel, accent, text, kb.bg, kb.key, kb.spec, kb.fg, kb.sub. 四季的四行来自 design-tokens.md §1.6。
+const DESIGN: [(&str, [&str; 9]); 9] = [
     (
         "shuishan",
         [
@@ -38,6 +39,34 @@ const DESIGN: [(&str, [&str; 9]); 5] = [
             "#9A9A9A",
         ],
     ),
+    (
+        "chunya",
+        [
+            "#E4EED9", "#F6FAF0", "#4E9A3A", "#1E2A18", "#DDEBCF", "#F8FBF3", "#C2D9AE", "#1E2A18",
+            "#5F7352",
+        ],
+    ),
+    (
+        "xiayin",
+        [
+            "#173326", "#1F4232", "#8EE0A8", "#EAF5EE", "#163024", "#24473A", "#1B392C", "#EAF5EE",
+            "#93B8A2",
+        ],
+    ),
+    (
+        "qiushan",
+        [
+            "#EFE0CC", "#FAF3E8", "#B5562B", "#2E1D12", "#EAD7BE", "#FBF5EC", "#DABF9C", "#2E1D12",
+            "#7D624A",
+        ],
+    ),
+    (
+        "dongxue",
+        [
+            "#E6ECEF", "#F7FAFB", "#3F6E7D", "#1A2428", "#E1E8EC", "#FBFDFE", "#C6D2D8", "#1A2428",
+            "#60727A",
+        ],
+    ),
 ];
 
 #[test]
@@ -45,6 +74,13 @@ fn ids_round_trip_in_picker_order() {
     let ids: Vec<_> = GlobalTheme::ALL.iter().map(|theme| theme.id()).collect();
     assert_eq!(
         ids,
+        [
+            "system", "siji", "shuishan", "light", "paper", "night", "ink", "chunya", "xiayin",
+            "qiushan", "dongxue", "custom"
+        ]
+    );
+    assert_eq!(
+        GlobalTheme::LEGACY_IDS,
         ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
     );
     for theme in GlobalTheme::ALL {
@@ -80,27 +116,42 @@ fn unknown_and_retired_ids_are_refused() {
         );
     }
     assert_eq!(GlobalTheme::from_id("ink"), Some(GlobalTheme::Ink));
-    assert!(GlobalTheme::ALL[..6].iter().all(|theme| theme.is_base()));
+    assert!(GlobalTheme::ALL[..11].iter().all(|theme| theme.is_base()));
+    assert!(GlobalTheme::Siji.is_base());
     assert!(!GlobalTheme::Custom.is_base());
 }
 
 #[test]
 fn catalog_is_complete_and_copies_the_design() {
     let catalog = catalog();
-    assert_eq!(catalog.len(), 7);
+    assert_eq!(catalog.len(), 12);
     assert_eq!(
         catalog.iter().map(|entry| entry.id).collect::<Vec<_>>(),
         GlobalTheme::ALL
     );
     for entry in &catalog {
         assert!(!entry.title.is_empty());
+        assert_eq!(
+            entry.seasonal,
+            entry.id == GlobalTheme::Siji,
+            "{:?}",
+            entry.id
+        );
     }
-    for edge in [&catalog[0], &catalog[6]] {
+    for edge in [&catalog[0], &catalog[11]] {
         assert!(edge.appearance.is_none());
         assert!(edge.preview.is_none());
         assert!(edge.candidate.is_none());
         assert!(edge.keyboard.is_none());
     }
+    // 水杉四季只带一个固定的秋杉预览，色板按月份由 resolve 给出，所以目录不随时钟变化。
+    let siji = &catalog[1];
+    assert_eq!(siji.title, "水杉四季");
+    assert!(siji.appearance.is_none() && siji.candidate.is_none() && siji.keyboard.is_none());
+    assert_eq!(
+        siji.preview,
+        Some(GlobalTheme::Qiushan.builtin().unwrap().preview())
+    );
     assert_eq!(BUILTIN_THEMES.len(), DESIGN.len());
     for (id, [bg, panel, accent, text, kb_bg, key, spec, fg, sub]) in DESIGN {
         let entry = catalog
@@ -133,7 +184,7 @@ fn catalog_is_complete_and_copies_the_design() {
         );
         // Readable on an accent fill by the same luminance rule the AI generator uses: dark text on the bright accents, white on the deep ones.
         let expected_on_accent = match id {
-            "light" | "paper" => "#FFFFFF",
+            "light" | "paper" | "qiushan" | "dongxue" => "#FFFFFF",
             _ => "#000000",
         };
         assert_eq!(keyboard.on_accent, expected_on_accent, "{id}");
@@ -155,7 +206,7 @@ fn catalog_is_complete_and_copies_the_design() {
             },
             "{id}"
         );
-        let appearance = if matches!(id, "light" | "paper") {
+        let appearance = if matches!(id, "light" | "paper" | "chunya" | "qiushan" | "dongxue") {
             ThemeAppearance::Light
         } else {
             ThemeAppearance::Dark
@@ -231,6 +282,117 @@ fn builtin_themes_ignore_custom_data_and_mode() {
             assert_eq!(resolved.candidate_skin, None);
         }
     }
+}
+
+#[test]
+fn siji_draws_the_palette_of_the_season() {
+    let pairs = [
+        (Season::Spring, GlobalTheme::Chunya),
+        (Season::Summer, GlobalTheme::Xiayin),
+        (Season::Autumn, GlobalTheme::Qiushan),
+        (Season::Winter, GlobalTheme::Dongxue),
+    ];
+    for (season, theme) in pairs {
+        assert_eq!(GlobalTheme::Siji.seasonal_theme(season), theme);
+        assert_eq!(GlobalTheme::Siji.builtin_in(season), theme.builtin());
+        for dark in [false, true] {
+            let siji = resolve_in(
+                GlobalTheme::Siji,
+                &CustomTheme::default(),
+                dark,
+                CandidateLayout::Vertical,
+                None,
+                season,
+            );
+            let fixed = resolve_in(
+                theme,
+                &CustomTheme::default(),
+                dark,
+                CandidateLayout::Vertical,
+                None,
+                season,
+            );
+            assert_eq!(siji.id, GlobalTheme::Siji);
+            assert_eq!(siji.season, Some(season));
+            assert_eq!(fixed.season, None);
+            assert_eq!(
+                ResolvedTheme {
+                    id: theme,
+                    season: None,
+                    ..siji
+                },
+                fixed
+            );
+        }
+    }
+    // 其他主题不看季节，结果里也没有 season。
+    assert_eq!(GlobalTheme::Siji.builtin(), None);
+    assert_eq!(
+        GlobalTheme::Ink.builtin_in(Season::Spring),
+        GlobalTheme::Ink.builtin()
+    );
+    let ink = serde_json::to_value(resolve_in(
+        GlobalTheme::Ink,
+        &CustomTheme::default(),
+        false,
+        CandidateLayout::Vertical,
+        None,
+        Season::Summer,
+    ))
+    .unwrap();
+    assert!(ink.get("season").is_none());
+    let siji = serde_json::to_value(resolve_in(
+        GlobalTheme::Siji,
+        &CustomTheme::default(),
+        false,
+        CandidateLayout::Vertical,
+        None,
+        Season::Summer,
+    ))
+    .unwrap();
+    assert_eq!(siji["season"], "summer");
+    assert_eq!(siji["appearance"], "dark");
+}
+
+#[test]
+fn a_custom_theme_over_siji_follows_the_season() {
+    let custom = CustomTheme {
+        base: GlobalTheme::Siji,
+        ..CustomTheme::default()
+    };
+    assert!(custom.validate().is_ok());
+    for (season, theme) in [
+        (Season::Spring, GlobalTheme::Chunya),
+        (Season::Winter, GlobalTheme::Dongxue),
+    ] {
+        let builtin = theme.builtin().unwrap();
+        let resolved = resolve_in(
+            GlobalTheme::Custom,
+            &custom,
+            true,
+            CandidateLayout::Vertical,
+            None,
+            season,
+        );
+        assert_eq!(resolved.source, ThemeSource::Custom);
+        assert_eq!(resolved.season, Some(season));
+        assert_eq!(resolved.appearance, Some(builtin.appearance));
+        assert_eq!(resolved.candidate, Some(builtin.candidate()));
+        assert_eq!(resolved.keyboard, Some(builtin.keyboard()));
+    }
+    // 底不是水杉四季时没有 season。
+    let paper = resolve_in(
+        GlobalTheme::Custom,
+        &CustomTheme {
+            base: GlobalTheme::Paper,
+            ..CustomTheme::default()
+        },
+        false,
+        CandidateLayout::Vertical,
+        None,
+        Season::Spring,
+    );
+    assert_eq!(paper.season, None);
 }
 
 /// A package whose light palette has a pink surface and whose dark palette has a navy one, so a test can tell which mode was applied.
@@ -914,6 +1076,11 @@ fn web_custom_theme_mirror_cases_match_resolve() {
             "colors": {"selected": "#FFE680"},
         },
         {
+            "name": "pickers over 水杉四季 are drawn in every season",
+            "base": "siji", "dark": false, "package": null, "month": 4,
+            "colors": {"text": "#112233", "number": "#445566", "accent": "#778899", "selected": "#FFE680", "hover": "#010203", "surface": "#F0F0F0", "border": "#0A0B0C"},
+        },
+        {
             "name": "a selected picker beats the package selected row and derives its text",
             "base": "paper", "dark": false,
             "package": {"themes": ["light"], "candidate": {"light": {"selected": "#11111180", "accent": "#AA0000"}, "dark": {}}},
@@ -952,12 +1119,19 @@ fn web_custom_theme_mirror_cases_match_resolve() {
             candidate_colors: serde_json::from_value(case["colors"].clone()).expect("colors"),
             ..CustomTheme::default()
         };
-        let resolved = resolve(
+        // 只有底是水杉四季时季节才有影响；用例里带 `month` 的按那个月解析，其余用例与季节无关。
+        let season = case["month"]
+            .as_u64()
+            .and_then(|month| u8::try_from(month).ok())
+            .and_then(season_for_month)
+            .unwrap_or(SEASONAL_PREVIEW);
+        let resolved = resolve_in(
             GlobalTheme::Custom,
             &custom,
             case["dark"].as_bool().expect("dark"),
             CandidateLayout::Vertical,
             package.as_ref(),
+            season,
         );
         let mut case = case.clone();
         case["expected"] = serde_json::to_value(resolved.candidate).expect("palette serializes");

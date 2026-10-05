@@ -240,9 +240,9 @@ pub fn is_reserved(id: &str) -> bool {
         || id == WINDOWS_DEFAULTS_FOLDER
 }
 
-/// 偏好里保存的皮肤选择（`custom_theme.candidate_skin`）要满足的规则：文件夹名的形状，且不是全局主题 ID。它比 [`is_external_id`] 宽：被 msime-windows 内置外观或 `default` 占用的名字以前可以当皮肤文件夹，旧设置和其他设备同步来的设置可能还写着它们；它们仍是合法的设置值，只是目录里不会有这个包，自定义主题照常画它的 base。若按 `is_external_id` 校验，这样的设置会让整份偏好被拒绝。
+/// 偏好里保存的皮肤选择（`custom_theme.candidate_skin`）要满足的规则：文件夹名的形状，且不是加入四季主题之前就有的七个全局主题 ID（[`super::theme::GlobalTheme::LEGACY_IDS`]）。它比 [`is_external_id`] 宽：被 msime-windows 内置外观、`default` 或后来加入的 `siji`、`chunya`、`xiayin`、`qiushan`、`dongxue` 占用的名字以前可以当皮肤文件夹，旧设置和其他设备同步来的设置可能还写着它们；它们仍是合法的设置值，只是目录里不会有这个包，自定义主题照常画它的 base。若按 `is_external_id` 或完整的主题 ID 表校验，这样的设置会让整份偏好被拒绝。
 pub fn is_selectable_id(id: &str) -> bool {
-    safe_id(id) && super::theme::GlobalTheme::from_id(id).is_none()
+    safe_id(id) && !super::theme::GlobalTheme::LEGACY_IDS.contains(&id)
 }
 
 /// 该名字能否作为外部皮肤的文件夹名。目录扫描只列出这样的文件夹，导入时按同一规则把关，免得拷进来一个扫描随后拒绝的皮肤。

@@ -873,10 +873,27 @@ fn external_ids_are_the_folder_names_the_scan_lists() {
         "autumn_osmanthus",
         "microsoft",
         "default",
+        "siji",
+        "qiushan",
         &"a".repeat(65),
     ] {
         assert!(!is_external_id(id), "{id}");
     }
+}
+
+/// 四季主题 ID 加入以后，新导入的皮肤不能再用这些名字，但偏好里已经保存的同名皮肤选择仍然合法：校验只和旧的七个主题 ID 比较。
+#[test]
+fn seasonal_theme_ids_stay_selectable_but_are_reserved_for_new_packages() {
+    for id in ["siji", "chunya", "xiayin", "qiushan", "dongxue"] {
+        assert!(is_selectable_id(id), "{id}");
+        assert!(!is_external_id(id), "{id}");
+        assert!(is_reserved(id), "{id}");
+    }
+    for id in super::super::theme::GlobalTheme::LEGACY_IDS {
+        assert!(!is_selectable_id(id), "{id}");
+    }
+    // Windows 内置外观名照旧是合法的保存值。
+    assert!(is_selectable_id("wechat"));
 }
 
 /// msime-windows 的外观作为 `base` 时，包没写的颜色和圆角按该外观补齐，深浅各补各的；包自己写的、以及读得懂的颜色保持原样，读不懂的换成外观的颜色。

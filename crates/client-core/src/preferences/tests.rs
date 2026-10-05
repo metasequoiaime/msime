@@ -522,6 +522,7 @@ fn diagnostic_logging_defaults_off_and_survives_a_round_trip() {
         diagnostic_log: DiagnosticLogPreferences {
             server: true,
             tsf: false,
+            mobile: false,
         },
         ..Preferences::default()
     };
@@ -2045,7 +2046,7 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
         ));
     }
 
-    for value in [-13, 49] {
+    for value in [-47, 56] {
         let mut invalid = saved.preferences.clone();
         invalid.touch_keyboard_height_adjustment = value;
         assert!(matches!(
@@ -2053,6 +2054,48 @@ fn touch_keyboard_spacing_uses_apple_defaults_bounds_and_legacy_roundtrip() {
             Err(PreferencesError::InvalidTouchKeyboardSpacing)
         ));
     }
+    // 设计的 75% 与 130% 两端都合法，旧范围 -12..=48 里的值也都仍然合法。
+    for value in [-46, -12, 48, 55] {
+        let mut valid = saved.preferences.clone();
+        valid.touch_keyboard_height_adjustment = value;
+        assert!(valid.validate().is_ok(), "{value}");
+    }
+}
+
+#[test]
+fn keyboard_height_percent_steps_match_the_design_table() {
+    assert_eq!(TOUCH_KEYBOARD_HEIGHT_ADJUSTMENT_RANGE, -46..=55);
+    let table: [(u8, i8); 12] = [
+        (75, -46),
+        (80, -37),
+        (85, -28),
+        (90, -18),
+        (95, -9),
+        (100, 0),
+        (105, 9),
+        (110, 18),
+        (115, 28),
+        (120, 37),
+        (125, 46),
+        (130, 55),
+    ];
+    for (percent, adjustment) in table {
+        assert_eq!(
+            height_percent_to_adjustment(percent),
+            adjustment,
+            "{percent}%"
+        );
+        assert_eq!(
+            height_adjustment_to_percent(adjustment),
+            percent,
+            "{adjustment} dp"
+        );
+        assert!(TOUCH_KEYBOARD_HEIGHT_ADJUSTMENT_RANGE.contains(&adjustment));
+    }
+    // 范围外的百分比钳到两端。
+    assert_eq!(height_percent_to_adjustment(50), -46);
+    assert_eq!(height_percent_to_adjustment(200), 55);
+    assert_eq!(height_adjustment_to_percent(24), 113);
 }
 
 #[test]
@@ -2082,6 +2125,7 @@ fn helpcode_legacy_defaults_and_independent_schemes_roundtrip() {
                 enabled: false,
                 schema,
                 show_in_candidate_window: true,
+                mode: HelpcodeMode::default(),
             },
             ..Preferences::default()
         };
@@ -2424,7 +2468,15 @@ fn candidate_appearance_colors_accept_hex_and_reject_unsafe_values() {
 #[test]
 fn custom_theme_candidate_skin_ids_are_safe_bounded_and_not_theme_ids() {
     let mut preferences = Preferences::default();
-    for skin in ["fluent", "willow_green", "external.skin-1"] {
+    // 四季主题 ID 加入之前就保存的同名皮肤选择仍然合法（shared-contracts §2.1）。
+    for skin in [
+        "fluent",
+        "willow_green",
+        "external.skin-1",
+        "siji",
+        "qiushan",
+        "dongxue",
+    ] {
         preferences.custom_theme.candidate_skin = Some(skin.to_owned());
         assert!(preferences.validate().is_ok(), "{skin}");
     }
@@ -3856,4 +3908,374 @@ fn language_editions_first_run_defaults_to_their_own_scheme() {
         assert_eq!(saved.preferences, defaults, "{id}");
         assert_eq!(store.load().unwrap().preferences, defaults, "{id}");
     }
+}
+
+/// 一份旧文档（没有本批新键）读进来，新字段都是默认值，而且读出后原样写回不会多出这些键：旧版本照样能读新版本写的、没改过新设置的文档。
+#[test]
+fn android_redesign_fields_default_when_absent_and_stay_out_of_default_documents() {
+    let defaults = Preferences::default();
+    let document = serde_json::to_value(&defaults).unwrap();
+    for key in [
+        "app_theme",
+        "touch_one_handed",
+        "touch_incognito",
+        "touch_key_popup",
+        "touch_swipe_down_symbols",
+        "touch_space_cursor",
+        "touch_space_voice",
+        "touch_key_animation",
+        "touch_handwriting",
+        "developer_options",
+    ] {
+        assert!(
+            document.get(key).is_none(),
+            "{key} is written at its default"
+        );
+    }
+    assert!(document["diagnostic_log"].get("mobile").is_none());
+    assert!(document["quanpin_helpcode"].get("mode").is_none());
+    assert!(document["shuangpin_helpcode"].get("mode").is_none());
+
+    let legacy: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(legacy.app_theme, crate::skin::app_theme::AppTheme::Siji);
+    assert_eq!(legacy.touch_one_handed, TouchOneHanded::Off);
+    assert!(!legacy.touch_incognito);
+    assert!(legacy.touch_key_popup && legacy.touch_swipe_down_symbols);
+    assert!(legacy.touch_space_cursor && legacy.touch_space_voice);
+    assert_eq!(legacy.touch_key_animation, TouchKeyAnimation::None);
+    assert_eq!(
+        legacy.touch_handwriting,
+        TouchHandwritingPreferences {
+            mode: HandwritingMode::Overlap,
+            recognition_delay_ms: 600,
+            show_pinyin: true,
+            stroke_color: HandwritingStrokeColor::FollowSkin,
+            stroke_width: 3,
+        }
+    );
+    assert_eq!(
+        legacy.developer_options,
+        DeveloperOptions {
+            debug_overlay: false,
+            log_level: DeveloperLogLevel::Warn,
+            mcp_upload: McpUploadPreferences {
+                retention: McpUploadRetention::OneDay,
+                crash_logs: true,
+                performance_logs: true,
+                input_events: false,
+                config_snapshot: true,
+            },
+        }
+    );
+    assert!(!legacy.diagnostic_log.mobile);
+    assert!(!legacy.voice_input.offline_fallback && !legacy.voice_input.contribute_audio);
+    assert_eq!(legacy.quanpin_helpcode.mode, HelpcodeMode::Radical);
+    assert_eq!(legacy, defaults);
+}
+
+#[test]
+fn android_redesign_fields_round_trip_once_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut preferences = Preferences {
+        app_theme: crate::skin::app_theme::AppTheme::Dongxue,
+        touch_one_handed: TouchOneHanded::Right,
+        touch_incognito: true,
+        touch_key_popup: false,
+        touch_swipe_down_symbols: false,
+        touch_space_cursor: false,
+        touch_space_voice: false,
+        touch_key_animation: TouchKeyAnimation::Ripple,
+        touch_handwriting: TouchHandwritingPreferences {
+            mode: HandwritingMode::Line,
+            recognition_delay_ms: 1500,
+            show_pinyin: false,
+            stroke_color: HandwritingStrokeColor::Blue,
+            stroke_width: 8,
+        },
+        developer_options: DeveloperOptions {
+            debug_overlay: true,
+            log_level: DeveloperLogLevel::Debug,
+            mcp_upload: McpUploadPreferences {
+                retention: McpUploadRetention::SevenDays,
+                crash_logs: false,
+                performance_logs: false,
+                input_events: true,
+                config_snapshot: false,
+            },
+        },
+        ..Preferences::default()
+    };
+    preferences.diagnostic_log.mobile = true;
+    preferences.voice_input.offline_fallback = true;
+    preferences.voice_input.contribute_audio = true;
+    preferences.quanpin_helpcode.mode = HelpcodeMode::Stroke;
+    preferences.shuangpin_helpcode.mode = HelpcodeMode::Mixed;
+    preferences.touch_toolbar.phrase = true;
+    preferences.touch_toolbar.scheme = false;
+    preferences.touch_toolbar.hidden = true;
+    let saved = store.save(0, preferences.clone()).unwrap();
+    assert_eq!(saved.preferences, preferences);
+    assert_eq!(store.load().unwrap(), saved);
+    let value = serde_json::to_value(&saved.preferences).unwrap();
+    assert_eq!(value["app_theme"], "dongxue");
+    assert_eq!(value["touch_one_handed"], "right");
+    assert_eq!(value["touch_key_animation"], "ripple");
+    assert_eq!(value["touch_handwriting"]["stroke_color"], "blue");
+    assert_eq!(value["developer_options"]["log_level"], "debug");
+    assert_eq!(
+        value["developer_options"]["mcp_upload"]["retention"],
+        "seven_days"
+    );
+    assert_eq!(value["diagnostic_log"]["mobile"], true);
+    assert_eq!(value["quanpin_helpcode"]["mode"], "stroke");
+    assert_eq!(value["shuangpin_helpcode"]["mode"], "mixed");
+
+    for (key, invalid) in [
+        ("app_theme", serde_json::json!("seasons")),
+        ("touch_one_handed", serde_json::json!("both")),
+        ("touch_key_animation", serde_json::json!("shake")),
+        ("touch_handwriting", serde_json::json!({"mode": "cursive"})),
+        ("touch_handwriting", serde_json::json!({"speed": 1})),
+        (
+            "developer_options",
+            serde_json::json!({"log_level": "trace"}),
+        ),
+        (
+            "developer_options",
+            serde_json::json!({"mcp_upload": {"retention": "forever"}}),
+        ),
+    ] {
+        let mut document = serde_json::to_value(Preferences::default()).unwrap();
+        document[key] = invalid.clone();
+        assert!(
+            serde_json::from_value::<Preferences>(document).is_err(),
+            "{key} {invalid}"
+        );
+    }
+}
+
+#[test]
+fn handwriting_delay_and_stroke_width_are_bounded() {
+    let mut preferences = Preferences::default();
+    for (delay, width) in [(200, 1), (1500, 8), (600, 3), (1000, 5)] {
+        preferences.touch_handwriting.recognition_delay_ms = delay;
+        preferences.touch_handwriting.stroke_width = width;
+        assert!(preferences.validate().is_ok(), "{delay} {width}");
+    }
+    for (delay, width) in [(100, 3), (1600, 3), (650, 3), (600, 0), (600, 9)] {
+        preferences.touch_handwriting.recognition_delay_ms = delay;
+        preferences.touch_handwriting.stroke_width = width;
+        assert!(
+            matches!(
+                preferences.validate(),
+                Err(PreferencesError::InvalidHandwriting)
+            ),
+            "{delay} {width}"
+        );
+    }
+}
+
+#[test]
+fn zhengma_helpcode_schema_and_modes_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let preferences = Preferences {
+        quanpin_helpcode: HelpcodePreferences {
+            schema: HelpcodeSchema::Zhengma,
+            mode: HelpcodeMode::Mixed,
+            ..default_quanpin_helpcode()
+        },
+        ..Preferences::default()
+    };
+    let saved = store.save(0, preferences).unwrap();
+    assert_eq!(
+        saved.preferences.quanpin_helpcode.schema.as_str(),
+        "zhengma"
+    );
+    assert_eq!(store.load().unwrap(), saved);
+    assert_eq!(
+        serde_json::from_value::<HelpcodeSchema>("zhengma".into()).unwrap(),
+        HelpcodeSchema::Zhengma
+    );
+    for mode in [
+        HelpcodeMode::Radical,
+        HelpcodeMode::Stroke,
+        HelpcodeMode::Mixed,
+    ] {
+        let value = serde_json::to_value(mode).unwrap();
+        assert_eq!(serde_json::from_value::<HelpcodeMode>(value).unwrap(), mode);
+    }
+    let mut document = serde_json::to_value(Preferences::default()).unwrap();
+    document["quanpin_helpcode"]["mode"] = "phonetic".into();
+    assert!(serde_json::from_value::<Preferences>(document).is_err());
+}
+
+/// 安卓新装默认值只在构造新文档和恢复默认设置时生效（实施计划 P26）。`cfg!` 只包在 `INSTALL_PLATFORM` 上，所以这里按平台直接调纯函数，每个分支都在桌面主机上测到。
+#[test]
+fn android_new_installs_follow_the_system_with_the_design_spacing_and_toolbar() {
+    use crate::skin::theme::GlobalTheme;
+    let android = Preferences::new_install_for(InstallPlatform::Android);
+    assert_eq!(android.global_theme, GlobalTheme::System);
+    assert_eq!(
+        (
+            android.touch_key_spacing_tenths,
+            android.touch_row_spacing_tenths
+        ),
+        (50, 80)
+    );
+    assert_eq!(
+        android.touch_toolbar,
+        TouchToolbarPreferences {
+            layout: false,
+            emoji: true,
+            skin: true,
+            clipboard: true,
+            ai: false,
+            character_set: false,
+            fullwidth: false,
+            punctuation: false,
+            phrase: true,
+            scheme: true,
+            hidden: false,
+        }
+    );
+    // 切到「自定义」时仍从薄荷晨光开始。
+    assert_eq!(
+        android.custom_theme.keyboard,
+        Some(TouchKeyboardSkinDesign::mint_morning())
+    );
+    assert!(android.validate().is_ok());
+
+    let touch = Preferences::new_install_for(InstallPlatform::OtherTouch);
+    assert_eq!(touch.global_theme, GlobalTheme::Custom);
+    assert_eq!(
+        (
+            touch.touch_key_spacing_tenths,
+            touch.touch_row_spacing_tenths
+        ),
+        (60, 70)
+    );
+    assert_eq!(
+        touch.touch_toolbar,
+        TouchToolbarPreferences::legacy_for(InstallPlatform::OtherTouch)
+    );
+    assert!(!touch.touch_toolbar.phrase);
+
+    let desktop = Preferences::new_install_for(InstallPlatform::Desktop);
+    assert_eq!(desktop.global_theme, GlobalTheme::System);
+    assert_eq!(desktop.custom_theme, CustomTheme::default());
+    assert_eq!(
+        (
+            desktop.touch_key_spacing_tenths,
+            desktop.touch_row_spacing_tenths
+        ),
+        (60, 70)
+    );
+    // 这个测试在桌面上跑，`Default` 就是桌面那一支。
+    assert_eq!(INSTALL_PLATFORM, InstallPlatform::Desktop);
+    assert_eq!(Preferences::default(), desktop);
+    assert_eq!(TouchToolbarPreferences::default(), desktop.touch_toolbar);
+
+    // 恢复默认设置也回到本平台的新装默认值。
+    let mut edited = android.clone();
+    edited.global_theme = GlobalTheme::Ink;
+    edited.touch_key_spacing_tenths = 60;
+    edited.touch_toolbar.emoji = false;
+    let restored =
+        edited.restored_to_defaults_on(crate::edition::Edition::full(), InstallPlatform::Android);
+    assert_eq!(restored.global_theme, GlobalTheme::System);
+    assert_eq!(restored.touch_key_spacing_tenths, 50);
+    assert_eq!(restored.touch_toolbar, android.touch_toolbar);
+    let restored = edited
+        .restored_to_defaults_on(crate::edition::Edition::full(), InstallPlatform::OtherTouch);
+    assert_eq!(restored.global_theme, GlobalTheme::Custom);
+}
+
+/// 已保存的文档缺键时读到的是字段自己的 serde 默认值，与平台无关：安卓上缺 `touch_key_spacing_tenths` 的残缺文档读成 60 而不是新装的 50，缺 `global_theme` 读成 `system`（改动前就是这样，不是新装默认值带来的）。只有工具栏的新成员 `phrase` 缺键时按平台取默认。
+#[test]
+fn missing_keys_in_saved_documents_never_become_the_android_install_defaults() {
+    let android = Preferences::new_install_for(InstallPlatform::Android);
+    let mut document = serde_json::to_value(&android).unwrap();
+    let object = document.as_object_mut().unwrap();
+    for key in [
+        "touch_key_spacing_tenths",
+        "touch_row_spacing_tenths",
+        "global_theme",
+    ] {
+        object.remove(key);
+    }
+    let partial: Preferences = serde_json::from_value(document).unwrap();
+    assert_eq!(partial.touch_key_spacing_tenths, 60);
+    assert_eq!(partial.touch_row_spacing_tenths, 70);
+    assert_eq!(
+        partial.global_theme,
+        crate::skin::theme::GlobalTheme::default()
+    );
+
+    // 一份没写过新成员的工具栏：原有成员按读到的值，新成员按平台默认。
+    let legacy_toolbar = serde_json::json!({
+        "layout": true, "emoji": true, "skin": true, "clipboard": false, "ai": false,
+        "character_set": false, "fullwidth": false, "punctuation": false
+    });
+    let desktop: TouchToolbarPreferences = serde_json::from_value(legacy_toolbar).unwrap();
+    assert!(!desktop.phrase && desktop.scheme && !desktop.hidden);
+    assert_eq!(
+        TouchToolbarPreferences::legacy_for(InstallPlatform::Android),
+        TouchToolbarPreferences {
+            phrase: true,
+            ..desktop
+        }
+    );
+}
+
+#[test]
+fn restoring_defaults_in_the_store_is_one_compare_and_swap() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut edited = Preferences {
+        candidate_page_size: 7,
+        touch_incognito: true,
+        ..Preferences::default()
+    };
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    edited.fuzzy_pinyin.seeded = true;
+    let saved = store.save(0, edited).unwrap();
+    assert!(matches!(
+        store.restore_defaults(saved.revision + 1),
+        Err(PreferencesError::Conflict)
+    ));
+    assert_eq!(store.load().unwrap(), saved);
+    let restored = store.restore_defaults(saved.revision).unwrap();
+    assert_eq!(restored.revision, saved.revision + 1);
+    assert_eq!(restored.preferences.candidate_page_size, 6);
+    assert!(!restored.preferences.touch_incognito);
+    assert_eq!(
+        restored.preferences.voice_input.asr_token,
+        "fixture-asr-token"
+    );
+    assert!(restored.preferences.fuzzy_pinyin.seeded);
+    assert_eq!(store.load().unwrap(), restored);
+}
+
+#[test]
+fn a_legacy_document_naming_a_seasonal_skin_folder_still_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    legacy["preferences"]["global_theme"] = "custom".into();
+    legacy["preferences"]["custom_theme"] = serde_json::json!({"candidate_skin": "qiushan"});
+    std::fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap();
+    assert_eq!(
+        loaded.preferences.custom_theme.candidate_skin.as_deref(),
+        Some("qiushan")
+    );
+    // 自定义主题也能画在水杉四季上。
+    legacy["preferences"]["custom_theme"] = serde_json::json!({"base": "siji"});
+    std::fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(
+        store.load().unwrap().preferences.custom_theme.base,
+        crate::skin::theme::GlobalTheme::Siji
+    );
 }

@@ -26,7 +26,9 @@
           "text": "#112233"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -54,7 +56,9 @@
           "accent": "#AA0000"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -85,7 +89,9 @@
           "translation": "rgba(1, 2, 3, .5)"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -114,7 +120,9 @@
         },
         "light": {}
       },
-      "themes": ["dark"]
+      "themes": [
+        "dark"
+      ]
     }
   },
   {
@@ -151,7 +159,10 @@
           "surface": "#ffffff"
         }
       },
-      "themes": ["dark", "light"]
+      "themes": [
+        "dark",
+        "light"
+      ]
     }
   },
   {
@@ -183,7 +194,9 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -213,7 +226,9 @@
           "surface": "#FFF0F5"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -244,7 +259,9 @@
           "selected": "#11111180"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -276,7 +293,9 @@
           "surface": "rgba(1, 2, 3, 1.5)"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   },
   {
@@ -378,6 +397,35 @@
     "package": null
   },
   {
+    "base": "siji",
+    "colors": {
+      "accent": "#778899",
+      "border": "#0A0B0C",
+      "hover": "#010203",
+      "number": "#445566",
+      "selected": "#FFE680",
+      "surface": "#F0F0F0",
+      "text": "#112233"
+    },
+    "dark": false,
+    "expected": {
+      "accent": "#778899",
+      "border": "#0A0B0C",
+      "hover": "#010203",
+      "number": "#445566",
+      "secondary": "#445566",
+      "selected": "#FFE680",
+      "selected_number": "#0000009D",
+      "selected_text": "#000000",
+      "show_selected_bar": null,
+      "surface": "#F0F0F0",
+      "text": "#112233"
+    },
+    "month": 4,
+    "name": "pickers over 水杉四季 are drawn in every season",
+    "package": null
+  },
+  {
     "base": "paper",
     "colors": {
       "selected": "#1A3D7C"
@@ -405,7 +453,9 @@
           "selected": "#11111180"
         }
       },
-      "themes": ["light"]
+      "themes": [
+        "light"
+      ]
     }
   }
 ]

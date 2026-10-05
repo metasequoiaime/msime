@@ -724,6 +724,9 @@ pub struct Preferences {
     /// The one theme that colours the candidate window, toolbar, menus and touch keyboard on every host. `theme` above stays the light/dark mode the `system` theme and the settings window follow.
     #[serde(default)]
     pub global_theme: crate::skin::theme::GlobalTheme,
+    /// 应用主题（水杉四季、春芽、夏荫、秋杉、冬雪），给 Android 宿主自己的页面配色。所有平台默认都是水杉四季，目前只有 Android 读它。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub app_theme: crate::skin::app_theme::AppTheme,
     #[serde(default)]
     pub custom_theme: CustomTheme,
     #[serde(default)]
@@ -737,6 +740,9 @@ pub struct Preferences {
     pub tsf_preedit_style: PreeditStyle,
     #[serde(default)]
     pub diagnostic_log: DiagnosticLogPreferences,
+    /// 开发者选项：调试信息、日志级别和 MCP 日志上传的内容。只存在本机，不同步。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub developer_options: DeveloperOptions,
     #[serde(default = "enabled_by_default")]
     pub candidate_follow_cursor: bool,
     /// macOS displays a short, non-activating badge after switching between
@@ -777,6 +783,30 @@ pub struct Preferences {
     /// The optional buttons on the touch keyboard's toolbar, the counterpart of the floating toolbar's component switches. The voice entry stays under `touch_voice_shortcut`.
     #[serde(default)]
     pub touch_toolbar: TouchToolbarPreferences,
+    /// 单手模式：关闭，或把键盘收窄贴向左侧、右侧。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub touch_one_handed: TouchOneHanded,
+    /// 隐私模式：开启时 host-api 不学习、不统计选词位置，触屏宿主也不记录字数、按键、剪贴板历史，不做任何数据贡献。云候选、翻译、AI 等联网功能各有自己的开关，不受它影响。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub touch_incognito: bool,
+    /// 按键时在键上方显示放大的字符气泡。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_key_popup: bool,
+    /// 中文模式下字母键右上角显示符号，下滑输入该符号。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_swipe_down_symbols: bool,
+    /// 在空格键上水平拖动移动光标。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_space_cursor: bool,
+    /// 长按空格键开始语音输入。为假且 `touch_voice_shortcut` 为真时语音从工具栏按钮启动，两者都为假时没有语音入口。
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub touch_space_voice: bool,
+    /// 按键按下时的动画；`none` 保持原来的按压态。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub touch_key_animation: TouchKeyAnimation,
+    /// 手写面板的识别方式与笔迹。它不叫 `handwriting`：macOS 源码里有手写面板，覆盖率检查按子串找读取者，同名会被误判为已读取。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub touch_handwriting: TouchHandwritingPreferences,
     /// 当前方案是日文、韩文、越南文或藏文时保留，记住要回到的中文方案。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_chinese_scheme: Option<ChineseScheme>,
@@ -988,6 +1018,12 @@ pub struct VoiceInputPreferences {
     pub doubao_enable_ddc: bool,
     #[serde(default)]
     pub doubao_boosting_table_id: String,
+    /// 没有网络、且 `asr_model_path` 指向已安装的本地模型时改用本地识别。
+    #[serde(default)]
+    pub offline_fallback: bool,
+    /// 上传语音和识别文本以改进识别。这里只存开关；任何上传都要开关为真且服务端接口存在，开启前宿主必须征得用户确认。
+    #[serde(default)]
+    pub contribute_audio: bool,
 }
 
 impl Default for VoiceInputPreferences {
@@ -1034,6 +1070,8 @@ impl Default for VoiceInputPreferences {
             doubao_enable_punc: true,
             doubao_enable_ddc: source_voice_default(),
             doubao_boosting_table_id: String::new(),
+            offline_fallback: false,
+            contribute_audio: false,
         }
     }
 }
@@ -1147,6 +1185,9 @@ pub struct DiagnosticLogPreferences {
     pub server: bool,
     /// In-process TSF preedit and input latency, buffered and batched out.
     pub tsf: bool,
+    /// 触屏键盘的「记录输入日志」：只保存在本机，只记录时间和事件种类，不记录按键内容、输入文本和候选。结构体拒绝未知字段，所以默认值时不写进文档，旧版本照样能读。
+    #[serde(skip_serializing_if = "is_false")]
+    pub mobile: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1198,6 +1239,8 @@ fn default_toolbar_font_size() -> u16 {
 }
 
 /// Which optional buttons the touch keyboard's toolbar carries. The first three are the buttons the bar always had; the rest are tools that otherwise sit one tap deeper, in the keyboard's 更多 panel.
+///
+/// 结构体没有 `deny_unknown_fields`，旧版本会忽略新成员。缺键时取 `Default`：原有成员是各平台共用的旧默认值，新成员 `phrase` 按平台取默认（Android 为真），`scheme` 为真、`hidden` 为假。Android 新装的整套默认值见 [`TouchToolbarPreferences::for_new_install`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TouchToolbarPreferences {
@@ -1209,10 +1252,23 @@ pub struct TouchToolbarPreferences {
     pub character_set: bool,
     pub fullwidth: bool,
     pub punctuation: bool,
+    /// 常用语按钮。
+    pub phrase: bool,
+    /// 输入方式按钮（切换方案）。
+    pub scheme: bool,
+    /// 「显示方式：隐藏」：整行工具栏不显示，候选条照常显示。
+    pub hidden: bool,
 }
 
 impl Default for TouchToolbarPreferences {
     fn default() -> Self {
+        Self::legacy_for(INSTALL_PLATFORM)
+    }
+}
+
+impl TouchToolbarPreferences {
+    /// 文档里已有 `touch_toolbar` 时缺键成员读到的值：原有八个成员是各平台共用的旧默认值，只有新成员 `phrase` 按平台区分。
+    fn legacy_for(platform: InstallPlatform) -> Self {
         Self {
             layout: true,
             emoji: true,
@@ -1222,8 +1278,167 @@ impl Default for TouchToolbarPreferences {
             character_set: false,
             fullwidth: false,
             punctuation: false,
+            phrase: platform == InstallPlatform::Android,
+            scheme: true,
+            hidden: false,
         }
     }
+
+    /// 新安装（还没有偏好文档、或恢复默认设置）时的工具栏。Android 是设计工具栏的按钮：表情、常用语、剪贴板、皮肤，品牌、输入方式和收起三个按钮不可选；其他平台与 `Default` 相同。
+    fn for_new_install(platform: InstallPlatform) -> Self {
+        match platform {
+            InstallPlatform::Android => Self {
+                layout: false,
+                emoji: true,
+                skin: true,
+                clipboard: true,
+                ai: false,
+                character_set: false,
+                fullwidth: false,
+                punctuation: false,
+                phrase: true,
+                scheme: true,
+                hidden: false,
+            },
+            _ => Self::legacy_for(platform),
+        }
+    }
+}
+
+/// 单手模式。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchOneHanded {
+    #[default]
+    Off,
+    Left,
+    Right,
+}
+
+/// 按键按下时的动画：弹起、涟漪、发光、浮起，或没有动画。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchKeyAnimation {
+    #[default]
+    None,
+    Bounce,
+    Ripple,
+    Glow,
+    Lift,
+}
+
+/// 手写的书写方式：单字、叠写、行写。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandwritingMode {
+    Single,
+    #[default]
+    Overlap,
+    Line,
+}
+
+/// 手写笔迹的颜色。`follow_skin` 跟随键盘皮肤。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandwritingStrokeColor {
+    #[default]
+    FollowSkin,
+    Black,
+    White,
+    Blue,
+}
+
+/// 手写识别的等待时间范围（毫秒），步长 100。
+pub const HANDWRITING_RECOGNITION_DELAY_MS: std::ops::RangeInclusive<u16> = 200..=1500;
+/// 手写笔迹的粗细范围（像素）。
+pub const HANDWRITING_STROKE_WIDTH: std::ops::RangeInclusive<u8> = 1..=8;
+
+/// 手写面板的识别方式与笔迹。默认值来自设计原型：叠写、停笔 600 毫秒后识别、识别后显示拼音、笔迹跟随皮肤、粗细 3。已有的 `handwriting_theme` 是手写面板的明暗，与笔迹颜色无关。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TouchHandwritingPreferences {
+    pub mode: HandwritingMode,
+    /// 停笔后多久开始识别，200..=1500 毫秒，100 的倍数。
+    pub recognition_delay_ms: u16,
+    /// 识别后在候选上显示拼音。
+    pub show_pinyin: bool,
+    pub stroke_color: HandwritingStrokeColor,
+    /// 笔迹粗细，1..=8 像素。
+    pub stroke_width: u8,
+}
+
+impl Default for TouchHandwritingPreferences {
+    fn default() -> Self {
+        Self {
+            mode: HandwritingMode::default(),
+            recognition_delay_ms: 600,
+            show_pinyin: true,
+            stroke_color: HandwritingStrokeColor::default(),
+            stroke_width: 3,
+        }
+    }
+}
+
+impl TouchHandwritingPreferences {
+    fn is_valid(&self) -> bool {
+        HANDWRITING_RECOGNITION_DELAY_MS.contains(&self.recognition_delay_ms)
+            && self.recognition_delay_ms % 100 == 0
+            && HANDWRITING_STROKE_WIDTH.contains(&self.stroke_width)
+    }
+}
+
+/// 开发者选项里的日志级别。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeveloperLogLevel {
+    Error,
+    #[default]
+    Warn,
+    Info,
+    Debug,
+}
+
+/// MCP 日志快照在服务端保留多久。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpUploadRetention {
+    OneHour,
+    #[default]
+    OneDay,
+    SevenDays,
+}
+
+/// 上传 MCP 日志快照时包含哪几类内容。「输入事件」只含时间、耗时和事件种类，不含任何文字，默认不勾选。是否已上传、远程地址和令牌是服务端状态，不在这里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpUploadPreferences {
+    pub retention: McpUploadRetention,
+    pub crash_logs: bool,
+    pub performance_logs: bool,
+    pub input_events: bool,
+    pub config_snapshot: bool,
+}
+
+impl Default for McpUploadPreferences {
+    fn default() -> Self {
+        Self {
+            retention: McpUploadRetention::default(),
+            crash_logs: true,
+            performance_logs: true,
+            input_events: false,
+            config_snapshot: true,
+        }
+    }
+}
+
+/// 开发者选项。字段名用 `developer_options` 而不是 `developer`，避免 macOS 覆盖率检查的子串误命中。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DeveloperOptions {
+    /// 在候选栏显示引擎耗时与词频。
+    pub debug_overlay: bool,
+    pub log_level: DeveloperLogLevel,
+    pub mcp_upload: McpUploadPreferences,
 }
 
 impl Default for FloatingToolbarPreferences {
@@ -1733,6 +1948,38 @@ fn default_touch_row_spacing_tenths() -> u8 {
     70
 }
 
+/// 新安装的键间距与行间距（十分之一 dp）：Android 是设计的 5 dp / 8 dp，其他平台与缺键时读到的值相同。已保存的文档不受影响。
+fn new_install_touch_spacing_tenths(platform: InstallPlatform) -> (u8, u8) {
+    match platform {
+        InstallPlatform::Android => (50, 80),
+        _ => (
+            default_touch_key_spacing_tenths(),
+            default_touch_row_spacing_tenths(),
+        ),
+    }
+}
+
+/// 触屏键盘高度调整的范围（dp，加在四行键高的总和上）。基准是 4 × 46 = 184 dp，设计的 75%–130% 换算为 −46…55；其他平台各自的 −12…48 钳制不变，它们写不出、读到也会钳住范围外的值。
+pub const TOUCH_KEYBOARD_HEIGHT_ADJUSTMENT_RANGE: std::ops::RangeInclusive<i8> = -46..=55;
+/// 键盘高度百分比换算的基准：四行标准键高 4 × 46 dp。
+pub const TOUCH_KEYBOARD_HEIGHT_BASE_DP: i32 = 184;
+
+/// 设计的键盘高度百分比 `percent`（75..=130）对应的高度调整 dp：`round(184 × (percent − 100) / 100)`，范围外的百分比先钳到 75..=130。184 × 5k / 100 的小数部分不会是 .5，所以四舍五入的方向不影响结果。
+pub fn height_percent_to_adjustment(percent: u8) -> i8 {
+    let percent = i32::from(percent.clamp(75, 130));
+    let scaled = TOUCH_KEYBOARD_HEIGHT_BASE_DP * (percent - 100);
+    let adjustment = (scaled + scaled.signum() * 50) / 100;
+    i8::try_from(adjustment).expect("75..=130 percent stays within -46..=55")
+}
+
+/// 高度调整 dp 对应的百分比，四舍五入到整数：`round(100 + adjustment × 100 / 184)`。
+pub fn height_adjustment_to_percent(adjustment: i8) -> u8 {
+    let scaled = i32::from(adjustment) * 100;
+    let base = TOUCH_KEYBOARD_HEIGHT_BASE_DP;
+    let offset = (scaled + scaled.signum() * base / 2) / base;
+    u8::try_from(100 + offset).expect("an i8 adjustment stays within u8 percent")
+}
+
 fn default_candidate_font_family() -> String {
     "Noto Sans SC".to_owned()
 }
@@ -1755,25 +2002,53 @@ const TOUCH_KEYBOARD_BUILD: bool = cfg!(any(
     target_env = "ohos"
 ));
 
-/// A new install on a touch keyboard starts on the custom theme drawn with 薄荷晨光, the keyboard skin the phones ship as their default; on the desktop it follows the system. A saved document always carries `global_theme`, so this only decides what a device that has never saved looks like, and what 恢复默认设置 returns to.
-fn default_global_theme() -> crate::skin::theme::GlobalTheme {
-    if TOUCH_KEYBOARD_BUILD {
-        crate::skin::theme::GlobalTheme::Custom
-    } else {
-        crate::skin::theme::GlobalTheme::default()
+/// 新安装默认值所按的平台类别。默认值写成以它为参数的纯函数，`cfg!` 只在这一处，所以每个分支都能在任意主机上测到。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallPlatform {
+    Android,
+    /// iOS 和 HarmonyOS。
+    OtherTouch,
+    Desktop,
+}
+
+const INSTALL_PLATFORM: InstallPlatform = if cfg!(target_os = "android") {
+    InstallPlatform::Android
+} else if TOUCH_KEYBOARD_BUILD {
+    InstallPlatform::OtherTouch
+} else {
+    InstallPlatform::Desktop
+};
+
+/// 新安装的全局主题：安卓跟随系统（键盘颜色从应用主题推出）；iOS、鸿蒙是画着薄荷晨光的自定义主题，那是手机默认的键盘皮肤；桌面跟随系统。已保存的文档一定带着 `global_theme`，所以这只决定从没保存过的设备是什么样子，以及「恢复默认设置」回到哪里。
+fn default_global_theme_for(platform: InstallPlatform) -> crate::skin::theme::GlobalTheme {
+    match platform {
+        InstallPlatform::OtherTouch => crate::skin::theme::GlobalTheme::Custom,
+        InstallPlatform::Android | InstallPlatform::Desktop => {
+            crate::skin::theme::GlobalTheme::System
+        }
     }
 }
 
-/// The custom theme a new install starts with: 薄荷晨光 on a touch keyboard over the system base, so the candidate colours still follow the platform; empty on the desktop.
-fn default_custom_theme() -> CustomTheme {
+/// The custom theme a new install starts with: 薄荷晨光 on a touch keyboard over the system base, so the candidate colours still follow the platform; empty on the desktop. 安卓新装虽然跟随系统，切到「自定义」时也从薄荷晨光开始。
+fn default_custom_theme_for(platform: InstallPlatform) -> CustomTheme {
     CustomTheme {
-        keyboard: TOUCH_KEYBOARD_BUILD.then(TouchKeyboardSkinDesign::mint_morning),
+        keyboard: (platform != InstallPlatform::Desktop)
+            .then(TouchKeyboardSkinDesign::mint_morning),
         ..CustomTheme::default()
     }
 }
 
 impl Default for Preferences {
     fn default() -> Self {
+        Self::new_install_for(INSTALL_PLATFORM)
+    }
+}
+
+impl Preferences {
+    /// `platform` 上新安装的偏好。只有构造新文档（没有偏好文件、修复时垫底、恢复默认设置）用它；字段的 serde 默认函数不按平台变，已保存文档里缺的键不会变成新默认值。
+    fn new_install_for(platform: InstallPlatform) -> Self {
+        let (touch_key_spacing_tenths, touch_row_spacing_tenths) =
+            new_install_touch_spacing_tenths(platform);
         Self {
             default_ime_mode: DefaultImeMode::default(),
             ime_mode_scope: ImeModeScope::default(),
@@ -1794,13 +2069,15 @@ impl Default for Preferences {
             voice_theme: SettingsTheme::default(),
             emoji_theme: SettingsTheme::default(),
             menu_theme: SettingsTheme::default(),
-            global_theme: default_global_theme(),
-            custom_theme: default_custom_theme(),
+            global_theme: default_global_theme_for(platform),
+            app_theme: crate::skin::app_theme::AppTheme::default(),
+            custom_theme: default_custom_theme_for(platform),
             candidate_layout: CandidateLayout::default(),
             candidate_preedit_style: CandidatePreeditStyle::default(),
             show_candidate_page_number: true,
             tsf_preedit_style: PreeditStyle::default(),
             diagnostic_log: DiagnosticLogPreferences::default(),
+            developer_options: DeveloperOptions::default(),
             candidate_follow_cursor: true,
             input_mode_hud: true,
             scheme: InputScheme::default(),
@@ -1809,11 +2086,19 @@ impl Default for Preferences {
             wubi_profile: WubiProfile::default(),
             touch_keyboard_layout: TouchKeyboardLayout::default(),
             touch_keyboard_schemes: TouchKeyboardSchemePreferences::default(),
-            touch_key_spacing_tenths: default_touch_key_spacing_tenths(),
-            touch_row_spacing_tenths: default_touch_row_spacing_tenths(),
+            touch_key_spacing_tenths,
+            touch_row_spacing_tenths,
             touch_keyboard_height_adjustment: 0,
             touch_voice_shortcut: false,
-            touch_toolbar: TouchToolbarPreferences::default(),
+            touch_toolbar: TouchToolbarPreferences::for_new_install(platform),
+            touch_one_handed: TouchOneHanded::default(),
+            touch_incognito: false,
+            touch_key_popup: true,
+            touch_swipe_down_symbols: true,
+            touch_space_cursor: true,
+            touch_space_voice: true,
+            touch_key_animation: TouchKeyAnimation::default(),
+            touch_handwriting: TouchHandwritingPreferences::default(),
             last_chinese_scheme: None,
             shuangpin_profile: ShuangpinProfile::default(),
             shuangpin_preedit_uses_raw: true,
@@ -1912,6 +2197,15 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+/// 值等于类型默认值时不写进文档，旧版本照样能读。
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FuzzyPinyinPreferences {
@@ -1982,6 +2276,8 @@ pub enum HelpcodeSchema {
     Shouyouplus,
     Xiaohe,
     Jiajia,
+    /// 郑码。仓库里还没有带授权的郑码辅助码表，这里只负责保存和往返；host-api 在有内置表之前不把它交给 Engine。
+    Zhengma,
     /// A user table under the resource set's `helpcodes/custom` directory.
     Custom(String),
 }
@@ -1995,6 +2291,7 @@ impl HelpcodeSchema {
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
             Self::Jiajia => "jiajia",
+            Self::Zhengma => "zhengma",
             Self::Custom(value) => value,
         }
     }
@@ -2022,10 +2319,21 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
             "shouyouplus" => Ok(Self::Shouyouplus),
             "xiaohe" => Ok(Self::Xiaohe),
             "jiajia" => Ok(Self::Jiajia),
+            "zhengma" => Ok(Self::Zhengma),
             value if crate::helpcode::is_custom_schema(value) => Ok(Self::Custom(value.into())),
             _ => Err(serde::de::Error::custom("unknown helpcode schema")),
         }
     }
+}
+
+/// 辅助码怎么取：部首（现在码表的含义，首尾部首）、笔画（前两笔，用 h/s/p/n/z 表示）或混合（第一码部首、第二码笔画）。这里只存储，Engine 的支持另行接入。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HelpcodeMode {
+    #[default]
+    Radical,
+    Stroke,
+    Mixed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2036,6 +2344,9 @@ pub struct HelpcodePreferences {
     pub schema: HelpcodeSchema,
     #[serde(default = "enabled_by_default")]
     pub show_in_candidate_window: bool,
+    /// 结构体拒绝未知字段，所以默认值时不写进文档，旧版本照样能读。
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub mode: HelpcodeMode,
 }
 
 impl Default for HelpcodePreferences {
@@ -2044,6 +2355,7 @@ impl Default for HelpcodePreferences {
             enabled: true,
             schema: HelpcodeSchema::default(),
             show_in_candidate_window: true,
+            mode: HelpcodeMode::default(),
         }
     }
 }
@@ -2053,6 +2365,7 @@ fn default_quanpin_helpcode() -> HelpcodePreferences {
         enabled: true,
         schema: HelpcodeSchema::Ziranma,
         show_in_candidate_window: false,
+        mode: HelpcodeMode::default(),
     }
 }
 
@@ -2089,6 +2402,7 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
         enabled: true,
         schema: HelpcodeSchema::Lantian,
         show_in_candidate_window: true,
+        mode: HelpcodeMode::default(),
     }
 }
 
@@ -2139,7 +2453,12 @@ impl Preferences {
     ///
     /// 默认方案不是全拼时，`last_chinese_scheme` 也指向它：从日文等方案切回中文、或偏好里的方案不可用而回退时，回到的是本版本的方案。
     pub fn for_edition(edition: &crate::edition::Edition) -> Self {
-        let mut preferences = Self::default();
+        Self::for_edition_on(edition, INSTALL_PLATFORM)
+    }
+
+    /// [`Preferences::for_edition`]，以 `platform` 的新装默认值为底。
+    fn for_edition_on(edition: &crate::edition::Edition, platform: InstallPlatform) -> Self {
+        let mut preferences = Self::new_install_for(platform);
         if edition.default_scheme != preferences.scheme {
             preferences.scheme = edition.default_scheme;
             preferences.last_chinese_scheme = ChineseScheme::of(edition.default_scheme);
@@ -2169,7 +2488,16 @@ impl Preferences {
 
     /// [`Preferences::restored_to_defaults`]，只是回到的是 `edition` 的默认偏好（[`Preferences::for_edition`]）。
     pub fn restored_to_defaults_for(&self, edition: &crate::edition::Edition) -> Self {
-        let mut next = Self::for_edition(edition);
+        self.restored_to_defaults_on(edition, INSTALL_PLATFORM)
+    }
+
+    /// [`Preferences::restored_to_defaults_for`]，回到 `platform` 的新装默认值。
+    fn restored_to_defaults_on(
+        &self,
+        edition: &crate::edition::Edition,
+        platform: InstallPlatform,
+    ) -> Self {
+        let mut next = Self::for_edition_on(edition, platform);
 
         next.voice_input.asr_provider = self.voice_input.asr_provider.clone();
         next.voice_input.asr_app_key = self.voice_input.asr_app_key.clone();
@@ -2270,9 +2598,13 @@ impl Preferences {
         }
         if !(30..=60).contains(&self.touch_key_spacing_tenths)
             || !(40..=100).contains(&self.touch_row_spacing_tenths)
-            || !(-12..=48).contains(&self.touch_keyboard_height_adjustment)
+            || !TOUCH_KEYBOARD_HEIGHT_ADJUSTMENT_RANGE
+                .contains(&self.touch_keyboard_height_adjustment)
         {
             return Err(PreferencesError::InvalidTouchKeyboardSpacing);
+        }
+        if !self.touch_handwriting.is_valid() {
+            return Err(PreferencesError::InvalidHandwriting);
         }
         self.custom_theme.validate()?;
         if self.touch_keyboard_schemes.enabled.is_empty()
@@ -2373,8 +2705,12 @@ pub enum PreferencesError {
     InvalidNiuTrans,
     #[error("candidate page size must be between 1 and 9")]
     InvalidPageSize,
-    #[error("touch keyboard key spacing must be 3.0-6.0 and row spacing must be 4.0-10.0")]
+    #[error("touch keyboard key spacing must be 3.0-6.0, row spacing 4.0-10.0 and the height adjustment -46 to 55")]
     InvalidTouchKeyboardSpacing,
+    #[error(
+        "handwriting recognition delay must be 200-1500 ms in steps of 100 and stroke width 1-8"
+    )]
+    InvalidHandwriting,
     #[error(
         "at least one touch keyboard scheme must be enabled and the selection must be visible"
     )]
@@ -2597,10 +2933,31 @@ impl PreferencesStore {
     pub fn save(
         &self,
         expected_revision: u64,
-        mut preferences: Preferences,
+        preferences: Preferences,
     ) -> Result<PreferencesSnapshot, PreferencesError> {
         let _lock = self.lock()?;
         let current = self.read_locked()?;
+        self.save_locked(current, expected_revision, preferences)
+    }
+
+    /// 「恢复默认设置」：在同一把锁里读出当前文档，换成本存储所属版本的默认偏好（[`Preferences::restored_to_defaults_for`]，服务凭据和 `fuzzy_pinyin.seeded` 保留），再按 `expected_revision` 做比较并交换写回。修订号不符时返回 `Conflict`，什么也不写。
+    pub fn restore_defaults(
+        &self,
+        expected_revision: u64,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
+        let _lock = self.lock()?;
+        let current = self.read_locked()?;
+        let restored = current.preferences.restored_to_defaults_for(self.edition());
+        self.save_locked(current, expected_revision, restored)
+    }
+
+    /// `save` 的主体，调用方已持有锁并读出了 `current`。
+    fn save_locked(
+        &self,
+        current: PreferencesSnapshot,
+        expected_revision: u64,
+        mut preferences: Preferences,
+    ) -> Result<PreferencesSnapshot, PreferencesError> {
         if current.revision != expected_revision {
             return Err(PreferencesError::Conflict);
         }
