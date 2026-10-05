@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
-import { useAsyncGeneration } from "../settings/use-async-generation";
-import { useMountedRef } from "../settings/use-mounted-ref";
+import { useCallback, type MutableRefObject } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface CommunityClientLifecycle {
   mounted: MutableRefObject<boolean>;
@@ -9,21 +8,18 @@ export interface CommunityClientLifecycle {
   isCurrent: (generation: number) => boolean;
 }
 
+const ignoreError = (_message: string) => {};
+
 /** Tracks client ownership for asynchronous community views and actions. */
 export function useCommunityClientLifecycle(
   client: unknown,
   ...owners: readonly unknown[]
 ): CommunityClientLifecycle {
-  const mounted = useMountedRef();
-  const clientGeneration = useAsyncGeneration(client, ...owners);
-  const actionRunning = useRef(false);
-
-  useEffect(() => {
-    actionRunning.current = false;
-    return () => {
-      actionRunning.current = false;
-    };
-  }, [client, ...owners]);
+  const {
+    mounted,
+    generation: clientGeneration,
+    running: actionRunning,
+  } = useAsyncActionRunner(ignoreError, undefined, client, ...owners);
 
   const isCurrent = useCallback(
     (generation: number) => mounted.current && generation === clientGeneration.current,

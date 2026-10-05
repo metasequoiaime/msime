@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-test("community client lifecycle reuses shared mounted and generation hooks", () => {
+test("community client lifecycle reuses the shared async action runner", () => {
   const source = Object.values(
     import.meta.glob<string>(
       "../../../../packages/ui/src/community/use-community-client-lifecycle.ts",
@@ -12,8 +12,8 @@ test("community client lifecycle reuses shared mounted and generation hooks", ()
     ),
   )[0];
 
-  expect(source).toContain("useMountedRef()");
-  expect(source).toContain("useAsyncGeneration(client, ...owners)");
-  expect(source).not.toContain("const mounted = useRef(true)");
-  expect(source).not.toContain("const clientGeneration = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("useMountedRef()");
+  expect(source).not.toContain("useAsyncGeneration(client, ...owners)");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });
