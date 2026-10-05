@@ -10,67 +10,49 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-/// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。终端里常见 80 到 100 列，每行控制在 80 列以内，免得被终端从单词中间折断。
+/// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。不手动折行：每一行是一个完整的条目或句子，并且短到在 80 列的终端里也不会被折断，改动措辞时不会牵动别的行。
 const USAGE: &str = "usage: {program} expand <keys> [--scheme <scheme>] [--limit <n>] [--json]
        {program} config [--json]
        {program} config set <key>=<value>...
-       {program} [flags] tools | call <tool> [<json>|-|@file]
-       {program} [flags] prompts | prompt <name> [<json>|@file]
+       {program} [flags] tools | call <tool> [<args>]
+       {program} [flags] prompts | prompt <name> [<args>]
        {program} [flags]
 
 Test 水杉输入法 (MSIME) by hand, or let an AI assistant manage it.
 
 Testing by hand:
-  expand <keys>      Show the candidates typing <keys> offers, one per line:
-                     rank, text, code, origin and weight. Typed in your
-                     current scheme unless --scheme names quanpin, shuangpin
-                     or wubi; --limit takes 1 to 50 (20 by default); --json
-                     prints the raw result.
-  config             Show your current preferences, one key = value per line.
-  config set <key>=<value>...
-                     Change preferences, such as scheme=shuangpin or
-                     candidate_page_size=9, and show the result. The input
-                     method picks the change up within a few seconds.
-
-  Every run reads the preferences anew, so there is nothing to reload.
-  expand leaves out quick phrases, cloud and AI candidates and the context
-  of earlier words. expand implies --allow-dictionary-read and config set
-  implies --allow-write.
+  expand <keys>            The candidates <keys> offers, one per line
+    --scheme <scheme>      quanpin, shuangpin or wubi; yours by default
+    --limit <n>            At most n candidates, 1 to 50; 20 by default
+    --json                 JSON instead of rank, text, code, origin, weight
+  config                   Your preferences, one key = value per line
+  config set <key>=<value> Change some, such as scheme=shuangpin
+  Every run reads the current preferences; there is nothing to reload.
+  The input method applies config set within a few seconds.
+  expand leaves out quick phrases, cloud and AI candidates.
+  expand implies --allow-dictionary-read; config set implies --allow-write.
 
 For an AI assistant:
-  (no command)       Serve the Model Context Protocol over stdio.
-  tools              List the tools, with their argument schemas, as JSON.
-  call <tool> [<json>|-|@file]
-                     Run one tool and print its result as JSON. The
-                     arguments are a JSON object (default {}), read from
-                     stdin for -, or from a UTF-8 file for @file, which
-                     works in every shell. Tool names may use - for _. A
-                     refused call prints the reason to stderr and exits 1.
-  prompts            List the guided tasks (prompts), as JSON.
-  prompt <name> [<json>|@file]
-                     Print a guided task's instructions, such as diagnose or
-                     make_skin.
-
-  The server and the commands offer the same tools and prompts under the
-  same flags.
+  (no command)             Serve the Model Context Protocol over stdio
+  tools                    List the tools and their argument schemas as JSON
+  call <tool> [<args>]     Run one tool and print its result as JSON
+  prompts                  List the guided tasks as JSON
+  prompt <name> [<args>]   Print a guided task, such as diagnose or make_skin
+  <args> is a JSON object (default {}), or - to read it from stdin.
+  <args> may also be @file, a UTF-8 file, which works in every shell.
+  Tool and prompt names may use - for _. A refused call exits 1.
+  The server and these commands offer the same tools under the same flags.
 
 Flags:
-  --options <path>   The runtime-options document the input method hosts
-                     read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then
-                     MSIME_IBUS_OPTIONS, then the platform's usual location.
-  --state-dir <path> The directory holding preferences.json,
-                     typing-statistics.json and the skins folder. Defaults
-                     to MSIME_CLIENT_STATE_DIR, then the document's
-                     preferences_directory.
-  --allow-write      Offer the tools that change quick phrases and
-                     preferences and install candidate-window skins.
-                     Without it the server is read-only.
-  --allow-dictionary-read
-                     Offer the tools that read the user's own dictionary
-                     words and look up the candidates a code offers. With
-                     --allow-write as well, also the tools that add,
-                     reweight, remove and import words.
-  --help, --version";
+  --options <path>         The runtime-options document the input method reads
+  --state-dir <path>       The directory holding preferences.json and the skins
+  --allow-write            Offer the writing tools: phrases, preferences, skins
+  --allow-dictionary-read  Offer the tools that read your dictionary words
+  --help, --version
+  Both allow flags together also offer the tools that edit dictionary words.
+  --options defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS.
+  Without those, --options is the input method's usual place on this system.
+  --state-dir defaults to MSIME_CLIENT_STATE_DIR, then the document's own.";
 
 /// 帮助文本，用户敲的是什么命令名就写什么。
 pub fn usage() -> String {
@@ -472,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn the_help_fits_an_80_column_terminal_under_either_name() {
+    fn every_help_line_fits_an_80_column_terminal_under_either_name() {
         for name in ["msime", "msime-mcp"] {
             let text = USAGE.replace("{program}", name);
             for line in text.lines() {
