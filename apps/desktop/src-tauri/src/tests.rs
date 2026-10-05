@@ -1187,9 +1187,10 @@ fn packaged_handwriting_model_prefers_the_option_over_a_downloaded_pack() {
         super::downloaded_handwriting_model(Some(&document)),
         Some(downloaded.clone())
     );
-    // 只有选项和环境变量都没给时，macOS 才用已下载的资源包。
-    #[cfg(target_os = "macos")]
-    if std::env::var_os("MSIME_HANDWRITING_MODEL").is_none_or(|value| value.is_empty()) {
+    // 只有选项和环境变量都没给、也没有随包模型时，三个桌面平台才用已下载的资源包（macOS 上已下载的还排在旧版本随包的模型之前）。
+    if std::env::var_os("MSIME_HANDWRITING_MODEL").is_none_or(|value| value.is_empty())
+        && (cfg!(target_os = "macos") || super::bundled_handwriting_model().is_none())
+    {
         let document = serde_json::json!({
             "preferences_directory": state.path().to_string_lossy(),
         });
@@ -1198,6 +1199,13 @@ fn packaged_handwriting_model_prefers_the_option_over_a_downloaded_pack() {
             Some(downloaded)
         );
     }
+}
+
+/// 指定了手写模型（哪怕文件不在）时识别只用它，下载的资源包用不上，所以 Windows 和 Linux 不提供下载。
+#[test]
+fn a_configured_handwriting_model_needs_no_download() {
+    let document = serde_json::json!({ "handwriting_model": "/synthetic/handwriting-zh_CN.model" });
+    assert!(super::handwriting_model_without_pack(Some(&document)));
 }
 
 #[test]

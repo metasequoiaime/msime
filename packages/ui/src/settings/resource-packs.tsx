@@ -3,6 +3,9 @@ import { errorCode } from "../core/error-code";
 import { useAsyncGeneration } from "./use-async-generation";
 import { useMountedRef } from "./use-mounted-ref";
 import { ActionRow } from "./action-row";
+import { VoiceModelMirrorRow } from "./voice-model-mirror-section";
+import { defaultVoiceInput } from "./voice-input-defaults";
+import type { SettingsClient } from "../index";
 import type { LocalVoiceModelProgress } from "../voice/local-models";
 import {
   formatModelBytes,
@@ -12,9 +15,9 @@ import {
 } from "../voice/local-model-helpers";
 
 /** 按需下载的资源包 id，与 `msime_client_core::resource_packs::ResourcePack::id` 一致。 */
-export type ResourcePackId = "japanese" | "language-dictionaries" | "handwriting";
+export type ResourcePackId = "japanese" | "language-dictionaries" | "handwriting" | "settled-model";
 
-/** 宿主报告的资源包状态，即 `msime_client_core::resource_packs::ResourcePackStatus`。`outdated` 表示已下载但与当前锁文件不一致，旧文件仍可使用。 */
+/** 宿主报告的资源包状态，即 `msime_client_core::resource_packs::ResourcePackStatus`。`outdated` 表示已下载的文件字节（名字、SHA-256、长度）与当前锁文件不一致：输入法不再使用这份旧文件，要重新下载。只换了下载地址、字节没变的资源包仍是 `installed`。 */
 export type ResourcePackStatus = {
   id: ResourcePackId;
   state: "missing" | "installed" | "outdated";
@@ -24,7 +27,7 @@ export type ResourcePackStatus = {
   schemes: string[];
 };
 
-/** 宿主的资源包下载服务。目前只有 macOS 提供；镜像沿用已保存的 `voice_input.asr_model_mirror`。 */
+/** 宿主的资源包下载服务，三个桌面宿主提供。列表里只有本机需要下载的资源包（例如 Windows 上 Ink 有中文识别器时不列手写模型），没列出的就不必下载。镜像沿用已保存的 `voice_input.asr_model_mirror`。 */
 export type ResourcePackClient = {
   list(): Promise<ResourcePackStatus[]>;
   /** 下载、校验并发布完成后返回安装目录。 */
@@ -38,7 +41,40 @@ export const resourcePackTitles: Record<ResourcePackId, string> = {
   japanese: "日文词库",
   "language-dictionaries": "粤语、注音与笔画词库",
   handwriting: "手写模型",
+  "settled-model": "桌面神经联想模型",
 };
+
+/** 资源包和本地语音模型共用的下载镜像（`voice_input.asr_model_mirror`）在设置页里的草稿值和修改入口；下载失败时资源包行就地提供它。 */
+export type ResourcePackMirror = {
+  value: string;
+  onChange(value: string): void;
+  /** 立即写入还在自动保存倒计时里的编辑。下载读的是已保存的镜像，所以失败行的「重试」先调它，刚填的镜像才会用上。 */
+  flush?(): Promise<void>;
+};
+
+/** 已保存的模型下载镜像（`voice_input.asr_model_mirror`），给不在设置页里的界面（手写面板）用。`save` 写入偏好，之后的下载才会用它。 */
+export type ModelMirrorClient = {
+  load(): Promise<string>;
+  save(mirror: string): Promise<void>;
+};
+
+/** 经设置服务读写已保存的下载镜像：每次保存前重新读一遍偏好，只改镜像这一项。 */
+export function savedModelMirror(client: Pick<SettingsClient, "load" | "save">): ModelMirrorClient {
+  return {
+    load: async () => (await client.load()).preferences.voice_input?.asr_model_mirror ?? "",
+    save: async (mirror) => {
+      const snapshot = await client.load();
+      await client.save(snapshot.revision, {
+        ...snapshot.preferences,
+        voice_input: {
+          ...defaultVoiceInput,
+          ...snapshot.preferences.voice_input,
+          asr_model_mirror: mirror,
+        },
+      });
+    },
+  };
+}
 
 /** 选用某个输入方案时需要下载的资源包；不需要额外资源的方案返回 undefined。 */
 export function resourcePackForScheme(scheme: string | undefined): ResourcePackId | undefined {
@@ -58,6 +94,8 @@ export type ResourcePacks = {
   ensure(id: ResourcePackId): void;
   install(id: ResourcePackId): void;
   cancel(id: ResourcePackId): void;
+  /** 下载失败时就地设置下载镜像用；不提供时失败行只有原因和重试。 */
+  mirror?: ResourcePackMirror;
 };
 
 /** 查某个资源包的状态。 */
@@ -73,7 +111,10 @@ export function resourcePackStatus(
  *
  * 失败只记录错误、等用户点「重试」，这里不会自动重试。
  */
-export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
+export function useResourcePacks(
+  client?: ResourcePackClient,
+  mirror?: ResourcePackMirror,
+): ResourcePacks {
   const [statuses, setStatuses] = useState<ResourcePackStatus[]>();
   const [progress, setProgress] = useState<ResourcePacks["progress"]>({});
   const [errors, setErrors] = useState<ResourcePacks["errors"]>({});
@@ -185,10 +226,10 @@ export function useResourcePacks(client?: ResourcePackClient): ResourcePacks {
       .catch(() => undefined);
   };
 
-  return { statuses, progress, errors, ensure, install, cancel };
+  return { statuses, progress, errors, ensure, install, cancel, mirror };
 }
 
-/** 资源包未安装时的一行：说明大小并提供下载；下载中显示进度和取消；失败时显示原因和重试。已安装或宿主不提供下载服务时不渲染。 */
+/** 资源包未安装时的一行：说明大小并提供下载；下载中显示进度和取消；失败时显示原因和重试，并提供设置下载镜像的入口。已安装或宿主不提供下载服务时不渲染。 */
 export function ResourcePackRow({
   packs,
   id,
@@ -217,13 +258,20 @@ export function ResourcePackRow({
   const error = packs.errors[id];
   if (error) {
     return (
-      <ActionRow
-        title={title}
-        description={error}
-        action={() => packs.install(id)}
-        label="重试"
-        ariaLabel={`重新下载${title}`}
-      />
+      <>
+        <ActionRow
+          title={title}
+          description={error}
+          action={async () => {
+            // 宿主按已保存的偏好取镜像：刚在下面填的镜像可能还在自动保存的倒计时里，先写进去再下载。
+            await packs.mirror?.flush?.();
+            packs.install(id);
+          }}
+          label="重试"
+          ariaLabel={`重新下载${title}`}
+        />
+        {packs.mirror && <ResourcePackMirrorEntry mirror={packs.mirror} />}
+      </>
     );
   }
   return (
@@ -233,6 +281,20 @@ export function ResourcePackRow({
       action={() => packs.install(id)}
       label="下载"
       ariaLabel={`下载${title}`}
+    />
+  );
+}
+
+/** 下载失败后的镜像入口：先是一个「设置下载镜像」按钮，点开后就地显示镜像输入框，填好后点「重试」（重试先保存还在倒计时里的编辑）。已经填过镜像时直接显示输入框，方便核对。 */
+function ResourcePackMirrorEntry({ mirror }: { mirror: ResourcePackMirror }) {
+  const [open, setOpen] = useState(() => mirror.value.trim() !== "");
+  if (open) return <VoiceModelMirrorRow value={mirror.value} onChange={mirror.onChange} />;
+  return (
+    <ActionRow
+      title="下载镜像"
+      description="无法连接 GitHub 时，可以填写一个镜像前缀，再重新下载"
+      action={() => setOpen(true)}
+      label="设置下载镜像"
     />
   );
 }

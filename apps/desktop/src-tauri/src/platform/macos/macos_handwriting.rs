@@ -1,17 +1,7 @@
 //! 手写识别由引擎负责，macOS 这边只负责找到模型文件。
 //!
-//! 发布包不再内置手写模型，第一次打开手写面板时下载到 `<state_root>/resource-packs/handwriting/`，查找时优先用这份已下载的模型（[`downloaded_model`]）；从内置模型的旧版本升级上来、还没下载时，退回 app 里的 `Contents/Resources/handwriting/`（[`bundled_model`]）。
-use msime_client_core::resource_packs::{self, ResourcePack};
+//! 发布包不再内置手写模型，第一次打开手写面板时下载到 `<state_root>/resource-packs/handwriting/`，查找时优先用这份已下载的模型（三个桌面平台共用的 `downloaded_handwriting_model`）；从内置模型的旧版本升级上来、还没下载时，退回 app 里的 `Contents/Resources/handwriting/`（[`bundled_model`]）。
 use std::path::{Path, PathBuf};
-
-/// `state_root` 下已完整安装的手写资源包里的模型；没有安装、缺少 `msime-model.json` 或模型是符号链接时为 `None`。
-pub(crate) fn downloaded_model(state_root: &Path) -> Option<PathBuf> {
-    resource_packs::installed_file(
-        state_root,
-        ResourcePack::Handwriting,
-        "handwriting-zh_CN.model",
-    )
-}
 
 pub(crate) fn bundled_model(executable: &Path) -> Option<PathBuf> {
     if !executable.is_absolute() {
@@ -95,42 +85,6 @@ mod tests {
         assert_eq!(bundled_model(&executable), Some(model));
         assert!(bundled_model(Path::new("Synthetic.app/Contents/MacOS/synthetic")).is_none());
         assert!(bundled_model(&root.path().join("synthetic")).is_none());
-    }
-
-    #[test]
-    fn downloaded_handwriting_model_needs_a_published_pack() {
-        let state = tempfile::tempdir().unwrap();
-        assert_eq!(downloaded_model(state.path()), None);
-        let pack = resource_packs::root(state.path()).join(ResourcePack::Handwriting.id());
-        std::fs::create_dir_all(&pack).unwrap();
-        let model = pack.join("handwriting-zh_CN.model");
-        std::fs::write(&model, b"placeholder").unwrap();
-        // 没有 msime-model.json 的目录可能是中断的安装，不算数。
-        assert_eq!(downloaded_model(state.path()), None);
-        std::fs::write(
-            pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
-            serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(downloaded_model(state.path()), Some(model));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_symlinked_downloaded_handwriting_model_is_ignored() {
-        let state = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let pack = resource_packs::root(state.path()).join(ResourcePack::Handwriting.id());
-        std::fs::create_dir_all(&pack).unwrap();
-        std::fs::write(
-            pack.join(msime_client_core::voice::local_models::MANIFEST_FILE),
-            serde_json::to_vec(&ResourcePack::Handwriting.manifest()).unwrap(),
-        )
-        .unwrap();
-        let target = outside.path().join("handwriting-zh_CN.model");
-        std::fs::write(&target, b"placeholder").unwrap();
-        std::os::unix::fs::symlink(&target, pack.join("handwriting-zh_CN.model")).unwrap();
-        assert_eq!(downloaded_model(state.path()), None);
     }
 
     #[test]

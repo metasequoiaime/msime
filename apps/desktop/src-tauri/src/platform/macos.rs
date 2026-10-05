@@ -118,5 +118,3 @@ pub(crate) mod macos_keyboard;
 pub(crate) mod macos_launch;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_panel_session;
-#[cfg(any(target_os = "macos", test))]
-pub(crate) mod macos_resource_packs;

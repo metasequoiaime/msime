@@ -44,7 +44,7 @@ use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 use platform::desktop::{
     desktop_account, desktop_candidate_skin_community, desktop_community_report,
-    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor,
+    desktop_plugin_community, desktop_plugins, desktop_preferences_monitor, desktop_resource_packs,
 };
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
@@ -57,7 +57,6 @@ use platform::linux::{
 use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
     macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
-    macos_resource_packs,
 };
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use platform::mobile::mobile_account_helpers::parse_cloud_dictionary_request;
@@ -3846,10 +3845,7 @@ async fn recognize_handwriting(
         })?;
         return Ok(result);
     }
-    // Windows ships a recognizer with the language pack, and it is the only one
-    // a stock machine has: the packaged Engine model is optional in the
-    // installer. Try it first, and fall through to the model when Windows has
-    // no Chinese handwriting feature installed.
+    // Windows 的中文语言包自带手写识别器，先用它。安装包不再内置引擎的手写模型：Ink 没有中文识别器时，设置应用把模型下载到手写资源包，这里再落到下面的模型。
     #[cfg(windows)]
     {
         let strokes: Vec<msime_host_windows::ink::Stroke> = query
@@ -3933,13 +3929,25 @@ fn discover_session_provider_in(
     Some(path)
 }
 
-/// 查找引擎的手写模型：先看 HostOptions 的 `handwriting_model`，再看 `MSIME_HANDWRITING_MODEL`，macOS 上接着是偏好目录（同一份文档里的绝对 `preferences_directory`）下已下载的手写资源包，然后是旧版本打进 app 的模型，最后是各安装器的固定布局。只接受指向已存在文件的绝对路径，过期的设置不会把笔画送给别的文件。
-// 非 macOS 上中间那步只剩 `|| None`，闭包是 cfg 分支留下的，不是多余的惰性求值。
-#[cfg_attr(not(target_os = "macos"), allow(clippy::unnecessary_lazy_evaluations))]
+/// 查找引擎的手写模型：先看 HostOptions 的 `handwriting_model`，再看 `MSIME_HANDWRITING_MODEL`。都没给时，Windows 和 Linux 先用安装布局里随包的模型，再用偏好目录（同一份文档里的绝对 `preferences_directory`）下已下载的手写资源包；macOS 先用已下载的资源包，再用旧版本打进 app 的模型和各安装器的固定布局，与按需下载上线时的顺序相同。只接受指向已存在文件的绝对路径，过期的设置不会把笔画送给别的文件。
 fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
     let document = serde_json::from_str::<Value>(host_options).ok();
+    let downloaded = || downloaded_handwriting_model(document.as_ref());
+    let configured = configured_handwriting_model(document.as_ref());
+    #[cfg(target_os = "macos")]
+    let found = configured
+        .or_else(downloaded)
+        .or_else(bundled_handwriting_model);
+    #[cfg(not(target_os = "macos"))]
+    let found = configured
+        .or_else(bundled_handwriting_model)
+        .or_else(downloaded);
+    found.filter(|path| path.is_absolute() && path.is_file())
+}
+
+/// HostOptions 的 `handwriting_model`，没有时是 `MSIME_HANDWRITING_MODEL`。只取值、不检查文件：指定了就只用它。
+fn configured_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
     document
-        .as_ref()
         .and_then(|value| {
             value
                 .get("handwriting_model")
@@ -3953,50 +3961,45 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
         })
-        .or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                downloaded_handwriting_model(document.as_ref())
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                None
-            }
-        })
-        .or_else(|| {
-            #[cfg(target_os = "macos")]
-            {
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|executable| macos_handwriting::bundled_model(&executable))
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                None
-            }
-        })
-        .or_else(|| {
-            discover_packaged_file(
-                &format!(
-                    "{}/handwriting/handwriting-zh_CN.model",
-                    msime_client_core::edition::Edition::linux_package_identity_or_full()
-                        .client_directory
-                ),
-                "handwriting/handwriting-zh_CN.model",
-            )
-        })
-        .filter(|path| path.is_absolute() && path.is_file())
 }
 
-/// HostOptions 文档里绝对 `preferences_directory` 下已下载的手写模型；相对路径一律忽略。
-#[cfg(any(target_os = "macos", test))]
+/// 安装布局里随包的手写模型：macOS 上先看旧版本打进 app 的那份，然后是各安装器的固定布局。
+fn bundled_handwriting_model() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    if let Some(model) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| macos_handwriting::bundled_model(&executable))
+    {
+        return Some(model);
+    }
+    discover_packaged_file(
+        &format!(
+            "{}/handwriting/handwriting-zh_CN.model",
+            msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory
+        ),
+        "handwriting/handwriting-zh_CN.model",
+    )
+}
+
+/// 不靠下载的资源包也有手写模型：指定了一个（HostOptions 或环境变量），或者安装布局里随包带着。Windows 和 Linux 的设置应用据此决定要不要提供手写模型的下载。
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
+pub(crate) fn handwriting_model_without_pack(document: Option<&Value>) -> bool {
+    configured_handwriting_model(document).is_some() || bundled_handwriting_model().is_some()
+}
+
+/// HostOptions 文档里绝对 `preferences_directory` 下已完整安装的手写资源包里的模型；相对路径、缺少 `msime-model.json` 的目录和符号链接一律忽略。
 fn downloaded_handwriting_model(document: Option<&Value>) -> Option<PathBuf> {
+    use msime_client_core::resource_packs::{self, ResourcePack};
     let state_root = document?
         .get("preferences_directory")
         .and_then(Value::as_str)
         .map(std::path::Path::new)
         .filter(|path| path.is_absolute())?;
-    platform::macos::macos_handwriting::downloaded_model(state_root)
+    resource_packs::installed_file(
+        state_root,
+        ResourcePack::Handwriting,
+        "handwriting-zh_CN.model",
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -5091,9 +5094,6 @@ pub fn run() {
             #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
             app.manage(voice::local_models::LocalModelInstalls::default());
-            // 偏好和安装登记都已就位，在后台补齐已保存方案需要的资源包。
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::ensure_saved_scheme_packs(app.handle().clone());
             #[cfg(target_os = "linux")]
             app.manage(linux_setup::LinuxSetupState::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
@@ -5236,6 +5236,9 @@ pub fn run() {
                 document: Arc::new(Mutex::new(host_document)),
                 skins: Some(directory.join("skins")),
             });
+            // 偏好、安装登记和 HostOptions 都已就位（提供哪些资源包要看随包的模型），在后台补齐已保存偏好需要的资源包。
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::ensure_saved_packs(app.handle().clone());
             #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
             desktop_candidate_skin_community::start_sync(app.handle());
             #[cfg(target_os = "macos")]
@@ -5403,12 +5406,12 @@ pub fn run() {
             voice::local_models::voice_local_model_install,
             voice::local_models::voice_local_model_cancel,
             voice::local_models::voice_local_model_remove,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_packs,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_pack_install,
-            #[cfg(target_os = "macos")]
-            macos_resource_packs::resource_pack_cancel,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_packs,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_install,
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            desktop_resource_packs::resource_pack_cancel,
             submit_handwriting_candidate,
             open_external_url,
             #[cfg(target_os = "macos")]

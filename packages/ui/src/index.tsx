@@ -1535,9 +1535,12 @@ export {
   ResourcePackRow,
   resourcePackForScheme,
   resourcePackTitles,
+  savedModelMirror,
   useResourcePacks,
+  type ModelMirrorClient,
   type ResourcePackClient,
   type ResourcePackId,
+  type ResourcePackMirror,
   type ResourcePacks,
   type ResourcePackStatus,
 } from "./settings/resource-packs";
