@@ -44,6 +44,15 @@ public final class CommunityCatalogSmoke {
             "a server failure is not an account refresh signal");
         check(!(boolean) retryListing.invoke(null, 401, "", 0),
             "an anonymous or missing token does not trigger account refresh");
+        Method retryCategory = CommunityCatalog.class.getDeclaredMethod(
+            "shouldRetryCategory", int.class, String.class, int.class);
+        retryCategory.setAccessible(true);
+        check((boolean) retryCategory.invoke(null, 401, token, 0),
+            "a category update retries an account 401 once");
+        check(!(boolean) retryCategory.invoke(null, 401, token, 1),
+            "a category update cannot retry an account 401 twice");
+        check(!(boolean) retryCategory.invoke(null, 401, "", 0),
+            "a category update without a token does not refresh");
         Method validItem = CommunityCatalog.class.getDeclaredMethod(
             "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
         validItem.setAccessible(true);
