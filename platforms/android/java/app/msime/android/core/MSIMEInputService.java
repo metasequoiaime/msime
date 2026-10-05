@@ -370,6 +370,18 @@ public final class MSIMEInputService extends InputMethodService {
     KeyboardLayout.Layer keyboardLayer = KeyboardLayout.Layer.LETTERS;
     boolean allowLearning;
     private String preferencesNotice = "";
+    /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
+    private String announcedIdleNotice = "";
+
+    /** 空闲时的临时提示不占状态行；其中的失败（失败、未能、稍后、无法）以 Toast 告诉用户，进度和成功提示由面板上的开关状态自己说明。 */
+    private void announceIdleNotice(String notice) {
+        String text = notice.startsWith(" · ") ? notice.substring(3) : notice;
+        if (text.equals(announcedIdleNotice)) return;
+        announcedIdleNotice = text;
+        if (text.contains("失败") || text.contains("未能") || text.contains("稍后") || text.contains("无法")) {
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        }
+    }
     String preferencesDirectory = "";
     private long appearanceLoadGeneration;
     private String runtimeOptionsForSnapshot = "";
@@ -6385,9 +6397,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (inlineHeightBar != null)
             inlineHeightBar.setVisibility(heightMode ? View.VISIBLE : View.GONE);
         if (candidateHeader != null) {
-            boolean notice = status != null && status.getText() != null && status.getText().length() > 0;
-            candidateHeader.setVisibility(!heightMode && !hasDiagnostic && (!idle || notice)
+            // 空闲时这一行只给常驻的模式标签（直接输入、准备中）：简繁切换、设置保存、同步重试、Shift 这类一闪而过的提示若也占这一行，每次出现和消失都把整副键盘顶上去又落回来。临时提示只在失败时以 Toast 说出来。
+            boolean modeLabel = !message.isEmpty();
+            candidateHeader.setVisibility(!heightMode && !hasDiagnostic && (!idle || modeLabel)
                 ? View.VISIBLE : View.GONE);
+            if (idle && !modeLabel) announceIdleNotice(preferencesNotice);
         }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(!heightMode && idle && !hasDiagnostic && !toolbarHidden
