@@ -6,7 +6,8 @@
 #   需要 docker；Apple Silicon 上经 Rosetta/QEMU 跑 linux/amd64 镜像（archlinux 官方镜像只有 x86_64）。
 #   CARGO_BUILD_JOBS 原样传进容器，用来在共用的 Docker 虚拟机上限制内存。
 #   MSIME_REUSE_HOME=1 不清空上一次的家目录，沿用其中的 rustup 工具链、Cargo 下载和 target/，用于改 PKGBUILD 后反复验证；默认每次从空目录开始。
-#   MSIME_MAKEPKG_ARGS 追加给 makepkg 的参数，例如 --nocheck。linux-replaced-program 靠 /proc/self/exe 的「(deleted)」标记判断程序被替换，在 Apple Silicon 上用 QEMU 跑 linux/amd64 时这个标记由 QEMU 伪造、永远不出现，这条测试只能在原生 x86_64 上验证。
+#   MSIME_MAKEPKG_ARGS 追加给 makepkg 的参数，例如 --nocheck。
+#   Docker 不是 x86_64 主机（Apple Silicon、aarch64 Linux）时镜像经 QEMU/Rosetta 模拟运行。linux-replaced-program 靠 /proc/self/exe 的「(deleted)」标记判断程序被替换，模拟器伪造 /proc/self/exe、这个标记永远不出现，这条测试在模拟下必然失败，只能在原生 x86_64 上验证。所以模拟时 msime 的 check() 改由本脚本代跑：makepkg 加 --nocheck，构建完再对同一个构建目录跑排除了这一条的 ctest，其余检查照常。
 #   MSIME_SOURCE_DIR=<检出目录> 只对 msime 有效：不下载标签的源码归档，而是把这个目录（不含 target、node_modules 与 .git）打成同名归档，跳过校验和构建，用来在发版前验证 PKGBUILD 对当前代码仍然成立。
 set -euo pipefail
 
@@ -26,17 +27,22 @@ else
 fi
 mkdir -p "$out/home"
 
+emulated=0
+[ "$(docker info --format '{{.Architecture}}' 2>/dev/null)" = x86_64 ] || emulated=1
+
 docker run --rm --init --platform linux/amd64 \
   -v "$here/$pkg":/pkg:ro \
   -v "$out":/out \
   -v "$out/home":/home/builder \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   -e MSIME_MAKEPKG_ARGS="${MSIME_MAKEPKG_ARGS:-}" \
+  -e MSIME_EMULATED="$emulated" \
+  -e MSIME_PKG="$pkg" \
   ${MSIME_SOURCE_DIR:+-v "$(cd "$MSIME_SOURCE_DIR" && pwd)":/source:ro -e MSIME_LOCAL_SOURCE=1} \
   archlinux:latest bash -euo pipefail -c '
     # pacman 7 的下载沙箱要 seccomp 与 Landlock，跨架构模拟的容器里两者都用不了。
     sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
-    pacman -Syu --noconfirm --needed base-devel namcap >/dev/null
+    pacman -Syu --noconfirm --needed base-devel namcap dbus >/dev/null
     useradd -M -d /home/builder builder
     chown builder: /home/builder
     echo "builder ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/builder
@@ -45,6 +51,11 @@ docker run --rm --init --platform linux/amd64 \
     chown -R builder: /home/builder/pkg
     cd /home/builder/pkg
     makepkg_args="-s --noconfirm $MSIME_MAKEPKG_ARGS"
+    ctest_after=0
+    if [ "$MSIME_EMULATED" = 1 ] && [ "$MSIME_PKG" = msime ] && [[ " $MSIME_MAKEPKG_ARGS " != *" --nocheck "* ]]; then
+      makepkg_args="$makepkg_args --nocheck"
+      ctest_after=1
+    fi
     if [ "${MSIME_LOCAL_SOURCE:-}" = 1 ]; then
       pkgver=$(. ./PKGBUILD && echo "$pkgver")
       tar -C /source --exclude=./target --exclude=./node_modules --exclude=./.git \
@@ -54,6 +65,10 @@ docker run --rm --init --platform linux/amd64 \
     fi
     # makepkg 拒绝以 root 运行；-s 经 sudo 装 depends/makedepends/checkdepends。
     su builder -c "makepkg --printsrcinfo > .SRCINFO && makepkg $makepkg_args 2>&1" | tee /out/makepkg.log
+    if [ "$ctest_after" = 1 ]; then
+      echo "== ctest (emulated linux/amd64: linux-replaced-program excluded)"
+      su builder -c "ctest --test-dir /home/builder/pkg/src/build --output-on-failure -E \"^linux-replaced-program\$\" 2>&1" | tee /out/ctest.log
+    fi
     cp .SRCINFO /out/
     pkgfile=$(ls -1 ./*.pkg.tar.zst | grep -v -- "-debug-" | head -1)
     cp ./*.pkg.tar.zst /out/

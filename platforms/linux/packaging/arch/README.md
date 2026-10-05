@@ -19,7 +19,7 @@ python3 platforms/linux/packaging/arch/render.py <版本> --sha256sums <发布�
 
 它改写两个 PKGBUILD 的 `pkgver`、`pkgrel=1` 与校验值（源码归档自己下载计算，`.rpm` 取 SHA256SUMS 里的那行），并重新生成两份 `.SRCINFO`。`scripts/test-arch-gentoo-packaging.py` 核对 `.SRCINFO` 与 PKGBUILD 一致。
 
-构建验证（需要 docker；Apple Silicon 上跑 linux/amd64 镜像）：
+构建验证（需要 docker；Apple Silicon 上跑 linux/amd64 镜像）。在模拟下（Docker 主机不是 x86_64）`linux-replaced-program` 必然失败，脚本自动让 makepkg 跳过 `check()`、再自己跑排除了这一条的 ctest；这条测试只能在原生 x86_64 上验证：
 
 ```sh
 platforms/linux/packaging/arch/check-in-container.sh msime      # 完整源码构建、ctest、namcap、安装与卸载
