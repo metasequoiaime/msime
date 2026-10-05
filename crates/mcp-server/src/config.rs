@@ -37,7 +37,9 @@ Testing by hand:
   Every run reads the current preferences; there is nothing to reload.
   The input method applies config set within a few seconds.
   expand leaves out cloud and AI candidates and the context of earlier words.
-  expand implies --allow-dictionary-read; config set implies --allow-write.
+  From a terminal, expand implies --allow-dictionary-read.
+  From a terminal, config set implies --allow-write.
+  Run by an AI assistant, they need those flags as call does.
 
 For an AI assistant:
   (no command)             Serve the Model Context Protocol over stdio
@@ -130,6 +132,31 @@ pub enum Command {
     Version,
 }
 
+impl Command {
+    /// 有人在终端里亲手运行时，expand 和 config set 不必再另加开关：敲下它们就是要看自己的词库候选、改自己的偏好。判断依据是 stderr 是终端；stdin 不算，因为 `expand -` 本来就从管道读。助手运行命令时会截获输出，stderr 不是终端，这时和 `call` 一样要有用户在设置页「连接 AI 助手」里选的开关，快捷命令不能绕过用户的选择。这不是安全边界，开关本来就写在命令行上，它守的是用户的授权意图。
+    pub fn run_by_a_person(mut self) -> Self {
+        match &mut self {
+            Command::Expand { config, .. } => config.allow_dictionary_read = true,
+            Command::SetConfig { config, .. } => config.allow_write = true,
+            _ => {}
+        }
+        self
+    }
+
+    /// 快捷命令缺了它要的开关时，告诉调用方缺哪一个。工具没有提供时服务器的回答说不清原因，所以在启动服务器之前就拒绝。
+    pub fn missing_flag(&self) -> Option<&'static str> {
+        match self {
+            Command::Expand { config, .. } if !config.allow_dictionary_read => Some(
+                "expand reads the dictionary, so outside a terminal it needs --allow-dictionary-read",
+            ),
+            Command::SetConfig { config, .. } if !config.allow_write => {
+                Some("config set changes preferences, so outside a terminal it needs --allow-write")
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Where `call` finds the tool's arguments.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Arguments {
@@ -215,7 +242,7 @@ pub fn parse(
             return Err(format!("{} must be an absolute path", path.display()));
         }
     }
-    let mut config = Config {
+    let config = Config {
         options,
         state_dir,
         allow_write,
@@ -227,8 +254,6 @@ pub fn parse(
             if codes.is_empty() {
                 return Err("expand needs keys, or - to read them from stdin".into());
             }
-            // 在终端里亲手敲 expand 就是要看词库候选，不必再另加开关。
-            config.allow_dictionary_read = true;
             return Ok(Command::Expand {
                 config,
                 codes,
@@ -245,7 +270,6 @@ pub fn parse(
                         .iter()
                         .map(|pair| setting(pair))
                         .collect::<Result<_, _>>()?;
-                    config.allow_write = true;
                     Ok(Command::SetConfig {
                         config,
                         changes,
@@ -489,6 +513,46 @@ mod tests {
     }
 
     #[test]
+    fn only_a_person_at_a_terminal_gets_the_shortcuts_without_flags() {
+        let parsed = |list: &[&str]| parse(args(list), |_: &str| None).unwrap();
+        let expand = parsed(&["--options", "/a.json", "expand", "nihao"]);
+        assert!(expand
+            .missing_flag()
+            .unwrap()
+            .contains("--allow-dictionary-read"));
+        let expand = expand.run_by_a_person();
+        assert!(expand.missing_flag().is_none());
+        let Command::Expand { config, .. } = expand else {
+            panic!("expected expand");
+        };
+        assert!(config.allow_dictionary_read && !config.allow_write);
+
+        let set = parsed(&["--options", "/a.json", "config", "set", "scheme=wubi"]);
+        assert!(set.missing_flag().unwrap().contains("--allow-write"));
+        let Command::SetConfig { config, .. } = set.run_by_a_person() else {
+            panic!("expected config set");
+        };
+        assert!(config.allow_write && !config.allow_dictionary_read);
+
+        // 开关写在命令行上时，不在终端里也照常运行。
+        let flagged = parsed(&[
+            "--options",
+            "/a.json",
+            "--allow-dictionary-read",
+            "expand",
+            "nihao",
+        ]);
+        assert!(flagged.missing_flag().is_none());
+        // 只读偏好的命令本来就不需要开关。
+        assert!(parsed(&["--options", "/a.json", "config"])
+            .missing_flag()
+            .is_none());
+        assert!(parsed(&["--options", "/a.json", "config", "get", "scheme"])
+            .missing_flag()
+            .is_none());
+    }
+
+    #[test]
     fn bad_command_lines_are_refused() {
         let env = |_: &str| None;
         assert!(parse(args(&["--options"]), env).is_err());
@@ -606,7 +670,7 @@ mod tests {
         else {
             panic!("expected expand");
         };
-        assert!(config.allow_dictionary_read && !config.allow_write);
+        assert!(!config.allow_dictionary_read && !config.allow_write);
         assert_eq!(codes, ["ni'hao"]);
         assert_eq!(scheme.as_deref(), Some("wubi"));
         assert_eq!(limit, Some(5));
@@ -644,7 +708,7 @@ mod tests {
         else {
             panic!("expected config set");
         };
-        assert!(config.allow_write && !config.allow_dictionary_read);
+        assert!(!config.allow_write && !config.allow_dictionary_read);
         assert_eq!(
             changes,
             [

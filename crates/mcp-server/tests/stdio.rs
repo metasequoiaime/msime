@@ -674,19 +674,47 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
     let directory = tempfile::tempdir().unwrap();
     let options = fixture(directory.path());
 
-    // expand 不需要另加 --allow-dictionary-read；方案默认是用户当前的（这里是全拼），五笔词要指定 --scheme。
-    let (code, lines, error) =
-        run_cli_text(&options, &["expand", "aaaa", "--scheme", "wubi"], None);
+    // 测试里 stderr 是管道，和助手运行命令时一样：快捷命令要有用户选的开关，缺了就在启动服务器之前说明缺哪一个。
+    let (code, _, error) = run_cli_text(&options, &["expand", "aaaa"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-dictionary-read"), "{error}");
+    let (code, _, error) = run_cli_text(&options, &["config", "set", "scheme=wubi"], None);
+    assert_eq!(code, 1);
+    assert!(error.contains("needs --allow-write"), "{error}");
+
+    // 方案默认是用户当前的（这里是全拼），五笔词要指定 --scheme。
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+        ],
+        None,
+    );
     assert_eq!(code, 0, "{error}");
     assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
     let (code, view, error) = run_cli(
         &options,
-        &["expand", "aaaa", "--scheme", "wubi", "--json"],
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "--scheme",
+            "wubi",
+            "--json",
+        ],
         None,
     );
     assert_eq!(code, 0, "{error}");
     assert_eq!(view["candidates"][0]["text"], "合成工");
-    let (code, _, error) = run_cli_text(&options, &["expand", "AAAA"], None);
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "AAAA"],
+        None,
+    );
     assert_eq!(code, 1);
     assert!(error.contains("lowercase"), "{error}");
 
@@ -697,10 +725,16 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
         "{before}"
     );
 
-    // config set 自己读 revision，并且不需要另加 --allow-write。
+    // config set 自己读 revision。
     let (code, after, error) = run_cli_text(
         &options,
-        &["config", "set", "scheme=wubi", "candidate_page_size=9"],
+        &[
+            "--allow-write",
+            "config",
+            "set",
+            "scheme=wubi",
+            "candidate_page_size=9",
+        ],
         None,
     );
     assert_eq!(code, 0, "{error}");
@@ -710,11 +744,19 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
         "{after}"
     );
     // 下一次运行读到的就是新的偏好：expand 不指定方案也按五笔查。
-    let (code, lines, error) = run_cli_text(&options, &["expand", "aaaa"], None);
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "aaaa"],
+        None,
+    );
     assert_eq!(code, 0, "{error}");
     assert_eq!(lines, "1\t合成工\taaaa\tdictionary\t500\n");
 
-    let (code, _, error) = run_cli_text(&options, &["config", "set", "no_such_key=1"], None);
+    let (code, _, error) = run_cli_text(
+        &options,
+        &["--allow-write", "config", "set", "no_such_key=1"],
+        None,
+    );
     assert_eq!(code, 1);
     assert!(error.contains("no_such_key"), "{error}");
 
@@ -731,14 +773,18 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
     assert!(error.contains("no preference named no_such_key"), "{error}");
 
     // 一串查不到候选时 stdout 为空，stderr 说明。
-    let (code, lines, error) = run_cli_text(&options, &["expand", "bbbb"], None);
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &["--allow-dictionary-read", "expand", "bbbb"],
+        None,
+    );
     assert_eq!((code, lines.as_str()), (0, ""));
     assert!(error.contains("bbbb offers no candidates"), "{error}");
 
     // 几串一起查，`-` 从 stdin 读，空行和注释跳过；查不了的一串不影响其余，最后以 1 退出。
     let (code, lines, error) = run_cli_text(
         &options,
-        &["expand", "aaaa", "-"],
+        &["--allow-dictionary-read", "expand", "aaaa", "-"],
         Some("# 一份编码清单\n\nAAAA\n  aaaa  \n"),
     );
     assert_eq!(code, 1);
@@ -747,7 +793,17 @@ fn expand_and_config_print_lines_for_testing_by_hand() {
         "# aaaa\n1\t合成工\taaaa\tdictionary\t500\n# AAAA\n# aaaa\n1\t合成工\taaaa\tdictionary\t500\n"
     );
     assert!(error.contains("AAAA: the code must be"), "{error}");
-    let (code, lines, error) = run_cli_text(&options, &["expand", "aaaa", "AAAA", "--json"], None);
+    let (code, lines, error) = run_cli_text(
+        &options,
+        &[
+            "--allow-dictionary-read",
+            "expand",
+            "aaaa",
+            "AAAA",
+            "--json",
+        ],
+        None,
+    );
     assert_eq!(code, 1, "{error}");
     let lines: Vec<Value> = lines
         .lines()

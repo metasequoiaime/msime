@@ -24,102 +24,113 @@ const ARGUMENTS_READ_LIMIT: u64 = 8 * 1024 * 1024;
 fn main() -> ExitCode {
     // Before the runtime starts any thread: on macOS and Linux the offset cannot be read once the process has more than one.
     diagnostics::remember_local_offset();
-    let (config, action) =
-        match config::parse(std::env::args_os().skip(1), |name| std::env::var_os(name)) {
-            // 一个人在终端里不带命令地运行时打印帮助，而不是开始等 MCP 消息、看起来像卡住了。助手启动服务器时 stdin 总是管道。
-            Ok(config::Command::Serve(_)) if std::io::stdin().is_terminal() => {
-                eprintln!("{}", config::usage());
-                return ExitCode::from(2);
+    let parsed =
+        config::parse(std::env::args_os().skip(1), |name| std::env::var_os(name)).map(|command| {
+            if std::io::stderr().is_terminal() {
+                command.run_by_a_person()
+            } else {
+                command
             }
-            Ok(config::Command::Serve(config)) => (config, None),
-            Ok(config::Command::Tools(config)) => (config, Some(cli::Action::Tools)),
-            Ok(config::Command::Call {
-                config,
-                tool,
-                arguments,
-            }) => match call_arguments(arguments) {
-                Ok(arguments) => (config, Some(cli::Action::Call { tool, arguments })),
-                Err(error) => {
-                    eprintln!("{}: {error}", config::program());
-                    return ExitCode::from(2);
-                }
-            },
-            Ok(config::Command::Prompts(config)) => (config, Some(cli::Action::Prompts)),
-            Ok(config::Command::Prompt {
-                config,
-                name,
-                arguments,
-            }) => match call_arguments(arguments) {
-                Ok(arguments) => (config, Some(cli::Action::Prompt { name, arguments })),
-                Err(error) => {
-                    eprintln!("{}: {error}", config::program());
-                    return ExitCode::from(2);
-                }
-            },
-            Ok(config::Command::Expand {
-                config,
-                codes,
-                scheme,
-                limit,
-                json,
-            }) => {
-                // 不止一串按键、或者从 stdin 读时按批输出，每串前面标出它的编码；只查一串时输出不变。
-                let batch = codes.len() > 1 || codes.iter().any(|code| code == "-");
-                let codes = match expand_codes(codes) {
-                    Ok(codes) => codes,
-                    Err(error) => {
-                        eprintln!("{}: {error}", config::program());
-                        return ExitCode::from(2);
-                    }
-                };
-                let mut arguments = serde_json::Map::new();
-                if let Some(scheme) = scheme {
-                    arguments.insert("scheme".into(), scheme.into());
-                }
-                if let Some(limit) = limit {
-                    arguments.insert("limit".into(), limit.into());
-                }
-                (
-                    config,
-                    Some(cli::Action::Expand {
-                        codes,
-                        arguments,
-                        json,
-                        batch,
-                    }),
-                )
-            }
-            Ok(config::Command::GetConfig { config, keys, json }) => {
-                (config, Some(cli::Action::GetConfig { keys, json }))
-            }
-            Ok(config::Command::ShowConfig { config, json }) => {
-                (config, Some(cli::Action::ShowConfig { json }))
-            }
-            Ok(config::Command::SetConfig {
-                config,
-                changes,
-                json,
-            }) => (
-                config,
-                Some(cli::Action::SetConfig {
-                    changes: changes.into_iter().collect(),
-                    json,
-                }),
-            ),
-            Ok(config::Command::Help) => {
-                eprintln!("{}", config::usage());
-                return ExitCode::SUCCESS;
-            }
-            Ok(config::Command::Version) => {
-                eprintln!("{} {}", config::program(), env!("MSIME_APP_VERSION"));
-                return ExitCode::SUCCESS;
-            }
+        });
+    if let Some(reason) = parsed.as_ref().ok().and_then(config::Command::missing_flag) {
+        eprintln!("{}: {reason}", config::program());
+        return ExitCode::FAILURE;
+    }
+    let (config, action) = match parsed {
+        // 一个人在终端里不带命令地运行时打印帮助，而不是开始等 MCP 消息、看起来像卡住了。助手启动服务器时 stdin 总是管道。
+        Ok(config::Command::Serve(_)) if std::io::stdin().is_terminal() => {
+            eprintln!("{}", config::usage());
+            return ExitCode::from(2);
+        }
+        Ok(config::Command::Serve(config)) => (config, None),
+        Ok(config::Command::Tools(config)) => (config, Some(cli::Action::Tools)),
+        Ok(config::Command::Call {
+            config,
+            tool,
+            arguments,
+        }) => match call_arguments(arguments) {
+            Ok(arguments) => (config, Some(cli::Action::Call { tool, arguments })),
             Err(error) => {
-                let program = config::program();
-                eprintln!("{program}: {error}\nRun `{program} --help` for the commands and flags.");
+                eprintln!("{}: {error}", config::program());
                 return ExitCode::from(2);
             }
-        };
+        },
+        Ok(config::Command::Prompts(config)) => (config, Some(cli::Action::Prompts)),
+        Ok(config::Command::Prompt {
+            config,
+            name,
+            arguments,
+        }) => match call_arguments(arguments) {
+            Ok(arguments) => (config, Some(cli::Action::Prompt { name, arguments })),
+            Err(error) => {
+                eprintln!("{}: {error}", config::program());
+                return ExitCode::from(2);
+            }
+        },
+        Ok(config::Command::Expand {
+            config,
+            codes,
+            scheme,
+            limit,
+            json,
+        }) => {
+            // 不止一串按键、或者从 stdin 读时按批输出，每串前面标出它的编码；只查一串时输出不变。
+            let batch = codes.len() > 1 || codes.iter().any(|code| code == "-");
+            let codes = match expand_codes(codes) {
+                Ok(codes) => codes,
+                Err(error) => {
+                    eprintln!("{}: {error}", config::program());
+                    return ExitCode::from(2);
+                }
+            };
+            let mut arguments = serde_json::Map::new();
+            if let Some(scheme) = scheme {
+                arguments.insert("scheme".into(), scheme.into());
+            }
+            if let Some(limit) = limit {
+                arguments.insert("limit".into(), limit.into());
+            }
+            (
+                config,
+                Some(cli::Action::Expand {
+                    codes,
+                    arguments,
+                    json,
+                    batch,
+                }),
+            )
+        }
+        Ok(config::Command::GetConfig { config, keys, json }) => {
+            (config, Some(cli::Action::GetConfig { keys, json }))
+        }
+        Ok(config::Command::ShowConfig { config, json }) => {
+            (config, Some(cli::Action::ShowConfig { json }))
+        }
+        Ok(config::Command::SetConfig {
+            config,
+            changes,
+            json,
+        }) => (
+            config,
+            Some(cli::Action::SetConfig {
+                changes: changes.into_iter().collect(),
+                json,
+            }),
+        ),
+        Ok(config::Command::Help) => {
+            eprintln!("{}", config::usage());
+            return ExitCode::SUCCESS;
+        }
+        Ok(config::Command::Version) => {
+            eprintln!("{} {}", config::program(), env!("MSIME_APP_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Err(error) => {
+            let program = config::program();
+            eprintln!("{program}: {error}\nRun `{program} --help` for the commands and flags.");
+            return ExitCode::from(2);
+        }
+    };
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
