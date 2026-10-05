@@ -479,11 +479,17 @@ impl ZhuyinScheme {
 
     fn reconvert(&mut self) -> Result<()> {
         let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        // 歧义按打字时的读音算，不按钉住后剩下的：钉住当前用的读音不该放出被下限挡住的冷僻词（是之 → 適之）。
+        let ambiguous: Vec<bool> = self
+            .syllables
+            .iter()
+            .map(|syllable| syllable.readings.len() > 1)
+            .collect();
         let dictionary = &self.dictionary;
         let best = &mut self.best;
-        // 每个位置单字最重词条的权重，只在九键下有位置不止一个读音时才用得到。
+        // 每个位置单字最重词条的权重，只在九键下有位置打出来不止一个读音时才用得到。
         let mut singles = Vec::new();
-        if positions.iter().any(|readings| readings.len() > 1) {
+        if ambiguous.iter().any(|&ambiguous| ambiguous) {
             singles.reserve_exact(positions.len());
             for index in 0..positions.len() {
                 let weight = cached_best(dictionary, best, &positions[index..=index])?
@@ -497,7 +503,7 @@ impl ZhuyinScheme {
             |start, end| {
                 let entry = cached_best(dictionary, best, &positions[start..end])?;
                 Ok(entry.filter(|(_, entry)| {
-                    clears_ambiguous_word_floor(&positions[start..end], &singles, start, entry)
+                    clears_ambiguous_word_floor(&ambiguous[start..end], &singles, start, entry)
                 }))
             },
             |index| positions[index][0].clone(),
@@ -558,17 +564,17 @@ impl ZhuyinScheme {
 /// Conversion ranks paths by word length first (libchewing's score), which suits Dachen, where each position has exactly one reading. A nine-key position allows 4 to 23 readings, so the combined reading sets of two or three positions match some obscure word almost everywhere, and length-first alone lets 監聽器 (weight 9) beat 今天 (25469) + 去 (28394). Such a word therefore takes part only when its weight times this factor reaches the smallest single-character weight over its positions. 1000 was chosen against a rebuild of the libchewing-derived dictionary: it drops 監聽器, 趕明兒 and 禮教 from 我們今天去學校, 這個東西很便宜 and 請問你叫什麼名字, and of the sampled counted 2 to 4 syllable words that convert to themselves without the floor all but one still do, while a factor of 300 already loses about one in eight of them.
 const AMBIGUOUS_WORD_FLOOR: i64 = 1000;
 
-/// Whether `entry`, the heaviest entry for `positions` starting at syllable `start`, may take part in conversion. Single syllables and spans whose every position has one allowed reading (all of Dachen, and nine-key syllables the user pinned) always may, so Dachen conversion is unchanged; otherwise see `AMBIGUOUS_WORD_FLOOR`. `singles` holds every position's single-character weight and is empty when no position is ambiguous.
+/// Whether `entry`, the heaviest entry for the span starting at syllable `start` whose positions are flagged in `ambiguous`, may take part in conversion. Single syllables and spans where no position was typed with more than one reading (all of Dachen) always may, so Dachen conversion is unchanged; otherwise see `AMBIGUOUS_WORD_FLOOR`. Ambiguity is how the syllable was typed, not what is left after the user pinned a reading: pinning the reading the conversion already uses must not let a word the floor held back win (是之 turning into 適之). `singles` holds every position's single-character weight over its allowed readings and is empty when no position is ambiguous.
 fn clears_ambiguous_word_floor(
-    positions: &[&[String]],
+    ambiguous: &[bool],
     singles: &[i64],
     start: usize,
     entry: &LanguageEntry,
 ) -> bool {
-    if positions.len() < 2 || positions.iter().all(|readings| readings.len() == 1) {
+    if ambiguous.len() < 2 || !ambiguous.iter().any(|&ambiguous| ambiguous) {
         return true;
     }
-    let weakest = singles[start..start + positions.len()]
+    let weakest = singles[start..start + ambiguous.len()]
         .iter()
         .copied()
         .min()
@@ -1107,6 +1113,29 @@ mod tests {
         let (_dir, mut scheme) = scheme_with(&AMBIGUOUS_WORD_ENTRIES);
         type_keys(&mut scheme, "ru0 wu/ fu4");
         assert_eq!(scheme.converted_text(), "監聽器");
+    }
+
+    #[test]
+    fn nine_key_confirming_the_readings_in_use_keeps_the_text() {
+        // 適之 和 是 + 之 用的是同一组读音，权重却低得过不了下限；5 上 ㄓˋ/ㄕˋ、ㄓ/ㄔ 两两同键，两个位置打出来都有歧义。
+        let (_dir, mut scheme) = scheme_with(&[
+            ("ㄕˋ", "是", 160_000),
+            ("ㄓ", "之", 120_000),
+            ("ㄕˋ ㄓ", "適之", 1),
+            ("ㄓˋ", "至", 500),
+            ("ㄔ", "吃", 800),
+        ]);
+        scheme.set_nine_key(true);
+        type_keys(&mut scheme, "5v5 ");
+        assert_eq!(scheme.converted_text(), "是之");
+        // 读音条第一个就是当前用的读音；逐个确认，歧义仍按打字时算，適之 不会因为两个位置都钉住而冒出来。
+        let mut confirmed = 0;
+        while !scheme.spellings().is_empty() {
+            assert!(scheme.choose_spelling(0).unwrap());
+            assert_eq!(scheme.converted_text(), "是之");
+            confirmed += 1;
+        }
+        assert_eq!(confirmed, 2);
     }
 
     #[test]
