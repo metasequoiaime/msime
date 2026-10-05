@@ -8,6 +8,7 @@ test("touch skin library loading reuses the shared owner generation lifecycle", 
     ),
   )[0];
 
-  expect(source).toContain("useAsyncGeneration(library)");
+  expect(source).toContain("useAsyncActionRunner(setLibraryNotice, undefined, library)");
+  expect(source).not.toContain("useAsyncGeneration(library)");
   expect(source).not.toContain("const libraryGeneration = useRef(0)");
 });
