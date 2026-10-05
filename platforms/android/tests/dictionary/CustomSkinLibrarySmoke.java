@@ -74,6 +74,12 @@ public final class CustomSkinLibrarySmoke {
             String graphemeName = "👩‍👩‍👧‍👦".repeat(32);
             check((Boolean) boundedName.invoke(null, graphemeName));
             check(!(Boolean) boundedName.invoke(null, graphemeName + "x"));
+            java.lang.reflect.Method strictString = CustomSkinLibrary.class
+                .getDeclaredMethod("strictString", Object.class);
+            strictString.setAccessible(true);
+            check("synthetic".equals(strictString.invoke(null, "synthetic")));
+            check(strictString.invoke(null, 42) == null);
+            check(strictString.invoke(null, Boolean.TRUE) == null);
 
             Path externalRoot = outside.resolve("preferences");
             Files.createDirectories(externalRoot.resolve("CustomSkins"));

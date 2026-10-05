@@ -61,9 +61,11 @@ public final class CustomSkinLibrary {
         for (int index = 0; index < values.length() && result.size() < MAX_DESIGNS; index++) {
             JSONObject item = values.optJSONObject(index);
             if (item == null) continue;
-            String id = item.optString("id", "");
-            String name = item.optString("name", "").trim();
+            String id = strictString(item.opt("id"));
+            String name = strictString(item.opt("name"));
             JSONObject design = item.optJSONObject("design");
+            if (id == null || name == null) continue;
+            name = name.trim();
             if (id.isEmpty() || !boundedName(name) || design == null) continue;
             result.add(new Item(id, name, design));
         }
@@ -128,6 +130,11 @@ public final class CustomSkinLibrary {
     static void ensureSafeDirectory(Path directory) throws IOException {
         if (directory == null) throw new IOException("Invalid custom skin directory");
         SafePaths.ensureDirectory(directory);
+    }
+
+    /** org.json's optString coerces numbers and booleans; persisted library fields are strings. */
+    static String strictString(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 
     private static JSONObject entry(String id, String name, JSONObject design) {
