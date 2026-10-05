@@ -1,4 +1,4 @@
-// 演示页。输入区是一个能获得焦点、但不可编辑的元素，文字、光标和行内拼音都由这里自己画：浏览器只对可编辑元素（textarea、input、contenteditable）启用系统输入法，焦点在这里时按键原样到达页面，交给水杉的引擎处理，不会被系统输入法截走。右侧的选项改动立刻作用到引擎，下方的接入代码按同样的选项生成。
+// 演示页。输入区的文字、光标和行内拼音都由这里自己画；按键由一个看不见的密码框接收：浏览器在密码框里强制停用系统输入法（macOS 进入安全输入，Windows 解除输入法关联），按键原样到达页面，交给水杉的引擎处理。普通的可编辑或可聚焦元素都挡不住系统输入法。右侧的选项改动立刻作用到引擎，下方的接入代码按同样的选项生成。
 import { KeyKind, createMsimeEngine, createShiftTap, keyFromEvent, osImeIntercepting, packKey, version } from "./msime/index.js";
 
 const PINYIN = new Set(["quanpin", "xiaohe", "ziranma"]);
@@ -46,6 +46,8 @@ const preeditSpan = editor.querySelector(".preedit");
 const caretSpan = editor.querySelector(".caret");
 const after = editor.querySelector(".after");
 const wrap = editor.parentElement;
+const keysink = $("keysink");
+const focusEditor = () => keysink.focus({ preventScroll: true });
 const bar = $("candidates");
 const barPreedit = bar.querySelector(".cand-preedit");
 const barList = bar.querySelector(".cand-list");
@@ -167,7 +169,7 @@ function abandon() {
   render();
 }
 
-editor.addEventListener("keydown", (e) => {
+keysink.addEventListener("keydown", (e) => {
   // 演示回放期间输入区只读，访客的按键不进来。
   if (playing) {
     e.preventDefault();
@@ -213,13 +215,16 @@ editor.addEventListener("keydown", (e) => {
   send(() => engine.keys(key));
 });
 
-editor.addEventListener("keyup", (e) => {
+keysink.addEventListener("keyup", (e) => {
   if (shift.up(e)) send(() => engine.keys(packKey(KeyKind.ShiftTap)));
 });
 
 // 点击文字把光标放到点击处；正在组字时先放弃。必须在 mousedown 里同步完成：推迟到下一帧的话，点击后立刻打的字会先发出去，再被这里的放弃当成旧请求丢掉。
 editor.addEventListener("mousedown", (e) => {
   if (e.button !== 0) return;
+  // 焦点交给密码框，输入区自己不获得焦点。
+  e.preventDefault();
+  focusEditor();
   const position = document.caretPositionFromPoint?.(e.clientX, e.clientY);
   const range = position ? null : document.caretRangeFromPoint?.(e.clientX, e.clientY);
   const node = position ? position.offsetNode : range?.startContainer;
@@ -236,14 +241,23 @@ editor.addEventListener("mousedown", (e) => {
   render();
 });
 
-editor.addEventListener("blur", abandon);
+keysink.addEventListener("blur", abandon);
+// 密码框本身不留任何内容；粘贴的文字插到输入区里。
+keysink.addEventListener("input", () => (keysink.value = ""));
+keysink.addEventListener("paste", (e) => {
+  e.preventDefault();
+  const pasted = e.clipboardData?.getData("text/plain") ?? "";
+  if (!pasted || composing() || pending > 0 || playing) return;
+  insert(pasted);
+  render();
+});
 
 $("clear").addEventListener("click", () => {
   abandon();
   text = "";
   caret = 0;
   render();
-  editor.focus();
+  focusEditor();
 });
 
 function copyText(button, value) {
@@ -329,14 +343,16 @@ const engine = await ${call()};${modelLine()}
 attachInput(document.querySelector("textarea"), engine);`,
   }),
   custom: () => ({
-    note: "这个页面的做法：输入区是可聚焦但不可编辑的元素，系统输入法不会介入；按键交给 engine.keys()，按返回的帧更新文字并自己画候选栏。",
+    note: "这个页面的做法：按键由一个看不见的密码框接收，浏览器在密码框里停用系统输入法，访客不用切换到英文；按键交给 engine.keys()，按返回的帧更新自己画的文字和候选栏。",
     code: `import { createMsimeEngine, keyFromEvent } from "@msime/web-engine";
 
 const engine = await ${call()};${modelLine()}
-const editor = document.querySelector("#editor"); // <div tabindex="0">
+// 看不见的密码框接收按键：浏览器在密码框里停用系统输入法
+// <input type="password" id="keys" autocomplete="new-password" data-1p-ignore data-lpignore="true">
+const keys = document.querySelector("#keys");
 let composing = false;
 
-editor.addEventListener("keydown", async (e) => {
+keys.addEventListener("keydown", async (e) => {
   const key = keyFromEvent(e, { composing });
   if (key === null) return; // 快捷键等不属于输入法的键
   e.preventDefault();
@@ -433,7 +449,7 @@ async function play(example, button) {
   const hintBackup = [...$("hint").childNodes].map((n) => n.cloneNode(true));
   button.dataset.playing = "true";
   syncControls();
-  editor.focus({ preventScroll: true });
+  focusEditor();
   abandon();
   // 从新的一行开始，免得接在访客已经打的字后面。
   if (text && !text.endsWith("\n")) {
@@ -459,7 +475,7 @@ async function play(example, button) {
     delete button.dataset.playing;
     playing = false;
     syncControls();
-    editor.focus({ preventScroll: true });
+    focusEditor();
   }
 }
 
@@ -563,7 +579,7 @@ for (const group of document.querySelectorAll(".segmented")) {
       const value = key === "pageSize" ? Number(button.dataset.value) : button.dataset.value;
       if (options[key] === value) return;
       options[key] = value;
-      applyOptions().then(() => editor.focus({ preventScroll: true }));
+      applyOptions().then(() => focusEditor());
     });
   }
 }
@@ -572,7 +588,7 @@ for (const input of document.querySelectorAll(".switch input")) {
   input.addEventListener("change", () => {
     options[input.dataset.option] = input.checked;
     if (input.dataset.option === "model" && input.checked) options.modelEnabled = true;
-    applyOptions().then(() => editor.focus({ preventScroll: true }));
+    applyOptions().then(() => focusEditor());
   });
 }
 
@@ -582,5 +598,5 @@ if (matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)"
 
 render();
 syncControls();
-editor.focus({ preventScroll: true });
+focusEditor();
 applyOptions();

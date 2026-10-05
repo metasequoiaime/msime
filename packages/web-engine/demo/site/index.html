@@ -55,8 +55,10 @@
           <div class="progress" id="progress" aria-hidden="true"><span></span></div>
 
           <div class="editor-wrap">
+            <!-- 按键由这个看不见的密码框接收：浏览器在密码框里停用系统输入法，访客不用切到英文。autocomplete 和几个 data- 属性让浏览器与密码管理器不把它当成要保存的密码。 -->
+            <input class="keysink" id="keysink" type="password" autocomplete="new-password" spellcheck="false" aria-label="在这里打字" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
             <!-- 输入区按 pre-wrap 显示文字，标签之间不能有空白，否则缩进会被当成文字显示出来。 -->
-            <div class="editor" id="editor" tabindex="0" role="textbox" aria-multiline="true" aria-label="在这里打字" data-empty="true"><span class="before"></span><span class="preedit"></span><span class="caret" aria-hidden="true"></span><span class="after"></span></div>
+            <div class="editor" id="editor" aria-hidden="true" data-empty="true"><span class="before"></span><span class="preedit"></span><span class="caret" aria-hidden="true"></span><span class="after"></span></div>
             <p class="placeholder" id="placeholder">点这里直接打字，比如 <kbd>woshizhongguoren</kbd> 再按空格</p>
             <div class="candidates" id="candidates" hidden>
               <div class="cand-preedit"></div>
@@ -188,7 +190,7 @@
         </div>
         <details>
           <summary>为什么有时候需要把系统输入法切换到英文？</summary>
-          <p>浏览器会先把可编辑元素（<code>&lt;textarea&gt;</code>、<code>&lt;input&gt;</code>）上的按键交给系统输入法。访客开着系统的中文输入法时，按键会先被它接走，水杉拿不到。用 <code>attachInput</code> 挂在文本框上时，需要访客切到英文输入；像这个页面一样用可聚焦但不可编辑的元素自己画输入区，就不受系统输入法影响。</p>
+          <p>浏览器会先把可编辑元素（<code>&lt;textarea&gt;</code>、<code>&lt;input&gt;</code>）上的按键交给系统输入法。访客开着系统的中文输入法时，按键会先被它接走，水杉拿不到。用 <code>attachInput</code> 挂在文本框上时，需要访客切到英文输入；像这个页面一样用一个看不见的密码框接收按键、自己画输入区，就不受系统输入法影响：浏览器在密码框里会停用系统输入法。</p>
         </details>
         <details>
           <summary>输入的内容会被上传吗？</summary>

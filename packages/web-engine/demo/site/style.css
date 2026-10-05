@@ -249,7 +249,20 @@ h1 {
   transition: border-color .15s, box-shadow .15s;
 }
 
-.editor:focus {
+/* 接收按键的密码框：不可见、不占位置，但能获得焦点。 */
+.keysink {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.editor-wrap:focus-within .editor {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
@@ -270,7 +283,7 @@ h1 {
   visibility: hidden;
 }
 
-.editor:focus .caret { visibility: visible; animation: blink 1.06s steps(1) infinite; }
+.editor-wrap:focus-within .caret { visibility: visible; animation: blink 1.06s steps(1) infinite; }
 
 @keyframes blink { 50% { opacity: 0; } }
 
