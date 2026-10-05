@@ -24,12 +24,18 @@ pub enum Action {
         name: String,
         arguments: Map<String, Value>,
     },
-    /// `expand`：`arguments` 是交给 lookup_candidates 的参数。
+    /// `expand`：每串按键各调一次 lookup_candidates，`arguments` 是除编码以外的参数。`batch` 时每串的输出前标出编码，`--json` 则每串输出一行 JSON。
     Expand {
+        codes: Vec<String>,
         arguments: Map<String, Value>,
         json: bool,
+        batch: bool,
     },
     ShowConfig {
+        json: bool,
+    },
+    GetConfig {
+        keys: Vec<String>,
         json: bool,
     },
     /// `config set`：`changes` 是 update_preferences 的参数，revision 由这里现读现填。
@@ -67,10 +73,66 @@ pub async fn run(config: Config, action: Action) -> Result<ExitCode, Box<dyn std
             }
             Err(refusal) => refused(&refusal),
         },
-        Action::Expand { arguments, json } => {
-            match structured(call(&client, "lookup_candidates".into(), arguments).await?)? {
-                Ok(value) if json => print_json(&value)?,
-                Ok(value) => print_lines(candidate_lines(&value)),
+        Action::Expand {
+            codes,
+            arguments,
+            json,
+            batch,
+        } => {
+            let program = crate::config::program();
+            // 一串查不了不影响其余各串，全部查完再以 1 退出。
+            let mut failed = false;
+            for code in codes {
+                let mut arguments = arguments.clone();
+                arguments.insert("code".into(), code.clone().into());
+                let result =
+                    structured(call(&client, "lookup_candidates".into(), arguments).await?)?;
+                if batch && !json {
+                    println!("# {code}");
+                }
+                match result {
+                    Ok(value) if json && batch => println!(
+                        "{}",
+                        serde_json::json!({ "code": code, "candidates": value["candidates"] })
+                    ),
+                    Ok(value) if json => {
+                        print_json(&value)?;
+                    }
+                    Ok(value) => {
+                        let lines = candidate_lines(&value);
+                        // stdout 留给候选本身；一串时空输出容易被当成命令出了问题，在 stderr 说一声。
+                        if lines.is_empty() && !batch {
+                            eprintln!("{program}: {code} offers no candidates");
+                        }
+                        print_lines(lines);
+                    }
+                    Err(refusal) => {
+                        failed = true;
+                        if json && batch {
+                            println!("{}", serde_json::json!({ "code": code, "error": refusal }));
+                        }
+                        eprintln!("{program}: {code}: {refusal}");
+                    }
+                }
+            }
+            if failed {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Action::GetConfig { keys, json } => {
+            match structured(call(&client, "get_preferences".into(), Map::new()).await?)? {
+                Ok(value) => match picked_preferences(&value, &keys) {
+                    Ok(picked) if json => print_json(&Value::Object(picked.into_iter().collect()))?,
+                    Ok(picked) => {
+                        print_lines(picked.iter().map(|(_, value)| plain(value)).collect())
+                    }
+                    Err(missing) => refused(&format!(
+                        "no preference named {missing}; `{} config` lists them",
+                        crate::config::program()
+                    )),
+                },
                 Err(refusal) => refused(&refusal),
             }
         }
@@ -216,9 +278,25 @@ fn preference_lines(view: &Value) -> Vec<String> {
     view.as_object()
         .into_iter()
         .flatten()
-        .map(|(key, value)| match value {
-            Value::String(text) => format!("{key} = {text}"),
-            other => format!("{key} = {other}"),
+        .map(|(key, value)| format!("{key} = {}", plain(value)))
+        .collect()
+}
+
+/// 一个值在终端里的写法：字符串不带引号，其余照 JSON。
+fn plain(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// `config get` 要的几项，按要的顺序；有一项不存在就整体拒绝，报出它的名字。
+fn picked_preferences(view: &Value, keys: &[String]) -> Result<Vec<(String, Value)>, String> {
+    keys.iter()
+        .map(|key| {
+            view.get(key)
+                .map(|value| (key.clone(), value.clone()))
+                .ok_or_else(|| key.clone())
         })
         .collect()
 }
@@ -242,6 +320,24 @@ mod tests {
             ]
         );
         assert!(candidate_lines(&json!({ "candidates": [] })).is_empty());
+    }
+
+    #[test]
+    fn config_get_picks_the_keys_in_the_order_asked() {
+        let view = json!({ "candidate_page_size": 6, "scheme": "quanpin" });
+        let keys = ["scheme".to_owned(), "candidate_page_size".to_owned()];
+        let picked = picked_preferences(&view, &keys).unwrap();
+        assert_eq!(
+            picked
+                .iter()
+                .map(|(_, value)| plain(value))
+                .collect::<Vec<_>>(),
+            ["quanpin", "6"]
+        );
+        assert_eq!(
+            picked_preferences(&view, &["no_such".to_owned()]).unwrap_err(),
+            "no_such"
+        );
     }
 
     #[test]

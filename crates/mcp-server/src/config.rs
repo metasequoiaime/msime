@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
 /// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。不手动折行：每一行是一个完整的条目或句子，并且短到在 80 列的终端里也不会被折断，改动措辞时不会牵动别的行。
-const USAGE: &str = "usage: {program} expand <keys> [--scheme <scheme>] [--limit <n>] [--json]
+const USAGE: &str = "usage: {program} expand <keys>... [--scheme <scheme>] [--limit <n>] [--json]
        {program} config [--json]
+       {program} config get <key>... [--json]
        {program} config set <key>=<value>...
        {program} [flags] tools | call <tool> [<args>]
        {program} [flags] prompts | prompt <name> [<args>]
@@ -21,15 +22,21 @@ const USAGE: &str = "usage: {program} expand <keys> [--scheme <scheme>] [--limit
 Test 水杉输入法 (MSIME) by hand, or let an AI assistant manage it.
 
 Testing by hand:
-  expand <keys>            The candidates <keys> offers, one per line
+  expand <keys>...         The candidates each <keys> offers, one per line
     --scheme <scheme>      quanpin, shuangpin or wubi; yours by default
     --limit <n>            At most n candidates, 1 to 50; 20 by default
     --json                 JSON instead of rank, text, code, origin, weight
+  expand -                 Read the keys from stdin, one per line
   config                   Your preferences, one key = value per line
+  config get <key>...      Only the values of these preferences, one per line
   config set <key>=<value> Change some, such as scheme=shuangpin
+  With more than one <keys>, each one's candidates follow a # <keys> line.
+  With --json and more than one <keys>, each gets one line of JSON.
+  Blank lines and lines starting with # in the keys from stdin are skipped.
+  If some <keys> cannot be looked up, the others still are and expand exits 1.
   Every run reads the current preferences; there is nothing to reload.
   The input method applies config set within a few seconds.
-  expand leaves out quick phrases, cloud and AI candidates.
+  expand leaves out cloud and AI candidates and the context of earlier words.
   expand implies --allow-dictionary-read; config set implies --allow-write.
 
 For an AI assistant:
@@ -94,10 +101,10 @@ pub enum Command {
         name: String,
         arguments: Arguments,
     },
-    /// `expand`：查一串按键在当前方案（或 `--scheme` 指定的方案）下给出的候选。
+    /// `expand`：查按键在当前方案（或 `--scheme` 指定的方案）下给出的候选。`codes` 按命令行的顺序，`-` 表示在这个位置插入从 stdin 读到的各行。
     Expand {
         config: Config,
-        code: String,
+        codes: Vec<String>,
         scheme: Option<String>,
         limit: Option<u64>,
         json: bool,
@@ -105,6 +112,12 @@ pub enum Command {
     /// `config`：打印当前偏好。
     ShowConfig {
         config: Config,
+        json: bool,
+    },
+    /// `config get <key>...`：只打印这几项偏好的值。
+    GetConfig {
+        config: Config,
+        keys: Vec<String>,
         json: bool,
     },
     /// `config set <key>=<value>...`：按当前 revision 修改偏好。值能按 JSON 解析就按 JSON（数字、布尔、null），否则当字符串。
@@ -150,7 +163,7 @@ pub fn parse(
     let mut scheme = None;
     let mut limit = None;
     let mut json = false;
-    let mut positional = Vec::with_capacity(4);
+    let mut positional: Vec<String> = Vec::with_capacity(4);
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.to_str() {
@@ -210,13 +223,15 @@ pub fn parse(
     };
     match positional.first().map(String::as_str) {
         Some("expand") => {
-            let [_, code] = <[String; 2]>::try_from(positional)
-                .map_err(|_| "expand needs exactly one string of keys")?;
+            let codes = positional.split_off(1);
+            if codes.is_empty() {
+                return Err("expand needs keys, or - to read them from stdin".into());
+            }
             // 在终端里亲手敲 expand 就是要看词库候选，不必再另加开关。
             config.allow_dictionary_read = true;
             return Ok(Command::Expand {
                 config,
-                code,
+                codes,
                 scheme,
                 limit,
                 json,
@@ -238,6 +253,16 @@ pub fn parse(
                     })
                 }
                 Some("set") => Err("config set needs at least one <key>=<value>".into()),
+                Some("get") if positional.len() > 2 => Ok(Command::GetConfig {
+                    config,
+                    // 和 config set 一样接受 kebab-case。
+                    keys: positional[2..]
+                        .iter()
+                        .map(|key| key.replace('-', "_"))
+                        .collect(),
+                    json,
+                }),
+                Some("get") => Err("config get needs at least one key".into()),
                 Some(word) => Err(format!("unknown config command {word}")),
             };
         }
@@ -563,7 +588,7 @@ mod tests {
         let parsed = |list: &[&str]| parse(args(list), |_: &str| None);
         let Command::Expand {
             config,
-            code,
+            codes,
             scheme,
             limit,
             json,
@@ -582,12 +607,18 @@ mod tests {
             panic!("expected expand");
         };
         assert!(config.allow_dictionary_read && !config.allow_write);
-        assert_eq!(code, "ni'hao");
+        assert_eq!(codes, ["ni'hao"]);
         assert_eq!(scheme.as_deref(), Some("wubi"));
         assert_eq!(limit, Some(5));
         assert!(!json);
         assert!(parsed(&["--options", "/a.json", "expand"]).is_err());
-        assert!(parsed(&["--options", "/a.json", "expand", "a", "b"]).is_err());
+        // 一次查几串按键，`-` 留到运行时换成 stdin 的各行。
+        let Command::Expand { codes, .. } =
+            parsed(&["--options", "/a.json", "expand", "a", "-", "b"]).unwrap()
+        else {
+            panic!("expected expand");
+        };
+        assert_eq!(codes, ["a", "-", "b"]);
         assert!(parsed(&["--options", "/a.json", "expand", "a", "--limit", "x"]).is_err());
 
         let Command::ShowConfig { config, json } =
@@ -626,7 +657,21 @@ mod tests {
         assert!(parsed(&["--options", "/a.json", "config", "set"]).is_err());
         assert!(parsed(&["--options", "/a.json", "config", "set", "scheme"]).is_err());
         assert!(parsed(&["--options", "/a.json", "config", "set", "=wubi"]).is_err());
+        let Command::GetConfig { config, keys, json } = parsed(&[
+            "--options",
+            "/a.json",
+            "config",
+            "get",
+            "scheme",
+            "candidate-page-size",
+        ])
+        .unwrap() else {
+            panic!("expected config get");
+        };
+        assert!(!config.allow_write && !json);
+        assert_eq!(keys, ["scheme", "candidate_page_size"]);
         assert!(parsed(&["--options", "/a.json", "config", "get"]).is_err());
+        assert!(parsed(&["--options", "/a.json", "config", "unset", "scheme"]).is_err());
         // 只属于 expand 和 config 的开关不能悄悄跟着别的命令。
         assert!(parsed(&["--options", "/a.json", "config", "--scheme", "wubi"]).is_err());
         assert!(parsed(&["--options", "/a.json", "tools", "--json"]).is_err());

@@ -58,20 +58,39 @@ fn main() -> ExitCode {
             },
             Ok(config::Command::Expand {
                 config,
-                code,
+                codes,
                 scheme,
                 limit,
                 json,
             }) => {
+                // 不止一串按键、或者从 stdin 读时按批输出，每串前面标出它的编码；只查一串时输出不变。
+                let batch = codes.len() > 1 || codes.iter().any(|code| code == "-");
+                let codes = match expand_codes(codes) {
+                    Ok(codes) => codes,
+                    Err(error) => {
+                        eprintln!("{}: {error}", config::program());
+                        return ExitCode::from(2);
+                    }
+                };
                 let mut arguments = serde_json::Map::new();
-                arguments.insert("code".into(), code.into());
                 if let Some(scheme) = scheme {
                     arguments.insert("scheme".into(), scheme.into());
                 }
                 if let Some(limit) = limit {
                     arguments.insert("limit".into(), limit.into());
                 }
-                (config, Some(cli::Action::Expand { arguments, json }))
+                (
+                    config,
+                    Some(cli::Action::Expand {
+                        codes,
+                        arguments,
+                        json,
+                        batch,
+                    }),
+                )
+            }
+            Ok(config::Command::GetConfig { config, keys, json }) => {
+                (config, Some(cli::Action::GetConfig { keys, json }))
             }
             Ok(config::Command::ShowConfig { config, json }) => {
                 (config, Some(cli::Action::ShowConfig { json }))
@@ -135,6 +154,33 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// expand 要查的各串按键：`-` 换成 stdin 的各行，空行和 `#` 开头的注释行跳过，于是一份编码清单可以直接喂进来、拿输出和上次的比对。
+fn expand_codes(codes: Vec<String>) -> Result<Vec<String>, String> {
+    let mut expanded = Vec::with_capacity(codes.len());
+    for code in codes {
+        if code != "-" {
+            expanded.push(code);
+            continue;
+        }
+        let bytes =
+            crate::bounded::read(std::io::stdin(), ARGUMENTS_READ_LIMIT).map_err(|error| {
+                match error {
+                    crate::bounded::ReadError::TooLarge => "the keys from stdin are too many",
+                    crate::bounded::ReadError::Io => "cannot read the keys from stdin",
+                }
+            })?;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| String::from("the keys from stdin are not UTF-8"))?;
+        expanded.extend(
+            text.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .map(str::to_owned),
+        );
+    }
+    Ok(expanded)
 }
 
 /// The JSON object `call` passes to the tool, or `prompt` to the prompt.
