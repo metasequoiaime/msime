@@ -118,8 +118,9 @@ public final class KeyboardSkinSmoke {
         check(custom.keyOpacity() == .45 && custom.cornerRadius() == 17);
         check("#A987E8".equals(custom.borderColor()) && "#000000".equals(custom.actionForeground()));
         check("#D4BBFF".equals(custom.accent()) && "#000000".equals(custom.onAccent()));
-        // A keyboard design keeps its own accent on 确认 and the switched-on tiles.
-        check("#D4BBFF".equals(custom.returnBackground()) && "#000000".equals(custom.returnForeground()));
+        // A keyboard design fills 确认 with its action colour, and its function keys share the letter-key face, as on iOS; the accent stays on the switched-on tiles.
+        check("#FFFFFF".equals(custom.returnBackground()) && "#000000".equals(custom.returnForeground()));
+        check("#291E40".equals(custom.functionBackground()));
         check("#24D4BBFF".equals(custom.accentSoft()) && "#D4BBFF".equals(custom.accentText()));
         // The shared flattening's hint colour: the key text at 0x99.
         check("#99FFFFFF".equals(custom.secondary()));

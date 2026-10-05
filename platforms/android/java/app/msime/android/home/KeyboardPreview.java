@@ -89,8 +89,25 @@ public final class KeyboardPreview extends View {
 
     private void applyBackground() {
         int radius = Ui.dp(getContext(), cornerRadiusDp);
-        setBackground(Ui.rounded(skin == null ? Ui.card(getContext()) : parse(skin.background(), Ui.card(getContext())), radius));
+        int base = skin == null ? Ui.card(getContext()) : parse(skin.background(), Ui.card(getContext()));
+        android.graphics.drawable.GradientDrawable surface = Ui.rounded(base, radius);
+        // 设计皮肤的底是一道渐变，和键盘本身一样画出来；只画纯色时，深色设计上的功能键和回车显得格外跳。
+        String end = skin != null && skin.designed() ? skin.gradientEnd() : null;
+        if (end != null && !end.isEmpty()) {
+            surface.setOrientation(skin.gradientHorizontal()
+                ? android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT
+                : android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM);
+            surface.setColors(new int[] {base, parse(end, base)});
+        }
+        setBackground(surface);
         setClipToOutline(true);
+    }
+
+    /** 设计皮肤的字母键与功能键按其键帽不透明度叠在背景上，与键盘的 KeyboardSkinKeyDrawable 一致；回车不透明。 */
+    private int withKeyOpacity(int colour) {
+        if (skin == null || !skin.designed()) return colour;
+        int alpha = (int) Math.round(Color.alpha(colour) * Math.max(0d, Math.min(1d, skin.keyOpacity())));
+        return Color.argb(alpha, Color.red(colour), Color.green(colour), Color.blue(colour));
     }
 
     private static int parse(@Nullable String colour, int fallback) {
@@ -201,7 +218,7 @@ public final class KeyboardPreview extends View {
                 String face = row[c];
                 boolean action = "↵".equals(face);
                 boolean function = !action && FUNCTION_KEYS.contains(face);
-                paint.setColor(action ? returnCap() : function ? functionCap() : letterCap());
+                paint.setColor(action ? returnCap() : withKeyOpacity(function ? functionCap() : letterCap()));
                 canvas.drawRoundRect(key, radius, radius, paint);
                 String label = "空格".equals(face) ? caption : face;
                 if (!label.isEmpty()) {

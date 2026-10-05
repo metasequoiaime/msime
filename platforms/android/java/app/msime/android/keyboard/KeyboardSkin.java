@@ -390,14 +390,20 @@ public final class KeyboardSkin {
     public String accent() { return accent; }
     /** Text on anything filled with {@link #accent()}. */
     public String onAccent() { return onAccent; }
-    /** The tinted function-key face (shift, delete, 123, 中/英). */
-    public String functionBackground() { return actionBackground; }
     /**
-     * The return key while composing (确认). It is not a theme colour: the design fills it with the platform accent in every theme (dc.html L2211, THEME_CONTRACT `KeyboardThemePalette`), as the iOS and Harmony keyboards do. Only the user's own keyboard design keeps its accent.
+     * The function-key face (shift, delete, 123, 中/英, the nine-key side column).
+     *
+     * A theme tints it with its own function colour. A keyboard design draws it on the letter-key face, as the iOS keyboard does (`KeyboardTheme.functionKeyBackground` returns `keyBackground` for a design): the design's `actionBackground` belongs to the action key alone. Filling every function key with it painted a dozen keys in the action colour and made community skins look like a patchwork.
      */
-    public String returnBackground() { return platformAccent; }
+    public String functionBackground() { return designed ? keyBackground : actionBackground; }
+    /** The label on {@link #functionBackground()}: a design's function keys share the letter-key face, so they share its text colour too. */
+    public String functionForeground() { return designed ? keyForeground : actionForeground; }
+    /**
+     * The return key while composing (确认). For a theme it is not a theme colour: the design fills it with the platform accent in every theme (dc.html L2211, THEME_CONTRACT `KeyboardThemePalette`), as the iOS and Harmony keyboards do. A keyboard design fills it with its own `actionBackground`, as iOS does (`SkinKeySurfaceView` draws the action key in `actionBackground`); its `accent` is for borders, patterns and the brand mark, not for a key.
+     */
+    public String returnBackground() { return designed ? actionBackground : platformAccent; }
     /** The label on {@link #returnBackground()}. */
-    public String returnForeground() { return platformOnAccent; }
+    public String returnForeground() { return designed ? actionForeground : platformOnAccent; }
     /**
      * A switched-on function tile's surface. The design draws `tileOn` from the platform tokens in every theme (`k.accentSoft`), the same on every host; only the user's own keyboard design tints it with its accent, at the shared selected-candidate tint (0x24).
      */

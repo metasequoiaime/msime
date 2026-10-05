@@ -212,7 +212,7 @@ final class ImeStyler {
         String foreground = confirm ? target.returnForeground()
             : tile ? (selected ? target.accentText() : target.keyForeground())
             : selected ? target.onAccent()
-            : action ? target.actionForeground() : target.keyForeground();
+            : action ? target.functionForeground() : target.keyForeground();
         float density = s.getResources().getDisplayMetrics().density;
         KeyboardPressButton press = button instanceof KeyboardPressButton key ? key : null;
         // 键帽完全由皮肤、角色、选中状态和密度决定；这几项都没变就留着现在这块，不再每次 render 换一个一样的新 Drawable 让整块键盘重画。
@@ -257,7 +257,7 @@ final class ImeStyler {
         key.setKind(s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK
             ? KeyboardIconKey.Kind.CAPS_LOCK : KeyboardIconKey.Kind.SHIFT);
         String background = on ? target.keyBackground() : target.functionBackground();
-        String foreground = on ? target.accent() : target.actionForeground();
+        String foreground = on ? target.accent() : target.functionForeground();
         float density = s.getResources().getDisplayMetrics().density;
         // 记忆键帽时按「开着」当作 KEY 角色，免得开关切换后沿用旧的那块底图。
         KeyboardKeyRole remembered = on ? KeyboardKeyRole.KEY : KeyboardKeyRole.ACCENT;
