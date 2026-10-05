@@ -52,13 +52,13 @@ public final class VocabularyReviewDocument {
             for (int index = 0; index < books.length(); index++) {
                 JSONObject book = books.optJSONObject(index);
                 if (book == null) continue;
-                String id = book.optString("id", "");
+                String id = optionalString(book, "id", "");
                 if (id.isEmpty()) continue;
                 wordbooks.add(new VocabularyReviewModel.Wordbook(
                     id,
-                    book.optString("name", id),
+                    optionalString(book, "name", id),
                     count(book, "total"),
-                    book.optBoolean("builtin", false)));
+                    optionalBoolean(book, "builtin", false)));
             }
         }
 
@@ -68,19 +68,19 @@ public final class VocabularyReviewDocument {
             for (int index = 0; index < cards.length(); index++) {
                 JSONObject card = cards.optJSONObject(index);
                 if (card == null) continue;
-                String word = card.optString("word", "");
+                String word = optionalString(card, "word", "");
                 // A card with no word could never be answered: the answer is keyed by it.
                 if (word.isEmpty()) continue;
                 queue.add(new VocabularyReviewModel.Card(
                     word,
-                    card.optString("phonetic", ""),
-                    card.optString("meaning", "")));
+                    optionalString(card, "phonetic", ""),
+                    optionalString(card, "meaning", "")));
             }
         }
 
         return new VocabularyReviewModel(
             wordbooks,
-            settings.optString("wordbook", ""),
+            optionalString(settings, "wordbook", ""),
             count(settings, "newPerDay"),
             count(settings, "sessionLimit"),
             count(root, "due"),
@@ -92,5 +92,15 @@ public final class VocabularyReviewDocument {
 
     private static int count(JSONObject object, String key) {
         return object.has(key) ? VocabularyReviewModel.strictCount(object.opt(key)) : 0;
+    }
+
+    private static String optionalString(JSONObject object, String key, String fallback) {
+        if (!object.has(key) || object.isNull(key)) return fallback;
+        return VocabularyReviewModel.strictString(object.opt(key));
+    }
+
+    private static boolean optionalBoolean(JSONObject object, String key, boolean fallback) {
+        if (!object.has(key) || object.isNull(key)) return fallback;
+        return VocabularyReviewModel.strictBoolean(object.opt(key));
     }
 }

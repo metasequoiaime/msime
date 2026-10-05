@@ -26,6 +26,20 @@ public final class VocabularyReviewModel {
         return (int) count;
     }
 
+    /** Read a JSON string without org.json's lossy scalar coercion. */
+    public static String strictString(Object value) {
+        if (!(value instanceof String))
+            throw new IllegalArgumentException("Expected JSON review string");
+        return (String) value;
+    }
+
+    /** Read a JSON boolean without org.json's lossy scalar coercion. */
+    public static boolean strictBoolean(Object value) {
+        if (!(value instanceof Boolean))
+            throw new IllegalArgumentException("Expected JSON review boolean");
+        return (Boolean) value;
+    }
+
     /** One word list the session can draw from. */
     public record Wordbook(String id, String name, int total, boolean builtin) {}
 

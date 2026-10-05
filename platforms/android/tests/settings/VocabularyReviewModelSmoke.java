@@ -62,6 +62,15 @@ public final class VocabularyReviewModelSmoke {
         expectFailure(() -> VocabularyReviewModel.strictCount(
             Long.valueOf((long) Integer.MAX_VALUE + 1)));
 
+        check(VocabularyReviewModel.strictString("synthetic").equals("synthetic"),
+            "JSON review text accepts strings");
+        expectFailure(() -> VocabularyReviewModel.strictString(Integer.valueOf(42)));
+        expectFailure(() -> VocabularyReviewModel.strictString(Boolean.TRUE));
+        check(VocabularyReviewModel.strictBoolean(Boolean.TRUE),
+            "JSON review flags accept booleans");
+        expectFailure(() -> VocabularyReviewModel.strictBoolean("true"));
+        expectFailure(() -> VocabularyReviewModel.strictBoolean(Integer.valueOf(1)));
+
         System.out.println("VocabularyReviewModelSmoke passed");
     }
 
