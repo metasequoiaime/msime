@@ -14,4 +14,8 @@ test("candidate skin publish loading reuses the shared client generation lifecyc
 
   expect(source).toContain("clientGeneration.current");
   expect(source).not.toContain("let active = true");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("useCommunityClientLifecycle(");
+  expect(source).not.toContain("runCommunityPublishAction(");
+  expect(source).not.toContain("const [busy, setBusy] = useState(false)");
 });
