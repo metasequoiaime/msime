@@ -109,8 +109,7 @@ docker run --rm --init \
       *) echo "no pinned voice runtime for $(uname -m)" >&2; exit 2 ;;
     esac
     python3 scripts/fetch_voice_runtime.py --platform "$voice_platform" --out /build/voice-runtime
-    # `msime-linux-handwriting --local` 识别用的 Zinnia 模型，由 resources/handwriting-model.lock.json 固定。它和下面的离线释义交给每个版本的 configure；不提供中文方案的版本（版本表 features.handwriting 和 features.offline_glosses 为 false）由 cmake/Edition.cmake 和 CMakeLists.txt 把两者都去掉，所以日文、越南文和藏文版的安装包里两样都没有。
-    python3 scripts/fetch_handwriting_model.py --out /build/handwriting-model
+    # 发布页的 deb/rpm 不带手写用的 Zinnia 模型（26.8 MB）：每个版本都以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 配置，设置应用在用户需要手写时按 resources/handwriting-model.lock.json 下载模型和它的许可证。发行版仓库的包（packaging/ 下各定义和 nix）不传这个选项，照旧随包。下面的离线释义交给每个版本的 configure；不提供中文方案的版本（版本表 features.offline_glosses 为 false）由 CMakeLists.txt 去掉，所以日文、越南文和藏文版的安装包里没有。
     # Non-English candidate glosses from scripts/fetch_offline_glosses.py, installed only when the databases and their NOTICE are both there; without them the package glosses offline in English only.
     glosses_args=()
     if compgen -G "target/offline-glosses/zh-*.db" >/dev/null && [ -f target/offline-glosses/offline-glosses-NOTICE.txt ]; then
@@ -147,7 +146,7 @@ docker run --rm --init \
         -DMSIME_PACKAGE_VERSION="$MSIME_VERSION" \
         -DMSIME_RUST_NOTICES=/build/notices/rust-crates-NOTICES.txt \
         -DMSIME_VOICE_RUNTIME_DIR=/build/voice-runtime \
-        -DMSIME_HANDWRITING_MODEL_DIR=/build/handwriting-model \
+        -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF \
         "${desktop_args[@]}" "${glosses_args[@]}" "${edition_languages_args[@]}"
       cmake --build "$build"
       if [ "$testing" = ON ]; then

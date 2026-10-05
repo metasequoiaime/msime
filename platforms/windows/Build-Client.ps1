@@ -42,8 +42,7 @@ $buildRoot = Join-Path $RepoRoot "target/windows-$Edition"
 foreach ($relative in @('Cargo.toml', 'crates/engine/Cargo.toml',
                          'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
                          'platforms/windows/settings/MSIME.Settings.vcxproj',
-                         'apps/desktop/package.json', 'scripts/fetch_voice_runtime.py',
-                         'scripts/fetch_handwriting_model.py')) {
+                         'apps/desktop/package.json', 'scripts/fetch_voice_runtime.py')) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $relative) -PathType Leaf)) {
         throw "Missing Client build source: $relative"
     }
@@ -153,9 +152,6 @@ try {
     Invoke-ClientBuild cmake (@('-E', 'copy_if_different') +
         @($voiceRuntimeLibraries | ForEach-Object { Join-Path $voiceRuntime $_ }) +
         @((Join-Path $buildRoot 'x64/bin')))
-    # The offline handwriting model and its LGPL-2.1 licence, pinned by resources/handwriting-model.lock.json. Prepare-PackageFiles.ps1 stages both beside the Server from target/handwriting-model and Collect-Notices.ps1 reads the licence there. The fetch discards anything that does not match the lock and leaves a matching copy alone.
-    Invoke-ClientBuild python @((Join-Path $RepoRoot 'scripts/fetch_handwriting_model.py'),
-        '--out', (Join-Path $RepoRoot 'target/handwriting-model'))
     foreach ($arch in @('x64', 'x86')) {
         $bin = Join-Path $buildRoot "$arch/bin"
         $prefix = if ($arch -eq 'x64') { $X64Dependencies } else { $X86Dependencies }

@@ -138,6 +138,9 @@ Source: "{#MySourceRoot}\app_data\config.default.toml"; \
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.pdb"
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\*.ilk"
 Type: files; Name: "{commonpf64}\{#MyEditionInstallDir}\server\MetasequoiaImeTsf.dll"
+; 手写模型和落定重排模型改为由设置应用按需下载到数据目录的 resource-packs 之前，包把它们装在 Server 目录的 handwriting 和 settled-model 下。升级时删掉这两份旧副本：宿主优先用随包的那份，留着它们会让按锁更新过的下载永远轮不到，还白占约 50 MB。
+Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\handwriting"
+Type: filesandordirs; Name: "{commonpf64}\{#MyEditionInstallDir}\server\settled-model"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; \

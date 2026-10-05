@@ -77,7 +77,10 @@ jobs:
             unpacked=$(mktemp -d)
             dpkg-deb -x "${deb[0]}" "$unpacked"
             unstripped=$(find "$unpacked" -type f ! -name 'libonnxruntime.so*' ! -name 'libsherpa-onnx-c-api.so*' -exec file {} + | grep ': *ELF' | grep -v ', stripped' || true)
+            # 发布页的包不带离线手写模型（package-container.sh 以 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF 配置），由设置应用按需下载。
+            bundled_model=$(find "$unpacked" -name 'handwriting-zh_CN.model')
             rm -rf "$unpacked"
+            [[ -z $bundled_model ]] || { echo "edition $edition: ${deb[0]} bundles the handwriting model: $bundled_model" >&2; exit 1; }
             [[ -z $unstripped ]] || { echo "edition $edition: unstripped ELF files in ${deb[0]}:" >&2; echo "$unstripped" >&2; exit 1; }
             edition_debs+=("${deb[0]}")
           done

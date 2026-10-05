@@ -149,7 +149,7 @@ def main() -> int:
     linux_cmake = (LINUX / "CMakeLists.txt").read_text(encoding="utf-8")
     if "foreach(msime_edition_feature handwriting offline_glosses)" not in edition_cmake:
         errors.append("cmake/Edition.cmake no longer derives MSIME_EDITION_HANDWRITING and MSIME_EDITION_OFFLINE_GLOSSES from the edition table; update this check")
-    if not re.search(r'if\(NOT MSIME_EDITION_HANDWRITING\)\n(?:  .*\n)*?  set\(MSIME_HANDWRITING_MODEL_DIR ""\)', linux_cmake) or "elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING)" not in linux_cmake:
+    if not re.search(r'if\(NOT MSIME_EDITION_HANDWRITING\)\n(?:  .*\n)*?  set\(MSIME_HANDWRITING_MODEL_DIR ""\)', linux_cmake) or "elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING AND MSIME_BUNDLE_HANDWRITING_MODEL)" not in linux_cmake:
         errors.append("CMakeLists.txt no longer keeps the handwriting model out of editions without handwriting; update this check")
     if "if(MSIME_OFFLINE_GLOSSES AND NOT MSIME_EDITION_OFFLINE_GLOSSES)" not in linux_cmake:
         errors.append("CMakeLists.txt no longer keeps the offline glosses out of editions without a Chinese scheme; update this check")

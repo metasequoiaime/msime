@@ -288,7 +288,7 @@ check_app() {
   for table in helpcode.txt zrm_helpcode_big_unique.txt shouyou2_0_helpcode.txt shouyouplus_helpcode.txt xiaohe_helpcode.txt jiajia_helpcode.txt NOTICE.md NOTICE-jiajia.md; do
     test -f "$resources_dir/EngineResources/helpcodes/$table"
   done
-  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（macos_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
+  # 按需下载的资源包不该出现在包里：日文词典、粤拼、注音与笔画词库、手写模型都由 App 下载到 resource-packs/<id>/，不提供手写的版本（日文、越南文和藏文版）连手写模型也不下载（desktop_resource_packs.rs）。识别器代码的 Zinnia 许可证仍由 tauri.macos.conf.json 放进包里：Zinnia 的移植编在共用的 host 库里，每个版本都带着这份代码。
   test ! -e "$resources_dir/EngineResources/msime-japanese.dat"
   test ! -e "$resources_dir/EngineResources/msime-mozc_dictionary_oss_README.txt"
   test ! -e "$resources_dir/EngineResources/msime-mozc_LICENSE.txt"

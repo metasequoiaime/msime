@@ -4,7 +4,7 @@ param(
     [string[]]$SupplementalNotices = @(),
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$OutputDirectory = '',
-    # The product edition (an id with a Windows section in shared/contracts/editions.json) whose installer the notices go into. Editions whose features.handwriting is false (Japanese, Vietnamese, Tibetan) do not ship the handwriting model, so their collection neither lists its LGPL-2.1 licence nor needs target/handwriting-model. Defaults to full.
+    # 声明要放进哪个产品版本的安装包（shared/contracts/editions.json 里有 Windows 段的 id），缺省是 full。
     [ValidatePattern('^[a-z][a-z0-9]*$')][string]$Edition = 'full'
 )
 $ErrorActionPreference = 'Stop'
@@ -15,15 +15,13 @@ if (-not [IO.Path]::IsPathRooted($OutputDirectory)) { throw 'Notice output direc
 $editionTable = Get-Content -LiteralPath (Join-Path $RepoRoot 'shared/contracts/editions.json') -Raw | ConvertFrom-Json
 $editionEntry = @($editionTable.editions | Where-Object { $_.id -ceq $Edition -and $null -ne $_.platforms.windows })
 if ($editionEntry.Count -ne 1) { throw "Edition $Edition has no Windows section in shared/contracts/editions.json" }
-$editionHandwriting = [bool]$editionEntry[0].features.handwriting
 $documents = [Collections.Generic.List[string]]::new()
 $documents.Add("MSIME third-party notice collection`nThis collection is not a license-completeness or redistribution-authorization assessment. Nested third-party archives, Rust/frontend and other distribution-specific notices must also be supplied and reviewed.`n")
-# Notices committed with the data and code they cover, plus, for editions that ship the handwriting model, its LGPL-2.1 text, which scripts/fetch_handwriting_model.py downloads with the model into target/handwriting-model as resources/handwriting-model.lock.json pins. The input engine is the repository's own Rust crate under the root LICENSE, which the package carries as LICENSE.txt, so it has no separate entry.
+# 随数据和代码一起提交的声明。安装包不带手写模型：设置应用按需下载模型时一并下载它的 LGPL-2.1 许可证（HandwritingModel-LICENSE.txt，在 resources/handwriting-model.lock.json 里和模型锁在一起），所以模型的许可证随下载走，这里不收集；zinnia 本身的许可证保留，因为宿主库编进了从它移植的识别器。输入引擎是本仓库自己的 Rust crate，适用根目录的 LICENSE，安装包以 LICENSE.txt 带着它，所以没有单独的条目。
 foreach ($notice in @(
     @('resources/licenses/msime-engine-dictionary-NOTICE.md', 'Dictionary data (msime-pinyin.db, msime-wubi.db, msime-english.db, msime-others.db, msime-bigram.bin, msime-trigram.bin)'),
     @('resources/helpcodes/ENGINE-NOTICE.md', 'Helpcode tables (lantian, ziranma, shouyou2_0, shouyouplus, xiaohe)'),
     @('resources/helpcodes/NOTICE.md', 'Helpcode table (jiajia)'),
-    @('target/handwriting-model/HandwritingModel-LICENSE.txt', 'Tegaki Simplified Chinese handwriting model (handwriting-zh_CN.model), LGPL-2.1'),
     @('resources/licenses/Zinnia-LICENSE.txt', 'zinnia, whose recognizer the host library ports, BSD License'),
     @('resources/licenses/Administrative-divisions-of-China-WTFPL.txt', 'Chinese administrative divisions compiled into the host library for @ mode, modood/Administrative-divisions-of-China @ c49d495b40ac73eb1a66f6eeae5f8fd10696f035, WTFPL'),
     @('resources/licenses/libhangul-hanja-BSD-3-Clause.txt', 'Korean Hanja table compiled into the host library for Hanja conversion, libhangul data/hanja/hanja.txt @ 717409ce61524bb3d8426060a384822f21354c62, BSD-3-Clause'),
@@ -35,10 +33,8 @@ foreach ($notice in @(
     @('platforms/windows/third_party/miniaudio/LICENSE', 'miniaudio (Server microphone capture and cue sounds)'),
     @('crates/client-core/data/opencc/LICENSE', 'OpenCC dictionaries, BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6'))) {
     $relative = $notice[0]
-    if ($relative.StartsWith('target/handwriting-model/') -and -not $editionHandwriting) { continue }
     $noticePath = Join-Path $RepoRoot $relative
     if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) {
-        if ($relative.StartsWith('target/handwriting-model/')) { throw "Missing handwriting model notice: $relative; run scripts/fetch_handwriting_model.py" }
         throw "Missing repository notice: $relative"
     }
     $content = Get-Content -LiteralPath $noticePath -Raw

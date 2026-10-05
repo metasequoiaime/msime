@@ -17,9 +17,14 @@ try {
     # Prepare-PackageFiles.ps1 从版本表取本次打包的版本，fixture 用仓库里的那一份。
     New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'shared/contracts') | Out-Null
     Copy-Item (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') (Join-Path $fixture 'shared/contracts/editions.json')
-    # 中文版本即使没有拉取模型也会读 settled-model 锁文件。
-    New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'resources') | Out-Null
-    Copy-Item (Join-Path $PSScriptRoot '../../../../resources/settled-model.lock.json') (Join-Path $fixture 'resources/settled-model.lock.json')
+    # 落定重排模型和手写模型由设置应用按需下载，不进安装包：构建目录里即使有它们（以前的构建取过），也不能被装进去。
+    function Assert-NoOnDemandModels([string]$Context) {
+        foreach ($absent in @('server_exe/handwriting', 'server_exe/settled-model')) {
+            if (Test-Path (Join-Path $installer $absent)) { throw "$Context packaged an on-demand model directory: $absent" }
+        }
+        $models = @(Get-ChildItem -LiteralPath (Join-Path $installer 'server_exe'), (Join-Path $installer 'app_data') -Recurse -File -Include '*.model', 'sentence-model-desktop.safetensors', 'HandwritingModel-LICENSE.txt' -ErrorAction SilentlyContinue)
+        if ($models.Count -ne 0) { throw "$Context packaged on-demand model files: $($models.FullName -join ', ')" }
+    }
     foreach ($file in @(
         'server/build-release/bin/Release/MetasequoiaImeServer.exe',
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
@@ -50,6 +55,8 @@ try {
         'target/release/msime-desktop.exe',
         'target/handwriting-model/handwriting-zh_CN.model',
         'target/handwriting-model/HandwritingModel-LICENSE.txt',
+        'target/settled-model/sentence-model-desktop.safetensors',
+        'target/neural-model/sentence-model-desktop.safetensors',
         'target/language-dictionaries/msime-zhuyin.db',
         'target/language-dictionaries/msime-libchewing_data_LICENSE.txt',
         'target/language-dictionaries/msime-stroke.db',
@@ -120,8 +127,6 @@ try {
                          'server_exe/msime-client-prepare.exe',
                          'server_exe/msime-client-prepare.pdb',
                          'server_exe/RestartAgent.exe',
-                         'server_exe/handwriting/handwriting-zh_CN.model',
-                         'server_exe/handwriting/HandwritingModel-LICENSE.txt',
                          'server_exe/offline-glosses/zh-fr.db',
                          'server_exe/offline-glosses/offline-glosses-NOTICE.txt',
                          'app_data/helpcodes/helpcode.txt',
@@ -129,6 +134,7 @@ try {
                          'THIRD_PARTY_NOTICES.txt', 'LICENSE.txt')) {
         if (-not (Test-Path (Join-Path $installer $file))) { throw "Missing packaged file: $file" }
     }
+    Assert-NoOnDemandModels 'Full package'
     if (Test-Path (Join-Path $installer 'app_data/helpcodes/NOTICE.md')) { throw 'Staged a helpcode notice as a table' }
     # The Zhuyin and Stroke dictionaries travel beside resources with their licences; the absent Cantonese one leaves that scheme unavailable, and a dictionary without its licence is refused.
     foreach ($name in @('msime-zhuyin.db', 'msime-libchewing_data_LICENSE.txt', 'msime-stroke.db', 'msime-rime_stroke_LICENSE.txt')) {
@@ -285,18 +291,7 @@ try {
             throw 'Explicit shell inherited unrelated native symbols'
         }
     }
-    foreach ($name in @('handwriting-zh_CN.model', 'HandwritingModel-LICENSE.txt')) {
-        if (-not (Test-Path (Join-Path $installer "server_exe/handwriting/$name"))) {
-            throw "Light package lost handwriting resource: $name"
-        }
-    }
-    $notice = Join-Path $fixture 'target/handwriting-model/HandwritingModel-LICENSE.txt'
-    Remove-Item -LiteralPath $notice
-    $rejected = $false
-    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $true }
-    if (-not $rejected) { throw 'Missing handwriting license was accepted' }
-    if ([IO.File]::ReadAllText($database) -ne 'preserved user data') { throw 'Missing license damaged previous staging' }
-    [IO.File]::WriteAllText($notice, 'fixture')
+    Assert-NoOnDemandModels 'Light package'
     $factory = Join-Path $installer 'config.default.toml'
     $originalFactory = [IO.File]::ReadAllText($factory)
     foreach ($invalid in @(
@@ -441,11 +436,10 @@ try {
             throw "Edition host DLL not packaged under its own name ($arch)"
         }
     }
-    # 五笔版提供中文方案，手写模型和非英文离线释义照常装。
-    foreach ($file in @('server_exe/handwriting/handwriting-zh_CN.model', 'server_exe/offline-glosses/zh-fr.db')) {
-        if (-not (Test-Path (Join-Path $installer $file))) { throw "Chinese edition lost $file" }
-    }
-    # 越南文版没有中文方案（版本表 features.handwriting 和 features.offline_glosses 为 false）：手写模型和非英文离线释义都不装，即使构建目录里有它们。
+    # 五笔版提供中文方案，非英文离线释义照常装；手写模型和落定重排模型和其他版本一样不进安装包。
+    if (-not (Test-Path (Join-Path $installer 'server_exe/offline-glosses/zh-fr.db'))) { throw 'Chinese edition lost server_exe/offline-glosses/zh-fr.db' }
+    Assert-NoOnDemandModels 'Chinese edition package'
+    # 越南文版没有中文方案（版本表 features.offline_glosses 为 false）：非英文离线释义不装，即使构建目录里有它们。
     Write-Fixture 'windows/build32-release/Release/msime_host_api_vietnamese.dll' 'synthetic x86 vietnamese host'
     Write-Fixture 'windows/build64-release/Release/msime_host_api_vietnamese.dll' 'synthetic x64 vietnamese host'
     $vietnameseArtifacts = @($artifacts | Where-Object { $_.name -in @('msime-english.db', 'msime-scowl_Copyright.txt', 'msime-others.db', 'msime-dictionary-manifest.json') })

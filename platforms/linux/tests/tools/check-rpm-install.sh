@@ -42,6 +42,8 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
   for package in "${packages[@]}"; do
     rpm -q "$package"
     test -x "/usr/bin/$package-setup"
+    # 发布页的 rpm 和 deb 一样不带手写模型，由设置应用按需下载（package-container.sh 传 MSIME_BUNDLE_HANDWRITING_MODEL=OFF）。
+    if rpm -ql "$package" | grep handwriting-zh_CN.model >/dev/null; then echo "$package bundles the handwriting model" >&2; exit 1; fi
   done
   # 在装完这些包之后才装它，免得它替包满足了包自己漏声明的依赖。
   dnf install -y --setopt=install_weak_deps=False file

@@ -109,6 +109,7 @@ set(MSIME_RUNTIME_OPTIONS_FILE "" CACHE FILEPATH "Prepared runtime options")
 set(MSIME_DESKTOP_BINARY "" CACHE FILEPATH "Cargo-built Tauri desktop binary")
 set(MSIME_MCP_BINARY "" CACHE FILEPATH "Cargo-built MCP server (msime-mcp)")
 set(MSIME_HANDWRITING_MODEL_DIR "" CACHE PATH "Offline handwriting model with its license, as fetched by scripts/fetch_handwriting_model.py; empty uses target/handwriting-model when it is there")
+option(MSIME_BUNDLE_HANDWRITING_MODEL "Install the offline handwriting model with its license and require it when packaging; OFF leaves it to the settings app to download on demand" ON)
 set(MSIME_EMOJI_RESOURCES "" CACHE PATH "Trusted packaged Engine Emoji resource directory")
 set(MSIME_ENGINE_RESOURCES "" CACHE PATH "Trusted packaged Engine desktop resource directory")
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
@@ -554,11 +555,17 @@ configure_file(data/msime_voice_paths.py.in msime_voice_paths.py @ONLY)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/msime_voice_paths.py" DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES data/voice/start.pcm data/voice/end.pcm data/voice/SOURCE.md
         DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/voice")
-# The zinnia model `msime-linux-handwriting --local` recognises with, and its LGPL-2.1 license. At 26.8 MB it is not committed: scripts/fetch_handwriting_model.py downloads what resources/handwriting-model.lock.json pins into target/handwriting-model, which is picked up when present, and every file is checked against the lock here. Packaging requires it, because a package without it would offer an offline recognizer that fails on the first stroke; a development install without it only leaves --local reporting that no model is installed.
+# `msime-linux-handwriting --local` 识别用的 zinnia 模型及其 LGPL-2.1 许可证。它有 26.8 MB，不进版本库：scripts/fetch_handwriting_model.py 把 resources/handwriting-model.lock.json 锁定的文件下载到 target/handwriting-model，存在时这里取用，并逐个文件按锁校验。MSIME_BUNDLE_HANDWRITING_MODEL 打开时（默认如此，packaging/ 下的发行版构建和 nix 都依赖这个默认值）打包必须带上模型，否则包里的离线识别器第一笔就会失败；关闭时（我们自己发布的 deb/rpm，由 package-container.sh 关闭）不安装模型，由设置应用按需下载到用户目录。开发安装没有模型时，只是 --local 报告未安装模型。
 # 模型只认汉字：不提供手写的版本（版本表 `features.handwriting` 为 false 的日文、越南文和藏文版）即使下载或指定了模型，也既不装模型也不装它的许可证，打包时也不要求有模型。
+# 我们自己发布的 deb/rpm（package-container.sh）传 -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF：包里不带模型和它的许可证，设置应用在需要时按同一份锁把两者下载到用户的状态目录（client-core 的手写资源包）。发行版仓库的包不传这个选项，照旧随包。
 if(NOT MSIME_EDITION_HANDWRITING)
   if(MSIME_HANDWRITING_MODEL_DIR)
     message(STATUS "Edition ${MSIME_EDITION} offers no handwriting; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
+  endif()
+  set(MSIME_HANDWRITING_MODEL_DIR "")
+elseif(NOT MSIME_BUNDLE_HANDWRITING_MODEL)
+  if(MSIME_HANDWRITING_MODEL_DIR)
+    message(STATUS "MSIME_BUNDLE_HANDWRITING_MODEL is OFF; not installing the model in ${MSIME_HANDWRITING_MODEL_DIR}")
   endif()
   set(MSIME_HANDWRITING_MODEL_DIR "")
 elseif(NOT MSIME_HANDWRITING_MODEL_DIR AND
@@ -600,8 +607,8 @@ if(MSIME_HANDWRITING_MODEL_DIR)
             DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/handwriting")
   endforeach()
   install(FILES "${MSIME_HANDWRITING_LOCK_FILE}" DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}")
-elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING)
-  message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py (package-container.sh does)")
+elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING AND MSIME_BUNDLE_HANDWRITING_MODEL)
+  message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py, or configure with -DMSIME_BUNDLE_HANDWRITING_MODEL=OFF to leave it to the on-demand download")
 endif()
 # 上面只按锁核对模型的字节；这里用构建出的识别入口真正加载它并识别一笔，各打包路线的 ctest 都会跑到。
 if(BUILD_TESTING AND MSIME_HANDWRITING_MODEL_DIR)

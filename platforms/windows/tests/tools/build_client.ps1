@@ -32,7 +32,7 @@ try {
     foreach ($relative in @('Cargo.toml', 'crates/engine/Cargo.toml',
         'platforms/windows/CMakeLists.txt', 'platforms/windows/tsf/CMakeLists.txt',
         'platforms/windows/settings/MSIME.Settings.vcxproj', 'apps/desktop/package.json',
-        'scripts/fetch_voice_runtime.py', 'scripts/fetch_handwriting_model.py')) {
+        'scripts/fetch_voice_runtime.py')) {
         $path = Join-Path $fixture $relative
         New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
         [IO.File]::WriteAllText($path, 'synthetic')
@@ -71,7 +71,7 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 22) { throw "Unexpected build stage count: $count" }
+    if ($count -ne 21) { throw "Unexpected build stage count: $count" }
     # host-api 的 PDB 在每个架构里紧跟着 DLL 复制进 bin：之后的 MCP 与桌面构建共用同一个 target 目录，可能重编 host-api 并以同名覆盖它。
     foreach ($arch in @('x64', 'x86')) {
         $pdbCopies = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.pdb") })
@@ -100,13 +100,11 @@ try {
     foreach ($dll in $voiceRuntimeLibraries) {
         if ($stage -notcontains (Join-Path $voiceRuntime $dll)) { throw "Voice runtime library not staged: $dll" }
     }
-    # The handwriting model is fetched where Prepare-PackageFiles.ps1 and Collect-Notices.ps1 read it.
-    $handwritingFetch = $global:ClientBuildCalls[21]
-    if ($handwritingFetch.Name -ne 'python' -or $handwritingFetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_handwriting_model.py') -or
-        [Array]::IndexOf($handwritingFetch.Values, (Join-Path $fixture 'target/handwriting-model')) -ne ([Array]::IndexOf($handwritingFetch.Values, '--out') + 1)) {
-        throw 'Handwriting model fetch mismatch'
+    # 安装包不带手写模型和落定重排模型（设置应用按需下载），所以构建不再下载它们。
+    if (@($global:ClientBuildCalls | Where-Object { $_.Name -eq 'python' -and ($_.Values -match 'fetch_(handwriting|settled)_model') }).Count -ne 0) {
+        throw 'Build fetched a model the installer no longer carries'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21)) {
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
     foreach ($index in @(9, 10, 11, 12, 13)) {

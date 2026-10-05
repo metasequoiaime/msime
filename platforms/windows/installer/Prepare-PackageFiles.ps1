@@ -10,8 +10,6 @@ param(
     [string]$ServerDirectory = 'server',
     # The helpcode tables, one flat directory; only its *.txt tables are staged, and its notices go into THIRD_PARTY_NOTICES.txt through Collect-Notices.ps1.
     [string]$HelpCodeDirectory = 'resources/helpcodes',
-    # The zinnia handwriting model with its licence, relative to RepoRoot, as scripts/fetch_handwriting_model.py downloads them against resources/handwriting-model.lock.json. Without the model the package installs without offline handwriting.
-    [string]$HandwritingDirectory = 'target/handwriting-model',
     [string]$ServerReleaseDirectory = '',
     # Native WinUI 3 settings binary; relative overrides are resolved against RepoRoot.
     [string]$DesktopExecutable = 'target/windows-full/x64/bin/msime-client-settings.exe',
@@ -52,10 +50,8 @@ $resourceLock = if ($Edition -eq 'full') {
     Join-Path $RepoRoot "resources/editions/$Edition.lock.json"
 }
 $languageDictionaryNames = @($editionEntry[0].language_dictionaries)
-# 落定重排模型只给中文整句重排，不带中文主词库（版本表 resources.components 没有 chinese-main）的版本，例如日文、越南文和藏文版，用不上它，也不装它。
-$editionUsesSettledModel = @($editionEntry[0].resources.components) -contains 'chinese-main'
-# 手写模型（Zinnia handwriting-zh_CN.model）只认汉字，非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义；两者都只给提供中文方案的版本（版本表 features.handwriting 和 features.offline_glosses，scripts/test-editions.py 检查它们等于版本是否提供中文方案）。日文、越南文和藏文版两样都不装。
-$editionHandwriting = [bool]$editionEntry[0].features.handwriting
+# 落定重排模型（settled-model）和手写模型（Zinnia handwriting-zh_CN.model）不进安装包：设置应用按 resources/settled-model.lock.json 和 resources/handwriting-model.lock.json 把它们下载到 DataDir\resource-packs（手写模型连同它的 LGPL-2.1 许可证一起下载）。
+# 非英文离线释义（offline-glosses/zh-<语言>.db）按中文候选查释义，只给提供中文方案的版本（版本表 features.offline_glosses，scripts/test-editions.py 检查它等于版本是否提供中文方案）。日文、越南文和藏文版不装。
 $editionOfflineGlosses = [bool]$editionEntry[0].features.offline_glosses
 $editionBuild = "target/windows-$Edition"
 if (-not $PSBoundParameters.ContainsKey('DesktopExecutable')) {
@@ -158,10 +154,6 @@ $resourceSource = if ([IO.Path]::IsPathRooted($DesktopResourcesDirectory)) {
     $DesktopResourcesDirectory
 } else { Join-Path $RepoRoot $DesktopResourcesDirectory }
 $englishDb = Join-Path $resourceSource 'msime-english.db'
-# 手写模型与其授权声明。Tauri 侧按可执行文件旁的 handwriting\handwriting-zh_CN.model 查找，因此这两个文件与 Server 一起落在 server_exe 下，而不是 app_data。来源由 resources/handwriting-model.lock.json 记录，不再随包附 provenance.json。
-$handwritingSource = Join-Path $RepoRoot $HandwritingDirectory
-$handwritingModel = Join-Path $handwritingSource 'handwriting-zh_CN.model'
-$handwritingLicense = Join-Path $handwritingSource 'HandwritingModel-LICENSE.txt'
 
 Assert-PathExists -LiteralPath $RepoRoot -Description '源码仓库根目录'
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) {
@@ -267,11 +259,6 @@ if 'weight' not in names or pk != ['word', 'display']:
     $defaultConfig = $defaultConfig.TrimEnd("`r", "`n") + "`r`n"
 }
 
-$hasHandwritingModel = $editionHandwriting -and (Test-Path -LiteralPath $handwritingModel -PathType Leaf)
-if ($hasHandwritingModel) {
-    Assert-PathExists -LiteralPath $handwritingLicense -Description '手写模型随附声明'
-}
-
 # On-device speech recognition. The Server loads sherpa-onnx-c-api.dll with LoadLibrary from its own directory, and onnxruntime.dll and its provider bridge resolve beside it, so all three ride in server_exe. Build-Client.ps1 stages them into the Server output; a separately fetched runtime directory is the fallback. The set is all or nothing: a partial one would install a recognizer that fails at first use, so it is refused here, before any previous staging is replaced. With none of them the package installs without local recognition, and a dictation set to the local provider says the component cannot be loaded.
 $voiceRuntimeLibraries = @('sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
 $voiceRuntimeSource = if ([IO.Path]::IsPathRooted($VoiceRuntimeDirectory)) {
@@ -361,53 +348,7 @@ if (-not $Light) {
         -SourceDirectory $targetResources `
         -ManifestPath $resourceLock
 }
-# 落定重排模型，装在资源目录的**同级**而不是里面。
-#
-# 装在里面会被上面那次复验当场拒绝：它要求那个目录恰好等于词库锁钉死的产物集，
-# 而那道校验的职责正是证明已发布的词库完整。prepare_host_configuration 去找的
-# 就是这个同级目录，找到才会把路径写进运行时配置。
-#
-# 可选：25MB 换的是桌面独有的提升（收割集 top-1 0.123 → 0.613），
-# 用 scripts/fetch_settled_model.py 取。没有就不装，行为与今天一致。
-$settledSource = Join-Path $RepoRoot 'target/settled-model'
-# fetch_neural_model.py stages both presets together. Preserve the historical one-artifact path,
-# then fall back to the shared directory when it is the only prepared source.
-$neuralModelSource = Join-Path $RepoRoot 'target/neural-model'
-if (-not (Test-Path -LiteralPath (Join-Path $settledSource 'sentence-model-desktop.safetensors') -PathType Leaf) -and
-    (Test-Path -LiteralPath (Join-Path $neuralModelSource 'sentence-model-desktop.safetensors') -PathType Leaf)) {
-    $settledSource = $neuralModelSource
-}
-$settledTarget = Join-Path $targetServer 'settled-model'
-if (Test-Path -LiteralPath $settledTarget) {
-    Remove-Item -LiteralPath $settledTarget -Recurse -Force
-}
-if (-not $Light -and -not $editionUsesSettledModel) {
-    Write-Host "版本 $Edition 没有中文主词库，不装落定重排模型"
-}
-elseif (-not $Light) {
-    $settledLock = Join-Path $RepoRoot 'resources/settled-model.lock.json'
-    $settledManifest = Get-Content -LiteralPath $settledLock -Raw | ConvertFrom-Json
-    $settledFiles = @()
-    foreach ($artifact in $settledManifest.artifacts) {
-        $candidate = Join-Path $settledSource ([string]$artifact.name)
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { $settledFiles = @(); break }
-        $file = Get-Item -LiteralPath $candidate -Force
-        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
-            $file.Length -ne $artifact.size -or
-            (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash -ne $artifact.sha256) {
-            throw "落定模型 $($artifact.name) 与锁文件不符"
-        }
-        $settledFiles += $file.FullName
-    }
-    if ($settledFiles.Count -gt 0) {
-        New-Item -ItemType Directory -Path $settledTarget -Force | Out-Null
-        foreach ($file in $settledFiles) { Copy-Item -LiteralPath $file -Destination $settledTarget -Force }
-        Write-Host "落定重排模型已装入：$settledTarget"
-    } else {
-        Write-Host "未找到落定重排模型（$settledSource），桌面落定重排保持关闭"
-    }
-}
-# Non-English candidate glosses (scripts/build_offline_glosses.py), one zh-<lang>.db per target language, installed beside resources for the same reason as the settled model: the verified directory must equal the dictionary lock exactly, and the Engine looks for them in this sibling. Optional; without them the candidate glosses stay English only.
+# 非英文的候选释义（scripts/build_offline_glosses.py），每种目标语言一个 zh-<lang>.db，装在 resources 旁边而不是里面：校验过的资源目录必须与词库锁完全一致，Engine 也到这个同级目录找它们。可选；没有时候选释义只有英文。
 $glossesSource = Join-Path $RepoRoot 'target/offline-glosses'
 $glossesTarget = Join-Path $targetServer 'offline-glosses'
 if (Test-Path -LiteralPath $glossesTarget) {
@@ -474,18 +415,6 @@ if (-not $Light) {
             }
         }
     }
-}
-# Both package modes replace Server output. Copy model resources afterwards,
-# otherwise Reset-Directory silently removes them from an otherwise valid package.
-if ($hasHandwritingModel) {
-    $targetHandwriting = Join-Path $targetServer 'handwriting'
-    New-Item -ItemType Directory -Path $targetHandwriting -Force | Out-Null
-    Copy-Item -LiteralPath $handwritingModel -Destination $targetHandwriting -Force
-    Copy-Item -LiteralPath $handwritingLicense -Destination $targetHandwriting -Force
-} elseif (-not $editionHandwriting) {
-    Write-Host "版本 $Edition 不提供手写，不装手写模型"
-} else {
-    Write-Host "未找到手写模型，跳过：$handwritingModel"
 }
 if ($null -eq $voiceRuntimeFrom) {
     Write-Host "未找到本地语音识别运行时（$voiceRuntimeSource），安装包不含本地语音识别"
