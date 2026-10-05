@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- 关于页「检查更新」下载安装包后交给系统安装器。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 自动更新下载好安装包后发一条通知，点了交给系统安装器；开关默认关闭，打开时才请求这项权限。 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 自动更新的每日任务在重启后保留（JobInfo.setPersisted）。 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent></queries>
     <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true">
@@ -11,13 +15,14 @@
         <activity android:name="app.msime.android.home.HomeActivity" android:exported="true" android:enableOnBackInvokedCallback="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
-        <activity android:name="app.msime.android.home.HelpActivity" android:exported="false" />
-        <activity android:name="app.msime.android.home.FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <!-- 下面五个旧的二级页面已经搬进 HomeActivity 的详情页，类名保留为跳板：不显示界面，转发深链后立刻结束。 -->
+        <activity android:name="app.msime.android.home.HelpActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" />
+        <activity android:name="app.msime.android.home.FeedbackActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" />
         <activity android:name="app.msime.android.home.OnboardingActivity" android:exported="false" />
-        <activity android:name="app.msime.android.home.AboutActivity" android:exported="false" />
-        <activity android:name="app.msime.android.home.DesktopDownloadActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.AboutActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" />
+        <activity android:name="app.msime.android.home.DesktopDownloadActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" />
         <activity android:name="app.msime.android.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
-        <activity android:name="app.msime.android.home.CloudClipboardActivity" android:exported="false" />
+        <activity android:name="app.msime.android.home.CloudClipboardActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay" />
         <!-- Apple 网页登录的回调：浏览器授权后跳回 `${applicationId}://auth/apple`。它不显示界面，只接受本应用刚发起、尚未完成、未过期的那次登录。 -->
         <activity android:name="app.msime.android.home.AuthRedirectActivity" android:exported="true" android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
@@ -32,6 +37,8 @@
         <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityVermilion" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_vermilion" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity android:name="app.msime.android.VoiceRecognitionActivity" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.NoActionBar" />
+        <!-- 自动更新：每天一次检查、下载并核对更新，只在用户打开「自动更新」后排程。 -->
+        <service android:name="app.msime.android.home.UpdateJobService" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
         <service android:name="app.msime.android.MSIMEInputService" android:process=":ime" android:exported="true" android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter><action android:name="android.view.InputMethod" /></intent-filter>
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
