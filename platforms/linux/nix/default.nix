@@ -21,11 +21,25 @@ let
 
   msime-host-api = pkgs.callPackage ./host-api.nix (common // { inherit craneLib; });
   msime-resources = pkgs.callPackage ./resources.nix { };
+  msime-handwriting-model = pkgs.callPackage ./handwriting-model.nix { };
   # 需要随包词库时：msime-fcitx5.override { bundledResources = msime-resources; }
-  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (common // { inherit msime-host-api; });
+  msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (
+    common
+    // {
+      inherit msime-host-api;
+      handwritingModel = msime-handwriting-model;
+    }
+  );
 in
 {
-  packages = { inherit msime-host-api msime-resources msime-fcitx5; };
+  packages = {
+    inherit
+      msime-host-api
+      msime-resources
+      msime-handwriting-model
+      msime-fcitx5
+      ;
+  };
 
   devShell = pkgs.mkShell {
     inputsFrom = [

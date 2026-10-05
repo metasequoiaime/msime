@@ -32,6 +32,9 @@
   # 取回；传入 msime-resources 时装进 share/msime-client/resources 并跑带词库的引擎冒烟。
   # 不叫 msime-resources：经 overlay 时 pkgs 里有同名的包，callPackage 会自动填上它。
   bundledResources ? null,
+  # 离线手写模型（msime-handwriting-model）。default.nix 默认传入，与各发行版的包一致；
+  # 传 null 时不装模型，`msime-linux-handwriting --local` 报告没有安装模型。
+  handwritingModel ? null,
 }:
 stdenv.mkDerivation {
   pname = "msime-fcitx5";
@@ -113,6 +116,9 @@ stdenv.mkDerivation {
   ]
   ++ lib.optional (bundledResources != null) (
     lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}"
+  )
+  ++ lib.optional (handwritingModel != null) (
+    lib.cmakeFeature "MSIME_HANDWRITING_MODEL_DIR" "${handwritingModel}"
   );
 
   doCheck = true;
@@ -132,13 +138,27 @@ stdenv.mkDerivation {
     resolved=$(ldd $out/lib/fcitx5/libmsime-fcitx5.so | awk '$1 == "libmsime_host_api.so" { print $3 }')
     echo "libmsime_host_api.so => $resolved"
     [[ $(realpath -- "$resolved") == "$out/lib/msime-client/libmsime_host_api.so" ]]
+  ''
+  # 不给模型路径，让 `--local` 按装好的位置（可执行文件旁的 ../share/msime-client/handwriting）
+  # 找模型，再识别一笔合成的横，确认装进去的模型能被找到并真的加载。`--local` 的画布是
+  # 1×1，坐标取 [0, 1]。
+  + lib.optionalString (handwritingModel != null) ''
+    result=$(echo '{"strokes":[[{"x":0.1,"y":0.5},{"x":0.5,"y":0.49},{"x":0.9,"y":0.5}]]}' \
+      | HOME=$TMPDIR XDG_DATA_HOME= XDG_DATA_DIRS= $out/bin/msime-linux-handwriting --local) || true
+    echo "msime-linux-handwriting --local => $result"
+    [[ $result == *'"candidates":["一"'* ]]
+  ''
+  + ''
     runHook postInstallCheck
   '';
 
   meta = {
     description = "水杉输入法的 Fcitx5 插件与 Linux 原生宿主";
     homepage = "https://github.com/metasequoiaime/msime";
-    license = lib.licenses.gpl3Only;
+    license = [
+      lib.licenses.gpl3Only
+    ]
+    ++ lib.optional (handwritingModel != null) handwritingModel.meta.license;
     platforms = lib.platforms.linux;
   };
 }
