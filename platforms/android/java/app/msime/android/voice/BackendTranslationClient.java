@@ -33,11 +33,24 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             if (text == null || text.isEmpty() || TextPolicy.utf8Length(text) > 2048)
                 throw new IllegalArgumentException("Invalid translation text");
         }
-        String token = accessToken();
+        String accountToken = account.accessToken();
+        boolean anonymousToken = accountToken.isEmpty();
+        String token = anonymousToken ? anonymous.accessToken() : accountToken;
         JSONObject body = new JSONObject().put("texts", new JSONArray(texts))
             .put("source_lang", "ZH").put("target_lang", target.toUpperCase(Locale.ROOT));
         byte[] request = body.toString().getBytes(StandardCharsets.UTF_8);
         if (request.length > 64 * 1024) throw new IllegalArgumentException("Translation request is too large");
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return translateWithToken(request, texts.size(), token);
+            } catch (BackendAccount.RequestException error) {
+                if (error.status != 401 || attempt != 0) throw error;
+                token = anonymousToken ? anonymous.accessToken(token) : account.currentAccessToken(token);
+            }
+        }
+    }
+
+    private List<String> translateWithToken(byte[] request, int expectedCount, String token) throws Exception {
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN + "/v1/translate").openConnection();
@@ -52,10 +65,11 @@ public final class BackendTranslationClient implements CandidateTranslationStore
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", "application/json");
             try (OutputStream output = connection.getOutputStream()) { output.write(request); }
-            if (connection.getResponseCode() != 200) throw new IllegalStateException("Translation unavailable");
+            int status = connection.getResponseCode();
+            if (status != 200) throw new BackendAccount.RequestException(status);
             byte[] bytes;
             try (InputStream input = connection.getInputStream()) { bytes = readBounded(input); }
-            List<String> result = parseResponse(bytes, texts.size());
+            List<String> result = parseResponse(bytes, expectedCount);
             if (result == null) throw new IllegalStateException("Invalid translation response");
             return result;
         } finally {

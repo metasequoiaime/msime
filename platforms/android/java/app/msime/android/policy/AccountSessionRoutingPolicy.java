@@ -14,6 +14,8 @@ public final class AccountSessionRoutingPolicy {
     public static final String METHOD_ANONYMOUS_ACCESS_TOKEN = "anonymous_access_token";
     /** 回复中携带令牌的字段名。 */
     public static final String KEY_ACCESS_TOKEN = "access_token";
+    /** Optional access token that the caller just saw rejected; the owner must not reuse it. */
+    public static final String KEY_REJECTED_ACCESS_TOKEN = "rejected_access_token";
     /** The reply key saying which of the three answers this is. */
     public static final String KEY_STATE = "state";
     public static final String STATE_SIGNED_IN = "signed_in";
@@ -80,6 +82,12 @@ public final class AccountSessionRoutingPolicy {
     public static String anonymousTokenFromReply(String state, String token) {
         if (STATE_SIGNED_IN.equals(state) && AccountTokenPolicy.validToken(token)) return token;
         throw new IllegalStateException("anonymous account unavailable");
+    }
+
+    /** Whether a saved anonymous access token is the one the server just rejected. */
+    public static boolean needsReauthentication(String savedToken, String rejectedToken) {
+        return rejectedToken != null && !rejectedToken.isEmpty()
+            && rejectedToken.equals(savedToken);
     }
 
     /** Provider 只回答本 UID 的两种令牌方法；manifest 的 `exported="false"` 是第一道边界，这里是第二道。 */

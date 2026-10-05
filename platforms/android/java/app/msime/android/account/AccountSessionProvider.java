@@ -30,7 +30,7 @@ public final class AccountSessionProvider extends ContentProvider {
         try {
             if (context == null) throw new IllegalStateException("account session");
             token = AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
-                ? currentAnonymousToken(context) : currentToken(context);
+                ? currentAnonymousToken(context, rejectedToken(extras)) : currentToken(context);
             state = AccountSessionRoutingPolicy.stateFor(token);
         } catch (Exception | LinkageError error) {
             token = "";
@@ -60,8 +60,14 @@ public final class AccountSessionProvider extends ContentProvider {
     }
 
     /** 匿名会话也只能由主进程读写，避免键盘进程各自刷新同一枚轮换令牌。 */
-    private static String currentAnonymousToken(Context context) throws Exception {
-        return new BackendAnonymousAccount(context).accessToken();
+    private static String currentAnonymousToken(Context context, String rejectedToken) throws Exception {
+        return new BackendAnonymousAccount(context).accessToken(rejectedToken);
+    }
+
+    private static String rejectedToken(Bundle extras) {
+        if (extras == null) return null;
+        String token = extras.getString(AccountSessionRoutingPolicy.KEY_REJECTED_ACCESS_TOKEN);
+        return AccountTokenPolicy.validToken(token) ? token : null;
     }
 
     static String legacyAccessToken(Object value) {

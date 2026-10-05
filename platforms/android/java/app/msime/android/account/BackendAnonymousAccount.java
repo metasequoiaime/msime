@@ -60,15 +60,22 @@ final class BackendAnonymousAccount {
     }
 
     String accessToken() throws Exception {
+        return accessToken(null);
+    }
+
+    /** Return a token, forcing anonymous re-authentication when the supplied token was rejected. */
+    String accessToken(String rejectedToken) throws Exception {
         if (!AccountSessionRoutingPolicy.ownsSession(
                 Application.getProcessName(), application.getPackageName())) {
-            return ownerToken();
+            return ownerToken(rejectedToken);
         }
         synchronized (LOCK) {
             String saved = sessions.load();
             if (saved != null) {
                 String token = tokenFromSession(saved);
-                if (token != null) return token;
+                if (token != null && !AccountSessionRoutingPolicy.needsReauthentication(token, rejectedToken)) {
+                    return token;
+                }
             }
             // 身份先落盘再谈联网：账号是本机自己生成的，不需要后端点头，后端只是发令牌的。
             JSONObject identity = loadOrCreateIdentity();
@@ -104,11 +111,16 @@ final class BackendAnonymousAccount {
     }
 
     /** 从主进程取匿名令牌，避免跨进程 SharedPreferences 缓存和 refresh rotation 竞态。 */
-    private String ownerToken() throws Exception {
+    private String ownerToken(String rejectedToken) throws Exception {
         Uri uri = Uri.parse("content://"
             + AccountSessionRoutingPolicy.authority(application.getPackageName()));
+        Bundle extras = null;
+        if (AccountTokenPolicy.validToken(rejectedToken)) {
+            extras = new Bundle();
+            extras.putString(AccountSessionRoutingPolicy.KEY_REJECTED_ACCESS_TOKEN, rejectedToken);
+        }
         Bundle reply = application.getContentResolver().call(
-            uri, AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN, null, null);
+            uri, AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN, null, extras);
         if (reply == null) throw new IllegalStateException("anonymous account unavailable");
         return AccountSessionRoutingPolicy.anonymousTokenFromReply(
             reply.getString(AccountSessionRoutingPolicy.KEY_STATE),

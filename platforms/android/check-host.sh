@@ -556,6 +556,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
   "$repo_root/platforms/android/tests/settings/BackendAccountResponseSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/BackendAnonymousAccountSmoke.java" \
   "$repo_root/platforms/android/tests/settings/SignInAttemptPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
@@ -611,6 +612,7 @@ java -cp "$output_dir" CloudClipboardTextPolicySmoke
 java -cp "$output_dir:$android_jar" CloudClipboardPanelPolicySmoke
 java -cp "$output_dir:$android_jar" app.msime.android.AccountSessionRoutingSmoke
 java -cp "$output_dir:$android_jar" app.msime.android.BackendAccountResponseSmoke
+java -cp "$output_dir" BackendAnonymousAccountSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
 java -cp "$output_dir:$android_jar" app.msime.android.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
