@@ -22,6 +22,9 @@ image="msime-gentoo-check:$checkout_hash"
 docker pull -q gentoo/stage3:latest >/dev/null
 docker pull -q gentoo/portage:latest >/dev/null
 docker build -q -t "$image" - >/dev/null < "$here/tools.Dockerfile"
+# 容器里 Portage 以 root 和 portage（uid 250）往 $scratch 写构建目录；原生 Linux 宿主不重映射属主，不交回来的话下一次开头的 rm -rf 和 worktree 清理都删不掉。结束时（包括失败时）交回给调用者。
+reclaim() { docker run --rm -v "$scratch":/scratch "$image" chown -R "$(id -u):$(id -g)" /scratch 2>/dev/null || true; }
+trap reclaim EXIT
 
 docker run --rm --init \
   -v "$repo_root":/src:ro \
