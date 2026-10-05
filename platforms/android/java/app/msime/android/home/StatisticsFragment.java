@@ -1,46 +1,73 @@
 package app.msime.android.home;
 
+import android.content.Context;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.AbsoluteSizeSpan;
+import android.text.style.ForegroundColorSpan;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
 import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.PopupMenu;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import app.msime.android.NativeClient;
 import app.msime.android.R;
-import app.msime.android.KeyboardGeometry;
 import app.msime.android.TypingStatisticsModel;
-import app.msime.android.TypingStatisticsModel.Section;
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.button.MaterialButtonToggleGroup;
+import app.msime.android.TypingStatisticsSummary;
+import app.msime.android.TypingStatisticsSummary.Achievement;
+import app.msime.android.TypingStatisticsSummary.Habits;
+import app.msime.android.TypingStatisticsSummary.Keys;
+import app.msime.android.TypingStatisticsSummary.Overview;
+import app.msime.android.TypingStatisticsSummary.Share;
+import app.msime.android.policy.HostOptionsPolicy;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import java.io.File;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
- * The 统计 tab: today and the running total, then one of five views: the trend, three distributions of the same character counts, and the key heatmap.
+ * 统计 tab：分段 概览 / 习惯 / 按键 / 成就，数字全部来自共享统计库的 `summary` 操作（口径在 Rust），页面只排版。
  *
- * The counts come from the shared typing-statistics store, which holds aggregate counts only --
- * never the text that produced them. Nothing here is filled in with placeholder numbers: a store
- * that has never been written says so, because a zero and "not recording" mean different things to
- * the reader.
+ * <p>统计只保存聚合计数，不保存输入内容，所以设计里的「常用词」「最常打错」两张卡不做：它们需要记下用户打过的词。记录开关、保留期、刷新和清空收在右上角的菜单里。没有读到数据时页面明说，不拿 0 或示例数字填。
  */
 public final class StatisticsFragment extends HomeTabFragment {
-    /** 趋势默认画 30 天；记录不足 30 天就画到最早那条。 */
-    /** 趋势最多画一年；这是图表的宽度上限，不是保留期限。 */
-    private static final int TREND_DAY_LIMIT = 366;
-    /** 下限三十天，和 Apple 一致：一个月以下看不出「这个月比上个月多」。 */
-    private static final int TREND_DAY_FLOOR = 30;
+    /** 页面上的分段；和 {@link TypingStatisticsModel.Section} 无关，那是旧分布图的枚举，设备测试 APK 仍编译它。 */
+    private enum Tab {
+        OVERVIEW("概览"), HABITS("习惯"), KEYS("按键"), ACHIEVEMENTS("成就");
+
+        final String label;
+
+        Tab(String label) {
+            this.label = label;
+        }
+    }
+
+    /** 一次读取的结果：统计文档（开关、保留期、逐日按键）和派生指标。两者都可能为 null。 */
+    private record Snapshot(@Nullable TypingStatisticsModel model, @Nullable TypingStatisticsSummary summary) {}
 
     private static final Map<String, String> RETENTIONS = retentions();
+    private static final int WEEK = 7;
 
-    private Section section = Section.TREND;
+    private Tab tab = Tab.OVERVIEW;
     @Nullable private TypingStatisticsModel statistics;
-    @Nullable private String selectedDay;
+    @Nullable private TypingStatisticsSummary summary;
+    /** 按键热力图上次选的布局；null 表示还没选过，按数据决定。 */
+    @Nullable private Boolean nineKey;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -48,62 +75,39 @@ public final class StatisticsFragment extends HomeTabFragment {
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
-        // The design's segmented control over the four views; the current one is checked before the listener goes on, so building it does not render twice.
-        MaterialButtonToggleGroup ranges = view.findViewById(R.id.statistics_ranges);
-        Section[] sections = Section.values();
-        int[] segments = new int[sections.length];
-        for (int index = 0; index < sections.length; index++) {
-            MaterialButton segment = (MaterialButton) getLayoutInflater()
-                .inflate(R.layout.item_segment, ranges, false);
-            segment.setId(View.generateViewId());
-            segment.setText(sections[index].tab());
-            ranges.addView(segment);
-            segments[index] = segment.getId();
-        }
-        ranges.check(segments[section.ordinal()]);
-        ranges.addOnButtonCheckedListener((group, id, checked) -> {
-            if (!checked) return;
-            for (int index = 0; index < segments.length; index++) {
-                if (segments[index] != id) continue;
-                section = sections[index];
-                render();
-            }
+        SegmentedControl sections = view.findViewById(R.id.statistics_sections);
+        sections.setFillWidth(true);
+        List<String> labels = new ArrayList<>();
+        for (Tab value : Tab.values()) labels.add(value.label);
+        sections.setOptions(labels, tab.ordinal());
+        sections.setOnSelect(index -> {
+            tab = Tab.values()[index];
+            render();
         });
-
         view.findViewById(R.id.statistics_menu).setOnClickListener(this::showMenu);
-
-        HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
-        heatmap.setOnDayPicked(picked -> {
-            // Tapping the same day again, or a cell with nothing in it, returns to the total: the
-            // selection is a lens, and there has to be a way back that is not a hunt for a button.
-            selectedDay = picked == null || picked.equals(selectedDay) ? null : picked;
-            render();
-        });
-        view.findViewById(R.id.statistics_scope_clear).setOnClickListener(ignored -> {
-            selectedDay = null;
-            render();
-        });
-
+        TextView footer = view.findViewById(R.id.statistics_footer);
+        Drawable lock = ContextCompat.getDrawable(requireContext(), R.drawable.ic_ms_shield_lock);
+        if (lock != null) {
+            lock = lock.mutate();
+            int size = Ui.dp(requireContext(), 14);
+            lock.setBounds(0, 0, size, size);
+            lock.setTint(Ui.subText(requireContext()));
+            footer.setCompoundDrawablesRelative(lock, null, null, null);
+        }
         reload();
     }
 
-    /**
-     * 记录开关、保留期、刷新和清空都收在这后面。
-     *
-     * <p>They used to sit in a card under whichever tab was open, so every switch between 趋势 and
-     * 方案 meant scrolling past the same three controls again. This page is for reading numbers;
-     * the controls are for the once in a while you change something. The Apple app moved them to
-     * the same place for the same reason.
-     */
+    /** 记录开关、保留期、刷新和清空：偶尔才改一次，收在菜单里，不占读数字的地方。 */
     private void showMenu(View anchor) {
-        if (statistics == null) return;
+        TypingStatisticsModel current = statistics;
+        if (current == null) return;
         PopupMenu menu = new PopupMenu(requireContext(), anchor);
         MenuItem record = menu.getMenu().add("记录打字统计");
         record.setCheckable(true);
-        record.setChecked(statistics.enabled());
+        record.setChecked(current.enabled());
         record.setOnMenuItemClickListener(item -> {
-            boolean next = !statistics.enabled();
-            HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, next), this::adopt);
+            boolean next = !current.enabled();
+            HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, next), this::adoptModel);
             return true;
         });
         SubMenu retention = menu.getMenu().addSubMenu("保留每日明细");
@@ -111,10 +115,10 @@ public final class StatisticsFragment extends HomeTabFragment {
             String key = entry.getKey();
             MenuItem item = retention.add(entry.getValue());
             item.setCheckable(true);
-            item.setChecked(key.equals(statistics.retention()));
+            item.setChecked(key.equals(current.retention()));
             item.setOnMenuItemClickListener(ignored -> {
                 HostTask.run(this, context -> HostStore.setStatisticsRetention(context, key),
-                    this::adopt);
+                    value -> reload());
                 return true;
             });
         }
@@ -126,26 +130,66 @@ public final class StatisticsFragment extends HomeTabFragment {
         menu.getMenu().add("清空统计").setOnMenuItemClickListener(item -> {
             new MaterialAlertDialogBuilder(requireContext())
                 .setTitle("清除全部统计")
-                .setMessage("今日、累计、全部分类和按键计数都会归零，且无法恢复。键盘会从下一次输入重新开始记录。")
+                .setMessage("今日、累计、全部分类、按键计数和已解锁的成就都会清空，且无法恢复。键盘会从下一次输入重新开始记录。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清除", (dialog, which) -> HostTask.run(this,
-                    context -> HostStore.resetStatistics(context), this::adopt))
+                    context -> HostStore.resetStatistics(context), value -> reload()))
                 .show();
             return true;
         });
         menu.show();
     }
 
-    // The keyboard is a separate process and has been recording while this screen was away.
+    // 键盘在另一个进程里，这个页面不在眼前时它一直在记。
     @Override protected void onBecameVisible() {
         if (statistics != null) reload();
     }
 
     private void reload() {
-        HostTask.run(this, HostStore::loadStatistics, this::adopt);
+        HostTask.run(this, StatisticsFragment::load, this::adopt);
     }
 
-    private void adopt(@Nullable TypingStatisticsModel value) {
+    /** 工作线程上：读统计文档，取用户词条数，再取派生指标。 */
+    private static Snapshot load(Context context) {
+        TypingStatisticsModel model = HostStore.loadStatistics(context);
+        JSONObject action = new JSONObject();
+        try {
+            action.put("operation", "summary").put("day", LocalDate.now().toString());
+            Long words = userWords(context);
+            if (words != null) action.put("user_words", words.longValue());
+        } catch (JSONException error) {
+            return new Snapshot(model, null);
+        }
+        return new Snapshot(model, TypingStatisticsSummary.from(HostStore.statisticsAction(context, action)));
+    }
+
+    /** 用户自己添加的词条数（徽章「造词者」）；词库读不到时返回 null，summary 按 0 计。 */
+    @Nullable private static Long userWords(Context context) {
+        File options = new File(context.getFilesDir(), "runtime-options.json");
+        if (!options.isFile()) return null;
+        try {
+            JSONObject request = new JSONObject()
+                .put("options", new JSONObject(HostOptionsPolicy.read(options)))
+                .put("action", new JSONObject().put("operation", "count").put("kind", "pinyin")
+                    .put("user_only", true));
+            JSONObject root = new JSONObject(NativeClient.dictionary(request.toString()));
+            if (!root.optBoolean("ok", false)) return null;
+            JSONObject value = root.optJSONObject("value");
+            return value == null || !value.has("count") ? null : Math.max(0L, value.optLong("count", 0));
+        } catch (JSONException | java.io.IOException | RuntimeException | LinkageError error) {
+            return null;
+        }
+    }
+
+    private void adopt(@Nullable Snapshot snapshot) {
+        if (snapshot != null) {
+            if (snapshot.model() != null) statistics = snapshot.model();
+            if (snapshot.summary() != null) summary = snapshot.summary();
+        }
+        render();
+    }
+
+    private void adoptModel(@Nullable TypingStatisticsModel value) {
         if (value != null) statistics = value;
         render();
     }
@@ -153,117 +197,314 @@ public final class StatisticsFragment extends HomeTabFragment {
     private void render() {
         View view = getView();
         if (view == null) return;
-        TextView today = view.findViewById(R.id.statistics_today);
-        TextView total = view.findViewById(R.id.statistics_total);
+        Context context = requireContext();
         TextView notice = view.findViewById(R.id.statistics_state);
-        View trendSection = view.findViewById(R.id.statistics_trend_section);
-        View distributionSection = view.findViewById(R.id.statistics_distribution_section);
-        View keysSection = view.findViewById(R.id.statistics_keys_section);
-
-        if (statistics == null) {
-            today.setText("—");
-            total.setText("—");
+        LinearLayout content = view.findViewById(R.id.statistics_content);
+        content.removeAllViews();
+        if (statistics == null && summary == null) {
             notice.setVisibility(View.VISIBLE);
-            notice.setText("还没有记录。开始用键盘输入后，这里会出现每日字符数；统计只保存聚合计数，不保存输入内容。");
-            trendSection.setVisibility(View.GONE);
-            distributionSection.setVisibility(View.GONE);
-            keysSection.setVisibility(View.GONE);
+            notice.setText("还没有记录。开始用键盘输入后，这里会出现字数、习惯和成就；统计只保存聚合计数，不保存输入内容。");
             return;
         }
-
-        String day = LocalDate.now().toString();
-        today.setText(String.valueOf(statistics.count(day)));
-        // 选中某一天时，右边那个数字跟着分类一起换成那一天；否则它是累计。
-        boolean scoped = selectedDay != null;
-        ((TextView) view.findViewById(R.id.statistics_scope_title))
-            .setText(scoped ? readableDay(selectedDay) : "累计输入");
-        total.setText(String.valueOf(scoped ? statistics.count(selectedDay) : statistics.total()));
-        notice.setVisibility(statistics.enabled() ? View.GONE : View.VISIBLE);
-        notice.setText("记录已关闭。已有的计数保留在本机，新的输入不再计入。");
-        MaterialButton scope = view.findViewById(R.id.statistics_scope_clear);
-        scope.setVisibility(scoped ? View.VISIBLE : View.GONE);
-
-        boolean trend = section == Section.TREND;
-        boolean keys = section == Section.KEYS;
-        trendSection.setVisibility(trend ? View.VISIBLE : View.GONE);
-        distributionSection.setVisibility(trend || keys ? View.GONE : View.VISIBLE);
-        keysSection.setVisibility(keys ? View.VISIBLE : View.GONE);
-        if (keys) {
-            // The same lens as the distributions: a day picked on the calendar scopes the keys too.
-            ((TextView) view.findViewById(R.id.statistics_keys_title))
-                .setText(selectedDay == null ? section.heading()
-                    : section.heading() + " · " + readableDay(selectedDay));
-            ((KeyHeatmapView) view.findViewById(R.id.statistics_keys))
-                .setKeys(statistics.slices(section, selectedDay));
-            ((TextView) view.findViewById(R.id.statistics_keys_note)).setText(note(section));
-            return;
-        }
-        if (trend) {
-            // 画到最早那条记录为止，上限一年：数据本来就攒着一年，固定三十天看不出月与月之间的差。
-            int span = statistics.recordedSpan(day);
-            int days = span <= 0 ? TREND_DAY_FLOOR
-                : KeyboardGeometry.bounded(span, TREND_DAY_FLOOR, TREND_DAY_LIMIT);
-            int[] series = statistics.trend(day, days);
-            TrendChart chart = view.findViewById(R.id.statistics_trend);
-            ((TextView) view.findViewById(R.id.statistics_trend_title))
-                .setText(days >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 " + days + " 天");
-            chart.setDaily(series);
-            chart.setContentDescription("每日趋势，近 " + days + " 天，最高 " + peak(series) + " 字符");
-            ((TextView) view.findViewById(R.id.statistics_trend_peak))
-                .setText("最高 " + peak(series) + " 字符 / 天");
-            HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
-            int calendarDays = TREND_DAY_LIMIT;
-            heatmap.setDaily(statistics.trend(day, calendarDays));
-            heatmap.setDays(statistics.trendDays(day, calendarDays));
-            heatmap.setSelected(selectedDay);
-            heatmap.setContentDescription(selectedDay == null
-                ? "输入日历，每天一格，点按查看单日分类"
-                : "输入日历，已选中 " + readableDay(selectedDay));
-            return;
-        }
-        List<TypingStatisticsModel.Slice> slices = statistics.slices(section, selectedDay);
-        ((TextView) view.findViewById(R.id.statistics_distribution_title))
-            .setText(selectedDay == null ? section.heading()
-                : section.heading() + " · " + readableDay(selectedDay));
-        // 设计稿里类型和模式都是环形图，环心放总数；方案仍按排行画，因为它能有十五行，放进环里大半是细得看不见的弧。
-        DistributionView.Style chart = switch (section) {
-            case KIND, MODE -> DistributionView.Style.DONUT;
-            default -> DistributionView.Style.RANK;
-        };
-        ((DistributionView) view.findViewById(R.id.statistics_distribution))
-            .setSlices(slices, chart);
-        ((TextView) view.findViewById(R.id.statistics_distribution_note)).setText(note(section));
-    }
-
-    private static int peak(int[] series) {
-        int peak = 0;
-        for (int value : series) peak = Math.max(peak, value);
-        return peak;
-    }
-
-    /** `2026-09-21` as `9 月 21 日`; the year is only worth printing when it is not this one. */
-    private static String readableDay(String day) {
-        try {
-            LocalDate date = LocalDate.parse(day);
-            String text = date.getMonthValue() + " 月 " + date.getDayOfMonth() + " 日";
-            return date.getYear() == LocalDate.now().getYear() ? text : date.getYear() + " 年 " + text;
-        } catch (java.time.format.DateTimeParseException error) {
-            return day;
+        boolean off = statistics != null && !statistics.enabled();
+        notice.setVisibility(off || summary == null ? View.VISIBLE : View.GONE);
+        notice.setText(off ? "记录已关闭。已有的计数保留在本机，新的输入不再计入。可以在右上角菜单里打开。"
+            : "统计暂时读不到，可以在右上角菜单里刷新。");
+        if (summary == null) return;
+        switch (tab) {
+            case OVERVIEW -> overview(context, content, summary.overview());
+            case HABITS -> habits(context, content, summary.habits());
+            case KEYS -> keys(context, content, summary);
+            case ACHIEVEMENTS -> achievements(context, content, summary.achievements());
         }
     }
 
-    private static String note(Section section) {
-        return switch (section) {
-            case KIND -> "按上屏字符本身分类。组合表情算一个字符，历史记录里没有分类的计入「历史未分类」。";
-            case MODE -> "按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。";
-            case SCHEME -> "拼音方案统计其上屏字符数，按键次数见「按键」页。没有记下方案的字数计入「历史未分类」。";
-            case KEYS -> "按键热力图只保存每个键每天被按下的次数，不保存按键顺序和输入内容。包括组字中的拼音按键和交给应用处理的按键；长按删除算一次，密码框和无痕输入框中的按键不计入。";
-            case TREND -> "";
-        };
+    // ---- 概览 ----
+
+    private void overview(Context context, LinearLayout content, Overview overview) {
+        LinearLayout hero = card(context, content, 18);
+        hero.addView(label(context, "近 7 天共输入", 13, Ui.subText(context)));
+        TextView total = new TextView(context);
+        total.setText(figure(context, TypingStatisticsSummary.grouped(overview.weekTotal()), 40, "字"));
+        total.setPadding(0, Ui.dp(context, 4), 0, 0);
+        hero.addView(total);
+        String delta = TypingStatisticsSummary.weekDelta(overview.weekTotal(), overview.previousWeekTotal());
+        if (delta != null) {
+            TextView change = label(context, delta, 13, Ui.accent(context));
+            change.setTypeface(Typeface.DEFAULT_BOLD);
+            change.setPadding(0, Ui.dp(context, 4), 0, 0);
+            hero.addView(change);
+        }
+        TrendChart chart = new TrendChart(context);
+        chart.setDays(overview.last7());
+        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chartParams.topMargin = Ui.dp(context, 18);
+        hero.addView(chart, chartParams);
+
+        String speedNote = TypingStatisticsSummary.speedDelta(overview.averageSpeed(),
+            overview.previousAverageSpeed());
+        tiles(context, content,
+            tile(context, "平均速度", TypingStatisticsSummary.whole(overview.averageSpeed()), "字/分",
+                speedNote == null ? "近 7 天的活跃时间里" : speedNote, false),
+            tile(context, "首选命中", TypingStatisticsSummary.percent(overview.firstCandidateRate()), "%",
+                overview.firstCandidateRate() == null ? "选词满 50 次后显示" : "第一个候选就是你要的", false));
+        tiles(context, content,
+            tile(context, "少按键", TypingStatisticsSummary.percent(overview.keystrokesSavedRate()), "%",
+                "联想和整句帮你省下", false),
+            tile(context, "连续使用", String.valueOf(overview.currentStreak()), "天",
+                "最长 " + overview.longestStreak() + " 天", false));
+    }
+
+    // ---- 习惯 ----
+
+    private void habits(Context context, LinearLayout content, Habits habits) {
+        header(context, content, "近 12 周", "活跃 " + habits.activeDays() + " 天");
+        LinearLayout heat = card(context, content, 16);
+        HeatmapView heatmap = new HeatmapView(context);
+        heatmap.setDays(habits.weeks12());
+        heat.addView(heatmap, matchWidth());
+
+        String peak = TypingStatisticsSummary.peakLabel(habits.peakWindow());
+        header(context, content, "活跃时段", peak == null ? null : "最常在 " + peak);
+        LinearLayout hours = card(context, content, 16);
+        HourHistogramView histogram = new HourHistogramView(context);
+        histogram.setHours(habits.hours24(), habits.peakWindow(), peak);
+        hours.addView(histogram, matchWidth());
+
+        List<Share> mix = TypingStatisticsSummary.composition(habits.characters());
+        header(context, content, "输入构成", null);
+        LinearLayout composition = card(context, content, 16);
+        if (mix.isEmpty()) {
+            composition.addView(label(context, "还没有记录", 14, Ui.subText(context)));
+        } else {
+            DistributionView bar = new DistributionView(context);
+            bar.setShares(mix, DistributionView.Style.STACK);
+            composition.addView(bar, matchWidth());
+        }
+    }
+
+    // ---- 按键 ----
+
+    private void keys(Context context, LinearLayout content, TypingStatisticsSummary value) {
+        Map<String, Long> presses = weekKeys();
+        boolean nine = nineKey != null ? nineKey : KeyHeatmapView.prefersNine(presses);
+        LinearLayout row = header(context, content, "按键热力图", null);
+        SegmentedControl layout = new SegmentedControl(context);
+        layout.setOptions(List.of("26 键", "9 键"), nine ? 1 : 0);
+        row.addView(layout, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+            Ui.dp(context, 32)));
+        LinearLayout board = card(context, content, 12);
+        KeyHeatmapView heatmap = new KeyHeatmapView(context);
+        heatmap.setNineKey(nine);
+        heatmap.setKeys(presses);
+        board.addView(heatmap, matchWidth());
+        layout.setOnSelect(index -> {
+            nineKey = index == 1;
+            heatmap.setNineKey(nineKey);
+        });
+
+        Keys keys = value.keys();
+        String perKeyNote = TypingStatisticsSummary.perKeyDelta(keys.perCharacterKeys(),
+            keys.previousPerCharacterKeys());
+        tiles(context, content,
+            tile(context, "每字按键", TypingStatisticsSummary.decimal(keys.perCharacterKeys()), "次",
+                perKeyNote == null ? "近 7 天平均" : perKeyNote, perKeyNote != null),
+            tile(context, "退格占比", TypingStatisticsSummary.percentTenths(keys.backspaceRate()), "%",
+                "近 7 天全部按键里", false));
+        String runNote = keys.longestRun() == null ? "还没有记录"
+            : TypingStatisticsSummary.monthDay(keys.longestRun().day()) + " · 不停顿";
+        tiles(context, content,
+            tile(context, "联想上屏", TypingStatisticsSummary.percent(keys.predictionRate()), "%",
+                "不用打完就上屏的词", false),
+            tile(context, "单次最长", keys.longestRun() == null ? "—"
+                : String.valueOf(keys.longestRun().characters()), "字", runNote, false));
+
+        if (keys.positions() != null) {
+            header(context, content, "选词位置", null);
+            LinearLayout positions = card(context, content, 16);
+            List<Share> shares = new ArrayList<>();
+            String[] titles = {"第 1 个", "第 2 个", "第 3 个", "翻页后"};
+            for (int index = 0; index < 4; index++) {
+                shares.add(new Share(titles[index], Math.round(keys.positions().get(index) * 1000)));
+            }
+            DistributionView bars = new DistributionView(context);
+            bars.setShares(shares, DistributionView.Style.BARS);
+            positions.addView(bars, matchWidth());
+        }
+
+        List<Share> methods = TypingStatisticsSummary.methods(value.habits().sources());
+        if (!methods.isEmpty()) {
+            header(context, content, "输入方式", null);
+            LinearLayout card = card(context, content, 16);
+            DistributionView donut = new DistributionView(context);
+            donut.setShares(methods, DistributionView.Style.DONUT);
+            card.addView(donut, matchWidth());
+        }
+    }
+
+    /** 近 7 天每个键的按键次数，和按键 KPI 同一个时间窗。 */
+    private Map<String, Long> weekKeys() {
+        Map<String, Long> result = new LinkedHashMap<>();
+        if (statistics == null) return result;
+        LocalDate today = LocalDate.now();
+        for (int offset = 0; offset < WEEK; offset++) {
+            for (Map.Entry<String, Long> entry : statistics.keys(today.minusDays(offset).toString()).entrySet()) {
+                result.merge(entry.getKey(), entry.getValue(), Long::sum);
+            }
+        }
+        return result;
+    }
+
+    // ---- 成就 ----
+
+    private void achievements(Context context, LinearLayout content, List<Achievement> badges) {
+        int unlocked = 0;
+        for (Achievement badge : badges) if (badge.unlocked()) unlocked++;
+        LinearLayout progress = card(context, content, 16);
+        TextView count = new TextView(context);
+        SpannableStringBuilder text = new SpannableStringBuilder(String.valueOf(unlocked));
+        text.setSpan(new AbsoluteSizeSpan(26, true), 0, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, text.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        int start = text.length();
+        text.append(" / ").append(String.valueOf(badges.size())).append(" 已解锁");
+        text.setSpan(new AbsoluteSizeSpan(15, true), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(Ui.subText(context)), start, text.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        count.setText(text);
+        count.setTextColor(Ui.text(context));
+        progress.addView(count);
+        View track = new View(context);
+        track.setBackground(Ui.pill(Ui.hairline(context)));
+        LinearLayout.LayoutParams trackParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 6));
+        trackParams.topMargin = Ui.dp(context, 12);
+        android.widget.FrameLayout bar = new android.widget.FrameLayout(context);
+        bar.addView(track, new android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 6)));
+        View fillView = new View(context);
+        fillView.setBackground(Ui.pill(Ui.accent(context)));
+        bar.addView(fillView, new android.widget.FrameLayout.LayoutParams(0, Ui.dp(context, 6)));
+        progress.addView(bar, trackParams);
+        float share = badges.isEmpty() ? 0 : unlocked / (float) badges.size();
+        bar.post(() -> {
+            ViewGroup.LayoutParams params = fillView.getLayoutParams();
+            params.width = Math.round(bar.getWidth() * share);
+            fillView.setLayoutParams(params);
+        });
+        progress.setContentDescription(unlocked + " / " + badges.size() + " 枚成就已解锁");
+
+        BadgeGridView grid = new BadgeGridView(context);
+        grid.setBadges(badges);
+        grid.setOnBadgeTap(badge -> MsToast.show(context, TypingStatisticsSummary.toast(badge)));
+        LinearLayout.LayoutParams gridParams = matchWidth();
+        gridParams.topMargin = Ui.dp(context, 10);
+        content.addView(grid, gridParams);
+    }
+
+    // ---- 搭卡片的小工具 ----
+
+    /** 一张统计卡：andCard 底、20dp 圆角，加在 `parent` 末尾。 */
+    private static LinearLayout card(Context context, LinearLayout parent, int padding) {
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(context, padding);
+        card.setPadding(pad, pad, pad, pad);
+        card.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
+        LinearLayout.LayoutParams params = matchWidth();
+        params.topMargin = Ui.dp(context, parent.getChildCount() == 0 ? 16 : 10);
+        parent.addView(card, params);
+        return card;
+    }
+
+    /** 卡片上方的一行：左边小标题，右边可选的说明；返回这一行，按键页往右边再放分段控件。 */
+    private static LinearLayout header(Context context, LinearLayout parent, String title,
+            @Nullable String trailing) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(Ui.dp(context, 4), 0, Ui.dp(context, 4), 0);
+        TextView heading = label(context, title, 13, Ui.subText(context));
+        heading.setAccessibilityHeading(true);
+        row.addView(heading, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (trailing != null) row.addView(label(context, trailing, 13, Ui.subText(context)));
+        LinearLayout.LayoutParams params = matchWidth();
+        params.topMargin = Ui.dp(context, 22);
+        params.height = Ui.dp(context, 32);
+        parent.addView(row, params);
+        return row;
+    }
+
+    /** 并排两张 KPI 卡。 */
+    private static void tiles(Context context, LinearLayout parent, View left, View right) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        rightParams.setMarginStart(Ui.dp(context, 10));
+        row.addView(left, leftParams);
+        row.addView(right, rightParams);
+        LinearLayout.LayoutParams params = matchWidth();
+        params.topMargin = Ui.dp(context, 10);
+        parent.addView(row, params);
+    }
+
+    /** 一张 KPI 卡：标题、大数字和单位、一行说明；`highlight` 时说明用 accent（环比）。 */
+    private static View tile(Context context, String title, String value, String unit, String note,
+            boolean highlight) {
+        LinearLayout tile = new LinearLayout(context);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dp(context, 14);
+        tile.setPadding(pad, pad, pad, pad);
+        tile.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
+        tile.addView(label(context, title, 13, Ui.text(context)));
+        TextView number = new TextView(context);
+        number.setText(figure(context, value, 24, "—".equals(value) ? "" : unit));
+        number.setPadding(0, Ui.dp(context, 6), 0, Ui.dp(context, 6));
+        tile.addView(number);
+        tile.addView(label(context, note, 12, highlight ? Ui.accent(context) : Ui.subText(context)));
+        tile.setContentDescription(title + " " + value + ("—".equals(value) ? "" : " " + unit) + "，" + note);
+        tile.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        return tile;
+    }
+
+    /** 大数字加小号单位：`12,846 字`。 */
+    private static CharSequence figure(Context context, String value, int sizeSp, String unit) {
+        SpannableStringBuilder text = new SpannableStringBuilder(value);
+        text.setSpan(new AbsoluteSizeSpan(sizeSp, true), 0, value.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, value.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        text.setSpan(new ForegroundColorSpan(Ui.text(context)), 0, value.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (!unit.isEmpty()) {
+            int start = text.length();
+            text.append(' ').append(unit);
+            text.setSpan(new AbsoluteSizeSpan(Math.max(12, sizeSp / 3), true), start, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            text.setSpan(new ForegroundColorSpan(Ui.text(context)), start, text.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return text;
+    }
+
+    private static TextView label(Context context, String text, int sizeSp, int colour) {
+        TextView view = new TextView(context);
+        view.setText(text);
+        view.setTextSize(sizeSp);
+        view.setTextColor(colour);
+        return view;
+    }
+
+    private static LinearLayout.LayoutParams matchWidth() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     private static Map<String, String> retentions() {
-        java.util.LinkedHashMap<String, String> values = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, String> values = new LinkedHashMap<>();
         values.put("forever", "一直保留");
         values.put("365d", "一年");
         values.put("180d", "半年");

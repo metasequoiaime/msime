@@ -2,389 +2,224 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.RectF;
-import android.os.Bundle;
+import android.graphics.Typeface;
 import android.util.AttributeSet;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
-import androidx.customview.widget.ExploreByTouchHelper;
 import app.msime.android.KeyPressIds;
 import app.msime.android.R;
-import app.msime.android.TypingStatisticsModel;
+import app.msime.android.TypingStatisticsSummary;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 按键热力图：each key of the soft keyboard filled by how often it was pressed in the page's scope.
+ * 按键页的迷你键盘热力图：26 键或 9 键布局，每个键按它占全部按键的比例分 5 档填 `?attr/msHeat0`…`msHeat4`，键面写键名和百分数；图下左边是「字母键最常按 N · 9.6%」，右边是「少 □□□□□ 多」图例。
  *
- * <p>The soft 26-key layout is always drawn, since it is the keyboard most presses go through; the nine-key grid joins it only when a nine-key cell was pressed, so a 26-key user is not shown an empty second keyboard. Keys that have no drawn position (a hardware keyboard's Tab or F1, or the nine-key cells when the grid is not drawn) are listed under 其他键 in the same colours, and the five most pressed keys close the card with their counts.
- *
- * <p>The colours are the calendar's: the hairline tone for a key never pressed, then the accent at 30, 50, 75 and 100 percent by the key's share of the busiest key, under the same 少…多 legend (see {@link HeatmapView}). Everything is drawn, so each key, 其他键 chip and top-five row is exposed to TalkBack as its own virtual node read as "A，123 次", and the view itself only carries a one-line summary.
+ * <p>分档按画出来的键里最多的那个算（同 {@link HeatmapView#level}），百分数按这段时间的全部按键算，所以实体键盘的 Tab、F1 这类没画出来的键也算在分母里，键面上的数字和存储里的口径一致。
  */
 public final class KeyHeatmapView extends View {
-    /** Accent opacity of each step above empty, as in {@link HeatmapView}. */
-    private static final float[] LEVELS = {.3f, .5f, .75f, 1f};
-    /** Width of each soft key in units of a letter key, row by row, matching {@link KeyPressIds#SOFT_ROWS}. */
-    private static final float[][] SOFT_WEIGHTS = {
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-        {1, 1, 1, 1, 1, 1, 1, 1, 1},
-        {1.5f, 1, 1, 1, 1, 1, 1, 1, 1.5f},
-        {1, 1, 1, 4, 1.25f, 1.75f},
-    };
-    private static final int TOP_KEYS = 5;
+    /** 一个画出来的键：键 id、宽度权重和键面。 */
+    private record Key(String id, float weight, String face) {}
 
-    /** One drawn key or 其他键 chip, or one row of the top five: where it sits, what it shows, and what TalkBack reads for it. */
-    private record Placed(String id, RectF bounds, String face, String spoken) {}
+    private static final List<List<Key>> SOFT = List.of(
+        row("KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO", "KeyP"),
+        List.of(new Key(null, .5f, ""), k("KeyA"), k("KeyS"), k("KeyD"), k("KeyF"), k("KeyG"),
+            k("KeyH"), k("KeyJ"), k("KeyK"), k("KeyL"), new Key(null, .5f, "")),
+        List.of(new Key("ShiftLeft", 1.5f, "⇧"), k("KeyZ"), k("KeyX"), k("KeyC"), k("KeyV"),
+            k("KeyB"), k("KeyN"), k("KeyM"), new Key("Backspace", 1.5f, "⌫")),
+        List.of(new Key("SoftLayer", 1.25f, "123"), new Key("SoftLanguage", 1f, "中"),
+            new Key("Comma", 1f, "，"), new Key("Space", 4.25f, "空格"), new Key("Period", 1f, "。"),
+            new Key("Enter", 1.5f, "↵")));
+
+    private static final List<List<Key>> NINE = List.of(
+        List.of(new Key("Comma", 1f, "，"), new Key("Nine1", 1.4f, "@#"), new Key("Nine2", 1.4f, "ABC"),
+            new Key("Nine3", 1.4f, "DEF"), new Key("Backspace", 1f, "⌫")),
+        List.of(new Key("Period", 1f, "。"), new Key("Nine4", 1.4f, "GHI"), new Key("Nine5", 1.4f, "JKL"),
+            new Key("Nine6", 1.4f, "MNO"), new Key("SoftSymbol", 1f, "符")),
+        List.of(new Key("SoftPunctuation", 1f, "标点"), new Key("Nine7", 1.4f, "PQRS"),
+            new Key("Nine8", 1.4f, "TUV"), new Key("Nine9", 1.4f, "WXYZ"), new Key("Nine0", 1f, "0")),
+        List.of(new Key("SoftLayer", 1f, "123"), new Key("SoftLanguage", 1f, "中"),
+            new Key("Space", 2.8f, "空格"), new Key("Enter", 1.4f, "↵")));
+
+    private static final int[] HEAT = {R.attr.msHeat0, R.attr.msHeat1, R.attr.msHeat2, R.attr.msHeat3,
+        R.attr.msHeat4};
+    private static final float KEY_HEIGHT = 44f;
+    private static final float GAP = 5f;
+    private static final float FOOTER = 30f;
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint face = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint rank = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint count = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint share = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint caption = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
-    private final int accent;
-    private final int empty;
-    private final int ink;
-    private final int onAccent;
     private Map<String, Long> counts = Map.of();
-    private List<TypingStatisticsModel.Slice> top = List.of();
-    private List<String> others = List.of();
-    private boolean nineGrid;
-    private long peak;
-    /** The drawn keys and chips, then the top-five rows, in reading order; their index is their virtual view id. */
-    private List<Placed> placed = List.of();
-    private int placedKeys;
-    private int placedWidth = -1;
-    private final KeyNodes nodes;
+    private long total;
+    private boolean nine;
 
-    public KeyHeatmapView(Context context, AttributeSet attributes) {
-        super(context, attributes);
-        accent = ContextCompat.getColor(context, R.color.forest);
-        empty = ContextCompat.getColor(context, R.color.hairline);
-        ink = ContextCompat.getColor(context, R.color.ink);
-        onAccent = ContextCompat.getColor(context, R.color.on_accent);
-        face.setTextAlign(Paint.Align.CENTER);
-        label.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        label.setTextSize(dp(12f));
-        rank.setColor(ink);
-        rank.setTextSize(dp(15f));
-        count.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        count.setTextSize(dp(13f));
-        nodes = new KeyNodes(this);
-        ViewCompat.setAccessibilityDelegate(this, nodes);
+    public KeyHeatmapView(Context context) {
+        this(context, null);
     }
 
-    /**
-     * Show one scope's key counts.
-     *
-     * @param ranked every pressed key, most pressed first, as {@link TypingStatisticsModel#slices} gives them for {@link TypingStatisticsModel.Section#KEYS}
-     */
-    public void setKeys(List<TypingStatisticsModel.Slice> ranked) {
-        List<TypingStatisticsModel.Slice> values = ranked == null ? List.of() : ranked;
-        Map<String, Long> next = new LinkedHashMap<>();
-        long highest = 0;
-        for (TypingStatisticsModel.Slice slice : values) {
-            if (slice.count() <= 0) continue;
-            next.put(slice.id(), slice.count());
-            highest = Math.max(highest, slice.count());
-        }
-        counts = java.util.Collections.unmodifiableMap(next);
-        peak = highest;
-        top = List.copyOf(values.subList(0, Math.min(TOP_KEYS, values.size())));
-        nineGrid = KeyPressIds.hasNineKey(counts);
-        others = KeyPressIds.others(counts, nineGrid);
-        placedWidth = -1;
-        setContentDescription(counts.isEmpty() ? "按键热力图，这一段时间还没有按键记录"
-            : "按键热力图，" + counts.size() + " 个键有按键记录");
+    public KeyHeatmapView(Context context, @Nullable AttributeSet attributes) {
+        super(context, attributes);
+        face.setTextAlign(Paint.Align.CENTER);
+        face.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        face.setTextSize(Ui.dp(context, 14));
+        share.setTextAlign(Paint.Align.CENTER);
+        share.setTextSize(Ui.dp(context, 9));
+        caption.setTextSize(Ui.dp(context, 12));
+    }
+
+    private static Key k(String id) {
+        return new Key(id, 1f, KeyPressIds.label(id));
+    }
+
+    private static List<Key> row(String... ids) {
+        List<Key> keys = new ArrayList<>(ids.length);
+        for (String id : ids) keys.add(k(id));
+        return List.copyOf(keys);
+    }
+
+    /** 这段时间每个键的按键次数。 */
+    public void setKeys(Map<String, Long> values) {
+        counts = values == null ? Map.of() : Map.copyOf(values);
+        long sum = 0;
+        for (long value : counts.values()) sum += Math.max(0, value);
+        total = sum;
+        describe();
+        invalidate();
+    }
+
+    /** 画 9 键还是 26 键。 */
+    public void setNineKey(boolean value) {
+        nine = value;
+        describe();
         requestLayout();
         invalidate();
-        nodes.invalidateRoot();
     }
 
-    /** The placed keys for the current width, laid out again only when the width or the counts change. */
-    private List<Placed> placed() {
-        int width = getWidth();
-        if (width != placedWidth) {
-            placed = layout(width);
-            placedWidth = width;
+    public boolean nineKey() { return nine; }
+
+    /** 9 键格子的总按键数是否多过字母键，用来决定第一次打开时画哪套布局。 */
+    public static boolean prefersNine(Map<String, Long> values) {
+        long letters = 0;
+        long cells = 0;
+        for (Map.Entry<String, Long> entry : values.entrySet()) {
+            if (entry.getKey().startsWith("Key")) letters += entry.getValue();
+            if (entry.getKey().startsWith("Nine")) cells += entry.getValue();
         }
-        return placed;
+        return cells > letters;
     }
 
-    private List<Placed> layout(float width) {
-        List<Placed> result = new ArrayList<>();
-        float gap = gap();
-        float unit = (width - gap * 9) / 10f;
-        for (int row = 0; row < SOFT_WEIGHTS.length; row++) {
-            List<String> ids = KeyPressIds.SOFT_ROWS.get(row);
-            float[] weights = SOFT_WEIGHTS[row];
-            float total = 0f;
-            for (float weight : weights) total += weight;
-            // The home row keeps the letter width and sits centred, offset half a key the way the keyboard staggers it; the other rows fill the width.
-            float rowUnit = total < 10f ? unit : (width - gap * (weights.length - 1)) / total;
-            float x = (width - (total * rowUnit + gap * (weights.length - 1))) / 2f;
-            float top = row * (keyHeight() + gap);
-            for (int index = 0; index < ids.size(); index++) {
-                float keyWidth = weights[index] * rowUnit;
-                result.add(key(ids.get(index), x, top, keyWidth, keyHeight(), face(ids.get(index))));
-                x += keyWidth + gap;
-            }
-        }
-        float y = softHeight();
-        if (nineGrid) {
-            float gridWidth = nineWidth(width);
-            float cell = (gridWidth - gap * 2) / 3f;
-            float left = (width - gridWidth) / 2f;
-            float top = y + heading();
-            for (int row = 0; row < KeyPressIds.NINE_ROWS.size(); row++) {
-                List<String> ids = KeyPressIds.NINE_ROWS.get(row);
-                for (int column = 0; column < ids.size(); column++) {
-                    String id = ids.get(column);
-                    result.add(key(id, left + column * (cell + gap), top + row * (keyHeight() + gap), cell,
-                        keyHeight(), face(id)));
+    private List<List<Key>> layout() { return nine ? NINE : SOFT; }
+
+    /** 图下左边那句：26 键说字母键里最常按的，9 键说带字母的格子里最常按的。 */
+    private String headline() {
+        Key best = null;
+        long most = 0;
+        for (List<Key> row : layout()) {
+            for (Key key : row) {
+                if (key.id() == null) continue;
+                boolean candidate = nine ? key.id().startsWith("Nine") && !"Nine0".equals(key.id())
+                    && !"Nine1".equals(key.id()) : key.id().startsWith("Key");
+                long value = counts.getOrDefault(key.id(), 0L);
+                if (candidate && value > most) {
+                    best = key;
+                    most = value;
                 }
             }
-            y += nineHeight();
         }
-        if (!others.isEmpty()) {
-            float top = y + heading();
-            List<float[]> chips = chips(width);
-            for (int index = 0; index < others.size(); index++) {
-                float[] chip = chips.get(index);
-                String id = others.get(index);
-                result.add(key(id, chip[0], top + chip[1], chip[2], chipHeight(), chipText(id)));
-            }
-            y += othersHeight(width);
-        }
-        placedKeys = result.size();
-        float start = y + legendHeight() + heading();
-        for (int index = 0; index < top.size(); index++) {
-            TypingStatisticsModel.Slice slice = top.get(index);
-            float rowTop = start + index * dp(28f);
-            result.add(new Placed(slice.id(), new RectF(0f, rowTop, width, rowTop + dp(28f)),
-                (index + 1) + "  " + slice.title(),
-                "第 " + (index + 1) + " 名，" + slice.title() + "，" + slice.count() + " 次"));
-        }
-        return List.copyOf(result);
+        if (best == null) return "这段时间还没有按键记录";
+        String percent = TypingStatisticsSummary.percentTenths(most / (double) total) + "%";
+        return (nine ? "最常按 " : "字母键最常按 ") + best.face() + " · " + percent;
     }
 
-    private Placed key(String id, float x, float y, float width, float height, String text) {
-        return new Placed(id, new RectF(x, y, x + width, y + height), text,
-            KeyPressIds.label(id) + "，" + counts.getOrDefault(id, 0L) + " 次");
-    }
-
-    private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
-
-    private float gap() { return dp(5f); }
-
-    private float keyHeight() { return dp(40f); }
-
-    private float softHeight() { return SOFT_WEIGHTS.length * (keyHeight() + gap()) - gap(); }
-
-    private float heading() { return dp(30f); }
-
-    private float nineWidth(float width) { return Math.min(width, dp(240f)); }
-
-    private float nineHeight() {
-        return nineGrid ? heading() + KeyPressIds.NINE_ROWS.size() * (keyHeight() + gap()) - gap() : 0f;
-    }
-
-    private float chipHeight() { return dp(30f); }
-
-    /** Where each 其他键 chip starts, laid out left to right and wrapped at the view's width; the last entry is the height they take. */
-    private List<float[]> chips(float width) {
-        List<float[]> result = new ArrayList<>();
-        float x = 0f;
-        float y = 0f;
-        face.setTextSize(dp(13f));
-        for (String id : others) {
-            float chip = chipWidth(id);
-            if (x > 0f && x + chip > width) {
-                x = 0f;
-                y += chipHeight() + gap();
-            }
-            result.add(new float[] {x, y, chip});
-            x += chip + gap();
-        }
-        return result;
-    }
-
-    private float chipWidth(String id) {
-        return face.measureText(chipText(id)) + dp(20f);
-    }
-
-    private String chipText(String id) {
-        return KeyPressIds.label(id) + "  " + counts.getOrDefault(id, 0L);
-    }
-
-    private float othersHeight(float width) {
-        if (others.isEmpty()) return 0f;
-        List<float[]> placed = chips(width);
-        float[] last = placed.get(placed.size() - 1);
-        return heading() + last[1] + chipHeight();
-    }
-
-    private float legendHeight() { return dp(28f); }
-
-    private float topHeight() {
-        return heading() + Math.max(1, top.size()) * dp(28f);
+    private void describe() {
+        setContentDescription((nine ? "9 键" : "26 键") + "按键热力图，" + headline());
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
-        int width = resolveSize((int) dp(300f), widthSpec);
-        float height = softHeight() + nineHeight() + othersHeight(width) + legendHeight() + topHeight();
-        setMeasuredDimension(width, resolveSize((int) Math.ceil(height), heightSpec));
+        Context context = getContext();
+        int rows = layout().size();
+        float height = rows * KEY_HEIGHT + (rows - 1) * GAP + FOOTER;
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec),
+            resolveSize(Ui.dp(context, height), heightSpec));
     }
 
     @Override protected void onDraw(Canvas canvas) {
+        Context context = getContext();
+        float gap = Ui.dp(context, GAP);
+        float height = Ui.dp(context, KEY_HEIGHT);
+        float radius = Ui.dp(context, 6);
+        long peak = 0;
+        for (List<Key> row : layout()) {
+            for (Key key : row) {
+                if (key.id() != null) peak = Math.max(peak, counts.getOrDefault(key.id(), 0L));
+            }
+        }
+        int text = Ui.text(context);
+        int sub = Ui.subText(context);
+        int onAccent = Ui.onAccent(context);
         float width = getWidth();
-        List<Placed> keys = placed();
-        for (int index = 0; index < placedKeys; index++) drawKey(canvas, keys.get(index));
-        float y = softHeight();
-        if (nineGrid) {
-            canvas.drawText("九键", 0, y + heading() - dp(10f), label);
-            y += nineHeight();
-        }
-        if (!others.isEmpty()) {
-            canvas.drawText("其他键", 0, y + heading() - dp(10f), label);
-            y += othersHeight(width);
-        }
-        y = drawLegend(canvas, width, y);
-        drawTop(canvas, width, y);
-    }
-
-    @Override protected boolean dispatchHoverEvent(MotionEvent event) {
-        return nodes.dispatchHoverEvent(event) || super.dispatchHoverEvent(event);
-    }
-
-    @Override public boolean dispatchKeyEvent(KeyEvent event) {
-        return nodes.dispatchKeyEvent(event) || super.dispatchKeyEvent(event);
-    }
-
-    @Override protected void onFocusChanged(boolean gainFocus, int direction, @Nullable Rect previouslyFocusedRect) {
-        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
-        nodes.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
-    }
-
-    /** 少, the five steps, 多; right-aligned under the keys, as under the calendar. */
-    private float drawLegend(Canvas canvas, float width, float y) {
-        float swatch = dp(11f);
-        float gap = dp(3f);
-        float bottom = y + legendHeight() - dp(6f);
-        float more = label.measureText("多");
-        canvas.drawText("多", width - more, bottom - dp(1f), label);
-        float x = width - more - dp(6f) - swatch;
-        for (int level = LEVELS.length; level >= 0; level--) {
-            fill.setColor(colour(level));
-            box.set(x, bottom - swatch, x + swatch, bottom);
-            canvas.drawRoundRect(box, dp(2.5f), dp(2.5f), fill);
-            x -= swatch + gap;
-        }
-        float less = label.measureText("少");
-        canvas.drawText("少", x + swatch + gap - dp(6f) - less, bottom - dp(1f), label);
-        return y + legendHeight();
-    }
-
-    private void drawTop(Canvas canvas, float width, float y) {
-        canvas.drawText("最常按的键", 0, y + heading() - dp(10f), label);
-        float start = y + heading();
-        if (top.isEmpty()) {
-            canvas.drawText("这一段时间还没有按键记录", 0, start + dp(18f), count);
-            return;
-        }
-        for (int index = 0; index < top.size(); index++) {
-            TypingStatisticsModel.Slice slice = top.get(index);
-            float baseline = start + index * dp(28f) + dp(18f);
-            canvas.drawText((index + 1) + "  " + slice.title(), 0, baseline, rank);
-            String times = slice.count() + " 次";
-            canvas.drawText(times, width - count.measureText(times), baseline, count);
-        }
-    }
-
-    private void drawKey(Canvas canvas, Placed key) {
-        int level = level(counts.getOrDefault(key.id(), 0L));
-        fill.setColor(colour(level));
-        box.set(key.bounds());
-        float width = box.width();
-        String text = key.face();
-        canvas.drawRoundRect(box, dp(7f), dp(7f), fill);
-        // The two strongest steps are dark enough that ink on them stops reading; they take the accent's own foreground.
-        face.setColor(level >= 3 ? onAccent : ink);
-        face.setTextSize(dp(text.length() > 3 ? 11f : 14f));
-        float textWidth = face.measureText(text);
-        if (textWidth > width - dp(4f)) face.setTextSize(face.getTextSize() * (width - dp(4f)) / textWidth);
-        canvas.drawText(text, box.centerX(), box.centerY() + face.getTextSize() * 0.36f, face);
-    }
-
-    /** What a drawn key shows: its label, with the nine-key cells reduced to the digit printed on them. */
-    private static String face(String id) {
-        if (id.startsWith("Nine")) return id.substring(4);
-        return KeyPressIds.label(id);
-    }
-
-    /** 0 for a key never pressed, otherwise 1 to 4 by its share of the busiest key; a key pressed once still gets the first step. */
-    private int level(long value) {
-        if (peak <= 0 || value <= 0) return 0;
-        return Math.max(1, Math.min(LEVELS.length, (int) Math.ceil(LEVELS.length * value / (double) peak)));
-    }
-
-    private int colour(int level) {
-        if (level <= 0) return empty;
-        return Color.argb(Math.round(255 * LEVELS[level - 1]), Color.red(accent), Color.green(accent),
-            Color.blue(accent));
-    }
-
-    /** The virtual accessibility nodes: one per drawn key, 其他键 chip and top-five row, so TalkBack can step through them one at a time. */
-    private static final class KeyNodes extends ExploreByTouchHelper {
-        private final KeyHeatmapView view;
-        private final Rect bounds = new Rect();
-
-        KeyNodes(KeyHeatmapView view) {
-            super(view);
-            this.view = view;
-        }
-
-        @Override protected int getVirtualViewAt(float x, float y) {
-            List<Placed> keys = view.placed();
-            for (int index = 0; index < keys.size(); index++) {
-                if (keys.get(index).bounds().contains(x, y)) return index;
+        List<List<Key>> rows = layout();
+        for (int r = 0; r < rows.size(); r++) {
+            List<Key> row = rows.get(r);
+            float weights = 0;
+            int keys = 0;
+            for (Key key : row) {
+                weights += key.weight();
+                if (key.id() != null) keys++;
             }
-            return HOST_ID;
-        }
-
-        @Override protected void getVisibleVirtualViews(List<Integer> ids) {
-            int size = view.placed().size();
-            for (int index = 0; index < size; index++) ids.add(index);
-        }
-
-        @SuppressWarnings("deprecation")
-        @Override protected void onPopulateNodeForVirtualView(int id, @NonNull AccessibilityNodeInfoCompat node) {
-            List<Placed> keys = view.placed();
-            // A stale id from before the counts changed still has to get bounds, or the helper throws; it reads as nothing until TalkBack refreshes.
-            if (id < 0 || id >= keys.size()) {
-                node.setContentDescription("");
-                node.setBoundsInParent(new Rect());
-                return;
+            float unit = (width - gap * (keys - 1)) / weights;
+            float x = 0;
+            float top = r * (height + gap);
+            boolean drawn = false;
+            for (Key key : row) {
+                float keyWidth = unit * key.weight();
+                if (key.id() == null) {
+                    x += keyWidth;
+                    continue;
+                }
+                if (drawn) x += gap;
+                drawn = true;
+                long value = counts.getOrDefault(key.id(), 0L);
+                int level = HeatmapView.level(value, peak);
+                fill.setColor(Ui.color(context, HEAT[level]));
+                box.set(x, top, x + keyWidth, top + height);
+                canvas.drawRoundRect(box, radius, radius, fill);
+                int ink = level >= 3 ? onAccent : text;
+                face.setColor(ink);
+                share.setColor(level >= 3 ? Ui.withAlpha(onAccent, .85f) : sub);
+                float centre = x + keyWidth / 2;
+                canvas.drawText(key.face(), centre, top + height / 2 + Ui.dp(context, 1), face);
+                if (total > 0) {
+                    String percent = TypingStatisticsSummary.percentTenths(value / (double) total) + "%";
+                    canvas.drawText(percent, centre, top + height - Ui.dp(context, 6), share);
+                }
+                x += keyWidth;
             }
-            Placed key = keys.get(id);
-            node.setContentDescription(key.spoken());
-            key.bounds().roundOut(bounds);
-            node.setBoundsInParent(bounds);
         }
-
-        @Override protected boolean onPerformActionForVirtualView(int id, int action, @Nullable Bundle arguments) {
-            return false;
+        // 图下：左边最常按，右边图例。
+        float baseline = rows.size() * (height + gap) - gap + Ui.dp(context, FOOTER) - Ui.dp(context, 9);
+        caption.setColor(text);
+        canvas.drawText(headline(), 0, baseline, caption);
+        caption.setColor(sub);
+        float more = caption.measureText("多");
+        canvas.drawText("多", width - more, baseline, caption);
+        float cell = Ui.dp(context, 10);
+        float cellGap = Ui.dp(context, 3);
+        float cellTop = baseline - cell + Ui.dp(context, 1);
+        float cx = width - more - Ui.dp(context, 4) - cell;
+        for (int level = HEAT.length - 1; level >= 0; level--) {
+            fill.setColor(Ui.color(context, HEAT[level]));
+            box.set(cx, cellTop, cx + cell, cellTop + cell);
+            canvas.drawRoundRect(box, Ui.dp(context, 2), Ui.dp(context, 2), fill);
+            cx -= cell + cellGap;
         }
+        float less = caption.measureText("少");
+        canvas.drawText("少", cx + cell + cellGap - Ui.dp(context, 4) - less, baseline, caption);
     }
 }

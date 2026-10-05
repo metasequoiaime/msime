@@ -2,101 +2,94 @@ package app.msime.android.home;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.Shader;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.View;
-import androidx.core.content.ContextCompat;
+import androidx.annotation.Nullable;
 import app.msime.android.R;
+import app.msime.android.TypingStatisticsSummary.DayCount;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.List;
 
 /**
- * The daily line: a smooth curve over an accent wash that fades to nothing at the baseline, as the design draws it.
+ * 概览英雄卡里的近 7 天柱状图：每天一根圆角柱，今天那根填 accent，其余填 `?attr/msStatBar`，柱下是星期。
  *
- * The curve bends through horizontal midpoints, so every segment stays between its two days' values: a smooth line that invented a dip below zero or a peak nobody typed would be lying about the data.
- *
- * Drawn rather than charted: Material has no chart, and the alternative is a charting library whose
- * whole surface would be pulled in for one polyline. The axis is labelled from the data's own extent,
- * so an empty or flat series reads as flat instead of being scaled up into a false peak.
+ * <p>柱高按 7 天里最多的那天归一，最高 118dp，最矮 4dp，这样没有输入的一天仍看得见是一根空柱，而不是缺了一天。
  */
 public final class TrendChart extends View {
-    private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint grid = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint wash = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path path = new Path();
-    private final Path area = new Path();
-    private final int accent;
-    private int[] daily = new int[0];
+    private static final float BAR_MAX = 118f;
+    private static final float BAR_MIN = 4f;
+    private static final float BAR_GAP = 10f;
+    private static final float LABEL_GAP = 8f;
+    private static final float LABEL_SIZE = 12f;
+    private static final String[] WEEKDAYS = {"一", "二", "三", "四", "五", "六", "日"};
 
-    public TrendChart(Context context, AttributeSet attributes) {
-        super(context, attributes);
-        line.setStyle(Paint.Style.STROKE);
-        line.setStrokeWidth(dp(2f));
-        line.setStrokeCap(Paint.Cap.ROUND);
-        line.setStrokeJoin(Paint.Join.ROUND);
-        accent = ContextCompat.getColor(context, R.color.forest);
-        line.setColor(accent);
-        wash.setStyle(Paint.Style.FILL);
-        grid.setStyle(Paint.Style.STROKE);
-        grid.setStrokeWidth(dp(1f));
-        grid.setColor(ContextCompat.getColor(context, R.color.hairline));
-        label.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        label.setTextSize(dp(10f));
+    private final Paint bar = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF box = new RectF();
+    private List<DayCount> days = List.of();
+
+    public TrendChart(Context context) {
+        this(context, null);
     }
 
-    public void setDaily(int[] daily) {
-        this.daily = daily == null ? new int[0] : daily;
+    public TrendChart(Context context, @Nullable AttributeSet attributes) {
+        super(context, attributes);
+        label.setTextAlign(Paint.Align.CENTER);
+        label.setTextSize(Ui.dp(context, LABEL_SIZE));
+    }
+
+    /** 换一组 7 天；最后一项是今天。 */
+    public void setDays(List<DayCount> values) {
+        days = values == null ? List.of() : List.copyOf(values);
+        StringBuilder spoken = new StringBuilder("近 7 天每日字数");
+        for (DayCount day : days) {
+            spoken.append("，星期").append(weekday(day.day())).append(' ').append(day.count());
+        }
+        setContentDescription(spoken);
         invalidate();
     }
 
-    private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
-
-    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
-        // Accent at 22% under the peak, fading out at the baseline.
-        wash.setShader(new LinearGradient(0, dp(8f), 0, height - dp(18f),
-            Color.argb(56, Color.red(accent), Color.green(accent), Color.blue(accent)),
-            Color.argb(0, Color.red(accent), Color.green(accent), Color.blue(accent)),
-            Shader.TileMode.CLAMP));
+    @Override protected void onMeasure(int widthSpec, int heightSpec) {
+        Context context = getContext();
+        int height = Ui.dp(context, BAR_MAX + LABEL_GAP + LABEL_SIZE + 6);
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        float right = getWidth() - dp(34f);
-        float bottom = getHeight() - dp(18f);
-        float top = dp(8f);
-        int peak = 0;
-        for (int value : daily) peak = Math.max(peak, value);
-
-        for (int i = 0; i <= 3; i++) {
-            float y = top + (bottom - top) * i / 3f;
-            canvas.drawLine(0, y, right, y, grid);
-            int mark = Math.round(peak * (3 - i) / 3f);
-            canvas.drawText(String.valueOf(mark), right + dp(4f), y + dp(3f), label);
+        if (days.isEmpty()) return;
+        Context context = getContext();
+        float gap = Ui.dp(context, BAR_GAP);
+        float width = (getWidth() - gap * (days.size() - 1)) / days.size();
+        float max = Ui.dp(context, BAR_MAX);
+        float min = Ui.dp(context, BAR_MIN);
+        float radius = Ui.dp(context, 6);
+        long peak = 1;
+        for (DayCount day : days) peak = Math.max(peak, day.count());
+        int accent = Ui.accent(context);
+        int rest = Ui.color(context, R.attr.msStatBar);
+        int text = Ui.text(context);
+        int sub = Ui.subText(context);
+        float labelBaseline = max + Ui.dp(context, LABEL_GAP) + label.getTextSize();
+        for (int index = 0; index < days.size(); index++) {
+            boolean today = index == days.size() - 1;
+            float height = Math.max(min, max * days.get(index).count() / (float) peak);
+            float left = index * (width + gap);
+            box.set(left, max - height, left + width, max);
+            bar.setColor(today ? accent : rest);
+            canvas.drawRoundRect(box, radius, radius, bar);
+            label.setColor(today ? text : sub);
+            canvas.drawText(weekday(days.get(index).day()), left + width / 2, labelBaseline, label);
         }
-        if (daily.length < 2 || peak == 0) return;
+    }
 
-        path.reset();
-        float lastX = 0f;
-        float lastY = 0f;
-        for (int i = 0; i < daily.length; i++) {
-            float x = right * i / (float) (daily.length - 1);
-            float y = bottom - (bottom - top) * daily[i] / (float) peak;
-            if (i == 0) {
-                path.moveTo(x, y);
-            } else {
-                float middle = (lastX + x) / 2f;
-                path.cubicTo(middle, lastY, middle, y, x, y);
-            }
-            lastX = x;
-            lastY = y;
+    private static String weekday(String day) {
+        try {
+            return WEEKDAYS[LocalDate.parse(day).getDayOfWeek().getValue() - 1];
+        } catch (DateTimeParseException error) {
+            return "";
         }
-        area.set(path);
-        area.lineTo(right, bottom);
-        area.lineTo(0, bottom);
-        area.close();
-        canvas.drawPath(area, wash);
-        canvas.drawPath(path, line);
     }
 }

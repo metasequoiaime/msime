@@ -1,273 +1,221 @@
 package app.msime.android.home;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.util.AttributeSet;
 import android.view.View;
-import androidx.core.content.ContextCompat;
-import app.msime.android.R;
-import app.msime.android.TypingStatisticsModel;
-import java.util.ArrayList;
+import androidx.annotation.Nullable;
+import androidx.core.graphics.ColorUtils;
+import app.msime.android.TypingStatisticsSummary;
+import app.msime.android.TypingStatisticsSummary.Share;
 import java.util.List;
-import java.util.Locale;
 
 /**
- * 一组占比：上面一张图，下面每行一个分类。
+ * 统计页的三种占比图，都按同一组颜色给各段上色：第一段 accent，之后依次是 accent 在卡片色上 52%、28%、15% 的混色（原型的 `aM(n)`）。
  *
- * <p>Three shapes, chosen the way the Apple app chooses them (`StatisticsCharts.swift`): a pie for
- * character types, where the question is what share each took; a donut for language modes, whose
- * hole carries the total; and a ranked bar for schemes, because that list runs to fifteen rows and
- * four of them would be slivers in a pie.
- *
- * <p>Drawn rather than charted, for the same reason the trend line is: three small charts are not
- * worth a charting dependency.
- *
- * <p>Styled after the design's Android statistics: the donut is a 168dp ring about a seventh of its diameter thick over a track, with the total in its hole, and each legend row is a 15sp label and share over a 6dp bar in the category's colour, so the bar itself is the key between chart and name. Every category is the accent at its own opacity, as the design draws them (1, .7, .45, .25 down the list, dc.html L1712), rather than a second hue.
+ * <ul>
+ *   <li>{@link Style#STACK}：输入构成，一根通栏堆叠条，下面两列图例「● 汉字 82%」。</li>
+ *   <li>{@link Style#BARS}：选词位置，每行「第 1 个」+ 轨道条 + 百分数。</li>
+ *   <li>{@link Style#DONUT}：输入方式，左边环形图、环心写第一段的占比，右边一列图例。</li>
+ * </ul>
  */
 public final class DistributionView extends View {
-    /** 这一块用哪种图。 */
-    public enum Style { PIE, DONUT, RANK }
+    public enum Style { STACK, BARS, DONUT }
 
-    private static final int MAX_ROWS = 16;
-    /** The design's four opacities, one per row in list order. */
-    private static final float[] OPACITY = {1f, .7f, .45f, .25f};
-    /** The faintest step; longer lists spread evenly from full accent down to it. */
-    private static final float FAINTEST = .25f;
+    private static final int[] MIX = {100, 52, 28, 15, 8};
+    private static final float STACK_HEIGHT = 12f;
+    private static final float LEGEND_ROW = 32f;
+    private static final float BAR_ROW = 32f;
+    private static final float DONUT = 96f;
+    private static final float DONUT_STROKE = 14f;
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint share = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint value = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint centre = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint caption = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint empty = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF box = new RectF();
-    private final int accent;
-    private List<TypingStatisticsModel.Slice> slices = List.of();
-    private List<TypingStatisticsModel.Slice> ranked = List.of();
-    private Style style = Style.RANK;
+    private final android.graphics.Path clip = new android.graphics.Path();
+    private List<Share> shares = List.of();
     private long total;
+    private Style style = Style.STACK;
 
-    public DistributionView(Context context, AttributeSet attributes) {
-        super(context, attributes);
-        accent = ContextCompat.getColor(context, R.color.forest);
-        track.setColor(ContextCompat.getColor(context, R.color.hairline));
-        ring.setStyle(Paint.Style.STROKE);
-        ring.setStrokeCap(Paint.Cap.BUTT);
-        title.setColor(ContextCompat.getColor(context, R.color.ink));
-        title.setTextSize(dp(15f));
-        share.setColor(ContextCompat.getColor(context, R.color.ink));
-        share.setTextSize(dp(15f));
-        share.setFakeBoldText(true);
-        value.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        value.setTextSize(dp(12f));
-        centre.setColor(ContextCompat.getColor(context, R.color.ink));
-        centre.setTextSize(dp(22f));
-        centre.setFakeBoldText(true);
-        caption.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        caption.setTextSize(dp(11f));
-        empty.setColor(ContextCompat.getColor(context, R.color.text_secondary));
-        empty.setTextSize(dp(13f));
+    public DistributionView(Context context) {
+        this(context, null);
     }
 
-    /**
-     * Show one distribution.
-     *
-     * <p>The legend keeps the order the categories are declared in, so a category stays the same
-     * opacity of the accent whatever it counts this week; only the ranked bars re-order, which is their point. An
-     * empty 历史未分类 is the one row dropped: printing it at zero explains nothing.
-     */
-    public void setSlices(List<TypingStatisticsModel.Slice> values, Style chart) {
-        style = chart == null ? Style.RANK : chart;
-        List<TypingStatisticsModel.Slice> kept = new ArrayList<>();
-        for (TypingStatisticsModel.Slice slice : values == null
-                ? List.<TypingStatisticsModel.Slice>of() : values) {
-            if (slice.count() > 0 || !"unknown".equals(slice.id())) kept.add(slice);
+    public DistributionView(Context context, @Nullable AttributeSet attributes) {
+        super(context, attributes);
+    }
+
+    /** 换一组占比和画法。 */
+    public void setShares(List<Share> values, Style chart) {
+        shares = values == null ? List.of() : List.copyOf(values);
+        total = TypingStatisticsSummary.total(shares);
+        style = chart;
+        StringBuilder spoken = new StringBuilder();
+        for (Share share : shares) {
+            if (spoken.length() > 0) spoken.append('，');
+            spoken.append(share.title()).append(' ')
+                .append(TypingStatisticsSummary.share(share.count(), total)).append('%');
         }
-        if (kept.size() > MAX_ROWS) kept = kept.subList(0, MAX_ROWS);
-        slices = List.copyOf(kept);
-        List<TypingStatisticsModel.Slice> order = new ArrayList<>();
-        for (TypingStatisticsModel.Slice slice : slices) if (slice.count() > 0) order.add(slice);
-        order.sort((left, right) -> Long.compare(right.count(), left.count()));
-        ranked = List.copyOf(order);
-        total = TypingStatisticsModel.sum(slices);
-        describe();
+        setContentDescription(spoken.length() == 0 ? "还没有记录" : spoken);
         requestLayout();
         invalidate();
     }
 
-    /**
-     * Say the rows out loud.
-     *
-     * <p>Everything this view shows is drawn, so without this there is nothing here for a screen
-     * reader to read -- the chart would be a blank rectangle between two headings.
-     */
-    private void describe() {
-        if (total <= 0) {
-            setContentDescription("这一段时间还没有记录");
-            return;
-        }
-        StringBuilder text = new StringBuilder();
-        for (TypingStatisticsModel.Slice slice : slices) {
-            if (slice.count() <= 0) continue;
-            if (text.length() > 0) text.append('，');
-            text.append(slice.title()).append(' ').append(slice.count()).append(" 字符");
-            text.append(String.format(Locale.ROOT, "，占 %.1f%%", 100.0 * slice.count() / total));
-        }
-        setContentDescription(text.toString());
+    /** 第 `index` 段的颜色。 */
+    private int colour(int index) {
+        Context context = getContext();
+        int accent = Ui.accent(context);
+        int mix = MIX[Math.min(index, MIX.length - 1)];
+        return ColorUtils.blendARGB(Ui.card(context), accent, mix / 100f);
     }
 
-    private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
-
-    private float rowHeight() { return dp(46f); }
-
-    private float diameter() { return dp(168f); }
-
-    /** The chart above the legend: a fixed square for the two round ones, a row each for the bars. */
-    private float chartHeight() {
-        if (total <= 0 && style != Style.RANK) return dp(28f);
-        return switch (style) {
-            case PIE, DONUT -> diameter();
-            case RANK -> ranked.isEmpty() ? dp(28f) : ranked.size() * dp(30f) + dp(20f);
-        };
+    private int track() {
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+            == Configuration.UI_MODE_NIGHT_YES;
+        return dark ? Ui.withAlpha(Color.WHITE, .1f) : Ui.withAlpha(Color.BLACK, .07f);
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
-        int width = resolveSize((int) dp(240f), widthSpec);
-        float height = chartHeight() + dp(12f) + Math.max(1, slices.size()) * rowHeight();
-        setMeasuredDimension(width, resolveSize((int) height, heightSpec));
+        Context context = getContext();
+        int rows = Math.max(1, shares.size());
+        float height = switch (style) {
+            case STACK -> STACK_HEIGHT + 12 + LEGEND_ROW * ((rows + 1) / 2);
+            case BARS -> BAR_ROW * rows;
+            case DONUT -> Math.max(DONUT, LEGEND_ROW * rows);
+        };
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec),
+            resolveSize(Ui.dp(context, height), heightSpec));
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        if (total <= 0 && ranked.isEmpty()) {
-            canvas.drawText("这一段时间还没有记录", 0, dp(20f), empty);
-            if (slices.isEmpty()) return;
-        }
-        float top = chartHeight() + dp(12f);
+        if (shares.isEmpty()) return;
         switch (style) {
-            case PIE -> drawSectors(canvas, 0f);
-            case DONUT -> drawSectors(canvas, .62f);
-            case RANK -> drawRanked(canvas);
-        }
-        for (int index = 0; index < slices.size(); index++) {
-            TypingStatisticsModel.Slice slice = slices.get(index);
-            float rowTop = top + index * rowHeight();
-            float baseline = rowTop + dp(20f);
-            int colour = colour(index);
-            canvas.drawText(slice.title(), 0, baseline, title);
-            String percent = total <= 0 ? "—"
-                : String.format(Locale.ROOT, "%.1f%%", 100.0 * slice.count() / total);
-            float percentWidth = share.measureText(percent);
-            canvas.drawText(percent, getWidth() - percentWidth, baseline, share);
-            String count = String.valueOf(slice.count());
-            canvas.drawText(count, getWidth() - percentWidth - dp(10f) - value.measureText(count),
-                baseline, value);
-            // 名字下面那根条是图和名字之间唯一的连线，所以它必须和扇区同色、同顺序。
-            float barTop = rowTop + dp(29f);
-            box.set(0, barTop, getWidth(), barTop + dp(6f));
-            canvas.drawRoundRect(box, dp(3f), dp(3f), track);
-            if (total > 0 && slice.count() > 0) {
-                float width = Math.max(dp(6f), getWidth() * slice.count() / (float) total);
-                box.set(0, barTop, width, barTop + dp(6f));
-                fill.setColor(colour);
-                canvas.drawRoundRect(box, dp(3f), dp(3f), fill);
-            }
+            case STACK -> drawStack(canvas);
+            case BARS -> drawBars(canvas);
+            case DONUT -> drawDonut(canvas);
         }
     }
 
-    /** A pie, or a donut when `hole` is more than zero, in declaration order from twelve o'clock. */
-    private void drawSectors(Canvas canvas, float hole) {
-        if (total <= 0) return;
-        float diameter = Math.min(diameter(), getWidth());
-        float left = (getWidth() - diameter) / 2f;
-        if (hole > 0) {
-            drawRing(canvas, left, diameter);
-            return;
-        }
-        box.set(left, 0, left + diameter, diameter);
-        float start = -90f;
-        for (int index = 0; index < slices.size(); index++) {
-            TypingStatisticsModel.Slice slice = slices.get(index);
-            if (slice.count() <= 0) continue;
-            float sweep = 360f * slice.count() / total;
+    private void drawStack(Canvas canvas) {
+        Context context = getContext();
+        float height = Ui.dp(context, STACK_HEIGHT);
+        float gap = Ui.dp(context, 2);
+        float width = getWidth();
+        fill.setColor(track());
+        box.set(0, 0, width, height);
+        canvas.drawRoundRect(box, height / 2, height / 2, fill);
+        canvas.save();
+        clip.reset();
+        clip.addRoundRect(box, height / 2, height / 2, android.graphics.Path.Direction.CW);
+        canvas.clipPath(clip);
+        float x = 0;
+        for (int index = 0; index < shares.size(); index++) {
+            float part = total <= 0 ? 0 : width * shares.get(index).count() / (float) total;
             fill.setColor(colour(index));
-            // 相邻扇区之间留一线：贴在一起时，相邻两档透明度几乎看不出分界。
-            float inset = Math.min(1.5f, sweep / 4f);
-            canvas.drawArc(box, start + inset, Math.max(0f, sweep - inset * 2f), true, fill);
+            box.set(x, 0, Math.max(x, x + part - (index < shares.size() - 1 ? gap : 0)), height);
+            canvas.drawRect(box, fill);
+            x += part;
+        }
+        canvas.restore();
+        float top = height + Ui.dp(context, 12);
+        float column = width / 2;
+        for (int index = 0; index < shares.size(); index++) {
+            float left = (index % 2) * column;
+            float rowTop = top + (index / 2) * Ui.dp(context, LEGEND_ROW);
+            legend(canvas, index, left, rowTop, column - Ui.dp(context, index % 2 == 0 ? 16 : 0));
+        }
+    }
+
+    private void drawBars(Canvas canvas) {
+        Context context = getContext();
+        float row = Ui.dp(context, BAR_ROW);
+        float labelWidth = Ui.dp(context, 66);
+        float percentWidth = Ui.dp(context, 52);
+        float barHeight = Ui.dp(context, 10);
+        float width = getWidth();
+        for (int index = 0; index < shares.size(); index++) {
+            Share share = shares.get(index);
+            float middle = index * row + row / 2;
+            styleText(14, Typeface.NORMAL, Ui.text(context));
+            canvas.drawText(share.title(), 0, middle + textOffset(), text);
+            float left = labelWidth;
+            float right = width - percentWidth;
+            fill.setColor(track());
+            box.set(left, middle - barHeight / 2, right, middle + barHeight / 2);
+            canvas.drawRoundRect(box, barHeight / 2, barHeight / 2, fill);
+            float part = total <= 0 ? 0 : (right - left) * share.count() / (float) total;
+            if (part > 0) {
+                fill.setColor(colour(index));
+                box.set(left, middle - barHeight / 2, left + Math.max(barHeight, part), middle + barHeight / 2);
+                canvas.drawRoundRect(box, barHeight / 2, barHeight / 2, fill);
+            }
+            styleText(14, Typeface.NORMAL, Ui.subText(context));
+            String percent = TypingStatisticsSummary.share(share.count(), total) + "%";
+            canvas.drawText(percent, width - text.measureText(percent), middle + textOffset(), text);
+        }
+    }
+
+    private void drawDonut(Canvas canvas) {
+        Context context = getContext();
+        float size = Ui.dp(context, DONUT);
+        float stroke = Ui.dp(context, DONUT_STROKE);
+        float top = (getHeight() - size) / 2;
+        box.set(stroke / 2, top + stroke / 2, size - stroke / 2, top + size - stroke / 2);
+        fill.setStyle(Paint.Style.STROKE);
+        fill.setStrokeWidth(stroke);
+        fill.setColor(track());
+        canvas.drawArc(box, 0, 360, false, fill);
+        float start = -90;
+        for (int index = 0; index < shares.size(); index++) {
+            float sweep = total <= 0 ? 0 : 360f * shares.get(index).count() / total;
+            fill.setColor(colour(index));
+            canvas.drawArc(box, start, sweep, false, fill);
             start += sweep;
         }
-    }
-
-    /** The donut as the design draws it: a stroked ring rather than a pie with a hole punched in the surface colour. */
-    private void drawRing(Canvas canvas, float left, float diameter) {
-        float thickness = diameter * 5f / 36f;
-        ring.setStrokeWidth(thickness);
-        box.set(left + thickness / 2f, thickness / 2f, left + diameter - thickness / 2f,
-            diameter - thickness / 2f);
-        // The design lays the segments over a full track ring, so their opacity reads against the track rather than the card.
-        ring.setColor(track.getColor());
-        canvas.drawArc(box, 0f, 360f, false, ring);
-        float start = -90f;
-        for (int index = 0; index < slices.size(); index++) {
-            TypingStatisticsModel.Slice slice = slices.get(index);
-            if (slice.count() <= 0) continue;
-            float sweep = 360f * slice.count() / total;
-            ring.setColor(colour(index));
-            // 相邻两段之间留一线，理由同扇形。
-            float inset = Math.min(1f, sweep / 4f);
-            canvas.drawArc(box, start + inset, Math.max(0f, sweep - inset * 2f), false, ring);
-            start += sweep;
-        }
-        // 环心放总数：这一块要回答的是「一共多少、谁占大头」，总数就在图里，不用往上找。
-        String amount = String.valueOf(total);
-        canvas.drawText(amount, left + diameter / 2f - centre.measureText(amount) / 2f,
-            diameter / 2f + dp(2f), centre);
-        canvas.drawText("字符", left + diameter / 2f - caption.measureText("字符") / 2f,
-            diameter / 2f + dp(20f), caption);
-    }
-
-    /** Ranked bars, largest first, each carrying its count at the end. */
-    private void drawRanked(Canvas canvas) {
-        if (ranked.isEmpty()) return;
-        long peak = ranked.get(0).count();
-        float rowHeight = dp(30f);
-        float radius = dp(5f);
-        for (int index = 0; index < ranked.size(); index++) {
-            TypingStatisticsModel.Slice slice = ranked.get(index);
-            float middle = dp(10f) + index * rowHeight + rowHeight / 2f;
-            String count = String.valueOf(slice.count());
-            float countWidth = value.measureText(count) + dp(8f);
-            float right = Math.max(dp(24f), getWidth() - countWidth);
-            box.set(0, middle - dp(9f), right, middle + dp(9f));
-            canvas.drawRoundRect(box, radius, radius, track);
-            float width = peak <= 0 ? 0 : (right) * slice.count() / (float) peak;
-            box.set(0, middle - dp(9f), Math.max(width, dp(6f)), middle + dp(9f));
-            fill.setColor(colour(position(slice)));
-            canvas.drawRoundRect(box, radius, radius, fill);
-            canvas.drawText(slice.title(), dp(8f), middle + dp(4.5f), title);
-            canvas.drawText(count, getWidth() - value.measureText(count), middle + dp(4f), value);
+        fill.setStyle(Paint.Style.FILL);
+        Share first = shares.get(0);
+        styleText(18, Typeface.BOLD, Ui.text(context));
+        String percent = TypingStatisticsSummary.share(first.count(), total) + "%";
+        canvas.drawText(percent, size / 2 - text.measureText(percent) / 2,
+            top + size / 2, text);
+        styleText(10, Typeface.NORMAL, Ui.subText(context));
+        canvas.drawText(first.title(), size / 2 - text.measureText(first.title()) / 2,
+            top + size / 2 + Ui.dp(context, 14), text);
+        float left = size + Ui.dp(context, 20);
+        float row = Ui.dp(context, LEGEND_ROW);
+        float listTop = (getHeight() - row * shares.size()) / 2;
+        for (int index = 0; index < shares.size(); index++) {
+            legend(canvas, index, left, listTop + index * row, getWidth() - left);
         }
     }
 
-    /** Where this slice sits in the declared order, so bar and legend agree on its colour. */
-    private int position(TypingStatisticsModel.Slice slice) {
-        for (int index = 0; index < slices.size(); index++) {
-            if (slices.get(index).id().equals(slice.id())) return index;
-        }
-        return 0;
+    /** 一行图例：圆点、标题，右对齐的百分数。 */
+    private void legend(Canvas canvas, int index, float left, float top, float width) {
+        Context context = getContext();
+        Share share = shares.get(index);
+        float middle = top + Ui.dp(context, LEGEND_ROW) / 2;
+        float dot = Ui.dp(context, 4);
+        fill.setColor(colour(index));
+        canvas.drawCircle(left + dot, middle, dot, fill);
+        styleText(14, Typeface.NORMAL, Ui.text(context));
+        canvas.drawText(share.title(), left + dot * 2 + Ui.dp(context, 10), middle + textOffset(), text);
+        String percent = TypingStatisticsSummary.share(share.count(), total) + "%";
+        canvas.drawText(percent, left + width - text.measureText(percent), middle + textOffset(), text);
     }
 
-    /**
-     * The accent at the opacity of the category's place in the declared list: the design's four steps when there are four rows or fewer, otherwise an even spread over the same range, so a sixteen-scheme list still runs from full accent to the faintest step instead of repeating.
-     */
-    private int colour(int index) {
-        int count = slices.size();
-        float opacity = count <= OPACITY.length ? OPACITY[Math.min(index, OPACITY.length - 1)]
-            : 1f - (1f - FAINTEST) * index / (float) (count - 1);
-        return (Math.round(opacity * ((accent >>> 24) & 0xFF)) << 24) | (accent & 0x00FFFFFF);
+    private void styleText(int sizeSp, int weight, int colour) {
+        text.setTextSize(Ui.dp(getContext(), sizeSp));
+        text.setTypeface(Typeface.create(Typeface.DEFAULT, weight));
+        text.setColor(colour);
+    }
+
+    private float textOffset() {
+        Paint.FontMetrics metrics = text.getFontMetrics();
+        return -(metrics.ascent + metrics.descent) / 2;
     }
 }
