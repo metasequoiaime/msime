@@ -1,9 +1,14 @@
 //! The Dachen bopomofo editor with libchewing's semantics: keys fill the pending syllable, a tone key completes it against the syllable inventory, and the completed syllables are reconverted after every change. Candidates come from a list the user opens; choosing one pins that span's text and never commits. Text leaves the editor only through Enter, Shift punctuation, auto-shift past `MAX_SYLLABLES` and `take_text`.
+//!
+//! 九键模式（`set_nine_key`）下不读大千键：数字串按 `nine_key::KEYPAD` 记下符号位置，声调键结束音节，这个位置的读音是数字串加声调对应的全部合法音节；转换在每个位置的读音里一起挑，用户可以经 `choose_spelling` 逐个钉住目标音节的读音。
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use super::conversion::{self, Span, MAX_SYLLABLES};
 use super::layout::{self, DACHEN_SYMBOLS, IDLE_SYMBOLS, SHIFT_PUNCTUATION};
+use super::nine_key::{self, NineKeyIndex};
 use super::syllable::PendingSyllable;
 use crate::error::Result;
 use crate::language_dictionary::{LanguageDictionary, LanguageEntry};
@@ -29,13 +34,29 @@ pub enum ZhuyinKey {
 pub struct ListCandidate {
     pub text: String,
     pub start: usize,
+    /// 这一行在词库里的键（带调音节以空格连接），选中后随 pin 一起保存，说明被覆盖的音节用的是哪个读音。
+    pub key: String,
 }
 
-/// A completed syllable and the keys that typed it.
+/// 一个已完成的音节和打出它的键。
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Syllable {
-    toned: String,
+    /// 大千下是大千键加声调键，九键下是数字串加声调键。
     keys: String,
+    /// 这个位置合法的带调音节。大千下只有一个；九键下是这串数字和声调对应的全部音节。
+    readings: Arc<[String]>,
+    /// 九键下用户钉住的读音在 `readings` 里的下标；大千下恒为 `None`。
+    locked: Option<usize>,
+}
+
+impl Syllable {
+    /// 转换时这个位置允许的读音：钉住的那一个，否则全部。
+    fn allowed(&self) -> &[String] {
+        match self.locked {
+            Some(index) => std::slice::from_ref(&self.readings[index]),
+            None => &self.readings,
+        }
+    }
 }
 
 pub struct ZhuyinScheme {
@@ -51,8 +72,18 @@ pub struct ZhuyinScheme {
     list: Vec<ListCandidate>,
     /// Text the last key committed, waiting for the session to hand it to the host.
     committed: String,
-    /// The heaviest entry per key, for the composition in progress. The dictionary is read-only, so entries stay valid; the cache is dropped when the composition ends and on every auto-shift, so it holds at most the keys of `MAX_SYLLABLES` syllables.
-    best: HashMap<String, Option<LanguageEntry>>,
+    /// 组字过程中每段位置描述（各位置允许的读音以 `|` 连接，位置之间用空格）的最重词条及其键。词库只读，所以条目一直有效；九键下每次钉读音都会产生新的描述，缓存在组字结束和每次 auto-shift 时清空。
+    best: HashMap<String, Option<(String, LanguageEntry)>>,
+    /// 注音九键模式：数字键拼音节，`zxcvb` 和空格是声调键。
+    nine_key: bool,
+    /// 九键模式第一次处理按键时从音节表建出的索引，之后一直保留。
+    nine_key_index: Option<NineKeyIndex>,
+    /// 九键下还没按声调键的数字串。
+    pending_digits: Vec<u8>,
+    /// 九键下供用户钉读音的目标音节的候选读音，当前转换用的排在最前；最近一次转换后算出，列表打开时不对外提供。
+    spellings: Vec<String>,
+    /// `spellings` 对应的音节下标。
+    spelling_target: Option<usize>,
 }
 
 impl ZhuyinScheme {
@@ -68,7 +99,22 @@ impl ZhuyinScheme {
             list: Vec::new(),
             committed: String::new(),
             best: HashMap::new(),
+            nine_key: false,
+            nine_key_index: None,
+            pending_digits: Vec::new(),
+            spellings: Vec::new(),
+            spelling_target: None,
         }
+    }
+
+    /// 切换注音九键模式，丢掉正在进行的组字。`reset` 不改变模式。
+    pub fn set_nine_key(&mut self, enabled: bool) {
+        self.clear_composition();
+        self.nine_key = enabled;
+    }
+
+    pub fn nine_key(&self) -> bool {
+        self.nine_key
     }
 
     /// The `msime-zhuyin.db` connection, given back when the editor is replaced so the next one reuses it.
@@ -83,7 +129,7 @@ impl ZhuyinScheme {
     }
 
     pub fn is_composing(&self) -> bool {
-        !self.syllables.is_empty() || !self.pending.is_empty()
+        !self.syllables.is_empty() || !self.pending.is_empty() || !self.pending_digits.is_empty()
     }
 
     /// Handles one key and returns whether the editor claimed it. An unclaimed key is left to the session and host (idle tone digits and Space type themselves; selection digits and Space while the list is open select through the session). Text the key committed is in `take_committed`.
@@ -115,7 +161,7 @@ impl ZhuyinScheme {
             ZhuyinKey::Backspace => {
                 if self.list_open {
                     self.close_list();
-                } else if !self.pending.pop() {
+                } else if self.pending_digits.pop().is_none() && !self.pending.pop() {
                     let end = self.syllables.len();
                     self.syllables.pop();
                     self.pins.retain(|pin| pin.end != end);
@@ -140,6 +186,7 @@ impl ZhuyinScheme {
         let pin = Span {
             start: candidate.start,
             end: self.syllables.len(),
+            key: candidate.key,
             text: candidate.text,
         };
         self.pins
@@ -163,15 +210,18 @@ impl ZhuyinScheme {
         std::mem::take(&mut self.committed)
     }
 
-    /// The keys that typed the composition, in order, for the caret-locked editing text.
+    /// 打出组字的键，按顺序，供光标锁定的编辑文本使用；九键下是数字串加声调键，例如 `28c39c4`。
     pub fn editing_text(&self) -> String {
-        build_editing_keys(&self.syllables, &self.pending)
+        let mut keys = build_editing_keys(&self.syllables, &self.pending);
+        keys.extend(self.pending_digits.iter().map(|digit| char::from(*digit)));
+        keys
     }
 
-    /// The converted text followed by the pending bopomofo, e.g. `你好ㄇㄚ`.
+    /// 转换后的文字加上还在拼的部分：大千是待定的注音符号，例如 `你好ㄇㄚ`；九键是还没按声调的数字，例如 `你好28`。
     pub fn reading(&self) -> String {
         let mut reading = self.converted_text();
         reading.push_str(&self.pending.bopomofo());
+        reading.extend(self.pending_digits.iter().map(|digit| char::from(*digit)));
         reading
     }
 
@@ -208,8 +258,45 @@ impl ZhuyinScheme {
         &self.list
     }
 
-    /// The non-letter keys the editor claims in its current state, in `DACHEN_SYMBOLS` order.
+    /// 九键下供用户钉读音的候选读音（带调注音，一声不带符号），当前转换用的排在最前；列表打开、没有歧义音节或在大千模式时为空。
+    pub fn spellings(&self) -> &[String] {
+        if self.list_open {
+            return &[];
+        }
+        &self.spellings
+    }
+
+    /// 把 `spellings()[index]` 钉为目标音节的读音并重新转换，不提交任何文字。读音即使与当前转换相同也照样钉住，目标随之移到下一个歧义音节，用户可以逐个确认。列表打开、没有目标或下标越界时返回 false。
+    pub fn choose_spelling(&mut self, index: usize) -> Result<bool> {
+        if self.list_open {
+            return Ok(false);
+        }
+        let (Some(target), Some(reading)) = (self.spelling_target, self.spellings.get(index))
+        else {
+            return Ok(false);
+        };
+        let Some(syllable) = self.syllables.get_mut(target) else {
+            return Ok(false);
+        };
+        let Some(position) = syllable.readings.iter().position(|other| other == reading) else {
+            return Ok(false);
+        };
+        syllable.locked = Some(position);
+        self.reconvert()?;
+        Ok(true)
+    }
+
+    /// The non-letter keys the editor claims in its current state, in `DACHEN_SYMBOLS` order; 九键下见 `nine_key` 的三个常量。
     pub fn spelling_symbols(&self) -> &'static str {
+        if self.nine_key {
+            return if !self.is_composing() {
+                nine_key::IDLE_SYMBOLS
+            } else if self.list_open {
+                nine_key::LIST_OPEN_SYMBOLS
+            } else {
+                nine_key::SYMBOLS
+            };
+        }
         if !self.is_composing() {
             IDLE_SYMBOLS
         } else if self.list_open {
@@ -225,6 +312,9 @@ impl ZhuyinScheme {
             self.committed.push_str(&text);
             self.committed.push(*mark);
             return Ok(true);
+        }
+        if self.nine_key {
+            return self.handle_nine_key_char(byte);
         }
         if self.list_open {
             if !byte.is_ascii_lowercase() && !LIST_OPEN_SYMBOLS.as_bytes().contains(&byte) {
@@ -259,10 +349,71 @@ impl ZhuyinScheme {
         }
         let mut keys = self.pending.keys();
         keys.push(char::from(byte));
-        self.syllables.push(Syllable { toned, keys });
+        self.syllables.push(Syllable {
+            keys,
+            readings: Arc::from([toned]),
+            locked: None,
+        });
         self.pending.clear();
         self.reconvert()?;
         Ok(true)
+    }
+
+    /// 九键模式的字符键。列表打开时，数字和声调字母关闭列表后照常处理，其余键（包括空格）不认领，交给运行时选行。数字总是认领，只有还能拼成某个音节时才追加，否则吞掉（libchewing 在这里会响铃）。声调键结束一个音节：空闲时声调字母认领但什么都不做，空格不认领；有组字但没有数字时空格打开列表、声调字母被吞掉；数字串加这个声调没有合法音节时数字留着。其他键（包括全部字母）不认领，九键模式不读大千键。
+    fn handle_nine_key_char(&mut self, byte: u8) -> Result<bool> {
+        let mark = nine_key::tone_mark(byte);
+        if self.list_open {
+            if !byte.is_ascii_digit() && (mark.is_none() || byte == b' ') {
+                return Ok(false);
+            }
+            self.close_list();
+        }
+        if byte.is_ascii_digit() {
+            let mut next = self.pending_digits.clone();
+            next.push(byte);
+            if next.len() <= nine_key::MAX_DIGITS && self.nine_key_index()?.accepts(&next) {
+                self.pending_digits = next;
+            }
+            return Ok(true);
+        }
+        let Some(mark) = mark else {
+            return Ok(false);
+        };
+        if !self.is_composing() {
+            return Ok(byte != b' ');
+        }
+        if self.pending_digits.is_empty() {
+            if byte == b' ' {
+                self.open_list()?;
+            }
+            return Ok(true);
+        }
+        let digits = std::mem::take(&mut self.pending_digits);
+        let Some(readings) = self.nine_key_index()?.readings(&digits, mark) else {
+            self.pending_digits = digits;
+            return Ok(true);
+        };
+        if self.syllables.len() == MAX_SYLLABLES {
+            self.shift_leftmost_word();
+        }
+        let mut keys: String = digits.iter().map(|digit| char::from(*digit)).collect();
+        keys.push(char::from(byte));
+        self.syllables.push(Syllable {
+            keys,
+            readings,
+            locked: None,
+        });
+        self.reconvert()?;
+        Ok(true)
+    }
+
+    /// 九键索引，第一次用到时从 `msime-zhuyin.db` 的音节表建立，大千用户不付出这份代价。
+    fn nine_key_index(&mut self) -> Result<&NineKeyIndex> {
+        let index = match self.nine_key_index.take() {
+            Some(index) => index,
+            None => NineKeyIndex::new(self.dictionary.syllables()?),
+        };
+        Ok(self.nine_key_index.insert(index))
     }
 
     /// Commits the first converted word and drops its syllables, making room for one more.
@@ -285,14 +436,23 @@ impl ZhuyinScheme {
     fn open_list(&mut self) -> Result<()> {
         let count = self.syllables.len();
         self.list.clear();
+        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
+        let mut seen = HashSet::new();
         for start in 0..count {
-            let key = self.key(start, count);
-            let entries = self.dictionary.lookup(&key, usize::MAX)?;
+            let entries = self
+                .dictionary
+                .lookup_readings(&positions[start..], usize::MAX)?;
             self.list.reserve(entries.len());
-            for entry in entries {
+            // 九键下同一个字可能在同一位置的两个读音下各有一条，只留较重的那条。
+            seen.clear();
+            for (key, entry) in entries {
+                if !seen.insert(entry.text.clone()) {
+                    continue;
+                }
                 self.list.push(ListCandidate {
                     text: entry.text,
                     start,
+                    key,
                 });
             }
         }
@@ -309,33 +469,135 @@ impl ZhuyinScheme {
         self.syllables.clear();
         self.pins.clear();
         self.pending.clear();
+        self.pending_digits.clear();
+        self.spellings.clear();
+        self.spelling_target = None;
         self.conversion.clear();
         self.close_list();
         self.best.clear();
     }
 
-    fn key(&self, start: usize, end: usize) -> String {
-        build_zhuyin_key(&self.syllables[start..end])
-    }
-
     fn reconvert(&mut self) -> Result<()> {
-        let syllables: Vec<&str> = self
-            .syllables
-            .iter()
-            .map(|syllable| syllable.toned.as_str())
-            .collect();
+        let positions: Vec<&[String]> = self.syllables.iter().map(Syllable::allowed).collect();
         let dictionary = &self.dictionary;
         let best = &mut self.best;
-        self.conversion = conversion::convert(&syllables, &self.pins, |key| {
-            if let Some(entry) = best.get(key) {
-                return Ok(entry.clone());
+        // 每个位置单字最重词条的权重，只在九键下有位置不止一个读音时才用得到。
+        let mut singles = Vec::new();
+        if positions.iter().any(|readings| readings.len() > 1) {
+            singles.reserve_exact(positions.len());
+            for index in 0..positions.len() {
+                let weight = cached_best(dictionary, best, &positions[index..=index])?
+                    .map_or(0, |(_, entry)| entry.weight);
+                singles.push(weight);
             }
-            let entry = dictionary.lookup(key, 1)?.into_iter().next();
-            best.insert(key.to_owned(), entry.clone());
-            Ok(entry)
-        })?;
+        }
+        self.conversion = conversion::convert(
+            positions.len(),
+            &self.pins,
+            |start, end| {
+                let entry = cached_best(dictionary, best, &positions[start..end])?;
+                Ok(entry.filter(|(_, entry)| {
+                    clears_ambiguous_word_floor(&positions[start..end], &singles, start, entry)
+                }))
+            },
+            |index| positions[index][0].clone(),
+        )?;
+        self.refresh_spellings()
+    }
+
+    /// 重算钉读音的目标和它的候选读音。目标是第一个不被任何 pin 覆盖、没有钉住、且有不止一个读音的音节；读音按当前转换用的那个、单字最重词条的权重（从重到轻）、字典序排列。没有目标时为空，大千模式下永远为空。
+    fn refresh_spellings(&mut self) -> Result<()> {
+        self.spellings.clear();
+        self.spelling_target = None;
+        if !self.nine_key {
+            return Ok(());
+        }
+        let Some(target) = self
+            .syllables
+            .iter()
+            .enumerate()
+            .position(|(index, syllable)| {
+                syllable.locked.is_none()
+                    && syllable.readings.len() > 1
+                    && !self.pins.iter().any(|pin| pin.overlaps(index, index + 1))
+            })
+        else {
+            return Ok(());
+        };
+        let current = self
+            .conversion
+            .iter()
+            .find(|span| span.overlaps(target, target + 1))
+            .and_then(|span| span.key.split(' ').nth(target - span.start))
+            .map(str::to_owned);
+        let readings = Arc::clone(&self.syllables[target].readings);
+        let mut ranked = Vec::with_capacity(readings.len());
+        for reading in readings.iter() {
+            let weight = cached_best(
+                &self.dictionary,
+                &mut self.best,
+                &[std::slice::from_ref(reading)],
+            )?
+            .map_or(i64::MIN, |(_, entry)| entry.weight);
+            ranked.push((
+                current.as_deref() != Some(reading.as_str()),
+                Reverse(weight),
+                reading,
+            ));
+        }
+        ranked.sort();
+        self.spellings
+            .extend(ranked.into_iter().map(|(_, _, reading)| reading.clone()));
+        self.spelling_target = Some(target);
         Ok(())
     }
+}
+
+/// How many times lighter than the weakest single character it spans a multi-syllable word may be when it matches through a position with more than one allowed reading.
+///
+/// Conversion ranks paths by word length first (libchewing's score), which suits Dachen, where each position has exactly one reading. A nine-key position allows 4 to 23 readings, so the combined reading sets of two or three positions match some obscure word almost everywhere, and length-first alone lets 監聽器 (weight 9) beat 今天 (25469) + 去 (28394). Such a word therefore takes part only when its weight times this factor reaches the smallest single-character weight over its positions. 1000 was chosen against a rebuild of the libchewing-derived dictionary: it drops 監聽器, 趕明兒 and 禮教 from 我們今天去學校, 這個東西很便宜 and 請問你叫什麼名字, and of the sampled counted 2 to 4 syllable words that convert to themselves without the floor all but one still do, while a factor of 300 already loses about one in eight of them.
+const AMBIGUOUS_WORD_FLOOR: i64 = 1000;
+
+/// Whether `entry`, the heaviest entry for `positions` starting at syllable `start`, may take part in conversion. Single syllables and spans whose every position has one allowed reading (all of Dachen, and nine-key syllables the user pinned) always may, so Dachen conversion is unchanged; otherwise see `AMBIGUOUS_WORD_FLOOR`. `singles` holds every position's single-character weight and is empty when no position is ambiguous.
+fn clears_ambiguous_word_floor(
+    positions: &[&[String]],
+    singles: &[i64],
+    start: usize,
+    entry: &LanguageEntry,
+) -> bool {
+    if positions.len() < 2 || positions.iter().all(|readings| readings.len() == 1) {
+        return true;
+    }
+    let weakest = singles[start..start + positions.len()]
+        .iter()
+        .copied()
+        .min()
+        .unwrap_or(0);
+    entry.weight.saturating_mul(AMBIGUOUS_WORD_FLOOR) >= weakest
+}
+
+/// `positions` 的最重词条及其键，先查缓存。缓存键是各位置允许的读音以 `|` 连接、位置之间用空格；大千下每个位置只有一个读音，所以就是词库键本身。
+fn cached_best(
+    dictionary: &LanguageDictionary,
+    best: &mut HashMap<String, Option<(String, LanguageEntry)>>,
+    positions: &[&[String]],
+) -> Result<Option<(String, LanguageEntry)>> {
+    let description = describe(positions);
+    if let Some(entry) = best.get(&description) {
+        return Ok(entry.clone());
+    }
+    let entry = dictionary.lookup_readings(positions, 1)?.into_iter().next();
+    best.insert(description, entry.clone());
+    Ok(entry)
+}
+
+/// `cached_best` 的缓存键。
+fn describe(positions: &[&[String]]) -> String {
+    positions
+        .iter()
+        .map(|readings| readings.join("|"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn build_editing_keys(syllables: &[Syllable], pending: &PendingSyllable) -> String {
@@ -362,22 +624,6 @@ fn build_converted_text(spans: &[Span]) -> String {
         text.push_str(&span.text);
     }
     text
-}
-
-fn build_zhuyin_key(syllables: &[Syllable]) -> String {
-    let capacity = syllables
-        .iter()
-        .map(|syllable| syllable.toned.len())
-        .sum::<usize>()
-        .saturating_add(syllables.len().saturating_sub(1));
-    let mut key = String::with_capacity(capacity);
-    for (index, syllable) in syllables.iter().enumerate() {
-        if index > 0 {
-            key.push(' ');
-        }
-        key.push_str(&syllable.toned);
-    }
-    key
 }
 
 #[cfg(test)]
@@ -407,18 +653,20 @@ mod tests {
         ("ㄢ", "安", 100),
     ];
 
+    fn syllable(keys: &str, readings: &[&str]) -> Syllable {
+        Syllable {
+            keys: keys.to_owned(),
+            readings: readings
+                .iter()
+                .map(|reading| (*reading).to_owned())
+                .collect(),
+            locked: None,
+        }
+    }
+
     #[test]
     fn editing_keys_append_syllables_and_pending_keys_in_order() {
-        let syllables = vec![
-            Syllable {
-                toned: "ㄋㄧˇ".to_owned(),
-                keys: "su3".to_owned(),
-            },
-            Syllable {
-                toned: "ㄏㄠˇ".to_owned(),
-                keys: "lc3".to_owned(),
-            },
-        ];
+        let syllables = vec![syllable("su3", &["ㄋㄧˇ"]), syllable("lc3", &["ㄏㄠˇ"])];
         let pending = PendingSyllable {
             initial: Some('ㄇ'),
             medial: Some('ㄚ'),
@@ -428,20 +676,20 @@ mod tests {
         assert_eq!(build_editing_keys(&syllables, &pending), "su3lc3a8");
     }
 
+    // 大千下每个位置只有一个读音，缓存键就是词库键；九键的多读音位置以 `|` 连接，钉住后只剩钉住的那个。
     #[test]
-    fn dictionary_key_joins_toned_syllables_in_order() {
-        let syllables = vec![
-            Syllable {
-                toned: "ㄋㄧˇ".to_owned(),
-                keys: "su3".to_owned(),
-            },
-            Syllable {
-                toned: "ㄏㄠˇ".to_owned(),
-                keys: "lc3".to_owned(),
-            },
+    fn cache_keys_describe_the_allowed_readings_in_order() {
+        let mut syllables = [
+            syllable("su3", &["ㄋㄧˇ"]),
+            syllable("lc3", &["ㄏㄠˇ"]),
+            syllable("28c", &["ㄋㄧˇ", "ㄌㄧˇ"]),
         ];
-
-        assert_eq!(build_zhuyin_key(&syllables), "ㄋㄧˇ ㄏㄠˇ");
+        let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
+        assert_eq!(describe(&positions[..2]), "ㄋㄧˇ ㄏㄠˇ");
+        assert_eq!(describe(&positions), "ㄋㄧˇ ㄏㄠˇ ㄋㄧˇ|ㄌㄧˇ");
+        syllables[2].locked = Some(1);
+        let positions: Vec<&[String]> = syllables.iter().map(Syllable::allowed).collect();
+        assert_eq!(describe(&positions[1..]), "ㄏㄠˇ ㄌㄧˇ");
     }
 
     #[test]
@@ -450,11 +698,13 @@ mod tests {
             Span {
                 start: 0,
                 end: 2,
+                key: "ㄋㄧˇ ㄏㄠˇ".to_owned(),
                 text: "你好".to_owned(),
             },
             Span {
                 start: 2,
                 end: 3,
+                key: "ㄇㄚ˙".to_owned(),
                 text: "嗎".to_owned(),
             },
         ];
@@ -782,5 +1032,324 @@ mod tests {
             scheme.converted_text(),
             format!("{}你郝你", "你好".repeat(8))
         );
+    }
+
+    // ---- 注音九键 ----
+
+    /// 大千夹具加上与 ㄋㄧˇ 同为 `28` + ˇ 的 ㄌㄧˇ、ㄉㄧˇ，以及三个符号的 ㄏㄨㄚ。
+    fn nine_key_scheme() -> (tempfile::TempDir, ZhuyinScheme) {
+        let mut entries = ENTRIES.to_vec();
+        entries.extend([
+            ("ㄌㄧˇ", "李", 1200),
+            ("ㄉㄧˇ", "底", 600),
+            ("ㄏㄨㄚ", "花", 500),
+        ]);
+        let (dir, mut scheme) = scheme_with(&entries);
+        scheme.set_nine_key(true);
+        (dir, scheme)
+    }
+
+    fn spellings(scheme: &ZhuyinScheme) -> Vec<&str> {
+        scheme.spellings().iter().map(String::as_str).collect()
+    }
+
+    #[test]
+    fn nine_key_tone_keys_end_a_syllable_against_every_matching_reading() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        assert_eq!(scheme.spelling_symbols(), nine_key::IDLE_SYMBOLS);
+        assert_eq!(type_keys(&mut scheme, "28"), [true, true]);
+        assert_eq!(scheme.reading(), "28");
+        assert_eq!(scheme.spelling_symbols(), nine_key::SYMBOLS);
+        assert!(scheme.spellings().is_empty());
+        // ˇ 结束音节：ㄋㄧˇ、ㄌㄧˇ、ㄉㄧˇ 都在 28 上，单字里 李 最重。
+        assert_eq!(type_keys(&mut scheme, "c"), [true]);
+        assert_eq!(scheme.reading(), "李");
+        assert_eq!(scheme.editing_text(), "28c");
+        assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
+        // 你好 够重，过得了九键的权重下限，双音节词按长度平方胜出；当前用的读音排到最前，其余按单字权重。
+        type_keys(&mut scheme, "39c");
+        assert_eq!(scheme.converted_text(), "你好");
+        assert_eq!(scheme.editing_text(), "28c39c");
+        assert_eq!(spellings(&scheme), ["ㄋㄧˇ", "ㄌㄧˇ", "ㄉㄧˇ"]);
+        assert_eq!(scheme.conversion[0].key, "ㄋㄧˇ ㄏㄠˇ");
+        assert_eq!(scheme.take_committed(), "");
+    }
+
+    /// 今天 + 去 的读音和冷僻的 監聽器 落在同样的数字串上：ㄐㄧㄣ/ㄐㄧㄢ 都是 480，ㄊㄧㄢ/ㄊㄧㄥ 都是 280，ㄑㄩˋ/ㄑㄧˋ 都是 48ˋ。
+    const AMBIGUOUS_WORD_ENTRIES: [(&str, &str, i64); 8] = [
+        ("ㄐㄧㄣ", "今", 33812),
+        ("ㄊㄧㄢ", "天", 31487),
+        ("ㄑㄩˋ", "去", 28394),
+        ("ㄐㄧㄣ ㄊㄧㄢ", "今天", 25469),
+        ("ㄐㄧㄢ", "監", 100),
+        ("ㄊㄧㄥ", "聽", 3000),
+        ("ㄑㄧˋ", "器", 900),
+        ("ㄐㄧㄢ ㄊㄧㄥ ㄑㄧˋ", "監聽器", 9),
+    ];
+
+    #[test]
+    fn nine_key_light_long_words_do_not_beat_heavy_shorter_ones() {
+        let (_dir, mut scheme) = scheme_with(&AMBIGUOUS_WORD_ENTRIES);
+        scheme.set_nine_key(true);
+        type_keys(&mut scheme, "480 280 48v");
+        // 只比长度的话三音节的 監聽器（9）会压过 今天（25469）+ 去（28394）。
+        assert_eq!(scheme.converted_text(), "今天去");
+        // 钉住 ㄐㄧㄢ 之后今天不再匹配，这个位置的单字只剩 監（100），監聽器 过得了下限。
+        let jian = scheme
+            .spellings()
+            .iter()
+            .position(|reading| reading == "ㄐㄧㄢ")
+            .unwrap();
+        assert!(scheme.choose_spelling(jian).unwrap());
+        assert_eq!(scheme.converted_text(), "監聽器");
+
+        // 大千下每个位置只有一个读音，照旧按长度：打出 監聽器 的读音就得到 監聽器。
+        let (_dir, mut scheme) = scheme_with(&AMBIGUOUS_WORD_ENTRIES);
+        type_keys(&mut scheme, "ru0 wu/ fu4");
+        assert_eq!(scheme.converted_text(), "監聽器");
+    }
+
+    #[test]
+    fn nine_key_space_and_z_are_the_first_tone() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "29x80 ");
+        assert_eq!(scheme.converted_text(), "臺灣");
+        assert_eq!(scheme.editing_text(), "29x80 ");
+        scheme.reset();
+        assert_eq!(type_keys(&mut scheme, "29x80z"), [true; 6]);
+        assert_eq!(scheme.converted_text(), "臺灣");
+        scheme.reset();
+        type_keys(&mut scheme, "17b17 ");
+        assert_eq!(scheme.converted_text(), "嗎媽");
+        assert!(scheme.nine_key());
+    }
+
+    #[test]
+    fn nine_key_unknown_codes_stay_pending_and_extra_digits_are_swallowed() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        // 28 加 ˋ 没有合法音节：声调键被认领，数字留着。
+        assert_eq!(type_keys(&mut scheme, "28v"), [true, true, true]);
+        assert_eq!(scheme.reading(), "28");
+        // 282 不是任何音节的前缀，第三个数字被吞掉。
+        assert_eq!(type_keys(&mut scheme, "2"), [true]);
+        assert_eq!(scheme.reading(), "28");
+        scheme.reset();
+        // 三个符号已满，第四个数字被吞掉。
+        type_keys(&mut scheme, "3871");
+        assert_eq!(scheme.reading(), "387");
+        type_keys(&mut scheme, " ");
+        assert_eq!(scheme.reading(), "花");
+        // 数字从空闲开始组字；夹具里没有 ㄐㄑㄒ 的音节，4 打不出任何音节，只被吞掉。
+        scheme.reset();
+        assert_eq!(type_keys(&mut scheme, "4"), [true]);
+        assert!(!scheme.is_composing());
+    }
+
+    #[test]
+    fn nine_key_claims_tone_letters_and_digits_but_no_other_letters() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        // 空闲时：声调字母认领但什么都不做，空格和其他字母不认领。
+        assert_eq!(type_keys(&mut scheme, "zxcvb"), [true; 5]);
+        assert!(!scheme.is_composing());
+        assert_eq!(type_keys(&mut scheme, " sa"), [false, false, false]);
+        // 组字中：大千键和其他字母都不认领。
+        type_keys(&mut scheme, "28c");
+        assert_eq!(type_keys(&mut scheme, "sau,"), [false; 4]);
+        assert_eq!(scheme.reading(), "李");
+        // 没有数字时声调字母被吞掉。
+        assert_eq!(type_keys(&mut scheme, "x"), [true]);
+        assert_eq!(scheme.reading(), "李");
+        // Shift 标点照常提交转换文字再加标点。
+        type_keys(&mut scheme, "39c2");
+        assert_eq!(type_keys(&mut scheme, "?"), [true]);
+        assert_eq!(scheme.take_committed(), "你好？");
+        assert!(!scheme.is_composing());
+    }
+
+    #[test]
+    fn nine_key_choosing_a_spelling_pins_the_reading() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c39c");
+        assert!(!scheme.choose_spelling(3).unwrap());
+        assert!(scheme.choose_spelling(1).unwrap());
+        assert_eq!(scheme.converted_text(), "李好");
+        assert_eq!(scheme.take_committed(), "");
+        // 39c 只有一个读音，没有下一个目标。
+        assert!(scheme.spellings().is_empty());
+        assert!(!scheme.choose_spelling(0).unwrap());
+        // 确认与当前转换相同的读音也会钉住，目标右移。
+        type_keys(&mut scheme, "28c");
+        assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
+        assert!(scheme.choose_spelling(0).unwrap());
+        assert_eq!(scheme.converted_text(), "李好李");
+        assert!(scheme.spellings().is_empty());
+        assert_eq!(scheme.syllables[2].allowed(), ["ㄌㄧˇ"]);
+        // Enter 提交转换文字，丢掉还没结束的数字。
+        type_keys(&mut scheme, "2");
+        assert_eq!(scheme.reading(), "李好李2");
+        assert!(scheme.handle_key(ZhuyinKey::Enter).unwrap());
+        assert_eq!(scheme.take_committed(), "李好李");
+        assert!(!scheme.is_composing());
+    }
+
+    #[test]
+    fn nine_key_list_rows_carry_keys_and_hide_the_spellings() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c39c");
+        // 没有数字时空格打开列表。
+        assert_eq!(type_keys(&mut scheme, " "), [true]);
+        assert!(scheme.list_open());
+        assert_eq!(scheme.spelling_symbols(), nine_key::LIST_OPEN_SYMBOLS);
+        assert!(scheme.spellings().is_empty());
+        assert!(!scheme.choose_spelling(0).unwrap());
+        let rows: Vec<(&str, usize, &str)> = scheme
+            .candidates()
+            .iter()
+            .map(|row| (row.text.as_str(), row.start, row.key.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("你好", 0, "ㄋㄧˇ ㄏㄠˇ"),
+                ("好", 1, "ㄏㄠˇ"),
+                ("郝", 1, "ㄏㄠˇ")
+            ]
+        );
+        // 列表打开时空格留给运行时选行；数字关闭列表继续拼写。
+        assert_eq!(type_keys(&mut scheme, " "), [false]);
+        assert_eq!(type_keys(&mut scheme, "2"), [true]);
+        assert!(!scheme.list_open());
+        assert_eq!(scheme.reading(), "你好2");
+        // 声调字母同样关闭列表。
+        scheme.handle_key(ZhuyinKey::Backspace).unwrap();
+        type_keys(&mut scheme, " ");
+        assert!(scheme.list_open());
+        assert_eq!(type_keys(&mut scheme, "c"), [true]);
+        assert!(!scheme.list_open());
+        assert_eq!(spellings(&scheme), ["ㄋㄧˇ", "ㄌㄧˇ", "ㄉㄧˇ"]);
+    }
+
+    #[test]
+    fn nine_key_list_selection_resolves_the_syllables_it_covers() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c ");
+        let rows: Vec<(&str, &str)> = scheme
+            .candidates()
+            .iter()
+            .map(|row| (row.text.as_str(), row.key.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("李", "ㄌㄧˇ"),
+                ("你", "ㄋㄧˇ"),
+                ("底", "ㄉㄧˇ"),
+                ("妳", "ㄋㄧˇ"),
+                ("擬", "ㄋㄧˇ")
+            ]
+        );
+        assert!(scheme.select(1).unwrap());
+        assert_eq!(scheme.converted_text(), "你");
+        assert_eq!(scheme.pins[0].key, "ㄋㄧˇ");
+        // 被 pin 覆盖的音节算已解析，不再是钉读音的目标，也不写 `locked`。
+        assert!(scheme.spellings().is_empty());
+        assert_eq!(scheme.syllables[0].locked, None);
+        type_keys(&mut scheme, "39c");
+        assert_eq!(scheme.converted_text(), "你好");
+        assert!(scheme.spellings().is_empty());
+        // 删掉 pin 结尾的音节时 pin 一起删掉，音节恢复歧义。
+        scheme.handle_key(ZhuyinKey::Backspace).unwrap();
+        scheme.handle_key(ZhuyinKey::Backspace).unwrap();
+        assert!(!scheme.is_composing());
+        type_keys(&mut scheme, "28c ");
+        assert!(scheme.select(1).unwrap());
+        type_keys(&mut scheme, "39c");
+        scheme.handle_key(ZhuyinKey::Backspace).unwrap();
+        assert_eq!(scheme.converted_text(), "你");
+        assert!(scheme.spellings().is_empty());
+        // 再删 39c 之后的那一步删掉的是 28c 和以它结尾的 pin。
+        scheme.handle_key(ZhuyinKey::Backspace).unwrap();
+        type_keys(&mut scheme, "28c");
+        assert_eq!(scheme.converted_text(), "李");
+        assert_eq!(spellings(&scheme), ["ㄌㄧˇ", "ㄋㄧˇ", "ㄉㄧˇ"]);
+    }
+
+    #[test]
+    fn nine_key_backspace_drops_a_digit_then_a_syllable_with_its_lock() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c39c");
+        assert!(scheme.choose_spelling(1).unwrap());
+        type_keys(&mut scheme, "28");
+        let mut shown = vec![(scheme.reading(), scheme.spelling_symbols())];
+        while scheme.is_composing() {
+            assert!(scheme.handle_key(ZhuyinKey::Backspace).unwrap());
+            shown.push((scheme.reading(), scheme.spelling_symbols()));
+        }
+        assert_eq!(
+            shown,
+            [
+                ("李好28".to_owned(), nine_key::SYMBOLS),
+                ("李好2".to_owned(), nine_key::SYMBOLS),
+                ("李好".to_owned(), nine_key::SYMBOLS),
+                ("李".to_owned(), nine_key::SYMBOLS),
+                (String::new(), nine_key::IDLE_SYMBOLS),
+            ]
+        );
+        // 钉住的读音随音节一起删掉。
+        type_keys(&mut scheme, "28c39c");
+        assert_eq!(scheme.converted_text(), "你好");
+        assert_eq!(spellings(&scheme), ["ㄋㄧˇ", "ㄌㄧˇ", "ㄉㄧˇ"]);
+        // 列表打开时 Backspace 只关闭列表。
+        type_keys(&mut scheme, " ");
+        assert!(scheme.handle_key(ZhuyinKey::Backspace).unwrap());
+        assert!(!scheme.list_open());
+        assert_eq!(scheme.converted_text(), "你好");
+    }
+
+    #[test]
+    fn nine_key_locks_stay_aligned_across_an_auto_shift() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, &"28c39c".repeat(10));
+        assert_eq!(scheme.converted_text(), "你好".repeat(10));
+        // 先确认第一个音节的读音，目标移到第三个音节，再把它钉成 ㄌㄧˇ。
+        assert!(scheme.choose_spelling(0).unwrap());
+        assert_eq!(scheme.spelling_target, Some(2));
+        assert!(scheme.choose_spelling(1).unwrap());
+        assert_eq!(scheme.spelling_target, Some(4));
+        assert_eq!(
+            scheme.converted_text(),
+            format!("你好李好{}", "你好".repeat(8))
+        );
+        type_keys(&mut scheme, "28c");
+        assert_eq!(scheme.take_committed(), "你好");
+        assert_eq!(scheme.syllables.len(), MAX_SYLLABLES - 1);
+        assert_eq!(scheme.syllables[0].allowed(), ["ㄌㄧˇ"]);
+        assert_eq!(
+            scheme.converted_text(),
+            format!("李好{}李", "你好".repeat(8))
+        );
+        assert_eq!(scheme.spelling_target, Some(2));
+    }
+
+    #[test]
+    fn nine_key_mode_switches_clear_the_composition_and_reset_keeps_the_mode() {
+        let (_dir, mut scheme) = nine_key_scheme();
+        type_keys(&mut scheme, "28c3");
+        scheme.reset();
+        assert!(scheme.nine_key());
+        assert!(!scheme.is_composing());
+        type_keys(&mut scheme, "28c3");
+        scheme.set_nine_key(false);
+        assert!(!scheme.is_composing());
+        assert!(!scheme.nine_key());
+        // 回到大千：数字按大千键处理，没有候选读音。
+        assert_eq!(scheme.spelling_symbols(), IDLE_SYMBOLS);
+        type_keys(&mut scheme, "su3");
+        assert_eq!(scheme.reading(), "你");
+        assert!(scheme.spellings().is_empty());
+        assert!(!scheme.choose_spelling(0).unwrap());
+        scheme.set_nine_key(true);
+        assert!(!scheme.is_composing());
+        assert_eq!(scheme.spelling_symbols(), nine_key::IDLE_SYMBOLS);
     }
 }

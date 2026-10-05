@@ -469,10 +469,10 @@ impl SchemeType {
         }
     }
 
-    /// The nine-key grid can spell the scheme's syllables.
+    /// 九键网格能拼出该方案的音节：全拼用拼音九宫格，注音用注音九键。
     pub const fn nine_key(self) -> bool {
         match self {
-            Self::Quanpin => true,
+            Self::Quanpin | Self::Zhuyin => true,
             Self::Shuangpin
             | Self::Wubi
             | Self::JapaneseRomaji
@@ -480,8 +480,7 @@ impl SchemeType {
             | Self::Vietnamese
             | Self::Tibetan
             | Self::Cantonese
-            | Self::Stroke
-            | Self::Zhuyin => false,
+            | Self::Stroke => false,
         }
     }
 
@@ -1577,11 +1576,11 @@ mod tests {
         }
     }
 
-    // Zhuyin is a Chinese scheme writing Traditional text, with only its Shift overlay as Chinese punctuation; its converted text is the reading the host draws, the caret stays at the end, candidates appear only in the list the user opens, the conversion commits on blur, and it learns nothing.
+    // Zhuyin is a Chinese scheme writing Traditional text, with only its Shift overlay as Chinese punctuation; its converted text is the reading the host draws, the caret stays at the end, candidates appear only in the list the user opens, the conversion commits on blur, and it learns nothing. 注音九键也拼它的音节，所以 `nine_key` 为真。
     #[test]
     fn zhuyin_predicates() {
         let scheme = SchemeType::Zhuyin;
-        let on: [Named; 9] = [
+        let on: [Named; 10] = [
             ("is_chinese", SchemeType::is_chinese),
             (
                 "cancel_keeps_composition",
@@ -1603,8 +1602,9 @@ mod tests {
                 SchemeType::has_openable_candidate_list,
             ),
             ("locks_caret", SchemeType::locks_caret),
+            ("nine_key", SchemeType::nine_key),
         ];
-        let off: [Named; 17] = [
+        let off: [Named; 16] = [
             (
                 "script_conversion_applies",
                 SchemeType::script_conversion_applies,
@@ -1635,7 +1635,6 @@ mod tests {
             ("accepts_apostrophe", SchemeType::accepts_apostrophe),
             ("supports_fuzzy", SchemeType::supports_fuzzy),
             ("supports_autocorrect", SchemeType::supports_autocorrect),
-            ("nine_key", SchemeType::nine_key),
             ("helpcode", SchemeType::helpcode),
         ];
         for (name, predicate) in on {

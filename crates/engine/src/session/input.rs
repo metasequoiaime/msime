@@ -632,6 +632,39 @@ impl InputSession {
         self.commit_zhuyin_composition()
     }
 
+    /// 打开或关闭注音九键模式。当前在注音里组字时先结束组字（什么都不提交），因为编辑器换模式会丢掉它；其他方案的组字不受影响。
+    pub fn set_zhuyin_nine_key(&mut self, enabled: bool) {
+        if self.is_zhuyin() && self.has_composition() {
+            self.reset_composition();
+        }
+        self.engine.set_zhuyin_nine_key(enabled);
+    }
+
+    /// 注音九键钉读音：钉住时 handled，没有可钉的目标或下标越界时 unhandled，读词库失败时 handled 并附诊断。只在注音自己的规则生效时起作用。
+    pub fn choose_zhuyin_spelling(&mut self, index: usize) -> KeyResult {
+        if !self.zhuyin_rules_apply() {
+            return KeyResult::unhandled();
+        }
+        let chosen = self.engine.choose_zhuyin_spelling(index);
+        self.update_mixed_candidates();
+        match chosen {
+            Ok(true) => {
+                self.online_requests.invalidate();
+                KeyResult::handled()
+            }
+            Ok(false) => KeyResult::unhandled(),
+            Err(error) => KeyResult::handled().with_diagnostic(Some(error.to_string())),
+        }
+    }
+
+    /// 注音九键供用户钉读音的候选读音；注音规则不生效时为空。
+    pub fn zhuyin_spellings(&self) -> Vec<String> {
+        if !self.zhuyin_rules_apply() {
+            return Vec::new();
+        }
+        self.engine.zhuyin_spellings().to_vec()
+    }
+
     /// The Zhuyin conversion goes to the host and the key that ended it does not: the result is unhandled, so a caret key, a capital or Tab still does its own work after the commit. The pending syllable is dropped and nothing is learned; a composition that converted nothing yet commits nothing.
     fn commit_zhuyin_composition(&mut self) -> KeyResult {
         let text = self.engine.take_zhuyin_text();

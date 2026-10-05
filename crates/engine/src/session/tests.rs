@@ -3577,8 +3577,8 @@ fn zhuyin_dictionary(directory: &Path) -> PathBuf {
         .expect("zhuyin metadata");
     connection
         .execute_batch(
-            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ');\
-             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600);",
+            "INSERT INTO syllables VALUES ('ㄋㄧˇ'),('ㄌㄧˇ'),('ㄏㄠˇ'),('ㄊㄞˊ'),('ㄨㄢ');\
+             INSERT INTO entries VALUES ('ㄋㄧˇ','你',1000),('ㄋㄧˇ','妳',300),('ㄌㄧˇ','李',1200),('ㄏㄠˇ','好',2000),('ㄏㄠˇ','郝',10),('ㄋㄧˇ ㄏㄠˇ','你好',500),('ㄊㄞˊ','台',900),('ㄊㄞˊ','臺',400),('ㄨㄢ','彎',500),('ㄨㄢ','灣',300),('ㄊㄞˊ ㄨㄢ','臺灣',800),('ㄊㄞˊ ㄨㄢ','台灣',600);",
         )
         .expect("zhuyin rows");
     path
@@ -3589,6 +3589,105 @@ fn zhuyin_session(fixture: &Fixture) -> Session {
         options.scheme = SchemeType::Zhuyin;
         options.zhuyin_dictionary = zhuyin_dictionary(fixture.path());
     })
+}
+
+// 注音九键：数字进注音编辑器而不是拼音九宫格，候选读音经 `nine_key_spellings` 给宿主，`choose_nine_key_spelling` 钉读音。
+#[test]
+fn zhuyin_nine_key_digits_go_to_the_bopomofo_editor() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = zhuyin_session(&fixture);
+    session.set_nine_key_enabled(true);
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.spelling_symbols, "1234567890");
+    assert!(!session.character(b' ', false).handled);
+
+    assert!(session.character(b'2', false).handled);
+    assert!(!session.nine_key.active());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.scheme, SchemeType::Zhuyin);
+    assert_eq!(snapshot.preedit, "2");
+    assert_eq!(snapshot.spelling_symbols, "1234567890 ");
+    // 候选键路线上的数字同样是拼写。
+    assert!(session.candidate_key(b'8').handled);
+    type_text(&mut session, "c39c");
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "你好");
+    assert_eq!(snapshot.editing_text, "28c39c");
+    assert_eq!(snapshot.nine_key_spellings, ["ㄋㄧˇ", "ㄌㄧˇ"]);
+    assert!(snapshot.candidates.is_empty());
+
+    assert!(!session.choose_nine_key_spelling(2).handled);
+    let chosen = session.choose_nine_key_spelling(1);
+    assert!(chosen.handled && chosen.commit.is_none());
+    let snapshot = session.snapshot();
+    assert_eq!(snapshot.preedit, "李好");
+    assert!(snapshot.nine_key_spellings.is_empty());
+
+    // 列表打开时没有候选读音。
+    assert!(session.command(Command::ConvertHanja).handled);
+    let snapshot = session.snapshot();
+    assert!(snapshot.candidate_list_open);
+    assert_eq!(snapshot.spelling_symbols, "1234567890");
+    assert!(snapshot.nine_key_spellings.is_empty());
+    session.command(Command::ConvertHanja);
+
+    assert_eq!(
+        session.command(Command::CommitRaw).commit.as_deref(),
+        Some("李好")
+    );
+    // ， 和 。 不是九键的拼写符号：走普通标点路线，先提交转换文字再上屏标点；? 由编辑器的 Shift 标点认领。
+    type_text(&mut session, "28c");
+    let comma = session.punctuation(b',');
+    assert!(comma.handled);
+    assert_eq!(comma.commit.as_deref(), Some("李，"));
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "28c");
+    let question = session.punctuation(b'?');
+    assert!(question.handled);
+    assert_eq!(question.commit.as_deref(), Some("李？"));
+    let period = session.punctuation(b'.');
+    assert!(period.handled);
+    assert_eq!(period.commit.as_deref(), Some("。"));
+    // 关掉九键后数字又是大千键：2 是 ㄉ。
+    session.set_nine_key_enabled(false);
+    assert!(session.character(b'2', false).handled);
+    assert_eq!(session.snapshot().preedit, "ㄉ");
+    assert!(session.snapshot().nine_key_spellings.is_empty());
+}
+
+#[test]
+fn zhuyin_nine_key_mode_follows_scheme_switches() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut session = fixture.session_with(|options| {
+        options.zhuyin_dictionary = zhuyin_dictionary(fixture.path());
+    });
+    session.set_nine_key_enabled(true);
+    // 全拼九键不受影响：数字仍进拼音九宫格。
+    assert!(session.character(b'6', false).handled);
+    assert!(session.nine_key.active());
+    assert_eq!(session.snapshot().scheme, SchemeType::Quanpin);
+    session.command(Command::Cancel);
+    assert!(!session.nine_key.active());
+    // 切到注音时九键模式带过去，切回全拼再切回来也一样。
+    session.switch_scheme(SchemeType::Zhuyin).unwrap();
+    type_text(&mut session, "28");
+    assert!(!session.nine_key.active());
+    assert_eq!(session.snapshot().preedit, "28");
+    session.switch_scheme(SchemeType::Quanpin).unwrap();
+    session.switch_scheme(SchemeType::Zhuyin).unwrap();
+    assert!(session.snapshot().preedit.is_empty());
+    type_text(&mut session, "28c");
+    assert_eq!(session.snapshot().preedit, "李");
+    assert_eq!(session.snapshot().nine_key_spellings, ["ㄌㄧˇ", "ㄋㄧˇ"]);
+    // 正在组字时关掉九键：注音组字被丢掉，什么都不提交。
+    session.set_nine_key_enabled(false);
+    let snapshot = session.snapshot();
+    assert!(snapshot.preedit.is_empty());
+    assert!(snapshot.nine_key_spellings.is_empty());
+    // 九键关着时 choose_nine_key_spelling 在注音里什么都不做。
+    type_text(&mut session, "su3");
+    assert!(!session.choose_nine_key_spelling(0).handled);
+    assert_eq!(session.snapshot().preedit, "你");
 }
 
 #[test]

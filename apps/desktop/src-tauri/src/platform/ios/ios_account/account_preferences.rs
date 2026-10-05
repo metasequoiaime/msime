@@ -472,6 +472,12 @@ fn select_touch_scheme(preferences: &mut Preferences, requested: TouchKeyboardSc
             preferences.last_chinese_scheme = Some(ChineseScheme::Zhuyin);
             preferences.touch_keyboard_layout = TouchKeyboardLayout::TwentySixKey;
         }
+        // 注音 9 键目前只有 Android 宿主会写出；这里只让 `select_touch_scheme` 对它有确定的取值。
+        TouchKeyboardScheme::ZhuyinNineKey => {
+            preferences.scheme = InputScheme::Zhuyin;
+            preferences.last_chinese_scheme = Some(ChineseScheme::Zhuyin);
+            preferences.touch_keyboard_layout = TouchKeyboardLayout::NineKey;
+        }
         // 笔画键盘由宿主自己画，26 键与九键下都显示同一块笔画键盘，这里与注音一样记为 26 键。
         TouchKeyboardScheme::Stroke => {
             preferences.scheme = InputScheme::Stroke;

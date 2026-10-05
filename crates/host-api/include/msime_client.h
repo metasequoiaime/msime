@@ -464,11 +464,8 @@ char *msime_client_english_completions_request(const uint8_t *request,
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_character_width(uint64_t session, bool fullwidth);
 char *msime_client_set_english_mode(uint64_t session, bool enabled);
-/* Engine-owned quanpin nine-key mode. Call only after finishing composition.
- * View.nine_key and View.nine_key_spellings are authoritative. Enabling for
- * another scheme or changing mode during composition is rejected.
- * View.touch_keyboard_layout is the applied host presentation preference; a
- * Japanese nine-key host uses it without enabling Engine quanpin nine-key. */
+/* 引擎负责的九键模式，用于全拼九宫格或注音九键（注音下 View.nine_key_spellings 是目标音节的候选读音）。只在组字结束后调用。View.nine_key 和 View.nine_key_spellings 是权威状态。对其他方案开启、或在组字中切换模式都会被拒绝。
+ * View.touch_keyboard_layout 是已应用的宿主呈现偏好；日文九键宿主只用它，不开启引擎的九键模式。 */
 char *msime_client_set_nine_key_mode(uint64_t session, bool enabled);
 char *msime_client_set_paired_punctuation(uint64_t session, bool enabled);
 char *msime_client_set_punctuation_lock(uint64_t session, uint8_t lock);
