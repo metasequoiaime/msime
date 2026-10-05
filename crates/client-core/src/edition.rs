@@ -798,7 +798,7 @@ mod tests {
             .collect()
     }
 
-    /// full 的资源锁逐字节就是原文件，代次与引入版本之前相同：用户词库目录 `user/dictionaries/<代次>` 不变，升级不会重新准备。期望值是按当前这份锁（msime-dictionary 的 `dict-v2.0.10`）算出的代次；换词库版本时它理应变化，届时连同锁文件一起更新。
+    /// full 的资源锁逐字节就是原文件，代次与引入版本之前相同：用户词库目录 `user/dictionaries/<代次>` 不变，升级不会重新准备。期望值是按当前这份锁（msime-dictionary 的 `dict-v2.0.11`）算出的代次；换词库版本时它理应变化，届时连同锁文件一起更新。
     #[test]
     fn full_keeps_the_desktop_lock_and_its_generation() {
         let full = Edition::full();
@@ -812,7 +812,7 @@ mod tests {
         assert_eq!(set.artifacts.len(), 12);
         assert_eq!(
             set.generation().unwrap(),
-            "a41341d0b03572efc4fac64aefec3c36af35a5e960706f52ca17094b4271bfe3"
+            "53cfdacb9efcbf5e60feb01759d30d9b1e2d39c8a3deb928189f846033d2efb9"
         );
     }
 
