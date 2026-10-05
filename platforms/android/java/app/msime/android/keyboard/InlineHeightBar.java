@@ -74,7 +74,7 @@ public final class InlineHeightBar extends LinearLayout {
     }
 
     private static Button textButton(Context context, String label) {
-        Button button = new Button(context);
+        Button button = new BarButton(context);
         button.setText(label);
         button.setAllCaps(false);
         button.setBackground(null);
@@ -126,14 +126,13 @@ public final class InlineHeightBar extends LinearLayout {
 
     /** 取消、重置的文字色（kbFg）、拖动柄色（kbFg，绘制时取 35%）、说明色（kbSub）、完成胶囊（accent / onAccent）。 */
     public void setColors(int foreground, int secondary, int accent, int onAccent) {
-        cancel.setTextColor(foreground);
-        reset.setTextColor(foreground);
-        done.setTextColor(onAccent);
+        ((BarButton) cancel).setColors(foreground, null);
+        ((BarButton) reset).setColors(foreground, null);
         GradientDrawable pill = new GradientDrawable();
         pill.setShape(GradientDrawable.RECTANGLE);
         pill.setCornerRadius(16 * getResources().getDisplayMetrics().density);
         pill.setColor(accent);
-        done.setBackground(pill);
+        ((BarButton) done).setColors(onAccent, pill);
         handle.barColor = Color.argb(Math.round(Color.alpha(foreground) * .35f),
             Color.red(foreground), Color.green(foreground), Color.blue(foreground));
         handle.textColor = secondary;
@@ -180,6 +179,40 @@ public final class InlineHeightBar extends LinearLayout {
             return true;
         }
         return super.performAccessibilityAction(action, arguments);
+    }
+
+    /**
+     * 条上的文字按钮。键盘的整树样式通道每次 render 都会给每个 Button 套键帽、改字色，这里只认 {@link #setColors} 给的颜色和底，外部的改动一律挡回。
+     */
+    private static final class BarButton extends Button {
+        private boolean own;
+        private int color = Color.BLACK;
+        private android.graphics.drawable.Drawable face;
+
+        BarButton(Context context) {
+            super(context);
+        }
+
+        void setColors(int text, android.graphics.drawable.Drawable background) {
+            color = text;
+            face = background;
+            own = true;
+            super.setTextColor(text);
+            super.setBackground(background);
+            own = false;
+        }
+
+        @Override public void setTextColor(int value) {
+            super.setTextColor(own ? value : color);
+        }
+
+        @Override public void setTextColor(android.content.res.ColorStateList value) {
+            super.setTextColor(color);
+        }
+
+        @Override public void setBackground(android.graphics.drawable.Drawable background) {
+            super.setBackground(own ? background : face);
+        }
     }
 
     /** 中间的拖动区：画横条与说明，把竖直拖动换成百分比。 */

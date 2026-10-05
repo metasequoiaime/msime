@@ -40,48 +40,47 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             stage = "baseline keyboard height";
             int standard = keyHeight("n");
 
-            // 设置 lives in the shortcut bar, and the candidate strip takes that row while a
-            // composition is open, so the panel is only reachable from an idle keyboard: resizing
-            // mid-composition is not something this surface can be driven into.
-            // 设置 is disabled while preferences are still loading and while a geometry save is
-            // in flight, so each visit waits for it to be operable rather than clicking blind.
-            stage = "open keyboard settings";
-            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
-            await(heightSlider());
+            // 键盘高度 is a function-panel tile; it turns the toolbar row into the inline height bar, which previews while it is walked and saves only on 完成. The panel is reachable only from an idle keyboard, so each visit starts from the brand key.
+            stage = "open inline height";
+            openHeightBar();
             stage = "increase keyboard height";
-            setHeight(48);
-            long tallRevision = awaitHeightPreference(preferences, 48, revision + 2);
-            stage = "return from tall setting";
-            tap(description("返回键盘"));
+            setHeight(130);
+            tap(key("完成"));
+            long tallRevision = awaitHeightPreference(preferences, 55, revision + 2);
             int tall = keyHeight("n");
-            int minimumDelta = Math.round(12 * getTargetContext()
+            int minimumDelta = Math.round(8 * getTargetContext()
                 .getResources().getDisplayMetrics().density);
             if (tall < standard + minimumDelta)
-                throw new AssertionError("Positive adjustment did not enlarge key faces: "
+                throw new AssertionError("Taller keyboard did not enlarge key faces: "
                     + standard + " -> " + tall + ", expected delta " + minimumDelta);
 
             stage = "decrease keyboard height";
-            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
-            setHeight(-12);
-            long shortRevision = awaitHeightPreference(preferences, -12, tallRevision + 1);
-            tap(description("返回键盘"));
+            openHeightBar();
+            setHeight(75);
+            tap(key("完成"));
+            long shortRevision = awaitHeightPreference(preferences, -46, tallRevision + 1);
             int shortHeight = keyHeight("n");
             if (shortHeight >= standard)
-                throw new AssertionError("Negative adjustment did not shrink key faces: "
+                throw new AssertionError("Shorter keyboard did not shrink key faces: "
                     + standard + " -> " + shortHeight);
 
-            stage = "restore keyboard settings defaults";
-            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
-            // 恢复默认 is the button's face; its description is 恢复键盘布局默认值.
-            await(description("恢复键盘布局默认值"));
-            tap(description("恢复键盘布局默认值"));
-            long resetRevision = awaitResetPreference(preferences, shortRevision + 1);
+            stage = "cancel keeps the saved height";
+            openHeightBar();
+            setHeight(120);
+            tap(key("取消"));
+            await(key("n").and(AccessibilityNodeInfo::isClickable));
+            if (Math.abs(keyHeight("n") - shortHeight) > 2)
+                throw new AssertionError("Cancelled preview was not reverted");
+
+            stage = "reset to 100 percent";
+            openHeightBar();
+            tap(key("重置"));
+            if (Math.round(await(heightSlider()).getRangeInfo().getCurrent()) != 100)
+                throw new AssertionError("重置 did not return the bar to 100%");
+            tap(key("完成"));
+            long resetRevision = awaitHeightPreference(preferences, 0, shortRevision + 1);
             if (resetRevision <= shortRevision)
-                throw new AssertionError("Keyboard settings reset did not advance revision");
-            if (await(heightSlider()).getRangeInfo().getCurrent() != 0f
-                    || await(description("顶部语音入口")).isChecked())
-                throw new AssertionError("Keyboard settings controls did not return to defaults");
-            tap(description("返回键盘"));
+                throw new AssertionError("Height reset did not advance revision");
             int resetHeight = keyHeight("n");
             if (Math.abs(resetHeight - standard) > 2)
                 throw new AssertionError("Reset keyboard height did not return to default: "
@@ -122,14 +121,16 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         return bounds.height();
     }
 
-    /**
-     * The transparent adjust layer, which reports itself as a SeekBar with the height range.
-     *
-     * <p>The old settings panel had a labelled 键盘高度 SeekBar; it is still in the tree but GONE
-     * since the panel became the drag layer, so matching that label found an invisible view.
-     */
+    /** The inline height bar: described 键盘布局调整, with a 75–130 percent range and five-percent scroll steps. */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
-        return describedPrefix("键盘布局调整").and(node -> node.getRangeInfo() != null);
+        return description("键盘布局调整").and(node -> node.getRangeInfo() != null);
+    }
+
+    private void openHeightBar() throws Exception {
+        tap(key("更多").and(AccessibilityNodeInfo::isEnabled));
+        await(toolPanel());
+        tap(tool("键盘高度").and(AccessibilityNodeInfo::isEnabled));
+        await(heightSlider());
     }
 
     private java.util.function.Predicate<AccessibilityNodeInfo> description(String value) {
@@ -140,8 +141,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     /**
      * Walk the height to `target`.
      *
-     * <p>The adjust layer exposes only the scroll actions, two device-independent pixels apiece,
-     * so there is no progress to set; the range it reports is what says where the walk has got to.
+     * <p>The bar exposes only the scroll actions, five percent apiece, so there is no progress to set; the range it reports is what says where the walk has got to.
      */
     private void setHeight(int target) {
         for (int guard = 0; guard < 64; guard++) {
@@ -177,28 +177,6 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             SystemClock.sleep(100);
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Height preference was not saved");
-    }
-
-    private long awaitResetPreference(File file, long minimumRevision) throws Exception {
-        long deadline = SystemClock.uptimeMillis() + 15000;
-        do {
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            try {
-                JSONObject current = new JSONObject(new String(bytes, StandardCharsets.UTF_8));
-                JSONObject settings = current.getJSONObject("preferences");
-                if (current.getLong("revision") >= minimumRevision
-                        && !settings.has("touch_key_spacing_tenths")
-                        && !settings.has("touch_row_spacing_tenths")
-                        && !settings.has("touch_keyboard_height_adjustment")
-                        && !settings.has("touch_voice_shortcut")) {
-                    return current.getLong("revision");
-                }
-            } catch (RuntimeException ignored) {
-                // Atomic replacement can briefly expose no complete snapshot to this polling read.
-            }
-            SystemClock.sleep(100);
-        } while (SystemClock.uptimeMillis() < deadline);
-        throw new AssertionError("Keyboard settings reset was not saved");
     }
 
     private void shell(String command) throws Exception {

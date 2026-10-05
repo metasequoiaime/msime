@@ -1203,6 +1203,107 @@ final class ImePanels {
         }
     }
 
+    /** 常用语面板的读取代次：面板关掉或重开后，迟到的结果直接丢弃。 */
+    private long phraseGeneration;
+
+    /** 工具栏「常用语」：先完成当前组词，在工作线程读无编码常用语（`NativeClient.commonPhrases` 的 load），列成一列，点一条上屏。 */
+    void showCommonPhrases() {
+        if (s.phraseScroll == null || s.phrasePanel == null) return;
+        s.command(2);
+        s.closeCandidatePanel();
+        long generation = ++phraseGeneration;
+        renderCommonPhrases(java.util.List.of(), "正在读取常用语…");
+        s.phraseScroll.setVisibility(View.VISIBLE);
+        String directory = s.preferencesDirectory;
+        if (directory.isEmpty()) {
+            renderCommonPhrases(java.util.List.of(), "常用语尚未就绪");
+            return;
+        }
+        String request;
+        try {
+            request = new JSONObject().put("directory", directory)
+                .put("action", new JSONObject().put("operation", "load")).toString();
+        } catch (org.json.JSONException error) {
+            renderCommonPhrases(java.util.List.of(), "常用语读取失败");
+            return;
+        }
+        Runnable load = () -> {
+            java.util.List<String> phrases = new java.util.ArrayList<>();
+            String failure = null;
+            try {
+                JSONObject root = new JSONObject(NativeClient.commonPhrases(request));
+                JSONObject value = root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+                JSONArray list = value == null ? null : value.optJSONArray("phrases");
+                if (list == null) failure = "常用语读取失败";
+                else for (int index = 0; index < list.length(); index++) {
+                    JSONObject phrase = list.optJSONObject(index);
+                    String text = phrase == null ? "" : phrase.optString("text", "");
+                    if (!text.isEmpty()) phrases.add(text);
+                }
+            } catch (org.json.JSONException | RuntimeException | LinkageError error) {
+                failure = "常用语读取失败";
+            }
+            final String message = failure != null ? failure
+                : phrases.isEmpty() ? "还没有常用语，可在应用的「常用语」页添加" : null;
+            s.main.post(() -> {
+                if (generation != phraseGeneration || s.phraseScroll == null
+                        || s.phraseScroll.getVisibility() != View.VISIBLE) return;
+                renderCommonPhrases(phrases, message);
+                s.imeStyler.applySkin();
+            });
+        };
+        try {
+            s.preferencesWorker.execute(load);
+        } catch (RuntimeException error) {
+            renderCommonPhrases(java.util.List.of(), "常用语读取失败");
+        }
+    }
+
+    private void renderCommonPhrases(java.util.List<String> phrases, String message) {
+        LinearLayout panel = s.phrasePanel;
+        panel.removeAllViews();
+        panel.setPadding(s.pixels(4), 0, s.pixels(4), s.pixels(8));
+        s.imeStyler.applySkinBackground(panel);
+        if (message != null) {
+            TextView note = new TextView(s);
+            note.setText(message);
+            note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            note.setGravity(Gravity.CENTER);
+            note.setPadding(s.pixels(12), s.pixels(24), s.pixels(12), s.pixels(24));
+            panel.addView(note, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        for (String phrase : phrases) {
+            KeyboardPressButton row = new KeyboardPressButton(s);
+            row.setKeyboardRole(KeyboardKeyRole.GLYPH);
+            row.setAllCaps(false);
+            row.setText(phrase);
+            row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            row.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+            row.setMaxLines(2);
+            row.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            row.setPadding(s.pixels(12), s.pixels(8), s.pixels(12), s.pixels(8));
+            row.setContentDescription("常用语 " + (phrase.length() > 20 ? phrase.substring(0, 20) : phrase));
+            row.setOnClickListener(ignored -> {
+                s.imeKeyFeedback.playFeedback(row);
+                if (s.connection == null) return;
+                s.command(2);
+                s.commitText(phrase);
+                s.closeCommonPhrases();
+                s.render();
+            });
+            panel.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            View hairline = new View(s);
+            hairline.setBackgroundColor(Color.parseColor(s.skin.hairline()));
+            LinearLayout.LayoutParams line = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, s.pixels(1)));
+            line.setMarginStart(s.pixels(12));
+            line.setMarginEnd(s.pixels(12));
+            panel.addView(hairline, line);
+        }
+    }
+
     void showFeedbackMenu() {
         if (s.moreButton == null || s.moreToolsPanel == null || s.moreToolsScroll == null) return;
         s.closeEmojiPicker();

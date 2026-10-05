@@ -5,98 +5,114 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** 键盘顶部：候选头（品牌标、读音、提示、漢、展开、退出本地模式）与空闲时的快捷栏；从 MSIMEInputService 原样搬出，状态仍在服务里。 */
+/**
+ * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），调整键盘高度时是内联高度条。状态仍在服务里。
+ */
 final class ImeToolbar {
+    /** 组词时读音那一行的高度：12 sp 的读音加上下留白。 */
+    static final int READING_ROW_DP = 16;
+    /** 候选 chip 那一行的高度（设计 34 dp）。 */
+    static final int CANDIDATE_LINE_DP = 34;
+    /** 多出一行释义时每行加的高度。 */
+    static final int EXTRA_GLOSS_ROW_DP = 14;
+
     private final MSIMEInputService s;
 
     ImeToolbar(MSIMEInputService s) {
         this.s = s;
     }
 
+    /** 空闲工具栏：品牌、表情、常用语、剪贴板、皮肤、输入方式、收起，等分整行宽度；哪些显示由 render 按 `touch_toolbar` 决定。 */
     void installShortcutBar(Button dismissButton) {
         s.shortcutBar.removeAllViews();
-        // The design's idle row: the brand mark first, then the scheme pill, the content tools and 收起, with ⚙ at the far end.
-        Button[] buttons = {s.moreButton, s.schemeButton, s.replyShortcutButton, s.emojiShortcutButton,
-            s.voiceShortcutButton, s.skinButton, dismissButton, s.layoutSettingsButton};
+        s.dismissShortcutButton = dismissButton;
+        Button[] buttons = {s.moreButton, s.emojiShortcutButton, s.phraseShortcutButton,
+            s.clipboardShortcutButton, s.skinButton, s.schemeButton, dismissButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, s.pixels(44), 1);
-            params.setMarginStart(s.pixels(2));
-            params.setMarginEnd(s.pixels(2));
+            params.setMarginStart(s.pixels(1));
+            params.setMarginEnd(s.pixels(1));
             s.shortcutBar.addView(button, params);
-            button.setMinWidth(s.pixels(44));
-            button.setMinimumWidth(s.pixels(44));
+            button.setMinWidth(s.pixels(40));
+            button.setMinimumWidth(s.pixels(40));
         }
-        // Traditional output and AI are persistent settings/actions in the Apple layout; keep
-        // their Android controls detached from the shortcut strip rather than duplicating them.
-        s.scriptShortcutButton.setVisibility(View.GONE);
-        s.aiPolishShortcutButton.setVisibility(View.GONE);
+        // 旧的回复、语音、简繁、AI 润色、⚙ 入口不在新工具栏上：AI 在功能面板第 2 页，语音由长按空格进入，设置在功能面板里。按钮对象保留，服务里其余代码照常更新它们的状态。
+        for (Button retired : new Button[] {s.scriptShortcutButton, s.aiPolishShortcutButton,
+                s.replyShortcutButton, s.voiceShortcutButton, s.layoutSettingsButton}) {
+            if (retired == null) continue;
+            if (retired.getParent() instanceof LinearLayout parent) parent.removeView(retired);
+            retired.setVisibility(View.GONE);
+        }
     }
 
+    /** 读音行（读音、提示、页码、漢、退出本地模式）与工具栏的滚动容器；读音行只在组词或有提示时显示。 */
     void buildCandidateHeader(LinearLayout candidateRegion) {
         LinearLayout candidateHeader = new LinearLayout(s);
         candidateHeader.setGravity(Gravity.CENTER_VERTICAL);
-        candidateHeader.setPadding(s.pixels(10), s.pixels(6), s.pixels(6), s.pixels(2));
-        // The brand mark leads the header the way it leads the macOS candidate window's top row: 16dp, then a 6dp gap before the reading. The header is never hidden, so the mark is always present; it is decorative, since the idle pill beside it already reads 水杉输入法.
-        s.candidateBrandMark = new KeyboardBrandMark(s, () -> Color.parseColor(s.skin.accent()));
-        LinearLayout.LayoutParams brandMarkLayout = new LinearLayout.LayoutParams(
-            s.pixels(16), s.pixels(16));
-        brandMarkLayout.setMarginEnd(s.pixels(6));
-        candidateHeader.addView(s.candidateBrandMark, brandMarkLayout);
+        candidateHeader.setPadding(s.pixels(10), 0, s.pixels(6), 0);
+        s.candidateHeader = candidateHeader;
         s.preedit = new TextView(s);
-        s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.candidatePreeditFontSize);
+        s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         s.preedit.setMaxLines(1);
+        s.preedit.setIncludeFontPadding(false);
         s.preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
         s.preedit.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(s.preedit);
             s.imePanels.showLocalInputMenu();
         });
-        // The pill hugs its own text, so it needs a parent that bounds it: a weighted TextView would
-        // stretch the outline the whole width of the keyboard.
         LinearLayout preeditFrame = new LinearLayout(s);
         preeditFrame.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         preeditFrame.addView(s.preedit, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateHeader.addView(preeditFrame, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        // The host notice channel: idle it names the build, and a deferred or failed preference load
-        // is the only thing the user ever reads here. It keeps the caption weight the design gives a
-        // secondary label rather than the headline it used to be at the top of the keyboard.
+        // 宿主提示通道：正常为空，只有准备中、失败或提示时才有文字。
         s.status = new TextView(s);
         s.status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
         s.status.setMaxLines(1);
+        s.status.setIncludeFontPadding(false);
         s.status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         s.status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         s.status.setPadding(s.pixels(6), 0, s.pixels(2), 0);
         candidateHeader.addView(s.status, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         s.candidatePage = new TextView(s);
+        s.candidatePage.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        s.candidatePage.setIncludeFontPadding(false);
         candidateHeader.addView(s.candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         s.shortcutBar = new LinearLayout(s);
         s.shortcutBar.setOrientation(LinearLayout.HORIZONTAL);
         s.shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
         s.shortcutBar.setContentDescription("键盘快捷栏");
-        s.shortcutBar.setPadding(s.pixels(8), 0, s.pixels(8), 0);
+        s.shortcutBar.setPadding(s.pixels(2), 0, s.pixels(2), 0);
         s.shortcutScroll = new HorizontalScrollView(s);
         s.shortcutScroll.setHorizontalScrollBarEnabled(false);
-        s.shortcutScroll.setContentDescription("键盘快捷栏");
         s.shortcutScroll.setFillViewport(true);
-        // The glyphs share the width evenly instead of queueing from the left edge; the scroll view
-        // stays as the fallback for a narrow screen that cannot give each a 44dp target.
         s.shortcutScroll.addView(s.shortcutBar, new HorizontalScrollView.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
         s.scriptShortcutButton = s.button(s.shortcutBar, "简", s::toggleChineseOutput);
         s.scriptShortcutButton.setContentDescription("切换到繁体");
         s.emojiShortcutButton = s.shortcutButton(s.shortcutBar, "☺",
-            KeyboardShortcutIconPolicy.Icon.EMOJI, s.imePanels::showEmojiPicker);
-        s.emojiShortcutButton.setContentDescription("打开表情浏览");
+            KeyboardShortcutIconPolicy.Icon.EMOJI,
+            panelToggle(() -> s.emojiPanel, s.imePanels::showEmojiPicker));
+        s.emojiShortcutButton.setContentDescription("表情");
         s.keyId(s.emojiShortcutButton, "SoftEmoji");
+        s.phraseShortcutButton = s.shortcutButton(s.shortcutBar, "常用语",
+            KeyboardShortcutIconPolicy.Icon.PHRASE,
+            panelToggle(() -> s.phraseScroll, s.imePanels::showCommonPhrases));
+        s.phraseShortcutButton.setContentDescription("常用语");
+        s.clipboardShortcutButton = s.shortcutButton(s.shortcutBar, "剪贴板",
+            KeyboardShortcutIconPolicy.Icon.CLIPBOARD,
+            panelToggle(() -> s.clipboardScroll, s.imePanels::showClipboardHistory));
+        s.clipboardShortcutButton.setContentDescription("剪贴板");
         s.voiceShortcutButton = s.shortcutButton(s.shortcutBar, "语音",
             KeyboardShortcutIconPolicy.Icon.VOICE, s::showVoiceResult);
         s.voiceShortcutButton.setContentDescription("打开语音结果");
@@ -106,43 +122,28 @@ final class ImeToolbar {
         s.replyShortcutButton = s.shortcutButton(s.shortcutBar, "回复",
             KeyboardShortcutIconPolicy.Icon.REPLY, s::toggleReplyKeyboard);
         s.replyShortcutButton.setContentDescription("生成高情商回复");
-        // 漢 is the touch counterpart of a Korean keyboard's Hanja key: it lists the Hanja of the composing syllable on the strip below and closes the list again. It sits in the header so it stays put while the list fills the strip, and render() shows it only while a Korean syllable composes; the filled face says the list is open. While a Zhuyin conversion composes the same key reads 選 and opens the conversion's list, through the same shared command 16 (MSIME_OPEN_CANDIDATE_LIST).
+        // 漢 是韩语键盘 Hanja 键的触屏对应：列出组字音节的汉字，再点一次关上；注音组字时同一个键读作 選，经共享命令 16 打开转换列表。只在这两种情况下由 render 显示。
         KeyboardPressButton hanja = new KeyboardPressButton(s);
         hanja.setKeyboardRole(KeyboardKeyRole.GLYPH);
         s.hanjaButton = hanja;
         s.hanjaButton.setAllCaps(false);
         s.hanjaButton.setText("漢");
-        s.hanjaButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        s.hanjaButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         s.hanjaButton.setContentDescription("转换为汉字");
         s.hanjaButton.setVisibility(View.GONE);
         s.hanjaButton.setOnClickListener(ignored -> {
             s.imeKeyFeedback.playFeedback(s.hanjaButton);
             s.command(KoreanInputPolicy.CONVERT_HANJA_COMMAND);
         });
+        s.hanjaButton.setPadding(s.pixels(8), 0, s.pixels(8), 0);
         s.hanjaButton.setMinHeight(0);
         s.hanjaButton.setMinimumHeight(0);
         candidateHeader.addView(s.hanjaButton, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
-        KeyboardPressButton expand = new KeyboardPressButton(s);
-        expand.setKeyboardRole(KeyboardKeyRole.GLYPH);
-        s.expandCandidates = expand;
-        s.expandCandidates.setAllCaps(false);
-        s.expandCandidates.setText("展开");
-        s.expandCandidates.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        s.expandCandidates.setContentDescription("展开候选面板");
-        s.expandCandidates.setOnClickListener(ignored -> {
-            s.imeKeyFeedback.playFeedback(s.expandCandidates);
-            s.openCandidatePanel();
-        });
-        s.expandCandidates.setMinHeight(0);
-        s.expandCandidates.setMinimumHeight(0);
-        s.expandCandidates.setPadding(s.pixels(10), 0, s.pixels(10), 0);
-        candidateHeader.addView(s.expandCandidates, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         s.exitLocalModeButton = new KeyboardBorderlessButton(s);
         s.exitLocalModeButton.setAllCaps(false);
         s.exitLocalModeButton.setText("×");
-        s.exitLocalModeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        s.exitLocalModeButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         s.exitLocalModeButton.setContentDescription("退出本地模式");
         s.exitLocalModeButton.setPadding(0, 0, 0, 0);
         s.imeStyler.styleButton(s.exitLocalModeButton, true);
@@ -153,9 +154,103 @@ final class ImeToolbar {
         s.exitLocalModeButton.setMinHeight(0);
         s.exitLocalModeButton.setMinimumHeight(0);
         candidateHeader.addView(s.exitLocalModeButton, new LinearLayout.LayoutParams(
-            s.pixels(40), LinearLayout.LayoutParams.MATCH_PARENT));
-        // 标题行固定高度：空闲时只有一个小标签，组词时出现「展开」等按钮，按内容撑高会让键盘在打字时变高。
+            s.pixels(32), LinearLayout.LayoutParams.MATCH_PARENT));
         candidateRegion.addView(candidateHeader, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(MSIMEInputService.CANDIDATE_HEADER_HEIGHT_DP)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(READING_ROW_DP)));
+    }
+
+    /** 候选那一行：候选滚动区占满剩余宽度，右端是分隔线加展开键。 */
+    void addCandidateLine(LinearLayout candidateRegion, FrameLayout viewport, int height) {
+        LinearLayout line = new LinearLayout(s);
+        line.setOrientation(LinearLayout.HORIZONTAL);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        line.addView(viewport, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        CandidateChevronButton expand = new CandidateChevronButton(s);
+        s.expandCandidates = expand;
+        expand.setContentDescription("展开候选");
+        expand.setOnClickListener(ignored -> {
+            s.imeKeyFeedback.playFeedback(expand);
+            if (s.candidatePanelOpen) s.closeCandidatePanel();
+            else s.openCandidatePanel();
+            expand.setExpanded(s.candidatePanelOpen, true);
+            s.render();
+        });
+        expand.setVisibility(View.GONE);
+        line.addView(expand, new LinearLayout.LayoutParams(
+            s.pixels(CandidateChevronButton.WIDTH_DP), s.pixels(CandidateChevronButton.BUTTON_DP)));
+        s.candidateLine = line;
+        line.setVisibility(View.GONE);
+        candidateRegion.addView(line, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, height));
+    }
+
+    /** 工具栏按钮的点按：它的面板开着就回到键盘，否则先关掉别的面板再打开它。 */
+    Runnable panelToggle(java.util.function.Supplier<View> panel, Runnable show) {
+        return () -> {
+            View current = panel.get();
+            boolean open = current != null && current.getVisibility() == View.VISIBLE;
+            s.closeToolbarPanels();
+            if (!open) show.run();
+            s.render();
+        };
+    }
+
+    /** 内联键盘高度条：调整时替换整行工具栏。 */
+    void addInlineHeightBar(LinearLayout candidateRegion) {
+        InlineHeightBar bar = new InlineHeightBar(s);
+        bar.setVisibility(View.GONE);
+        bar.setBasePixels(s.pixels(KeyboardGeometry.HEIGHT_PERCENT_BASE_DP));
+        s.inlineHeightBar = bar;
+        candidateRegion.addView(bar, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            s.pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
+    }
+
+    /** 每次 render 末尾：工具栏图标色、激活底、品牌键配色、展开键与高度条的颜色。 */
+    void styleTopRow() {
+        KeyboardSkin skin = s.skin;
+        int icon = Color.parseColor(skin.toolbarIcon());
+        int active = Color.parseColor(skin.toolbarActiveIcon());
+        int soft = Color.parseColor(skin.toolbarActiveBackground());
+        int fg = Color.parseColor(skin.keyForeground());
+        for (Button button : new Button[] {s.emojiShortcutButton, s.phraseShortcutButton,
+                s.clipboardShortcutButton, s.skinButton, s.schemeButton}) {
+            if (button instanceof KeyboardShortcutButton shortcut) {
+                shortcut.setActiveFill(soft);
+                shortcut.setIconColors(icon, active);
+            }
+        }
+        if (s.dismissShortcutButton instanceof KeyboardShortcutButton dismiss)
+            dismiss.setIconColors(fg, fg);
+        if (s.moreButton instanceof KeyboardBrandButton brand) {
+            int accent = Color.parseColor(skin.accent());
+            int card = Color.parseColor(skin.keyBackground());
+            brand.setLogoColors(mix(accent, card, skin.dark() ? .22f : .14f),
+                mix(accent, Color.BLACK, .82f));
+            brand.setPanelOpen(s.anyToolbarPanelOpen(), soft);
+        }
+        if (s.expandCandidates instanceof CandidateChevronButton chevron) {
+            chevron.setColors(fg, Color.parseColor(skin.hairline()));
+            chevron.setExpanded(s.candidatePanelOpen, true);
+        }
+        if (s.inlineHeightBar != null)
+            s.inlineHeightBar.setColors(fg, Color.parseColor(skin.hint()),
+                Color.parseColor(skin.returnBackground()), Color.parseColor(skin.returnForeground()));
+        if (s.preedit != null) {
+            s.preedit.setTextColor(Color.parseColor(skin.hint()));
+            s.preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            s.preedit.setBackground(null);
+            s.preedit.setPadding(0, 0, 0, 0);
+        }
+    }
+
+    /** `amount` 份 `color` 混进 `base`（设计的 `mix(color amount, base)`）。 */
+    static int mix(int color, int base, float amount) {
+        float t = Math.max(0f, Math.min(1f, amount));
+        return Color.rgb(
+            Math.round(Color.red(color) * t + Color.red(base) * (1 - t)),
+            Math.round(Color.green(color) * t + Color.green(base) * (1 - t)),
+            Math.round(Color.blue(color) * t + Color.blue(base) * (1 - t)));
     }
 }

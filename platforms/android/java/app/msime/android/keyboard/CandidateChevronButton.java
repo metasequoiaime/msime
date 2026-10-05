@@ -5,6 +5,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.drawable.Drawable;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
 
@@ -39,6 +40,11 @@ public final class CandidateChevronButton extends Button {
         setMinimumWidth(0);
         setMinHeight(0);
         setMinimumHeight(0);
+    }
+
+    /** 展开键只画分隔线和 chevron；键盘的整树样式通道会给每个 Button 套键帽，这里挡掉。 */
+    @Override public void setBackground(Drawable background) {
+        super.setBackground(null);
     }
 
     public void setColors(int chevron, int hairline) {

@@ -51,7 +51,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         tap(description("按键 表情 😀"));
         stage = "emoji panel return";
         tap(description("返回键盘"));
-        await(description("打开表情浏览").and(AccessibilityNodeInfo::isClickable));
+        await(description("表情").and(AccessibilityNodeInfo::isClickable));
         AccessibilityNodeInfo editor = await(field("msime-test-plain").and(node ->
             node.getText() != null && node.getText().toString().endsWith("😀")
                 && node.getText().length() > "😀".length()));
@@ -60,14 +60,14 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
             0, committedWithEmoji.length() - "😀".length());
 
         stage = "emoji recent entry";
-        tap(description("打开表情浏览"));
+        tap(description("表情"));
         await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
         stage = "emoji deletion";
         tap(description("删除"));
         tap(description("返回键盘"));
         await(field("msime-test-plain").and(node -> equalsText(finishedPrefix, node.getText())));
         stage = "emoji recent insertion";
-        tap(description("打开表情浏览"));
+        tap(description("表情"));
         await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
         tap(description("按键 表情 😀"));
         tap(description("返回键盘"));
@@ -76,7 +76,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         stage = "emoji recents survive restart";
         rebindInputMethod();
         openEditor();
-        tap(description("打开表情浏览"));
+        tap(description("表情"));
         await(description("表情分类 最近").and(AccessibilityNodeInfo::isSelected));
         await(description("按键 表情 😀").and(AccessibilityNodeInfo::isClickable));
         tap(description("返回键盘"));

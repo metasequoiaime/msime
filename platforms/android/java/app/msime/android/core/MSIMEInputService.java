@@ -235,6 +235,34 @@ public final class MSIMEInputService extends InputMethodService {
     Button voiceShortcutButton;
     Button aiPolishShortcutButton;
     Button replyShortcutButton;
+    Button phraseShortcutButton;
+    Button clipboardShortcutButton;
+    Button dismissShortcutButton;
+    /** 顶部一行里组词时的读音行与候选行。 */
+    LinearLayout candidateHeader;
+    LinearLayout candidateLine;
+    /** 内联键盘高度条；进入时记下原值，取消时恢复。 */
+    InlineHeightBar inlineHeightBar;
+    boolean inlineHeightActive;
+    private int inlineHeightOriginal;
+    /** 功能面板（新设计的菜单）与它的「AI 回复与润色」分段页。 */
+    FunctionPanelView functionPanel;
+    boolean aiAssistChooserOpen;
+    /** 常用语面板。 */
+    ScrollView phraseScroll;
+    LinearLayout phrasePanel;
+    /** `touch_toolbar` 的各个按钮开关与「显示方式：隐藏」。 */
+    boolean toolbarEmoji = true;
+    boolean toolbarPhrase = true;
+    boolean toolbarClipboard = true;
+    boolean toolbarSkin = true;
+    boolean toolbarScheme = true;
+    boolean toolbarHidden;
+    /** 功能面板上直接切换的三个偏好：模糊音、单手模式（off / left / right）、隐私模式。 */
+    boolean fuzzyPinyinEnabled;
+    String oneHandedMode = "off";
+    boolean incognitoEnabled;
+    boolean panelPreferenceSaving;
     Button microsoftFinalKey;
     final java.util.List<ShuangpinHintButton> shuangpinKeyButtons =
         new java.util.ArrayList<>();
@@ -441,7 +469,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable personalDictionarySyncTask;
     private long engineStartGeneration;
     private Runnable inputViewRefreshTask;
-    private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
+    final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
         new ThreadPoolExecutor.AbortPolicy());
@@ -557,6 +585,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (localModes == null) localModes = new JSONObject();
         applyCandidateAppearance(preferences);
         applyTouchGeometry(preferences);
+        applyToolbarPreferences(preferences);
         applyVoicePreferences(preferences);
         applyAiPreferences(preferences);
         applyClipboardPreference(preferences);
@@ -1059,6 +1088,8 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public void onFinishInputView(boolean finishingInput) {
         flushKeyPresses();
         cancelInputViewRefresh();
+        // 键盘收起时还在调整高度就当作取消：没点「完成」的预览不保存。
+        finishInlineHeight(false);
         if (!finishingInput) finishInputViewPresentation();
         super.onFinishInputView(finishingInput);
     }
@@ -1336,11 +1367,27 @@ public final class MSIMEInputService extends InputMethodService {
             : KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         touchRowSpacingTenths = KeyboardGeometry.rowSpacing(preferences == null ? -1
             : KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        touchKeyboardHeightAdjustment = KeyboardGeometry.heightAdjustment(preferences == null
+        touchKeyboardHeightAdjustment = KeyboardGeometry.designHeightAdjustment(preferences == null
             ? Integer.MIN_VALUE : KeyboardGeometry.strictInt(preferences,
                 "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         touchVoiceShortcutEnabled = preferences != null
             && preferences.optBoolean("touch_voice_shortcut", false);
+    }
+
+    /** `touch_toolbar` 的按钮开关，以及功能面板直接切换的模糊音、单手、隐私三项；缺键时按 Android 的默认值读。 */
+    private void applyToolbarPreferences(JSONObject preferences) {
+        JSONObject toolbar = preferences == null ? null : preferences.optJSONObject("touch_toolbar");
+        toolbarEmoji = toolbar == null || toolbar.optBoolean("emoji", true);
+        toolbarPhrase = toolbar == null || toolbar.optBoolean("phrase", true);
+        toolbarClipboard = toolbar == null || toolbar.optBoolean("clipboard", true);
+        toolbarSkin = toolbar == null || toolbar.optBoolean("skin", true);
+        toolbarScheme = toolbar == null || toolbar.optBoolean("scheme", true);
+        toolbarHidden = toolbar != null && toolbar.optBoolean("hidden", false);
+        JSONObject fuzzy = preferences == null ? null : preferences.optJSONObject("fuzzy_pinyin");
+        fuzzyPinyinEnabled = fuzzy != null && fuzzy.optBoolean("enabled", false);
+        String hand = preferences == null ? "off" : preferences.optString("touch_one_handed", "off");
+        oneHandedMode = "left".equals(hand) || "right".equals(hand) ? hand : "off";
+        incognitoEnabled = preferences != null && preferences.optBoolean("touch_incognito", false);
     }
 
     private void applyVoicePreferences(JSONObject preferences) {
@@ -1570,7 +1617,7 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardGeometry.strictInt(preferences, "touch_key_spacing_tenths", -1));
         int nextRowSpacing = KeyboardGeometry.rowSpacing(
             KeyboardGeometry.strictInt(preferences, "touch_row_spacing_tenths", -1));
-        int nextHeightAdjustment = KeyboardGeometry.heightAdjustment(
+        int nextHeightAdjustment = KeyboardGeometry.designHeightAdjustment(
             KeyboardGeometry.strictInt(preferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE));
         boolean nextVoiceShortcut = preferences.optBoolean("touch_voice_shortcut", false);
         JSONObject nextVoice = preferences.optJSONObject("voice_input");
@@ -1638,6 +1685,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceLanguage = nextVoiceLanguage;
         applyAiPreferences(preferences);
         clipboardHistoryEnabled = nextClipboard;
+        applyToolbarPreferences(preferences);
         traditionalChineseOutput = nextTraditional;
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
@@ -2346,12 +2394,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void updateCandidateViewportHeight() {
-        if (candidateViewport == null) return;
-        int height = pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP
-            + CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows()) * 16);
-        // 空闲时的快捷栏和组词时的候选行占同一个位置，两者同高，打字时键盘才不会变高。
-        setFixedHeight(candidateViewport, height);
-        if (shortcutScroll != null) setFixedHeight(shortcutScroll, height);
+        if (candidateLine == null) return;
+        // 设计的 34 dp chip 里已经容下一行释义；第二行起每行再加高一些。
+        int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
+        int extraRows = Math.max(0, reserved - 1);
+        int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
+        setFixedHeight(candidateLine, pixels(line));
+        // 空闲时的工具栏和组词时的读音行 + 候选行占同一个位置，两者同高，打字时键盘才不会变高。
+        if (shortcutScroll != null)
+            setFixedHeight(shortcutScroll, pixels(ImeToolbar.READING_ROW_DP + line));
     }
 
     private static void setFixedHeight(View view, int height) {
@@ -3504,6 +3555,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     void closeMoreTools() {
         localInputToolsOpen = false;
+        aiAssistChooserOpen = false;
         if (moreToolsScroll != null) moreToolsScroll.setVisibility(View.GONE);
     }
 
@@ -4282,7 +4334,7 @@ public final class MSIMEInputService extends InputMethodService {
                     acceptedPreferences, "touch_key_spacing_tenths", -1)) == touchKeySpacingTenths
                 && KeyboardGeometry.rowSpacing(KeyboardGeometry.strictInt(
                     acceptedPreferences, "touch_row_spacing_tenths", -1)) == touchRowSpacingTenths
-                && KeyboardGeometry.heightAdjustment(KeyboardGeometry.strictInt(
+                && KeyboardGeometry.designHeightAdjustment(KeyboardGeometry.strictInt(
                     acceptedPreferences, "touch_keyboard_height_adjustment", Integer.MIN_VALUE))
                     == touchKeyboardHeightAdjustment
                 && acceptedPreferences.optBoolean("touch_voice_shortcut", false)
@@ -5378,7 +5430,8 @@ public final class MSIMEInputService extends InputMethodService {
         candidateRegion.addView(diagnosticView, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidateRegion.addView(shortcutScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            pixels(KeyboardGeometry.DESIGN_TOOLBAR_ROW_HEIGHT_DP)));
         nineKeySpellings = new LinearLayout(this);
         nineKeySpellings.setOrientation(LinearLayout.HORIZONTAL);
         nineKeySpellingScroll = new HorizontalScrollView(this);
@@ -5400,9 +5453,24 @@ public final class MSIMEInputService extends InputMethodService {
         candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         candidateViewport.setVisibility(View.GONE);
-        candidateRegion.addView(candidateViewport, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
+        imeToolbar.addCandidateLine(candidateRegion, candidateViewport,
+            pixels(ImeToolbar.CANDIDATE_LINE_DP));
+        imeToolbar.addInlineHeightBar(candidateRegion);
+        inlineHeightBar.setListener(new InlineHeightBar.Listener() {
+            @Override public void onPercentChanged(int percent, boolean fromUser) {
+                previewInlineHeight(percent);
+            }
+
+            @Override public void onCancel() { finishInlineHeight(false); }
+
+            @Override public void onReset() { previewInlineHeight(KeyboardGeometry.DEFAULT_HEIGHT_PERCENT); }
+
+            @Override public void onDone() { finishInlineHeight(true); }
+        });
         keyboard.addView(candidateRegion);
+        // 功能面板和候选展开网格盖住键区但不盖顶部一行，设计里打开它们时工具栏或候选条仍在上面；顶部一行高度会变（读音行、释义行），所以跟着它的实际底边走。
+        candidateRegion.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> alignOverlaysBelowTopRow(view));
         imeFrame.keyboard = keyboard;
         // Like Apple, keep the shared candidate/shortcut strip above the reply surface. The
         // ordinary key rows and controls are hidden while this weighted child is visible.
@@ -5472,18 +5540,27 @@ public final class MSIMEInputService extends InputMethodService {
             KeyboardShortcutIconPolicy.Icon.GLOBE, this::switchToNextInputMethodAfterCommit);
         globeButton.setContentDescription("切换到下一个输入法");
         keyId(globeButton, "SoftGlobe");
-        schemeButton = pillButton(controls, "方案", imePanels::showSchemePicker);
-        schemeButton.setContentDescription("选择输入方案");
+        schemeButton = shortcutButton(controls, "输入方式",
+            KeyboardShortcutIconPolicy.Icon.SCHEME,
+            imeToolbar.panelToggle(() -> schemeScroll, imePanels::showSchemePicker));
+        schemeButton.setContentDescription("输入方案");
         skinButton = shortcutButton(controls, "皮肤",
-            KeyboardShortcutIconPolicy.Icon.SKIN, () -> imePanels.showSkinMenu(skinButton));
+            KeyboardShortcutIconPolicy.Icon.SKIN,
+            imeToolbar.panelToggle(() -> skinScroll, () -> imePanels.showSkinMenu(skinButton)));
         skinButton.setContentDescription("切换键盘皮肤");
         layoutSettingsButton = shortcutButton(controls, "设置",
             KeyboardShortcutIconPolicy.Icon.SETTINGS, this::showLayoutSettings);
         layoutSettingsButton.setContentDescription("键盘设置");
-        moreButton = brandButton(controls, imePanels::showFeedbackMenu);
-        moreButton.setContentDescription("更多快捷设置");
+        moreButton = brandButton(controls, imeFunctionPanel::toggleFunctionPanel);
+        moreButton.setContentDescription("更多");
+        // 收起键：面板开着时先回到键盘（描述随之变为「返回键盘」），没有面板时收起整个键盘。
         Button dismissButton = shortcutButton(controls, "收起",
-            KeyboardShortcutIconPolicy.Icon.DISMISS, () -> requestHideSelf(0));
+            KeyboardShortcutIconPolicy.Icon.DISMISS, () -> {
+                if (anyToolbarPanelOpen()) {
+                    closeToolbarPanels();
+                    render();
+                } else requestHideSelf(0);
+            });
         dismissButton.setContentDescription("收起键盘");
         imeToolbar.installShortcutBar(dismissButton);
         // The rows are built after the controls exist: the case and delete keys are laid into the
@@ -5497,7 +5574,9 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidates.setContentDescription("候选面板");
         expandedCandidates.setVisibility(View.GONE);
         expandedCandidateScroll = new ScrollView(this);
-        expandedCandidateScroll.addView(expandedCandidates);
+        expandedCandidateScroll.setFillViewport(true);
+        expandedCandidateScroll.addView(expandedCandidates, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         expandedCandidateScroll.setVisibility(View.GONE);
         keyboardSurface.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
@@ -5677,10 +5756,18 @@ public final class MSIMEInputService extends InputMethodService {
         moreToolsScroll = new ScrollView(this);
         moreToolsScroll.setFillViewport(true);
         moreToolsScroll.setVerticalScrollBarEnabled(false);
-        moreToolsScroll.setContentDescription("更多工具");
-        moreToolsScroll.addView(moreToolsPanel);
+        moreToolsScroll.addView(moreToolsPanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         moreToolsScroll.setVisibility(View.GONE);
         keyboardSurface.addView(moreToolsScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        phrasePanel = new LinearLayout(this);
+        phrasePanel.setOrientation(LinearLayout.VERTICAL);
+        phrasePanel.setContentDescription("常用语面板");
+        phraseScroll = new ScrollView(this);
+        phraseScroll.addView(phrasePanel);
+        phraseScroll.setVisibility(View.GONE);
+        keyboardSurface.addView(phraseScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         imePanels.buildEmojiPanel();
         imePanels.buildSymbolPanel();
@@ -5688,6 +5775,219 @@ public final class MSIMEInputService extends InputMethodService {
         render();
         synchronizeReplyKeyboard();
         return keyboardRoot;
+    }
+
+    /** 把功能面板、候选展开网格和常用语面板的顶边对齐到顶部一行的底边。 */
+    private void alignOverlaysBelowTopRow(View region) {
+        View parent = (View) region.getParent();
+        int top = (parent == null ? 0 : parent.getTop()) + region.getBottom();
+        for (View overlay : new View[] {moreToolsScroll, expandedCandidateScroll, phraseScroll}) {
+            if (overlay == null) continue;
+            if (!(overlay.getLayoutParams() instanceof FrameLayout.LayoutParams params)
+                    || params.topMargin == top) continue;
+            params.topMargin = top;
+            overlay.post(() -> overlay.setLayoutParams(params));
+        }
+    }
+
+    private static boolean shown(View view) {
+        return view != null && view.getVisibility() == View.VISIBLE;
+    }
+
+    /** 是否有从工具栏打开的面板（功能面板、表情、常用语、剪贴板、皮肤、方案、符号、AI、语音结果、旧的键盘设置）开着；开着时品牌键垫 accentSoft、收起键变为「返回键盘」。 */
+    boolean anyToolbarPanelOpen() {
+        return shown(moreToolsScroll) || shown(emojiPanel) || shown(phraseScroll)
+            || shown(clipboardScroll) || shown(skinScroll) || shown(schemeScroll)
+            || shown(symbolPanel) || shown(aiPolishContainer) || shown(voiceResultScroll)
+            || shown(layoutSettingsScroll) || shown(layoutAdjustView) || replyOpen;
+    }
+
+    void closeToolbarPanels() {
+        closeMoreTools();
+        closeEmojiPicker();
+        closeCommonPhrases();
+        closeClipboardHistory();
+        closeSkinPicker();
+        closeSchemePicker();
+        closeSymbolPanel();
+        closeAiPolish();
+        closeVoiceResult();
+        closeLayoutSettings();
+        closeReplyKeyboard();
+    }
+
+    void closeCommonPhrases() {
+        if (phraseScroll != null) phraseScroll.setVisibility(View.GONE);
+    }
+
+    /** 功能面板「键盘高度」：顶部一行换成内联高度条，拖动时实时预览，完成才保存，取消恢复原值。 */
+    void showInlineHeight() {
+        if (touchGeometrySaving || traditionalOutputSaving || session == 0
+                || preferencesSnapshot == null || preferencesDirectory.isEmpty()
+                || inlineHeightBar == null) {
+            Toast.makeText(this, "键盘设置尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        closeToolbarPanels();
+        closeCandidatePanel();
+        inlineHeightOriginal = touchKeyboardHeightAdjustment;
+        inlineHeightActive = true;
+        inlineHeightBar.setPercent(
+            KeyboardGeometry.heightAdjustmentToPercent(touchKeyboardHeightAdjustment));
+        render();
+        inlineHeightBar.requestFocus();
+    }
+
+    private void previewInlineHeight(int percent) {
+        if (!inlineHeightActive || touchGeometrySaving || traditionalOutputSaving) return;
+        touchKeyboardHeightAdjustment = KeyboardGeometry.designHeightAdjustment(
+            KeyboardGeometry.heightPercentToAdjustment(percent));
+        imeStyler.applyKeyboardGeometry();
+    }
+
+    private void finishInlineHeight(boolean commit) {
+        if (!inlineHeightActive) return;
+        inlineHeightActive = false;
+        if (commit) {
+            saveTouchGeometry();
+        } else {
+            touchKeyboardHeightAdjustment = inlineHeightOriginal;
+            imeStyler.applyKeyboardGeometry();
+        }
+        render();
+    }
+
+    /** 功能面板开关对偏好文档的一处修改。 */
+    interface PreferenceEdit {
+        void apply(JSONObject preferences) throws JSONException;
+    }
+
+    /** 功能面板上直接写共享偏好的开关（模糊音、单手、隐私）：按 revision 比较并交换写回，成功后整份快照重新生效，失败时保留原值并提示。 */
+    void savePanelPreference(String label, PreferenceEdit edit) {
+        if (panelPreferenceSaving || traditionalOutputSaving || schemeSaving || touchGeometrySaving
+                || session == 0 || preferencesSnapshot == null || preferencesDirectory.isEmpty()) {
+            Toast.makeText(this, label + "设置尚未就绪", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final long targetSession = session;
+        final String targetDirectory = preferencesDirectory;
+        final JSONObject pending;
+        final long expectedRevision;
+        try {
+            pending = new JSONObject(preferencesSnapshot.toString());
+            expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
+            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
+            edit.apply(pending.getJSONObject("preferences"));
+        } catch (JSONException error) {
+            preferencesNotice = " · " + label + "保存失败，保留原设置";
+            render();
+            return;
+        }
+        // 先在面板上显示新值，写回失败时由快照恢复。
+        applyToolbarPreferences(pending.optJSONObject("preferences"));
+        panelPreferenceSaving = true;
+        final long operation = ++preferenceSaveGeneration;
+        imeFunctionPanel.renderMoreTools();
+        Runnable save = () -> {
+            String response;
+            try {
+                response = NativeClient.savePreferences(targetDirectory, expectedRevision,
+                    pending.toString());
+            } catch (Exception | LinkageError error) {
+                response = null;
+            }
+            final String savedResponse = response;
+            main.post(() -> finishPanelPreferenceSave(operation, targetSession, targetDirectory,
+                label, savedResponse));
+        };
+        try {
+            preferencesWorker.execute(save);
+        } catch (RuntimeException error) {
+            finishPanelPreferenceSave(operation, targetSession, targetDirectory, label, null);
+        }
+    }
+
+    private void finishPanelPreferenceSave(long operation, long targetSession,
+                                           String targetDirectory, String label, String response) {
+        if (operation != preferenceSaveGeneration || session != targetSession
+                || !targetDirectory.equals(preferencesDirectory)) {
+            panelPreferenceSaving = false;
+            return;
+        }
+        panelPreferenceSaving = false;
+        try {
+            if (response == null) throw new JSONException("Preferences save unavailable");
+            JSONObject saved = value(response);
+            long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
+            if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
+            if (preferencesSnapshot != null
+                    && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
+                        > savedRevision) {
+                applyToolbarPreferences(preferencesSnapshot.optJSONObject("preferences"));
+            } else {
+                applyPreferencesSnapshot(saved);
+            }
+            preferencesNotice = "";
+        } catch (JSONException | LinkageError error) {
+            applyToolbarPreferences(preferencesSnapshot == null ? null
+                : preferencesSnapshot.optJSONObject("preferences"));
+            preferencesNotice = " · " + label + "保存失败，已恢复原设置";
+            Toast.makeText(this, label + "未能保存", Toast.LENGTH_SHORT).show();
+        }
+        render();
+    }
+
+    void toggleFuzzyPinyin() {
+        boolean target = !fuzzyPinyinEnabled;
+        savePanelPreference("模糊音", preferences -> {
+            JSONObject fuzzy = preferences.optJSONObject("fuzzy_pinyin");
+            if (fuzzy == null) {
+                fuzzy = new JSONObject();
+                preferences.put("fuzzy_pinyin", fuzzy);
+            }
+            fuzzy.put("enabled", target);
+        });
+    }
+
+    /** 单手模式：关着时打开到右侧，开着时关闭；长按在左右两侧之间换边。贴边与收窄由键盘框架按偏好实现。 */
+    void toggleOneHanded(boolean swapSide) {
+        String target = swapSide
+            ? ("left".equals(oneHandedMode) ? "right" : "left")
+            : ("off".equals(oneHandedMode) ? "right" : "off");
+        savePanelPreference("单手模式", preferences -> preferences.put("touch_one_handed", target));
+    }
+
+    void toggleIncognito() {
+        boolean target = !incognitoEnabled;
+        savePanelPreference("隐私模式", preferences -> preferences.put("touch_incognito", target));
+    }
+
+    /** 功能面板的手写：切到手写方案；已经是手写时切回上一个中文方案。 */
+    void toggleHandwritingScheme() {
+        if (selectedScheme == KeyboardScheme.HANDWRITING) {
+            KeyboardScheme back = KeyboardScheme.fallback(edition);
+            for (KeyboardScheme scheme : enabledSchemes) {
+                if (scheme != KeyboardScheme.HANDWRITING) {
+                    back = scheme;
+                    break;
+                }
+            }
+            selectKeyboardScheme(back);
+        } else {
+            selectKeyboardScheme(KeyboardScheme.HANDWRITING);
+        }
+    }
+
+    /** 词库、设置、反馈、关于：经 HostDeepLink 打开宿主的对应页面；系统拒绝从后台启动时说出来。 */
+    void openHostPage(String page) {
+        Intent intent = page == null ? HostDeepLink.tab(this, HostDeepLink.TAB_SETTINGS)
+            : HostDeepLink.page(this, page, null);
+        try {
+            startActivity(intent);
+            requestHideSelf(0);
+        } catch (RuntimeException error) {
+            Toast.makeText(this, "无法打开设置，请从主屏幕进入", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // A disabled card swallows the press, and the 工具 section draws no state text, so without
@@ -5771,7 +6071,8 @@ public final class MSIMEInputService extends InputMethodService {
             localModeTitle = CandidatePreeditStylePolicy.composedText(
                 candidatePreeditStyle, localModeTitle, localModeName);
             boolean idleTitle = idle && editingText.isEmpty();
-            brandPillVisible = idleTitle;
+            // 新设计去掉了空闲时的品牌药丸：空闲时读音行整行隐藏，品牌标在工具栏最左。
+            brandPillVisible = false;
             String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : productName)
@@ -5805,8 +6106,20 @@ public final class MSIMEInputService extends InputMethodService {
         }
         boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
         imeDebugOverlay.updateDiagnosticView(hasDiagnostic);
+        boolean heightMode = inlineHeightActive;
+        if (inlineHeightBar != null)
+            inlineHeightBar.setVisibility(heightMode ? View.VISIBLE : View.GONE);
+        if (candidateHeader != null) {
+            boolean notice = status != null && status.getText() != null && status.getText().length() > 0;
+            candidateHeader.setVisibility(!heightMode && !hasDiagnostic && (!idle || notice)
+                ? View.VISIBLE : View.GONE);
+        }
         if (shortcutScroll != null)
-            shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+            shortcutScroll.setVisibility(!heightMode && idle && !hasDiagnostic && !toolbarHidden
+                ? View.VISIBLE : View.GONE);
+        if (candidateLine != null)
+            candidateLine.setVisibility(!heightMode && !idle && !hasDiagnostic
+                ? View.VISIBLE : View.GONE);
         if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)
             imeBottomRow.updateActionRow();
         if (candidateViewport != null)
@@ -5852,22 +6165,37 @@ public final class MSIMEInputService extends InputMethodService {
                 scriptShortcutButton.setStateDescription(outputState);
         }
         if (emojiShortcutButton != null) {
-            emojiShortcutButton.setVisibility(idle && session != 0 && !emojiResources.isEmpty()
-                ? View.VISIBLE : View.GONE);
+            emojiShortcutButton.setVisibility(toolbarEmoji ? View.VISIBLE : View.GONE);
             emojiShortcutButton.setEnabled(session != 0 && !emojiResources.isEmpty());
+            emojiShortcutButton.setSelected(emojiPanel != null
+                && emojiPanel.getVisibility() == View.VISIBLE);
+        }
+        if (phraseShortcutButton != null) {
+            phraseShortcutButton.setVisibility(toolbarPhrase ? View.VISIBLE : View.GONE);
+            phraseShortcutButton.setEnabled(session != 0 && !preferencesDirectory.isEmpty());
+            phraseShortcutButton.setSelected(phraseScroll != null
+                && phraseScroll.getVisibility() == View.VISIBLE);
+        }
+        if (clipboardShortcutButton != null) {
+            clipboardShortcutButton.setVisibility(toolbarClipboard ? View.VISIBLE : View.GONE);
+            clipboardShortcutButton.setEnabled(CloudClipboardPanelPolicy.panelAvailable(
+                clipboardHistoryEnabled, imePanels.cloudClipboardAllowed()));
+            clipboardShortcutButton.setSelected(imePanels.clipboardPanelOpen());
+        }
+        if (dismissShortcutButton != null) {
+            dismissShortcutButton.setContentDescription(anyToolbarPanelOpen() ? "返回键盘" : "收起键盘");
         }
         if (voiceShortcutButton != null) {
-            voiceShortcutButton.setVisibility(touchVoiceShortcutEnabled ? View.VISIBLE : View.GONE);
+            voiceShortcutButton.setVisibility(View.GONE);
             voiceShortcutButton.setEnabled(voiceInsertionReady());
         }
         if (aiPolishShortcutButton != null) {
-            aiPolishShortcutButton.setVisibility(
-                aiPolishConfiguration == null ? View.GONE : View.VISIBLE);
+            aiPolishShortcutButton.setVisibility(View.GONE);
             aiPolishShortcutButton.setEnabled(aiPolishReady());
         }
         if (replyShortcutButton != null) {
             // 回复面板不属于任何输入方案，每个方案都显示这个入口；未配置 AI 时面板里会提示去设置。开着时始终可点，用来收起面板。
-            replyShortcutButton.setVisibility(View.VISIBLE);
+            replyShortcutButton.setVisibility(View.GONE);
             replyShortcutButton.setEnabled(replyOpen || aiPolishReady());
             replyShortcutButton.setSelected(replyOpen);
             imeStyler.styleButton(replyShortcutButton, KeyboardKeyRole.GLYPH, skin);
@@ -5925,6 +6253,8 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (schemeButton != null) {
+            schemeButton.setVisibility(toolbarScheme ? View.VISIBLE : View.GONE);
+            schemeButton.setSelected(schemeScroll != null && schemeScroll.getVisibility() == View.VISIBLE);
             schemeButton.setText(selectedScheme.glyph() + selectedScheme.badge(wubiProfile));
             schemeButton.setContentDescription("输入方案：" + selectedScheme.title(wubiProfile));
             boolean schemeReady = session != 0 && preferencesSnapshot != null
@@ -5940,11 +6270,14 @@ public final class MSIMEInputService extends InputMethodService {
             }
         }
         if (skinButton != null) {
+            skinButton.setVisibility(toolbarSkin ? View.VISIBLE : View.GONE);
+            skinButton.setSelected(skinScroll != null && skinScroll.getVisibility() == View.VISIBLE);
             skinButton.setEnabled(canSaveKeyboardSkin());
             skinButton.setContentDescription("切换键盘皮肤；当前" + skin.title());
             if (Build.VERSION.SDK_INT >= 30) skinButton.setStateDescription(skin.title());
         }
         synchronizeReplyKeyboard();
+        if (layoutSettingsButton != null) layoutSettingsButton.setVisibility(View.GONE);
         if (layoutSettingsButton != null)
             layoutSettingsButton.setEnabled(session != 0 && preferencesSnapshot != null
                 && !schemeSaving && !touchGeometrySaving && !traditionalOutputSaving);
@@ -5956,6 +6289,7 @@ public final class MSIMEInputService extends InputMethodService {
         scheduleOnlineProviders();
         if (candidates == null) {
             imeStyler.applySkin();
+            imeToolbar.styleTopRow();
             return;
         }
         if (horizontalCandidateScroll != null)
@@ -5973,6 +6307,7 @@ public final class MSIMEInputService extends InputMethodService {
             renderEnglishSuggestions(activeCandidates);
             for (Button button : candidateButtons) button.setVisibility(View.GONE);
             imeStyler.applySkin();
+            imeToolbar.styleTopRow();
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
@@ -6010,6 +6345,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE)
             imeFunctionPanel.renderMoreTools();
         imeStyler.applySkin();
+        imeToolbar.styleTopRow();
     }
 
     /**

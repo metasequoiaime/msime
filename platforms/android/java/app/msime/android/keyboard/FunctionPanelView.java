@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -185,6 +186,11 @@ public final class FunctionPanelView extends LinearLayout {
             setSelected(value == State.ON);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setStateDescription(stateText(value));
             invalidate();
+        }
+
+        /** 条目不画底色；键盘的整树样式通道会给每个 Button 套键帽，这里一律挡掉，免得开启态被画成实心色块。 */
+        @Override public void setBackground(Drawable background) {
+            super.setBackground(null);
         }
 
         @Override public void setPressed(boolean pressed) {

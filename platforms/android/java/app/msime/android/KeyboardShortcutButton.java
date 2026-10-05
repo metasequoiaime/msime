@@ -21,6 +21,9 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
     private int activeFill = Color.TRANSPARENT;
+    private boolean iconColorsSet;
+    private int idleIconColor;
+    private int activeIconColor;
 
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
@@ -58,6 +61,20 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
         invalidate();
     }
 
+    /** 新设计的图标色：平时 kbSub，选中（面板打开）时 accent。设置后不再跟随文字色，皮肤重新套样式时也不会被改回键面文字色。 */
+    public void setIconColors(int idle, int active) {
+        if (iconColorsSet && idleIconColor == idle && activeIconColor == active) return;
+        iconColorsSet = true;
+        idleIconColor = idle;
+        activeIconColor = active;
+        invalidate();
+    }
+
+    private int iconColor() {
+        if (!iconColorsSet) return getCurrentTextColor();
+        return isSelected() ? activeIconColor : idleIconColor;
+    }
+
     @Override protected void onDraw(Canvas canvas) {
         int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
         int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
@@ -75,7 +92,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             fill.setColor(activeFill);
             canvas.drawRoundRect(bounds, side * 0.25f, side * 0.25f, fill);
         }
-        int color = getCurrentTextColor();
+        int color = iconColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         paint.setColor(color);
         paint.setAlpha(isEnabled() ? 255 : 96);
@@ -112,7 +129,7 @@ public final class KeyboardShortcutButton extends KeyboardPressButton {
             float radius = Math.min(side / 2f, ACTIVE_RADIUS_DP * density);
             canvas.drawRoundRect(bounds, radius, radius, fill);
         }
-        int color = getCurrentTextColor();
+        int color = iconColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
         if (!isEnabled()) color = Color.argb(Math.round(Color.alpha(color) * 96f / 255f),
             Color.red(color), Color.green(color), Color.blue(color));
