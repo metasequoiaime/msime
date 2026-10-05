@@ -111,6 +111,11 @@ jobs:
           if ($msbuild.Count -lt 1) { throw 'no MSBuild in the Visual Studio installation' }
           $env:PATH = "$(Split-Path -Parent $msbuild[0]);$env:PATH"
           Write-Output "MSBuild: $($msbuild[0])"
+          # Every edition but full renames the host DLL and makes its import library with lib.exe (Build-Client.ps1), which a Developer PowerShell also has on PATH and the plain pwsh does not; without it those five editions fail with "The term 'lib' is not recognized" (run 37274616998). The x64-hosted lib.exe writes the X86 import library as well, given /MACHINE:X86.
+          $lib = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\lib.exe')
+          if ($lib.Count -lt 1) { throw 'no lib.exe in the Visual Studio installation' }
+          $env:PATH = "$(Split-Path -Parent $lib[-1]);$env:PATH"
+          Write-Output "lib: $($lib[-1])"
           ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION
       - name: Collect third-party notices
         shell: pwsh
