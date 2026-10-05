@@ -2,20 +2,19 @@ name: Release Android
 on:
   workflow_dispatch:
     inputs:
-      ref: {description: 要发布的分支、标签或提交（默认 main）, required: false, default: main, type: string}
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
-  # Resolves inputs.ref to one commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # Resolves the source to one commit up front (main when dispatched from develop, otherwise the dispatched commit), so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {ref: "${{ inputs.ref }}", persist-credentials: false}
+        with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", persist-credentials: false}
       - id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
     outputs:
@@ -80,7 +79,7 @@ jobs:
       version: ${{ steps.version.outputs.value }}
   publish:
     needs: [source, release]
-    # The build takes whatever commit inputs.ref names, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+    # The build takes main when dispatched from develop and the dispatched commit otherwise, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
