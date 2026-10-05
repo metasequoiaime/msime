@@ -224,11 +224,14 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     }
 
     private void dispatchChat(String text, MaterialButton send) {
-        while (messages.size() >= 14) messages.remove(0);
+        // 请求最多 14 条：开头一条系统约定，加最近 13 条对话。
+        while (messages.size() >= 13) messages.remove(0);
         messages.add(new BackendAccount.ChatMessage("user", text));
         showStop(send);
         int token = ++generation;
-        List<BackendAccount.ChatMessage> request = new ArrayList<>(messages);
+        List<BackendAccount.ChatMessage> request = new ArrayList<>(messages.size() + 1);
+        request.add(new BackendAccount.ChatMessage("system", SYSTEM_PROMPT));
+        request.addAll(messages);
         final String selectedModel = models.get(0).id();
         StreamingReply reply = new StreamingReply(token);
         streaming = reply;
@@ -342,6 +345,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     /**
      * 加一个气泡：自己的消息靠右、accent 底 onAccent 字；水杉和 AI 的靠左、andCard 底。圆角 18，最宽到对话区的八成。
      */
+    /** 每次请求开头的系统约定：默认用简体中文回答。 */
+    private static final String SYSTEM_PROMPT =
+        "你是水杉输入法里的 AI 助手。除非用户明确要求使用其他语言，一律用简体中文回答，回答简洁。";
+
     private TextView appendBubble(String text, boolean mine) {
         LinearLayout chat = findViewById(R.id.tryout_chat);
         while (chat.getChildCount() >= BUBBLE_LIMIT) chat.removeViewAt(0);

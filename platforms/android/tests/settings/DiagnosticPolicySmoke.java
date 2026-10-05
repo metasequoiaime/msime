@@ -20,5 +20,10 @@ public final class DiagnosticPolicySmoke {
         check(InputDiagnosticPolicy.visible("提示"));
         check(!InputDiagnosticPolicy.visible("   "));
         check(InputDiagnosticPolicy.DISMISS_DELAY_MILLIS == 4_000L);
+        // 未能保存学习的诊断不在键盘上显示，数据库不可用的说明译成中文，已是中文的照旧。
+        check(!InputDiagnosticPolicy.visible("English word could not be learned."));
+        check(!InputDiagnosticPolicy.visible(" Unable to persist nine-key candidate position. "));
+        check(InputDiagnosticPolicy.normalize("Emoji database is unavailable.").equals("表情数据不可用"));
+        check(InputDiagnosticPolicy.normalize("九键最多输入 32 位，请先选择候选").equals("九键最多输入 32 位，请先选择候选"));
     }
 }

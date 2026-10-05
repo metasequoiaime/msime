@@ -511,8 +511,11 @@ public final class BackendAccount {
             throw new IllegalStateException("invalid chat request");
         org.json.JSONArray payloadMessages = new org.json.JSONArray();
         int bytes = 0;
-        for (ChatMessage message : messages) {
-            if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())))
+        for (int index = 0; index < messages.size(); index++) {
+            ChatMessage message = messages.get(index);
+            // system 只能是第一条：调用方用它给出回答约定（例如默认用中文），不能夹在对话中间。
+            boolean system = message != null && index == 0 && "system".equals(message.role());
+            if (message == null || !(system || "user".equals(message.role()) || "assistant".equals(message.role())))
                 throw new IllegalStateException("invalid chat request");
             String content = message.content() == null ? "" : message.content();
             if (content.isEmpty() || content.length() > 10_000 || (bytes += TextPolicy.utf8Length(content)) > 48_000)
