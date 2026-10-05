@@ -288,9 +288,9 @@ final class ImeLayoutRows {
         dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(180)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
@@ -388,9 +388,9 @@ final class ImeLayoutRows {
         dismissNineKeyHoldOptions();
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(180)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
@@ -637,9 +637,9 @@ final class ImeLayoutRows {
     void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(180)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
 
         LinearLayout modeColumn = new LinearLayout(s);
         modeColumn.setOrientation(LinearLayout.VERTICAL);

@@ -14,10 +14,10 @@ import android.widget.TextView;
  * 键盘顶部一行（设计 50 dp）：空闲时是工具栏（品牌、表情、常用语、剪贴板、皮肤、输入方式、收起），组词时是候选条（读音 + 候选 chip + 分隔线 + 展开键），调整键盘高度时是内联高度条。状态仍在服务里。
  */
 final class ImeToolbar {
-    /** 组词时读音那一行的高度：12 sp 的读音加上下留白。 */
-    static final int READING_ROW_DP = 16;
-    /** 候选 chip 那一行的高度（设计 34 dp）。 */
-    static final int CANDIDATE_LINE_DP = 34;
+    /** 组词时读音那一行的高度：12 sp 的读音加一点留白；与候选行合计 56 dp，空闲时的工具栏取同一高度，打字时键盘不变高。 */
+    static final int READING_ROW_DP = 14;
+    /** 候选 chip 那一行的高度：候选字加一行 0.62 倍的释义和选中 chip 的上下留白。设计是 34 dp，实测 34、36 dp 时选中的 chip 和释义都会伸出候选行压到下面的键，所以取 42 dp。 */
+    static final int CANDIDATE_LINE_DP = 42;
     /** 多出一行释义时每行加的高度。 */
     static final int EXTRA_GLOSS_ROW_DP = 14;
 

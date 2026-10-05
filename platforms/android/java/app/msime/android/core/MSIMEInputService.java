@@ -400,13 +400,20 @@ public final class MSIMEInputService extends InputMethodService {
         final int rowCount;
         final int rowIndex;
         final boolean includesRowSpacing;
+        /** 要加上的行距份数：一行键加一份；一个占三行的九键块加三份。 */
+        final int rowSpacings;
 
         KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex,
                            boolean includesRowSpacing) {
+            this(baseHeight, rowCount, rowIndex, includesRowSpacing ? 1 : 0);
+        }
+
+        KeyboardHeightRole(int baseHeight, int rowCount, int rowIndex, int rowSpacings) {
             this.baseHeight = baseHeight;
             this.rowCount = rowCount;
             this.rowIndex = rowIndex;
-            this.includesRowSpacing = includesRowSpacing;
+            this.includesRowSpacing = rowSpacings > 0;
+            this.rowSpacings = rowSpacings;
         }
     }
     private ScrollView voiceResultScroll;
@@ -2464,7 +2471,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void updateCandidateViewportHeight() {
         if (candidateLine == null) return;
-        // 设计的 34 dp chip 里已经容下一行释义；第二行起每行再加高一些。
+        // 42 dp 的候选行容下候选字、一行释义和选中 chip 的留白；第二行起每行再加高一些。
         int reserved = CandidateTranslationPolicy.reservedGlossRows(candidateGlossLineCount(), koreanHanjaRows());
         int extraRows = Math.max(0, reserved - 1);
         int line = ImeToolbar.CANDIDATE_LINE_DP + extraRows * ImeToolbar.EXTRA_GLOSS_ROW_DP;
@@ -5020,7 +5027,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (annotation.isEmpty()) return label;
         int annotationStart = primary.length() + 1;
-        label.setSpan(new RelativeSizeSpan(0.72f), annotationStart, label.length(),
+        // 0.62 倍：候选字与一行释义要一起放进 36 dp 的候选行，0.72 倍时释义下半截被裁掉。
+        label.setSpan(new RelativeSizeSpan(0.62f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         int foreground = candidateAppearance.textFor(highlighted);
         int secondary = Color.argb(Math.round(Color.alpha(foreground) * 0.58f),
@@ -5197,6 +5205,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
+        // 开着释义时每个候选都占两行：还没有释义（或这个候选没有）的那行用不换行空格占住。否则带释义的 chip 是两行、不带的是一行，居中后候选字一高一低，释义异步到达或候选一换，候选字就上下跳。
+        if (annotation.isEmpty() && candidateGlossLineCount() > 0) annotation = "\u00A0";
         // Touch candidates follow Apple's chip surface: the word itself is shown without a
         // numeric prefix. The slot remains available through contentDescription and the shared
         // session/generation/index identity for accessibility and hardware number-row selection.

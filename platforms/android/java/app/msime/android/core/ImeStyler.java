@@ -147,8 +147,7 @@ final class ImeStyler {
             MSIMEInputService.KeyboardHeightRole role = (MSIMEInputService.KeyboardHeightRole) tag;
             int height = s.pixels(KeyboardGeometry.adjustedRowHeight(role.baseHeight,
                 s.touchKeyboardHeightAdjustment, role.rowCount, role.rowIndex));
-            if (role.includesRowSpacing)
-                height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2;
+            height += s.halfSpacingPixels(s.touchRowSpacingTenths) * 2 * role.rowSpacings;
             if (node.getLayoutParams() != null) {
                 android.view.ViewGroup.LayoutParams params = node.getLayoutParams();
                 params.height = height;
@@ -164,6 +163,14 @@ final class ImeStyler {
 
     void adjustFixedHeight(View view, int baseHeight) {
         view.setTag(new MSIMEInputService.KeyboardHeightRole(baseHeight, 1, 0, false));
+    }
+
+    /**
+     * 九键、笔画、日语九键的三行键块：与 26 键的三行字母键同高（3 × 46 dp + 整份键高调整 + 三份行距）。原先固定 180 dp 且不含行距，九键总比 26 键高出约 20 dp。
+     */
+    void adjustThreeRowBlockHeight(View view) {
+        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+            KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3, 1, 0, 3));
     }
 
     void styleButton(Button button, boolean action) { styleButton(button, action, s.skin); }
