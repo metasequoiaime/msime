@@ -32,6 +32,18 @@ public final class CommunityCatalogSmoke {
             "dictionary pages allow the shared resource response bound");
         check((int) responseLimit.invoke(null, CommunityRequest.Kind.REPLY) == 48 * 1024 * 1024,
             "reply pages allow the shared resource response bound");
+        String token = "e".repeat(64);
+        Method retryListing = CommunityCatalog.class.getDeclaredMethod(
+            "shouldRetryListing", int.class, String.class, int.class);
+        retryListing.setAccessible(true);
+        check((boolean) retryListing.invoke(null, 401, token, 0),
+            "an account 401 retries the listing once");
+        check(!(boolean) retryListing.invoke(null, 401, token, 1),
+            "a listing cannot retry an account 401 twice");
+        check(!(boolean) retryListing.invoke(null, 500, token, 0),
+            "a server failure is not an account refresh signal");
+        check(!(boolean) retryListing.invoke(null, 401, "", 0),
+            "an anonymous or missing token does not trigger account refresh");
         Method validItem = CommunityCatalog.class.getDeclaredMethod(
             "validItem", CommunityCatalog.Item.class, CommunityRequest.Kind.class);
         validItem.setAccessible(true);

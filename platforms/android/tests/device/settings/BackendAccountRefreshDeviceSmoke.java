@@ -38,6 +38,11 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             .put("expires_at_unix_ms", System.currentTimeMillis() - 1_000L).toString();
     }
 
+    private static String activeSession() throws Exception {
+        return new JSONObject().put("tokens", tokens(ACCESS, REFRESH))
+            .put("expires_at_unix_ms", System.currentTimeMillis() + 900_000L).toString();
+    }
+
     private static void check(boolean value, String message) {
         if (!value) throw new AssertionError(message);
     }
@@ -86,6 +91,21 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         }
     }
 
+    private static void refreshesAnUnexpiredRejectedToken() throws Exception {
+        MemoryStore store = new MemoryStore(activeSession());
+        AtomicInteger calls = new AtomicInteger();
+        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
+            calls.incrementAndGet();
+            check("POST".equals(method) && "/v1/auth/refresh".equals(path), "rejected token refresh endpoint");
+            check(REFRESH.equals(body.optString("refresh_token")), "rejected token refresh credential");
+            return tokens(NEXT_ACCESS, NEXT_REFRESH);
+        });
+
+        check(NEXT_ACCESS.equals(account.currentAccessToken(ACCESS)),
+            "an unexpired rejected token must be refreshed");
+        check(calls.get() == 1, "a rejected token triggers one refresh");
+    }
+
     private static void unauthorizedRefreshClearsSession() throws Exception {
         MemoryStore store = new MemoryStore(expiredSession());
         BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
@@ -117,6 +137,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         try {
             refreshesExpiredSessionAndRotatesCredentials();
             concurrentCallersShareOneRefresh();
+            refreshesAnUnexpiredRejectedToken();
             unauthorizedRefreshClearsSession();
             unboundedPersistedExpiryIsRejected();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account refresh rotation, single-flight and unauthorized clearing\n");

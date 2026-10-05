@@ -58,6 +58,7 @@ public final class CommunityCatalog {
     }
 
     private final Context context;
+    private record PageResponse(Page page, int status) {}
 
     public CommunityCatalog(Context context) {
         this.context = context.getApplicationContext();
@@ -74,6 +75,27 @@ public final class CommunityCatalog {
         // 有关的字段。把它当成硬前提，就会在登录端点被限流（429）或暂时关闭时，把一页本来读得到
         // 的作品报成「连不上社区」——那句话既不对，也让人去查一个没有问题的网络。
         String token = listingToken();
+        for (int attempt = 0; ; attempt++) {
+            PageResponse response = requestPage(kind, search, offset, category, token);
+            if (!shouldRetryListing(response.status(), token, attempt)) return response.page();
+            try {
+                String fresh = new BackendAccount(context).currentAccessToken(token);
+                if (fresh.isEmpty()) return response.page();
+                token = fresh;
+            } catch (Exception | LinkageError error) {
+                android.util.Log.i("MSIMECommunity", "Account refresh for catalogue failed", error);
+                return response.page();
+            }
+        }
+    }
+
+    /** 登录令牌被服务端拒绝时只允许刷新并重试一次，避免重复提交或循环请求。 */
+    static boolean shouldRetryListing(int status, String token, int attempt) {
+        return status == 401 && token != null && !token.isEmpty() && attempt == 0;
+    }
+
+    private PageResponse requestPage(CommunityRequest.Kind kind, String search, int offset,
+            CommunityRequest.Category category, String token) {
         HttpsURLConnection connection = null;
         try {
             connection = (HttpsURLConnection) new URL(ORIGIN
@@ -88,16 +110,17 @@ public final class CommunityCatalog {
             int status = connection.getResponseCode();
             if (status != 200) {
                 String code = errorCode(connection.getErrorStream());
-                return new Page(List.of(), false, CommunityRequest.message(code, status));
+                return new PageResponse(
+                    new Page(List.of(), false, CommunityRequest.message(code, status)), status);
             }
             try (InputStream input = connection.getInputStream()) {
-                return parse(kind, new JSONObject(
-                    new String(readBounded(input, maximumResponseBytes(kind)), StandardCharsets.UTF_8)));
+                return new PageResponse(parse(kind, new JSONObject(
+                    new String(readBounded(input, maximumResponseBytes(kind)), StandardCharsets.UTF_8))), 200);
             }
         } catch (Exception | LinkageError error) {
             // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
             android.util.Log.w("MSIMECommunity", "Catalogue request failed", error);
-            return new Page(List.of(), false, CommunityRequest.message(null, 0));
+            return new PageResponse(new Page(List.of(), false, CommunityRequest.message(null, 0)), 0);
         } finally {
             if (connection != null) connection.disconnect();
         }

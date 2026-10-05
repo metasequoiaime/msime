@@ -178,6 +178,11 @@ public final class BackendAccount {
      * <p>For callers that word the two differently: signed out asks the user to sign in, the other asks them to retry.
      */
     String currentAccessToken() throws Exception {
+        return currentAccessToken(null);
+    }
+
+    /** 被服务端拒绝的令牌不能走未过期快路径，必须加入当前刷新单飞。 */
+    String currentAccessToken(String rejectedToken) throws Exception {
         if (ownerProcess != null) {
             String token = ownerProcess.accessToken();
             return AccountTokenPolicy.validToken(token) ? token : "";
@@ -195,7 +200,9 @@ public final class BackendAccount {
             long now = System.currentTimeMillis();
             long expiry = AccountTokenPolicy.strictLong(session.opt("expires_at_unix_ms"), 0);
             if (expiry > now + MAX_SESSION_MILLISECONDS) return "";
-            if (expiry > now + 30_000L) {
+            if (expiry > now + 30_000L
+                    && !java.util.Objects.equals(rejectedToken,
+                        optionalStringField(tokens.opt("access_token"), ""))) {
                 return optionalStringField(tokens.opt("access_token"), "");
             }
             if (refreshFlight != null) {
