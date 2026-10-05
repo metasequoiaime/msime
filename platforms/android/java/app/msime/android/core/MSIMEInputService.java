@@ -541,6 +541,13 @@ public final class MSIMEInputService extends InputMethodService {
      * keyboard, and drawing them in the factory skin makes it look like a different input method.
      */
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
+        applyEditorPreferences(preferences, true);
+    }
+
+    /**
+     * @param appearance 是否用这份偏好重算皮肤。runtime-options.json 里的偏好是宿主早先准备时写下的副本，主题字段可能已经过时（例如仍是默认的薄荷设计）；用它重算会把按上次皮肤画好的第一帧刷成旧配色，一两秒后真正的偏好到了又换回来。那条路径传 false，皮肤只认启动缓存和真正读到的偏好。
+     */
+    private void applyEditorPreferences(JSONObject preferences, boolean appearance) throws JSONException {
         numberRowSelection = preferences == null
             || preferences.optBoolean("number_row_selection", true);
         // The width a session starts at. Applied to the runtime once there is one to tell; this
@@ -583,9 +590,13 @@ public final class MSIMEInputService extends InputMethodService {
         enabledSchemes = schemeConfiguration.enabled();
         visibleSchemes = schemeConfiguration.visible();
         selectedScheme = schemeConfiguration.selected();
-        skin = keyboardSkin(preferences);
-        emojiSkin = surfaceSkin(preferences, "emoji_theme");
-        handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
+        // 只用真正读到的偏好重算皮肤：runtime-options.json 的副本（appearance 为假）和缺主题字段的偏好都保留当前皮肤，也就是 onCreate 按上次换上的皮肤画好的那一份。
+        if (appearance && preferences != null && preferences.has("global_theme")) {
+            skin = keyboardSkin(preferences);
+            emojiSkin = surfaceSkin(preferences, "emoji_theme");
+            handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
+            rememberSkinHint(preferences);
+        }
         localModes = preferences == null ? new JSONObject()
             : preferences.optJSONObject("local_modes");
         if (localModes == null) localModes = new JSONObject();
@@ -992,7 +1003,7 @@ public final class MSIMEInputService extends InputMethodService {
             statisticsPreferences = options.optString("preferences_directory", "");
             languageDictionaries = options.optString("language_dictionaries", "");
             JSONObject preferences = options.optJSONObject("preferences");
-            applyEditorPreferences(preferences);
+            applyEditorPreferences(preferences, false);
             if (newDocument) {
                 boolean defaultEnglish = "english".equals(defaultImeMode);
                 dedicatedEnglish = inputModeStore.modeFor(
@@ -1046,6 +1057,13 @@ public final class MSIMEInputService extends InputMethodService {
         imeDebugOverlay = new ImeDebugOverlay(this);
         super.onCreate();
         productName = getApplicationInfo().loadLabel(getPackageManager()).toString();
+        // 偏好要等引擎准备好才读到；先按上次换上的皮肤画，免得每次弹出键盘都先闪一两秒内置的淡绿配色。
+        JSONObject hint = readSkinHint();
+        if (hint != null) {
+            skin = keyboardSkin(hint);
+            emojiSkin = surfaceSkin(hint, "emoji_theme");
+            handwritingSkin = surfaceSkin(hint, "handwriting_theme");
+        }
         Telemetry.beginInputSession(this);
     }
 
@@ -1710,6 +1728,7 @@ public final class MSIMEInputService extends InputMethodService {
             || touchRowSpacingTenths != nextRowSpacing
             || touchKeyboardHeightAdjustment != nextHeightAdjustment;
         skin = nextSkin;
+        rememberSkinHint(preferences);
         candidateAppearance = nextCandidateAppearance;
         localModes = nextLocalModes;
         candidateHorizontal = nextHorizontal;
@@ -3410,6 +3429,57 @@ public final class MSIMEInputService extends InputMethodService {
         return surfaceSkin(preferences, "screen_keyboard_theme");
     }
 
+    /** 决定键盘、表情与手写面板皮肤的偏好字段；{@link #rememberSkinHint} 只记这几项。 */
+    private static final String[] SKIN_HINT_KEYS = {"global_theme", "custom_theme", "theme",
+        "screen_keyboard_theme", "emoji_theme", "handwriting_theme"};
+    /** 上次换上的皮肤所用的偏好片段，存在键盘进程自己的 filesDir 里。 */
+    private static final String SKIN_HINT_FILE = "keyboard-skin-hint.json";
+    private String writtenSkinHint;
+
+    /**
+     * 记下这次换上的皮肤所依据的偏好片段，下次键盘进程启动时在偏好读到之前就用它画第一帧。
+     *
+     * <p>键盘视图在偏好读到之前就建好了：原先那一两秒里画的是内置的跟随系统配色（淡绿），偏好到了才换成用户的皮肤。片段与上次写的相同时不写；写在偏好线程上。
+     */
+    private void rememberSkinHint(JSONObject preferences) {
+        if (preferences == null) return;
+        JSONObject hint = new JSONObject();
+        try {
+            for (String key : SKIN_HINT_KEYS) {
+                if (preferences.has(key) && !preferences.isNull(key)) hint.put(key, preferences.get(key));
+            }
+        } catch (JSONException error) {
+            return;
+        }
+        String text = hint.toString();
+        if (text.equals(writtenSkinHint)) return;
+        writtenSkinHint = text;
+        File target = new File(getFilesDir(), SKIN_HINT_FILE);
+        preferencesWorker.execute(() -> {
+            File pending = new File(getFilesDir(), SKIN_HINT_FILE + ".pending");
+            try {
+                java.nio.file.Files.write(pending.toPath(), text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                java.nio.file.Files.move(pending.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.io.IOException | RuntimeException error) {
+                android.util.Log.w("MSIMESkin", "Keyboard skin hint was not written", error);
+            }
+        });
+    }
+
+    /** 读上次的皮肤片段；没有或损坏时返回 null，键盘照旧先用内置配色。 */
+    private JSONObject readSkinHint() {
+        File file = new File(getFilesDir(), SKIN_HINT_FILE);
+        if (!file.isFile() || file.length() > 1_000_000) return null;
+        try {
+            String text = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            writtenSkinHint = text;
+            return new JSONObject(text);
+        } catch (java.io.IOException | JSONException | RuntimeException error) {
+            return null;
+        }
+    }
+
     /**
      * The global theme's keyboard resolved for one panel's own light/dark setting.
      *
@@ -3927,6 +3997,7 @@ public final class MSIMEInputService extends InputMethodService {
         skin = keyboardSkin(preferences);
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
         handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
+        rememberSkinHint(preferences);
         skinSaving = true;
         final long operation = ++preferenceSaveGeneration;
         imeStyler.applySkin();
