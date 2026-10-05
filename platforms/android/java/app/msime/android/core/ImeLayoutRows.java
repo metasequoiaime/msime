@@ -332,10 +332,11 @@ final class ImeLayoutRows {
                 NineKeyDigitButton keyButton = s.nineKeyGridKey(
                     NineKeyLayout.face(key, digits), description,
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
+                        : NineKeyLayout.opensSymbols(key, false) ? s.imePanels::showSymbolPanel
                         : () -> s.character(key.input()));
                 s.keyId(keyButton, KeyPressIds.forNineKeyDigit(key.digit()));
                 // 字母键面上印着它送进引擎的数字；数字键面本身就是那个数字，不必再印一次。
-                // 分词键送的是拼音分隔符而不是 1，所以它没有可印的数字。
+                // 1 键在拼音键面上是「@#」，打开符号面板而不是送 1，所以它没有可印的数字。
                 keyButton.setDigitText(digits || !Character.isDigit(key.input())
                     ? "" : NineKeyLayout.digitInput(key));
                 if (!digits && Character.isDigit(key.input()) && key.label().length() > 1) {
@@ -364,12 +365,10 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        // 重输：丢掉正在组的拼音，不上屏。
-        Button retype = s.keyboardKey("重输", "重新输入", () -> {
-            if (s.connection != null) s.command(3);
-        });
-        if (retype instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
-        addNineKey(actions, retype);
+        // 拆分：在拼音之间插入分隔符（xian → xi'an）。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
+        Button split = s.keyboardKey("拆分", "拼音分词", () -> s.character(NineKeyLayout.SEPARATOR));
+        if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, split);
         String last = symbols.get(symbols.size() - 1);
         Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
             () -> commitNineKeyLiteral(last)), "SoftPunctuation");

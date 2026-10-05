@@ -23,10 +23,10 @@ import app.msime.android.KeyboardSkin;
  * their own skin was a card that contradicted itself.
  */
 public final class KeyboardPreview extends View {
-    /** 九键：左列符号，右列退格 / 重输 / 0 / 回车；底行与设计一致。 */
+    /** 九键：左列符号，右列退格 / 拆分 / 0 / 回车；底行与设计一致。 */
     private static final String[][] NINE_KEY_ROWS = {
         {"，", "@#", "ABC", "DEF", "⌫"},
-        {"。", "GHI", "JKL", "MNO", "重输"},
+        {"。", "GHI", "JKL", "MNO", "拆分"},
         {"？", "PQRS", "TUV", "WXYZ", "0"},
         {"123", "中", "，", "空格", "。", "↵"},
     };
@@ -39,7 +39,7 @@ public final class KeyboardPreview extends View {
     };
     /** 画成功能键底色的键面。 */
     private static final java.util.Set<String> FUNCTION_KEYS = java.util.Set.of(
-        "⇧", "⌫", "123", "中", "重输", "@#", "，", "。", "？", "0");
+        "⇧", "⌫", "123", "中", "拆分", "@#", "，", "。", "？", "0");
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF key = new RectF();

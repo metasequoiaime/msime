@@ -9,10 +9,10 @@ public final class NineKeyLayoutSmoke {
         check(NineKeyLayout.rows().stream().allMatch(row -> row.size() == 3));
         check(NineKeyLayout.rows().stream().flatMap(List::stream)
             .map(NineKeyLayout.Key::label).toList().equals(
-                List.of("分词", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")));
+                List.of("@#", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")));
         check(NineKeyLayout.rows().stream().flatMap(List::stream)
             .map(NineKeyLayout.Key::input).toList().equals(
-                List.of('\'', '2', '3', '4', '5', '6', '7', '8', '9')));
+                List.of('@', '2', '3', '4', '5', '6', '7', '8', '9')));
         check(NineKeyLayout.rows().stream().flatMap(List::stream)
             .map(NineKeyLayout.Key::digit).toList().equals(
                 List.of(1, 2, 3, 4, 5, 6, 7, 8, 9)));
@@ -21,12 +21,16 @@ public final class NineKeyLayoutSmoke {
         List<NineKeyLayout.Key> keys = NineKeyLayout.rows().stream().flatMap(List::stream).toList();
         NineKeyLayout.Key separator = keys.get(0);
         NineKeyLayout.Key letters = keys.get(1);
-        check(NineKeyLayout.face(separator, false).equals("分词"));
+        check(NineKeyLayout.face(separator, false).equals("@#"));
         check(NineKeyLayout.face(letters, false).equals("ABC"));
-        check(NineKeyLayout.description(separator, false).equals("拼音分词"));
+        check(NineKeyLayout.description(separator, false).equals("符号"));
+        // 1 键在拼音键面上打开符号面板，数字键面上照常是 1；拼音分隔符改由右列的「拆分」送出。
+        check(NineKeyLayout.opensSymbols(separator, false));
+        check(!NineKeyLayout.opensSymbols(separator, true));
+        check(!NineKeyLayout.opensSymbols(letters, false));
+        check(NineKeyLayout.SEPARATOR == '\'');
         check(NineKeyLayout.description(letters, false).equals("2 ABC"));
-        // The digit layer prints the number the key carries, including key 1, whose Engine input is
-        // the pinyin separator rather than a number.
+        // The digit layer prints the number the key carries, including key 1, which opens the symbol panel on the pinyin layer.
         check(NineKeyLayout.face(separator, true).equals("1"));
         check(NineKeyLayout.face(letters, true).equals("2"));
         check(NineKeyLayout.description(separator, true).equals("数字 1"));

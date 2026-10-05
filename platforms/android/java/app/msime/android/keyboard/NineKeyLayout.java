@@ -8,12 +8,20 @@ public final class NineKeyLayout {
      * A grid key.
      *
      * <p>{@code digit} is what the key prints on the digit layer and what a hold offers; it is not
-     * always {@code input}, because key 1 feeds the pinyin separator rather than a number.
+     * always {@code input}, because key 1 opens the symbol panel rather than feeding a number.
      */
     public record Key(int digit, String label, char input, String description) {}
 
+    /** 拼音分隔符：右列「拆分」键送进引擎的字符（原来在 1 键上，叫「分词」）。 */
+    public static final char SEPARATOR = '\'';
+
+    /** 1 键在拼音键面上是「@#」，点按打开符号面板，不送进引擎（引擎的九键不收 1）。 */
+    public static boolean opensSymbols(Key key, boolean digits) {
+        return !digits && key != null && key.digit() == 1;
+    }
+
     private static final List<List<Key>> ROWS = List.of(
-        List.of(new Key(1, "分词", '\'', "拼音分词"), new Key(2, "ABC", '2', "2 ABC"),
+        List.of(new Key(1, "@#", '@', "符号"), new Key(2, "ABC", '2', "2 ABC"),
             new Key(3, "DEF", '3', "3 DEF")),
         List.of(new Key(4, "GHI", '4', "4 GHI"), new Key(5, "JKL", '5', "5 JKL"),
             new Key(6, "MNO", '6', "6 MNO")),
