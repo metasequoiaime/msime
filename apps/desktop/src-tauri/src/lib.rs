@@ -3517,6 +3517,16 @@ async fn uninstall_input_source(
     .map_err(|_| HostActionError {
         code: "unavailable",
     })??;
+    // Trashing the bundle does not stop the IMK process: it keeps serving input from the trashed copy until the user logs out, and keeps this edition's sources live meanwhile. Stop it now that the bundle is gone, so imklaunchagent has nothing to relaunch. The uninstall has already happened, so a process that refuses to quit does not turn it into a failure.
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    if app
+        .run_on_main_thread(move || {
+            let _ = send.send(msime_host_macos::stop_input_method());
+        })
+        .is_ok()
+    {
+        let _ = received.recv();
+    }
     // The installed bundle is gone after a successful operation. Exit the
     // settings shell too, matching the native Apple flow and avoiding a UI
     // process that can no longer repair the removed installation.
