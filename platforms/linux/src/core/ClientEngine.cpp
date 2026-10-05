@@ -3587,6 +3587,7 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   return paging;
 }
 void render(IBusEngine *engine, const Json &view) {
+  const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
@@ -3601,6 +3602,9 @@ void render(IBusEngine *engine, const Json &view) {
         engine, voice_text, voice_length, !s.voice_preedit.empty(),
         IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
+    // The cancelled hide would have taken the auxiliary line down with the list; the line is otherwise left alone, because the input mode hint may be showing on it.
+    if (hide_pending)
+      ibus_engine_hide_auxiliary_text(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
     s.rendered_session = 0;
@@ -3666,16 +3670,18 @@ void render(IBusEngine *engine, const Json &view) {
     auto &s = state(engine);
     const bool had_candidates = s.rendered_candidates.is_array() &&
                                 !s.rendered_candidates.empty();
-    ibus_engine_hide_auxiliary_text(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
     publish_candidate_properties(engine);
-    if (had_candidates)
+    // The auxiliary line goes down with the list, never ahead of it: hiding it alone shrinks a window that is still showing, and GNOME then moves a window above the cursor to below it before the list hides.
+    if (had_candidates) {
       schedule_candidate_hide(engine);
-    else
+    } else {
       ibus_engine_hide_lookup_table(engine);
+      ibus_engine_hide_auxiliary_text(engine);
+    }
     return;
   }
   const auto auxiliary = candidate_aux_text(engine, view);

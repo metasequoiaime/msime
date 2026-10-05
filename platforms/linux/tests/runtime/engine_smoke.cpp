@@ -44,6 +44,8 @@ struct Observation {
   std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   gboolean auxiliary_visible = FALSE;
+  // HideLookupTable and HideAuxiliaryText in the order they arrived.
+  std::vector<std::string> hides;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
   std::string forbidden_gloss;
@@ -110,10 +112,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     return;
   }
   if (std::string(name) == "HideLookupTable") {
+    seen.hides.emplace_back(name);
     seen.lookup_visible = false;
     return;
   }
   if (std::string(name) == "HideAuxiliaryText") {
+    seen.hides.emplace_back(name);
     seen.auxiliary.clear();
     seen.auxiliary_visible = FALSE;
     return;
@@ -600,6 +604,15 @@ int main(int argc, char **argv) {
       std::cout << "IBus page-number visibility, paging and selection passed\n";
       return 0;
     }
+    // #3759: hiding the auxiliary line ahead of the list shrinks a window that is still showing, and GNOME then moves it from above the cursor to below it until the list hides.
+    phrase();
+    require(seen.lookup_visible, "Phrase did not show candidates");
+    seen.hides.clear();
+    require(key(IBUS_space) && seen.committed == "你好" &&
+                wait_until([&] { return !seen.lookup_visible && !seen.auxiliary_visible; }) &&
+                !seen.hides.empty() && seen.hides.front() == "HideLookupTable",
+            "Selection hid the auxiliary line before the candidate list");
+    seen.committed.clear();
     require(!seen.emoji_candidates,
             "Missing mixed Emoji preference did not default to disabled");
     require(seen.global_theme == "system",
