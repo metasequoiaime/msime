@@ -390,19 +390,15 @@ export function CommunitySkinsPage({
   const closeDetail = async (fromHistory = false) => {
     if (actionBusy) return;
     if (trial) {
-      const generation = gallery.beginAction();
-      if (generation === null) return;
-      try {
+      let finished = false;
+      await runAction(async (generation) => {
         await client.finishTrial(trial.id, false);
         if (!gallery.isCurrent(generation)) return;
         trialRef.current = null;
         setTrial(null);
-      } catch (actionError) {
-        gallery.fail(actionError);
-        gallery.endAction(generation);
-        return;
-      }
-      gallery.endAction(generation);
+        finished = true;
+      });
+      if (!finished) return;
     }
     closeGalleryDetail();
     if (

@@ -9,5 +9,7 @@ test("community galleries reuse the shared client lifecycle guard", () => {
     }),
   )[0];
 
-  expect(source).toContain("useCommunityClientLifecycle");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("useCommunityClientLifecycle");
+  expect(source).not.toContain("import { runAsyncAction }");
 });
