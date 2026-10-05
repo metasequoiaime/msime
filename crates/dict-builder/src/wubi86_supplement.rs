@@ -1,10 +1,10 @@
-//! `wubi86-supplement`: generates msime-dictionary's `sources/wubi/wubi86-supplement.txt`, the multi-character words the 86 wubi table (`sources/wubi/wubi86-jidian.txt`) lacks, coded by the 86 word rules from the table's own single-character codes.
+//! `wubi86-supplement`：生成 msime-dictionary 的 `sources/wubi/wubi86-supplement.txt`，即 86 五笔码表（`sources/wubi/wubi86-jidian.txt`）缺少的多字词，编码按 86 版词组规则由该表自己的单字编码推出。
 //!
-//! A word is taken when the jidian table has it under no code and either the 98 wubi tables (`sources/wubi/wubi98.txt` and `sources/wubi/wubi98-fcitx.txt`) list it, or `sources/pinyin/rime-ice.txt` has it as a two-character word at a weight of at least `MIN_PINYIN_WEIGHT`. Only words made entirely of Han characters count. The 98 tables are curated word lists, so every word of two or more characters is taken from them; rime-ice's weights come from a corpus that also yields fragments (被他, 请把), so from it only two-character words above the threshold are taken. Its hand-filled weights such as 9999 are not told apart from frequencies.
+//! 一个词在极点码表的任何编码下都没有，并且满足以下其一时收录：98 五笔码表（`sources/wubi/wubi98.txt` 和 `sources/wubi/wubi98-fcitx.txt`）列有它；或 `sources/pinyin/rime-ice.txt` 里它是权重不低于 `MIN_PINYIN_WEIGHT` 的二字词。只算全部由汉字组成的词。98 码表是人工整理的词表，所以两字及以上的词都从中收录；rime-ice 的权重来自语料，语料也会产生词的碎片（被他、请把），所以从它只收超过阈值的二字词。9999 这类人工填写的权重不与词频区分。
 //!
-//! The code follows the 86 word rules over each character's full code, the longest code the jidian table gives the character alone: a two-character word takes the first two letters of each character, a three-character word the first letter of the first two and the first two letters of the third, a longer word the first letter of the first, second, third and last characters. A character the table does not code alone, or whose full codes disagree on the letters a word needs (radicals and a few hundred rare characters), leaves its words out. Over the jidian table's own words the rules reproduce 63,095 of 63,127 codes; the rest are the table's own short codes and decompositions (占比 hxx, 蹂躏 kcka).
+//! 编码按 86 版词组规则，取每个字的全码，即极点码表里该字单独出现时最长的编码：二字词各取前两码；三字词取前两字的首码和第三字的前两码；更长的词取第一、二、三字和末字的首码。码表没有单独编码的字，或几个全码在词所需码位上不一致的字（部首和几百个生僻字），含它的词不收。在极点码表自己的词上，这套规则还原了 63,127 个编码中的 63,095 个；其余是码表自己的简码和拆法（占比 hxx、蹂躏 kcka）。
 //!
-//! The supplement never moves a jidian row. Under its code a word is weighted below the lowest jidian row of that code and no higher than `SUPPLEMENT_CEILING`, below every ranked jidian word (whose lowest weight is 10), so in a prefix list it also follows them. Several words of one code are ordered by their rime-ice weight, highest first, then by word, and step down one each from that ceiling to 0; the build inserts the file after the jidian table, so equal weights keep jidian rows first and the file's order within a code. A code a jidian word answered alone on four letters, which the input method commits by itself, stops doing so once a supplement word shares it; the report counts those codes.
+//! 补充表从不移动极点码表的行。补充词在其编码下的权重低于该编码在极点码表里的最低权重，并且不高于 `SUPPLEMENT_CEILING`，也就低于极点码表所有有排名的词（它们的最低权重是 10），所以在前缀列表里也排在它们之后。同一编码下的几个补充词按 rime-ice 权重从高到低、再按词排序，从这个上限起依次减 1，最低为 0；构建把本文件并在极点码表之后，所以同权重时极点码表的行在前，同一编码内保持本文件的顺序。原本四码只有一个极点词、输入法会自动上屏的编码，一旦有补充词共用就不再自动上屏；报告会统计这类编码。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -21,18 +21,18 @@ pub const WUBI98: &str = "sources/wubi/wubi98.txt";
 pub const WUBI98_FCITX: &str = "sources/wubi/wubi98-fcitx.txt";
 pub const BASE: &str = "sources/pinyin/rime-ice.txt";
 
-/// The rime-ice weight from which a two-character word missing from the 86 table is taken.
+/// 86 码表缺少的二字词，在 rime-ice 里达到这个权重才收录。
 pub const MIN_PINYIN_WEIGHT: i64 = 5000;
 
-/// The highest weight a supplement row gets: one below the lowest weight of a ranked jidian word.
+/// 补充行的最高权重：比极点码表有排名的词的最低权重低 1。
 const SUPPLEMENT_CEILING: i64 = 9;
 
-/// How many examples a report line names.
+/// 每行报告列出的示例个数。
 const REPORT_EXAMPLES: usize = 20;
 
 pub struct Inputs<'a> {
     pub jidian: &'a str,
-    /// `sources/wubi/wubi98.txt`, already decoded from UTF-16LE.
+    /// `sources/wubi/wubi98.txt`，已从 UTF-16LE 解码。
     pub wubi98: &'a str,
     pub wubi98_fcitx: &'a str,
     pub base: &'a str,
@@ -48,15 +48,15 @@ pub struct Entry {
 }
 
 pub struct Supplement {
-    /// Ordered by code, then best first within a code.
+    /// 按编码排序，同一编码内最优的在前。
     pub entries: Vec<Entry>,
-    /// Candidates no code could be derived for, with the character that stopped them.
+    /// 推不出编码的候选词，以及导致失败的那个字。
     pub underivable: Vec<(String, char)>,
-    /// Four-letter codes that had exactly one jidian row and now have supplement rows too.
+    /// 原本恰好只有一行极点词、现在也有了补充行的四码编码数。
     pub unique_codes_shared: usize,
 }
 
-/// The jidian table's rows: `(code, value, weight)`.
+/// 极点码表的行：`(code, value, weight)`。
 fn jidian_rows(source: &str) -> Vec<(String, &str, i64)> {
     text::universal_lines(text::without_bom(source))
         .into_iter()
@@ -64,7 +64,7 @@ fn jidian_rows(source: &str) -> Vec<(String, &str, i64)> {
         .collect()
 }
 
-/// Each character's full codes: the longest codes the table gives it alone.
+/// 每个字的全码：码表里该字单独出现时最长的编码。
 fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<String>> {
     let mut codes: HashMap<char, Vec<String>> = HashMap::new();
     for (code, value, _) in rows {
@@ -86,7 +86,7 @@ fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<String>> {
     codes
 }
 
-/// The first `letters` letters of `c`'s full code, when every full code has them and they agree.
+/// `c` 的全码的前 `letters` 码；所有全码都有这几码且一致时才返回。
 fn prefix(codes: &HashMap<char, Vec<String>>, c: char, letters: usize) -> Option<&str> {
     let full = codes.get(&c)?;
     let first = full.first()?.get(..letters)?;
@@ -95,7 +95,7 @@ fn prefix(codes: &HashMap<char, Vec<String>>, c: char, letters: usize) -> Option
         .then_some(first)
 }
 
-/// The 86 word code of `word`, or the character that has no usable full code.
+/// `word` 的 86 词组编码，或没有可用全码的那个字。
 fn word_code(codes: &HashMap<char, Vec<String>>, word: &str) -> std::result::Result<String, char> {
     let chars: Vec<char> = word.chars().collect();
     let parts: Vec<(char, usize)> = match chars.len() {
@@ -187,7 +187,7 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     let mut entries = Vec::new();
     let mut unique_codes_shared = 0;
     for (code, mut words) in by_code {
-        // Highest rime-ice weight first, words rime-ice lacks last, then by word so the order does not depend on hash order.
+        // rime-ice 权重高的在前，rime-ice 没有的排最后，再按词排序，使顺序不依赖哈希顺序。
         words.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
         let ceiling = match lowest.get(code.as_str()) {
             Some(lowest) => SUPPLEMENT_CEILING.min(lowest - 1),
@@ -213,10 +213,12 @@ pub fn build(inputs: &Inputs) -> Result<Supplement> {
     })
 }
 
-/// Facts the header records, so a reader can reproduce the file.
+/// 表头记录的事实，让读者能复现本文件。
 pub struct Provenance<'a> {
-    /// `(path, sha256)` of every input.
+    /// 每个输入的 `(path, sha256)`。
     pub inputs: &'a [(&'a str, &'a str)],
+    /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
+    pub generator_commit: &'a str,
 }
 
 pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
@@ -227,7 +229,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
         .collect::<Vec<_>>()
         .join("、");
     let mut out = String::new();
-    let _ = writeln!(out, "# 86 五笔词组补充表，由 msime 仓库 crates/dict-builder/src/wubi86_supplement.rs 的 `msime-dict-build wubi86-supplement --cache <dir> --out sources/wubi/wubi86-supplement.txt` 生成，生成器所在的提交就是在 resources/dictionary-sources.lock.json 里固定本文件的 msime 提交；不要手工编辑。");
+    let _ = writeln!(out, "# 86 五笔词组补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/wubi86_supplement.rs 以 `msime-dict-build wubi86-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/wubi/wubi86-supplement.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 输入：{inputs}。");
     let _ = writeln!(out, "# 收录：{JIDIAN} 在任何编码下都没有、且全部由汉字组成的词，满足其一即收：在 98 五笔的 {WUBI98} 或 {WUBI98_FCITX} 里是两字及以上的词；或在 {BASE} 里是权重不低于 {MIN_PINYIN_WEIGHT} 的二字词（9999 这类人工填写的权重不与词频区分）。");
     let _ = writeln!(out, "# 编码：按 86 版词组规则，取 {JIDIAN} 里单字的全码（该字单独出现时最长的编码）：二字词各取前两码；三字词取前两字的首码和第三字的前两码；四字及以上取第一、二、三字和末字的首码。单字表里没有、或几个全码在所需码位上不一致的字，含它的词不收。");
@@ -238,7 +240,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
     out
 }
 
-/// The generator's account of what it took and left out, one line per group, for review.
+/// 生成器对收录和舍弃内容的说明，每组一行，供评审查看。
 pub fn report(supplement: &Supplement) -> Vec<String> {
     let both = supplement
         .entries
@@ -393,8 +395,15 @@ mod tests {
             &supplement,
             &Provenance {
                 inputs: &[(JIDIAN, "0")],
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
             },
         );
+        let first = rendered.lines().next().unwrap();
+        assert!(
+            first.contains("msime 仓库提交 0123456789abcdef0123456789abcdef01234567"),
+            "{first}"
+        );
+        assert!(!first.contains("dictionary-sources.lock.json"));
         let parsed: Vec<_> = text::universal_lines(&rendered)
             .into_iter()
             .filter_map(|line| msime::parse_code_line(line, false))

@@ -1,4 +1,4 @@
-//! `msime-zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `sources/zhuyin/` 下，锁文件按固定提交读取。
+//! `msime-zhuyin.db`：注音方案的注音词库，按 `msime_engine::language_dictionary` 定义的结构写出。数据是 libchewing-data（LGPL-2.1-or-later，见 `resources/licenses/libchewing-data-LGPL-2.1.txt`）在 `resources/dictionary-sources.lock.json` 的 `libchewing-data` 引用所记提交的 `dict/chewing/tsi.csv`、`dict/chewing/word.csv`，由 msime-dictionary 原样收在 `sources/zhuyin/` 下；构建从 `--dictionary` checkout 读取，并按它的 `upstream.lock.json` 校验。
 //!
 //! Three files are read, all `text,frequency,reading` CSV: `tsi.csv` (phrases and characters with their use counts), `word.csv` (every character with each of its readings, all at frequency 0), and the McBopomofo phrase supplement (frequency 0). The scheme types toned syllables, so an entry's key is its syllables joined by one space as the files write them (`ㄋㄧˇ ㄏㄠˇ`): tone 1 is unmarked and ˊ ˇ ˋ ˙ follow the letters. A row appearing more than once keeps its largest frequency, so a `word.csv` character and a supplement phrase weigh 0 unless `tsi.csv` gives the same combination a count.
 //!
@@ -540,24 +540,31 @@ mod tests {
     }
 
     #[test]
-    fn only_the_pinned_files_are_read() {
+    fn the_inputs_are_recorded_upstream_copies() {
         let lock = crate::sources::Lock::load(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../resources/dictionary-sources.lock.json"),
         )
         .unwrap();
         assert_eq!(lock.references[REFERENCE].commit.len(), 40);
-        let mut pinned: Vec<&str> = lock
+        for input in [PHRASES, CHARACTERS] {
+            assert_eq!(
+                crate::sources::upstream_reference(input),
+                Some(REFERENCE),
+                "{input}"
+            );
+        }
+        for input in [SUPPLEMENT, OCCURRENCES] {
+            assert_eq!(
+                crate::sources::upstream_reference(input),
+                Some("McBopomofo"),
+                "{input}"
+            );
+        }
+        assert!(!lock
             .files
             .iter()
-            .filter(|file| file.path.starts_with("sources/zhuyin/"))
-            .map(|file| {
-                crate::sources::assert_dictionary_repository_file(file);
-                file.path.as_str()
-            })
-            .collect();
-        pinned.sort_unstable();
-        assert_eq!(pinned, [SUPPLEMENT, OCCURRENCES, PHRASES, CHARACTERS]);
+            .any(|file| file.path.starts_with("sources/zhuyin/")));
     }
 
     fn written(dictionary: &Dictionary) -> (tempfile::TempDir, std::path::PathBuf) {

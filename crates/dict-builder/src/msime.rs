@@ -245,7 +245,7 @@ pub fn apply_custom_words(
     Ok(counts)
 }
 
-/// Wrong readings removed from the quanpin tables once every pinyin input is merged (`resources/dictionary-sources/`). The pinned inputs are locked byte for byte, so a wrong row cannot be fixed where it lives.
+/// 所有拼音输入合并之后从全拼表删除的错误读音（`resources/dictionary-sources/`）。上游输入按字节原样保存（msime-dictionary 的 `upstream.lock.json`），所以错误的行不能在原文件里改。
 pub const READING_CORRECTIONS: &str = "pinyin-reading-corrections.txt";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

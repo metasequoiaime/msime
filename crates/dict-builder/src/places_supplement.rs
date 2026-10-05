@@ -814,6 +814,8 @@ pub struct Provenance<'a> {
     pub compared: &'a [(&'a str, &'a str)],
     /// `(path, sha256)` of the single-character readings.
     pub single_chars: (&'a str, &'a str),
+    /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
+    pub generator_commit: &'a str,
 }
 
 pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
@@ -833,7 +835,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> String {
     let common = supplement.common;
     let placeholders = placeholder_list(&supplement.placeholders);
     let mut out = String::new();
-    let _ = writeln!(out, "# 行政区划地名补充表，由 msime 仓库 crates/dict-builder/src/places_supplement.rs 的 `msime-dict-build places-supplement --cache <dir> --out sources/pinyin/places.txt` 生成，生成器所在的提交就是在 resources/dictionary-sources.lock.json 里固定本文件的 msime 提交；不要手工编辑。");
+    let _ = writeln!(out, "# 行政区划地名补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/places_supplement.rs 以 `msime-dict-build places-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/pinyin/places.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 上游：https://github.com/modood/Administrative-divisions-of-China 提交 {} 的 dist/provinces.csv、dist/cities.csv、dist/areas.csv（WTFPL）。", provenance.upstream_commit);
     let _ = writeln!(out, "# 收录：省级、地级、县级区划的全称，以及去掉行政后缀（省、自治区、市、自治州、地区、盟、区、县、旗、自治县、自治旗、特区、林区（只用于神农架林区）、矿区）和民族名后至少两个汉字的简称；名称以左、右、前、后、中、合、左翼、右翼结尾的旗与自治县不取简称。排除区划代码末两位为 71–79 的功能区，名称含 {} 的单位（其中含 新区 的正式区划如 浦东新区 也一并排除；{} 是 清新+区，保留），泛名 {}，以及读音有争议、找不到权威出处的 {}。", EXCLUDED_FRAGMENTS.join("、"), FRAGMENT_EXCEPTIONS.join("、"), GENERIC_NAMES.join("、"), UNSOURCED_NAMES.join("、"));
     let _ = writeln!(out, "# 读音：msime places.rs 的 READINGS 加逐字拼音，简称取全称读音的前几个音节。在 sources/pinyin/single-chars.txt 里有多个读音或没有收录的字，必须落在对照集合里同音的至少两字片段中，或是按固定读音（区 qu、县 xian、市 shi 等）读出的全称行政后缀，否则整词不收；音节不在该字读音之列的不收；对照集合里已有同词异音的不收（不论是否也有同音行），例外是除全称行政后缀外整词读音都来自 READINGS 里两字及以上的条目、且对照集合也有这个读音的词（六合 lu'he、宕昌 tan'chang）。");
@@ -1344,10 +1346,17 @@ mod tests {
                 upstream_commit: "c49d495b",
                 compared: &[(super::BASE, "00")],
                 single_chars: (super::SINGLE_CHARS, "11"),
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
             },
         );
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with("# 行政区划地名补充表"));
+        assert!(
+            lines[0].contains("msime 仓库提交 0123456789abcdef0123456789abcdef01234567"),
+            "{}",
+            lines[0]
+        );
+        assert!(!lines[0].contains("dictionary-sources.lock.json"));
         let body: Vec<&str> = lines
             .iter()
             .copied()

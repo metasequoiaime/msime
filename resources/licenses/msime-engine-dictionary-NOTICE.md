@@ -65,7 +65,7 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 | --- | --- | --- |
 | `ngram-corpus/`（`ngram` stage 的输入，只在构建缓存目录里，不入库） | [中文维基百科 20260901 pages-articles dump](https://dumps.wikimedia.org/zhwiki/20260901/) | CC-BY-SA 4.0（正文另受 GFDL 约束） |
 
-固定版本、文件清单与 SHA-256 在 msime 仓库的 `resources/dictionary-sources.lock.json` 里，由 Rust 构建器 `crates/dict-builder`（`msime-dict-build`）下载并逐个校验。
+第三方直链输入的版本、文件清单与 SHA-256 在 msime 仓库的 `resources/dictionary-sources.lock.json` 里，由 Rust 构建器 `crates/dict-builder`（`msime-dict-build`）下载并逐个校验；msime-dictionary 的文件由构建所用 checkout 的 Git 提交固定（release manifest 的 `custom_dictionary_commit`），其中上游原样文件另由该仓 `upstream.lock.json` 按 SHA-256 固定。
 
 产物是词序列的统计量（相邻词对/词三元组的对数增量），不含语料原文。**再分发这两个文件时必须保留对中文维基百科的署名，并按 CC-BY-SA 4.0 提供该文件本身**；BY-SA 4.0 单向兼容 GPL-3.0，与前端现有的 GPL-3.0 分发方式相容。
 
@@ -91,7 +91,7 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 
 - [wuhgit/CustomPinyinDictionary](https://github.com/wuhgit/CustomPinyinDictionary) 未声明任何许可，而它是 `msime-pinyin.db` 的主体。
 - [Selaube/rime-jp_sela](https://github.com/Selaube/rime-jp_sela) 未声明任何许可，`msime-pinyin.db` 的 `japanese_lexicon` 表由它构建。
-- `sources/unlicensed/single-char-whitelist.txt` 的来源没有记录。它参与 `msime-pinyin.db` 的构建（Rust 构建器 `crates/dict-builder` 的 `quanpin` 阶段在 `--include-unlicensed` 构建里用它过滤单字条目，并补上 `resources/dictionary-sources/cn/SingleCharWhitelist.additions.txt` 里的字），所以需要补上来源；在补上之前不要假定它可以再分发。因此 msime 仓库不存放这份文件，构建时按 `resources/dictionary-sources.lock.json` 固定的版本下载。
+- `sources/unlicensed/single-char-whitelist.txt` 的来源没有记录。它参与 `msime-pinyin.db` 的构建（Rust 构建器 `crates/dict-builder` 的 `quanpin` 阶段在 `--include-unlicensed` 构建里用它过滤单字条目，并补上 `resources/dictionary-sources/cn/SingleCharWhitelist.additions.txt` 里的字），所以需要补上来源；在补上之前不要假定它可以再分发。因此 msime 仓库不存放这份文件，构建时从 msime-dictionary checkout（`--dictionary`）读取。
 - `sources/unlicensed/oaldpe-words.txt` 提取自商业词典。词典本体 `en/oaldpe.mdx` 曾经也在本仓中，现已移除——构建只需要提取好的词形列表，不需要词典本体。需要重新生成词表时，自备 `.mdx` 并作为参数传给 `makecikudb/englishdb/extract_oaldpe_headwords.py`。**注意移除只影响当前版本，该文件仍留在 git 历史中。**改写历史会让所有 fork、clone 以及下游 `product-lock.json` 里锁定的 commit 全部失效，因此暂不改写；是否改写单独决策。
 - 辅助码规则参考自小鹤形码，权利归方案作者。
 
@@ -114,4 +114,4 @@ Aspell 词典包里的 `Copyright` 文件另含 Benjamin Titze 的澳大利亚�
 
 ## 本项目自建部分
 
-`source/FanyExtDict.txt`、`cn/phrases.txt`、`resources/dictionary-sources/` 下的人工维护条目、词库源仓库 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `custom/words.txt`、`custom/translations.txt` 与 `custom/english.txt`（构建时按 `resources/dictionary-sources.lock.json` 固定的提交下载），以及构建词库的 Rust 构建器 `crates/dict-builder`（取代原先 `makecikudb/` 下的 Python 脚本）由本项目编写，依据 GPL-3.0 提供，与组织内其他仓库一致。
+`source/FanyExtDict.txt`、`cn/phrases.txt`、`resources/dictionary-sources/` 下的人工维护条目、词库源仓库 [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) 的 `custom/words.txt`、`custom/translations.txt` 与 `custom/english.txt`（构建时从 `--dictionary` 给出的 msime-dictionary checkout 读取，发布 manifest 记下其提交），以及构建词库的 Rust 构建器 `crates/dict-builder`（取代原先 `makecikudb/` 下的 Python 脚本）由本项目编写，依据 GPL-3.0 提供，与组织内其他仓库一致。

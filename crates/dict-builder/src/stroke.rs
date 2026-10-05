@@ -1,4 +1,4 @@
-//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自已经固定的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0）。
+//! `msime-stroke.db`：笔画方案的笔顺码表，按 `msime_engine::language_dictionary` 定义的结构写出。笔顺码来自 rime-stroke（LGPL-3.0，见 `resources/licenses/rime-stroke-LGPL-3.0.txt`）在提交 `COMMIT` 的 `stroke.dict.yaml`，字频来自 msime-dictionary 的 `sources/pinyin/single-chars.txt`（rime-ice 字频，GPL-3.0；没有记录固定它的大小和 SHA-256，内容只由 `--dictionary` checkout 的提交决定）。
 //!
 //! `stroke.dict.yaml` 是 Rime 码表：YAML 头以 `...` 一行结束，之后每行 `字<TAB>笔顺码`，`#` 行是注释。码只用 h 横、s 竖、p 撇、n 点（捺）、z 折五个字母，与方案的按键一一对应，所以原样作为 `entries.key`，不加空格。一个字常有几个笔顺码（大陆规范与台湾 CNS11643 的笔顺并列收录，如「小」zpn 与 spn），每个码各成一条。上游没有权重列，Rime 用自己的八股文字频排序；这里改用 `single-chars.txt`：一个字在其中所有读音的权重之和就是它每个笔顺码的权重，表里没有的字权重为 0。
 //!
@@ -6,7 +6,7 @@
 //!
 //! `syllables` 表固定是五个笔画字母，引擎只拿它确认词典非空。上游有三个笔顺码超过引擎的 64 笔上限（最长 84 笔），它们照常写入，只能经前缀补全找到。
 //!
-//! `msime-stroke.db` 在 msime-dictionary 的固定提交中读取 `sources/stroke/stroke.dict.yaml`，并按锁文件记录的大小与 SHA-256 校验；带 `--dictionary` 时从该 checkout 读取，它是 rime-stroke 的原样文件，所以仍须与锁文件记录的大小与 SHA-256 一致，否则构建失败。
+//! `msime-stroke.db` 从 `--dictionary` checkout 读取 `sources/stroke/stroke.dict.yaml`，并按它的 `upstream.lock.json` 校验。`languages` 必须传 `--dictionary`，所以 `source` 里按常量校验 `--cache` 文件的兜底分支在命令行上已经走不到，只为不删代码而保留。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -20,14 +20,14 @@ use crate::sqlite;
 use crate::text;
 
 pub const SOURCE: &str = "sources/stroke/stroke.dict.yaml";
-/// 字频来源，quanpin 阶段也读同一份固定文件。
+/// 字频来源，quanpin 阶段也读同一份文件（来自 `--dictionary` checkout，没有记录固定它的摘要）。
 pub const FREQUENCIES: &str = "sources/pinyin/single-chars.txt";
-/// 锁文件里记录上游提交的引用名；固定之后它的提交就是数据库的 `source_commit`。
+/// 锁文件里的上游引用名，它的提交就是 `source_commit`。
 pub const REFERENCE: &str = "rime-stroke";
 pub const REPOSITORY: &str = "https://github.com/rime/rime-stroke";
-/// 许可证文件覆盖的上游提交，锁文件固定前也作为 `source_commit`。
+/// 许可证覆盖的上游提交，锁文件没有 `rime-stroke` 引用时作为 `source_commit`。
 pub const COMMIT: &str = "1e8fff9b9494ddec23b0cbc526bcfd8171a6fd48";
-/// `COMMIT` 处 `stroke.dict.yaml` 的大小与 SHA-256；msime-dictionary 原样收录，所以锁文件固定的附件也必须是这两个值。
+/// `COMMIT` 处原样文件的大小与 SHA-256，msime-dictionary 的 `upstream.lock.json` 记录同样的值。`source` 的缓存兜底分支用它们校验手动放进缓存的文件，但这个分支在命令行上已经走不到。
 pub const SOURCE_SIZE: u64 = 3_396_330;
 pub const SOURCE_SHA256: &str = "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1094c786579a665791";
 /// 五种笔画，也是 `syllables` 表的全部内容。
@@ -119,7 +119,7 @@ pub struct Dictionary {
     pub entries: BTreeMap<(String, String), i64>,
 }
 
-/// 构建读取的 `stroke.dict.yaml`：锁文件固定了它、或给了 `--dictionary`，就按 `Sources::pinned` 取（锁文件路径下载，或从 msime-dictionary checkout 读）；否则只接受 `--cache` 下已经放好、大小与 SHA-256 都等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，不联网。两者都没有时返回 `None`，`languages` 跳过 `msime-stroke.db`，粤拼与注音词库照常构建和发布。
+/// 构建读取的 `stroke.dict.yaml`：有 `--dictionary` checkout 时按 `Sources::pinned` 读（按 checkout 的 `upstream.lock.json` 校验），文件缺失或不符都报错。`languages` 必须传 `--dictionary`，所以命令行构建总是走这一支；后面的缓存兜底（只接受 `--cache` 下大小与 SHA-256 等于 `SOURCE_SIZE`、`SOURCE_SHA256` 的文件，都没有时返回 `None`）只有不带 checkout 的 `Sources` 才会走到，目前只有单元测试这样构造。
 pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
     if sources.lock.files.iter().any(|file| file.path == SOURCE)
         || sources.checkout_file(SOURCE).is_some()
@@ -137,7 +137,7 @@ pub fn source(sources: &Sources) -> Result<Option<PathBuf>> {
 fn check_cached(path: &Path, size: u64, sha256: &str) -> Result<()> {
     if !path.is_file() {
         bail!(
-            "{SOURCE} is not pinned in the sources lock yet and {} does not exist; download {REPOSITORY}/raw/{COMMIT}/stroke.dict.yaml there",
+            "{SOURCE} is not in the cache at {} and no --dictionary checkout was given; download {REPOSITORY}/raw/{COMMIT}/stroke.dict.yaml there",
             path.display()
         );
     }
@@ -557,33 +557,20 @@ mod tests {
         assert!(source(&sources).is_err());
     }
 
-    /// 锁文件要么还没固定这份数据，要么固定的正是许可证覆盖的那个提交和那份原样文件。
+    /// 锁文件的 `rime-stroke` 引用正是许可证覆盖的提交，锁文件不固定 `sources/stroke/` 下的任何文件，`stroke.dict.yaml` 是 msime 认定的 rime-stroke 上游数据。
     #[test]
-    fn the_lock_pins_nothing_or_the_covered_commit() {
+    fn the_lock_references_the_covered_commit_and_pins_no_source() {
         let lock = crate::sources::Lock::load(
             &Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../resources/dictionary-sources.lock.json"),
         )
         .unwrap();
-        if let Some(reference) = lock.references.get(REFERENCE) {
-            assert_eq!(reference.commit, COMMIT);
-        }
-        let pinned: Vec<_> = lock
+        assert_eq!(lock.references[REFERENCE].commit, COMMIT);
+        assert!(!lock
             .files
             .iter()
-            .filter(|file| file.path.starts_with("sources/stroke/"))
-            .collect();
-        for file in &pinned {
-            crate::sources::assert_dictionary_repository_file(file);
-            assert_eq!(file.path, SOURCE);
-            assert_eq!(file.size, SOURCE_SIZE);
-            assert_eq!(file.sha256, SOURCE_SHA256);
-        }
-        assert_eq!(
-            pinned.is_empty(),
-            !lock.references.contains_key(REFERENCE),
-            "pin the stroke source and its rime-stroke reference together"
-        );
+            .any(|file| file.path.starts_with("sources/stroke/")));
+        assert_eq!(crate::sources::upstream_reference(SOURCE), Some(REFERENCE));
     }
 
     fn written(dictionary: &Dictionary) -> (tempfile::TempDir, PathBuf) {

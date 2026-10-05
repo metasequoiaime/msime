@@ -8,10 +8,6 @@
       "repository": "https://github.com/iDvel/rime-ice.git",
       "commit": "9e66b0729083b37d217312294f6d516c8d7234be"
     },
-    "msime-dictionary": {
-      "repository": "https://github.com/metasequoiaime/msime-dictionary.git",
-      "commit": "eb47666d2311bd3a69ef49b6e803e03ac1097ac5"
-    },
     "rime-cantonese": {
       "repository": "https://github.com/rime/rime-cantonese.git",
       "commit": "259f0e48bba840c3a2e0d117539e96937f3d89bc"
@@ -43,6 +39,14 @@
     "SCOWL": {
       "repository": "https://github.com/en-wl/wordlist.git",
       "commit": "7e99edab8e32f9f9ea2b15f249ca8d4d67237410"
+    },
+    "98wubi-tables": {
+      "repository": "https://github.com/yanhuacuo/98wubi-tables.git",
+      "commit": "6b8b6fb9d3c34e0d5e3b17211e1f1c100e7eb697"
+    },
+    "fcitx5-table-extra": {
+      "repository": "https://github.com/fcitx/fcitx5-table-extra.git",
+      "commit": "dbc7154a7f0b9fc04313160ae8066ed4d8cbc446"
     }
   },
   "mozc": {
@@ -56,120 +60,6 @@
     "attribution": "中文维基百科 (zhwiki) 20260901 pages-articles dump, https://dumps.wikimedia.org/zhwiki/20260901/"
   },
   "files": [
-    {
-      "path": "custom/words.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/custom/words.txt",
-      "sha256": "aa40dc40b432b90435ac585cba00c138ce8dcdb53eb579c338fc87ef523e65d4",
-      "size": 10971
-    },
-    {
-      "path": "custom/translations.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/custom/translations.txt",
-      "sha256": "39f999b2a15d58f2a48e1980c875cf0686bfa3486d7bff439fd7a7dfb3c72b25",
-      "size": 7964
-    },
-    {
-      "path": "custom/english.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/custom/english.txt",
-      "sha256": "1e8bb590ce415c1e0fc055928f025569700657fa3959757f3112ffaddfd0236a",
-      "size": 517
-    },
-    {
-      "path": "sources/pinyin/single-chars.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/pinyin/single-chars.txt",
-      "sha256": "18d133c146ba3a398e915721f0b1603af37fff76864e40a89cb1bb5b0c3906fc",
-      "size": 595605
-    },
-    {
-      "path": "sources/pinyin/rime-ice.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/pinyin/rime-ice.txt",
-      "sha256": "d364637b9e27bb9b1c325971a4fa587e371ee3f98807b407744da345b876d4ec",
-      "size": 28521963
-    },
-    {
-      "path": "sources/pinyin/rime-ice-supplement.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/pinyin/rime-ice-supplement.txt",
-      "sha256": "aa382455a3e6127fba26ee69db1155b77b6be2b960cf538688beff59606cb07d",
-      "size": 1324324
-    },
-    {
-      "path": "sources/pinyin/places.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/pinyin/places.txt",
-      "sha256": "6bf7c111a606a10abf2b4022df928395610f718d5b664d5e5d4dec40319d5813",
-      "size": 28266
-    },
-    {
-      "path": "sources/wubi/wubi86-jidian.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/wubi/wubi86-jidian.txt",
-      "sha256": "70afd8476e53b0f1b2184ebfafefb62212e8d3d554b12612cbae0336efa9a0e5",
-      "size": 1992566
-    },
-    {
-      "path": "sources/wubi/wubi86-supplement.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/wubi/wubi86-supplement.txt",
-      "sha256": "716bba43d19ba1bf1f94c63653d518e5bf0d968deba154bdee8fb408745c06d1",
-      "size": 522213
-    },
-    {
-      "path": "sources/wubi/wubi98.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/wubi/wubi98.txt",
-      "sha256": "1b5a4c22eddae08d8e0e6aa8f926f92d45d6cdaa591e5cee0e8aad29271da1cc",
-      "size": 1988020
-    },
-    {
-      "path": "sources/wubi/wubi98-fcitx.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/wubi/wubi98-fcitx.txt",
-      "sha256": "608fff32eb69e46731e40c542ec39c8b3f12a62a243669d5a82196968eed7dd3",
-      "size": 1318078
-    },
-    {
-      "path": "sources/english/rime-ice-en.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/english/rime-ice-en.txt",
-      "sha256": "d8e063481a29d87b762a33d58de7c5098fbabaf0f719e16a2a5a4538a0d7a8cf",
-      "size": 399282
-    },
-    {
-      "path": "sources/english/rime-ice-en-supplement.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/english/rime-ice-en-supplement.txt",
-      "sha256": "f21e53a577cb822ed0df1c5350c2a5ec8ed70344dd80b2f0e793126d54e79efe",
-      "size": 42184
-    },
-    {
-      "path": "sources/english/google-word-counts.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/english/google-word-counts.txt",
-      "sha256": "c71de38c5a4e97e08192fb1c74fc3395d68782bbc2d6dea190c6c90542b06c1f",
-      "size": 4956240
-    },
-    {
-      "path": "sources/english/scowl-words.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/english/scowl-words.txt",
-      "sha256": "2e1dfa5487cc27fe73433ddc2ca5dc0a0f902abf687d845bbe36fb90fe01c732",
-      "size": 491697
-    },
-    {
-      "path": "sources/unlicensed/single-char-whitelist.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/unlicensed/single-char-whitelist.txt",
-      "sha256": "40b1dd89ce4686ee324d4037c220235f625db76ef3c8c40e6cb5d3a8fb603593",
-      "size": 62329
-    },
-    {
-      "path": "sources/unlicensed/custom-pinyin-dictionary-part1.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/unlicensed/custom-pinyin-dictionary-part1.txt",
-      "sha256": "d9a8abe964801cf0d0128757482e98fe2944ade111648c284fd0d5dc41c23d2d",
-      "size": 29916127
-    },
-    {
-      "path": "sources/unlicensed/custom-pinyin-dictionary-part2.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/unlicensed/custom-pinyin-dictionary-part2.txt",
-      "sha256": "ed8ce77dd9a7bbef7c77a8f2193befc0919a1b81ef29e09360014f67cec8b52a",
-      "size": 11383877
-    },
-    {
-      "path": "sources/unlicensed/oaldpe-words.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/unlicensed/oaldpe-words.txt",
-      "sha256": "60cd73f0df66c502693981d77c80373c38d79ff3d06c4c4071a32688929b49e2",
-      "size": 1478040
-    },
     {
       "path": "ecdict/ecdict.csv",
       "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/ecdict.csv",
@@ -205,30 +95,6 @@
       "url": "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/aspell6-en-2026.02.25-0.tar.bz2",
       "sha256": "77a5cb437c45d1115f3b593802c20651d8c93803ed1073278dc1a1240016f10d",
       "size": 185418
-    },
-    {
-      "path": "sources/cantonese/jyut6ping3.chars.dict.yaml",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/cantonese/jyut6ping3.chars.dict.yaml",
-      "sha256": "9b053a594c80eae76545bcdd83239884a49b1ba48b89ca0ab9e8daac79f33013",
-      "size": 345329
-    },
-    {
-      "path": "sources/cantonese/jyut6ping3.words.dict.yaml",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/cantonese/jyut6ping3.words.dict.yaml",
-      "sha256": "54d174ad2bb997e4a678b7b076b84e4dc5914481b32467cdea3b43e88b7d5474",
-      "size": 2630257
-    },
-    {
-      "path": "sources/cantonese/essay-cantonese.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/cantonese/essay-cantonese.txt",
-      "sha256": "d08836175f598219f43c2f2f9e12e12711212dbefe08d57b2eddb7a9d9f22a5d",
-      "size": 3416812
-    },
-    {
-      "path": "sources/cantonese/hkcancor-word-counts.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/cantonese/hkcancor-word-counts.txt",
-      "sha256": "c555c923bf2c21dc4c524cb7af01d3136a8248adc7e460a5d852bd38972926d0",
-      "size": 52029
     },
     {
       "path": "hkcancor/FC-001_v2",
@@ -577,150 +443,6 @@
       "url": "https://raw.githubusercontent.com/fcbond/hkcancor/39aeadf920e0b5ca93d0ad7792c59e740e7bdd65/data/utf8/FC-R018_v",
       "sha256": "b3094d7996651745f36d1ee1e1ab77c9f296f886c1fdfebf1d5b6e924524201a",
       "size": 42091
-    },
-    {
-      "path": "sources/zhuyin/tsi.csv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/zhuyin/tsi.csv",
-      "sha256": "c889a1ac3ae1901b3f8f62748bc41b958f010bf995f7f88dbaf9e3494f341428",
-      "size": 5244487
-    },
-    {
-      "path": "sources/zhuyin/mcbopomofo-supplement.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/zhuyin/mcbopomofo-supplement.txt",
-      "sha256": "6f299a0bb4e5e1d80e6597ffb4ceb01b8ede19fe337126c743afdaa5ebe54ac0",
-      "size": 1232220
-    },
-    {
-      "path": "sources/zhuyin/word.csv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/zhuyin/word.csv",
-      "sha256": "da55b8e599c1389bc486453554f3410cf9c621d0ffff0ce38855698d26b3892a",
-      "size": 399905
-    },
-    {
-      "path": "sources/zhuyin/phrase.occ",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/zhuyin/phrase.occ",
-      "sha256": "dcd11597090b2bef88fb385bdd567e235ccd916728c84b8d0d3f8069ccfc7b8d",
-      "size": 1768276
-    },
-    {
-      "path": "sources/stroke/stroke.dict.yaml",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/stroke/stroke.dict.yaml",
-      "sha256": "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1094c786579a665791",
-      "size": 3396330
-    },
-    {
-      "path": "sources/japanese/dictionary00.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary00.txt",
-      "sha256": "9e07ce292932c4fff327ed8cb06274c09acca556bd8bdf7c7ef1f6173eae3b61",
-      "size": 7157174
-    },
-    {
-      "path": "sources/japanese/dictionary01.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary01.txt",
-      "sha256": "836fd5fd8399510de0d8ef7b33be913cca6bbaee7b712cc8045fba03f4c75a89",
-      "size": 6428663
-    },
-    {
-      "path": "sources/japanese/dictionary02.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary02.txt",
-      "sha256": "93943858d0cfd092b849a78def6901eaf228177e1ac5663544e865a3a1e45a9e",
-      "size": 6480134
-    },
-    {
-      "path": "sources/japanese/dictionary03.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary03.txt",
-      "sha256": "cb9f1b0b4a7550d682d86244a021cd17e0b15366328819e69135b5f183a1a24b",
-      "size": 7434257
-    },
-    {
-      "path": "sources/japanese/dictionary04.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary04.txt",
-      "sha256": "9fdc4e3948d03463de13ab5782adffbc11dd06e934cb80138c5920029cd3d2f6",
-      "size": 5399172
-    },
-    {
-      "path": "sources/japanese/dictionary05.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary05.txt",
-      "sha256": "199e3b0f050b691823ae7ba943090d437f51af6436b27c5f3dc69cafa12000e4",
-      "size": 5316454
-    },
-    {
-      "path": "sources/japanese/dictionary06.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary06.txt",
-      "sha256": "b95b14f7770ae2a824bc8e9fad8b03c1bc45c504f93a36554b8b56daa0368d2a",
-      "size": 5373350
-    },
-    {
-      "path": "sources/japanese/dictionary07.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary07.txt",
-      "sha256": "7f53649b529d4c8c495d3a8dd9c4d489dfe7696080f7423107ff01331174be48",
-      "size": 5315756
-    },
-    {
-      "path": "sources/japanese/dictionary08.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary08.txt",
-      "sha256": "50a31bb5fc1646721b00be371a5695dffab1292bda143e1e59cc70cbbdd8643f",
-      "size": 4887114
-    },
-    {
-      "path": "sources/japanese/dictionary09.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary09.txt",
-      "sha256": "4e5fcd4cbfbf11395166a37b506f547fc54d20edc0884f5184ecd3fc705f0d9a",
-      "size": 6690572
-    },
-    {
-      "path": "sources/japanese/id.def",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/id.def",
-      "sha256": "07a05a268c3783b7e02b36e4aa591555a2dd19a1f3c93891576740761c154f2d",
-      "size": 151747
-    },
-    {
-      "path": "sources/japanese/connection_single_column.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/connection_single_column.txt",
-      "sha256": "68823a1f6617372ccb89afdbcb334d7a0bcfa82c9c5dda03fc1f80f1cab5c48e",
-      "size": 36428642
-    },
-    {
-      "path": "sources/japanese/README.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/README.txt",
-      "sha256": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
-      "size": 5750
-    },
-    {
-      "path": "sources/japanese/LICENSE",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/LICENSE",
-      "sha256": "44cdd923b91ea9199293abecc2762c70c87dbf1e581c027a94c416368d1a648c",
-      "size": 5734
-    },
-    {
-      "path": "sources/japanese/aux_dictionary.tsv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/aux_dictionary.tsv",
-      "sha256": "8103d07c4eb18892282983299cbb20284a0f74bc596dda63831787b69aa7ce6c",
-      "size": 444
-    },
-    {
-      "path": "sources/japanese/dictionary_filter.tsv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/dictionary_filter.tsv",
-      "sha256": "802f2c76516bf1bbb30cd501cc343abf59aa179d3f98917297d961fb9921a2fb",
-      "size": 183
-    },
-    {
-      "path": "sources/japanese/places.tsv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/places.tsv",
-      "sha256": "15cb5d42beb4a530f06599bc64e3a6e6cd11da61728fd0b81e618cef929c9d0e",
-      "size": 5446
-    },
-    {
-      "path": "sources/japanese/words.tsv",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/japanese/words.tsv",
-      "sha256": "e21b52a0bbb983906ee3a7767565087b950e5eb3f246c9a2f5431e643fd69ece",
-      "size": 32041
-    },
-    {
-      "path": "sources/korean/hanja.txt",
-      "url": "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/eb47666d2311bd3a69ef49b6e803e03ac1097ac5/sources/korean/hanja.txt",
-      "sha256": "b1004034589f1357daaea3534a6136f6b5ef825afa8779886b20f0b7908bbe3b",
-      "size": 6452537
     }
   ]
 }

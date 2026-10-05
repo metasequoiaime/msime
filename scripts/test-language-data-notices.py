@@ -3,7 +3,7 @@
 
 The Cantonese (Jyutping) and Zhuyin (Dachen) schemes take their syllables and words from rime-cantonese (CC BY 4.0), libchewing-data (LGPL-2.1-or-later) and the BSD-derived McBopomofo supplement, and their ranking weights partly from the HKCanCor corpus (CC BY 4.0, attribution and citation required) and McBopomofo's phrase.occ (MIT, copyright and permission notice required), and the Stroke scheme takes its stroke orders from rime-stroke (LGPL-3.0, whose main table also requires the CNS11643 attribution). CC BY 4.0 requires the attribution and a note of the changes to travel with the adapted data, and the LGPL requires the licence text, the copyright notice and a pointer to the source. Every host offers these schemes and ships their dictionaries, each beside the resources with its licence text in the same directory, and the scheme code is in the engine every platform ships, so every platform's notice channel carries every text, the way the libhangul Hanja table's does (scripts/test-korean-hanja-table.py), and one channel list keeps this check simple.
 
-许可证文件写明它覆盖的上游提交。粤拼与注音的数据由 msime-dictionary 原样收在 `sources/cantonese/`、`sources/zhuyin/` 下，resources/dictionary-sources.lock.json 从它的固定 Git 提交读取这些文件，并用 `rime-cantonese`、`libchewing-data` 两个引用记下上游提交；笔画的 `sources/stroke/` 也按同样方式固定，引用名 `rime-stroke`。引用必须是许可证文件覆盖的那个提交，所以换了上游提交却忘了改许可证会在这里失败。锁文件还没有固定的来源打印一行 skip；这时 dict-builder 的 `stroke.rs` 记下的提交必须就是许可证覆盖的提交。
+许可证文件写明它覆盖的上游提交；resources/dictionary-sources.lock.json 的 `rime-cantonese`、`libchewing-data`、`rime-stroke` 引用必须等于这些提交，所以换了上游提交却忘了改许可证会在这里失败。数据本身由 msime-dictionary 原样收在 `sources/cantonese/`、`sources/zhuyin/`、`sources/stroke/` 下，并在它的 `upstream.lock.json` 里按字节固定，构建器读取 checkout 时核对记录里的提交等于这些引用；锁文件不再固定任何 msime-dictionary 文件。
 """
 import json
 import sys
@@ -11,9 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
-# 粤拼、注音与笔画的源文件直接从 msime-dictionary 的固定提交取用。
+# 锁文件曾用这个前缀固定 msime-dictionary 的文件；现在检查它不再出现。
 DICTIONARY_RAW = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/"
-# 每个许可证文件对应的上游仓库、它覆盖的提交、锁文件里这份数据所在的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
+# 每个许可证文件对应的上游仓库、它覆盖的提交、这份数据在 msime-dictionary 里的目录，以及它必须保留的段落：署名或版权行、许可证正文、改动说明或源码地址、不使用的文件。
 LICENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (
         "rime/rime-cantonese",
@@ -39,7 +39,7 @@ SECONDARY_REFERENCES = {
     "resources/licenses/rime-cantonese-CC-BY-4.0.txt": (("hkcancor", "https://github.com/fcbond/hkcancor, commit {commit}"),),
     "resources/licenses/libchewing-data-LGPL-2.1.txt": (("McBopomofo", "openvanilla/McBopomofo, commit {commit}"), ("McBopomofo", "https://github.com/openvanilla/McBopomofo/tree/{commit}/Source/Data")),
 }
-# 锁文件固定之前，dict-builder 按自己记下的上游提交校验缓存里的源文件；那个提交也必须是许可证覆盖的提交。
+# 锁文件没有 rime-stroke 引用时，stroke.rs 用 COMMIT 兜底，它也必须是许可证覆盖的提交。
 BUILDER_COMMITS = {"rime/rime-stroke": ("crates/dict-builder/src/stroke.rs", 'pub const COMMIT: &str = "{commit}";')}
 # Every channel has to name each licence file on a live (non-comment) line.
 NOTICE_CHANNELS = {
@@ -58,6 +58,9 @@ NOTICE_CHANNELS = {
 }
 # The overviews say what each text covers, so they also have to name the pinned commit.
 OVERVIEWS = ("platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/linux/data/THIRD_PARTY_NOTICES.txt", "platforms/windows/Collect-Notices.ps1", "docs/third-party.md")
+# 主词库的上游说明：这四个 reference 的提交必须写在里面，换了提交却忘了改说明会在这里失败。
+ENGINE_NOTICE = "resources/licenses/msime-engine-dictionary-NOTICE.md"
+ENGINE_NOTICE_REFERENCES = ("rime-ice-supplement", "SCOWL", "98wubi-tables", "fcitx5-table-extra")
 # The vi crate behind Vietnamese mode is MIT. The macOS bundle and the Windows package, where Vietnamese ships and notices are listed by hand, carry its text explicitly.
 VI_LICENCE = "resources/licenses/vi-MIT.txt"
 VI_CHANNELS = ("platforms/macos/CMakeLists.txt", "platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt", "platforms/macos/tests/settings/bundle_contents.py", "platforms/windows/Collect-Notices.ps1", "platforms/windows/tests/tools/collect_notices.ps1")
@@ -101,16 +104,15 @@ def main() -> int:
             check(declaration.format(commit=commit) in (ROOT / source).read_text(encoding="utf-8"), f"{source} does not build from {repository} at {commit}, the commit {relative} covers")
 
         references = [entry["commit"] for entry in lock["references"].values() if repository in entry["repository"]]
-        files = [entry["url"] for entry in lock["files"] if entry["path"].startswith(directory)]
-        if not references and not files:
-            print(f"skipped: lock pin, resources/dictionary-sources.lock.json does not pin {repository} yet")
-            continue
         check(references == [commit], f"the sources lock references {repository} at {references}, the notices cover {commit}; update {relative} and the channels together with the pin")
-        check(bool(files), f"the sources lock references {repository} but pins no file under {directory}")
-        for url in files:
-            expected = DICTIONARY_RAW + lock["references"]["msime-dictionary"]["commit"] + "/"
-            check(url.startswith(expected) and url[len(expected):] == next(entry["path"] for entry in lock["files"] if entry["url"] == url), f"the sources lock pins {url} under {directory}, which is not the fixed msime-dictionary repository file")
-        check(not any(f"/{repository}/" in entry["url"] for entry in lock["files"]), f"the sources lock still downloads from {repository} directly; pin msime-dictionary's {directory} assets instead")
+        check(not any(entry["path"].startswith(directory) for entry in lock["files"]), f"the sources lock pins files under {directory}; msime-dictionary data reaches msime only through dict-v release assets, and the builder reads it from --dictionary")
+        check(not any(f"/{repository}/" in entry["url"] for entry in lock["files"]), f"the sources lock still downloads from {repository} directly; the data is msime-dictionary's {directory}")
+
+    check("msime-dictionary" not in lock["references"] and not any(entry["url"].startswith(DICTIONARY_RAW) for entry in lock["files"]), "resources/dictionary-sources.lock.json pins msime-dictionary; msime takes that repository's data only from its dict-v release assets")
+    engine_notice = (ROOT / ENGINE_NOTICE).read_text(encoding="utf-8")
+    for reference in ENGINE_NOTICE_REFERENCES:
+        pinned = lock["references"].get(reference, {}).get("commit")
+        check(pinned is not None and pinned in engine_notice, f"{ENGINE_NOTICE} does not name {reference} at the sources lock's commit {pinned}")
 
     vi_licence = ROOT / VI_LICENCE
     check(vi_licence.is_file() and "Copyright 2020, Hung Nguyen" in vi_licence.read_text(encoding="utf-8"), f"{VI_LICENCE} is missing or lost the vi copyright line")

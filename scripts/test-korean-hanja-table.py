@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """检查提交的韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）是否符合 msime-dict-build hanja 的生成规则。
 
-表由锁文件固定的 libhangul hanja.txt 生成并提交，供引擎内嵌；CI 不会重新生成，因此这里在无网络的情况下检查所有不变量。若构建器缓存中已有锁定源文件，还会重新生成并逐字节比较。
+表由 msime-dictionary 原样收录的 libhangul hanja.txt（`sources/korean/hanja.txt`）生成并提交，供引擎内嵌；CI 不会重新生成，因此这里在无网络的情况下检查所有不变量，以及锁文件的 `libhangul` 引用。设置了 `MSIME_DICTIONARY=<msime-dictionary checkout>` 时，还会从它的源文件重新生成并逐字节比较。
 
 表按 BSD-3-Clause 授权，所有平台都必须随引擎分发对应许可证文件。
 """
 import hashlib
 import json
+import os
 import sys
 import unicodedata
 from pathlib import Path
@@ -15,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TABLE = ROOT / "crates/engine/src/korean/hanja.tsv"
 LOCK = ROOT / "resources/dictionary-sources.lock.json"
 LICENSE = ROOT / "resources/licenses/libhangul-hanja-BSD-3-Clause.txt"
-CACHE = ROOT / "target/dictionary-sources"
 # BSD-3-Clause clause 2: every binary distribution carries the notice. The table is compiled into the engine, which every platform ships, so each platform's notice channel has to name the licence file on a live (non-comment) line.
 NOTICE_CHANNELS = {
     "platforms/windows/Collect-Notices.ps1": "Windows: the notice collection the installer ships",
@@ -29,6 +29,9 @@ NOTICE_CHANNELS = {
 }
 SOURCE = "sources/korean/hanja.txt"
 COMMIT = "717409ce61524bb3d8426060a384822f21354c62"
+# `COMMIT` 处 libhangul `data/hanja/hanja.txt` 原样文件的大小与 SHA-256，msime-dictionary 的 `sources/korean/hanja.txt` 必须是这份文件。
+SOURCE_SIZE = 6452537
+SOURCE_SHA256 = "b1004034589f1357daaea3534a6136f6b5ef825afa8779886b20f0b7908bbe3b"
 failures = []
 
 
@@ -100,24 +103,24 @@ def main() -> int:
     check(han[:2] == ["한\t韓\t나라 이름 한, 한나라 한", "한\t漢\t한수 한"], "한 no longer starts with 韓 and 漢 in source order")
 
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
-    pinned = [entry for entry in lock["files"] if entry["path"] == SOURCE]
-    check(len(pinned) == 1, f"{SOURCE} is not pinned exactly once in the sources lock")
+    check(lock["references"].get("libhangul", {}).get("commit") == COMMIT, f"the sources lock's libhangul reference is not {COMMIT}; update COMMIT, SOURCE_SIZE and SOURCE_SHA256 together with the table")
+    check(not any(entry["path"] == SOURCE for entry in lock["files"]), f"the sources lock pins {SOURCE}; msime-dictionary data reaches msime only through dict-v release assets")
     check(LICENSE.is_file() and "Choe Hwanjin" in LICENSE.read_text(encoding="utf-8"), "the libhangul BSD-3-Clause text is missing from resources/licenses")
     for channel, description in NOTICE_CHANNELS.items():
         live = [line for line in (ROOT / channel).read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("#")]
         check(any(LICENSE.name in line for line in live), f"{channel} ({description}) does not ship {LICENSE.name}")
-    if len(pinned) == 1:
-        entry = pinned[0]
-        check(f"/libhangul/libhangul/{COMMIT}/data/hanja/hanja.txt" in entry["url"] or lock["references"].get("libhangul", {}).get("commit") == COMMIT, f"the lock no longer pins libhangul {COMMIT} or its msime-dictionary mirror; update this check together with the table")
-        cached = CACHE / SOURCE
-        if not cached.is_file():
-            print(f"skipped: regeneration, {cached.relative_to(ROOT)} is not cached (msime-dict-build hanja --cache target/dictionary-sources fetches it)")
+    dictionary = os.environ.get("MSIME_DICTIONARY")
+    source = Path(dictionary) / SOURCE if dictionary else None
+    if source is None:
+        print("skipped: regeneration, set MSIME_DICTIONARY=<msime-dictionary checkout> (msime-dict-build hanja --dictionary reads the same file)")
+    elif not source.is_file():
+        print(f"skipped: regeneration, {source} does not exist (MSIME_DICTIONARY must be a msime-dictionary checkout)")
+    else:
+        data = source.read_bytes()
+        if len(data) != SOURCE_SIZE or hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
+            check(False, f"{source} is not libhangul {COMMIT}; update COMMIT, SOURCE_SIZE and SOURCE_SHA256 with the table")
         else:
-            data = cached.read_bytes()
-            if len(data) != entry["size"] or hashlib.sha256(data).hexdigest() != entry["sha256"]:
-                print(f"skipped: regeneration, {cached.relative_to(ROOT)} does not match the lock")
-            else:
-                check(generate(data.decode("utf-8")) == table, "the committed table differs from what the pinned source generates; rerun msime-dict-build hanja")
+            check(generate(data.decode("utf-8")) == table, "the committed table differs from what the libhangul source generates; rerun msime-dict-build hanja")
 
     if failures:
         for failure in failures:

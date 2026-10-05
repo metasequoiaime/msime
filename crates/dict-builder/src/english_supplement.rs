@@ -455,6 +455,8 @@ pub struct Provenance<'a> {
     pub pinyin: &'a [(&'a str, &'a str)],
     /// The SHA-256 of `COUNTS`.
     pub counts_sha256: &'a str,
+    /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
+    pub generator_commit: &'a str,
 }
 
 /// The SCOWL copyright line and the permission paragraph after it, as single lines.
@@ -489,7 +491,7 @@ pub fn render(supplement: &Supplement, provenance: &Provenance) -> Result<String
     let counts_sha256 = provenance.counts_sha256;
     let offensive = OFFENSIVE.join("、");
     let mut out = String::new();
-    let _ = writeln!(out, "# SCOWL 英文词补充表，由 msime 仓库 crates/dict-builder/src/english_supplement.rs 的 `msime-dict-build english-supplement --cache <dir> --out sources/english/scowl-words.txt` 生成，生成器所在的提交就是在 resources/dictionary-sources.lock.json 里固定本文件的 msime 提交；不要手工编辑。");
+    let _ = writeln!(out, "# SCOWL 英文词补充表，由 msime 仓库提交 {} 的 crates/dict-builder/src/english_supplement.rs 以 `msime-dict-build english-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out sources/english/scowl-words.txt` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 上游：https://github.com/en-wl/wordlist 提交 {} 发布的 Aspell 英文词典 {}（SHA-256 {}），即 SCOWL 60 级的官方拼写检查词典；取其中 {}，也就是美式拼写词典加英式 -ise 拼写，不含加拿大、澳大利亚拼写和异体词表。", provenance.upstream_commit, provenance.archive_url, provenance.archive_sha256, LISTS.join("、"));
     for line in copyright_notice()? {
         let _ = writeln!(out, "# {line}");
@@ -708,9 +710,16 @@ mod tests {
                 compared: &[("sources/english/rime-ice-en.txt", "11")],
                 pinyin: &[("sources/pinyin/rime-ice.txt", "22")],
                 counts_sha256: "33",
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
             },
         )
         .unwrap();
+        let first = rendered.lines().next().unwrap();
+        assert!(
+            first.contains("msime 仓库提交 0123456789abcdef0123456789abcdef01234567"),
+            "{first}"
+        );
+        assert!(!first.contains("dictionary-sources.lock.json"));
         assert!(rendered.contains("# Copyright 2000-2026 by Kevin Atkinson\n# Permission to use, copy, modify, distribute, and sell any part of SCOWLv2, or word lists created from it,"));
         let body: Vec<&str> = rendered
             .lines()
