@@ -43,3 +43,38 @@ test("invalidates account actions when an owner changes", () => {
 
   expect(result.current.clientGeneration.current).toBeGreaterThan(firstGeneration);
 });
+
+test("allows owner-reset actions to bypass the captured busy state", async () => {
+  const setError = vi.fn();
+  const setNotice = vi.fn();
+  const client = {};
+  const blockedOperation = vi.fn(async () => {});
+  const allowedOperation = vi.fn(async () => {});
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { result, rerender } = renderHook(
+    ({ owner }) => useAccountAction(client, setError, setNotice, owner),
+    { initialProps: { owner: "first" } },
+  );
+
+  let first!: Promise<void>;
+  act(() => {
+    first = result.current.perform(() => pending)!;
+  });
+  const performWhileBusy = result.current.perform;
+  rerender({ owner: "second" });
+
+  expect(performWhileBusy(blockedOperation)).toBeUndefined();
+  const replacement = performWhileBusy(allowedOperation, { allowBusy: true });
+  expect(replacement).toBeDefined();
+
+  await act(async () => {
+    release();
+    await first;
+    await replacement;
+  });
+  expect(blockedOperation).not.toHaveBeenCalled();
+  expect(allowedOperation).toHaveBeenCalledOnce();
+});

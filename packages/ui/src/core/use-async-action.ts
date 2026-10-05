@@ -7,6 +7,7 @@ export type AsyncActionOperation = (isCurrent: () => boolean) => Promise<void>;
 
 export interface AsyncActionRunner {
   busy: boolean;
+  mounted: MutableRefObject<boolean>;
   running: MutableRefObject<boolean>;
   generation: MutableRefObject<number>;
   run: (operation: AsyncActionOperation, options: AsyncActionOptions) => Promise<void> | undefined;
@@ -54,5 +55,5 @@ export function useAsyncActionRunner(
     });
   }
 
-  return { busy, running, generation, run };
+  return { busy, mounted, running, generation, run };
 }

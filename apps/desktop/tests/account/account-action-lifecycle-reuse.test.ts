@@ -9,8 +9,9 @@ test("account actions reuse shared mounted and generation lifecycles", () => {
     }),
   )[0];
 
-  expect(source).toContain("useMountedRef()");
-  expect(source).toContain("useAsyncGeneration(client, ...owners)");
-  expect(source).not.toContain("const mounted = useRef(true)");
-  expect(source).not.toContain("const clientGeneration = useRef(0)");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).toContain("options.allowBusy");
+  expect(source).not.toContain("useMountedRef()");
+  expect(source).not.toContain("useAsyncGeneration(client, ...owners)");
+  expect(source).not.toContain("const actionRunning = useRef(false)");
 });

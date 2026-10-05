@@ -31,6 +31,14 @@ test("serializes actions and ignores stale owner results", async () => {
   expect(setError).not.toHaveBeenCalledWith("失败");
 });
 
+test("exposes the shared mounted guard to consumers", () => {
+  const { result, unmount } = renderHook(() => useAsyncActionRunner(vi.fn(), undefined));
+
+  expect(result.current.mounted.current).toBe(true);
+  unmount();
+  expect(result.current.mounted.current).toBe(false);
+});
+
 test.each(["resolve", "reject"])(
   "a stale action that %s cannot unlock its replacement",
   async (completion) => {

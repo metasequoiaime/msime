@@ -1,8 +1,7 @@
 import { accountMessage, isAccountCancellation } from "./account-errors";
 import { runAsyncAction, type AsyncActionState } from "../core/async-action";
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { useAsyncGeneration } from "../settings/use-async-generation";
-import { useMountedRef } from "../settings/use-mounted-ref";
+import { type MutableRefObject } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 
 export type AccountOperationState = Omit<AsyncActionState, "setNotice"> & {
   setNotice: (message: string) => void;
@@ -36,34 +35,17 @@ export function useAccountAction(
   setNotice: (message: string) => void,
   ...owners: readonly unknown[]
 ): AccountActionState {
-  const [busy, setBusy] = useState(false);
-  const mounted = useMountedRef();
-  const clientGeneration = useAsyncGeneration(client, ...owners);
-  const actionRunning = useRef(false);
-
-  useEffect(() => {
-    actionRunning.current = false;
-    setBusy(false);
-    return () => {
-      actionRunning.current = false;
-    };
-  }, [client, ...owners]);
-
-  const perform = (operation: () => Promise<void>, options: { allowBusy?: boolean } = {}) => {
-    if (actionRunning.current || (busy && !options.allowBusy)) return undefined;
-    const generation = clientGeneration.current;
-    actionRunning.current = true;
-    return runAccountOperation(
-      {
-        busy: options.allowBusy ? false : busy,
-        isCurrent: () => mounted.current && generation === clientGeneration.current,
-        setBusy,
-        setError,
-        setNotice,
-      },
-      operation,
-    ).finally(() => {
-      if (generation === clientGeneration.current) actionRunning.current = false;
+  const {
+    busy,
+    mounted,
+    generation: clientGeneration,
+    run,
+  } = useAsyncActionRunner(setError, setNotice, client, ...owners);
+  const perform: AccountActionState["perform"] = (operation, options = {}) => {
+    if (busy && !options.allowBusy) return undefined;
+    return run(() => operation(), {
+      formatError: accountMessage,
+      ignoreError: isAccountCancellation,
     });
   };
 
