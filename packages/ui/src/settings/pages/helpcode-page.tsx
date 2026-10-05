@@ -27,6 +27,8 @@ export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
   show_in_candidate_window?: boolean;
+  /** 辅助码取部首、笔画还是混合；默认 `radical`，默认值时不写进文档。设置页还没有这项控件。 */
+  mode?: "radical" | "stroke" | "mixed";
 };
 
 export type HelpcodeKey = "quanpin_helpcode" | "shuangpin_helpcode";

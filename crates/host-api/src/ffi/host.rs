@@ -305,11 +305,26 @@ struct ResolveThemeRequest {
     layout: msime_client_core::preferences::CandidateLayout,
     skins_directory: Option<String>,
     package: Option<serde_json::Value>,
+    /// 宿主本地日历的月份（1..=12），只决定 `siji` 画哪一季；省略时用 UTC 月份。
+    #[serde(default)]
+    month: Option<u8>,
+}
+
+/// 请求里的月份所在的季节；没传月份时按 UTC 月份，月份不在 1..=12 时请求失败。
+fn requested_season(
+    month: Option<u8>,
+    invalid: &str,
+) -> Result<msime_client_core::skin::season::Season, String> {
+    match month {
+        Some(month) => msime_client_core::skin::season::season_for_month(month)
+            .ok_or_else(|| invalid.to_owned()),
+        None => Ok(msime_client_core::skin::season::current_utc_season()),
+    }
 }
 
 /// Resolve the colours a host draws for a global theme.
 ///
-/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the seven ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
+/// The request carries the two preference fields as the host read them, so this takes no preferences directory and does no preference I/O: `global_theme` (one of the twelve catalog ids; any other id, a retired skin id included, fails the request as `invalid theme request`) and `custom_theme` (optional, validated as strictly as the preference itself). `dark` is the host's effective mode for the surface being drawn, and `layout` (`horizontal` or `vertical`) its candidate layout: a package is drawn only in a layout and a mode its manifest declares, so no host keeps a gate of its own. For `custom` with a `custom_theme.candidate_skin`, the host names where that package comes from with at most one of `skins_directory` (an absolute skin root; the package is loaded and validated as `msime_client_skin_package` does; every host that scans the root, which is every host but Linux) or `package` (one entry of the published `candidate_skin_catalog`, which only the Linux hosts read). A `package` that is not such an entry, a `SkinSummary` from `msime_client_skin_catalog` included, fails the call: that is a host bug, and reading it anyway would drop its declared modes and selection bar without a word. A package that is missing from the root, invalid on disk or not the one `candidate_skin` names is left out rather than failing the call: the theme still resolves, over its base.
 /// # Safety
 /// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
 /// The returned response must be released with `msime_client_string_free`.
@@ -326,6 +341,7 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
         let bytes = unsafe { std::slice::from_raw_parts(request, length) };
         let request: ResolveThemeRequest =
             serde_json::from_slice(bytes).map_err(|_| "invalid theme request")?;
+        let season = requested_season(request.month, "invalid theme request")?;
         request
             .custom_theme
             .validate()
@@ -359,14 +375,101 @@ pub unsafe extern "C" fn msime_client_resolve_theme(
             (Some(_), None, entry) => entry,
             _ => None,
         };
-        let resolved = msime_client_core::skin::theme::resolve(
+        let resolved = msime_client_core::skin::theme::resolve_in(
             theme,
             &request.custom_theme,
             request.dark,
             request.layout,
             package.as_ref(),
+            season,
         );
         serde_json::to_value(resolved).map_err(|error| error.to_string())
+    })
+}
+
+/// 应用主题的选择器：每个应用主题的 ID、标题、固定的季节和浅色、深色的颜色，以及默认 ID。
+///
+/// `siji` 的 `season` 为 `null`、`seasonal` 为真，它的颜色固定画秋杉，所以这份目录不随时钟变化；宿主画当季颜色时调 `msime_client_resolve_app_theme`。宿主不保存 ID、标题或色值的副本。
+#[no_mangle]
+pub extern "C" fn msime_client_app_theme_catalog() -> *mut c_char {
+    response(|| {
+        Ok(json!({
+            "app_themes": msime_client_core::skin::app_theme::catalog(),
+            "default": msime_client_core::skin::app_theme::AppTheme::default(),
+        }))
+    })
+}
+
+/// 解析应用主题请求的上限。请求只有三个短字段。
+const MAX_APP_THEME_REQUEST_BYTES: usize = 4096;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveAppThemeRequest {
+    app_theme: msime_client_core::skin::app_theme::AppTheme,
+    #[serde(default)]
+    month: Option<u8>,
+    dark: bool,
+}
+
+/// 应用主题在宿主当前月份和明暗模式下的颜色：`{id, season, accent, accent_soft, on_accent, background, card, hair}`。纯计算，不读写文件。
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_resolve_app_theme(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > MAX_APP_THEME_REQUEST_BYTES {
+            return Err("invalid app theme request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: ResolveAppThemeRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid app theme request")?;
+        let season = requested_season(request.month, "invalid app theme request")?;
+        let resolved = msime_client_core::skin::app_theme::resolve_app_theme(
+            request.app_theme,
+            season,
+            request.dark,
+        );
+        serde_json::to_value(resolved).map_err(|error| error.to_string())
+    })
+}
+
+/// 「重置所有设置」：在偏好锁里读出当前文档，换成本存储所属版本的默认偏好（服务凭据和 `fuzzy_pinyin.seeded` 保留，见 `Preferences::restored_to_defaults_for`），再按 `expected_revision` 比较并交换写回，返回新的快照。修订号不符时以 `preferences changed; reload before saving` 失败，什么也不写。词库、统计和剪贴板历史不受影响；默认关闭剪贴板历史时与保存偏好一样清空已存的历史。
+/// # Safety
+/// `directory` must point to `length` readable bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_restore_default_preferences(
+    directory: *const u8,
+    length: usize,
+    expected_revision: u64,
+) -> *mut c_char {
+    response(|| {
+        if directory.is_null() || length > 16384 {
+            return Err("invalid preferences directory buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(directory, length) };
+        let directory = super::parse_absolute_path(
+            bytes,
+            "invalid preferences directory encoding",
+            "preferences directory must be absolute",
+        )?;
+        let store = PreferencesStore::new(directory);
+        let restored = store
+            .restore_defaults(expected_revision)
+            .map_err(|e| e.to_string())?;
+        if !restored.preferences.clipboard_history {
+            store
+                .clear_disabled_clipboard_history()
+                .map_err(|e| e.to_string())?;
+        }
+        serde_json::to_value(restored).map_err(|e| e.to_string())
     })
 }
 

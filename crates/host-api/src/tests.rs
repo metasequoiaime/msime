@@ -1697,11 +1697,13 @@ fn helpcode_settings_switch_independently_after_composition() {
             enabled: false,
             schema: HelpcodeSchema::Xiaohe,
             show_in_candidate_window: false,
+            mode: Default::default(),
         },
         shuangpin_helpcode: HelpcodePreferences {
             enabled: true,
             schema: HelpcodeSchema::Shouyou2,
             show_in_candidate_window: true,
+            mode: Default::default(),
         },
         ..Preferences::default()
     };
@@ -1949,14 +1951,181 @@ fn theme_catalog_lists_every_theme_in_picker_order() {
         .collect();
     assert_eq!(
         ids,
-        ["system", "shuishan", "light", "paper", "night", "ink", "custom"]
+        [
+            "system", "siji", "shuishan", "light", "paper", "night", "ink", "chunya", "xiayin",
+            "qiushan", "dongxue", "custom"
+        ]
     );
-    let night = &catalog["value"]["themes"][4];
+    let night = &catalog["value"]["themes"][5];
     assert_eq!(night["title"], "夜青");
     assert_eq!(night["appearance"], "dark");
     assert_eq!(night["candidate"]["accent"], "#4FD1C5");
+    assert_eq!(night["seasonal"], false);
     assert_eq!(catalog["value"]["themes"][0]["candidate"], Value::Null);
-    assert_eq!(catalog["value"]["themes"][6]["keyboard"], Value::Null);
+    assert_eq!(catalog["value"]["themes"][11]["keyboard"], Value::Null);
+    // 水杉四季带固定的秋杉预览，色板留给 resolve。
+    let siji = &catalog["value"]["themes"][1];
+    assert_eq!(siji["seasonal"], true);
+    assert_eq!(siji["preview"]["accent"], "#B5562B");
+    assert_eq!(siji["candidate"], Value::Null);
+}
+
+#[test]
+fn resolve_theme_reads_the_month_for_siji_only() {
+    let call = |request: Value| {
+        let request = request.to_string();
+        read(unsafe { msime_client_resolve_theme(request.as_ptr(), request.len()) })
+    };
+    let spring =
+        call(json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": 4}));
+    assert_eq!(spring["ok"], true, "{spring}");
+    assert_eq!(spring["value"]["id"], "siji");
+    assert_eq!(spring["value"]["season"], "spring");
+    assert_eq!(spring["value"]["source"], "builtin");
+    assert_eq!(spring["value"]["candidate"]["accent"], "#4E9A3A");
+    assert_eq!(spring["value"]["keyboard"]["background"], "#DDEBCF");
+    let summer =
+        call(json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": 7}));
+    assert_eq!(summer["value"]["appearance"], "dark");
+    assert_eq!(summer["value"]["keyboard"]["background"], "#163024");
+    // 自定义主题画在水杉四季上时也按月份。
+    let custom = call(json!({
+        "global_theme": "custom", "custom_theme": {"base": "siji"}, "dark": false,
+        "layout": "vertical", "month": 12,
+    }));
+    assert_eq!(custom["value"]["season"], "winter", "{custom}");
+    assert_eq!(custom["value"]["candidate"]["accent"], "#3F6E7D");
+    // 其他主题不看月份，结果里也没有 season。
+    let ink = call(json!({"global_theme": "ink", "dark": false, "layout": "vertical", "month": 4}));
+    assert_eq!(ink["ok"], true);
+    assert!(ink["value"].get("season").is_none());
+    // 不带月份的旧请求照常成功，按 UTC 月份。
+    let legacy = call(json!({"global_theme": "siji", "dark": true, "layout": "horizontal"}));
+    assert_eq!(legacy["ok"], true, "{legacy}");
+    let season = msime_client_core::skin::season::current_utc_season();
+    assert_eq!(legacy["value"]["season"], season.id());
+    for month in [0, 13] {
+        let refused = call(
+            json!({"global_theme": "siji", "dark": false, "layout": "vertical", "month": month}),
+        );
+        assert_eq!(refused["ok"], false, "{month}");
+        assert_eq!(refused["error"], "invalid theme request");
+    }
+}
+
+#[test]
+fn app_theme_catalog_and_resolution_have_the_documented_shape() {
+    let catalog = read(msime_client_app_theme_catalog());
+    assert_eq!(catalog["ok"], true);
+    assert_eq!(catalog["value"]["default"], "siji");
+    let themes = catalog["value"]["app_themes"].as_array().unwrap();
+    let ids: Vec<_> = themes
+        .iter()
+        .map(|theme| theme["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["siji", "chunya", "xiayin", "qiushan", "dongxue"]);
+    assert_eq!(themes[0]["season"], Value::Null);
+    assert_eq!(themes[0]["seasonal"], true);
+    assert_eq!(themes[1]["season"], "spring");
+    for theme in themes {
+        for mode in ["light", "dark"] {
+            for key in [
+                "accent",
+                "accent_soft",
+                "on_accent",
+                "background",
+                "card",
+                "hair",
+            ] {
+                assert!(theme[mode][key].is_string(), "{} {mode} {key}", theme["id"]);
+            }
+        }
+    }
+
+    let call = |request: Value| {
+        let request = request.to_string();
+        read(unsafe { msime_client_resolve_app_theme(request.as_ptr(), request.len()) })
+    };
+    let autumn = call(json!({"app_theme": "siji", "month": 10, "dark": true}));
+    assert_eq!(autumn["ok"], true, "{autumn}");
+    assert_eq!(
+        autumn["value"],
+        json!({
+            "id": "siji", "season": "autumn", "accent": "#F0975F", "accent_soft": "#F0975F40",
+            "on_accent": "#3C2618", "background": "#21150F", "card": "#2E1E15", "hair": "#2A2F2A"
+        })
+    );
+    let fixed = call(json!({"app_theme": "chunya", "month": 10, "dark": false}));
+    assert_eq!(fixed["value"]["season"], "spring");
+    assert_eq!(fixed["value"]["accent"], "#4E9A3A");
+    assert_eq!(fixed["value"]["on_accent"], "#FFFFFF");
+    let without_month = call(json!({"app_theme": "siji", "dark": false}));
+    assert_eq!(without_month["ok"], true);
+    for (request, why) in [
+        (
+            json!({"app_theme": "siji", "month": 13, "dark": false}),
+            "month",
+        ),
+        (json!({"app_theme": "seasons", "dark": false}), "id"),
+        (json!({"app_theme": "siji"}), "no mode"),
+        (
+            json!({"app_theme": "siji", "dark": false, "colour": 1}),
+            "unknown key",
+        ),
+    ] {
+        let refused = call(request);
+        assert_eq!(refused["ok"], false, "{why}");
+        assert_eq!(refused["error"], "invalid app theme request", "{why}");
+    }
+    assert_eq!(
+        read(unsafe { msime_client_resolve_app_theme(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+fn restoring_default_preferences_is_a_locked_compare_and_swap() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut edited = Preferences {
+        candidate_page_size: 8,
+        clipboard_history: true,
+        ..Preferences::default()
+    };
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    let saved = store.save(0, edited).unwrap();
+    let path = dir.path().to_str().unwrap();
+    let call = |revision: u64| {
+        read(unsafe {
+            msime_client_restore_default_preferences(path.as_ptr(), path.len(), revision)
+        })
+    };
+    let stale = call(saved.revision + 5);
+    assert_eq!(stale["ok"], false);
+    assert_eq!(stale["error"], "preferences changed; reload before saving");
+    assert_eq!(store.load().unwrap(), saved);
+    let restored = call(saved.revision);
+    assert_eq!(restored["ok"], true, "{restored}");
+    assert_eq!(restored["value"]["revision"], saved.revision + 1);
+    assert_eq!(restored["value"]["preferences"]["candidate_page_size"], 6);
+    assert_eq!(
+        restored["value"]["preferences"]["voice_input"]["asr_token"],
+        "fixture-asr-token"
+    );
+    let loaded = store.load().unwrap();
+    assert_eq!(loaded.preferences.candidate_page_size, 6);
+    assert!(!loaded.preferences.clipboard_history);
+    let relative = "relative/preferences";
+    assert_eq!(
+        read(unsafe {
+            msime_client_restore_default_preferences(relative.as_ptr(), relative.len(), 0)
+        })["error"],
+        "preferences directory must be absolute"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_restore_default_preferences(std::ptr::null(), 0, 0) })["ok"],
+        false
+    );
 }
 
 #[test]
@@ -2980,6 +3149,63 @@ fn selection_statistics_reach_the_store_at_focus_out() {
     read(msime_client_destroy(handle));
     assert_eq!(store.load().unwrap().selections.total(), 3);
 }
+/// 隐私模式：引擎不学习，选词位置也不计入统计。
+#[test]
+fn incognito_turns_learning_and_selection_statistics_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        touch_incognito: true,
+        ..chinese_preferences()
+    };
+    assert!(preferences.learning);
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    SESSIONS.with(|sessions| assert!(!sessions.borrow()[&handle].options.learning));
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    for index in [0, 1] {
+        commit_candidate_by_position(handle, index);
+    }
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 0);
+
+    // 关掉隐私模式后照常学习、照常计数。
+    let open = Preferences {
+        touch_incognito: false,
+        ..preferences
+    };
+    assert_eq!(update(handle, 1, &open)["ok"], true);
+    SESSIONS.with(|sessions| assert!(sessions.borrow()[&handle].options.learning));
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().selections.total(), 1);
+    read(msime_client_destroy(handle));
+}
+
+/// 郑码只能保存：没有内置码表时按关闭辅助码交给 Engine，会话照常创建。
+#[test]
+fn a_zhengma_helpcode_is_stored_but_not_handed_to_the_engine() {
+    use msime_client_core::preferences::{HelpcodePreferences, HelpcodeSchema};
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        quanpin_helpcode: HelpcodePreferences {
+            enabled: true,
+            schema: HelpcodeSchema::Zhengma,
+            show_in_candidate_window: true,
+            mode: Default::default(),
+        },
+        ..chinese_preferences()
+    };
+    let handle = test_host_preferences(dir.path(), preferences);
+    SESSIONS.with(|sessions| {
+        let session = &sessions.borrow()[&handle];
+        assert!(!session.options.helpcode);
+        assert_eq!(session.options.helpcode_schema, "ziranma");
+    });
+    read(msime_client_destroy(handle));
+}
+
 /// A result of the expression mode is picked, not typed: the preference opens the mode through the host, and the pick is kept out of the selection statistics as it is kept out of learning.
 #[test]
 fn generated_mode_selections_stay_out_of_selection_statistics() {

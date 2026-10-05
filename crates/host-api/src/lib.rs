@@ -315,8 +315,21 @@ impl HostSession {
                 .as_ref()
                 .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
     }
+    /// 隐私模式（`touch_incognito`）是否开着：已应用的偏好或还没应用的请求里有一份开着就算。
+    fn incognito(&self) -> bool {
+        self.applied.touch_incognito
+            || self
+                .requested
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.preferences.touch_incognito)
+    }
+
     /// Count a committing selection in memory, and hand the batch to the store once it is `SELECTION_BATCH` long.
     fn count_selection(&mut self, position: usize) {
+        // 隐私模式下不统计选词位置：已应用的或刚请求的偏好有一份开着就不计。
+        if self.incognito() {
+            return;
+        }
         // Positions are one-based; zero is not a position, and the store has always refused it.
         let Some(slot) = position.checked_sub(1) else {
             return;
@@ -379,7 +392,8 @@ impl HostSession {
         options.vietnamese_tone_style = vietnamese_tone_style_code(preferences.vietnamese);
         options.shuangpin_profile = profile_code(preferences.shuangpin_profile);
         options.shuangpin_preedit_uses_raw = preferences.shuangpin_preedit_uses_raw;
-        options.learning = preferences.learning;
+        // 隐私模式下不学习，与输入框要求不学习时走同一条路径。
+        options.learning = preferences.learning && !preferences.touch_incognito;
         options.autocorrect_transposition = preferences.quanpin.autocorrect_transposition;
         options.autocorrect_neighbor = preferences.quanpin.autocorrect_neighbor;
         options.fuzzy_pinyin_rules = preferences.fuzzy_pinyin.active_rules();
@@ -816,7 +830,7 @@ fn helpcode_for_scheme(
     preferences: &Preferences,
     scheme: InputScheme,
 ) -> msime_client_core::preferences::HelpcodePreferences {
-    if scheme == preferences.scheme {
+    let helpcode = if scheme == preferences.scheme {
         preferences.active_helpcode()
     } else {
         Preferences {
@@ -824,7 +838,16 @@ fn helpcode_for_scheme(
             ..preferences.clone()
         }
         .active_helpcode()
+    };
+    // 郑码目前只能保存：还没有带授权的内置码表，交给 Engine 会让会话以无效选项创建失败。在有码表之前按关闭辅助码处理，表名换回默认值。
+    if helpcode.schema == msime_client_core::preferences::HelpcodeSchema::Zhengma {
+        return msime_client_core::preferences::HelpcodePreferences {
+            enabled: false,
+            schema: msime_client_core::preferences::HelpcodeSchema::default(),
+            ..helpcode
+        };
     }
+    helpcode
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -960,7 +983,8 @@ impl HostOptions {
             enabled_schemes: engine_schemes(edition),
             shuangpin_profile: profile_code(self.preferences.shuangpin_profile),
             shuangpin_preedit_uses_raw: self.preferences.shuangpin_preedit_uses_raw,
-            learning: self.preferences.learning,
+            // 隐私模式下不学习，与输入框要求不学习时走同一条路径。
+            learning: self.preferences.learning && !self.preferences.touch_incognito,
             autocorrect_transposition: self.preferences.quanpin.autocorrect_transposition,
             autocorrect_neighbor: self.preferences.quanpin.autocorrect_neighbor,
             fuzzy_pinyin_rules: self.preferences.fuzzy_pinyin.active_rules(),

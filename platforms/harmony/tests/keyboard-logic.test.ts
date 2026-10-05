@@ -7623,7 +7623,9 @@ group("a failed login save preserves the last committed session", () => {
           if (saveFails) throw new Error("synthetic storage failure");
           stored = value;
         },
-        clear: () => { stored = null; },
+        clear: () => {
+          stored = null;
+        },
       },
     );
     void bridge
@@ -8994,6 +8996,18 @@ group("the account settings sync maps this host's document, not another's", () =
     retired["platform.harmony.global_theme"] === "system",
     "a retired skin id is never uploaded",
   );
+  // 水杉四季和四个季节主题与其他主题一样上传，水杉四季也能作自定义主题的底。
+  for (const theme of ["siji", "chunya", "xiayin", "qiushan", "dongxue"]) {
+    const seasonal = localAccountPreferences(
+      { global_theme: theme, custom_theme: { base: theme } },
+      syncFeedback,
+    );
+    check(seasonal["platform.harmony.global_theme"] === theme, `${theme} is uploaded`);
+    check(
+      seasonal["platform.harmony.custom_theme_base"] === theme,
+      `${theme} is uploaded as a custom base`,
+    );
+  }
 });
 
 group("uploading keeps what other devices wrote", () => {
@@ -9080,7 +9094,8 @@ group("account preference envelopes reject malformed numeric metadata", () => {
     "a fractional cloud revision is unavailable",
   );
   check(
-    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) === null,
+    accountPreferencesFromDocument({ revision: Number.MAX_SAFE_INTEGER + 1, settings: {} }) ===
+      null,
     "an unsafe cloud revision is unavailable",
   );
   for (const malformed of [null, [], {}]) {
@@ -9124,6 +9139,23 @@ group("applying writes only what the schema declares", () => {
     "so a member the cloud said nothing about survives",
   );
   check(applied.preferences.global_theme === "paper", "and the global theme is written");
+  const seasonal = applyAccountPreferences(
+    {},
+    {
+      revision: 5,
+      settings: {
+        "platform.harmony.global_theme": "siji",
+        "platform.harmony.custom_theme_base": "qiushan",
+      },
+    },
+    schema,
+    syncFeedback,
+  );
+  check(seasonal.preferences.global_theme === "siji", "水杉四季 is written back");
+  check(
+    (seasonal.preferences.custom_theme as Record<string, unknown>).base === "qiushan",
+    "and a seasonal theme is a valid custom base",
+  );
   check(
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
@@ -9743,26 +9775,28 @@ group("shared dictionaries and reply templates keep their own bounds", () => {
     .then(() => {
       // Applying is two requests: the server has to be told which revision of the user's own
       // dictionary this is merging into, so the read's answer goes into the write.
-      void resources({ resource_operation: "apply", id, resource_revision: 3 }).then((result) => {
-        check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
-        const applied = calls.find((call) => call.path.endsWith("/apply"));
-        check(
-          applied?.body?.dictionary_revision === 12,
-          "and it carries the revision the catalog just reported",
-        );
-        check(applied?.body?.resource_revision === 3, "together with the resource revision");
-        catalogRevision = Number.MAX_SAFE_INTEGER + 1;
-        return resources({ resource_operation: "apply", id, resource_revision: 3 });
-      }).then((result) => {
-        check(
-          JSON.parse(result).error === "community_unavailable",
-          "an unsafe dictionary revision is unavailable",
-        );
-        check(
-          calls.filter((call) => call.path.endsWith("/apply")).length === 1,
-          "an unsafe dictionary revision is rejected before the apply request",
-        );
-      });
+      void resources({ resource_operation: "apply", id, resource_revision: 3 })
+        .then((result) => {
+          check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
+          const applied = calls.find((call) => call.path.endsWith("/apply"));
+          check(
+            applied?.body?.dictionary_revision === 12,
+            "and it carries the revision the catalog just reported",
+          );
+          check(applied?.body?.resource_revision === 3, "together with the resource revision");
+          catalogRevision = Number.MAX_SAFE_INTEGER + 1;
+          return resources({ resource_operation: "apply", id, resource_revision: 3 });
+        })
+        .then((result) => {
+          check(
+            JSON.parse(result).error === "community_unavailable",
+            "an unsafe dictionary revision is unavailable",
+          );
+          check(
+            calls.filter((call) => call.path.endsWith("/apply")).length === 1,
+            "an unsafe dictionary revision is rejected before the apply request",
+          );
+        });
 
       // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared
       // service refuses the other combinations rather than ignoring the extra half, because a
@@ -11315,8 +11349,12 @@ group("malformed Engine view integers are refused", () => {
 
 group("Engine view bounds preserve byte offsets and exact identities", () => {
   const valid: EngineViewNumericFields = {
-    editing_text: "việt", caret_position: 6, page: 2, page_count: 3,
-    generation: Number.MAX_SAFE_INTEGER, scheme: SchemeTraits.VIETNAMESE,
+    editing_text: "việt",
+    caret_position: 6,
+    page: 2,
+    page_count: 3,
+    generation: Number.MAX_SAFE_INTEGER,
+    scheme: SchemeTraits.VIETNAMESE,
   };
   check(EngineViewValuePolicy.isValid(valid), "a UTF-8 caret and largest exact generation survive");
   for (const field of ["page", "page_count", "generation"] as const) {
@@ -11325,24 +11363,50 @@ group("Engine view bounds preserve byte offsets and exact identities", () => {
       `${field} cannot lose precision before reaching native code`,
     );
   }
-  check(!EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }), "UTF-8 bounds are enforced");
+  check(
+    !EngineViewValuePolicy.isValid({ ...valid, caret_position: 7 }),
+    "UTF-8 bounds are enforced",
+  );
   check(!EngineViewValuePolicy.isValid({ ...valid, page: 3 }), "a page must exist in the list");
   check(!EngineViewValuePolicy.isValid({ ...valid, page_count: 0 }), "no pages means page zero");
   check(
-    EngineViewValuePolicy.isValid({ ...valid, editing_text: "", caret_position: 0, page: 0, page_count: 0 }),
+    EngineViewValuePolicy.isValid({
+      ...valid,
+      editing_text: "",
+      caret_position: 0,
+      page: 0,
+      page_count: 0,
+    }),
     "an idle Engine view is accepted",
   );
   for (const malformed of [null, undefined, {}, [], 1, "view"]) {
-    check(!EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields), "missing fields are refused");
+    check(
+      !EngineViewValuePolicy.isValid(malformed as EngineViewNumericFields),
+      "missing fields are refused",
+    );
   }
 });
 
 group("candidate snapshots keep generation identities exact", () => {
   check(EngineViewValuePolicy.isGeneration(0), "generation zero is valid while idle");
-  check(EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER), "the largest exact generation is valid");
-  for (const invalid of [0.5, true, "7", null, -1, Number.NaN,
-    Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
-    check(!EngineViewValuePolicy.isGeneration(invalid), `snapshot generation rejects ${String(invalid)}`);
+  check(
+    EngineViewValuePolicy.isGeneration(Number.MAX_SAFE_INTEGER),
+    "the largest exact generation is valid",
+  );
+  for (const invalid of [
+    0.5,
+    true,
+    "7",
+    null,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    check(
+      !EngineViewValuePolicy.isGeneration(invalid),
+      `snapshot generation rejects ${String(invalid)}`,
+    );
   }
 });
 
@@ -11816,41 +11880,39 @@ group("Harmony batch transcription accepts every shared cloud preset", () => {
 
 group("Harmony Doubao handshake headers reject unsafe settings", () => {
   check(
-    DoubaoHeaderPolicy.validConfiguration(
-      "api_key", "synthetic-token", "fixture-resource", "",
-    ),
+    DoubaoHeaderPolicy.validConfiguration("api_key", "synthetic-token", "fixture-resource", ""),
     "API-key mode accepts a complete synthetic configuration",
   );
   check(
     DoubaoHeaderPolicy.validConfiguration(
-      "legacy", "synthetic-token", "fixture-resource", "synthetic-app",
+      "legacy",
+      "synthetic-token",
+      "fixture-resource",
+      "synthetic-app",
     ),
     "legacy mode requires and accepts its app key",
   );
   for (const value of ["injected\r\nheader", "line\nvalue", "bad\u007fvalue", "bad\u0085value"]) {
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", value, "fixture-resource", "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", value, "fixture-resource", ""),
       "control characters never enter a Doubao request header",
     );
     check(
-      !DoubaoHeaderPolicy.validConfiguration(
-        "api_key", "synthetic-token", value, "",
-      ),
+      !DoubaoHeaderPolicy.validConfiguration("api_key", "synthetic-token", value, ""),
       "resource IDs cannot inject a Doubao request header",
     );
   }
   check(
     !DoubaoHeaderPolicy.validConfiguration(
-      "legacy", "synthetic-token", "fixture-resource", "bad\rapp",
+      "legacy",
+      "synthetic-token",
+      "fixture-resource",
+      "bad\rapp",
     ),
     "legacy app keys are checked before the handshake",
   );
   check(
-    !DoubaoHeaderPolicy.validConfiguration(
-      "unexpected", "synthetic-token", "fixture-resource", "",
-    ),
+    !DoubaoHeaderPolicy.validConfiguration("unexpected", "synthetic-token", "fixture-resource", ""),
     "unknown auth modes are rejected instead of silently changing schemes",
   );
 });
@@ -12781,7 +12843,10 @@ group("LocalAsrPolicy", () => {
     "another provider never loads a local model",
   );
   check(!LocalAsrPolicy.usesLocalModel("local", "", "/data"), "no picked model is not a model");
-  check(!LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"), "a relative path is refused");
+  check(
+    !LocalAsrPolicy.usesLocalModel("local", "models/zipformer", "/data"),
+    "a relative path is refused",
+  );
   check(
     LocalAsrPolicy.modelDirectory(" /data/m/ ") === "/data/m",
     "the path is trimmed and loses its trailing slash",
@@ -12807,14 +12872,14 @@ group("LocalAsrPolicy", () => {
   );
   check(
     LocalAsrPolicy.usesLocalModel(
-      "local", "/data/files/voice-models/zipformer", "/data/files/voice-models",
+      "local",
+      "/data/files/voice-models/zipformer",
+      "/data/files/voice-models",
     ),
     "local recognition accepts a model only with its managed root",
   );
   check(
-    !LocalAsrPolicy.usesLocalModel(
-      "local", "/data/other/zipformer", "/data/files/voice-models",
-    ),
+    !LocalAsrPolicy.usesLocalModel("local", "/data/other/zipformer", "/data/files/voice-models"),
     "local recognition refuses a model outside its managed root",
   );
   check(
@@ -13018,7 +13083,10 @@ group("PcmCapture start is invalidated by a concurrent stop", () => {
   const generation = new CaptureGeneration();
   const start = generation.begin();
   generation.invalidate();
-  check(!generation.isCurrent(start), "a stop during start prevents the pending capture from starting");
+  check(
+    !generation.isCurrent(start),
+    "a stop during start prevents the pending capture from starting",
+  );
 });
 
 group("SpeechSentenceAccumulator", () => {

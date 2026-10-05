@@ -60,7 +60,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_corner_radius: false,
     helpcode_shift_entry: mobile,
     skin_directory_import: false,
-    touch_toolbar_components: false,
+    touch_toolbar_components: platform === "ios" || platform === "android",
     maintenance_shortcuts: false,
     fullwidth_chord: platform === "macos",
     voice_provider_settings: platform !== "android",

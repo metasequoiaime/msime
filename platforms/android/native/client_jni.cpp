@@ -710,6 +710,55 @@ template <typename Call> jbyteArray host_request(JNIEnv *env, jbyteArray request
     env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
     return response(env, result);
 }
+
+// 与 host_request 相同，但先按头文件写明的上限检查长度：超限的请求在取得本地视图之前就交给宿主以空请求拒绝，避免 GetByteArrayElements 复制一份超大数组。
+template <typename Call> jbyteArray bounded_request(JNIEnv *env, jbyteArray request, jsize limit, Call call) {
+    if (!request) return response(env, call(nullptr, 0));
+    jsize length = env->GetArrayLength(request);
+    if (length > limit) return response(env, call(nullptr, 0));
+    jbyte *bytes = env->GetByteArrayElements(request, nullptr);
+    if (!bytes) return nullptr;
+    char *result = call(reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length));
+    env->ReleaseByteArrayElements(request, bytes, JNI_ABORT);
+    return response(env, result);
+}
+
+// 两段 UTF-8 输入（请求与资源目录）的宿主调用；任一段超限或为空引用时交给宿主以空请求拒绝。
+template <typename Call> jbyteArray bounded_pair(JNIEnv *env, jbyteArray first, jsize first_limit, jbyteArray second, jsize second_limit, Call call) {
+    if (!first || !second) return response(env, call(nullptr, 0, nullptr, 0));
+    jsize first_length = env->GetArrayLength(first);
+    jsize second_length = env->GetArrayLength(second);
+    if (first_length > first_limit || second_length > second_limit) {
+        return response(env, call(nullptr, 0, nullptr, 0));
+    }
+    jbyte *first_bytes = env->GetByteArrayElements(first, nullptr);
+    if (!first_bytes) return nullptr;
+    jbyte *second_bytes = env->GetByteArrayElements(second, nullptr);
+    if (!second_bytes) {
+        env->ReleaseByteArrayElements(first, first_bytes, JNI_ABORT);
+        return nullptr;
+    }
+    char *result = call(
+        reinterpret_cast<const uint8_t *>(first_bytes), static_cast<size_t>(first_length),
+        reinterpret_cast<const uint8_t *>(second_bytes), static_cast<size_t>(second_length));
+    env->ReleaseByteArrayElements(second, second_bytes, JNI_ABORT);
+    env->ReleaseByteArrayElements(first, first_bytes, JNI_ABORT);
+    return response(env, result);
+}
+
+// 各宿主调用在头文件里写明的请求上限（字节），JNI 只按它们挡掉明显超限的输入，校验仍由宿主完成。
+constexpr jsize kPathLimit = 16384;
+constexpr jsize kDictionaryRequestLimit = 2248576;
+constexpr jsize kHansTextLimit = 64 * 1024;
+constexpr jsize kImportRequestLimit = 1200000;
+constexpr jsize kPluginsRequestLimit = 2 * 1024 * 1024;
+constexpr jsize kCommunityLibraryLimit = 4000000;
+constexpr jsize kAiSkinPlanLimit = 12 * 1024 * 1024;
+constexpr jsize kSkinTrialLimit = 16384;
+constexpr jsize kCommunitySkinInstallLimit = 9000000;
+constexpr jsize kKeySoundPackLimit = 65536;
+constexpr jsize kAppThemeRequestLimit = 4096;
+constexpr jsize kPlatformLimit = 64;
 } // namespace
 
 extern "C" {
@@ -718,6 +767,67 @@ JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordsRa
 }
 JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_voiceHotwordCorrectRaw(JNIEnv *env, jclass, jbyteArray request) {
     return host_request(env, request, msime_client_voice_hotword_correct);
+}
+// 应用主题目录与当季颜色：纯计算。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_appThemeCatalogRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_app_theme_catalog());
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_resolveAppThemeRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAppThemeRequestLimit, msime_client_resolve_app_theme);
+}
+// 「重置所有设置」：在偏好锁里按修订号比较并交换写回默认偏好。
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_restoreDefaultPreferencesRaw(JNIEnv *env, jclass, jbyteArray directory, jlong expected_revision) {
+    if (!directory || expected_revision < 0) {
+        return response(env, msime_client_restore_default_preferences(nullptr, 0, 0));
+    }
+    jsize length = env->GetArrayLength(directory);
+    if (length > kPathLimit) return response(env, msime_client_restore_default_preferences(nullptr, 0, 0));
+    jbyte *bytes = env->GetByteArrayElements(directory, nullptr);
+    if (!bytes) return nullptr;
+    char *result = msime_client_restore_default_preferences(
+        reinterpret_cast<const uint8_t *>(bytes), static_cast<size_t>(length),
+        static_cast<uint64_t>(expected_revision));
+    env->ReleaseByteArrayElements(directory, bytes, JNI_ABORT);
+    return response(env, result);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_defaultPreferencesRaw(JNIEnv *env, jclass) {
+    return response(env, msime_client_default_preferences());
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_hostCapabilitiesRaw(JNIEnv *env, jclass, jbyteArray platform) {
+    return bounded_request(env, platform, kPlatformLimit, msime_client_host_capabilities);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_dictionaryRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kDictionaryRequestLimit, msime_client_dictionary);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_personalDictionaryRequestRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kDictionaryRequestLimit, msime_client_personal_dictionary_request);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_dictionaryHansEntriesRaw(JNIEnv *env, jclass, jbyteArray text, jbyteArray resources) {
+    return bounded_pair(env, text, kHansTextLimit, resources, kPathLimit, msime_client_dictionary_hans_entries);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_dictionaryImportEntriesRaw(JNIEnv *env, jclass, jbyteArray request, jbyteArray resources) {
+    return bounded_pair(env, request, kImportRequestLimit, resources, kPathLimit, msime_client_dictionary_import_entries);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_dictionaryManifestRaw(JNIEnv *env, jclass, jbyteArray resources) {
+    return bounded_request(env, resources, kPathLimit, msime_client_dictionary_manifest);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_pluginsRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kPluginsRequestLimit, msime_client_plugins);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communityResourceLibraryRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCommunityLibraryLimit, msime_client_community_resource_library);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_aiSkinPlanRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kAiSkinPlanLimit, msime_client_ai_skin_plan);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keyboardSkinTrialRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kSkinTrialLimit, msime_client_keyboard_skin_trial);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_communitySkinInstallRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kCommunitySkinInstallLimit, msime_client_community_skin_install);
+}
+JNIEXPORT jbyteArray JNICALL Java_app_msime_android_NativeClient_keySoundPackRaw(JNIEnv *env, jclass, jbyteArray request) {
+    return bounded_request(env, request, kKeySoundPackLimit, msime_client_key_sound_pack);
 }
 JNIEXPORT jboolean JNICALL Java_app_msime_android_NativeClient_localSpeechAvailableRaw(JNIEnv *, jclass) {
     return msime::voice::sherpa_runtime_available() ? JNI_TRUE : JNI_FALSE;

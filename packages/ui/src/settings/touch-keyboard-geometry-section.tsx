@@ -14,6 +14,12 @@ export type TouchToolbarPreferences = {
   character_set: boolean;
   fullwidth: boolean;
   punctuation: boolean;
+  /** 常用语按钮。缺省时由宿主按平台取默认（Android 为开），所以下面的默认值里不写它。 */
+  phrase?: boolean;
+  /** 输入方式按钮，默认开启；设置页没有这项控件。 */
+  scheme?: boolean;
+  /** 整行工具栏隐藏，默认关闭；设置页没有这项控件。 */
+  hidden?: boolean;
 };
 
 const defaultTouchToolbar: TouchToolbarPreferences = {
@@ -37,6 +43,7 @@ const touchToolbarOptions: readonly [keyof TouchToolbarPreferences, string][] = 
   ["character_set", "简繁切换"],
   ["fullwidth", "全角 / 半角"],
   ["punctuation", "中英文标点"],
+  ["phrase", "常用语"],
 ];
 
 /** How the host's keyboard treats the voice button at the top: most hosts start voice input from it, the iOS keyboard extension opens the last result recognised in the app, and the macOS desktop keyboard does not draw it. */
@@ -155,7 +162,7 @@ export function TouchKeyboardGeometrySection({
                       {label}
                     </>
                   ),
-                  checked: toolbarValues[key],
+                  checked: Boolean(toolbarValues[key]),
                 }))}
                 onChange={(key, checked) => onToolbarChange({ ...toolbarValues, [key]: checked })}
               />

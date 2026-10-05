@@ -8,10 +8,46 @@ import type { TouchKeyboardSkinDesign } from "../keyboard/touch-keyboard-skin-de
 import { candidateTextColor } from "../candidate/candidate-text-color";
 import catalog from "./theme-catalog.json";
 
-/** `Preferences.global_theme`: one id for the candidate window, floating toolbar, menus and touch keyboard. */
-export type GlobalTheme = "system" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom";
-export type BuiltinGlobalTheme = Exclude<GlobalTheme, "system" | "custom">;
+/** `Preferences.global_theme`: one id for the candidate window, floating toolbar, menus and touch keyboard. `siji`（水杉四季）没有自己的色板，按月份画春芽、夏荫、秋杉或冬雪。 */
+export type GlobalTheme =
+  | "system"
+  | "siji"
+  | "shuishan"
+  | "light"
+  | "paper"
+  | "night"
+  | "ink"
+  | "chunya"
+  | "xiayin"
+  | "qiushan"
+  | "dongxue"
+  | "custom";
+export type BuiltinGlobalTheme = Exclude<GlobalTheme, "system" | "siji" | "custom">;
 export type ThemeAppearance = "light" | "dark";
+/** `skin::season::Season`。 */
+export type Season = "spring" | "summer" | "autumn" | "winter";
+
+/** `season::season_for_month`：3-5 月春，6-8 月夏，9-11 月秋，12-2 月冬；不是 1-12 的月份为 `null`。 */
+export function seasonForMonth(month: number): Season | null {
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+  if (month >= 3 && month <= 5) return "spring";
+  if (month >= 6 && month <= 8) return "summer";
+  if (month >= 9 && month <= 11) return "autumn";
+  return "winter";
+}
+
+/** `GlobalTheme::seasonal_theme`：`siji` 在 `month` 所在季节代表的主题，其他主题原样返回。`month` 省略时取本地日历的当前月份。 */
+export function seasonalThemeId(id: GlobalTheme, month?: number): GlobalTheme {
+  if (id !== "siji") return id;
+  const season = seasonForMonth(month ?? new Date().getMonth() + 1) ?? "autumn";
+  const themes: Record<Season, GlobalTheme> = {
+    spring: "chunya",
+    summer: "xiayin",
+    autumn: "qiushan",
+    winter: "dongxue",
+  };
+  return themes[season];
+}
 
 export type CandidateThemePalette = {
   surface: string | null;
@@ -41,12 +77,14 @@ export type KeyboardThemePalette = {
 
 export type ThemePreview = { background: string; panel: string; accent: string; text: string };
 
-/** One picker entry. `system` and `custom` carry no palette. */
+/** One picker entry. `system`, `siji` and `custom` carry no palette; `siji` carries a fixed 秋杉 preview. */
 export type ThemeCatalogEntry = {
   id: GlobalTheme;
   title: string;
   appearance: ThemeAppearance | null;
   preview: ThemePreview | null;
+  /** 只有 `siji` 为真：按季节变化。 */
+  seasonal: boolean;
   candidate: CandidateThemePalette | null;
   keyboard: KeyboardThemePalette | null;
 };
@@ -67,7 +105,7 @@ export type CustomCandidateColors = {
 
 /** `Preferences.custom_theme`: what the `custom` theme is made of. It is kept while another theme is selected. */
 export type CustomTheme = {
-  /** The theme the custom theme is drawn over: `system` (the default, platform tokens) or a built-in theme, never `custom`. An applied package's own manifest base replaces it. */
+  /** The theme the custom theme is drawn over: `system` (the default, platform tokens), `siji` (the season's palette) or a built-in theme, never `custom`. An applied package's own manifest base replaces it. */
   base?: Exclude<GlobalTheme, "custom">;
   /** The external candidate skin package id; never a global theme id. Unset means "no package". */
   candidate_skin?: string | null;
@@ -95,6 +133,8 @@ export type ResolvedTheme = {
   keyboard: KeyboardThemePalette | null;
   /** The package the custom candidate colours came from, when one was found. */
   candidate_skin: string | null;
+  /** 画的是哪一季，只在 `siji` 作为主题或底时出现。 */
+  season?: Season;
 };
 
 export type ResolveThemeRequest = {
@@ -104,9 +144,54 @@ export type ResolveThemeRequest = {
   dark: boolean;
   /** The candidate layout being drawn; a package is drawn only in a layout its manifest declares. */
   layout: "horizontal" | "vertical";
+  /** 宿主本地日历的月份（1-12），只决定 `siji` 画哪一季；省略时宿主库用 UTC 月份。 */
+  month?: number;
 };
 
-export const themeCatalog = catalog as ThemeCatalogEntry[];
+/** `Preferences.app_theme`：Android 宿主自己的页面配色，`siji` 按月份取当季。 */
+export type AppTheme = "siji" | "chunya" | "xiayin" | "qiushan" | "dongxue";
+
+/** 应用主题在一种明暗模式下的颜色。 */
+export type AppThemeColors = {
+  accent: string;
+  accent_soft: string;
+  on_accent: string;
+  background: string;
+  card: string;
+  hair: string;
+};
+
+/** `msime_client_app_theme_catalog()` 的一项；`app-theme-catalog.json` 是它的副本。 */
+export type AppThemeCatalogEntry = {
+  id: AppTheme;
+  title: string;
+  season: Season | null;
+  seasonal: boolean;
+  light: AppThemeColors;
+  dark: AppThemeColors;
+};
+
+/** `msime_client_resolve_app_theme()`。 */
+export type ResolvedAppTheme = AppThemeColors & { id: AppTheme; season: Season };
+
+/** 设置页用的目录：`theme-catalog.json` 不随时钟变化，水杉四季只带固定的秋杉预览；页面画的是当季，所以载入时把它的明暗、预览和色板换成本地当前月份所在季节的那个主题，与宿主 `resolve` 画出来的一致。 */
+function withCurrentSeason(entries: ThemeCatalogEntry[]): ThemeCatalogEntry[] {
+  const current = entries.find((entry) => entry.id === seasonalThemeId("siji"));
+  if (!current) return entries;
+  return entries.map((entry) =>
+    entry.seasonal
+      ? {
+          ...entry,
+          appearance: current.appearance,
+          preview: current.preview,
+          candidate: current.candidate,
+          keyboard: current.keyboard,
+        }
+      : entry,
+  );
+}
+
+export const themeCatalog = withCurrentSeason(catalog as ThemeCatalogEntry[]);
 export const defaultGlobalTheme: GlobalTheme = "system";
 export const globalThemeIds: GlobalTheme[] = themeCatalog.map((entry) => entry.id);
 
@@ -199,8 +284,10 @@ export function customCandidatePalette(
   base: GlobalTheme | undefined,
   colors: CustomCandidateColors | undefined,
   packagePalette?: PackageCandidatePalette | null,
+  month?: number,
 ): CandidateThemePalette | null {
-  const basePalette = themeEntry(base).candidate;
+  // 水杉四季作底时画当季主题的色板，与 `resolve_in` 一致；`month` 省略时取本地当前月份。
+  const basePalette = themeEntry(base && seasonalThemeId(base, month)).candidate;
   const derived = basePalette !== null;
   const fromPackage = (value: string | null | undefined) =>
     typeof value === "string" ? normalizedColor(value) : null;
@@ -245,11 +332,13 @@ export function customCandidateStyle(
   return candidatePaletteStyle(customCandidatePalette(base, colors, packagePalette));
 }
 
-/** The theme whose keyboard palette is drawn: the selected theme, or for a custom theme with no keyboard design its base, as `resolve()` does. */
+/** The theme whose keyboard palette is drawn: the selected theme, or for a custom theme with no keyboard design its base, as `resolve()` does. `siji` 换成 `month`（省略时取本地当前月份）所在季节的主题。 */
 export function keyboardThemeId(
   theme: GlobalTheme | undefined,
   custom: CustomTheme | undefined,
+  month?: number,
 ): GlobalTheme {
   const id = themeEntry(theme).id;
-  return id === "custom" && !custom?.keyboard ? (custom?.base ?? "system") : id;
+  const drawn = id === "custom" && !custom?.keyboard ? (custom?.base ?? "system") : id;
+  return seasonalThemeId(drawn, month);
 }

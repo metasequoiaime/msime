@@ -253,7 +253,7 @@ pub struct HostCapabilities {
     /// The one candidate layout the host draws, when it offers no choice. The iOS candidate strip is a horizontal row above the keys, so an external skin is adopted there only for its horizontal layout; the skin page has to judge compatibility by that rather than by the shared setting, which defaults to vertical. Absent on a host that follows the setting.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fixed_candidate_layout: Option<crate::preferences::CandidateLayout>,
-    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. Only the iOS keyboard does so far; elsewhere the switches would hide nothing.
+    /// The touch keyboard reads `touch_toolbar` to choose the buttons on the row above its keys. iOS 与 Android 的键盘读它；其他宿主上这些开关什么也不会隐藏。
     pub touch_toolbar_components: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
@@ -583,8 +583,8 @@ impl HostCapabilities {
             fixed_candidate_page_size: (platform == HostPlatform::Ios).then_some(9),
             fixed_candidate_layout: (platform == HostPlatform::Ios)
                 .then_some(crate::preferences::CandidateLayout::Horizontal),
-            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches.
-            touch_toolbar_components: platform == HostPlatform::Ios,
+            // The iOS shortcut bar is the touch counterpart of the Windows floating toolbar, and its buttons follow the same kind of per-component switches. Android 的原生键盘工具栏也按 `touch_toolbar` 选按钮。
+            touch_toolbar_components: matches!(platform, HostPlatform::Ios | HostPlatform::Android),
             // Linux keeps AI credentials in the provider service's owner-only
             // configuration file and passes only non-sensitive options over its
             // socket. Every other host holds the token itself.

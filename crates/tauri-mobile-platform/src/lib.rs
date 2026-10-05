@@ -201,7 +201,7 @@ pub struct IosKeyboardPreferences {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tablet_full_keys: Option<bool>,
     pub dictionary_learning: bool,
-    /// The global theme id (`Preferences::global_theme`), kept in the App Group under `globalTheme` so the keyboard extension reads it without the preferences document. Only the seven theme ids are valid.
+    /// The global theme id (`Preferences::global_theme`), kept in the App Group under `globalTheme` so the keyboard extension reads it without the preferences document. Only the twelve theme ids are valid.
     pub global_theme: String,
     /// The custom theme's keyboard design (`Preferences::custom_theme.keyboard`) as JSON; `None` when the custom theme has no design and draws its base theme's keyboard. The App Group keeps it under `customKeyboardSkin.v1`.
     pub custom_keyboard_skin: Option<String>,
@@ -395,7 +395,18 @@ impl IosKeyboardPreferences {
             // The ids of msime_client_core::skin::theme::GlobalTheme, which this crate does not depend on; the desktop crate's iOS account tests hold the two lists together.
             && matches!(
                 self.global_theme.as_str(),
-                "system" | "shuishan" | "light" | "paper" | "night" | "ink" | "custom"
+                "system"
+                    | "siji"
+                    | "shuishan"
+                    | "light"
+                    | "paper"
+                    | "night"
+                    | "ink"
+                    | "chunya"
+                    | "xiayin"
+                    | "qiushan"
+                    | "dongxue"
+                    | "custom"
             )
             && self.custom_keyboard_skin.as_ref().is_none_or(|value| {
                 value.len() <= MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES
@@ -1180,6 +1191,13 @@ mod tests {
         let mut invalid = keyboard_preferences();
         invalid.global_theme = "ocean".into();
         assert!(!invalid.is_valid());
+
+        // 水杉四季和四个季节主题是合法的主题 ID。
+        for theme in ["siji", "chunya", "xiayin", "qiushan", "dongxue"] {
+            let mut valid = keyboard_preferences();
+            valid.global_theme = theme.into();
+            assert!(valid.is_valid(), "{theme}");
+        }
 
         let mut invalid = keyboard_preferences();
         invalid.custom_keyboard_skin = Some("[]".into());
