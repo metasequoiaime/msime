@@ -46,7 +46,12 @@ let
     // {
       inherit msime-host-api;
       handwritingModel = msime-handwriting-model;
-      voiceRuntime = msime-voice-runtime;
+      # 锁里没有本机架构的运行库时（如 riscv64、i686）不带它，退回只有云端识别的构建，而不是求值失败。
+      voiceRuntime =
+        if pkgs.lib.meta.availableOn pkgs.stdenv.hostPlatform msime-voice-runtime then
+          msime-voice-runtime
+        else
+          null;
     }
   );
 in

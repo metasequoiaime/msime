@@ -8,7 +8,11 @@
 }:
 let
   lock = lib.importJSON ../../../resources/voice-runtime.lock.json;
-  # 锁里 Linux 条目的名字是 linux-<uname -m>。
+  # 锁里 Linux 条目的名字是 linux-<uname -m>，对应 Nix 的 <uname -m>-linux。锁是支持哪些架构的唯一
+  # 来源：meta.platforms 由它推出，default.nix 据此在没有钉住运行库的架构上不带运行库。
+  linuxArchitectures = map (lib.removePrefix "linux-") (
+    lib.filter (lib.hasPrefix "linux-") (lib.attrNames lock.platforms)
+  );
   artifact = lock.platforms."linux-${stdenv.hostPlatform.uname.processor}";
 in
 stdenv.mkDerivation {
@@ -48,9 +52,6 @@ stdenv.mkDerivation {
       lib.licenses.mit
     ];
     sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];
-    platforms = [
-      "x86_64-linux"
-      "aarch64-linux"
-    ];
+    platforms = map (architecture: "${architecture}-linux") linuxArchitectures;
   };
 }
