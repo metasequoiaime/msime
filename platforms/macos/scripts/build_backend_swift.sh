@@ -10,6 +10,11 @@ while IFS= read -r source; do
   if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
 done < <(find "$root/shared/backend/account" "$root/shared/backend/clients" "$root/shared/backend/content" "$root/shared/backend/storage" "$root/shared/backend-ui" "$root/platforms/macos/src/backend" -type f -name '*.swift' -print | sort)
 deployment=${MACOSX_DEPLOYMENT_TARGET:-13.0}
+# CMake passes its build configuration here. A Release build is what package-release.sh ships, so it is optimised for size as one module, dead-stripped and, once built, stripped of local symbols; strip -x keeps the global @_cdecl entry points (_MSIME*) the input method binds and the Objective-C classes it looks up by name. Any other configuration, and a run without CMake, keeps swiftc's default -Onone for debugging. The test harnesses compile the same sources themselves with an explicit -Onone and do not go through this script.
+release=false
+if [[ ${MSIME_SWIFT_CONFIGURATION:-} == Release ]]; then release=true; fi
+optimisation=()
+if $release; then optimisation=(-Osize -wmo -Xlinker -dead_strip); fi
 
 # Translation.framework first ships with macOS 15 and the package runs on 13, where a strong link would stop the whole backend from loading. Its only user checks #available(macOS 26) before touching it.
 compile() {
@@ -17,6 +22,7 @@ compile() {
     -module-name MSIMEBackend -emit-module-path "${2%.dylib}.swiftmodule" \
     -target "$1" -Xlinker -install_name -Xlinker "@rpath/$(basename "$output")" \
     -Xlinker -weak_framework -Xlinker Translation \
+    ${optimisation[@]+"${optimisation[@]}"} \
     -o "$2" "${sources[@]}"
 }
 
@@ -24,6 +30,7 @@ compile() {
 read -r -a architectures <<< "${MSIME_SWIFT_ARCHS:-$(uname -m)}"
 if [[ -n ${MSIME_SWIFT_TARGET:-} || ${#architectures[@]} -eq 1 ]]; then
   compile "${MSIME_SWIFT_TARGET:-${architectures[0]}-apple-macosx$deployment}" "$output"
+  if $release; then xcrun strip -x "$output"; fi
   exit
 fi
 slices=()
@@ -33,3 +40,4 @@ for architecture in "${architectures[@]}"; do
   slices+=("$module_dir/$architecture/$(basename "$output")")
 done
 lipo -create "${slices[@]}" -output "$output"
+if $release; then xcrun strip -x "$output"; fi

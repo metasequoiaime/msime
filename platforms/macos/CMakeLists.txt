@@ -123,8 +123,9 @@ if(NOT MSIME_BUNDLE_ARCHITECTURES)
 endif()
 string(REPLACE ";" " " MSIME_SWIFT_ARCHS "${MSIME_BUNDLE_ARCHITECTURES}")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
+# MSIME_SWIFT_CONFIGURATION lets the script optimise, dead-strip and strip the Release dylib the package ships; every other configuration stays at -Onone.
 add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
-  COMMAND "${CMAKE_COMMAND}" -E env "MSIME_SWIFT_ARCHS=${MSIME_SWIFT_ARCHS}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
+  COMMAND "${CMAKE_COMMAND}" -E env "MSIME_SWIFT_ARCHS=${MSIME_SWIFT_ARCHS}" "MSIME_SWIFT_CONFIGURATION=$<CONFIG>" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
   DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh")
 add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
@@ -1115,6 +1116,8 @@ set(MSIME_OPTIONAL_BACKEND_SYMBOLS
   _msime_macos_uninstall_input_source)
 # The input method links MSIMEBackend.dylib itself, but a toolchain older than Swift 6.2 builds that without the on-device translation entry point (BackendOnDeviceGloss.swift), which the controller then finds null.
 target_link_options(MSIMEClientInputMethod PRIVATE "LINKER:-U,_MSIMEFetchOnDeviceCandidateGlosses")
+# CMake links the Rust host staticlib into the input method, so Cargo's own -dead_strip never reaches it, and without it ld64 keeps every archive member one export touches (image, rink, rustls and more that the input method never calls). Release only: in a link experiment it cut the arm64 executable from 43 MB to 27 MB. Objective-C classes and categories stay because ld64 treats __objc_classlist as a root, and nothing resolves the executable's own symbols by name; the _MSIME* entry points it binds live in MSIMEBackend.dylib.
+target_link_options(MSIMEClientInputMethod PRIVATE "$<$<CONFIG:Release>:LINKER:-dead_strip>")
 get_property(MSIME_DIRECTORY_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
   if(msime_target STREQUAL "MSIMEClientInputMethod")

@@ -135,6 +135,12 @@ jobs:
           name: msime-macos-${{ steps.version.outputs.value }}
           path: dist/
           if-no-files-found: error
+      # package-release.sh strips the shipped executables (input method, its msime-voice-local helper, settings app, msime-mcp) and writes their dSYMs first. They stay out of the release assets and are kept here to symbolicate crash reports from this build; one set covers every edition.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: msime-macos-${{ steps.version.outputs.value }}-dsym
+          path: target/macos-package/dsym/
+          if-no-files-found: error
       # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent macOS release
         if: ${{ inputs.publish }}

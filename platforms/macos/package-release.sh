@@ -13,6 +13,7 @@
 #   --editions 是版本表 shared/contracts/editions.json 里的版本 id，缺省只打 full，产物与引入版本之前相同。几个版本共用一次编译：输入法、msime-mcp 和设置应用的可执行文件都只编一遍，每个版本只重新暂存自己的资源、用 platforms/macos/scripts/edition_bundle.py 把输入法 bundle 改成该版本的身份、按该版本的 identifier 和 productName 打一个设置应用，再各出一个 DMG。多个版本可以同时安装，彼此完全隔离。
 #   VERSION defaults to platforms/macos/version.txt, the version release-macos.yml tags as macos-vVERSION. It becomes the version the settings app reports, so the in-app update check compares like with like, and it must equal the input method's CFBundleShortVersionString (platforms/macos/Info.plist.in).
 #   OUT_DIR defaults to target/macos-package/dist and receives one <dmg_prefix>-VERSION-universal.dmg per edition (full: msime-macos-VERSION-universal.dmg) and SHA256SUMS.
+#   The dSYMs of the shipped executables, taken before they are stripped, go to target/macos-package/dsym (release-macos.yml keeps them as a workflow artifact). Every edition ships the same four executables, so one set covers all of them.
 #
 # Environment:
 #   MSIME_SPARKLE_ROOT            required; directory containing the pinned Sparkle.framework (see README.md)
@@ -110,6 +111,15 @@ sign() {
   fi
 }
 
+# The shipped Mach-Os are stripped of local symbols before they are signed: about 45 MB less on disk across the universal executables and several MB less in each DMG. strip -x keeps global symbols, so the dylibs' exports (MSIMEBackend's _MSIME* entry points, the sherpa-onnx C API) and the imports dyld binds survive. An executable's dSYM is written first so crash reports can still be symbolicated; the dylibs get none, as before.
+dsym_dir="$repo_root/target/macos-package/dsym"
+rm -rf "$dsym_dir"
+mkdir -p "$dsym_dir"
+strip_executable() {
+  dsymutil "$1" -o "$dsym_dir/$(basename "$1").dSYM"
+  strip -x "$1"
+}
+
 # The first element of a glob, failing when there is none or more than one. The bundle names are Chinese or contain spaces, and a literal path to a Chinese name can miss on APFS because of NFC/NFD normalisation; matching with a glob sidesteps both.
 only() {
   if [ "$#" -ne 1 ] || [ ! -e "$1" ]; then
@@ -137,7 +147,8 @@ cmake -S platforms/macos -B "$build_dir" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREF
   -DMSIME_SPARKLE_ROOT="$MSIME_SPARKLE_ROOT" -DMSIME_HOST_LIBRARY="$universal_dir/libmsime_host_api.a"
 # An explicit job count: a bare --parallel with the Makefile generator starts every compile at once and runs a 7 GB runner out of memory (ci-macos.yml).
 cmake --build "$build_dir" --config Release --parallel "$(sysctl -n hw.logicalcpu)"
-ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^bundle-contents$'
+# backend-library-load loads the bundle's MSIMEBackend.dylib, which a Release build optimises, dead-strips and strips (scripts/build_backend_swift.sh), and checks that the Objective-C classes and selectors the input method looks up by name are still there.
+ctest --test-dir "$build_dir" --no-tests=error --output-on-failure -R '^(bundle-contents|backend-library-load)$'
 
 built_bundle="$(only "$build_dir"/*.app)"
 imk_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$built_bundle/Contents/Info.plist")"
@@ -145,11 +156,20 @@ if [ "$imk_version" != "$version" ]; then
   echo "the input method reports $imk_version but the package is $version; bump platforms/macos/Info.plist.in and version.txt together" >&2
   exit 1
 fi
+# The build tree keeps its unstripped bundle, so a rerun that relinks nothing still has the symbols dsymutil reads; the packages are made from a stripped copy. Sparkle.framework is left as its publisher signed it.
+mkdir -p "$work/input-method"
+ditto "$built_bundle" "$work/input-method/$(basename "$built_bundle")"
+built_bundle="$(only "$work/input-method"/*.app)"
+strip_executable "$built_bundle/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$built_bundle/Contents/Info.plist")"
+strip_executable "$built_bundle/Contents/MacOS/msime-voice-local"
+# Only -x on the dylibs: a full strip would remove the exported symbols their users bind. MSIMEBackend.dylib is already stripped by a Release build, so this is a no-op for it unless the build tree was configured otherwise.
+strip -x "$built_bundle/Contents/Frameworks/MSIMEBackend.dylib" "$built_bundle/Contents/Frameworks/libsherpa-onnx-c-api.dylib"
 
 # ---- MCP server ----
 # The same compiler flags as the input method: msime-mcp links the Engine through msime-host-api, and those objects are shared with the build above. Nothing in the app starts it; an agent's MCP configuration runs Contents/MacOS/msime-mcp over stdio.
 CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
   cargo_universal "$universal_dir/msime-mcp" msime-mcp -p msime-mcp-server --bin msime-mcp
+strip_executable "$universal_dir/msime-mcp"
 
 # tauri-build checks every resource path in tauri.macos.conf.json while it compiles the settings app, so full's input method bundle and EngineResources are staged once before the compile below; package_edition stages each edition's own again before bundling.
 MSIME_EDITION=full MSIME_MACOS_OMIT_ON_DEMAND=1 bash platforms/macos/stage-resources.sh "$resources"
@@ -169,6 +189,7 @@ pnpm --filter @msime/desktop build
     CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" \
     cargo_universal "$CARGO_TARGET_DIR/release/msime-desktop" msime-desktop -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
 )
+strip_executable "$CARGO_TARGET_DIR/release/msime-desktop"
 tauri_bundle_dir="$CARGO_TARGET_DIR/release/bundle/macos"
 # Non-English candidate glosses (scripts/fetch_offline_glosses.py), copied here rather than listed in tauri.macos.conf.json because Tauri fails on a resource path that does not exist and the package must still build without them. The input method reads them beside EngineResources.
 glosses="$repo_root/target/macos/offline-glosses"
@@ -309,6 +330,34 @@ check_app() {
   }
   codesign --verify --deep --strict "$nested"
   codesign --verify --deep --strict "$root"
+  # Every shipped executable is stripped before signing (strip_executable), and strip -x leaves no local symbols (nm types t, d, b, s) in any architecture. A debug map (OSO stabs) is not a usable signal: Cargo's release profile already drops the debug info of msime-mcp and the settings app, which still carry tens of thousands of local symbols when nobody strips them.
+  local executable input_method_executable architecture local_symbols
+  input_method_executable="$nested/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$nested/Contents/Info.plist")"
+  for executable in "$root/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$root/Contents/Info.plist")" "$root/Contents/MacOS/msime-mcp" "$input_method_executable" "$nested/Contents/MacOS/msime-voice-local"; do
+    for architecture in "${architectures[@]}"; do
+      local_symbols="$(nm -a -arch "$architecture" "$executable" | awk '$2 ~ /^[tdbs]$/' | wc -l | tr -d ' ')"
+      test "$local_symbols" -eq 0 || {
+        echo "not stripped: $executable ($architecture) has $local_symbols local symbols" >&2
+        exit 1
+      }
+    done
+  done
+  # The _MSIME* entry points the input method binds from MSIMEBackend.dylib have to survive -Osize, dead-stripping and strip -x in every architecture. Only _MSIMEFetchOnDeviceCandidateGlosses may be missing: a toolchain older than Swift 6.2 does not build it, and CMakeLists.txt lets the input method link without it.
+  local backend_architecture backend_exports backend_import backend_imports
+  for backend_architecture in "${architectures[@]}"; do
+    backend_exports="$(nm -gU -arch "$backend_architecture" "$nested/Contents/Frameworks/MSIMEBackend.dylib" | awk '{print $NF}')"
+    backend_imports="$(nm -u -arch "$backend_architecture" "$input_method_executable" | grep '^_MSIME' | grep -vx '_MSIMEFetchOnDeviceCandidateGlosses' || true)"
+    test -n "$backend_imports" || {
+      echo "the input method imports no _MSIME* symbols from MSIMEBackend.dylib ($backend_architecture): $input_method_executable" >&2
+      exit 1
+    }
+    while IFS= read -r backend_import; do
+      grep -qx -- "$backend_import" <<< "$backend_exports" || {
+        echo "MSIMEBackend.dylib ($backend_architecture) does not export $backend_import, which the input method binds" >&2
+        exit 1
+      }
+    done <<< "$backend_imports"
+  done
   # universal 包里任何一个只含单一架构的 Mach-O，都会让另一种 Mac 上的输入法、设置应用或某个功能起不来，而单一架构的开发机上看不出来。
   local file
   while IFS= read -r -d '' file; do
@@ -344,7 +393,8 @@ printf '%s\n' \
   > "$stage/安装说明.txt"
 dmg="$out_dir/$dmg_prefix-$version-$arch.dmg"
 rm -f "$dmg"
-hdiutil create -quiet -volname "$display_name $version" -srcfolder "$stage" -format UDZO -fs HFS+ "$dmg"
+# ULMO (lzma) rather than UDZO (zlib): the same DMG about a third smaller. It mounts on macOS 10.15 and later, and the app needs 13.0. The DMG is signed, notarized and stapled after it is created; converting it afterwards would drop that signature.
+hdiutil create -quiet -volname "$display_name $version" -srcfolder "$stage" -format ULMO -fs HFS+ "$dmg"
 if [ -n "$identity" ]; then
   codesign_timestamped --force --sign "$identity" "$dmg"
   codesign --verify --strict "$dmg"
