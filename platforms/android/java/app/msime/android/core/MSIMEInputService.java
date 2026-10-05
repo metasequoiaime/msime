@@ -2860,7 +2860,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (!visible) return;
         String face = entries.get(0).face();
         // 与句号键一样按墨迹居中放大画：全角「，」原样居中时只剩键底一个小点。
-        quickPunctuationButton.setText(CenteredGlyphSpan.of(face, 1.3f));
+        CenteredGlyphSpan.apply(quickPunctuationButton, face, 1.3f);
         quickPunctuationButton.setContentDescription("常用标点：" + face
             + "；长按选择常用标点");
     }
@@ -3896,8 +3896,11 @@ public final class MSIMEInputService extends InputMethodService {
             replyKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (keyRows != null)
             keyRows.setVisibility(visible ? View.GONE : View.VISIBLE);
-        if (actionRow != null)
-            actionRow.setVisibility(visible ? View.GONE : View.VISIBLE);
+        // 收起回复面板时底栏不是一律恢复：日语九键没有底栏，强行设回 VISIBLE 会让一条空底栏占掉一行高度。由 updateActionRow 按当前布局决定。
+        if (actionRow != null) {
+            if (visible) actionRow.setVisibility(View.GONE);
+            else imeBottomRow.updateActionRow();
+        }
     }
 
     private void invalidateReplyContext(String message) {

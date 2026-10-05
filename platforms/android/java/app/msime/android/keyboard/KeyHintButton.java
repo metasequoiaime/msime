@@ -19,6 +19,7 @@ public class KeyHintButton extends KeyboardPressButton {
 
     private final Paint hintPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint cornerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final int basePaddingTop;
     private final int basePaddingBottom;
     private String hintText = "";
     private int hintColor = Color.GRAY;
@@ -28,6 +29,7 @@ public class KeyHintButton extends KeyboardPressButton {
     @SuppressWarnings("this-escape")
     public KeyHintButton(Context context) {
         super(context);
+        basePaddingTop = getPaddingTop();
         basePaddingBottom = getPaddingBottom();
         hintPaint.setTextAlign(Paint.Align.CENTER);
         cornerPaint.setTextAlign(Paint.Align.RIGHT);
@@ -39,9 +41,11 @@ public class KeyHintButton extends KeyboardPressButton {
         String next = value == null ? "" : value;
         if (hintText.equals(next)) return;
         hintText = next;
-        int extra = hintText.isEmpty() ? 0 : dp(9);
-        setPadding(getPaddingLeft(), getPaddingTop(), getPaddingRight(),
-            basePaddingBottom + extra);
+        // TextView 把文字裁在内边距围出的框里：在按钮默认的上下内边距之外再留出提示的高度，46 dp 的键只剩不到 30 dp，22 sp 的字母连同字体留白放不下，被裁掉下半截、压在提示上。有提示时上边距归零、去掉字体留白，下边只留提示那一行。
+        boolean hinted = !hintText.isEmpty();
+        setIncludeFontPadding(!hinted);
+        setPadding(getPaddingLeft(), hinted ? 0 : basePaddingTop, getPaddingRight(),
+            hinted ? dp(11) : basePaddingBottom);
         invalidate();
     }
 

@@ -278,7 +278,7 @@ final class ImeBottomRow {
             String periodFace = KeyboardActionRow.punctuationFace(
                 KeyboardActionRow.DesignSlot.PERIOD, chinesePunctuation);
             // 全角「。」在字身里只占左下角一小块，按墨迹居中放大画，否则只看到键底一个小点。
-            periodButton.setText(CenteredGlyphSpan.of(periodFace, 1.3f));
+            CenteredGlyphSpan.apply(periodButton, periodFace, 1.3f);
             periodButton.setContentDescription("按键 " + periodFace);
             // type('.') 没有会话时也会直接上屏字面句点（密码框等），与旁边的逗号键一致。
             periodButton.setEnabled(s.connection != null);

@@ -75,7 +75,7 @@ final class ImeLayoutRows {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
+            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
             if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
             addNineKey(punctuation, key);
         }
@@ -302,7 +302,7 @@ final class ImeLayoutRows {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
+            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
             // The punctuation keys share one rail rather than wearing caps of their own.
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(KeyboardKeyRole.PLAIN);
@@ -403,7 +403,7 @@ final class ImeLayoutRows {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
-            if ("，".equals(symbol) || "。".equals(symbol)) key.setText(CenteredGlyphSpan.of(symbol, 1.3f));
+            if ("，".equals(symbol) || "。".equals(symbol)) CenteredGlyphSpan.apply(key, symbol, 1.3f);
             if (key instanceof KeyboardPressButton press)
                 press.setKeyboardRole(KeyboardKeyRole.PLAIN);
             punctuation.addView(key, new LinearLayout.LayoutParams(
@@ -605,6 +605,17 @@ final class ImeLayoutRows {
             .collect(java.util.stream.Collectors.joining("、"));
         Button button = s.keyboardKey(japaneseKeyLabel(key), description,
             () -> selectJapaneseKey(key, 0));
+        // 第二行是滑动可选的假名提示，和主假名同字号时两行装不进一行键高，下半截被裁掉；缩到一半，并去掉上下内边距和字体留白。
+        String label = japaneseKeyLabel(key);
+        int lineBreak = label.indexOf('\n');
+        if (lineBreak >= 0) {
+            android.text.SpannableString spanned = new android.text.SpannableString(label);
+            spanned.setSpan(new android.text.style.RelativeSizeSpan(0.5f), lineBreak + 1, label.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            button.setIncludeFontPadding(false);
+            button.setPadding(button.getPaddingLeft(), 0, button.getPaddingRight(), 0);
+            button.setText(spanned);
+        }
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
@@ -644,9 +655,10 @@ final class ImeLayoutRows {
     void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
-        s.imeStyler.adjustThreeRowBlockHeight(container);
+        // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
+        s.imeStyler.adjustRowBlockHeight(container, 4);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 4)));
 
         LinearLayout modeColumn = new LinearLayout(s);
         modeColumn.setOrientation(LinearLayout.VERTICAL);

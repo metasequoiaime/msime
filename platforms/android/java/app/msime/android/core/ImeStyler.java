@@ -169,8 +169,13 @@ final class ImeStyler {
      * 九键、笔画、日语九键的三行键块：与 26 键的三行字母键同高（3 × 46 dp + 整份键高调整 + 三份行距）。原先固定 180 dp 且不含行距，九键总比 26 键高出约 20 dp。
      */
     void adjustThreeRowBlockHeight(View view) {
+        adjustRowBlockHeight(view, 3);
+    }
+
+    /** 占 {@code rows} 行标准键高的整块（九键网格连同侧栏），按键盘高度偏好缩放，并按行数加上行距。 */
+    void adjustRowBlockHeight(View view, int rows) {
         view.setTag(new MSIMEInputService.KeyboardHeightRole(
-            KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3, 1, 0, 3));
+            KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
     void styleButton(Button button, boolean action) { styleButton(button, action, s.skin); }
