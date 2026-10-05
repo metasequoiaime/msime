@@ -475,7 +475,7 @@ fn write_code_table<'a>(
     Ok((imported, skipped))
 }
 
-/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight. Rows naming a character outside the basic CJK set ([`outside_wubi86_charset`]) are left out. Returns the imported, skipped (blank, comment or invalid) and left-out counts.
+/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight. Rows naming a character outside the basic CJK set ([`outside_basic_cjk`]) are left out. Returns the imported, skipped (blank, comment or invalid) and left-out counts.
 pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize, usize)> {
     let sources = paths
         .iter()
@@ -490,7 +490,7 @@ pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize
                 .map(|line| parse_code_line(line, false))
         })
         .filter_map(|row| match row {
-            Some((_, value, _)) if outside_wubi86_charset(value) => {
+            Some((_, value, _)) if outside_basic_cjk(value) => {
                 outside += 1;
                 None
             }
@@ -501,22 +501,51 @@ pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize
 }
 
 /// The jidian table ends with its large character set: about 49 000 rows, nearly all at weight 0, of CJK Extension A (U+3400-U+4DBF) and of the extensions beyond the Basic Multilingual Plane. They became candidates when dict-v2.0.6 switched 86 Wubi to this table: 25 000 codes, `dui` among them, then offered such a character first, the candidate window's fonts drew it as a missing-glyph box, and with mixed pinyin it pushed the pinyin rows of the same letters (对 for `dui`) off the first page. The table before had none of them, so they are left out again.
-fn outside_wubi86_charset(value: &str) -> bool {
+pub(crate) fn outside_basic_cjk(value: &str) -> bool {
     value
         .chars()
         .any(|character| matches!(u32::from(character), 0x3400..=0x4DBF | 0x10000..))
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
-/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。
+/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。`generated` 是生成的补充表（`wubi98_supplement`，`value<TAB>code<TAB>weight` 行），按顺序插在两张 98 表之后：provider 同权重时按 rowid 排序，所以补充行排在同权重的原有行之后。
 pub fn build_wubi98_sources(
     connection: &mut Connection,
     path: &Path,
     supplements: &[&Path],
+    generated: &[&Path],
 ) -> Result<(usize, usize)> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
-    let lines = text::universal_lines(text::without_bom(&source));
+    let supplement_sources = supplements
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let supplement_texts: Vec<&str> = supplement_sources.iter().map(String::as_str).collect();
+    let (weighted, mut skipped) = wubi98_rows(&source, &supplement_texts);
+    let generated_sources = generated
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let rows = weighted
+        .iter()
+        .map(|(key, value, weight)| Some((key.clone(), value.as_str(), *weight)))
+        .chain(generated_sources.iter().flat_map(|source| {
+            text::universal_lines(text::without_bom(source))
+                .into_iter()
+                .map(|line| parse_code_line(line, false))
+        }));
+    let (imported, generated_skipped) = write_code_table(connection, &WUBI98, rows)?;
+    skipped += generated_skipped;
+    Ok((imported, skipped))
+}
+
+/// 两张 98 表按构建的规则得到的行 `(code, value, weight)`，以及跳过的行数：主表 `primary`（已从 UTF-16LE 解码）按编码内的先后给 [`WUBI98_WEIGHT_STEP`] 的倍数，补充表（Fcitx 格式）里主表没有的“编码、词语”一律给 1，重复的去掉。构建和 `wubi98_supplement` 都用它，生成器看到的权重就是构建写进表里的权重。
+pub(crate) fn wubi98_rows(
+    primary: &str,
+    supplements: &[&str],
+) -> (Vec<(String, String, i64)>, usize) {
+    let lines = text::universal_lines(text::without_bom(primary));
     let mut parsed = Vec::new();
     let mut seen = HashSet::new();
     let mut skipped = 0;
@@ -539,24 +568,19 @@ pub fn build_wubi98_sources(
             .expect("every parsed code was counted");
         let weight = *left * WUBI98_WEIGHT_STEP;
         *left -= 1;
-        weighted.push(Some((key.clone(), value.clone(), weight)));
+        weighted.push((key.clone(), value.clone(), weight));
     }
     for supplement in supplements {
-        let source = text::read(supplement)?;
-        for line in text::universal_lines(&source) {
+        for line in text::universal_lines(supplement) {
             match parse_fcitx_wubi98_line(line) {
                 Some((key, value)) if seen.insert((key.to_owned(), value.to_owned())) => {
-                    weighted.push(Some((key.to_owned(), value, 1)));
+                    weighted.push((key.to_owned(), value, 1));
                 }
                 _ => skipped += 1,
             }
         }
     }
-    let rows = weighted.iter().map(|row| {
-        row.as_ref()
-            .map(|(key, value, weight)| (key.clone(), value.as_str(), *weight))
-    });
-    write_code_table(connection, &WUBI98, rows).map(|(imported, _)| (imported, skipped))
+    (weighted, skipped)
 }
 
 pub(crate) fn decode_utf16le(bytes: &[u8]) -> Result<String> {
@@ -912,7 +936,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &path, &[]).unwrap(),
+            build_wubi98_sources(&mut connection, &path, &[], &[]).unwrap(),
             (6, 5)
         );
         let rows: Vec<(String, String, i64)> = connection
@@ -948,7 +972,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
         let mut connection = Connection::open_in_memory().unwrap();
-        assert!(build_wubi98_sources(&mut connection, &path, &[]).is_err());
+        assert!(build_wubi98_sources(&mut connection, &path, &[], &[]).is_err());
     }
 
     #[test]
@@ -966,7 +990,7 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &primary, &[&supplement]).unwrap(),
+            build_wubi98_sources(&mut connection, &primary, &[&supplement], &[]).unwrap(),
             (2, 2)
         );
         let rows: Vec<(String, String, i64)> = connection

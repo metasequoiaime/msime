@@ -25,10 +25,10 @@ pub const BASE: &str = "sources/pinyin/rime-ice.txt";
 pub const MIN_PINYIN_WEIGHT: i64 = 5000;
 
 /// 补充行的最高权重：比极点码表有排名的词的最低权重低 1。
-const SUPPLEMENT_CEILING: i64 = 9;
+pub(crate) const SUPPLEMENT_CEILING: i64 = 9;
 
 /// 每行报告列出的示例个数。
-const REPORT_EXAMPLES: usize = 20;
+pub(crate) const REPORT_EXAMPLES: usize = 20;
 
 pub struct Inputs<'a> {
     pub jidian: &'a str,
@@ -65,7 +65,7 @@ fn jidian_rows(source: &str) -> Vec<(String, &str, i64)> {
 }
 
 /// 每个字的全码：码表里该字单独出现时最长的编码。
-fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<String>> {
+pub(crate) fn full_codes(rows: &[(String, &str, i64)]) -> HashMap<char, Vec<String>> {
     let mut codes: HashMap<char, Vec<String>> = HashMap::new();
     for (code, value, _) in rows {
         let mut chars = value.chars();
@@ -96,7 +96,10 @@ fn prefix(codes: &HashMap<char, Vec<String>>, c: char, letters: usize) -> Option
 }
 
 /// `word` 的 86 词组编码，或没有可用全码的那个字。
-fn word_code(codes: &HashMap<char, Vec<String>>, word: &str) -> std::result::Result<String, char> {
+pub(crate) fn word_code(
+    codes: &HashMap<char, Vec<String>>,
+    word: &str,
+) -> std::result::Result<String, char> {
     let chars: Vec<char> = word.chars().collect();
     let parts: Vec<(char, usize)> = match chars.len() {
         0 | 1 => unreachable!("only words of two or more characters are coded"),
@@ -116,7 +119,7 @@ fn word_code(codes: &HashMap<char, Vec<String>>, word: &str) -> std::result::Res
     Ok(code)
 }
 
-fn is_word(value: &str) -> bool {
+pub(crate) fn is_word(value: &str) -> bool {
     value.chars().count() >= 2 && value.chars().all(is_han)
 }
 
