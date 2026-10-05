@@ -899,11 +899,13 @@ impl Build {
             Stage::Wubi => {
                 let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
                 let supplement = self.sources.pinned(wubi86_supplement::OUTPUT)?;
-                let (imported, skipped) = msime::build_wubi(
+                let (imported, skipped, outside) = msime::build_wubi(
                     &mut self.database("msime-pinyin.db")?,
                     &[jidian.as_path(), supplement.as_path()],
                 )?;
-                Ok(format!("{imported} rows imported, {skipped} skipped"))
+                Ok(format!(
+                    "{imported} rows imported, {skipped} skipped, {outside} outside the basic CJK set left out"
+                ))
             }
             Stage::Wubi98 => {
                 let supplement = self.sources.pinned("sources/wubi/wubi98-fcitx.txt")?;

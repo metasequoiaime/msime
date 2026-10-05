@@ -470,18 +470,36 @@ fn write_code_table<'a>(
     Ok((imported, skipped))
 }
 
-/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight.
-pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize)> {
+/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight. Rows naming a character outside the basic CJK set ([`outside_wubi86_charset`]) are left out. Returns the imported, skipped (blank, comment or invalid) and left-out counts.
+pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize, usize)> {
     let sources = paths
         .iter()
         .map(|path| text::read(path))
         .collect::<Result<Vec<_>>>()?;
-    let rows = sources.iter().flat_map(|source| {
-        text::universal_lines(text::without_bom(source))
-            .into_iter()
-            .map(|line| parse_code_line(line, false))
-    });
-    write_code_table(connection, &WUBI86, rows)
+    let mut outside = 0;
+    let rows = sources
+        .iter()
+        .flat_map(|source| {
+            text::universal_lines(text::without_bom(source))
+                .into_iter()
+                .map(|line| parse_code_line(line, false))
+        })
+        .filter_map(|row| match row {
+            Some((_, value, _)) if outside_wubi86_charset(value) => {
+                outside += 1;
+                None
+            }
+            row => Some(row),
+        });
+    let (imported, skipped) = write_code_table(connection, &WUBI86, rows)?;
+    Ok((imported, skipped, outside))
+}
+
+/// The jidian table ends with its large character set: about 49 000 rows, nearly all at weight 0, of CJK Extension A (U+3400-U+4DBF) and of the extensions beyond the Basic Multilingual Plane. They became candidates when dict-v2.0.6 switched 86 Wubi to this table: 25 000 codes, `dui` among them, then offered such a character first, the candidate window's fonts drew it as a missing-glyph box, and with mixed pinyin it pushed the pinyin rows of the same letters (对 for `dui`) off the first page. The table before had none of them, so they are left out again.
+fn outside_wubi86_charset(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| matches!(u32::from(character), 0x3400..=0x4DBF | 0x10000..))
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
@@ -922,6 +940,27 @@ mod tests {
     }
 
     #[test]
+    fn wubi86_leaves_out_extension_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        // 𡗜 (U+215DC) and 𥒜 (U+2549C) are the jidian rows that answered `dui` and `duiy`; 䔍 (U+450D) is Extension A. 磁浮 and 一 stay.
+        let wubi = write(
+            dir.path(),
+            "wubi.txt",
+            "𡗜\tdui\t0\n磁浮\tduie\t10\n𥒜\tduiy\t0\n䔍\tacu\t0\n一\tg\t100\n𡗜子\tdubb\t5\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (2, 0, 4));
+        let values: Vec<String> = connection
+            .prepare("select value from wubi86 order by key")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(values, ["磁浮", "一"]);
+    }
+
+    #[test]
     fn code_tables_skip_invalid_lines_and_keep_the_higher_weight() {
         let dir = tempfile::tempdir().unwrap();
         let wubi = write(
@@ -930,7 +969,7 @@ mod tests {
             "\u{feff}工\ta\t20\r\n工\tA\t30\r\n戈\ta\t10\n# c\nx\t1a\t1\n戒\taa\n戒\taa\t-1\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (3, 4));
+        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (3, 4, 0));
         let wubi_rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi86 order by weight")
             .unwrap()
