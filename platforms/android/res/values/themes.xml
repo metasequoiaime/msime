@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 用 Material 3 而不是框架的 Theme.Material：宿主用 MaterialCardView、MaterialButton、BottomNavigationView，它们解析各自的主题属性。 -->
-    <!-- 清单里用的是 Theme.MSIME，属性都在 Theme.MSIME.Base。首次启动的开屏是 HomeActivity 自己的 home_intro 视图而不是系统 splash screen，所以没有按 API 分的叠加层；深色值来自 values-night 的同名颜色。 -->
+    <!-- 清单里用的是 Theme.MSIME，属性都在 Theme.MSIME.Base。首次启动的开屏是 HomeActivity 自己的 home_intro 视图而不是系统 splash screen；values-v31 只把系统启动画面改成不画图标的页面底色。深色值来自 values-night 的同名颜色。 -->
     <style name="Theme.MSIME" parent="Theme.MSIME.Base" />
 
     <!-- 宿主颜色契约：页面和组件只读这里的 M3 角色和 ?attr/ms*，不写死颜色。基础值是秋杉；其他季节由 home/AppMode 在 activity 创建前叠加 ThemeOverlay.MSIME.Season.*，它们覆盖的正是下面标了「随季节」的那些角色。主题里没给的角色会落回 Material 3 自带的紫色基线，所以 surface container 这一串全部给出。 -->

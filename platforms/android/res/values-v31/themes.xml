@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 起冷启动必经系统启动画面，不配置时它在页面底色上画启动器图标，于是秋杉等季节主题下也先闪一下绿色的标。开屏动画由 HomeActivity 的 home_intro 自己画，系统这一帧只留与页面同色的空白、不画图标；系统启动画面读的是清单里的静态主题，季节叠加层还没生效，所以底色取基础页面色。 -->
+    <style name="Theme.MSIME" parent="Theme.MSIME.Base">
+        <item name="android:windowSplashScreenBackground">@color/ms_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+    </style>
+</resources>
