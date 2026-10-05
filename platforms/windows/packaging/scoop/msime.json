@@ -39,7 +39,8 @@
             "if ($process.ExitCode -ne 0) { throw \"Metasequoia IME uninstaller exited with $($process.ExitCode)\" }",
             "# The Inno uninstaller relaunches itself from a temporary copy and returns at once; wait for it to remove its own file.",
             "$deadline = (Get-Date).AddMinutes(3)",
-            "while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }"
+            "while ((Test-Path -LiteralPath $uninstaller) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }",
+            "if (Test-Path -LiteralPath $uninstaller) { throw \"Metasequoia IME is still installed: its uninstaller did not finish within 3 minutes (was the UAC prompt declined?). Run '$uninstaller' and then 'scoop uninstall msime' again.\" }"
         ]
     }
 }
