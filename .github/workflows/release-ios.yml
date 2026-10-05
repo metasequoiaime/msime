@@ -104,6 +104,11 @@ jobs:
           check_profile "$dir/app.mobileprovision" app.msime.ios
           check_profile "$dir/keyboard.mobileprovision" app.msime.ios.keyboard
           printf 'dir=%s\nkeychain=%s\n' "$dir" "$keychain" >> "$GITHUB_OUTPUT"
+      # A build number App Store Connect has already taken is refused, and it can never be overwritten. A re-run keeps github.run_number, so the attempt is folded in: every run and every re-run of it gets a larger number than any before (the earlier builds were numbered by run_number alone, all far below this).
+      - name: Choose the build number
+        id: build-number
+        if: ${{ inputs.testflight }}
+        run: echo "value=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_OUTPUT"
       - name: Upload the signed build to App Store Connect
         if: ${{ inputs.testflight }}
         env:
@@ -113,8 +118,8 @@ jobs:
           MSIME_IOS_AUTH_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
           MSIME_IOS_VERSION: ${{ steps.version.outputs.value }}
-          # 每次上传的构建号必须比同一版本已上传的大；本 workflow 的运行序号只增不减。
-          MSIME_IOS_BUILD_NUMBER: ${{ github.run_number }}
+          # 每次上传的构建号必须比同一版本已上传的大，见上一步。
+          MSIME_IOS_BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
         run: |
           set -euo pipefail
           rustup target add aarch64-apple-ios
@@ -127,7 +132,7 @@ jobs:
       - name: Hand the build to its testers
         if: ${{ inputs.testflight }}
         env:
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
           IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
           IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
