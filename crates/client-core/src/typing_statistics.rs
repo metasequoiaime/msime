@@ -2,7 +2,7 @@
 //! Committed text is classified in memory and is never serialized.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -27,6 +27,16 @@ const MAX_ACTIVE_MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 /// number here that decides what "active" means, so it is a constant with a reason rather than a
 /// literal in the middle of `record`.
 const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
+/// 一次 `record_voice` 最多记 10 分钟：更长的数字只能来自宿主计时出错，记下来会让「动口不动手」一次解锁。
+pub const MAX_VOICE_MS_PER_CALL: u64 = 600_000;
+/// `skins_tried` 最多记这么多款。徽章只要 5 款，上限只防止文件被一个出错的宿主无限撑大。
+pub const MAX_SKINS_TRIED: usize = 64;
+
+mod metrics;
+pub use metrics::{
+    achievement_specs, summarize, AchievementGroup, AchievementSpec, AchievementSummary, DayCount,
+    HabitsSummary, KeysSummary, OverviewSummary, PeakWindow, SummaryInputs, TypingSummary,
+};
 
 /// Statistics are off until the user turns them on.
 ///
@@ -241,6 +251,119 @@ impl SelectionCounts {
             .iter()
             .fold(self.beyond, |sum, count| sum.saturating_add(*count))
     }
+}
+
+/// 候选上屏的效率计数，只有累计值，不分天。
+///
+/// 和 `selections` 一样由 host-api 在派发选择时计数、批量写入：host-api 拿不到宿主的本地日期，所以这里也没有日期轴。只有次数和按键数，不含任何输入码或文字。
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitEfficiency {
+    /// 计入的上屏次数，是 `sentence_commits` 和 `prediction_commits` 的分母。
+    #[serde(default)]
+    pub commits: u64,
+    /// 产生这些候选的输入码里实际按下的字母和数字个数。
+    #[serde(default)]
+    pub typed_keys: u64,
+    /// 同样的上屏文字用全拼打出来需要的按键数，`1 - typed_keys / spelled_keys` 就是少按的比例。
+    #[serde(default)]
+    pub spelled_keys: u64,
+    /// 来自整句（生成、兜底、神经网络或在线候选）的上屏次数。
+    #[serde(default)]
+    pub sentence_commits: u64,
+    /// 没有组合串、直接从联想候选上屏的次数。
+    #[serde(default)]
+    pub prediction_commits: u64,
+}
+
+impl CommitEfficiency {
+    /// 在内存里累加一次上屏，供宿主攒批时使用；饱和在 `MAX_COUNT`，不会因为计数溢出丢掉整批。
+    pub fn count_commit(
+        &mut self,
+        typed_keys: u64,
+        spelled_keys: u64,
+        sentence: bool,
+        prediction: bool,
+    ) {
+        let add =
+            |value: &mut u64, amount: u64| *value = value.saturating_add(amount).min(MAX_COUNT);
+        add(&mut self.commits, 1);
+        add(&mut self.typed_keys, typed_keys);
+        add(&mut self.spelled_keys, spelled_keys);
+        add(&mut self.sentence_commits, u64::from(sentence));
+        add(&mut self.prediction_commits, u64::from(prediction));
+    }
+
+    /// 这一批是否什么都没有计到；空批不碰磁盘。
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// 把另一批计数并进来，整批成功或整批不变：任何一项超过 `MAX_COUNT` 都拒绝。
+    pub fn merge(&mut self, other: &Self) -> Result<(), TypingStatisticsError> {
+        let add = |value: u64, amount: u64| {
+            value
+                .checked_add(amount)
+                .filter(|sum| *sum <= MAX_COUNT)
+                .ok_or(TypingStatisticsError::CountExhausted)
+        };
+        let merged = Self {
+            commits: add(self.commits, other.commits)?,
+            typed_keys: add(self.typed_keys, other.typed_keys)?,
+            spelled_keys: add(self.spelled_keys, other.spelled_keys)?,
+            sentence_commits: add(self.sentence_commits, other.sentence_commits)?,
+            prediction_commits: add(self.prediction_commits, other.prediction_commits)?,
+        };
+        if !merged.is_consistent() {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
+        *self = merged;
+        Ok(())
+    }
+
+    /// 整句和联想都是上屏的一种，次数不可能超过上屏总数。
+    fn is_consistent(&self) -> bool {
+        [
+            self.commits,
+            self.typed_keys,
+            self.spelled_keys,
+            self.sentence_commits,
+            self.prediction_commits,
+        ]
+        .iter()
+        .all(|count| *count <= MAX_COUNT)
+            && self.sentence_commits <= self.commits
+            && self.prediction_commits <= self.commits
+    }
+}
+
+/// 一段不停顿的连续输入：相邻两次上屏的间隔都在活跃间隔以内。
+///
+/// `day` 是这段输入开始的那一天；跨过午夜的一段仍是同一段，记在开始的那天。
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypingRun {
+    #[serde(default)]
+    pub characters: u64,
+    #[serde(default)]
+    pub day: String,
+}
+
+impl TypingRun {
+    fn validate(&self) -> Result<(), TypingStatisticsError> {
+        if self.characters > MAX_COUNT
+            || (self.characters > 0 && !crate::calendar::is_valid_day(&self.day))
+            || (self.characters == 0 && !self.day.is_empty())
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
+        Ok(())
+    }
+}
+
+/// `skins_tried` 接受的皮肤 ID：内置和外部皮肤的 `safe_id`，或者社区包的 UUID。
+pub fn is_valid_skin_id(id: &str) -> bool {
+    crate::skin::catalog::safe_id(id) || (id.len() == 36 && uuid::Uuid::try_parse(id).is_ok())
 }
 
 /// Every key id `dailyKeys` may hold, and the only ones `record_keys` accepts.
@@ -464,6 +587,24 @@ pub struct TypingStatistics {
     /// what "first" is measured against. It is a day key, not a clock reading.
     #[serde(default)]
     pub last_pruned_day: String,
+    /// 上屏效率的累计计数，见 [`CommitEfficiency`]。旧文件没有这一项，读成全零。
+    #[serde(default)]
+    pub efficiency: CommitEfficiency,
+    /// 正在进行的这段连续输入，由 `record_at` 按活跃间隔累加或重新开始。
+    #[serde(default)]
+    pub current_run: TypingRun,
+    /// 单次最长的连续输入；并列时保留先出现的那段。
+    #[serde(default)]
+    pub longest_run: TypingRun,
+    /// 每个本地日的语音输入时长，单位毫秒，由 `record_voice` 写入。
+    #[serde(default)]
+    pub daily_voice_ms: BTreeMap<String, u64>,
+    /// 用过的皮肤 ID，最多 [`MAX_SKINS_TRIED`] 个，由 `record_skin` 写入。
+    #[serde(default)]
+    pub skins_tried: BTreeSet<String>,
+    /// 已解锁的徽章 ID 和解锁那天。只增不减：保留期删掉旧数据以后徽章也不会重新锁上；只有 reset 会清空。
+    #[serde(default)]
+    pub achievements: BTreeMap<String, String>,
 }
 
 impl Default for TypingStatistics {
@@ -483,6 +624,12 @@ impl Default for TypingStatistics {
             last_commit_ms: 0,
             retention: StatisticsRetention::Forever,
             last_pruned_day: String::new(),
+            efficiency: CommitEfficiency::default(),
+            current_run: TypingRun::default(),
+            longest_run: TypingRun::default(),
+            daily_voice_ms: BTreeMap::new(),
+            skins_tried: BTreeSet::new(),
+            achievements: BTreeMap::new(),
         }
     }
 }
@@ -577,6 +724,29 @@ impl TypingStatistics {
             validate_day(day).map_err(|_| TypingStatisticsError::InvalidDocument)?;
             validate_key_counts(keys)?;
         }
+        if !self.efficiency.is_consistent() {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
+        self.current_run.validate()?;
+        self.longest_run.validate()?;
+        for (day, milliseconds) in &self.daily_voice_ms {
+            // 语音时长和字数无关：识别结果可能被用户删掉不上屏，所以只按日历校验日期，不要求这天在 `days` 里。
+            if !crate::calendar::is_valid_day(day) || *milliseconds > MAX_ACTIVE_MS_PER_DAY {
+                return Err(TypingStatisticsError::InvalidDocument);
+            }
+        }
+        if self.skins_tried.len() > MAX_SKINS_TRIED
+            || self.skins_tried.iter().any(|id| !is_valid_skin_id(id))
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
+        if self
+            .achievements
+            .iter()
+            .any(|(id, day)| !metrics::is_achievement_id(id) || !crate::calendar::is_valid_day(day))
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
         Ok(())
     }
 
@@ -614,6 +784,7 @@ impl TypingStatistics {
         self.daily_active_ms.retain(|day, _| *day >= boundary);
         self.daily_hours.retain(|day, _| *day >= boundary);
         self.daily_keys.retain(|day, _| *day >= boundary);
+        self.daily_voice_ms.retain(|day, _| *day >= boundary);
         // Subtraction keeps whatever `total` and `detail` hold beyond the per-day records, which a document written by an older build can have. Where that leaves the counters out of step with each other - `total` below the retained days, or a category sum above `total` - validate() would reject the document this write produces, so fall back to what the retained days themselves say.
         let retained = self
             .days
@@ -663,6 +834,10 @@ pub enum TypingStatisticsError {
     InvalidPosition,
     #[error("typing statistics key id is unknown or its count is zero")]
     InvalidKey,
+    #[error("typing statistics voice duration is zero or longer than one call may record")]
+    InvalidVoiceDuration,
+    #[error("typing statistics skin id is not a skin id")]
+    InvalidSkinId,
 }
 
 #[derive(Clone, Debug)]
@@ -819,6 +994,22 @@ impl TypingStatisticsStore {
                 .saturating_add(active_ms)
                 .min(MAX_ACTIVE_MS_PER_DAY);
         }
+        // 连续输入：间隔算作活跃时就接着上一段累加，否则从这次上屏重新开始一段，开始日是这次上屏的日期。
+        if active_ms > 0 && value.current_run.characters > 0 {
+            value.current_run.characters = value
+                .current_run
+                .characters
+                .saturating_add(count)
+                .min(MAX_COUNT);
+        } else {
+            value.current_run = TypingRun {
+                characters: count,
+                day: day.to_owned(),
+            };
+        }
+        if value.current_run.characters > value.longest_run.characters {
+            value.longest_run = value.current_run.clone();
+        }
         // Never moves backwards. A clock set back would otherwise make every later commit look
         // like it followed a huge pause, and the first one after the correction would be counted
         // as a fresh session instead of the continuation it is.
@@ -929,6 +1120,102 @@ impl TypingStatisticsStore {
         Ok(presses)
     }
 
+    /// 记一次语音输入的时长，计在宿主给出的本地日 `day` 上，返回记入的毫秒数。
+    ///
+    /// `milliseconds` 为 0 或超过 [`MAX_VOICE_MS_PER_CALL`] 时整次拒绝，因为那说明宿主的计时出了错。统计关闭时不写，返回 0；一天累计不超过一天的毫秒数。保留期和 `record` 一样在每天第一次写入时执行。
+    pub fn record_voice(&self, day: &str, milliseconds: u64) -> Result<u64, TypingStatisticsError> {
+        validate_day(day)?;
+        if milliseconds == 0 || milliseconds > MAX_VOICE_MS_PER_CALL {
+            return Err(TypingStatisticsError::InvalidVoiceDuration);
+        }
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        if !value.enabled {
+            return Ok(0);
+        }
+        let day_voice = value.daily_voice_ms.entry(day.to_owned()).or_default();
+        let before = *day_voice;
+        *day_voice = day_voice
+            .saturating_add(milliseconds)
+            .min(MAX_ACTIVE_MS_PER_DAY);
+        let added = *day_voice - before;
+        if value.last_pruned_day != day {
+            value.apply_retention(day);
+            value.last_pruned_day = day.to_owned();
+        }
+        self.write_locked(&value)?;
+        Ok(added)
+    }
+
+    /// 记下用过一款皮肤，返回这次是否新增了一项。
+    ///
+    /// ID 不是 [`is_valid_skin_id`] 认可的形状时拒绝。已经记过、已满 [`MAX_SKINS_TRIED`] 款或统计关闭时不写，返回 `false`。
+    pub fn record_skin(&self, id: &str) -> Result<bool, TypingStatisticsError> {
+        if !is_valid_skin_id(id) {
+            return Err(TypingStatisticsError::InvalidSkinId);
+        }
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        if !value.enabled
+            || value.skins_tried.contains(id)
+            || value.skins_tried.len() >= MAX_SKINS_TRIED
+        {
+            return Ok(false);
+        }
+        value.skins_tried.insert(id.to_owned());
+        self.write_locked(&value)?;
+        Ok(true)
+    }
+
+    /// 把宿主攒下的一批上屏效率计数写入，一次加锁、一次读、最多一次写。
+    ///
+    /// 空批不碰磁盘，统计关闭时丢弃整批不写，和 `record_selections` 的答案相同。整批成功或整批不变。
+    pub fn record_efficiency(&self, batch: &CommitEfficiency) -> Result<(), TypingStatisticsError> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        if !value.enabled {
+            return Ok(());
+        }
+        value.efficiency.merge(batch)?;
+        self.write_locked(&value)?;
+        Ok(())
+    }
+
+    /// 算出 `today` 这天的派生指标，并在锁内把新解锁的徽章记进 `achievements`。
+    ///
+    /// 指标本身由纯函数 [`summarize`] 算出；这里只负责让解锁只增不减。统计关闭时照样返回指标，但不写文件：关掉统计以后不应再有任何东西被记下。没有新解锁时也不写。
+    pub fn summary(
+        &self,
+        today: &str,
+        inputs: &SummaryInputs,
+    ) -> Result<TypingSummary, TypingStatisticsError> {
+        validate_day(today)?;
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        let summary = summarize(&value, today, inputs);
+        if !value.enabled {
+            return Ok(summary);
+        }
+        let mut changed = false;
+        for achievement in &summary.achievements {
+            if let Some(day) = &achievement.unlocked_day {
+                if !value.achievements.contains_key(achievement.id) {
+                    value
+                        .achievements
+                        .insert(achievement.id.to_owned(), day.clone());
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.write_locked(&value)?;
+        }
+        Ok(summary)
+    }
+
     pub fn set_enabled(&self, enabled: bool) -> Result<TypingStatistics, TypingStatisticsError> {
         let _lock = self.lock()?;
         let mut value = self.read_locked()?;
@@ -974,6 +1261,13 @@ impl TypingStatisticsStore {
         // Including when typing last happened: it is the only field that survives a reset by
         // saying anything about the user at all.
         value.last_commit_ms = 0;
+        value.efficiency = CommitEfficiency::default();
+        value.current_run = TypingRun::default();
+        value.longest_run = TypingRun::default();
+        value.daily_voice_ms.clear();
+        value.skins_tried.clear();
+        // 徽章只增不减的唯一例外：用户要求清空统计时，解锁记录也一并清空。
+        value.achievements.clear();
         self.write_locked(&value)?;
         Ok(value)
     }
@@ -1128,3 +1422,6 @@ mod selection_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod extension_tests;
