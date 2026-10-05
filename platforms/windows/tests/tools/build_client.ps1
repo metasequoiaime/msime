@@ -71,20 +71,29 @@ try {
         & (Join-Path $PSScriptRoot '../../Test-PortableExecutable.ps1') `
             -LiteralPath (Join-Path $fixture "target/windows-full/$arch/bin/synthetic-runtime.dll") -Architecture $arch -Kind dll
     }
-    if ($count -ne 20) { throw "Unexpected build stage count: $count" }
-    if ($global:ClientBuildCalls[16].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/MSIME.pdb')) {
+    if ($count -ne 22) { throw "Unexpected build stage count: $count" }
+    # host-api 的 PDB 在每个架构里紧跟着 DLL 复制进 bin：之后的 MCP 与桌面构建共用同一个 target 目录，可能重编 host-api 并以同名覆盖它。
+    foreach ($arch in @('x64', 'x86')) {
+        $pdbCopies = @($global:ClientBuildCalls | Where-Object { $_.Name -eq 'cmake' -and $_.Values[-1] -eq (Join-Path $fixture "target/windows-full/$arch/bin/msime_host_api.pdb") })
+        if ($pdbCopies.Count -ne 1) { throw "Host API PDB copy missing for $arch" }
+    }
+    if ($global:ClientBuildCalls[4].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime_host_api.pdb') -or
+        $global:ClientBuildCalls[13].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x86/bin/msime_host_api.pdb')) {
+        throw 'Host API PDB copy is not right after its DLL'
+    }
+    if ($global:ClientBuildCalls[18].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/MSIME.pdb')) {
         throw 'Desktop PDB did not follow staged executable name'
     }
     # The on-device speech runtime is fetched for x64 only and staged beside the Server.
     $voiceRuntime = Join-Path $fixture 'target/voice-runtime/windows-x64'
-    $fetch = $global:ClientBuildCalls[17]
+    $fetch = $global:ClientBuildCalls[19]
     if ($fetch.Name -ne 'python' -or $fetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_voice_runtime.py') -or
         [Array]::IndexOf($fetch.Values, 'windows-x64') -ne ([Array]::IndexOf($fetch.Values, '--platform') + 1) -or
         [Array]::IndexOf($fetch.Values, $voiceRuntime) -ne ([Array]::IndexOf($fetch.Values, '--out') + 1)) {
         throw 'Voice runtime fetch mismatch'
     }
-    $stage = $global:ClientBuildCalls[18].Values
-    if ($global:ClientBuildCalls[18].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
+    $stage = $global:ClientBuildCalls[20].Values
+    if ($global:ClientBuildCalls[20].Name -ne 'cmake' -or $stage[0] -ne '-E' -or $stage[1] -ne 'copy_if_different' -or
         $stage[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin') -or $stage.Count -ne 6) {
         throw 'Voice runtime staging mismatch'
     }
@@ -92,28 +101,28 @@ try {
         if ($stage -notcontains (Join-Path $voiceRuntime $dll)) { throw "Voice runtime library not staged: $dll" }
     }
     # The handwriting model is fetched where Prepare-PackageFiles.ps1 and Collect-Notices.ps1 read it.
-    $handwritingFetch = $global:ClientBuildCalls[19]
+    $handwritingFetch = $global:ClientBuildCalls[21]
     if ($handwritingFetch.Name -ne 'python' -or $handwritingFetch.Values[0] -ne (Join-Path $fixture 'scripts/fetch_handwriting_model.py') -or
         [Array]::IndexOf($handwritingFetch.Values, (Join-Path $fixture 'target/handwriting-model')) -ne ([Array]::IndexOf($handwritingFetch.Values, '--out') + 1)) {
         throw 'Handwriting model fetch mismatch'
     }
-    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 12, 13, 14, 15, 16, 17, 18, 19)) {
+    foreach ($index in @(0, 1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 20, 21)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x64) { throw 'Incorrect x64 dependency scope' }
     }
-    foreach ($index in @(8, 9, 10, 11)) {
+    foreach ($index in @(9, 10, 11, 12, 13)) {
         if ($global:ClientBuildCalls[$index].Prefix -ne $x86) { throw 'Incorrect x86 dependency scope' }
     }
     if ($global:ClientBuildCalls[1].Values -notcontains 'x64' -or
         $global:ClientBuildCalls[1].Values -notcontains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[9].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
-        $global:ClientBuildCalls[9].Values -notcontains 'Win32' -or
-        $global:ClientBuildCalls[10].Values -notcontains 'msime-tsf' -or
-        $global:ClientBuildCalls[4].Values -notcontains 'msime-mcp' -or
-        $global:ClientBuildCalls[6].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-mcp.pdb') -or
-        $global:ClientBuildCalls[7].Name -ne 'msbuild' -or
-        $global:ClientBuildCalls[7].Values -notcontains '-restore' -or
-        $global:ClientBuildCalls[7].Values -notcontains '/p:TargetName=msime-client-settings' -or
-        $global:ClientBuildCalls[14].Values -notcontains '--no-bundle' -or
+        $global:ClientBuildCalls[10].Values -contains '-DMSIME_SERVER_UIACCESS=ON' -or
+        $global:ClientBuildCalls[10].Values -notcontains 'Win32' -or
+        $global:ClientBuildCalls[11].Values -notcontains 'msime-tsf' -or
+        $global:ClientBuildCalls[5].Values -notcontains 'msime-mcp' -or
+        $global:ClientBuildCalls[7].Values[-1] -ne (Join-Path $fixture 'target/windows-full/x64/bin/msime-mcp.pdb') -or
+        $global:ClientBuildCalls[8].Name -ne 'msbuild' -or
+        $global:ClientBuildCalls[8].Values -notcontains '-restore' -or
+        $global:ClientBuildCalls[8].Values -notcontains '/p:TargetName=msime-client-settings' -or
+        $global:ClientBuildCalls[16].Values -notcontains '--no-bundle' -or
         $global:ClientBuildCalls[2].Values -notcontains 'RelWithDebInfo') { throw 'Build target mismatch' }
     for ($failure = 1; $failure -le $count; $failure++) {
         $global:ClientBuildCalls.Clear()
@@ -135,7 +144,8 @@ try {
         if (-not $rejected -or $global:ClientBuildCalls.Count -ne 0) { throw 'Invalid version reached build tools' }
     }
     & $entry -RepoRoot $fixture -X64Dependencies $x64 -X86Dependencies $x86
-    if ($global:ClientBuildCalls[17].Values -contains '--config') { throw 'Development version was overridden' }
+    # 不传 TargetVersion 时，桌面构建（第 16 条，pnpm tauri build）不带版本覆盖。
+    if ($global:ClientBuildCalls[16].Values -contains '--config') { throw 'Development version was overridden' }
     $global:ClientBuildCalls.Clear()
     Remove-Item -LiteralPath $desktopSymbols
     $rejected = $false
