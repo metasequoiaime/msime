@@ -79,6 +79,8 @@ final class ImeLetterRows {
     }
 
     private void showKeyPreview(Button key, String label) {
+        // No enlarged bubble in password fields: it would show each typed character to anyone looking at the screen.
+        if (EditorPolicy.password(s.editorInputType)) return;
         KeyboardKeyPreview preview = keyPreview();
         if (preview == null || !key.isAttachedToWindow()) return;
         KeyboardSkin skin = s.imeStyler.themed(s.skin);

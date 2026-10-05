@@ -94,6 +94,8 @@ final class ImeVoiceEntry {
         }
         if (s.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) return false;
+        // 正在组字时交回原来的流程：识别窗口与结果面板会提示先完成当前输入，结果不会落在组字旁边。
+        if (!s.voiceInsertionReady()) return false;
         JSONObject voice = voicePreferences();
         String requestId = "ime-keyboard-" + Long.toUnsignedString(SystemClock.uptimeMillis());
         VoiceConfiguration configured = VoiceConfiguration.read(s.preferencesDirectory, requestId);
@@ -112,6 +114,8 @@ final class ImeVoiceEntry {
         String language = voice.optString("language", "zh-CN");
         boolean contribute = s.localSettings.bool(AndroidLocalSettings.VOICE_CONTRIBUTE_AUDIO) && s.imePrivacyGate.contributesVoice()
             && !EditorPolicy.password(s.editorInputType);
+        // 记下开始聆听时的输入位置；结果出来时位置变了就不直接上屏。
+        s.captureVoiceTarget();
         show(keyArea);
         long session = ++generation;
         long startedAt = SystemClock.uptimeMillis();
@@ -204,6 +208,12 @@ final class ImeVoiceEntry {
         if (listening != null) listening.setHint("正在识别…");
     }
 
+    /** 键盘服务销毁：停掉识别，并让排队中的语音时长与贡献上传跑完后结束线程。 */
+    void shutdown() {
+        cancel();
+        worker.shutdown();
+    }
+
     /** 取消：丢掉这次录音，恢复键区。 */
     void cancel() {
         generation++;
@@ -226,7 +236,16 @@ final class ImeVoiceEntry {
             dismiss();
             return;
         }
-        boolean committed = s.connection != null && s.commitText(text, TypingSource.VOICE);
+        // 聆听可能长达一分钟：这期间用户点到了别处、应用改写了输入框，或者开始了组字，结果就不能盲目插在现在的光标处。与识别窗口那条路一样，先存进语音结果，由用户在结果面板里显式插入。
+        if (!s.voiceInsertionReady() || !s.voiceTargetMatches()) {
+            boolean kept = s.stashVoiceResult(text);
+            android.widget.Toast.makeText(s, kept ? "输入位置已变化，结果已保留，可在语音结果中插入"
+                : "输入位置已变化；结果已安全清除", android.widget.Toast.LENGTH_SHORT).show();
+            dismiss();
+            if (kept) s.showVoiceResult();
+            return;
+        }
+        boolean committed = s.commitText(text, TypingSource.VOICE);
         if (!committed) {
             android.widget.Toast.makeText(s, "编辑器拒绝插入；结果已安全清除", android.widget.Toast.LENGTH_SHORT).show();
             dismiss();

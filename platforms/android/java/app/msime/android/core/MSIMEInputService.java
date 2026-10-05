@@ -373,8 +373,12 @@ public final class MSIMEInputService extends InputMethodService {
     String preferencesDirectory = "";
     private long appearanceLoadGeneration;
     private String runtimeOptionsForSnapshot = "";
+    /** 本输入框的运行时选项在强制关闭学习之前的原样，隐私模式切换时据此重建会话。 */
+    private String runtimeOptionsBase = "";
     JSONObject preferencesSnapshot;
     private long preferenceSaveGeneration;
+    /** 功能面板本地设置（单手、隐私）自己的写入代数，与几何、方案、繁体那些偏好保存互不作废，否则一方的 saving 标志会卡住。 */
+    private long localSettingSaveGeneration;
     boolean schemeSaving;
     boolean touchGeometrySaving;
     private boolean skinSaving;
@@ -1003,7 +1007,9 @@ public final class MSIMEInputService extends InputMethodService {
             if (!engineWanted) {
                 loadAppearanceWithoutSession(options.optString("preferences_directory", ""));
             }
+            runtimeOptionsBase = "";
             if (engineWanted) {
+                runtimeOptionsBase = options.toString();
                 if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
                 message = "共享运行时准备中";
@@ -1080,6 +1086,8 @@ public final class MSIMEInputService extends InputMethodService {
         engineStartGeneration++;
         cloudClipboardGeneration++;
         imeBottomRow.resetSpaceCursor();
+        // 也覆盖 onFinishInputView(true)：那条路径不经过 finishInputViewPresentation。
+        imeVoiceEntry.cancel();
         stop(true);
         schedulePersonalDictionarySynchronization(false);
         scheduleDictionarySnapshotProcessing();
@@ -1100,6 +1108,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
     private void finishInputViewPresentation() {
+        // 键盘收起就停掉键盘内的语音识别：聆听面板挂在已隐藏的窗口上不会被移除，录音（豆包还在往云端推流）会一直持续到上限。
+        imeVoiceEntry.cancel();
         imeLetterRows.cancelBackspaceRepeat();
         cancelInputViewRefresh();
         engineStartGeneration++;
@@ -1160,6 +1170,7 @@ public final class MSIMEInputService extends InputMethodService {
         flushKeyPresses();
         typingStatisticsWorker.shutdown();
         emojiWorker.shutdown();
+        imeVoiceEntry.shutdown();
         cloudClipboardWorker.shutdownNow();
         candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
@@ -3926,10 +3937,12 @@ public final class MSIMEInputService extends InputMethodService {
             preferencesWorker.execute(() -> {
                 String response;
                 try {
-                    if (animation != null) {
+                    response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
+                    // 本地的按键动画只在偏好写入成功后再写：CAS 冲突时界面回到原皮肤，磁盘上也不能留下新动画。
+                    if (animation != null && response != null
+                            && new JSONObject(response).optBoolean("ok", false)) {
                         AndroidLocalSettings.put(this, AndroidLocalSettings.KEY_ANIMATION, animation);
                     }
-                    response = NativeClient.savePreferences(targetDirectory, expectedRevision, pending.toString());
                 }
                 catch (Exception | LinkageError error) { response = null; }
                 final String savedResponse = response;
@@ -3978,6 +3991,8 @@ public final class MSIMEInputService extends InputMethodService {
             long savedRevision = PreferencesRevisionPolicy.read(saved.opt("revision"), -1);
             if (savedRevision < 0) throw new JSONException("Invalid preferences revision");
             if (PreferencesSavePolicy.shouldApplyResponse(currentRevision, savedRevision)) {
+                // The worker just wrote the key animation; reload it so the snapshot is applied with the new value, not the stale in-memory one.
+                refreshLocalSettings();
                 applyPreferencesSnapshot(saved);
                 showKeyboardSkinStatus("皮肤已切换");
             } else {
@@ -4086,7 +4101,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     static final String REPLY_SOURCE_PLACEHOLDER = "+ 粘贴 TA 的话帮你回";
 
-    private boolean voiceInsertionReady() {
+    boolean voiceInsertionReady() {
         return session != 0 && connection != null && view != null
             && view.optString("editing_text", "").isEmpty()
             && view.optString("local_mode", "none").equals("none");
@@ -4107,14 +4122,25 @@ public final class MSIMEInputService extends InputMethodService {
         return text == null ? null : text.toString();
     }
 
-    private void captureVoiceTarget() {
+    void captureVoiceTarget() {
         voiceTarget = new EditorContextSnapshot(connection, editorContextRevision, editorContext(true),
             selectedEditorText(), editorContext(false));
     }
 
-    private boolean voiceTargetMatches() {
+    boolean voiceTargetMatches() {
         return voiceTarget != null && voiceTarget.matches(connection, editorContextRevision,
             editorContext(true), selectedEditorText(), editorContext(false));
+    }
+
+    /** 键盘内识别的结果放不进原来的位置时，先存进语音结果，由用户在结果面板里决定插到哪儿。 */
+    boolean stashVoiceResult(String text) {
+        if (voiceResultStore == null) return false;
+        try {
+            voiceResultStore.save(text, System.currentTimeMillis());
+        } catch (VoiceResultStore.Failure error) {
+            return false;
+        }
+        return true;
     }
 
     boolean aiTargetMatches() {
@@ -4122,7 +4148,7 @@ public final class MSIMEInputService extends InputMethodService {
             editorContext(true), selectedEditorText(), editorContext(false));
     }
 
-    private void startVoiceRecognition() {
+    void startVoiceRecognition() {
         if (!voiceInputEnabled) {
             Toast.makeText(this, "请先在共享设置中启用语音输入", Toast.LENGTH_SHORT).show();
             return;
@@ -4408,7 +4434,6 @@ public final class MSIMEInputService extends InputMethodService {
             pending = new JSONObject(preferencesSnapshot.toString());
             expectedRevision = PreferencesRevisionPolicy.read(pending.opt("revision"), -1);
             if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
-            if (expectedRevision < 0) throw new JSONException("Invalid preferences revision");
             JSONObject preferences = pending.getJSONObject("preferences");
             if (reset) {
                 preferences.remove("touch_key_spacing_tenths");
@@ -4439,9 +4464,12 @@ public final class MSIMEInputService extends InputMethodService {
         Runnable save = () -> {
             String response;
             try {
-                AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
                 response = NativeClient.savePreferences(targetDirectory, expectedRevision,
                     pending.toString());
+                // 本地高度只在偏好写入成功后再写：CAS 冲突时界面回到原高度，磁盘上也不能留下新高度。
+                if (response != null && new JSONObject(response).optBoolean("ok", false)) {
+                    AndroidLocalSettings.put(this, AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT, height);
+                }
             } catch (Exception | LinkageError error) {
                 response = null;
             }
@@ -4478,10 +4506,13 @@ public final class MSIMEInputService extends InputMethodService {
             if (preferencesSnapshot != null
                     && PreferencesRevisionPolicy.read(preferencesSnapshot.opt("revision"), -1)
                         > savedRevision) {
+                refreshLocalSettings();
                 applyTouchGeometry(preferencesSnapshot.optJSONObject("preferences"));
                 imeStyler.applyKeyboardGeometry();
                 preferencesNotice = "";
             } else {
+                // The worker just wrote the height; reload it so heightAdjustmentFrom reads the new value, not the stale in-memory snapshot.
+                refreshLocalSettings();
                 applyPreferencesSnapshot(saved);
                 preferencesNotice = reset ? " · 键盘设置已恢复默认" : " · 键盘设置已保存";
             }
@@ -6068,7 +6099,7 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         panelPreferenceSaving = true;
-        final long operation = ++preferenceSaveGeneration;
+        final long operation = ++localSettingSaveGeneration;
         imeFunctionPanel.renderMoreTools();
         Runnable save = () -> {
             AndroidLocalSettings.Snapshot saved;
@@ -6089,7 +6120,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void finishLocalPanelSetting(long operation, String label, AndroidLocalSettings.Snapshot saved) {
         panelPreferenceSaving = false;
-        if (operation != preferenceSaveGeneration) return;
+        if (operation != localSettingSaveGeneration) return;
         if (saved == null) {
             preferencesNotice = " · " + label + "保存失败，保留原设置";
             Toast.makeText(this, label + "未能保存", Toast.LENGTH_SHORT).show();
@@ -6100,14 +6131,30 @@ public final class MSIMEInputService extends InputMethodService {
         localSettings = saved;
         applyLocalSettings();
         preferencesNotice = "";
-        if (wasIncognito != incognitoEnabled && session != 0 && preferencesSnapshot != null) {
-            try {
-                applyPreferencesSnapshot(preferencesSnapshot);
-            } catch (JSONException | LinkageError error) {
-                preferencesNotice = " · 隐私模式已保存，下次打开键盘时生效";
-            }
-        }
+        if (wasIncognito != incognitoEnabled && session != 0) restartSessionForPrivacy();
         render();
+    }
+
+    /**
+     * 隐私模式中途切换时重建引擎会话。同一修订号的快照只改 learning 会被 host-api 当作冲突拒绝（Session::update），所以不能靠 applyPreferencesSnapshot 把学习开关推给现有会话；新会话按当前的学习开关创建，随后 preferencesReloader 的首次应用与它一致，不会冲突。
+     */
+    private void restartSessionForPrivacy() {
+        if (session == 0 || runtimeOptionsBase.isEmpty()) return;
+        if (connection != null && view != null && !view.optString("editing_text", "").isEmpty())
+            command(FINISH_COMPOSITION_COMMAND);
+        boolean panelOpen = moreToolsScroll != null && moreToolsScroll.getVisibility() == View.VISIBLE;
+        stop(false);
+        // stop 会收起所有面板；用户是在功能面板上点的隐私，面板应该留在原处。
+        if (panelOpen) imePanels.showFeedbackMenu();
+        try {
+            JSONObject options = new JSONObject(runtimeOptionsBase);
+            if (learningSuppressed()) options.getJSONObject("preferences").put("learning", false);
+            runtimeOptionsForSnapshot = options.toString();
+            message = "共享运行时准备中";
+            scheduleEngineStartup(runtimeOptionsForSnapshot, ++engineStartGeneration);
+        } catch (JSONException error) {
+            message = "共享运行时未就绪：仅直接输入";
+        }
     }
 
     /** 功能面板的手写：切到手写方案；已经是手写时切回上一个中文方案。 */
