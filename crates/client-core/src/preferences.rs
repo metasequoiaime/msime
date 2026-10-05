@@ -2326,7 +2326,7 @@ impl<'de> Deserialize<'de> for HelpcodeSchema {
     }
 }
 
-/// 辅助码怎么取：部首（现在码表的含义，首尾部首）、笔画（前两笔，用 h/s/p/n/z 表示）或混合（第一码部首、第二码笔画）。这里只存储，Engine 的支持另行接入。
+/// 辅助码怎么取：部首（现在码表的含义，首尾部首）、笔画（前两笔，用 h/s/p/n/z 表示）或混合（第一码部首、第二码笔画）。host-api 在把码表交给 Engine 之前按它改写（笔画来自笔画词库），没有笔画词库时退回部首。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HelpcodeMode {

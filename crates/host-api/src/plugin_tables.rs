@@ -5,10 +5,12 @@
 use msime_client_core::plugins::{
     command_table, helpcode_pack, kind_directory, mentions, phrase_table, PluginKind, MANIFEST_FILE,
 };
-use msime_client_core::preferences::PluginPreferences;
+use msime_client_core::preferences::{
+    HelpcodeMode as PreferredHelpcodeMode, PluginPreferences, Preferences,
+};
 use msime_engine::host::{
-    load_helpcode_keymap, CommandTableEntry, EngineOptions, HelpcodeKeymap, MentionEntry,
-    QuickPhraseEntry, SharedKeymap,
+    helpcode_keymap_for_mode, load_helpcode_keymap, stroke_helpcode_codes, CommandTableEntry,
+    EngineOptions, HelpcodeKeymap, HelpcodeMode, MentionEntry, QuickPhraseEntry, SharedKeymap,
 };
 use msime_engine::SchemeType;
 use std::path::Path;
@@ -55,18 +57,35 @@ pub(crate) struct PluginTables {
     phrases: Option<Vec<(String, FileStamp)>>,
     /// 辅助码打开、当前方案是全拼或双拼并选了辅助码表包时，包 id、回退用的 `helpcode_schema` 与包目录的戳。回退方案也算在戳里：包坏掉时用的是它，换了方案就要重新决定用哪张表。
     helpcode: Option<HelpcodeStamp>,
+    /// 辅助码打开、当前方案是全拼或双拼且取法不是部首时，取法、码表方案名与笔画词库路径及其戳：码表要按它改写后再交给 Engine。
+    helpcode_mode: Option<HelpcodeModeStamp>,
 }
+
+/// 非部首的辅助码取法：取法、码表方案名、笔画词库路径和它的戳。
+type HelpcodeModeStamp = (HelpcodeMode, String, String, FileStamp);
 
 impl PluginTables {
     /// Stamp the files `options` would be filled from. Cheap: a few `stat`s, and none for a mode that is off or a session without a plugins directory.
     pub(crate) fn stamp(
         root: Option<&Path>,
         options: &EngineOptions,
-        plugins: &PluginPreferences,
+        preferences: &Preferences,
     ) -> Self {
+        let helpcode_mode = Self::helpcode_mode(options, preferences).map(|mode| {
+            (
+                mode,
+                options.helpcode_schema.clone(),
+                options.stroke_dictionary.clone(),
+                stamp(Path::new(&options.stroke_dictionary)),
+            )
+        });
         let Some(root) = root else {
-            return Self::default();
+            return Self {
+                helpcode_mode,
+                ..Self::default()
+            };
         };
+        let plugins = &preferences.plugins;
         let manifests = |kind: PluginKind, enabled: &[String]| -> Vec<(String, FileStamp)> {
             let directory = kind_directory(root, kind);
             enabled
@@ -92,6 +111,24 @@ impl PluginTables {
                     directory_stamp(&directory),
                 )
             }),
+            helpcode_mode,
+        }
+    }
+
+    /// 当前方案的辅助码取法，部首（码表原样）和辅助码关闭时为 `None`。
+    fn helpcode_mode(options: &EngineOptions, preferences: &Preferences) -> Option<HelpcodeMode> {
+        if !options.helpcode {
+            return None;
+        }
+        let preferred = match SchemeType::from_u8(options.scheme)? {
+            SchemeType::Quanpin => preferences.quanpin_helpcode.mode,
+            SchemeType::Shuangpin => preferences.shuangpin_helpcode.mode,
+            _ => return None,
+        };
+        match preferred {
+            PreferredHelpcodeMode::Radical => None,
+            PreferredHelpcodeMode::Stroke => Some(HelpcodeMode::Stroke),
+            PreferredHelpcodeMode::Mixed => Some(HelpcodeMode::Mixed),
         }
     }
 
@@ -124,11 +161,39 @@ impl PluginTables {
     }
 
     pub(crate) fn helpcode_differs(&self, previous: &Self) -> bool {
-        self.helpcode != previous.helpcode
+        self.helpcode != previous.helpcode || self.helpcode_mode != previous.helpcode_mode
     }
 
     /// 选中的辅助码表包的码表；没选包时为 `None`。包载入失败时也是 `None`，Engine 于是退回方案原来的 `schema`，设置页把这个包报告为未找到；但回退的表本身也读不出来时（典型是已被删掉的 `custom/<stem>`）给一张空表：`None` 会让 Engine 去读那张表，`Session::new` 因此失败，偏好就再也应用不上。
+    ///
+    /// 取法不是部首时，先照上面得到部首码表（包、或方案原来的表），再按取法改写成一张宿主表交给 Engine。笔画词库不在或读不出时记一条日志，退回部首码表的结果。
     pub(crate) fn helpcode_table(
+        &self,
+        root: Option<&Path>,
+        options: &EngineOptions,
+    ) -> Option<SharedKeymap> {
+        let radical = self.radical_helpcode_table(root, options);
+        let Some((mode, schema, stroke_dictionary, _)) = &self.helpcode_mode else {
+            return radical;
+        };
+        let strokes = match stroke_helpcode_codes(Path::new(stroke_dictionary)) {
+            Ok(strokes) => strokes,
+            Err(error) => {
+                eprintln!("msime: stroke dictionary unavailable, helpcode stays radical: {error}");
+                return radical;
+            }
+        };
+        let base = match radical {
+            Some(table) => table,
+            None => Arc::new(
+                load_helpcode_keymap(Path::new(&options.resources), schema).unwrap_or_default(),
+            ),
+        };
+        Some(Arc::new(helpcode_keymap_for_mode(&base, &strokes, *mode)))
+    }
+
+    /// 部首码表：选中的辅助码表包，或 `None` 让 Engine 读方案原来的表。
+    fn radical_helpcode_table(
         &self,
         root: Option<&Path>,
         options: &EngineOptions,

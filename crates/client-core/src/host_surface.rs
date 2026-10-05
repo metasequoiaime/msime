@@ -303,7 +303,20 @@ pub struct HostCapabilities {
     /// 运行中的版本，不是 full 时才有。缺省（包括引入版本之前的宿主）就是 full：所有方案都属于本版本，`input_schemes` 之外的方案只是这个宿主暂不支持，显示为禁用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edition: Option<EditionInfo>,
+    /// 输入页辅助码设置可选的内置辅助码方案（`HelpcodeSchema` 的 id），按设置页列出的顺序。目前只有 Android 宿主列出，其他宿主为空、不写进文档，序列化结果与加这一项之前相同。郑码只在有带授权的内置码表（按 `resources/helpcodes/NOTICE.md` 登记）时列入，现在没有。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub helpcode_schemas: Vec<String>,
 }
+
+/// Android 输入页列出的内置辅助码方案。不含郑码：仓库里还没有带授权的郑码码表。
+const ANDROID_HELPCODE_SCHEMAS: [&str; 6] = [
+    "ziranma",
+    "xiaohe",
+    "lantian",
+    "shouyou2_0",
+    "shouyouplus",
+    "jiajia",
+];
 
 /// 设置页需要知道的版本信息。
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -598,7 +611,8 @@ impl HostCapabilities {
             // Windows 和 Linux 桌面的符号面板是 Tauri 层的表情面板（`load_emoji_catalog`），Linux 的 Fcitx5 菜单和 macOS 的原生表情与符号面板另外读同一批插件组。HarmonyOS 在自己的设置投影里按形态打开；Android 和 iOS 没有接入。
             symbol_set_packs: platform.is_desktop(),
             // The three desktop hosts play the packs, route V, / and @ by the Engine's spelling symbols and stream music while they are the active input method. HarmonyOS claims key sounds, music and the triggers per form factor in its own settings projection (2in1 only); the phone and tablet hosts wire none of them. A switch with nothing behind it reads as a setting being ignored, so each host flips here only in the change that wires it.
-            key_sound: platform.is_desktop(),
+            // Android 的按键音由 IME 进程的 SoundPool 播放（与本项同一波接入），所以 Android 也声明；手机和平板上的 HarmonyOS 与 iOS 仍未接入。
+            key_sound: platform.is_desktop() || platform == HostPlatform::Android,
             plugin_triggers: platform.is_desktop(),
             music: platform.is_desktop(),
             // macOS draws the sparks, the card flash and the combo badge (TypingEffectPanel.mm), Windows the flash and the badge on its candidate window (CandidateWindow.cpp), both Linux hosts the combo count in the candidate aux line (KeySound.h), and HarmonyOS the flash and the combo badge on its KeyboardView. Linux draws no style, only the count; the settings page hides the style controls there itself (`showTypingEffectStyles`). HarmonyOS still narrows this per form factor in its own settings projection; Android and iOS wire none.
@@ -608,6 +622,14 @@ impl HostCapabilities {
             // 每个宿主都路由粤拼、注音、越南文、藏文和笔画的按键，并附带粤拼、注音和笔画需要的词库。
             input_schemes: ALL_INPUT_SCHEMES.to_vec(),
             edition: None,
+            helpcode_schemas: if platform == HostPlatform::Android {
+                ANDROID_HELPCODE_SCHEMAS
+                    .iter()
+                    .map(|schema| (*schema).to_owned())
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
     }
 

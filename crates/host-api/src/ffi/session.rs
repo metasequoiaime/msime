@@ -58,7 +58,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let plugin_tables = plugin_tables::PluginTables::stamp(
             plugin_roots.installed.as_deref(),
             &options,
-            &applied.plugins,
+            &applied,
         );
         plugin_tables.fill(
             &plugin_tables::PluginTables::default(),
@@ -139,6 +139,8 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
                     ai_provider_cache,
                     voice: VoiceSessionState::default(),
                     pending_selections: Default::default(),
+                    pending_efficiency: Default::default(),
+                    statistics_enabled: None,
                     plugin_roots,
                     sound,
                     plugin_tables,

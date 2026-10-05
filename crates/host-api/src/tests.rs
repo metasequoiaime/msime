@@ -3206,6 +3206,99 @@ fn a_zhengma_helpcode_is_stored_but_not_handed_to_the_engine() {
     read(msime_client_destroy(handle));
 }
 
+/// 上屏效率：一次带输入码的选择计一次上屏和按下的字母数，隐私模式下什么都不计。
+#[test]
+fn a_committed_selection_counts_its_efficiency_and_incognito_counts_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 1);
+    assert_eq!(efficiency.typed_keys, 5);
+    // 你好按全拼也是 nihao 五个键：不少按，也不多按。
+    assert_eq!(efficiency.spelled_keys, 5);
+    assert_eq!(efficiency.prediction_commits, 0);
+    read(msime_client_destroy(handle));
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        touch_incognito: true,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    assert_eq!(store.load().unwrap().efficiency.commits, 0);
+    read(msime_client_destroy(handle));
+}
+
+/// 统计关闭时效率一项都不计。
+#[test]
+fn efficiency_is_not_counted_while_statistics_are_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let (handle, store) = selection_statistics_host(dir.path(), false);
+    commit_candidate_by_position(handle, 0);
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    SESSIONS.with(|sessions| {
+        assert_eq!(sessions.borrow()[&handle].statistics_enabled, None);
+    });
+    assert_eq!(store.load().unwrap().efficiency.commits, 0);
+    read(msime_client_destroy(handle));
+}
+
+/// 辅助码取法：笔画与混合把码表改写后作为宿主表交给 Engine；部首不改；笔画词库不在时退回部首。
+#[test]
+fn helpcode_mode_rewrites_the_table_handed_to_the_engine() {
+    use msime_client_core::preferences::HelpcodeMode as Mode;
+    let dir = tempfile::tempdir().unwrap();
+    let stroke = dir.path().join("msime-stroke.db");
+    let connection = rusqlite::Connection::open(&stroke).unwrap();
+    connection
+        .execute_batch(msime_engine::language_dictionary::SCHEMA)
+        .unwrap();
+    connection
+        .execute_batch(
+            "INSERT INTO metadata VALUES('format_version','1');
+             INSERT INTO entries VALUES('pnhz','你',100);",
+        )
+        .unwrap();
+    drop(connection);
+    let mut preferences = chinese_preferences();
+    preferences.quanpin_helpcode.enabled = true;
+    let handle = test_host_preferences(dir.path(), preferences.clone());
+    let mut options = SESSIONS.with(|sessions| sessions.borrow()[&handle].options.clone());
+    read(msime_client_destroy(handle));
+    options.scheme = 0;
+    options.helpcode = true;
+    options.stroke_dictionary = stroke.to_string_lossy().into_owned();
+    let table = |mode: Mode, options: &EngineOptions| {
+        let mut preferences = preferences.clone();
+        preferences.quanpin_helpcode.mode = mode;
+        plugin_tables::PluginTables::stamp(None, options, &preferences)
+            .helpcode_table(None, options)
+    };
+    assert!(table(Mode::Radical, &options).is_none());
+    let stroke_table = table(Mode::Stroke, &options).unwrap();
+    assert_eq!(stroke_table.code("你"), Some("pn"));
+    let mixed = table(Mode::Mixed, &options).unwrap();
+    // 测试资源里没有码表，混合模式只剩笔画词库里也查不到部首的空表。
+    assert_eq!(mixed.code("你"), None);
+    // 取法变了，戳也变了，聚焦时会换表。
+    let mut stroke_preferences = preferences.clone();
+    stroke_preferences.quanpin_helpcode.mode = Mode::Stroke;
+    assert!(
+        plugin_tables::PluginTables::stamp(None, &options, &stroke_preferences).helpcode_differs(
+            &plugin_tables::PluginTables::stamp(None, &options, &preferences)
+        )
+    );
+    options.stroke_dictionary = dir.path().join("missing.db").to_string_lossy().into_owned();
+    assert!(table(Mode::Stroke, &options).is_none());
+}
+
 /// A result of the expression mode is picked, not typed: the preference opens the mode through the host, and the pick is kept out of the selection statistics as it is kept out of learning.
 #[test]
 fn generated_mode_selections_stay_out_of_selection_statistics() {

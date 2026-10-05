@@ -28,7 +28,9 @@ use msime_client_core::punctuation::{
 };
 use msime_client_core::resource_packs::{self, ResourcePack};
 use msime_client_core::resources::{ResourceSet, ResourceStore, VerifiedMarker};
-use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore, RANKS};
+use msime_client_core::typing_statistics::{
+    CommitEfficiency, TypingSource, TypingStatisticsStore, RANKS,
+};
 use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
 };
@@ -215,6 +217,10 @@ struct HostSession {
     voice: VoiceSessionState,
     /// Committing candidate selections counted but not yet written to typing statistics, indexed by one-based position minus one, with every position past a page in the last slot. See `SELECTION_BATCH`.
     pending_selections: [u64; RANKS + 1],
+    /// 还没写进打字统计的上屏效率计数，和 `pending_selections` 一起写。只在 [`COUNTS_COMMIT_EFFICIENCY`] 时计。
+    pending_efficiency: CommitEfficiency,
+    /// 打字统计的开关，第一次要计效率时从统计文件读一次，每次写入后作废重读；`None` 是还没读。统计关闭时效率一项都不查。
+    statistics_enabled: Option<bool>,
     /// Where this session's plugin packs, command tables and name list are read from.
     plugin_roots: key_sound::PluginRoots,
     /// The key sound, melody, commit, achievement and music settings of the newest preferences, which take effect at once rather than waiting for the composition to end: none of them is Engine state.
@@ -341,6 +347,71 @@ impl HostSession {
         }
     }
 
+    /// 选中的候选在派发前的样子，供上屏后计效率：隐私模式、统计关闭、非 Android 宿主或找不到这个候选时为 `None`。
+    fn efficiency_candidate(&mut self, action: &Action) -> Option<EfficiencyCandidate> {
+        if !COUNTS_COMMIT_EFFICIENCY || self.incognito() {
+            return None;
+        }
+        let id = match action {
+            Action::Select(id) | Action::SelectAnyCandidate(id) => *id,
+            _ => return None,
+        };
+        if !self.statistics_enabled()? {
+            return None;
+        }
+        let view = self.runtime.view();
+        let candidate = view
+            .candidates
+            .into_iter()
+            .find(|candidate| candidate.id == id)?;
+        Some(EfficiencyCandidate {
+            prediction: candidate.code.is_empty() && view.preedit.is_empty(),
+            sentence: msime_engine::CandidateSource::from_u8(candidate.source)
+                .is_some_and(msime_engine::CandidateSource::is_sentence_learning),
+            typed_keys: candidate
+                .code
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .count() as u64,
+            text: candidate.text,
+        })
+    }
+
+    /// 统计开关；读不到统计目录或文件时当作关闭。第一次读到开着时在后台把逐字读音表建好，免得第一次上屏在输入线程上扫单字表。
+    fn statistics_enabled(&mut self) -> Option<bool> {
+        if let Some(enabled) = self.statistics_enabled {
+            return Some(enabled);
+        }
+        let directory = std::path::Path::new(&self.options.user_data);
+        let enabled = directory.is_absolute()
+            && TypingStatisticsStore::new(directory)
+                .load()
+                .is_ok_and(|statistics| statistics.enabled);
+        static READINGS_WARMED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if enabled && !READINGS_WARMED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let options = self.options.clone();
+            std::thread::spawn(move || {
+                let _ = msime_engine::host::canonical_spelling_keys(&options, "的");
+            });
+        }
+        self.statistics_enabled = Some(enabled);
+        Some(enabled)
+    }
+
+    /// 计一次上屏：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。
+    fn count_efficiency(&mut self, candidate: EfficiencyCandidate) {
+        let spelled_keys =
+            msime_engine::host::canonical_spelling_keys(&self.options, &candidate.text)
+                .map_or(candidate.typed_keys, u64::from);
+        self.pending_efficiency.count_commit(
+            candidate.typed_keys,
+            spelled_keys,
+            candidate.sentence,
+            candidate.prediction,
+        );
+    }
+
     /// Write the selections counted since the last flush, in the store the host already keeps.
     ///
     /// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or unwritable store is dropped rather than surfaced, and the batch goes with it rather than being retried on every later key. The store honours the user's switch itself, so there is no second check here to fall out of step with it. Nothing pending means nothing touches the disk.
@@ -358,7 +429,12 @@ impl HostSession {
                 .filter(|(_, count)| **count > 0)
                 .map(|(slot, count)| (slot + 1, *count)),
         );
-        let _ = TypingStatisticsStore::new(directory).record_selections(&batch);
+        let store = TypingStatisticsStore::new(directory);
+        let _ = store.record_selections(&batch);
+        let efficiency = std::mem::take(&mut self.pending_efficiency);
+        let _ = store.record_efficiency(&efficiency);
+        // 用户可能在设置里关掉或打开了统计，下一批重新读开关。
+        self.statistics_enabled = None;
     }
 
     /// Rebuild the Engine for the requested preferences once the composition is idle. The `Ok` value is why the preferred scheme was not the one applied, when it was not.
@@ -423,8 +499,7 @@ impl HostSession {
         options.show_helpcode = helpcode.show_in_candidate_window;
         options.helpcode_schema = helpcode.schema.as_str().into();
         let plugin_root = self.plugin_roots.installed.as_deref();
-        let plugin_tables =
-            plugin_tables::PluginTables::stamp(plugin_root, &options, &preferences.plugins);
+        let plugin_tables = plugin_tables::PluginTables::stamp(plugin_root, &options, &preferences);
         plugin_tables.fill(&self.plugin_tables, plugin_root, &mut options);
         options.sentence_association =
             engine_sentence_association(&preferences.sentence_association);
@@ -507,7 +582,7 @@ impl HostSession {
     /// 输入框获得焦点时，让 `/` 指令表、K 模式短语表、辅助码表和 `@` 名单跟上插件目录：设置页可能刚导入了表或改了名单。没有文件变动时什么都不读。
     fn refresh_plugin_tables(&mut self) -> Result<(), String> {
         let root = self.plugin_roots.installed.as_deref();
-        let tables = plugin_tables::PluginTables::stamp(root, &self.options, &self.applied.plugins);
+        let tables = plugin_tables::PluginTables::stamp(root, &self.options, &self.applied);
         if tables.commands_differ(&self.plugin_tables) {
             let table = tables.command_table(root);
             self.runtime
@@ -1811,6 +1886,7 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
             // through here, so counting it here covers all of them without a line of platform
             // code; doing it per host would have meant six chances to forget.
             let position = selected_position(&action);
+            let efficiency = position.and_then(|_| session.efficiency_candidate(&action));
             let result = session
                 .runtime
                 .dispatch(action)
@@ -1823,6 +1899,9 @@ fn dispatch(handle: u64, action: Action) -> *mut c_char {
             if result.commit.is_some() && counts_as_typing {
                 if let Some(position) = position {
                     session.count_selection(position);
+                }
+                if let Some(candidate) = efficiency {
+                    session.count_efficiency(candidate);
                 }
             }
             let result = session.complete_transition(result);
@@ -1845,6 +1924,17 @@ fn selected_position(action: &Action) -> Option<usize> {
         Action::SelectAnyCandidate(id) => Some(id.index + 1),
         _ => None,
     }
+}
+
+/// 上屏效率（少按键、联想、整句）只在 Android 上计：只有 Android 的统计页显示它，其他宿主不为它在每次上屏时多查一次读音。测试里也打开，好覆盖计法。
+const COUNTS_COMMIT_EFFICIENCY: bool = cfg!(any(target_os = "android", test));
+
+/// 派发选择前从视图里读出的那个候选。
+struct EfficiencyCandidate {
+    text: String,
+    typed_keys: u64,
+    sentence: bool,
+    prediction: bool,
 }
 
 /// How many committing selections a session holds in memory before writing them to typing statistics.
