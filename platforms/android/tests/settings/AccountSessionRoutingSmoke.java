@@ -42,6 +42,14 @@ public final class AccountSessionRoutingSmoke {
             "a saturated Rust expiry is not treated as an eternal token");
         check(AccountSessionRoutingPolicy.legacyToken("E".repeat(64), now + 60_000L, now).isEmpty(), "a malformed Rust token is not used");
         check(AccountSessionRoutingPolicy.legacyToken(null, now + 60_000L, now).isEmpty(), "a missing Rust token is not used");
+        check(AccountSessionProvider.legacyAccessToken(TOKEN).equals(TOKEN),
+            "a string Rust token is read");
+        for (Object invalid : new Object[] {
+                null, Boolean.TRUE, 42, new java.math.BigInteger("1".repeat(64)),
+                java.util.List.of(TOKEN), java.util.Map.of("token", TOKEN)}) {
+            check(AccountSessionProvider.legacyAccessToken(invalid).isEmpty(),
+                "a non-string Rust token is not converted to a string");
+        }
         check(AccountTokenPolicy.strictSeconds(900) == 900,
             "integer account lifetimes are accepted");
         check(AccountTokenPolicy.strictSeconds(900.5) == 0,
