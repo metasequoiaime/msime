@@ -20,7 +20,7 @@ export CARGO_PROFILE_RELEASE_DEBUG := line-tables-only
 ifneq (,$(DEB_BUILD_OPTION_PARALLEL))
 export CARGO_BUILD_JOBS := $(DEB_BUILD_OPTION_PARALLEL)
 endif
-# Ubuntu 24.04 的 cargo 是 1.75，低于 Cargo.toml 的 rust-version；那里装的是 cargo-1.91 这类带版本号的工具链，放到 PATH 最前面。没有时用默认的 cargo。
+# Ubuntu 24.04 的 cargo 是 1.75，低于锁定依赖要求的 1.90；那里装的是 cargo-1.91 这类带版本号的工具链，放到 PATH 最前面。没有时用默认的 cargo。
 RUST_VERSIONED_BIN := $(lastword $(sort $(wildcard /usr/lib/rust-1.*/bin)))
 ifneq (,$(RUST_VERSIONED_BIN))
 export PATH := $(RUST_VERSIONED_BIN):$(PATH)

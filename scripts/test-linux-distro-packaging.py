@@ -72,6 +72,12 @@ def main() -> int:
         if options != expected_options - (optional - options):
             failures.append(f"{path.relative_to(ROOT)}: CMake options differ from package-container.sh; missing {sorted(expected_options - options)}, extra {sorted(options - expected_options)}")
 
+    # 编译器下限：RPM 与 Debian 用发行版的 rust，下限要一致；Cargo.toml 的 rust-version 只是下界，锁定依赖（tauri 2.12 等）要求得更高，所以这里不拿它比。
+    spec_floor = set(re.findall(r"(?m)^BuildRequires:\s+(?:cargo|rust) >= (\S+)$", SPEC.read_text(encoding="utf-8")))
+    control_floor = set(re.findall(r"(?m)^ (?:cargo|rustc) \(>= (\S+)\)", CONTROL.read_text(encoding="utf-8")))
+    if len(spec_floor) != 1 or spec_floor != control_floor:
+        failures.append(f"rpm/msime.spec ({sorted(spec_floor)}) and debian/control ({sorted(control_floor)}) disagree on the Rust compiler floor")
+
     # 替换之后恢复：先确认这几份定义确实替换别的包，再确认它们在替换之后运行 --register，且 msime-linux-setup 有这个选项。
     register = 'msime-linux-setup --register </dev/null'
     if '"--register"' not in SETUP.read_text(encoding="utf-8"):

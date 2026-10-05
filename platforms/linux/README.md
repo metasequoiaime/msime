@@ -146,7 +146,7 @@ environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msim
 | --- | --- | --- |
 | Arch AUR `msime` | `arch/msime/PKGBUILD` | 从 `linux-v<版本>` 标签的源码构建，Rust 经 `rustup` 用 `rust-toolchain.toml` 钉住的版本，资源由 `scripts/fetch_*.py` 按锁文件下载 |
 | Arch AUR `msime-bin` | `arch/msime-bin/PKGBUILD` | 把发布页的 `.rpm` 改成 Arch 的目录布局重新打包，不编译 |
-| Fedora COPR、openSUSE OBS | `rpm/msime.spec` | 离线源码构建，依赖全部来自 `msime-<版本>-vendor.tar.xz`，编译器用发行版自己的 rust（≥ `Cargo.toml` 的 `rust-version`） |
+| Fedora COPR、openSUSE OBS | `rpm/msime.spec` | 离线源码构建，依赖全部来自 `msime-<版本>-vendor.tar.xz`，编译器用发行版自己的 rust（≥ 1.90，锁定依赖里最高的 `rust-version`） |
 | Debian/Ubuntu（Launchpad PPA、OBS） | `debian/` | 同上，vendor 包作为 `orig-vendor` 组件 tarball |
 | Gentoo overlay | `gentoo/`（`msime-9999.ebuild` 与 `msime.ebuild.in`） | crate 由 `pycargoebuild` 逐个列进 `SRC_URI`，资源按锁文件地址列出，前端取 `msime-<版本>-frontend.tar.xz` |
 

@@ -8,8 +8,8 @@ Homepage: https://github.com/metasequoiaime/msime
 Vcs-Browser: https://github.com/metasequoiaime/msime
 Vcs-Git: https://github.com/metasequoiaime/msime.git
 Build-Depends: debhelper-compat (= 13),
- cargo (>= 1.89) | cargo-1.91,
- rustc (>= 1.89) | rustc-1.91,
+ cargo (>= 1.90) | cargo-1.91,
+ rustc (>= 1.90) | rustc-1.91,
  cmake (>= 3.25),
  pkgconf,
  python3,

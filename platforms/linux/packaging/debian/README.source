@@ -10,7 +10,7 @@ msime 的 Debian 源码包
 
 两者都由 platforms/linux/packaging/make-source-tarballs.sh 生成。Launchpad 构建时没有网络，所以这些依赖只能随源码包提供；构建时 debian/rules 再用仓库自己的 fetch 脚本对着源码树里的锁文件核对一遍 vendor/ 里的数据，对不上就会去下载并在无网络的构建农场里失败。
 
-编译器用发行版的 rustc/cargo，要求不低于 Cargo.toml 的 rust-version（1.89）：Debian unstable、Ubuntu 26.04 的默认版本都满足，Debian 13 的 1.85 不满足。Ubuntu 24.04 的默认 cargo 是 1.75，要靠第二个候选 cargo-1.91/rustc-1.91，debian/rules 会把 /usr/lib/rust-1.*/bin 放到 PATH 最前面；如果构建器只取 Build-Depends 的第一个候选（Debian 官方 buildd 就是这样），给 24.04 上传前把 control 里这两项直接改成 cargo-1.91、rustc-1.91。
+编译器用发行版的 rustc/cargo，要求不低于锁定依赖里最高的 rust-version（1.90，来自 Cargo.lock 锁定的 tauri 2.12 等；Cargo.toml 自己声明的 1.89 不够）：Debian unstable、Ubuntu 26.04 的默认版本都满足，Debian 13 的 1.85 不满足。Ubuntu 24.04 的默认 cargo 是 1.75，要靠第二个候选 cargo-1.91/rustc-1.91，debian/rules 会把 /usr/lib/rust-1.*/bin 放到 PATH 最前面；如果构建器只取 Build-Depends 的第一个候选（Debian 官方 buildd 就是这样），给 24.04 上传前把 control 里这两项直接改成 cargo-1.91、rustc-1.91。
 
 上传到 PPA
 ----------

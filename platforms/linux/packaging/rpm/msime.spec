@@ -8,7 +8,7 @@
 #   COPR：rpmbuild -bs 渲染后的规格文件（_sourcedir 里放好 Source0、Source1 和 msime-rpmlintrc），再 `copr-cli build <owner>/msime msime-0.9.1-1.*.src.rpm`；项目的 chroot 选 fedora-*-x86_64 与 fedora-*-aarch64。
 #   OBS：`osc checkout home:<user>/msime`，放入渲染后的 msime.spec、msime-rpmlintrc 和两个 tarball，`osc addremove && osc commit`；仓库选 openSUSE_Tumbleweed、openSUSE_Leap_16.0 与 Fedora_*。
 #
-# 编译器用发行版自己的 rust/cargo，不用 rust-toolchain.toml 钉住的版本：构建农场取不到 rustup，而 Cargo.toml 的 rust-version（1.89）才是代码声明支持的下限。
+# 编译器用发行版自己的 rust/cargo，不用 rust-toolchain.toml 钉住的版本：构建农场取不到 rustup，下限取锁定依赖里最高的 rust-version：Cargo.toml 自己声明 1.89，但 Cargo.lock 锁定的 tauri 2.12、tauri-utils、tauri-runtime-wry、muda、tray-icon 等声明 1.90，cargo 默认拒绝用更低的编译器构建它们。
 
 # 包内私有目录里的 Host API 与 sherpa-onnx 运行库按 RUNPATH 加载，既不能向系统要，也不能当作系统库对外提供；与 packaging.cmake 给 CPack 的设置相同。
 %global __requires_exclude ^lib(msime_host_api|sherpa-onnx-c-api|onnxruntime)\\.so.*$
@@ -36,8 +36,8 @@ Source99:       msime-rpmlintrc
 # 语音运行库只为这两个架构钉住了上游构建（resources/voice-runtime.lock.json）。
 ExclusiveArch:  x86_64 aarch64
 
-BuildRequires:  cargo >= 1.89
-BuildRequires:  rust >= 1.89
+BuildRequires:  cargo >= 1.90
+BuildRequires:  rust >= 1.90
 BuildRequires:  gcc-c++
 BuildRequires:  cmake >= 3.25
 BuildRequires:  make
