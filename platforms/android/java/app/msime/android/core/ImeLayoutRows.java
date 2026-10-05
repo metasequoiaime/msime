@@ -400,7 +400,9 @@ final class ImeLayoutRows {
 
         LinearLayout punctuation = new LinearLayout(s);
         punctuation.setOrientation(LinearLayout.VERTICAL);
-        for (String symbol : NineKeyLayout.punctuation()) {
+        // 外框和拼音九键一样三行对齐：左列 ，。？，！ 在右列最下；中间两行笔画下面再一行 @#、0、句点。原来左列四个、中间两行、右列三个，三列互不对齐，看起来像少了一行。
+        java.util.List<String> symbols = NineKeyLayout.punctuation();
+        for (String symbol : symbols.subList(0, symbols.size() - 1)) {
             Button key = s.keyId(s.keyboardKey(symbol, "符号 " + symbol,
                 () -> commitNineKeyLiteral(symbol)), "SoftPunctuation");
             // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
@@ -426,6 +428,7 @@ final class ImeLayoutRows {
                 Button keyButton = s.keyboardKey(StrokeKeyboardLayout.face(key),
                     StrokeKeyboardLayout.accessibilityLabel(key), () -> strokeKey(key));
                 keyButton.setContentDescription(StrokeKeyboardLayout.accessibilityLabel(key));
+                twoLineFace(keyButton, StrokeKeyboardLayout.face(key));
                 if (keyButton instanceof KeyboardPressButton press)
                     press.setKeyboardRole(KeyboardKeyRole.KEY);
                 s.keyId(keyButton, KeyPressIds.forCharacter(key.input()));
@@ -435,6 +438,16 @@ final class ImeLayoutRows {
             grid.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
+        LinearLayout lastRow = new LinearLayout(s);
+        Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号", s.imePanels::showSymbolPanel), KeyPressIds.forNineKeyDigit(1));
+        Button zero = s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")), "Nine0");
+        Button period = s.keyId(s.keyboardKey(".", "句点", this::commitNineKeyPeriod), "Period");
+        for (Button key : java.util.List.of(symbolsKey, zero, period)) {
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+            addNineKey(lastRow, key);
+        }
+        grid.addView(lastRow, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         container.addView(grid, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 3));
 
@@ -445,10 +458,14 @@ final class ImeLayoutRows {
         };
         Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
-        addNineKey(actions, delete);
-        addNineKey(actions, s.keyId(s.keyboardKey(".", "句点", this::commitNineKeyPeriod), "Period"));
-        addNineKey(actions, s.keyId(s.keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")),
-            "Nine0"));
+        if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        actions.addView(delete, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
+        String last = symbols.get(symbols.size() - 1);
+        Button exclamation = s.keyId(s.keyboardKey(last, "符号 " + last,
+            () -> commitNineKeyLiteral(last)), "SoftPunctuation");
+        if (exclamation instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(actions, exclamation);
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
         updateStrokeWildcardKey();
@@ -601,22 +618,29 @@ final class ImeLayoutRows {
         });
     }
 
+    /**
+     * 两行键面（日语的 か / きくけこ、笔画的 一 / 横）：第二行是说明，和第一行同字号时两行装不进一行键高，下半截被裁掉。第二行缩到一半，并去掉上下内边距和字体留白。
+     */
+    static void twoLineFace(Button button, String label) {
+        int lineBreak = label.indexOf('\n');
+        if (lineBreak < 0) {
+            button.setText(label);
+            return;
+        }
+        android.text.SpannableString spanned = new android.text.SpannableString(label);
+        spanned.setSpan(new android.text.style.RelativeSizeSpan(0.5f), lineBreak + 1, label.length(),
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        button.setIncludeFontPadding(false);
+        button.setPadding(button.getPaddingLeft(), 0, button.getPaddingRight(), 0);
+        button.setText(spanned);
+    }
+
     Button japaneseKey(JapaneseNineKeyLayout.Key key) {
         String description = key.kana().stream().filter(label -> !label.isEmpty())
             .collect(java.util.stream.Collectors.joining("、"));
         Button button = s.keyboardKey(japaneseKeyLabel(key), description,
             () -> selectJapaneseKey(key, 0));
-        // 第二行是滑动可选的假名提示，和主假名同字号时两行装不进一行键高，下半截被裁掉；缩到一半，并去掉上下内边距和字体留白。
-        String label = japaneseKeyLabel(key);
-        int lineBreak = label.indexOf('\n');
-        if (lineBreak >= 0) {
-            android.text.SpannableString spanned = new android.text.SpannableString(label);
-            spanned.setSpan(new android.text.style.RelativeSizeSpan(0.5f), lineBreak + 1, label.length(),
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            button.setIncludeFontPadding(false);
-            button.setPadding(button.getPaddingLeft(), 0, button.getPaddingRight(), 0);
-            button.setText(spanned);
-        }
+        twoLineFace(button, japaneseKeyLabel(key));
         button.setContentDescription("轻点输入" + key.kana().get(0)
             + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
