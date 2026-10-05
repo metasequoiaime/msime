@@ -484,6 +484,33 @@ impl TouchKeyboardSchemePreferences {
         self == &Self::default()
     }
 
+    /// `edition` 的触屏键盘还没被用户改过时启用的方案：[`TouchKeyboardScheme::DEFAULT_ENABLED`] 里本版本提供的那些（见 `Edition::offers_touch_scheme`）。full 得到的就是 `Default`。
+    ///
+    /// 手写只在提供中文方案的版本里有（手写识别器只认汉字），手写入口写进偏好的 `scheme` 是本版本的默认方案，五笔版里就是五笔。
+    ///
+    /// 只有一个方案的版本启用这个方案的全部触屏入口：越南文和藏文在 full 里默认停用，单独成为一个版本时它们就是这个版本本身。启用的入口按 `ALL` 顺序第一个是手写时，第一个不是手写的入口同时设为选中，否则第一次打开键盘看到的是手写；现有版本里手写要么没有、要么排在本版本的方案后面，选中留空，与只取缺省集合相同。
+    pub fn for_edition(edition: &crate::edition::Edition) -> Self {
+        let single_scheme = edition.input_schemes.len() == 1;
+        let mut preferences = Self {
+            enabled: TouchKeyboardScheme::ALL
+                .into_iter()
+                .filter(|scheme| {
+                    edition.offers_touch_scheme(*scheme)
+                        && (single_scheme || TouchKeyboardScheme::DEFAULT_ENABLED.contains(scheme))
+                })
+                .collect(),
+            selected: None,
+        };
+        if preferences.first_enabled() == TouchKeyboardScheme::Handwriting {
+            preferences.selected = preferences
+                .enabled
+                .iter()
+                .copied()
+                .find(|scheme| *scheme != TouchKeyboardScheme::Handwriting);
+        }
+        preferences
+    }
+
     /// 选中的方案不可用时退回的方案：按 `ALL` 顺序第一个启用的方案，一个都没有时是全拼 26 键。
     pub fn first_enabled(&self) -> TouchKeyboardScheme {
         TouchKeyboardScheme::ALL
@@ -532,6 +559,24 @@ pub enum ChineseScheme {
     Cantonese,
     Zhuyin,
     Stroke,
+}
+
+impl ChineseScheme {
+    /// `scheme` 是中文方案时对应的 `ChineseScheme`，日文、韩文、越南文等方案没有。
+    pub fn of(scheme: InputScheme) -> Option<Self> {
+        match scheme {
+            InputScheme::Quanpin => Some(Self::Quanpin),
+            InputScheme::Shuangpin => Some(Self::Shuangpin),
+            InputScheme::Wubi => Some(Self::Wubi),
+            InputScheme::Cantonese => Some(Self::Cantonese),
+            InputScheme::Zhuyin => Some(Self::Zhuyin),
+            InputScheme::Stroke => Some(Self::Stroke),
+            InputScheme::Japanese
+            | InputScheme::Korean
+            | InputScheme::Vietnamese
+            | InputScheme::Tibetan => None,
+        }
+    }
 }
 
 impl From<ChineseScheme> for InputScheme {
@@ -2090,6 +2135,22 @@ impl Preferences {
         }
     }
 
+    /// `edition` 的默认偏好：在 `Default` 之上换成本版本的默认方案，叠加版本表的 `preference_defaults`，并把触屏键盘的方案收窄到本版本提供的那些。full 得到的就是 `Default`。
+    ///
+    /// 默认方案不是全拼时，`last_chinese_scheme` 也指向它：从日文等方案切回中文、或偏好里的方案不可用而回退时，回到的是本版本的方案。
+    pub fn for_edition(edition: &crate::edition::Edition) -> Self {
+        let mut preferences = Self::default();
+        if edition.default_scheme != preferences.scheme {
+            preferences.scheme = edition.default_scheme;
+            preferences.last_chinese_scheme = ChineseScheme::of(edition.default_scheme);
+        }
+        if let Some(mixed) = edition.preference_defaults.wubi_mixed_pinyin {
+            preferences.wubi_mixed_pinyin = mixed;
+        }
+        preferences.touch_keyboard_schemes = TouchKeyboardSchemePreferences::for_edition(edition);
+        preferences
+    }
+
     /// Every setting back to its default, except what the user cannot simply retype.
     ///
     /// The source window's 恢复默认设置 clears a fixed list of preference keys, and that list does
@@ -2103,7 +2164,12 @@ impl Preferences {
     /// `fuzzy_pinyin.seeded` is not a setting at all -- it records that the one-time seeding has
     /// happened -- so clearing it would silently re-seed rules the user had turned off.
     pub fn restored_to_defaults(&self) -> Self {
-        let mut next = Self::default();
+        self.restored_to_defaults_for(crate::edition::Edition::full())
+    }
+
+    /// [`Preferences::restored_to_defaults`]，只是回到的是 `edition` 的默认偏好（[`Preferences::for_edition`]）。
+    pub fn restored_to_defaults_for(&self, edition: &crate::edition::Edition) -> Self {
+        let mut next = Self::for_edition(edition);
 
         next.voice_input.asr_provider = self.voice_input.asr_provider.clone();
         next.voice_input.asr_app_key = self.voice_input.asr_app_key.clone();
@@ -2281,6 +2347,16 @@ impl Default for PreferencesSnapshot {
     }
 }
 
+impl PreferencesSnapshot {
+    /// 还没有偏好文件时 `edition` 读到的快照：修订号 0，内容是 [`Preferences::for_edition`]。
+    pub fn for_edition(edition: &crate::edition::Edition) -> Self {
+        Self {
+            preferences: Preferences::for_edition(edition),
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PreferencesError {
     #[error("floating toolbar settings are invalid")]
@@ -2375,12 +2451,50 @@ enum RecoveryScope {
 
 pub struct PreferencesStore {
     directory: PathBuf,
+    /// 构造时指定的版本；`None` 时以状态目录里的版本记录为准（[`crate::edition::Edition::recorded_in`]），没有记录就是 full。只影响没有偏好文件时读到的默认值和修复时垫底的默认值。
+    edition: Option<&'static crate::edition::Edition>,
 }
 
 impl PreferencesStore {
+    /// `directory` 的偏好存储，版本取自目录里的版本记录（准备宿主时写下，见 [`crate::edition::Edition::record_in`]）：各平台读写偏好的 C ABI 和设置应用只拿到这个目录，不必各自知道版本，偏好文件不见了或被修复时也回到本版本的默认偏好。full 的状态目录没有记录，行为与引入版本之前相同。
     pub fn new(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            edition: None,
+        }
+    }
+
+    /// `edition` 的偏好存储，不看目录里的版本记录。版本之间完全隔离，每个版本有自己的状态目录；这里只决定还没有偏好文件时读到的是哪个版本的默认值（[`PreferencesSnapshot::for_edition`]），以及修复损坏文件时以哪份默认值垫底。
+    pub fn for_edition(
+        directory: impl Into<PathBuf>,
+        edition: &'static crate::edition::Edition,
+    ) -> Self {
+        Self {
+            directory: directory.into(),
+            edition: Some(edition),
+        }
+    }
+
+    /// 这个存储所属的版本：构造时指定的，否则是目录里记录的，都没有时是 full。
+    pub fn edition(&self) -> &'static crate::edition::Edition {
+        self.edition
+            .or_else(|| crate::edition::Edition::recorded_in(&self.directory))
+            .unwrap_or_else(crate::edition::Edition::full)
+    }
+
+    /// 还没有偏好文件时读到的快照。
+    fn missing_document(&self) -> PreferencesSnapshot {
+        match self.edition() {
+            edition if edition.is_full() => PreferencesSnapshot::default(),
+            edition => PreferencesSnapshot::for_edition(edition),
+        }
+    }
+
+    /// 修复损坏文件时垫底的默认偏好。
+    fn default_preferences(&self) -> Preferences {
+        match self.edition() {
+            edition if edition.is_full() => Preferences::default(),
+            edition => Preferences::for_edition(edition),
         }
     }
 
@@ -2415,7 +2529,7 @@ impl PreferencesStore {
         let metadata = match std::fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(PreferencesSnapshot::default())
+                return Ok(self.missing_document())
             }
             Err(error) => return Err(error.into()),
         };
@@ -2571,8 +2685,8 @@ impl PreferencesStore {
         }
         let backup_path = self.write_backup(&bytes)?;
         let (preferences, salvaged) = match &document {
-            Some(document) => salvage_preferences(document)?,
-            None => (Preferences::default(), false),
+            Some(document) => salvage_preferences(document, self.default_preferences())?,
+            None => (self.default_preferences(), false),
         };
         let revision = match document
             .as_ref()
@@ -2651,10 +2765,12 @@ fn acceptable_preferences(candidate: &serde_json::Map<String, serde_json::Value>
 }
 
 /// Carry every setting of a damaged document that the current schema accepts onto the defaults, one top-level key at a time, retrying a rejected section one field at a time. Returns the result and whether anything was kept.
+///
+/// `default` 是垫底的默认偏好，即存储所属版本的默认值。
 fn salvage_preferences(
     document: &serde_json::Value,
+    default: Preferences,
 ) -> Result<(Preferences, bool), PreferencesError> {
-    let default = Preferences::default();
     let serde_json::Value::Object(mut salvaged) = serde_json::to_value(&default)? else {
         return Ok((default, false));
     };

@@ -30,7 +30,7 @@ pub use glosses::{
     candidate_glosses, candidate_glosses_with_user, candidate_target_glosses, english_completions,
     save_candidate_gloss,
 };
-pub use options::{prepare_options, EngineOptions};
+pub use options::{prepare_options, prepare_options_for, EngineOptions};
 pub use session::{
     local_mode_counts_as_typing, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot,
     Session,

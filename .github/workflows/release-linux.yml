@@ -30,20 +30,32 @@ jobs:
       # package-container.sh installs target/language-dictionaries (Cantonese and Zhuyin, with their licences) when it is there; until a release is pinned the script prints a skipped line.
       - name: Fetch the locked language dictionaries
         run: python3 scripts/fetch_language_dictionaries.py
-      # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS.
+      # Builds the Release host library and desktop binary, configures the native hosts for /usr with packaging on, runs the same ctest suite the pull-request gate runs (on the Release build, where the tests keep their assertions), then produces the .deb, the .tar.gz and SHA256SUMS. 每个有 Linux 段的版本各出一个包（full 是 msime-linux，其他版本是装在 /opt 下的 msime-linux-<id>），共用同一次构建的宿主库和桌面二进制。
       - name: Build Linux packages
         env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Asset names come from CPack (msime-linux_VERSION_ARCH.deb, msime-linux-VERSION-linux-ARCH.tar.gz). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the single .deb (else .tar.gz), matching only the extension, so it does not depend on the version or arch parts of the names.
+      # Asset names come from CPack (<package>_VERSION_ARCH.deb, <package>-VERSION-linux-ARCH.tar.gz, <package> 取自版本表：full 是 msime-linux，其他版本是 msime-linux-<id>). The in-app update check selects releases by the linux-v tag prefix and opens the release page; it shows the digest GitHub computes for the edition's own .deb (else .tar.gz), picked by that package name (packages/ui/src/settings/update-manifest.ts), so it does not depend on the version or arch parts of the names.
       - name: Verify Linux packages
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           shopt -s nullglob
           dist=target/linux-package/dist
           debs=("$dist"/*.deb); tarballs=("$dist"/*.tar.gz)
-          [[ ${#debs[@]} -eq 1 && ${#tarballs[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .deb, one .tar.gz and SHA256SUMS in $dist" >&2; exit 1; }
+          IFS=, read -r -a editions <<<"$(python3 platforms/linux/scripts/edition_linux.py editions)"
+          [[ ${#debs[@]} -eq ${#editions[@]} && ${#tarballs[@]} -eq ${#editions[@]} && -s "$dist/SHA256SUMS" ]] || { echo "expected one .deb and one .tar.gz per edition (${editions[*]}) and SHA256SUMS in $dist" >&2; exit 1; }
           (cd "$dist" && sha256sum -c SHA256SUMS)
-          # prerm stops the user services on removal and postinst restarts them after an upgrade; a package without them leaves services running deleted programs. The runner image ships dpkg-deb and shellcheck.
-          bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${debs[0]}"
+          # 按版本逐个核对：每个版本恰好一个 .deb 和一个 .tar.gz，包名、版本与版本表一致；prerm stops the user services on removal and postinst restarts them after an upgrade, so every package must carry them. The runner image ships dpkg-deb and shellcheck.
+          edition_debs=()
+          for edition in "${editions[@]}"; do
+            package=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" package)
+            deb=("$dist/${package}_${VERSION}_"*.deb); tarball=("$dist/${package}-${VERSION}-linux-"*.tar.gz)
+            [[ ${#deb[@]} -eq 1 && ${#tarball[@]} -eq 1 ]] || { echo "edition $edition: expected ${package}_${VERSION}_*.deb and ${package}-${VERSION}-linux-*.tar.gz in $dist" >&2; exit 1; }
+            [[ $(dpkg-deb -f "${deb[0]}" Package) == "$package" && $(dpkg-deb -f "${deb[0]}" Version) == "$VERSION" ]] || { echo "edition $edition: ${deb[0]} is not $package $VERSION" >&2; exit 1; }
+            bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${deb[0]}"
+            edition_debs+=("${deb[0]}")
+          done
+          # 几个版本一起装进同一个 Debian 容器、再逐个卸载：dpkg 不报文件冲突，卸载一个版本不带走另一个版本的文件。
+          bash platforms/linux/tests/tools/check-deb-coexistence.sh "${edition_debs[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-linux-deb-${{ steps.version.outputs.value }}
@@ -75,15 +87,24 @@ jobs:
       - name: Build Linux RPM
         env: {VERSION: "${{ steps.version.outputs.value }}", MSIME_PACKAGE_FORMAT: rpm}
         run: bash platforms/linux/package-container.sh "$VERSION"
-      # Installs the RPM into a clean Fedora container and erases it again, which is where an unsatisfiable Requires shows up.
+      # Installs the RPMs into a clean Fedora container and erases them again, which is where an unsatisfiable Requires shows up; every edition's RPM goes in together, and removing one must leave the others' files in place.
       - name: Verify Linux RPM
+        env: {VERSION: "${{ steps.version.outputs.value }}"}
         run: |
           shopt -s nullglob
           dist=target/linux-package-rpm/dist
           rpms=("$dist"/*.rpm)
-          [[ ${#rpms[@]} -eq 1 && -s "$dist/SHA256SUMS" ]] || { echo "expected one .rpm and SHA256SUMS in $dist" >&2; exit 1; }
+          IFS=, read -r -a editions <<<"$(python3 platforms/linux/scripts/edition_linux.py editions)"
+          [[ ${#rpms[@]} -eq ${#editions[@]} && -s "$dist/SHA256SUMS" ]] || { echo "expected one .rpm per edition (${editions[*]}) and SHA256SUMS in $dist" >&2; exit 1; }
           (cd "$dist" && sha256sum -c SHA256SUMS)
-          bash platforms/linux/tests/tools/check-rpm-install.sh "${rpms[0]}"
+          edition_rpms=()
+          for edition in "${editions[@]}"; do
+            package=$(python3 platforms/linux/scripts/edition_linux.py field --edition "$edition" package)
+            rpm=("$dist/${package}-${VERSION}-"*.rpm)
+            [[ ${#rpm[@]} -eq 1 ]] || { echo "edition $edition: expected ${package}-${VERSION}-*.rpm in $dist" >&2; exit 1; }
+            edition_rpms+=("${rpm[0]}")
+          done
+          bash platforms/linux/tests/tools/check-rpm-install.sh "${edition_rpms[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msime-linux-rpm-${{ steps.version.outputs.value }}

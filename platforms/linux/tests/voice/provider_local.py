@@ -8,6 +8,7 @@ Usage: provider_local.py <built msime-voice-local>
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import subprocess
@@ -21,7 +22,8 @@ PROVIDER = ROOT / "scripts" / "msime-linux-voice-provider"
 FAKE_HELPER = Path(__file__).resolve().parent / "local_fake_helper.py"
 BUILT_HELPER = None
 # Endless silence; the recording limit ends it after two seconds.
-FAKE_RECORDER = "#!/bin/sh\nexec /bin/cat /dev/zero\n"
+# cat 按运行测试时的 PATH 解析，不假定 /bin/cat：Nix 构建沙箱里 /bin 下只有 sh。
+FAKE_RECORDER = "#!/bin/sh\nexec %s /dev/zero\n" % shutil.which("cat")
 
 
 @unittest.skipUnless(sys.platform == "linux", "requires SO_PEERCRED peer authentication")

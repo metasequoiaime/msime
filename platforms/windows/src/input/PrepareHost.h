@@ -12,6 +12,7 @@
 #include <unistd.h>
 #endif
 #include <nlohmann/json.hpp>
+#include "../../../../shared/contracts/msime_edition.h"
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -79,9 +80,13 @@ inline std::filesystem::path prepare_host_state_in_directory(
       !std::filesystem::is_directory(resources))
     throw std::runtime_error("Absolute resource and new state paths required");
   const auto state = requested_state.lexically_normal();
-  const auto request = nlohmann::json{
+  auto request_document = nlohmann::json{
       {"resources", std::filesystem::canonical(resources).u8string()},
-      {"state_root", state.u8string()}}.dump();
+      {"state_root", state.u8string()}};
+  // 不是 full 的版本带上版本 id，宿主库按它选资源锁、收窄方案并在状态根里记下版本；full 的请求与引入版本之前相同。
+  if constexpr (!MSIME_EDITION_IS_FULL)
+    request_document["edition"] = MSIME_EDITION_ID;
+  const auto request = request_document.dump();
   if (request.size() > 16384)
     throw std::runtime_error("Preparation request oversized");
   const auto response = nlohmann::json::parse(prepare(request));

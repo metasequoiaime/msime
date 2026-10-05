@@ -178,7 +178,37 @@ fn requested_surface_route() -> Option<SurfaceRoute> {
         .skip(1)
         .find_map(|argument| argument.strip_prefix("--route=").map(str::to_string));
     let requested = argument.or_else(|| std::env::var("MSIME_CLIENT_ROUTE").ok())?;
-    SurfaceRoute::parse(requested.trim()).ok()
+    SurfaceRoute::parse(requested.trim())
+        .ok()
+        .filter(|route| edition_offers_route(package_edition(), *route))
+}
+
+/// 本安装包所属的版本：macOS 读 app 里的版本声明，Windows 读 Server 目录里的，Linux 读安装前缀 bin 目录里的；没有声明（开发运行、测试、其他平台）是 full。声明坏了的包在启动时就已经退出（`check_*_edition`），这里读不出来时按 full 处理只会多给入口，不会少给。
+pub(crate) fn package_edition() -> &'static msime_client_core::edition::Edition {
+    use msime_client_core::edition::Edition;
+    #[cfg(target_os = "macos")]
+    let declared = Edition::of_macos_bundle();
+    #[cfg(target_os = "windows")]
+    let declared = Edition::of_windows_package();
+    #[cfg(target_os = "linux")]
+    let declared = Edition::of_linux_package();
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let declared: Result<&'static Edition, &'static str> = Ok(Edition::full());
+    declared.unwrap_or_else(|_| Edition::full())
+}
+
+/// 版本是否提供这个界面。手写面板只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）既不从启动参数、也不从菜单转发或设置页打开它，对应的设置页同样不打开。其他界面每个版本都有。
+pub(crate) fn edition_offers_route(
+    edition: &msime_client_core::edition::Edition,
+    route: SurfaceRoute,
+) -> bool {
+    match route {
+        SurfaceRoute::Handwriting
+        | SurfaceRoute::Settings(Some(
+            msime_client_core::host_surface::SettingsCategory::Handwriting,
+        )) => edition.features.handwriting,
+        _ => true,
+    }
 }
 
 #[tauri::command]
@@ -201,7 +231,27 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
             cfg!(target_os = "windows"),
         );
     }
+    // HostOptions 文档记录了版本时，去掉本版本不含的方案；full 的文档没有这个键，什么也不改。
+    if let Some(edition) = host_options
+        .as_ref()
+        .and_then(msime_client_core::edition::Edition::of_host_options)
+    {
+        capabilities.narrow_to_edition(edition);
+    }
     capabilities
+}
+
+/// 本应用所属的版本，取自 HostOptions 文档：没有 `edition` 键（包括还没有文档、读不到文档）是 full；文档写着版本表里没有的 id 时返回 `None`，调用方按认不出的版本处理，不当成 full。
+pub(crate) fn host_edition(
+    app: &tauri::AppHandle,
+) -> Option<&'static msime_client_core::edition::Edition> {
+    match app
+        .try_state::<DictionaryHostOptions>()
+        .and_then(|options| options.snapshot().ok())
+    {
+        Some(document) => msime_client_core::edition::Edition::of_host_options(&document),
+        None => Some(msime_client_core::edition::Edition::full()),
+    }
 }
 
 /// Cantonese, Zhuyin and Stroke each read a dictionary the package installs beside the Engine resources, which the HostOptions document names in `language_dictionaries` only when one is there. Without its dictionary host-api falls back from the scheme, so the page shows it unavailable instead of offering a choice that never takes effect. Every other scheme needs nothing beyond the resources.
@@ -1301,13 +1351,16 @@ fn custom_skin_library_error(value: CustomSkinLibraryError) -> CommandError {
 /// struct rather than in the page.
 #[tauri::command]
 async fn restored_default_preferences(
+    app: tauri::AppHandle,
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
 ) -> Result<Preferences, CommandError> {
     let store = store.inner().clone();
+    // 版本以 HostOptions 文档为准；文档认不出版本时退回存储的版本，即状态目录里准备宿主时记下的那个（没有记录是 full）。
+    let edition = host_edition(&app).unwrap_or_else(|| store.edition());
     tauri::async_runtime::spawn_blocking(move || {
         store
             .load()
-            .map(|snapshot| snapshot.preferences.restored_to_defaults())
+            .map(|snapshot| snapshot.preferences.restored_to_defaults_for(edition))
             .map_err(CommandError::from)
     })
     .await
@@ -2657,39 +2710,41 @@ struct HostActionError {
     code: &'static str,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn macos_input_source_restart_args() -> [&'static str; 5] {
     [
         "-n",
         "-b",
-        "app.msime.inputmethod.MetasequoiaIME",
+        macos_input_source::input_source_bundle_id(),
         "--args",
         "--reregister-input-source",
     ]
 }
 
+/// `addon` 是本版本的 Fcitx5 插件名（版本表的 `fcitx5_addon`，full 是 `msime`）：只重置本版本的插件，同一个 fcitx5 里别的版本不受影响。
 #[cfg(any(target_os = "linux", test))]
 fn linux_input_method_restart_command(
     fcitx5_running: bool,
-) -> (&'static str, &'static [&'static str]) {
+    addon: &str,
+) -> (&'static str, Vec<String>) {
     if fcitx5_running {
         // Fcitx5 owns the process that loads the MSIME addon, so restarting it would take every other input method in the user's group down too. The controller's ReloadAddonConfig for the `msime` addon reaches the addon's reloadConfig, which resets MSIME in process: it ends every composition, closes the Engine sessions and re-reads runtime-options.json. `fcitx5-remote -r` sends ReloadConfig instead, which reloads only Fcitx5's global configuration and never reaches an addon. The call goes through `gdbus`, the same client msime-linux-setup uses for this controller; `gdbus call` waits for the reply, so a controller that refused the call fails the action.
-        (
-            "gdbus",
-            &[
-                "call",
-                "--session",
-                "--dest",
-                "org.fcitx.Fcitx5",
-                "--object-path",
-                "/controller",
-                "--method",
-                "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
-                "'msime'",
-            ],
-        )
+        let mut arguments: Vec<String> = [
+            "call",
+            "--session",
+            "--dest",
+            "org.fcitx.Fcitx5",
+            "--object-path",
+            "/controller",
+            "--method",
+            "org.fcitx.Fcitx.Controller1.ReloadAddonConfig",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        arguments.push(format!("'{addon}'"));
+        ("gdbus", arguments)
     } else {
-        ("ibus", &["restart"])
+        ("ibus", vec!["restart".to_owned()])
     }
 }
 
@@ -2707,10 +2762,16 @@ async fn restart_input_method() -> Result<(), HostActionError> {
 fn restart_input_method_blocking() -> Result<(), HostActionError> {
     #[cfg(target_os = "windows")]
     {
-        const PIPE_NAME: &str = r"\\.\pipe\FanyImeAuxNamedPipe";
+        // 只重启本版本的 Server：管道名带本安装包所属版本的后缀（full 没有后缀）。
+        let pipe = msime_client_core::edition::Edition::of_windows_package()
+            .ok()
+            .and_then(msime_client_core::dictionary::quiesce::server::pipe_name)
+            .ok_or(HostActionError {
+                code: "unavailable",
+            })?;
         let payload = windows_restart_payload();
         for attempt in 0..5 {
-            match fs::OpenOptions::new().write(true).open(PIPE_NAME) {
+            match fs::OpenOptions::new().write(true).open(&pipe) {
                 Ok(mut pipe) => {
                     return pipe.write_all(&payload).map_err(|_| HostActionError {
                         code: "unavailable",
@@ -2754,8 +2815,12 @@ fn restart_input_method_blocking() -> Result<(), HostActionError> {
             &["--check"],
             std::time::Duration::from_secs(1),
         );
-        let (program, arguments) = linux_input_method_restart_command(fcitx5_running);
-        linux_process::run_status(program, arguments, std::time::Duration::from_secs(3))
+        let (program, arguments) = linux_input_method_restart_command(
+            fcitx5_running,
+            &msime_client_core::edition::Edition::linux_package_identity_or_full().fcitx5_addon,
+        );
+        let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        linux_process::run_status(program, &arguments, std::time::Duration::from_secs(3))
             .then_some(())
             .ok_or(HostActionError {
                 code: "unavailable",
@@ -2862,7 +2927,7 @@ fn run_input_source_startup(
             enabled: None,
             system_bundles: Vec::new(),
             bundled_version: macos_input_source::bundle_version(
-                &resource_directory.join(macos_input_source::INPUT_SOURCE_BUNDLE_NAME),
+                &resource_directory.join(macos_input_source::input_source_bundle_name()),
             )
             .map(|version| version.label().to_string()),
             installed_version: macos_input_source::installed_bundle_path()
@@ -3021,9 +3086,11 @@ fn open_input_source_settings() -> Result<(), HostActionError> {
     })
 }
 
-// The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
+// 输入法经 NSUserDefaults.standardUserDefaults 写偏好，所以它的域就是它的 bundle id（随版本而变）；读别的名字只会读到一个空的或过期的 plist，而设置页还报告已保存。
 #[cfg(target_os = "macos")]
-const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
+fn macos_input_method_defaults_domain() -> &'static str {
+    macos_input_source::input_source_bundle_id()
+}
 
 #[cfg(target_os = "macos")]
 const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";
@@ -3038,7 +3105,7 @@ async fn load_macos_shuangpin_keymap() -> Result<bool, HostActionError> {
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
             ])
             .output()
@@ -3072,7 +3139,7 @@ async fn save_macos_shuangpin_keymap(enabled: bool) -> Result<(), HostActionErro
         let status = std::process::Command::new("defaults")
             .args([
                 "write",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
                 "-bool",
                 if enabled { "true" } else { "false" },
@@ -3098,7 +3165,7 @@ async fn load_macos_wubi_auto_commit_unique() -> Result<bool, HostActionError> {
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_WUBI_AUTO_COMMIT_UNIQUE_DEFAULTS_KEY,
             ])
             .output()
@@ -3131,7 +3198,7 @@ async fn save_macos_wubi_auto_commit_unique(enabled: bool) -> Result<(), HostAct
         let status = std::process::Command::new("defaults")
             .args([
                 "write",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_WUBI_AUTO_COMMIT_UNIQUE_DEFAULTS_KEY,
                 "-bool",
                 if enabled { "true" } else { "false" },
@@ -3178,7 +3245,7 @@ async fn on_device_translation_downloadable_languages() -> Result<Vec<String>, H
         let output = std::process::Command::new("defaults")
             .args([
                 "read",
-                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                macos_input_method_defaults_domain(),
                 MACOS_ON_DEVICE_TRANSLATION_DOWNLOADABLE_DEFAULTS_KEY,
             ])
             .output()
@@ -3325,6 +3392,11 @@ async fn move_data_directory(
         .ok_or(HostActionError {
             code: "data_directory_unavailable",
         })?;
+    // 在新目录里按同一个版本重新准备：资源目录按本版本的锁校验，新文档也带着版本。认不出的版本不搬，免得被当成 full 准备。
+    let edition =
+        msime_client_core::edition::Edition::of_host_options(&document).ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
     let target = selection
         .0
         .lock()
@@ -3369,8 +3441,12 @@ async fn move_data_directory(
             &native_root,
             &locators,
             |destination| {
-                let document = msime_host_api::prepare_host_configuration(&resources, destination)
-                    .map_err(|_| macos_data_directory::MoveError::Prepare)?;
+                let document = msime_host_api::prepare_host_configuration_for_edition(
+                    &resources,
+                    destination,
+                    edition,
+                )
+                .map_err(|_| macos_data_directory::MoveError::Prepare)?;
                 serde_json::from_str(&document)
                     .map_err(|_| macos_data_directory::MoveError::Prepare)
             },
@@ -3426,7 +3502,8 @@ async fn uninstall_input_source(
         code: "unavailable",
     })?;
     let input_methods = PathBuf::from(home).join("Library/Input Methods");
-    let bundle = input_methods.join("水杉输入法.app");
+    // 只卸载本设置应用所属版本的输入法，同时安装的其他版本不动。
+    let bundle = input_methods.join(macos_input_source::input_source_bundle_name());
     tauri::async_runtime::spawn_blocking(move || {
         // Wait for a start-time refresh or a manual install that is still writing the bundle.
         let _guard = macos_input_source::install_lock();
@@ -3518,6 +3595,12 @@ fn cancel_settings_linger(app: &tauri::AppHandle) {
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
+    // 转发来的路由与启动参数一样按版本过滤；本版本没有的界面落到设置窗口首页。
+    let route = if edition_offers_route(package_edition(), route) {
+        route
+    } else {
+        SurfaceRoute::Settings(None)
+    };
     // macOS has no settings linger: its settings process exits when the window closes.
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     cancel_settings_linger(app);
@@ -3804,7 +3887,10 @@ fn discover_session_provider_in(
 ) -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
 
-    let directory = runtime_directory.join("msime-client");
+    // 本安装包所属版本的运行时目录（full 是 msime-client）：只连本版本的 provider。
+    let directory = runtime_directory.join(
+        &msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory,
+    );
     let path = directory.join(filename);
     let directory_metadata = std::fs::symlink_metadata(&directory).ok()?;
     let socket_metadata = std::fs::symlink_metadata(&path).ok()?;
@@ -3862,7 +3948,11 @@ fn packaged_handwriting_model(host_options: &str) -> Option<PathBuf> {
         })
         .or_else(|| {
             discover_packaged_file(
-                "msime-client/handwriting/handwriting-zh_CN.model",
+                &format!(
+                    "{}/handwriting/handwriting-zh_CN.model",
+                    msime_client_core::edition::Edition::linux_package_identity_or_full()
+                        .client_directory
+                ),
                 "handwriting/handwriting-zh_CN.model",
             )
         })
@@ -3898,7 +3988,10 @@ fn packaged_emoji_resources(document: &Value) -> Option<PathBuf> {
             .then_some(directory);
     }
     discover_packaged_file(
-        "msime-client/emoji/msime-others.db",
+        &format!(
+            "{}/emoji/msime-others.db",
+            msime_client_core::edition::Edition::linux_package_identity_or_full().client_directory
+        ),
         "emoji/msime-others.db",
     )
     .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
@@ -4584,16 +4677,22 @@ fn sync_omarchy_theme() -> i32 {
     let Some(path) =
         absolute("MSIME_IBUS_OPTIONS").or_else(|| absolute("MSIME_CLIENT_HOST_OPTIONS"))
     else {
-        return fail("no runtime options path; run this through msime-linux-settings");
+        return fail(&format!(
+            "no runtime options path; run this through {}",
+            msime_client_core::edition::Edition::linux_package_identity_or_full()
+                .settings_program()
+        ));
     };
     let directory = match absolute("MSIME_CLIENT_STATE_DIR") {
         Some(directory) => directory,
         None => match linux_runtime_state_directory() {
             Ok(Some(directory)) => directory,
             Ok(None) => {
-                return fail(
-                    "the runtime options name no state directory; run msime-linux-setup first",
-                )
+                return fail(&format!(
+                    "the runtime options name no state directory; run {} first",
+                    msime_client_core::edition::Edition::linux_package_identity_or_full()
+                        .setup_program()
+                ))
             }
             Err(error) => return fail(&error),
         },
@@ -4627,6 +4726,22 @@ fn sync_omarchy_theme() -> i32 {
 }
 
 pub fn run() {
+    // 安装包声明了本构建不认识的版本时不能当成 full 运行，见 `check_macos_edition`。
+    #[cfg(target_os = "macos")]
+    if let Err(message) = platform::macos::check_macos_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
+    #[cfg(target_os = "windows")]
+    if let Err(message) = platform::windows::check_windows_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
+    #[cfg(target_os = "linux")]
+    if let Err(message) = platform::linux::check_linux_edition() {
+        eprintln!("{message}");
+        std::process::exit(1);
+    }
     #[cfg(target_os = "linux")]
     if std::env::args_os()
         .skip(1)
@@ -4638,9 +4753,22 @@ pub fn run() {
     let mut keyboard_launch_target = macos_keyboard::startup_panel(requested_surface_route())
         .and_then(|_| msime_host_macos::capture_launch_target());
     let context = tauri::generate_context!();
+    #[cfg(target_os = "windows")]
+    let context = {
+        let mut context = context;
+        platform::windows::apply_edition_to_config(context.config_mut());
+        context
+    };
+    #[cfg(target_os = "linux")]
+    let context = {
+        let mut context = context;
+        platform::linux::apply_edition_to_config(context.config_mut());
+        context
+    };
     #[cfg(target_os = "macos")]
     let context = {
         let mut context = context;
+        platform::macos::apply_edition_to_config(context.config_mut());
         macos_keyboard::prepare_windows(
             &mut context.config_mut().app.windows,
             requested_surface_route(),
@@ -4962,9 +5090,17 @@ pub fn run() {
                     if let Ok(dir) = app.path().app_data_dir() {
                         candidates.push(dir.join("runtime-options.json"));
                     }
+                    // 本安装包所属版本的状态目录名（full 是 MSIME-Client）；版本声明坏了的包不会走到这里（启动时就退出了）。
                     #[cfg(target_os = "windows")]
-                    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-                        candidates.push(PathBuf::from(local).join("MSIME-Client/runtime-options.json"));
+                    if let (Some(local), Ok(identity)) = (
+                        std::env::var_os("LOCALAPPDATA"),
+                        msime_client_core::edition::Edition::windows_package_identity(),
+                    ) {
+                        candidates.push(
+                            PathBuf::from(local)
+                                .join(&identity.state_directory)
+                                .join("runtime-options.json"),
+                        );
                     }
                     // Without any prepared file the Linux window opens on the first-run page, which prepares exactly the fixed user locator every Linux frontend reads.
                     #[cfg(target_os = "linux")]

@@ -10,17 +10,19 @@
 #include <string_view>
 #include <vector>
 #include "ipc_protocol_limits.h"
+#include "msime_edition.h"
 #ifdef _WIN32
 using FanyImeWireChar = wchar_t;
 #else
 using FanyImeWireChar = char16_t;
 #endif
 
-inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe";
-inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe";
-inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe";
-inline const wchar_t *FANY_IME_AUX_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeAuxNamedPipe";
-inline const wchar_t *FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeTsfDiagnosticNamedPipe";
+// 管道和下面的命名事件都带版本后缀（msime_edition.h 的 MSIME_EDITION_NAME_SUFFIX）：几个版本的 Server 可以同时运行，每个版本的 TSF 只连自己版本的 Server。full 的后缀是空串，名字与引入版本之前相同。crates/client-core 的 `WindowsIdentity::pipe_name` 按同一规则拼出 Rust 侧连接的名字。
+inline const wchar_t *FANY_IME_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TO_TSF_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TO_TSF_WORKER_THREAD_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeToTsfWorkerThreadNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_AUX_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeAuxNamedPipe" MSIME_EDITION_NAME_SUFFIX;
+inline const wchar_t *FANY_IME_TSF_DIAGNOSTIC_NAMED_PIPE = L"\\\\.\\pipe\\FanyImeTsfDiagnosticNamedPipe" MSIME_EDITION_NAME_SUFFIX;
 inline constexpr uint32_t FANY_IME_TSF_DIAGNOSTIC_MAGIC = 0x474F4C54; // "TLOG"
 inline constexpr uint32_t FANY_IME_TSF_DIAGNOSTIC_VERSION = 1;
 inline constexpr size_t FANY_IME_TSF_DIAGNOSTIC_MAX_FRAME_BYTES = 16 * 1024;
@@ -66,10 +68,10 @@ inline std::optional<std::string> diagnostic_utf8(std::u16string_view text) {
 }
 
 inline const std::vector<std::wstring> FANY_IME_EVENT_ARRAY = {
-    L"FanyImeKeyEvent",           // Event sent to UI process to notify time to update UI by new pinyin_string
-    L"FanyHideCandidateWndEvent", // Event sent to UI process to notify time to hide candidate window
-    L"FanyShowCandidateWndEvent", // Event sent to UI process to notify time to show candidate window
-    L"FanyMoveCandidateWndEvent", // Event sent to UI process to notify time to move candidate window
+    L"FanyImeKeyEvent" MSIME_EDITION_NAME_SUFFIX,           // Event sent to UI process to notify time to update UI by new pinyin_string
+    L"FanyHideCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to hide candidate window
+    L"FanyShowCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to show candidate window
+    L"FanyMoveCandidateWndEvent" MSIME_EDITION_NAME_SUFFIX, // Event sent to UI process to notify time to move candidate window
 };
 
 //

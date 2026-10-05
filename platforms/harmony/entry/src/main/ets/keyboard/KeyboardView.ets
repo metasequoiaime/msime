@@ -442,7 +442,7 @@ struct KeyboardView {
   @State effectCardHeight: number = 0;
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.fromTheme('system', 'system', null, false);
-  @State scheme: SchemeDefinition = KeyboardScheme.QUANPIN;
+  @State scheme: SchemeDefinition = KeyboardScheme.fallback();
   /** 五笔版本：方案仍是同一个五笔，只换卡片和工具栏上的「86」「98」字样；单独设成状态，只改版本时也会重绘。 */
   @State wubiProfile: string = KeyboardScheme.WUBI_86;
   @State handwritingStrokes: HandwritingStroke[] = [];
@@ -1432,7 +1432,8 @@ struct KeyboardView {
     if (!KeyboardSession.shared.changePreferences(changes)) {
       return;
     }
-    KeyboardSession.shared.useScheme(candidate.engineScheme, candidate.shuangpinProfile);
+    KeyboardSession.shared.useScheme(KeyboardScheme.engineSchemeOf(candidate),
+      candidate.shuangpinProfile);
     if (this.english) {
       // Picking a Chinese scheme is a request to compose Chinese with it.
       this.english = KeyboardSession.shared.toggleLanguage();

@@ -107,6 +107,11 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     NSDictionary *original = MSIMECloudAppearanceSnapshot(defaults);
     [preferences applySharedCandidatePreferences:@{@"candidate_font_size": @12, @"candidate_page_size": @1,
         @"candidate_layout": @"vertical", @"candidate_font_family": @"Menlo", @"candidate_preedit_font_size": @28}];
+    [preferences applySharedCandidatePreferences:@{
+        @"candidate_font_size": [NSDecimalNumber decimalNumberWithString:@"13.0000000000000001"],
+        @"candidate_page_size": [NSDecimalNumber decimalNumberWithString:@"2.0000000000000001"],
+        @"candidate_preedit_font_size": [NSDecimalNumber decimalNumberWithString:@"27.0000000000000001"]}];
+    assert(preferences.fontSize == 12 && preferences.pageSize == 1 && preferences.preeditFontSize == 28);
     [preferences applySharedInputPreferences:@{@"scheme": @"wubi", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO, @"chinese_punctuation": @NO}];
     assert(preferences.inlinePreeditStyle == MSIMEInlinePreeditStyleRaw);
     [preferences applySharedInputPreferences:@{@"tsf_preedit_style": @"raw"}];
@@ -214,8 +219,12 @@ static void TestCandidateWindowStyle(MSIMEAppearancePreferences *preferences, NS
     [preferences applySharedCandidatePreferences:valid];
     assert(preferences.candidateScalePercent == 200 && preferences.candidateOpacityPercent == 50 && [preferences.candidateCornerRadius isEqual:@32]);
     for (NSArray *entry in @[ @[@"candidate_scale_percent", @49], @[@"candidate_scale_percent", @201], @[@"candidate_scale_percent", @YES],
-                              @[@"candidate_scale_percent", @120.5], @[@"candidate_opacity_percent", @49], @[@"candidate_opacity_percent", @101],
-                              @[@"candidate_corner_radius", @33], @[@"candidate_corner_radius", @(-1)], @[@"candidate_corner_radius", @"8"] ]) {
+                              @[@"candidate_scale_percent", @120.5],
+                              @[@"candidate_scale_percent", [NSDecimalNumber decimalNumberWithString:@"199.0000000000000001"]],
+                              @[@"candidate_opacity_percent", @49], @[@"candidate_opacity_percent", @101],
+                              @[@"candidate_opacity_percent", [NSDecimalNumber decimalNumberWithString:@"51.0000000000000001"]],
+                              @[@"candidate_corner_radius", @33], @[@"candidate_corner_radius", @(-1)], @[@"candidate_corner_radius", @"8"],
+                              @[@"candidate_corner_radius", [NSDecimalNumber decimalNumberWithString:@"31.0000000000000001"]] ]) {
         NSMutableDictionary *document = [valid mutableCopy];
         document[entry[0]] = entry[1];
         [preferences applySharedCandidatePreferences:document];
@@ -632,7 +641,9 @@ int main(int argc, const char **argv) {
         NSUInteger beforeShared = notifications;
         [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": @32, @"candidate_preedit_style": @"empty"}];
         assert(notifications == beforeShared && preferences.preeditFontSize == 32 && !preferences.showsCandidatePreedit);
-        for (id invalid in @[@YES, @11, @33, @12.5, @"20", NSNull.null]) {
+        for (id invalid in @[@YES, @11, @33, @12.5,
+                             [NSDecimalNumber decimalNumberWithString:@"31.0000000000000001"],
+                             @"20", NSNull.null]) {
             [preferences applySharedCandidatePreferences:@{@"candidate_preedit_font_size": invalid, @"candidate_preedit_style": invalid}];
             assert(preferences.preeditFontSize == 32 && !preferences.showsCandidatePreedit);
         }

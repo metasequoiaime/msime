@@ -19,11 +19,13 @@
 #include "CandidatePalette.h"
 #include "FcitxThemeImages.h"
 #include "AtomicWrite.h"
+#include "../core/LinuxEdition.h"
 
 namespace msime::linux_host {
 
 // Fcitx5's classic UI draws the candidate list from a named theme. MSIME publishes its palette as a theme of its own, so the list looks the same as on IBus and Windows, while a theme the user picked in fcitx5-configtool is never replaced: only Fcitx5's stock themes, or MSIME's own, are taken over.
-inline constexpr std::string_view kFcitxCandidateTheme = "msime";
+// 主题名与 Fcitx5 插件名相同（LinuxEdition.h）：两个版本的插件在同一个 fcitx5 里各写各的主题，不互相覆盖。
+inline constexpr std::string_view kFcitxCandidateTheme = MSIME_EDITION_FCITX5_ADDON;
 
 inline bool fcitx_theme_replaceable(std::string_view current) {
   return current.empty() || current == "default" || current == "default-dark" ||

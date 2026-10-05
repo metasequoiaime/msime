@@ -48,7 +48,7 @@ public final class AccountSessionProvider extends ContentProvider {
             case OWN -> own.currentAccessToken();
             case LEGACY_READ_ONLY -> {
                 String token = AccountSessionRoutingPolicy.legacyToken(
-                    legacy.getJSONObject("tokens").optString("access_token", ""),
+                    legacyAccessToken(legacy.getJSONObject("tokens").opt("access_token")),
                     AccountTokenPolicy.strictLong(legacy.opt("expires_at_unix_ms"), 0), System.currentTimeMillis());
                 // Still signed in, but only the Rust client may refresh this session, and it does so when the app runs; say "not now" rather than "signed out".
                 if (token.isEmpty()) throw new IllegalStateException("account session needs the app");
@@ -56,6 +56,10 @@ public final class AccountSessionProvider extends ContentProvider {
             }
             case NONE -> "";
         };
+    }
+
+    static String legacyAccessToken(Object value) {
+        return value instanceof String ? (String) value : "";
     }
 
     /** The combined package's session as its Rust client saved it, or null when there is none; never refreshed here. */

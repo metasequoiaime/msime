@@ -193,6 +193,12 @@ __CRT_UUID_DECL(ITfFnGetPreferredTouchKeyboardLayout, 0x5f309a41, 0x590a, 0x4acc
 #ifndef TKBL_OPT_SIMPLIFIED_CHINESE_PINYIN
 #define TKBL_OPT_SIMPLIFIED_CHINESE_PINYIN 0x0804
 #endif
+#ifndef TKBL_OPT_JAPANESE_ABC
+#define TKBL_OPT_JAPANESE_ABC 0x0411
+#endif
+#ifndef TKBL_UNDEFINED
+#define TKBL_UNDEFINED 0x0000
+#endif
 
 // ctfutb.h is also absent from MinGW. These are the language-bar contracts
 // used by the TSF language-bar button implementation.

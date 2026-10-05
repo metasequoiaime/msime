@@ -79,7 +79,8 @@ export class HarmonyLocalAsrRecognizer {
   async start(config: VoiceInputConfiguration, hotwordOptions: Object | null, onResult: LocalAsrResultHandler,
     onError: LocalAsrErrorHandler): Promise<void> {
     if (this.active) throw new Error('语音识别正在进行');
-    const directory: string = LocalAsrPolicy.modelDirectory(config.asr_model_path);
+    const directory: string = LocalAsrPolicy.modelUnderRoot(
+      config.asr_model_path, config.local_model_root);
     if (directory.length === 0) throw new Error('请先在设置中下载并选择本地语音模型');
     const id: number = this.sessionId + 1;
     this.sessionId = id;
@@ -94,7 +95,8 @@ export class HarmonyLocalAsrRecognizer {
     this.hotwords = await this.fetchHotwords(hotwordOptions);
     if (id !== this.sessionId) return;
     const request: LocalAsrRequest = {
-      type: 'start', id: id, directory: directory, language: config.language ?? '',
+      type: 'start', id: id, directory: directory, root: config.local_model_root ?? '',
+      language: config.language ?? '',
       hotwords: this.hotwords.map((word: LocalHotword): string => word.text), threads: 0, pcm: null
     };
     recognizer.postMessage(request);
@@ -151,7 +153,7 @@ export class HarmonyLocalAsrRecognizer {
   private postFinish(id: number): void {
     if (this.worker === undefined) return;
     const request: LocalAsrRequest = {
-      type: 'finish', id: id, directory: '', language: '', hotwords: [], threads: 0, pcm: null
+      type: 'finish', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: null
     };
     this.worker.postMessage(request);
   }
@@ -176,7 +178,7 @@ export class HarmonyLocalAsrRecognizer {
     // The capturer may reuse its buffer, so a copy is what crosses to the worker, and it is transferred rather than copied again.
     const copy: ArrayBuffer = data.slice(0);
     const request: LocalAsrRequest = {
-      type: 'audio', id: id, directory: '', language: '', hotwords: [], threads: 0, pcm: copy
+      type: 'audio', id: id, directory: '', root: '', language: '', hotwords: [], threads: 0, pcm: copy
     };
     this.worker.postMessage(request, [copy]);
   }

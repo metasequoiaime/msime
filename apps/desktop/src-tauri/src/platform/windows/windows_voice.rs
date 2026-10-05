@@ -10,11 +10,12 @@ pub(crate) async fn recognize(
     request: VoiceRecognitionRequest,
 ) -> Result<VoiceRecognitionResult, HostActionError> {
     let sessions = app.state::<VoiceSessions>();
+    // 本版本 Server 的语音控制管道；安装包的版本声明坏了时没有可连的 Server。
+    let pipe = msime_host_windows::voice_controller::pipe_name().ok_or(HostActionError {
+        code: "unavailable",
+    })?;
     let session = sessions
-        .begin(
-            request.request_id,
-            std::path::PathBuf::from(msime_host_windows::voice_controller::PIPE_NAME),
-        )
+        .begin(request.request_id, std::path::PathBuf::from(pipe))
         .ok_or(HostActionError { code: "busy" })?;
     let generation = session.generation;
     let cancelled = session.cancelled.clone();

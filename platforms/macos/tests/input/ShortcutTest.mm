@@ -8039,6 +8039,16 @@ int main(int argc, char **argv) {
         const auto pageTokens = [appearance resolvedSkinForDark:[[layoutPanel.contentView.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua]].tokens;
         assert(next.titleColor && [next.titleColor isEqual:SkinColor(pageTokens.number)]);
         assert([pageIndicator.textColor isEqual:SkinColor(pageTokens.number)] && pageIndicator.font.pointSize == 13);
+        // Fractional page counts are malformed JSON integers. Rendering must not truncate 2.5
+        // into a usable two-page card and expose navigation for it.
+        NSMutableDictionary *fractionalPageView = [pageView mutableCopy];
+        fractionalPageView[@"page_count"] = @2.5;
+        layoutPanel.contentView = nil;
+        [controller setValue:fractionalPageView forKey:@"view"];
+        [controller renderCandidates];
+        assert(!PageButton(layoutPanel.contentView, -1) && !PageButton(layoutPanel.contentView, -2));
+        [controller setValue:[pageView copy] forKey:@"view"];
+        [controller renderCandidates];
         // A layout-only render can keep all Engine IDs unchanged. The detached
         // button must still be rejected, just like detached candidate buttons.
         MSIMECandidateButton *oldPageButton = next;
@@ -8059,7 +8069,7 @@ int main(int argc, char **argv) {
                 assert(session.lastCommand == UINT32_MAX);
             }
         }
-        for (NSNumber *invalidCount in @[@0, @1]) {
+        for (NSNumber *invalidCount in @[@0, @1, @2.5]) {
             NSMutableDictionary *bad = [pageView mutableCopy];
             bad[@"page"] = @1; bad[@"page_count"] = invalidCount;
             next.candidateID = bad;

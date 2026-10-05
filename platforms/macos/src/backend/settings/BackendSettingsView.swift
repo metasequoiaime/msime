@@ -74,6 +74,13 @@ final class MacSettingsModel: ObservableObject {
       for key in ["platform.macos.global_theme", "platform.macos.custom_theme_base", "platform.macos.custom_candidate_skin", "platform.macos.shuangpin_preedit_uses_raw"] where values[key] == nil {
         values[key] = before[key]
       }
+      // 云端的方案是本版本没有的（比如五笔版上传的五笔落到拼音版）：当作没有这一项，保留本机的方案，其余设置照常应用。规则与 client-core 的 filter_downloaded_account_settings 相同；只有一个方案的版本的本机快照里根本没有这个键，上面已经把它滤掉了。
+      if let offered = BackendEdition.inputSchemes, case .integer(let index)? = values["platform.macos.input_scheme"] {
+        let schemes = ["quanpin", "shuangpin", "wubi"]
+        if index < 0 || index >= Int64(schemes.count) || !offered.contains(schemes[Int(index)]) {
+          values["platform.macos.input_scheme"] = before["platform.macos.input_scheme"]
+        }
+      }
       guard values.count == before.count else {
         self.message = "云端还没有完整的 macOS 设置，可以先上传本机设置。"; return
       }

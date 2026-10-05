@@ -61,7 +61,7 @@ export function useDictionaryManager({ client, confirm }: UseDictionaryManagerOp
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useAsyncGeneration(client.dictionary);
   const phraseActionBusy = useRef(false);
-  const phraseActionOwner = useRef(0);
+  const phraseActionOwner = useAsyncGeneration();
   const phraseListRef = useRef<HTMLUListElement>(null);
   const mounted = useMountedRef();
   const clientGeneration = useAsyncGeneration(

@@ -38,6 +38,7 @@ jobs:
       linux: ${{ steps.decide.outputs.linux }}
       harmonyos: ${{ steps.decide.outputs.harmonyos }}
       windows: ${{ steps.decide.outputs.windows }}
+      web: ${{ steps.decide.outputs.web }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -51,12 +52,12 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != push && "$GITHUB_EVENT_NAME" != pull_request ]] ||
              [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BASE_SHA" 2>/dev/null || ! git cat-file -e "$HEAD_SHA" 2>/dev/null; then
-            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\n' >> "$GITHUB_OUTPUT"
+            printf 'android=true\nlinux=true\nharmonyos=true\nwindows=true\nweb=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # PR 合并或关闭后合并引用被删，签出拿不到 head 提交，下面三个点的 diff 会直接报错（2026-10-02 #3118 合并 13 秒后才开跑的 iOS CI 就红在这里）。PR 已经不在了，不必构建。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
-            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
+            printf 'android=false\nlinux=false\nharmonyos=false\nwindows=false\nweb=false\n' >> "$GITHUB_OUTPUT"; echo "PR 的 head 提交已取不到（PR 已关闭），跳过。"; exit 0
           fi
           # PR 要比的是它自己从分叉点起改了什么（三个点）。base.sha 是事件发生时目标分支的最新提交，PR 分支往往从更早的 develop 切出；两个点的 diff 比的是两棵树，会把分叉之后 develop 合进来的改动也算成本 PR 的，于是只改一个 workflow 的 PR 也被判成要编译全部平台（2026-10-02 #2902）。push 的 BASE_SHA 是推送前的提交，两个点正好是这次推送带来的改动。
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
@@ -65,7 +66,7 @@ jobs:
             changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
           fi
           shared=false
-          android=false; linux=false; harmonyos=false; windows=false
+          android=false; linux=false; harmonyos=false; windows=false; web=false
           while IFS= read -r path; do
             [[ -z "$path" ]] && continue
             case "$path" in
@@ -75,6 +76,9 @@ jobs:
               platforms/windows/*) windows=true ;;
               # Telemetry is compiled by the Linux and Windows hosts and DictionaryQuiesceLease.h by Linux and macOS; Android and HarmonyOS build neither, so this is not a shared path. ci-macos.yml covers the macOS side.
               platforms/common/*) linux=true; windows=true ;;
+              # 网页引擎只给浏览器用，四个原生宿主都不链接它，所以这几条路径只触发 web-engine 作业，排在下面的共享路径之前。
+              crates/engine-wasm/*|scripts/build-web-engine.sh|scripts/web-engine-notice.sh|resources/licenses/web-engine-NOTICE.md)
+                web=true ;;
               shared/*|crates/*|packages/*|apps/*|scripts/*|.github/workflows/ci-platforms.yml)
                 shared=true ;;
               # The workspace manifests, the toolchain pin and the JS workspace: a Dependabot bump touches only these.
@@ -83,10 +87,10 @@ jobs:
             esac
           done <<< "$changed"
           if [[ "$shared" == true ]]; then
-            android=true; linux=true; harmonyos=true; windows=true
+            android=true; linux=true; harmonyos=true; windows=true; web=true
           fi
-          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\n' \
-            "$android" "$linux" "$harmonyos" "$windows" >> "$GITHUB_OUTPUT"
+          printf 'android=%s\nlinux=%s\nharmonyos=%s\nwindows=%s\nweb=%s\n' \
+            "$android" "$linux" "$harmonyos" "$windows" "$web" >> "$GITHUB_OUTPUT"
 
   android:
     needs: changes
@@ -233,3 +237,71 @@ jobs:
       - name: Windows platform unchanged
         if: ${{ needs.changes.outputs.windows != 'true' }}
         run: echo 'No Windows or shared-platform changes; platform gate skipped.'
+
+  web-engine:
+    needs: changes
+    name: Web engine (wasm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # wasm-bindgen CLI 必须和 crates/engine-wasm 钉住的 wasm-bindgen crate 同为 0.2.128，wasm-opt 用 binaryen version_133；两个官方 tarball 的 SHA-256 记在这里，下载后先校验再用。release-web-engine.yml 用同样的两份。
+      - name: Install LLVM, the wasm target, wasm-bindgen and wasm-opt
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        env:
+          WASM_BINDGEN_URL: https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.128/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl.tar.gz
+          WASM_BINDGEN_SHA256: b51f0208fdff83515a787bd8ab9ac5865ed84dabb66d0c709957bb59793c645f
+          BINARYEN_URL: https://github.com/WebAssembly/binaryen/releases/download/version_133/binaryen-version_133-x86_64-linux.tar.gz
+          BINARYEN_SHA256: 2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          # Installs the toolchain rust-toolchain.toml pins.
+          rustup toolchain install
+          rustup target add wasm32-unknown-unknown
+          tools="$RUNNER_TEMP/web-engine-tools"
+          mkdir -p "$tools"
+          curl -sSfL -o "$tools/wasm-bindgen.tar.gz" "$WASM_BINDGEN_URL"
+          echo "$WASM_BINDGEN_SHA256  $tools/wasm-bindgen.tar.gz" | sha256sum -c -
+          tar -xzf "$tools/wasm-bindgen.tar.gz" -C "$tools"
+          curl -sSfL -o "$tools/binaryen.tar.gz" "$BINARYEN_URL"
+          echo "$BINARYEN_SHA256  $tools/binaryen.tar.gz" | sha256sum -c -
+          tar -xzf "$tools/binaryen.tar.gz" -C "$tools"
+          echo "$tools/wasm-bindgen-0.2.128-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+          echo "$tools/binaryen-version_133/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        with:
+          node-version-file: .nvmrc
+      # 不带词库和模型：它们是 release 才下载的大文件。NOTICE 的 --check 在脚本里跑。
+      - name: Build the web engine
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        run: scripts/build-web-engine.sh --no-data
+      - name: Smoke test the built glue and wasm in Node
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        run: |
+          cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
+          node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
+      # 包括 routing.rs 和 notice.rs；parity.rs 与 rerank_routing.rs 需要真实词库，没有 MSIME_EVAL_RESOURCES 时跳过。
+      - name: Test msime-engine-wasm
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        run: cargo test --locked -p msime-engine-wasm
+      # bindings.rs 只在 wasm32 上编译，只有这一步会 lint 到它。
+      - name: Clippy on the wasm target
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        env:
+          CC_wasm32_unknown_unknown: clang
+          AR_wasm32_unknown_unknown: llvm-ar
+        run: cargo clippy --locked -p msime-engine-wasm --target wasm32-unknown-unknown -- -D warnings
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ needs.changes.outputs.web == 'true' }}
+        with:
+          name: web-engine-${{ github.sha }}
+          path: target/web-engine/dist/
+          if-no-files-found: error
+      - name: Web engine unchanged
+        if: ${{ needs.changes.outputs.web != 'true' }}
+        run: echo 'No web engine or shared changes; web engine gate skipped.'

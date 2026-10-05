@@ -1,8 +1,8 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{
-    edit_personal_dictionary, invalid_dictionary_entry, response, DictionaryAccess, HostOptions,
-    DICTIONARY_REQUEST_LIMIT,
+    edit_personal_dictionary, invalid_dictionary_entry, require_dictionary_kind, response,
+    DictionaryAccess, HostOptions, DICTIONARY_REQUEST_LIMIT,
 };
 use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
 use msime_client_core::dictionary::is_han_character;
@@ -593,6 +593,7 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             text,
             request_id,
         } => {
+            require_dictionary_kind(&options, kind.into())?;
             let (entries, report) = if format == "hans" {
                 (parse_hans_import(&kind, &text, &options)?, None)
             } else {
@@ -1202,6 +1203,7 @@ fn edit_bundled_entry(
     weight: Option<i64>,
     request_id: &str,
 ) -> Result<serde_json::Value, String> {
+    require_dictionary_kind(options, previous.kind.into())?;
     let _access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -1594,6 +1596,7 @@ pub fn edit_user_quick_phrase(
     request_id: &str,
 ) -> Result<(), String> {
     let options = &options.0;
+    require_dictionary_kind(options, DictionaryKind::QuickPhrase)?;
     let (previous, replacement) = match edit {
         QuickPhraseEdit::Add(phrase) => {
             let replacement = quick_phrase_entry(phrase, NEW_QUICK_PHRASE_WEIGHT)?;
@@ -1822,6 +1825,12 @@ pub fn edit_dictionary_word(
     request_id: &str,
 ) -> Result<(), String> {
     let options = &options.0;
+    let kind = match edit {
+        WordEdit::Add(kind, _)
+        | WordEdit::SetWeight { kind, .. }
+        | WordEdit::Remove { kind, .. } => *kind,
+    };
+    require_dictionary_kind(options, Kind::from(kind).into())?;
     let lookup = |kind: WordKind, code: &str, word: &str| {
         let _access = DictionaryAccess::try_session(
             Path::new(&options.user_data),
@@ -1891,6 +1900,7 @@ pub fn import_dictionary_words(
         return Err("invalid dictionary request ID".into());
     }
     let options = &options.0;
+    require_dictionary_kind(options, Kind::from(kind).into())?;
     let _access = DictionaryAccess::try_maintenance(
         Path::new(&options.user_data),
         Path::new(&options.dictionaries),
@@ -1987,6 +1997,12 @@ pub fn lookup_candidates(
     }
     if !matches!(options.scheme, 0..=2) {
         return Err("candidates can only be looked up in pinyin, double pinyin or wubi".into());
+    }
+    // 本版本的 Engine 跑不了这个方案（例如五笔版查全拼），直接说明原因，不要让建会话失败报成词库打不开。
+    if !msime_engine::SchemeType::from_u8(options.scheme)
+        .is_some_and(|scheme| options.enabled_schemes.contains(scheme))
+    {
+        return Err("this edition does not offer that scheme".into());
     }
     // A semicolon is a key only in double pinyin; elsewhere it is punctuation and would end the composition.
     let allowed = |byte: u8| {

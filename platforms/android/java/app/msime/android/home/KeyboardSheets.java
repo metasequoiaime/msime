@@ -15,6 +15,7 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import app.msime.android.AiPolishConfiguration;
+import app.msime.android.AppEdition;
 import app.msime.android.InputFeatureToggle;
 import app.msime.android.KeyboardGeometry;
 import app.msime.android.PreferencesRevisionPolicy;
@@ -253,10 +254,11 @@ public final class KeyboardSheets {
         Context context = fragment.requireContext();
         JSONObject preferences = preferences(snapshot);
         if (preferences == null) return;
+        AppEdition edition = AppEdition.current();
         KeyboardScheme current = KeyboardScheme.fromPreferences(
-            preferences.optString("scheme", "quanpin"),
+            preferences.optString("scheme", edition.defaultScheme()),
             preferences.optString("shuangpin_profile", "xiaohe"),
-            preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+            preferences.optString("touch_keyboard_layout", "twenty_six_key"), edition);
         SettingsSheet sheet = new SettingsSheet(context, "输入方案",
             "换方案会同时换掉键盘布局。已经学到的词不受影响。");
         TextView status = sheet.addStatus();
@@ -265,7 +267,8 @@ public final class KeyboardSheets {
         String currentWubi = KeyboardScheme.normalizedWubiProfile(
             preferences.optString("wubi_profile", KeyboardScheme.WUBI_86));
         for (KeyboardScheme scheme : KeyboardScheme.values()) {
-            if (!scheme.installed(languageDictionaries)) continue;
+            // 本版本没有的方案不列：五笔版只有五笔和手写，拼音版没有五笔和各语言方案。
+            if (!scheme.offeredBy(edition) || !scheme.installed(languageDictionaries)) continue;
             if (scheme == KeyboardScheme.WUBI) {
                 // 五笔只有一个方案，86 与 98 是它的两个版本：各列一行，选中哪行就同时写 `scheme` 和 `wubi_profile`。
                 for (String profile : List.of(KeyboardScheme.WUBI_86, KeyboardScheme.WUBI_98)) {
@@ -480,9 +483,10 @@ public final class KeyboardSheets {
             @Nullable String wubiProfile) {
         JSONObject preferences = preferences(snapshot);
         if (preferences == null) return null;
+        AppEdition edition = AppEdition.current();
         KeyboardScheme.PreferenceMapping mapping = scheme.mapping(
-            preferences.optString("last_chinese_scheme", "quanpin"),
-            preferences.optString("shuangpin_profile", "xiaohe"));
+            preferences.optString("last_chinese_scheme", edition.defaultScheme()),
+            preferences.optString("shuangpin_profile", "xiaohe"), edition);
         try {
             JSONObject pending = new JSONObject(snapshot.toString());
             JSONObject values = pending.getJSONObject("preferences");

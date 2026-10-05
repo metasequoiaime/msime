@@ -148,7 +148,7 @@ Engine 是工作区内的纯 Rust crate `crates/engine`（`msime-engine`），�
 
 Xcode 27 的 SwiftPM 会把静态库中的 `@_cdecl` 导出内部化；当前 `swift-rs` 构建桥会使用 `llvm-tools` 中的 `llvm-objcopy` 恢复应用 package 的符号。仓库同时固定到上游 PR #79 的提交 `a83e2b2f196e3fa9605cb21c7d3b82652205c279`，使传递嵌入的 SwiftRs runtime 导出在优化构建中保持公开。缺少该组件或移除补丁时，Tauri iOS Rust 动态库会在链接阶段报告 Swift 桥符号未定义。
 
-词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把允许的六个运行资源复制到 `target/ios/EngineResources`：
+词库必须来自仓库固定的 `resources/desktop-dictionary.lock.json`。安装器下载并校验发布文件，暂存脚本再次检查名称、长度与 SHA-256，只把锁文件列出的文件（含日文词库与英文词库各自的许可文本）复制到 `target/ios/EngineResources`：
 
 ```sh
 resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)"
@@ -207,6 +207,26 @@ Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内
 首次签名构建前需要在 Xcode 的 Settings → Accounts 里登录该团队的 Apple ID：App 的开发描述文件（含 `group.app.msime.ios` App Group，且已包含目标设备）本机已有，但键盘扩展的 `app.msime.ios.keyboard` 需要由 Xcode 联网创建。没有登录账号时构建会报 `No Accounts: Add a new account in Accounts settings`，并退回到不含 App Groups 能力的通配描述文件。本机的 Xcode 登录该团队之后，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备。这条路径在 iPhone 17 上走通：`BUILD SUCCEEDED`，`PlugIns/MSIMEKeyboardExtension.appex` 内嵌全部十个已校验运行资源，App 由该团队的 Apple Development 证书签名，`devicectl device install app` 成功，设备上 `devicectl device info apps` 能查到「水杉输入法 / app.msime.ios / 1.0.0」。装完在系统 设置 → 通用 → 键盘 → 键盘 里添加一次「水杉输入法」，扩展即可在任意编辑器里使用。
 
 `devicectl device process launch` 需要设备处于解锁状态，锁屏时会被 `SBMainWorkspace` 以 `Locked` 拒绝（`FBSOpenApplicationErrorDomain error 7`）。
+
+## 产品版本
+
+版本表 `shared/contracts/editions.json` 里每个版本的 iOS 段（`platforms.ios`）目前都是 `null`：iOS 只发 full，工程里只有 full 这一对 App 和键盘扩展。代码已经按版本参数化，full 的 Info.plist、entitlements、bundle id 和 App Group 与引入版本之前相同。
+
+已经就位的部分：
+
+- 版本身份：`MSIMEAppEdition`（`shared/backend/account/BackendAccountClient.swift`）读 App 和键盘扩展各自 Info.plist 里的 `MSIMEEdition`（版本 id）、`MSIMEInputSchemes`（方案）、`MSIMEDefaultScheme`（默认方案）和 `MSIMEWubiMixedPinyinDefault`（五笔混拼的默认值），键名与 macOS 的 `EditionIdentity.h` 相同。没有 `MSIMEEdition` 就是 full。键盘扩展进程读的是扩展自己的 bundle，所以两份 Info.plist 都要写。
+- App Group：标识只写在 `MSIMEAppEdition.appGroupIdentifier` 一处，full 是 `group.app.msime.ios`，其他版本是 `group.app.msime.ios.<版本 id>`。共享容器里的一切（偏好镜像、状态根 `MSIME/`、个人词库与云词库队列、使用统计、剪贴板、语音交接、账号的刷新锁和匿名会话）以及账号会话所在的钥匙串访问组都跟着它走，两个版本装在同一台设备上互不读写。`tests/settings/ProjectConfigurationTests.py` 检查 App、键盘扩展、`SharedUI` 和 `shared/backend` 的 Swift 源码里没有别处再写死这个标识。
+- URL scheme：键盘拉起 App（「应用设置」和语音录音）用的自定义 scheme 只写在 `MSIMEAppEdition.urlScheme` 一处，full 是 `msime`，其他版本是 `msime-<版本 id>`；`KeyboardAppLauncher` 和 App 的 `onOpenURL` 都读它。多个 App 注册同一个 scheme 时系统任选一个打开，共用 `msime` 会让五笔版的语音交接落到 full 的 App Group 里。`tests/settings/ProjectConfigurationTests.py` 检查别处没有再写死 `msime://`。
+- 方案：方案页和首次引导只列本版本的入口，写共享文档的 `schemeMapping` 也丢掉本版本没有的入口；启用列表、选中方案和偏好里认不出的方案都回退到本版本的默认方案（`ChineseInputScheme.editionFallback`，full 是全拼 26 键）；手写不属于任何方案，写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有，背后跑本版本的默认方案；只有一个方案的版本没存过启用列表时，默认要用户自己打开的入口（越南语、藏文）也启用，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。五笔混拼开关没被用户动过时取版本的默认值（五笔版是开）：键盘每次重载都把 App Group 里的这个开关写回共享文档，按 `bool(forKey:)` 的缺省 false 读会让五笔版首次启动就关掉混拼。非 full 版本准备宿主（`msime_client_prepare_host`）和词库快照会话时把版本 id 交给 host-api，由它按版本收窄方案、按本版本的资源锁校验词库。
+- 设置同步：原生「设置同步」上传和应用前分别经 `IOSPreferencePlan.filterUploaded`、`filterDownloaded` 过滤，规则与 client-core 的 `filter_uploaded_account_settings`、`filter_downloaded_account_settings` 相同：只有一个方案的版本既不上传也不应用 `input.schema` 和随它的九键开关；多方案版本把本版本没有的方案当作缺失；不提供双拼、五笔的版本不上传对应的方案细项。Tauri 公共组件的 iOS 工程走的就是 client-core 那两个函数。
+
+要发一个版本（以五笔版为例）还差这些，全部在仓库之外或需要签名身份，本分支没有做：
+
+1. 版本表：给 wubi、pinyin 填 `platforms.ios` 段，至少包括 App 与键盘扩展的 bundle id（例如 `app.msime.ios.wubi`、`app.msime.ios.wubi.keyboard`）和 App Group；同时扩展 `editions.schema.json`、冻结基线 `editions.frozen.json` 和 `scripts/test-editions.py` 的跨版本唯一性检查，并断言 App Group 等于 `MSIMEAppEdition` 推出的 `group.app.msime.ios.<id>`。
+2. 工程：`project.yml` 为每个版本加一对 target（App 和键盘扩展），各自设 `PRODUCT_BUNDLE_IDENTIFIER`、`CFBundleDisplayName`（水杉五笔、水杉拼音；图标与 full 相同）、上面四个 Info.plist 键、App 的 `CFBundleURLTypes`（scheme 写 `MSIMEAppEdition.urlScheme` 推出的 `msime-<id>`，`CFBundleURLName` 写本版本 App 的 bundle id），以及各自的 entitlements 文件，`com.apple.security.application-groups` 写本版本的 App Group。`ProjectConfigurationTests.py` 和 `scripts/test-ios-project-config.py` 里按 full 写死的断言要随之参数化。
+3. 资源：`stage-resources.sh` 目前固定用 full 的 `resources/desktop-dictionary.lock.json`，要改成按版本的 `resources/editions/<id>.lock.json` 暂存；五笔版不带日文词典，五笔版和拼音版都不带粤拼、注音、笔画词库。
+4. 签名与发布：在 Apple Developer 后台为每个版本注册 App ID 和 App Group，生成 App 与键盘扩展的描述文件，并在 App Store Connect 各建一条 App 记录。`release-ios.yml` 的模拟器包由 `build-app.sh` 以 `CODE_SIGNING_ALLOWED=NO` 构建，不签名；它的 TestFlight 那段的 `check_profile` 只认 `app.msime.ios`、`app.msime.ios.keyboard` 和 `group.app.msime.ios`，`upload-testflight.sh` 也只接受一对描述文件，都要按版本参数化。多个版本能否在一台设备上共存，只能在真机签名构建里验证。功能相近的多个 App 同时上架，有被 App Store 按 4.3（重复 App）拒审的风险。
+5. 不随版本走的部分：Tauri 公共组件的 iOS 工程（`apps/desktop/src-tauri/gen/apple`）只服务 full，它的 `main.mm` 和 `crates/tauri-mobile-platform` 的 `MobilePlatformPlugin.swift` 仍写死 `group.app.msime.ios`；账号钥匙串的服务名 `app.msime.backend.account` 不变，版本之间靠访问组隔离。
 
 确认改动真的进了产物不要用 `strings`：键面提示是运行时从引擎的 profile 表拼出来的，二进制里没有 `ing uai` 这样的字面量；`@_silgen_name` 引用的 C ABI 名也在链接时解析掉了。用 `nm` 查符号——`MetasequoiaInputSessionBridge.shuangpinKeyHints` 下应当挂着一个 `withUnsafeBytes` 闭包，`msime_client_shuangpin_key_hints` 与 `msime_engine::shuangpin::hints::ShuangpinKeyHint` 应当出现在 Rust 侧的 mangled 符号里，而旧的 `makeShuangpinHints` 应当是 0 个。
 

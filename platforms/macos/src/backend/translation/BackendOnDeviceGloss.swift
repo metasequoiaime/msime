@@ -19,7 +19,7 @@ private enum BackendOnDeviceGloss {
   private static var queued: [String: [String]] = [:]
   // The word each language is translating right now. A newer page that still shows it would otherwise queue it again behind itself and pay for it twice; its reply is on the way and every controller hears it.
   private static var inFlight: [String: String] = [:]
-  private static let log = Logger(subsystem: "app.msime.inputmethod.MetasequoiaIME", category: "translation")
+  private static let log = Logger(subsystem: BackendEdition.inputMethodBundleIdentifier, category: "translation")
 
   static func fetch(words: [String], targets: [String]) {
     for code in targets {

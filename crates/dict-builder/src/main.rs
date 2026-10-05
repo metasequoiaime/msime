@@ -11,6 +11,7 @@
 //! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
 //! msime-dict-build languages --cache <dir> [--out <dir>] [--offline] [--dictionary <msime-dictionary checkout>]
+//! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
 
@@ -34,6 +35,7 @@ mod sources;
 mod sqlite;
 mod stroke;
 mod text;
+mod web;
 mod zhuyin;
 
 use std::collections::HashSet;
@@ -156,6 +158,35 @@ enum Command {
     HkcancorCounts(HkcancorCounts),
     /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under sources/cantonese/ and sources/zhuyin/ in the sources lock, rime-stroke's stroke.dict.yaml pinned at sources/stroke/stroke.dict.yaml in the sources lock (stroke.rs's recorded commit, size and SHA-256 only check a file placed in the cache when the lock has no such entry) and the pinned sources/pinyin/single-chars.txt frequencies.
     Languages(Languages),
+    /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），两者逐字节可复现。
+    Web(WebArgs),
+}
+
+#[derive(Args)]
+struct WebArgs {
+    /// 词库 release 的 msime-pinyin.db（全拼表与快捷短语），只读打开。
+    #[arg(long)]
+    pinyin: PathBuf,
+    /// 词库 release 的 msime-wubi.db（wubi86 与 wubi98），只读打开。
+    #[arg(long)]
+    wubi: PathBuf,
+    /// 写出 msime-pinyin.db 和 msime-wubi86.db 的目录，不存在时创建；同名文件会被覆盖。
+    #[arg(long)]
+    out_dir: PathBuf,
+    /// msime-pinyin.db 在全部多字表里保留的行数（单字表总是全部保留）。
+    #[arg(long, default_value_t = web::DEFAULT_KEEP_MULTI)]
+    keep_multi: usize,
+}
+
+fn build_web(arguments: &WebArgs) -> Result<()> {
+    let inputs = web::Inputs {
+        pinyin: &arguments.pinyin,
+        wubi: &arguments.wubi,
+    };
+    for summary in web::build(inputs, &arguments.out_dir, arguments.keep_multi)? {
+        eprintln!("[done] {summary}");
+    }
+    Ok(())
 }
 
 #[derive(Args)]
@@ -1001,6 +1032,9 @@ fn main() -> Result<()> {
     }
     if let Some(Command::Languages(languages)) = &arguments.command {
         return build_languages(languages);
+    }
+    if let Some(Command::Web(web)) = &arguments.command {
+        return build_web(web);
     }
     if let Some(Command::CheckWords(check)) = &arguments.command {
         match check_words(check) {

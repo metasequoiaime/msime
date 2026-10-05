@@ -14,10 +14,11 @@
 #include <string>
 #include <windowsx.h>
 #include <vector>
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
 namespace {
-constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar";
+constexpr wchar_t kClassName[] = L"MSIME.Client.Preview.FloatingToolbar" MSIME_EDITION_NAME_SUFFIX;
 constexpr int kWidth = 732;
 constexpr int kHeight = 52;
 int dpi_scale(HWND window, int value) {

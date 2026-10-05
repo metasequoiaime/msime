@@ -36,6 +36,9 @@ assert "xdg-shell.xml" in cmake_fcitx5
 assert "wlr-layer-shell-unstable-v1.xml" in cmake_fcitx5
 
 source = (root / "fcitx5/FcitxEngine.cpp").read_text()
+# 动作名写成 MSIME_EDITION_FCITX5_ADDON "-<名字>"，按版本带上插件名（src/core/LinuxEdition.h）；下面按 full 展开后的名字（msime-<名字>）检查。
+assert 'registerAction("msime-' not in source
+source = source.replace('MSIME_EDITION_FCITX5_ADDON "-', '"msime-')
 ibus_source = (root / "src/core/ClientEngine.cpp").read_text()
 # Commit statistics also run on detached workers. They must be included in the same
 # pending-write barrier as key-count batches, or an addon unload can execute this
@@ -146,9 +149,9 @@ for host in (source, ibus_source):
     assert 'command_translation_query(' in host
 assert ibus_source.index('music.release(session') < ibus_source.index('msime_client_destroy(session)')
 # Both hosts name the installed built-in sound packs, which the parent project installs.
-assert 'MSIME_SOUND_PACKS="${CMAKE_INSTALL_FULL_DATADIR}/msime-client/sound-packs"' in cmake_fcitx5
+assert 'MSIME_SOUND_PACKS="${CMAKE_INSTALL_FULL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs"' in cmake_fcitx5
 assert 'installed_sound_pack_directory(' in ibus_source
-assert 'DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/sound-packs")' in cmake
+assert 'DESTINATION "${CMAKE_INSTALL_DATADIR}/${MSIME_CLIENT_DIRECTORY}/sound-packs")' in cmake
 # The IBus candidate property menu uses the shared Windows wording (置顶, 固定到第 N 位, 取消固定) and takes the slot from the CandidateFixN action name.
 assert 'msime::linux_host::candidate_pin_label' in ibus_source
 assert 'candidate_fix_label(fix[12] - \'0\')' in ibus_source
@@ -157,11 +160,11 @@ assert '"固定候选"' not in ibus_source
 assert '"固定到 1"' not in ibus_source
 assert 'std::string("取消固定 ")' not in ibus_source
 # Only main-lexicon candidates of the user dictionary sources carry candidate actions; the shared policy decides it for both hosts.
-assert 'candidate_dictionary_actions_available(state_.view_.value("scheme", 0u), item->source())' in source
+assert 'candidate_dictionary_actions_available(msime::linux_host::strict_json_value(state_.view_, "scheme", 0u), item->source())' in source
 assert 'candidate_dictionary_actions_available(scheme, item->source())' in source
-assert 'source_(candidate.value("source", 0u))' in source
+assert 'source_(msime::linux_host::strict_json_value(candidate, "source", uint64_t{}))' in source
 assert 'text_(candidate.at("text").get<std::string>())' in source
-assert 'fixed_position_(candidate.value("fixed_position", 0u))' in source
+assert 'fixed_position_(msime::linux_host::strict_json_value(candidate, "fixed_position", uint8_t{}))' in source
 assert 'item->text()))' in source
 assert 'item->fixedPosition()' in source
 assert 'state_.session_ != item->session()' in source
@@ -173,7 +176,7 @@ assert 'voice_preedit_' in source and 'voice_transcript_' in source
 assert 'msime_voice_result_or_transcript(' in source
 assert 'clipboard_generation_' in source
 assert 'result.value("_path", std::string{}) == clipboard_path_' in source
-assert 'result.value("_generation", uint64_t{}) == clipboard_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == clipboard_generation_' in source
 assert 'const auto generation = clipboard_generation_' in source
 assert 'cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_' in source
@@ -205,16 +208,16 @@ assert 'fcitx_global_input_mode' in source
 assert 'ic_.program()' in source
 assert 'restoreInputMode' in source
 assert 'result.value("_socket", std::string{}) == cloud_clipboard_socket_' in source
-assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = result.value("enabled", true)' in source
 # The provider relays the account API page as is, so the list is `items` ([{id,text,updated_at}]) like the shared panel reads it; `entries` is the cloud dictionary's shape.
 assert 'result.value("items", Json::array())' in source
 assert 'result.value("entries", Json::array())' not in source[source.index('void refreshCloudClipboard()'):source.index('bool pasteCloudClipboard(')]
 assert 'if (!cloud_clipboard_enabled_) return false;' in source
 assert 'emoji_generation_' in source
-assert 'result.value("_generation", uint64_t{}) == emoji_generation_' in source
+assert 'msime::linux_host::strict_json_value(result, "_generation", uint64_t{}) == emoji_generation_' in source
 assert 'result["_generation"] = generation' in source
-assert 'item.value("source", 255u) == source' in source
+assert 'msime::linux_host::strict_json_value(item, "source", uint64_t{255}) == source' in source
 assert 'Json candidates = Json::array();' in source
 assert 'std::string panelPreview(const std::string &text)' in source
 assert 'fcitx::utf8::nextNChar(text.begin(), 40)' in source
@@ -369,7 +372,7 @@ assert "notConfigured(*state, false)" in keyEvent and "notConfigured(*state, tru
 assert "kFirstRunHint" in source and "kFirstRunGuideProgram" in source
 assert 'fcitx::startProcess({guide, "--host", "fcitx5"})' in source
 assert 'MSIME_BINDIR="${CMAKE_INSTALL_FULL_BINDIR}"' in cmake_fcitx5
-assert "scripts/msime-linux-first-run-guide" in cmake
+assert "msime-linux-first-run-guide" in cmake[cmake.index("foreach(MSIME_EDITION_SCRIPT"):cmake.index("endforeach()", cmake.index("foreach(MSIME_EDITION_SCRIPT"))]
 
 # The Korean Hanja keys (Hangul_Hanja and a bare F9), which also open the Zhuyin list, and the open lists are read through the shared core/KoreanHanja.h and core/InputSchemes.h in both hosts. The keys are decided before the rules that would finish the composition and hand the key to the application, so a trigger the Engine leaves unhandled (a lone jamo) never writes the syllable out and then leaks the key. Down is the second key that opens the Zhuyin list, so each host sends the command twice.
 fcitx_convert = 'command(MSIME_OPEN_CANDIDATE_LIST)'

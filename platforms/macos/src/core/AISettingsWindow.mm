@@ -2,6 +2,16 @@
 #import "MSIMEClientSession.h"
 #import "AISettingsSnapshot.h"
 
+static BOOL MSIMEAIStrictRevision(id value, uint64_t *result) {
+    if (![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() || CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t revision = number.unsignedLongLongValue;
+    if ([number compare:@(revision)] != NSOrderedSame) return NO;
+    if (result) *result = revision;
+    return YES;
+}
+
 static BOOL SafeAIEndpoint(NSString *value) {
     NSURLComponents *url = [NSURLComponents componentsWithString:value ?: @""];
     return ([url.scheme.lowercaseString isEqualToString:@"http"] || [url.scheme.lowercaseString isEqualToString:@"https"]) && url.host.length && !url.user.length && !url.password.length && !url.fragment.length;
@@ -10,14 +20,16 @@ static BOOL SafeAIEndpoint(NSString *value) {
 /// Saves `edits` (a subset of the AI keys) over `snapshot`; when another writer saved first, they are merged onto its revision and written once more so its other changes survive.
 static NSDictionary *SaveAIEdits(NSString *directory, NSDictionary *snapshot, NSDictionary *edits) {
     NSMutableDictionary *next = [snapshot mutableCopy]; next[@"preferences"] = MSIMEAISettingsMerge(snapshot[@"preferences"], edits);
-    uint64_t revision = [snapshot[@"revision"] unsignedLongLongValue];
+    uint64_t revision = 0;
+    if (!MSIMEAIStrictRevision(snapshot[@"revision"], &revision)) return nil;
     NSDictionary *saved = [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:revision snapshot:next error:nil];
     if (saved) return saved;
     NSDictionary *latest = [MSIMEClientSession loadPreferencesInDirectory:directory error:nil];
     // The same revision means the document itself was refused, which another attempt cannot fix.
-    if (!latest || [latest[@"revision"] unsignedLongLongValue] == revision) return nil;
+    uint64_t latestRevision = 0;
+    if (!latest || !MSIMEAIStrictRevision(latest[@"revision"], &latestRevision) || latestRevision == revision) return nil;
     next = [latest mutableCopy]; next[@"preferences"] = MSIMEAISettingsMerge(latest[@"preferences"], edits);
-    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:[latest[@"revision"] unsignedLongLongValue] snapshot:next error:nil];
+    return [MSIMEClientSession savePreferencesInDirectory:directory expectedRevision:latestRevision snapshot:next error:nil];
 }
 
 @interface MSIMEAISettingsWindow () <NSWindowDelegate, NSTextFieldDelegate>

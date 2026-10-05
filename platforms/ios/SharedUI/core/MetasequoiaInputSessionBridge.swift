@@ -435,22 +435,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The document fields a scheme selection writes; nil when no scheme is enabled. The settings app writes the same fields, so the keyboard does not put its own older selection back.
   static func schemeMapping(_ scheme: ChineseInputScheme,
                             enabledSchemes: [ChineseInputScheme]) -> ((inout [String: Any]) -> Void)? {
-    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) }
+    // 本版本不提供的入口不写进共享文档：写进去的方案 host-api 会按版本回退，文档里记的和 Engine 跑的就对不上了。full 提供全部入口，这里不过滤任何东西。
+    let enabled = ChineseInputScheme.allCases.filter { enabledSchemes.contains($0) && $0.isOfferedByEdition }
     guard !enabled.isEmpty else { return nil }
     let selected = enabled.contains(scheme) ? scheme : enabled[0]
-    let engineScheme: String
-    switch selected {
-    case .wubi: engineScheme = "wubi"
-    case .japanese, .japaneseNineKey: engineScheme = "japanese"
-    case .korean: engineScheme = "korean"
-    case .cantonese: engineScheme = "cantonese"
-    case .zhuyin: engineScheme = "zhuyin"
-    case .vietnamese: engineScheme = "vietnamese"
-    case .tibetan: engineScheme = "tibetan"
-    case .stroke: engineScheme = "stroke"
-    case .shuangpin, .ziranma, .microsoft, .shoudao: engineScheme = "shuangpin"
-    case .quanpin, .nineKey, .handwriting: engineScheme = "quanpin"
-    }
+    // 手写写的是本版本的默认方案（full 是全拼）：识别由平台识别器完成，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退，偏好里记的和 Engine 跑的就对不上了。
+    let engineScheme = selected == .handwriting ? MSIMEAppEdition.defaultScheme : selected.engineScheme
     let layout: String
     switch selected {
     case .nineKey, .japaneseNineKey: layout = "nine_key"
@@ -978,6 +968,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   }
   /// 只改 `scheme`，会话里的 `wubi_profile` 不动，所以切过去仍是当前的 86 或 98 五笔。
   func switchToWubi() -> MetasequoiaInputSnapshot { switchScheme("wubi", profile: nil) }
+  /// 手写面板背后跑本版本的默认方案，与 `schemeMapping` 写进偏好的一致；full 是全拼。
+  func switchToHandwriting() -> MetasequoiaInputSnapshot { switchScheme(MSIMEAppEdition.defaultScheme, profile: nil) }
   func switchToJapanese() -> MetasequoiaInputSnapshot { switchScheme("japanese", profile: nil) }
   /// Korean Hangul (Dubeolsik). Switching discards an open syllable, so callers finish the composition first.
   func switchToKorean() -> MetasequoiaInputSnapshot { switchScheme("korean", profile: nil) }
@@ -1301,13 +1293,16 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
     let fm = FileManager.default
-    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
+    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: MSIMEAppEdition.appGroupIdentifier)
       ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     let root = stateOverride ?? group.appendingPathComponent("MSIME", isDirectory: true)
     let resources = resourceOverride
       ?? Bundle.main.resourceURL?.appendingPathComponent("EngineResources", isDirectory: true)
       ?? root.appendingPathComponent("resources", isDirectory: true)
-    return ["resources": resources.path, "state_root": root.path]
+    var options: [String: Any] = ["resources": resources.path, "state_root": root.path]
+    // full 不传版本，请求与引入版本之前相同；其他版本让 host-api 按版本收窄方案并写进 HostOptions。
+    if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
+    return options
   }
 
   /// `View.scheme` for double pinyin, as the shared runtime numbers the Engine's schemes.

@@ -101,7 +101,10 @@ def main() -> int:
         # 切回时要找的名字就是 IBus 输入源列表里显示的 longname：组件 XML 与 msime-linux-ibus 自报的描述都得是这一个。
         longname = re.search(r"<longname>([^<]+)</longname>", (ROOT / "data/msime-linux.xml.in").read_text()).group(1)
         assert longname == "Metasequoia 水杉输入法", longname
-        assert f'"{longname}"' in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
+        # msime-linux-ibus 自报的显示名是 LinuxEdition.h 里本版本的 MSIME_EDITION_IBUS_LONGNAME，full 的那一个就是这个 longname。
+        assert "MSIME_EDITION_IBUS_LONGNAME" in (ROOT / "src/entrypoints/ibus_main.cpp").read_text()
+        full_longname = re.search(r'#if defined\(MSIME_EDITION_FULL\).*?#define MSIME_EDITION_IBUS_LONGNAME ("[^"]*")', (ROOT / "src/core/LinuxEdition.h").read_text(), re.S).group(1)
+        assert full_longname.encode().decode("unicode_escape").encode("latin-1").decode() == f'"{longname}"', full_longname
         assert f"切回「{longname}」" in calls(log, "notify")[0], calls(log, "notify")
         assert calls(log, "ibus") == []
         # 状态目录必须仍不存在：msime-linux-setup 拒绝准备一个已存在的目录。
@@ -157,11 +160,15 @@ def main() -> int:
 
         # 没装设置窗口（只装输入法的最小安装）：仍然通知，改为指向终端命令。
         (bin_dir / "msime-linux-settings").unlink()
-        # Keep the minimal-install case independent of a settings launcher that may be
-        # installed in the test runner's real PATH.
+        # 最小安装这一例不能被测试机真实 PATH 里装着的设置启动器干扰：只去掉含有它的目录，
+        # 其余保留，脚本用到的 mkdir、date 等不必在 /usr/bin 或 /bin（Nix 构建沙箱里没有）。
+        real_path = [
+            directory for directory in os.environ.get("PATH", "/usr/bin:/bin").split(os.pathsep)
+            if directory and not (Path(directory) / "msime-linux-settings").exists()
+        ]
         environment = dict(
             graphical,
-            PATH=f"{tools}:/usr/bin:/bin",
+            PATH=os.pathsep.join([str(tools), *real_path]),
             MSIME_CLIENT_SETTINGS_COMMAND=str(scratch / "missing-settings"),
         )
         assert launch(environment).returncode == 1

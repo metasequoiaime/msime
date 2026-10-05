@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::assets::{
     BIGRAM_TABLE, MAIN_DICTIONARY, NEURAL_MODEL_KEYBOARD, TRIGRAM_TABLE, USER_JOURNAL,
@@ -37,6 +37,7 @@ use crate::pinyin::syllables::{
     has_only_complete_pinyin_segments, normalize_umlaut_aliases, sparse_pinyin_fallback_segments,
 };
 use crate::text::{count_han_chars, last_characters};
+use crate::time::Instant;
 use crate::types::{
     autocorrect_type, CandidateSource, FuzzyPinyinOptions, PersonalDictionaryKind,
     SentenceAssociationOptions, WordItem,

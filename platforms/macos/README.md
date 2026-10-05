@@ -59,11 +59,11 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 121000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 124000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 
-- `japanese`：`msime-japanese.dat` 与 `msime-mozc_dictionary_oss_README.txt`，取自 `resources/desktop-dictionary.lock.json` 的这两项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
+- `japanese`：`msime-japanese.dat`、`msime-mozc_dictionary_oss_README.txt` 与 `msime-mozc_LICENSE.txt`，取自 `resources/desktop-dictionary.lock.json` 的这三项。在设置里选「日文」时自动下载；设置应用启动时已保存的方案是日文也会补下（水杉日语只有日文方案，状态目录第一次准备好时偏好就是日文，所以它的设置应用第一次启动就下载，日文版的 DMG 同样不内置这三个文件）；「临时日语」只在那一行点「下载」时下载，不会因为开着它而自动下载。
 - `language-dictionaries`：`msime-cantonese.db`、`msime-zhuyin.db`、`msime-stroke.db` 与各自的许可证，按 `resources/language-dictionaries.lock.json`。选「粤拼」「注音」或「笔画」时自动下载，启动时已保存的方案或上一次的中文方案是这三者之一也会补下。锁文件在新的 langdict 发布之前还不含 `msime-stroke.db`，在那之前下载的包里没有它，笔画只能用 `stage-resources.sh` 暂存的开发副本。
 - `handwriting`：`handwriting-zh_CN.model` 与 `HandwritingModel-LICENSE.txt`，按 `resources/handwriting-model.lock.json`。第一次打开手写面板时下载。
 
@@ -97,6 +97,14 @@ brew install --cask metasequoiaime/tap/msime
 cask 放在 [metasequoiaime/homebrew-tap](https://github.com/metasequoiaime/homebrew-tap) 的 `Casks/msime.rb`，模板是本目录的 `homebrew/msime.rb.in`。改 cask 改模板，tap 里的副本每次发布都会被覆盖。`release-macos.yml` 在 `publish` 打开、`prerelease` 关闭的发布之后，用刚发布的 DMG 的版本与 SHA-256 填好模板并推到 tap；DMG 没有通过 `xcrun stapler validate`（没有公证）或仓库没有 `HOMEBREW_TAP_TOKEN`（能推送该仓库的 token）时跳过并留下警告，因为 ad-hoc 包装得上但输入法注册不了。
 
 cask 安装 `MSIME.app`，并把其中的 `msime-mcp` 链接到 `PATH`，供在终端里配置的 AI 助手使用：既可以注册为 MCP 服务器，也可以由助手直接在终端里运行，`msime-mcp tools` 列出工具与参数，`msime-mcp call <tool> '<json>'`（或 `@文件` 从 UTF-8 文件读取参数）调用其中一个并输出 JSON，`msime-mcp prompt diagnose` 给出排查问题的步骤，权限开关（`--allow-write`、`--allow-dictionary-read`）与 MCP 相同；设置页「连接 AI 助手」的「命令行」页给出可直接交给助手的说明。和拖进「应用程序」一样，装完要打开一次 MSIME，在它的安装窗口里点「立即安装」，把输入法装进 `~/Library/Input Methods` 并登记；全新的机器还要按上面的首次安装规则注销并重新登录。`brew uninstall` 同时删除 `~/Library/Input Methods/水杉输入法.app`，`--zap` 再删除设置、词库与缓存。只提供 Apple silicon，最低 macOS 13，与 DMG 相同。
+
+## 版本（edition）
+
+除了 full（就是现在的水杉输入法），还有只带五笔的水杉五笔（`wubi`）、只带全拼和双拼的水杉拼音（`pinyin`），以及各只带一个语言方案的水杉日语（`japanese`）、水杉越南语（`vietnamese`）和水杉藏文（`tibetan`）。版本表是 `shared/contracts/editions.json`，每个版本的 macOS 标识写在它的 `platforms.macos` 里：输入法 bundle id、bundle 与可执行文件名、设置应用 identifier（也是状态目录名）、钥匙串服务名、cask 和 DMG 前缀。几个版本可以同时安装，彼此完全隔离：输入源、NSUserDefaults 域、状态目录、钥匙串条目、分布式通知名和统一日志子系统都按版本分开，卸载或退出登录一个版本不影响另一个。full 的标识和产物（Info.plist、InfoPlist.strings、DMG 名、cask）与引入版本之前完全相同，`scripts/test-macos-editions.py` 检查这一点。
+
+所有版本共用同一份编译产物。输入法的版本身份写在 Info.plist 里（`MSIMEEdition`、`MSIMEInputSchemes`、`MSIMEDefaultScheme`、`MSIMESettingsBundleIdentifier`、`MSIMEKeychainService`、`MSIMEWubiMixedPinyinDefault`），原生代码在运行时读（`src/core/EditionIdentity.h`、`src/backend/core/BackendEdition.swift`），没有这些键就是 full。不提供手写的版本（日文、越南文和藏文版，版本表 `features.handwriting` 为 false）还写 `MSIMEHandwriting` = false：输入法菜单和悬浮工具栏不放手写入口，设置应用不列出、不下载手写资源包，也不打开手写面板；这几个版本同样不带非英文离线释义（`features.offline_glosses`），`stage-resources.sh` 不暂存，`package-release.sh` 检查包里没有 `offline-glosses/`。`scripts/edition_bundle.py` 从 `Info.plist.in` 和 `resources/*.lproj/InfoPlist.strings` 生成每个版本的这几个文件：五笔版只声明「五」（`.Hans` 换上五笔的图标）和「英」两个模式，拼音版声明中、双、英；日文、越南文、藏文版只声明「日」「越」或「ཀ」（同样是换上该方案图标的 `.Hans`）和「英」，这两个模式的 `TISIntendedLanguage` 是 `ja`、`vi` 或 `bo`，系统设置的「添加」对话框把它们列在日语、越南语或藏语下，主模式装好即启用；连接名一律是 `<bundle id>_Connection`。设置应用的版本声明是 `Contents/Resources/edition.json`，设置应用和 `msime-mcp` 都按它找输入法 bundle、状态目录和通知名，full 的包不带这个文件。
+
+本地构建某个版本的输入法：`cmake -S platforms/macos -B target/macos-isolated -DMSIME_EDITION=wubi`，产物是 `target/macos-isolated/水杉五笔.app`，改回 `-DMSIME_EDITION=full` 即恢复。发布包用 `package-release.sh --editions full,wubi,pinyin,japanese,vietnamese,tibetan`：输入法、`msime-mcp` 和设置应用只编一次，每个版本各自暂存资源（`MSIME_EDITION=<id> stage-resources.sh` 只带该版本资源锁里的文件）、把输入法 bundle 改成该版本、按该版本的 identifier 打设置应用，再各出一个 DMG；`release-macos.yml` 为每个版本发布一个 DMG 和一个 cask，只有 full 的 cask 把 `msime-mcp` 放上 `PATH`。macOS 版没有配置 Sparkle feed（`SUFeedURL`），应用内更新检查按版本选资产。
 
 ## 标识与数据目录
 

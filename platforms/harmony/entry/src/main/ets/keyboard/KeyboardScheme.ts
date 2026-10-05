@@ -5,6 +5,7 @@
  * Java spells this as an enum carrying fields. ArkTS enums hold only a value, so each scheme is a
  * frozen record and SCHEMES preserves the declaration order the Apple hosts also rely on.
  */
+import { AppEdition } from "./AppEdition";
 import { SchemeTraits } from "./SchemeTraits";
 
 export interface SchemeDefinition {
@@ -187,6 +188,15 @@ const HANDWRITING: SchemeDefinition = {
   glyph: "写",
   badge: "手",
 };
+// 写中文的方案（版本表里的方案名），与 client-core 的 `ChineseScheme::of` 相同；提供其中任何一个的版本才有手写。
+const CHINESE_ENGINE_SCHEMES: string[] = [
+  "quanpin",
+  "shuangpin",
+  "wubi",
+  "cantonese",
+  "zhuyin",
+  "stroke",
+];
 
 export class KeyboardScheme {
   static readonly QUANPIN: SchemeDefinition = QUANPIN;
@@ -263,14 +273,61 @@ export class KeyboardScheme {
     return scheme.badge;
   }
 
-  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。 */
-  static readonly DEFAULT_ENABLED: SchemeDefinition[] = KeyboardScheme.SCHEMES.filter(
-    (candidate: SchemeDefinition): boolean =>
-      candidate !== CANTONESE &&
-      candidate !== ZHUYIN &&
-      candidate !== VIETNAMESE &&
-      candidate !== TIBETAN &&
-      candidate !== STROKE,
+  /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供。手写面板写出的是汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 和 Android 的 `KeyboardScheme.offeredBy` 一致。 */
+  static offeredBy(scheme: SchemeDefinition, edition: AppEdition = AppEdition.current()): boolean {
+    if (scheme !== HANDWRITING) {
+      return edition.offers(scheme.engineScheme);
+    }
+    return CHINESE_ENGINE_SCHEMES.some((engineScheme: string): boolean =>
+      edition.offers(engineScheme),
+    );
+  }
+
+  /** 选中这个入口时写进偏好 `scheme`、交给 Engine 的方案。手写写的是本版本的默认方案（full 是全拼）：识别由平台识别器完成，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退。 */
+  static engineSchemeOf(
+    scheme: SchemeDefinition,
+    edition: AppEdition = AppEdition.current(),
+  ): string {
+    return scheme === HANDWRITING ? edition.defaultScheme : scheme.engineScheme;
+  }
+
+  /** 偏好里的方案本版本没有、或一个入口都没剩下时退回的入口：本版本提供全拼时是全拼 26 键（与引入版本之前相同），否则是本版本默认方案的 26 键入口（五笔版是五笔）。 */
+  static fallback(edition: AppEdition = AppEdition.current()): SchemeDefinition {
+    if (KeyboardScheme.offeredBy(QUANPIN, edition)) {
+      return QUANPIN;
+    }
+    const offered: SchemeDefinition[] = KeyboardScheme.SCHEMES.filter(
+      (candidate: SchemeDefinition): boolean =>
+        candidate !== HANDWRITING && KeyboardScheme.offeredBy(candidate, edition),
+    );
+    for (const candidate of offered) {
+      if (
+        candidate.engineScheme === edition.defaultScheme &&
+        candidate.touchKeyboardLayout === "twenty_six_key"
+      ) {
+        return candidate;
+      }
+    }
+    return offered.length > 0 ? offered[0] : HANDWRITING;
+  }
+
+  /** 用户还没挑选时键盘显示的方案，与共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 一致：粤语、注音、越南语、藏文和笔画由用户自己打开，所以没有存过列表的设备仍是原来那套键盘。本版本不提供的入口不在里面。只有一个方案的版本例外：越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 和 Android 的 `KeyboardScheme.enabledFromPreferenceIds` 一致。 */
+  static defaultEnabled(edition: AppEdition): SchemeDefinition[] {
+    const optInEnabled: boolean = !edition.offersSchemeChoice();
+    return KeyboardScheme.SCHEMES.filter(
+      (candidate: SchemeDefinition): boolean =>
+        (optInEnabled ||
+          (candidate !== CANTONESE &&
+            candidate !== ZHUYIN &&
+            candidate !== VIETNAMESE &&
+            candidate !== TIBETAN &&
+            candidate !== STROKE)) &&
+        KeyboardScheme.offeredBy(candidate, edition),
+    );
+  }
+
+  static readonly DEFAULT_ENABLED: SchemeDefinition[] = KeyboardScheme.defaultEnabled(
+    AppEdition.current(),
   );
 
   /** The dictionary file an Engine scheme (by wire name) cannot type without, or null when it needs none. Cantonese, Zhuyin and Stroke read their own lexicon from the language-dictionaries directory beside the Engine resources; the file names are the ones the Engine looks for. */
@@ -287,16 +344,17 @@ export class KeyboardScheme {
     return null;
   }
 
-  /** Drops the schemes whose dictionary `installed` says is missing; falls back to 全拼 rather than an empty keyboard. */
+  /** 去掉 `installed` 说词典没装的方案；一个都不剩时退回本版本的默认入口（full 是全拼），而不是一个空键盘。 */
   static withInstalledDictionaries(
     enabled: SchemeDefinition[],
     installed: (file: string) => boolean,
+    edition: AppEdition = AppEdition.current(),
   ): SchemeDefinition[] {
     const available: SchemeDefinition[] = enabled.filter((candidate: SchemeDefinition): boolean => {
       const file: string | null = KeyboardScheme.languageDictionary(candidate.engineScheme);
       return file === null || installed(file);
     });
-    return available.length === 0 ? [QUANPIN] : available;
+    return available.length === 0 ? [KeyboardScheme.fallback(edition)] : available;
   }
 
   static fromPreferenceId(value: string | null): SchemeDefinition | null {
@@ -311,18 +369,23 @@ export class KeyboardScheme {
     return null;
   }
 
-  /** Resolves preference IDs in the fixed order and ignores unknown duplicates. */
-  static enabledFromPreferenceIds(ids: string[] | null): SchemeDefinition[] {
+  /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的；本版本不提供的入口（比如 full 那边存下的拼音落到五笔版）也不算，一个都不剩时退回本版本的默认入口。 */
+  static enabledFromPreferenceIds(
+    ids: string[] | null,
+    edition: AppEdition = AppEdition.current(),
+  ): SchemeDefinition[] {
     if (ids === null) {
-      return KeyboardScheme.DEFAULT_ENABLED;
+      return edition === AppEdition.current()
+        ? KeyboardScheme.DEFAULT_ENABLED
+        : KeyboardScheme.defaultEnabled(edition);
     }
     const enabled: SchemeDefinition[] = [];
     for (const candidate of KeyboardScheme.SCHEMES) {
-      if (ids.includes(candidate.preferenceId)) {
+      if (ids.includes(candidate.preferenceId) && KeyboardScheme.offeredBy(candidate, edition)) {
         enabled.push(candidate);
       }
     }
-    return enabled.length === 0 ? [QUANPIN] : enabled;
+    return enabled.length === 0 ? [KeyboardScheme.fallback(edition)] : enabled;
   }
 
   /** Shared selection is authoritative; otherwise preserve the applied scheme or use first enabled. */
@@ -330,9 +393,10 @@ export class KeyboardScheme {
     applied: SchemeDefinition | null,
     selectedPreferenceId: string | null,
     enabled: SchemeDefinition[] | null,
+    edition: AppEdition = AppEdition.current(),
   ): SchemeDefinition {
     const available: SchemeDefinition[] =
-      enabled === null || enabled.length === 0 ? [QUANPIN] : enabled;
+      enabled === null || enabled.length === 0 ? [KeyboardScheme.fallback(edition)] : enabled;
     const selected: SchemeDefinition | null = KeyboardScheme.fromPreferenceId(selectedPreferenceId);
     if (selected !== null && available.includes(selected)) {
       return selected;
@@ -360,8 +424,13 @@ export class KeyboardScheme {
     scheme: string,
     profile: string | null,
     touchLayout: string,
+    edition: AppEdition = AppEdition.current(),
   ): SchemeDefinition {
-    if (scheme === "quanpin" && touchLayout === "handwriting") {
+    // 手写写进偏好的是本版本的默认方案，见 `engineSchemeOf`；full 是全拼。
+    if (
+      scheme === KeyboardScheme.engineSchemeOf(HANDWRITING, edition) &&
+      touchLayout === "handwriting"
+    ) {
       return HANDWRITING;
     }
     if (scheme === "quanpin" && touchLayout === "nine_key") {
@@ -387,14 +456,16 @@ export class KeyboardScheme {
         return candidate;
       }
     }
-    return QUANPIN;
+    return KeyboardScheme.fallback(edition);
   }
 
   static mapping(
     scheme: SchemeDefinition,
     currentLastChineseScheme: string | null,
     currentProfile: string | null,
+    edition: AppEdition = AppEdition.current(),
   ): PreferenceMapping {
+    const engineScheme: string = KeyboardScheme.engineSchemeOf(scheme, edition);
     let profile: string = KeyboardScheme.normalizedProfile(currentProfile);
     if (scheme.shuangpinProfile !== null) {
       profile = scheme.shuangpinProfile;
@@ -402,13 +473,15 @@ export class KeyboardScheme {
     let lastChinese: string =
       KeyboardScheme.isChineseScheme(currentLastChineseScheme) && currentLastChineseScheme !== null
         ? currentLastChineseScheme
-        : "quanpin";
+        : KeyboardScheme.isChineseScheme(edition.defaultScheme)
+          ? edition.defaultScheme
+          : "quanpin";
     // 日语、韩语、越南语和藏文替换中文方案但本身不是中文方案，所以「中文」回到被它们替换掉的那个方案。
-    if (KeyboardScheme.isChineseScheme(scheme.engineScheme)) {
-      lastChinese = scheme.engineScheme;
+    if (KeyboardScheme.isChineseScheme(engineScheme)) {
+      lastChinese = engineScheme;
     }
     return {
-      scheme: scheme.engineScheme,
+      scheme: engineScheme,
       lastChineseScheme: lastChinese,
       shuangpinProfile: profile,
       touchKeyboardLayout: scheme.touchKeyboardLayout,

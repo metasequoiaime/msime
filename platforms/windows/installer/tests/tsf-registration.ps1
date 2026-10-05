@@ -11,7 +11,7 @@ foreach ($arch in @('32', '64')) {
     if ($tip.Count -ne 1 -or $hostDll.Count -ne 1 -or $hostDll[0].Value -match '\bregserver\b' -or
         $hostDll[0].Index -gt $tip[0].Index -or
         -not $hostDll[0].Value.Contains('Excludes: "MetasequoiaImeTsf.dll"') -or
-        -not $hostDll[0].Value.Contains("{commonpf$arch}\metasequoiaime\{code:GetVersionDir}")) {
+        -not $hostDll[0].Value.Contains("{commonpf$arch}\{#MyEditionInstallDir}\{code:GetVersionDir}")) {
         throw 'TSF dependency installation/registration contract mismatch'
     }
 }

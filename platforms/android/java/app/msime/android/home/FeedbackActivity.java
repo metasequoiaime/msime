@@ -113,7 +113,7 @@ public final class FeedbackActivity extends AppCompatActivity {
         } catch (PackageManager.NameNotFoundException error) {
             // 查不到自己的包就用上面那两个占位，别把一个假版本号写进别人的问题单。
         }
-        return "水杉输入法 " + version + "（构建 " + build + "）\n"
+        return getString(R.string.app_name) + " " + version + "（构建 " + build + "）\n"
             + "Android " + Build.VERSION.RELEASE + "（API " + Build.VERSION.SDK_INT + "）\n"
             + Build.MANUFACTURER + " " + Build.MODEL;
     }

@@ -40,19 +40,21 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定十个产物的长度和 SHA-256，每个都带可匿名下载的 URL：九个来自 `metasequoiaime/msime-dictionary` 的 `dict-v2.0.5` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。早先只供 Google 整句解码器使用的 `dict_pinyin.dat` 已随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
+锁文件固定十二个产物的长度和 SHA-256，每个都带可匿名下载的 URL：十一个来自 `metasequoiaime/msime-dictionary` 的 `dict-v2.0.7` 发布（由其 `release-built-dictionaries.yml` 调用 msime 构建器生成），`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。早先只供 Google 整句解码器使用的 `dict_pinyin.dat` 已随解码器一起去掉。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
 | `msime-pinyin.db` | 74.0 MB | 拼音工作词库与快捷短语 |
 | `msime-wubi.db` | 13.7 MB | 86 与 98 五笔码表，从拼音构建产物拆出；98 版同时合并 `msime-dictionary` 的开源补充表。准备代次时并回工作主词库 |
-| `msime-english.db` | 1.6 MB | Engine 发布的英文词库 |
+| `msime-english.db` | 4.5 MB | Engine 发布的英文词库，英文词表含 SCOWL 的词，来源与条款见 `resources/licenses/msime-engine-dictionary-NOTICE.md` |
+| `msime-scowl_Copyright.txt` | 4.0 KB | SCOWL 的版权与许可声明。SCOWL 的条款要求随附文档保留它，**分发 `msime-english.db` 时必须一同携带** |
 | `msime-bigram.bin` | 12.0 MB | Engine 发布的二元语言模型表，整句词格仲裁按它加权 |
 | `msime-trigram.bin` | 12.0 MB | Engine 发布的三元语言模型表，同上 |
 | `msime-others.db` | 1.3 MB | Engine 发布的表情等数据 |
 | `msime-japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
 | `msime-mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
-| `msime-dictionary-manifest.json` | 3.6 KB | 资源清单 |
+| `msime-mozc_LICENSE.txt` | 5.7 KB | Mozc 仓库根目录的 `LICENSE`（Google 三条款 BSD 及词典目录的附加条款）。**分发时必须一同携带**，理由见下节 |
+| `msime-dictionary-manifest.json` | 4.3 KB | 资源清单 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
@@ -72,7 +74,7 @@
 
 构建时还按 Mozc OSS 构建组装系统词典的方式，用同一提交的 `src/data/dictionary_oss/dictionary_filter.tsv` 删去基础词库中的个别词条，并用 `src/data/dictionary_oss/aux_dictionary.tsv` 与 `src/data/dictionary_manual/places.tsv`、`words.tsv` 增补词条（按锁定的 Mozc 提交 `9fbd649` 计，增 226 条、删 15 条）。这几份是 Google 维护的词表，位于 `src/data/dictionary*` 之下，因此和基础词库一样同时适用根目录 `LICENSE` 的 Google 三条款 BSD 文本与附加的 IPAdic、ICOT、冲绳辞書条款。
 
-**实际后果：分发这份词库时必须一并携带 `msime-mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。**但只带这份 README 还不够**：Google 的三条款 BSD 要求以二进制形式再分发时附上 Google 的版权声明、条件列表和免责声明，而 README 里没有这段文字。为此 `msime-dictionary` 按锁定提交原样收录了该文件（`sources/japanese/LICENSE`），日文模型阶段把它复制成 `msime-mozc_LICENSE.txt` 与模型一起输出，`product.rs` 检查它存在、写进清单和 `msime-SHA256SUMS.txt`，缺了就不出产品。在 `msime-dictionary` 的 `release-built-dictionaries.yml` 把它附进 `dict-v` 发布、本仓库的 `desktop-dictionary.lock.json` 登记它之前，已发布的随包资源仍未携带这段文本。
+**实际后果：分发这份词库时必须一并携带 `msime-mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。**但只带这份 README 还不够**：Google 的三条款 BSD 要求以二进制形式再分发时附上 Google 的版权声明、条件列表和免责声明，而 README 里没有这段文字。为此 `msime-dictionary` 按锁定提交原样收录了该文件（`sources/japanese/LICENSE`），日文模型阶段把它复制成 `msime-mozc_LICENSE.txt` 与模型一起输出，`product.rs` 检查它存在、写进清单和 `msime-SHA256SUMS.txt`，缺了就不出产品。`dict-v2.0.7` 起它作为 `dict-v` 发布的附件、由本仓库的 `desktop-dictionary.lock.json` 登记，凡是装 `msime-japanese.dat` 的渠道都按锁文件同时装上它；macOS 的按需日文资源包（`resources.rs` 的 `MACOS_ON_DEMAND_ARTIFACTS`）也把它和 README 一起下载。
 
 开源版不含日本邮政编码词典；README 给出了自行生成的步骤，本仓库没有执行。
 
@@ -300,6 +302,7 @@ msime-dictionary 原样收录了 `stroke.dict.yaml`，`resources/dictionary-sour
 | HarmonyOS HAP 的 `resfile/licenses/` | `platforms/harmony/stage-resources.sh` 暂存的编进引擎的韩语汉字表的 libhangul BSD-3-Clause 声明 |
 | `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
 | `platforms/windows/Notices.md` | Windows 通知生成器的用法与限制；产物由 `Collect-Notices.ps1` 生成 |
+| 网页引擎 `web-engine-vX.Y.Z` release 的 `NOTICE.md` | 网页内置输入法用的 wasm 引擎、裁剪后的拼音库与五笔 86 库和整句模型的来源与许可证（release 由 `.github/workflows/release-web-engine.yml` 构建）。来源是 `resources/licenses/web-engine-NOTICE.md`：词库、模型、编进 wasm 的数据等内容手写；仓库许可证全文与链接进 wasm 的 crate 两节由 `scripts/web-engine-notice.sh` 按 `cargo tree -p msime-engine-wasm --target wasm32-unknown-unknown -e normal,no-proc-macro` 生成，`--check` 与 `crates/engine-wasm/tests/notice.rs` 在依赖变化而 NOTICE 没有重新生成时失败。`scripts/build-web-engine.sh` 把它复制成 `NOTICE.md`，并把源码链接里的占位符换成构建所用的提交 |
 
 这些生成器和收集器都在各自文档里写明「不是完整性或再分发授权的评估」。发布二进制前的逐平台要求见[开源发布清单](open-source-release.md)。
 

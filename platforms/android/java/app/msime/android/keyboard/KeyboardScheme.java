@@ -51,7 +51,39 @@ public enum KeyboardScheme {
     }
 
     public String preferenceId() { return preferenceId; }
-    public String engineScheme() { return engineScheme; }
+
+    /**
+     * 选中这个入口时写进偏好 `scheme` 的 Engine 方案。
+     *
+     * <p>手写写的是本版本的默认方案（full 和拼音版是全拼，五笔版是五笔）：手写识别由平台识别器完成，不经过 Engine 的方案，手写面板背后的 Engine 只需要跑一个本版本提供的方案，否则 host-api 会把它当作本版本不含的方案回退，偏好里记的和 Engine 跑的就对不上了。
+     */
+    public String engineScheme(AppEdition edition) {
+        return this == HANDWRITING ? edition.defaultScheme() : engineScheme;
+    }
+
+    /** 本版本的键盘是否提供这个入口：入口背后的方案在本版本里时提供。手写由 ML Kit 的 `zh-Hani-CN` 模型识别，只认汉字，所以只在提供中文方案的版本里有（full、拼音版、五笔版），日文、越南文和藏文版没有。与 client-core 的 `Edition::offers_touch_scheme` 一致。 */
+    public boolean offeredBy(AppEdition edition) {
+        if (this != HANDWRITING) return edition.offers(engineScheme);
+        for (KeyboardScheme candidate : values()) {
+            if (candidate != HANDWRITING && isChineseScheme(candidate.engineScheme)
+                    && edition.offers(candidate.engineScheme)) return true;
+        }
+        return false;
+    }
+
+    /** 偏好里的方案本版本没有、或一个入口都没剩下时退回的入口：本版本提供全拼时是全拼 26 键（与引入版本之前相同），否则是本版本默认方案的 26 键入口（五笔版是五笔）。 */
+    public static KeyboardScheme fallback(AppEdition edition) {
+        if (QUANPIN.offeredBy(edition)) return QUANPIN;
+        for (KeyboardScheme candidate : values()) {
+            if (candidate != HANDWRITING && candidate.offeredBy(edition)
+                    && candidate.engineScheme.equals(edition.defaultScheme())
+                    && "twenty_six_key".equals(candidate.touchKeyboardLayout)) return candidate;
+        }
+        for (KeyboardScheme candidate : values()) {
+            if (candidate != HANDWRITING && candidate.offeredBy(edition)) return candidate;
+        }
+        return HANDWRITING;
+    }
     public String shuangpinProfile() { return shuangpinProfile; }
     public String touchKeyboardLayout() { return touchKeyboardLayout; }
     public String title() { return title; }
@@ -101,13 +133,14 @@ public enum KeyboardScheme {
         return root.isAbsolute() && new java.io.File(root, dictionary).isFile();
     }
 
-    /** `enabled` without the schemes whose dictionary `directory` lacks, falling back to 全拼 26 键 like an empty stored list. */
-    public static List<KeyboardScheme> installedOf(List<KeyboardScheme> enabled, String directory) {
+    /** `enabled` 里本版本提供、词典也已装好的入口；一个都不剩时与没存过列表一样退回 {@link #fallback}。 */
+    public static List<KeyboardScheme> installedOf(
+            List<KeyboardScheme> enabled, String directory, AppEdition edition) {
         List<KeyboardScheme> installed = new ArrayList<>();
         for (KeyboardScheme candidate : enabled) {
-            if (candidate.installed(directory)) installed.add(candidate);
+            if (candidate.offeredBy(edition) && candidate.installed(directory)) installed.add(candidate);
         }
-        return installed.isEmpty() ? List.of(QUANPIN) : List.copyOf(installed);
+        return installed.isEmpty() ? List.of(fallback(edition)) : List.copyOf(installed);
     }
 
     public static KeyboardScheme fromPreferenceId(String value) {
@@ -118,30 +151,31 @@ public enum KeyboardScheme {
         return null;
     }
 
-    /** Resolves preference IDs in the fixed Apple order and ignores unknown duplicates. Without a stored list the opt-in schemes stay off. */
-    public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids) {
+    /** 按固定顺序解析偏好里的入口 id，忽略不认识的和重复的，也忽略本版本没有的入口。没存过列表时，需要用户自己打开的那几个不启用；只有一个方案的版本例外，越南文版、藏文版的入口就是这个版本本身，与 client-core 的 `TouchKeyboardSchemePreferences::for_edition` 一致。 */
+    public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids, AppEdition edition) {
         if (ids == null) {
             List<KeyboardScheme> defaults = new ArrayList<>();
             for (KeyboardScheme candidate : values()) {
-                if (!candidate.optIn()) defaults.add(candidate);
+                if ((!candidate.optIn() || !edition.offersSchemeChoice()) && candidate.offeredBy(edition))
+                    defaults.add(candidate);
             }
-            return List.copyOf(defaults);
+            return defaults.isEmpty() ? List.of(fallback(edition)) : List.copyOf(defaults);
         }
         Set<String> requested = new LinkedHashSet<>(ids);
         // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
         // minSdk 28, so it compiles against the platform jar and throws on the device.
         List<KeyboardScheme> enabled = new ArrayList<>();
         for (KeyboardScheme candidate : values()) {
-            if (requested.contains(candidate.preferenceId)) enabled.add(candidate);
+            if (requested.contains(candidate.preferenceId) && candidate.offeredBy(edition)) enabled.add(candidate);
         }
-        return enabled.isEmpty() ? List.of(QUANPIN) : List.copyOf(enabled);
+        return enabled.isEmpty() ? List.of(fallback(edition)) : List.copyOf(enabled);
     }
 
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */
-    public static KeyboardScheme resolveEnabledSelection(
-            KeyboardScheme applied, String selectedPreferenceId, List<KeyboardScheme> enabled) {
+    public static KeyboardScheme resolveEnabledSelection(KeyboardScheme applied,
+            String selectedPreferenceId, List<KeyboardScheme> enabled, AppEdition edition) {
         List<KeyboardScheme> available = enabled == null || enabled.isEmpty()
-            ? List.of(QUANPIN) : enabled;
+            ? List.of(fallback(edition)) : enabled;
         KeyboardScheme selected = fromPreferenceId(selectedPreferenceId);
         if (selected != null && available.contains(selected)) return selected;
         if (selectedPreferenceId == null && applied != null && available.contains(applied)) return applied;
@@ -151,13 +185,21 @@ public enum KeyboardScheme {
     /** Returns the Engine preference mapping needed when the shared picker changed the fallback. */
     public static PreferenceMapping mappingForRuntimeSelection(
             KeyboardScheme applied, KeyboardScheme selected,
-            String currentLastChineseScheme, String currentProfile) {
+            String currentLastChineseScheme, String currentProfile, AppEdition edition) {
         if (selected == null || selected == applied) return null;
-        return selected.mapping(currentLastChineseScheme, currentProfile);
+        return selected.mapping(currentLastChineseScheme, currentProfile, edition);
     }
 
-    public static KeyboardScheme fromPreferences(String scheme, String profile, String touchLayout) {
-        if ("quanpin".equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
+    /** 偏好里的方案、双拼方案和触屏布局对应的入口；本版本没有那个入口时是 {@link #fallback}，与 host-api 把本版本不含的方案回退到默认方案一致。 */
+    public static KeyboardScheme fromPreferences(
+            String scheme, String profile, String touchLayout, AppEdition edition) {
+        KeyboardScheme resolved = fromPreferences(scheme, profile, touchLayout, edition.defaultScheme());
+        return resolved.offeredBy(edition) ? resolved : fallback(edition);
+    }
+
+    private static KeyboardScheme fromPreferences(
+            String scheme, String profile, String touchLayout, String handwritingScheme) {
+        if (handwritingScheme.equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
         if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
         if ("shuangpin".equals(scheme)) {
@@ -173,14 +215,18 @@ public enum KeyboardScheme {
         return QUANPIN;
     }
 
-    public PreferenceMapping mapping(String currentLastChineseScheme, String currentProfile) {
+    public PreferenceMapping mapping(
+            String currentLastChineseScheme, String currentProfile, AppEdition edition) {
         String profile = normalizedProfile(currentProfile);
         if (shuangpinProfile != null) profile = shuangpinProfile;
-        String lastChinese = isChineseScheme(currentLastChineseScheme)
-            ? currentLastChineseScheme : "quanpin";
+        String scheme = engineScheme(edition);
+        // 要切回的中文方案也只能是本版本有的；记着的那个本版本没有时，用本版本的默认方案（它不是中文方案时仍是全拼，与引入版本之前相同）。
+        String lastChinese = isChineseScheme(currentLastChineseScheme) && edition.offers(currentLastChineseScheme)
+            ? currentLastChineseScheme
+            : isChineseScheme(edition.defaultScheme()) ? edition.defaultScheme() : "quanpin";
         // 日语、韩语、越南语和藏文保留要切回的中文方案，它们自己都不是中文方案；粤拼、注音和笔画是中文方案，会成为要切回的那个。
-        if (isChineseScheme(engineScheme)) lastChinese = engineScheme;
-        return new PreferenceMapping(engineScheme, lastChinese, profile, touchKeyboardLayout);
+        if (isChineseScheme(scheme)) lastChinese = scheme;
+        return new PreferenceMapping(scheme, lastChinese, profile, touchKeyboardLayout);
     }
 
     private static boolean isChineseScheme(String value) {

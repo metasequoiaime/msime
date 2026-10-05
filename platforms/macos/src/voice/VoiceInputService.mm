@@ -9,6 +9,17 @@
 #include <memory>
 #include <mutex>
 #include <atomic>
+static BOOL MSIMEVoiceStrictGeneration(id value, uint64_t *result) {
+    if (![value isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID() ||
+        CFNumberIsFloatType((__bridge CFNumberRef)value)) return NO;
+    NSNumber *number = (NSNumber *)value;
+    if ([number compare:@0] == NSOrderedAscending) return NO;
+    uint64_t generation = number.unsignedLongLongValue;
+    if ([number compare:@(generation)] != NSOrderedSame) return NO;
+    if (result) *result = generation;
+    return YES;
+}
 namespace {
 struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
 }
@@ -176,7 +187,7 @@ struct PCMStreamAdmission { std::mutex mutex; bool live = true; };
     return _speechTask != nil;
 }
 - (void)stopTranscription { ++_transcriptionGeneration; [_speechTask cancel]; _speechTask = nil; _speechRequest = nil; _recognizer = nil; [_analyzer cancel]; _analyzer = nil; }
-- (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; _session = session; _active = YES; if (generation) *generation = [result[@"generation"] unsignedLongLongValue]; return YES; }
+- (BOOL)startWithSession:(MSIMEClientSession *)session generation:(uint64_t *)generation error:(NSError **)error { if (_active) return YES; NSDictionary *result = [session startVoiceWithError:error]; if (!result) return NO; uint64_t admittedGeneration = 0; if (!MSIMEVoiceStrictGeneration(result[@"generation"], &admittedGeneration)) return NO; _session = session; _active = YES; if (generation) *generation = admittedGeneration; return YES; }
 - (BOOL)cancelWithError:(NSError **)error { [self stopPCMStreamDelivery]; [_pcmRecording cancel]; _pcmRecording = nil; if (!_active) { [self stopMicrophoneCapture]; [self stopTranscription]; return YES; } BOOL ok = [_session cancelVoiceWithError:error]; [self stopMicrophoneCapture]; [self stopTranscription]; _active = NO; _session = nil; return ok; }
 - (void)applyText:(NSString *)text generation:(uint64_t)generation completion:(MSIMEVoiceInputResult)completion {
     MSIMEClientSession *session = _session;

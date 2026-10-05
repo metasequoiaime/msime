@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/InputSchemeTraits.h"
 #include "TrayMenuCommand.h"
 #include <algorithm>
 #include <cstddef>
@@ -53,6 +54,10 @@ struct TrayMenuCapabilities {
   bool cantonese = false;
   bool zhuyin = false;
   bool stroke = false;
+  // 本版本提供的方案。不在其中的方案行不出现，而不是显示为不可用：那个方案在这个版本里根本不存在。full 提供全部方案。
+  scheme::OfferedSchemes schemes = scheme::edition_schemes();
+  // 卡片标题和「关于」行里的产品名（UTF-8），按版本取；full 是「水杉输入法」。
+  std::string product_name = MSIME_EDITION_DISPLAY_NAME_UTF8;
 };
 // What the menu shows, sampled by the Server each time the card opens or redraws after a switch.
 struct TrayMenuState {
@@ -187,7 +192,7 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
   // In the Engine's English mode the TIP may still report Chinese, and the toolbar shows English then too.
   const bool english =
       language_known && (!*state.chinese || state.dedicated_english);
-  header("水杉输入法");
+  header(capabilities.product_name);
   separator();
   // 日文、韩文、越南文和藏文是各自方案的非英文语言，和工具栏的 日、한、越、藏 按钮一致。粤拼、注音和笔画写的是中文。
   row(TrayMenuCommand::SelectChinese,
@@ -209,22 +214,31 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       state.translations);
   separator();
   caption("输入方案");
-  row(TrayMenuCommand::SelectQuanpin, "全拼", true, state.scheme == "quanpin");
-  row(TrayMenuCommand::SelectShuangpin,
-      tray_menu_shuangpin_label(state.shuangpin_profile), true,
-      state.scheme == "shuangpin");
-  row(TrayMenuCommand::SelectWubi, tray_menu_wubi_label(state.wubi_profile), true,
-      state.scheme == "wubi");
-  row(TrayMenuCommand::SelectJapanese, "日文", true, japanese);
-  row(TrayMenuCommand::SelectKorean, "韩文", true, korean);
-  row(TrayMenuCommand::SelectCantonese, "粤拼", capabilities.cantonese,
-      state.scheme == "cantonese");
-  row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin,
-      state.scheme == "zhuyin");
-  row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
-  row(TrayMenuCommand::SelectTibetan, "藏文", true, tibetan);
-  row(TrayMenuCommand::SelectStroke, "笔画", capabilities.stroke,
-      state.scheme == "stroke");
+  // 只列出本版本提供的方案。
+  auto scheme_row = [&](TrayMenuCommand command, std::string label,
+                        bool available, bool checked) {
+    if (capabilities.schemes.offers(
+            scheme::scheme_from_name(tray_menu_scheme(command))))
+      row(command, std::move(label), available, checked);
+  };
+  scheme_row(TrayMenuCommand::SelectQuanpin, "全拼", true,
+             state.scheme == "quanpin");
+  scheme_row(TrayMenuCommand::SelectShuangpin,
+             tray_menu_shuangpin_label(state.shuangpin_profile), true,
+             state.scheme == "shuangpin");
+  scheme_row(TrayMenuCommand::SelectWubi,
+             tray_menu_wubi_label(state.wubi_profile), true,
+             state.scheme == "wubi");
+  scheme_row(TrayMenuCommand::SelectJapanese, "日文", true, japanese);
+  scheme_row(TrayMenuCommand::SelectKorean, "韩文", true, korean);
+  scheme_row(TrayMenuCommand::SelectCantonese, "粤拼", capabilities.cantonese,
+             state.scheme == "cantonese");
+  scheme_row(TrayMenuCommand::SelectZhuyin, "注音", capabilities.zhuyin,
+             state.scheme == "zhuyin");
+  scheme_row(TrayMenuCommand::SelectVietnamese, "越南文", true, vietnamese);
+  scheme_row(TrayMenuCommand::SelectTibetan, "藏文", true, tibetan);
+  scheme_row(TrayMenuCommand::SelectStroke, "笔画", capabilities.stroke,
+             state.scheme == "stroke");
   separator();
   // The host tools the shipped menu offered, kept reachable as one strip so the card still fits a small work area.
   tool(TrayMenuCommand::ToggleFloatingToolbar, "工具栏", 0xE7C4, L"栏",
@@ -242,8 +256,8 @@ tray_menu_items(const TrayMenuCapabilities &capabilities,
       state.theme_title);
   row(TrayMenuCommand::OpenDictionary, "词库…", capabilities.settings, false);
   row(TrayMenuCommand::OpenSettings, "设置…", capabilities.settings, false);
-  row(TrayMenuCommand::OpenAbout, "关于水杉输入法", capabilities.settings,
-      false);
+  row(TrayMenuCommand::OpenAbout, "关于" + capabilities.product_name,
+      capabilities.settings, false);
   return items;
 }
 // Whether a row that ran closes the menu. The toolbar tile is a switch: the reference flips it in place and leaves the menu open (tray_menu_presenter.cpp:175-186). Every other row either opens a surface or changes a mode the TIP applies asynchronously, and dismisses the menu as a native menu does.

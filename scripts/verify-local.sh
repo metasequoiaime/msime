@@ -437,6 +437,34 @@ else
   echo "skipped: pinned NDK or aarch64-linux-android target not present"
 fi
 
+note "compile: wasm target"
+# 网页内置输入法的引擎（msime-engine-wasm）只在 wasm32-unknown-unknown 上编译 `bindings.rs`，上面主机目标的 `cargo check --workspace` 看不到它，clippy 也只有在这里才会检查到它。和 android 一样，缺目标或缺工具链时跳过而不是失败：需要 Rust 的 wasm32-unknown-unknown 目标，以及能编 wasm 的 LLVM clang 和 llvm-ar（SQLite 是 C 代码；Apple 的 ar 会产出空的 libwsqlite3.a，Apple clang 不认 wasm32）。
+wasm_cc="${CC_wasm32_unknown_unknown:-}"
+wasm_ar="${AR_wasm32_unknown_unknown:-}"
+if [ -z "$wasm_cc" ] || [ -z "$wasm_ar" ]; then
+  for wasm_prefix in /opt/homebrew/opt/llvm/bin /usr/local/opt/llvm/bin; do
+    if [ -x "$wasm_prefix/clang" ] && [ -x "$wasm_prefix/llvm-ar" ]; then
+      wasm_cc="${wasm_cc:-$wasm_prefix/clang}"
+      wasm_ar="${wasm_ar:-$wasm_prefix/llvm-ar}"
+      break
+    fi
+  done
+fi
+[ -n "$wasm_cc" ] || wasm_cc="$(command -v clang || true)"
+[ -n "$wasm_ar" ] || wasm_ar="$(command -v llvm-ar || true)"
+if [ -n "$wasm_cc" ] && [ -n "$wasm_ar" ] \
+  && printf 'int x;\n' | "$wasm_cc" --target=wasm32-unknown-unknown -x c -c -o /dev/null - >/dev/null 2>&1 \
+  && rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+  env "CC_wasm32_unknown_unknown=$wasm_cc" "AR_wasm32_unknown_unknown=$wasm_ar" \
+    cargo check --locked -p msime-engine-wasm --target wasm32-unknown-unknown 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check --target wasm32-unknown-unknown"
+  env "CC_wasm32_unknown_unknown=$wasm_cc" "AR_wasm32_unknown_unknown=$wasm_ar" \
+    cargo clippy --locked -p msime-engine-wasm --target wasm32-unknown-unknown -- -D warnings 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo clippy --target wasm32-unknown-unknown"
+else
+  echo "skipped: wasm32-unknown-unknown target or an LLVM clang/llvm-ar that can build wasm not present"
+fi
+
 # The Java half. `cargo check` above compiles the Rust the service calls into and says nothing about
 # the service itself, which is where most of this host lives: the input method, its keyboard, its
 # panels and two dozen policy classes with their own smoke tests. check-host.sh compiles all of it
@@ -568,7 +596,9 @@ note "compile: linux native host"
 if ! scoped linux; then
   :
 elif [ "$(uname -s 2>/dev/null)" = "Linux" ] && pkg-config --exists ibus-1.0 2>/dev/null; then
-  cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
+  # CMake 链接的是 target/debug 下的 Host API，而上面的 Rust 阶段只做 cargo check，不产出它；与 build-container.sh 一样先构建，否则配置阶段就报「Build msime-host-api for Linux first」。
+  cargo build -p msime-host-api --locked >/dev/null 2>&1 &&
+    cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
     cmake --build "$root/target/linux-gate" >/dev/null 2>&1 &&
     ctest --test-dir "$root/target/linux-gate" --output-on-failure >/dev/null 2>&1 &&
     echo "linux native host: builds and its tests pass" ||
@@ -850,7 +880,7 @@ fi
 # all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
 # for that reason, and its 86 tests had never run. msime-engine and msime-tauri-mobile-platform
 # were missing too, and nothing else runs their tests on the host target.
-for package in msime-client-core msime-engine msime-host-api msime-input-runtime msime-host-windows \
+for package in msime-client-core msime-engine msime-engine-wasm msime-host-api msime-input-runtime msime-host-windows \
   msime-host-macos msime-mcp-server msime-tauri-mobile-platform msime-desktop; do
   # A package that does not build produces no failing test names, which reads as "at baseline" - which is
   # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
@@ -896,13 +926,13 @@ else
 fi
 
 note "clippy: first-party crates"
-# The header promised clippy for a long time without running it anywhere; the disabled CI workflow was the only place it had ever run. All eight crates below are clean at -D warnings today, so this is a hard gate with no baseline - if it starts failing, the change under test caused it.
+# 文件头很长时间里承诺了 clippy 却哪里都没跑，唯一跑过它的是已经停用的 CI workflow。下面九个 crate 今天在 -D warnings 下都是干净的，所以这是没有基线的硬门槛：一旦失败，就是被测的改动引起的。
 #
 # The workspace as a whole is not gated: apps/desktop needs a built frontend
 # before its Tauri build script will run, which makes "clippy failed" and
 # "frontend not built" indistinguishable on a developer machine.
 clippy_failed=""
-for crate in msime-client-core msime-engine msime-host-api msime-host-macos \
+for crate in msime-client-core msime-engine msime-engine-wasm msime-host-api msime-host-macos \
              msime-host-windows msime-input-runtime msime-mcp-server msime-tauri-mobile-platform; do
   cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
     clippy_failed="$clippy_failed  $crate"$'\n'

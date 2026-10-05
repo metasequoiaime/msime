@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "../core/EditionIdentity.h"
 #include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
@@ -39,8 +40,8 @@ static inline NSData *MSIMEReadRuntimeOptionsData(NSString *path) {
     return data;
 }
 
-// The settings app's bundle identifier, which is also the name of the default state directory under Application Support that the settings app and this input method share.
-static NSString *const MSIMEClientApplicationIdentifier = @"app.msime.macos";
+// 设置应用的 bundle identifier，也是设置应用和本输入法共用的、Application Support 下默认状态目录的名字。它随版本而变（full 是 app.msime.macos），见 EditionIdentity.h。
+#define MSIMEClientApplicationIdentifier MSIMESettingsBundleIdentifier()
 static inline NSURL *MSIMEClientStateDirectory(NSFileManager *fileManager, NSString *identifier) {
     NSURL *support = [[fileManager URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask] firstObject];
     return [support URLByAppendingPathComponent:identifier isDirectory:YES];

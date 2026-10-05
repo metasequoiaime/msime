@@ -11,8 +11,8 @@ use crate::user_dictionary::journal::{open_database, pinyin_table};
 use crate::user_dictionary::personal::{
     check_receipt, column_i64, column_text, failed, open_edit_connection, page_bind, save_receipt,
     valid_request_id, Receipt, DICTIONARY_NOT_OPENED, EDIT_NOT_BEGUN, ENTRY_CHANGED,
-    INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, RETRY_NOT_FINISHED,
-    STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
+    INVALID_REQUEST_ID, MAX_ENTRY_WEIGHT, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET, NO_CHINESE_DICTIONARY,
+    RETRY_NOT_FINISHED, STORAGE_NOT_ATTACHED, STORAGE_UNAVAILABLE,
 };
 use crate::user_dictionary::replay::attach;
 
@@ -208,6 +208,17 @@ pub fn edit_bundled_dictionary_entry(
     weight: Option<i64>,
     request_id: &str,
 ) -> Result<()> {
+    edit_bundled_dictionary_entry_with(paths, true, previous, weight, request_id)
+}
+
+/// [`edit_bundled_dictionary_entry`]，`main_dictionary` 说明代次里有没有 `msime-pinyin.db`。没有时只有英文词库的行能改，其余种类以 `NO_CHINESE_DICTIONARY` 失败。
+pub fn edit_bundled_dictionary_entry_with(
+    paths: &RuntimePaths,
+    main_dictionary: bool,
+    previous: &PersonalDictionaryEntry,
+    weight: Option<i64>,
+    request_id: &str,
+) -> Result<()> {
     if !valid_request_id(request_id) {
         return Err(failed(INVALID_REQUEST_ID));
     }
@@ -225,6 +236,9 @@ pub fn edit_bundled_dictionary_entry(
         return Err(failed(INVALID_BUNDLED_ENTRY));
     }
     let english = previous.kind == PersonalDictionaryKind::English;
+    if !main_dictionary && !english {
+        return Err(failed(NO_CHINESE_DICTIONARY));
+    }
     let target = format!(
         "{}.\"{table}\"",
         if english { "replay_english" } else { "main" }
@@ -237,7 +251,7 @@ pub fn edit_bundled_dictionary_entry(
     let dictionary = previous.kind.journal_name();
 
     paths.validate().map_err(|_| failed(STORAGE_UNAVAILABLE))?;
-    let mut connection = open_edit_connection(paths)?;
+    let mut connection = open_edit_connection(paths, main_dictionary)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| failed(EDIT_NOT_BEGUN))?;

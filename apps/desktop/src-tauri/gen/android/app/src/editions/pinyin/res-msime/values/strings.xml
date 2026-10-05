@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tauri 包的启动器入口用的是这个标签而不是 app_name（activity 的 label 优先于 application 的），所以它也要按版本覆盖，否则几个版本同时装着时启动器上都叫「水杉输入法 · 设置」。与 src/main/res-msime 的同名字符串只差产品名，scripts/test-editions.py 检查两者没有走偏。 -->
+    <string name="main_activity_title">水杉拼音 · 设置</string>
+</resources>

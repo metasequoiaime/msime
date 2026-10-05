@@ -27,9 +27,12 @@ pub struct ResourceSet {
     pub artifacts: Vec<Artifact>,
 }
 
-/// macOS 发布包不内置、改为按需下载的桌面词库文件。两者作为一个整体出现或缺席：日文词典与它的 Mozc 许可说明必须同时在场，只有一个在场时按原规则校验失败。
-pub const MACOS_ON_DEMAND_ARTIFACTS: [&str; 2] =
-    ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"];
+/// macOS 发布包不内置、改为按需下载的桌面词库文件。三者作为一个整体出现或缺席：日文词典与它的两份许可文本（Mozc 词典说明里的 IPAdic/ICOT 条款、Mozc 的 BSD 许可）必须同时在场，只缺一部分时按原规则校验失败。
+pub const MACOS_ON_DEMAND_ARTIFACTS: [&str; 3] = [
+    "msime-japanese.dat",
+    "msime-mozc_dictionary_oss_README.txt",
+    "msime-mozc_LICENSE.txt",
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
@@ -485,13 +488,15 @@ mod tests {
         }
     }
 
-    /// 在现有夹具上追加两个按需下载的文件，夹在核心文件中间，用来检查顺序保持不变。
+    /// 在现有夹具上追加三个按需下载的文件，夹在核心文件中间，用来检查顺序保持不变。
     fn desktop_specification() -> ResourceSet {
         let mut set = specification();
         set.artifacts
             .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[0], b"japanese"));
         set.artifacts
             .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[1], b"readme"));
+        set.artifacts
+            .push(fixture_artifact(MACOS_ON_DEMAND_ARTIFACTS[2], b"license"));
         set.artifacts
             .push(fixture_artifact("msime-english.db", b"english"));
         set
@@ -513,7 +518,11 @@ mod tests {
         let core = spec.without(&MACOS_ON_DEMAND_ARTIFACTS);
         assert_eq!(
             names(&on_demand),
-            ["msime-japanese.dat", "msime-mozc_dictionary_oss_README.txt"]
+            [
+                "msime-japanese.dat",
+                "msime-mozc_dictionary_oss_README.txt",
+                "msime-mozc_LICENSE.txt"
+            ]
         );
         assert_eq!(names(&core), ["msime-pinyin.db", "msime-english.db"]);
         assert_eq!(on_demand.source_commit, spec.source_commit);
@@ -545,7 +554,7 @@ mod tests {
             .verify(directory.path(), &shipped)
             .unwrap_err();
         assert!(
-            matches!(&error, ResourceError::ExistingGeneration(message) if message.contains("msime-mozc_dictionary_oss_README.txt")),
+            matches!(&error, ResourceError::ExistingGeneration(message) if message.contains("msime-mozc_dictionary_oss_README.txt") && message.contains("msime-mozc_LICENSE.txt")),
             "{error}"
         );
     }
@@ -562,6 +571,7 @@ mod tests {
             b"readme",
         )
         .unwrap();
+        fs::write(directory.path().join("msime-mozc_LICENSE.txt"), b"license").unwrap();
         let spec = desktop_specification();
         let shipped = spec.as_shipped_in(directory.path(), &MACOS_ON_DEMAND_ARTIFACTS);
         assert_eq!(names(&shipped), names(&spec));
@@ -583,8 +593,8 @@ mod tests {
         let _ = lock.without(&MACOS_ON_DEMAND_ARTIFACTS);
         let shipped = lock.as_shipped_in(empty.path(), &MACOS_ON_DEMAND_ARTIFACTS);
         assert_eq!(lock.generation().unwrap(), before);
-        assert_eq!(lock.artifacts.len(), 10);
-        assert_eq!(shipped.artifacts.len(), 8);
+        assert_eq!(lock.artifacts.len(), 12);
+        assert_eq!(shipped.artifacts.len(), 9);
     }
 
     #[cfg(unix)]

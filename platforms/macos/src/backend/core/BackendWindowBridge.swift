@@ -109,8 +109,8 @@ final class BackendWindowBridge: NSObject {
   }
 }
 
-// Same subsystem, category and fields as WindowPresentationLog.h, so one `log show --predicate 'subsystem == "app.msime.inputmethod.MetasequoiaIME" && category == "ui"'` reads both sides. State only: numbers, classes, titles, flags.
-private let backendUILog = Logger(subsystem: "app.msime.inputmethod.MetasequoiaIME", category: "ui")
+// 子系统、类别和字段都与 WindowPresentationLog.h 相同，一条 `log show --predicate 'subsystem == "app.msime.inputmethod.MetasequoiaIME" && category == "ui"'` 就能读到两边（子系统是本版本输入法的 bundle id，上面是 full 的）。只记状态：编号、类名、标题和标志。
+private let backendUILog = Logger(subsystem: BackendEdition.inputMethodBundleIdentifier, category: "ui")
 
 // The window's place among on-screen windows of its own level, 0 being frontmost; -1 when it is not on screen.
 @MainActor private func backendWindowFrontIndex(_ window: NSWindow) -> Int {

@@ -152,7 +152,7 @@ static NSString *const CandidateCornerRadiusKey = @"MSIMEClientCandidateCornerRa
 /// A whole number in [minimum, maximum], as the shared document's integer fields are: a boolean or a fraction is not one.
 static BOOL ValidCandidateStyleInteger(id value, NSInteger minimum, NSInteger maximum) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
+           !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= minimum && [value integerValue] <= maximum;
 }
 /// The ranges crates/client-core validates. The sliders offer less of them (75-150% and 0-16pt), but a value another surface wrote inside the shared range is honoured rather than refused.
 static BOOL ValidCandidateScale(id value) { return ValidCandidateStyleInteger(value, 50, 200); }
@@ -1441,7 +1441,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     snapshot[@"platform.macos.traditional_chinese_output"] = @(self.traditionalOutput);
     snapshot[@"platform.macos.candidate_learning"] = @(self.candidateLearningEnabled);
     snapshot[@"platform.macos.floating_toolbar"] = @(self.floatingToolbarEnabled);
-    return [snapshot copy];
+    // 本版本不同步的键不导出，规则见 CloudAppearanceSettings.h；full 什么也不去掉。
+    return [MSIMENarrowCloudAppearance(snapshot, MSIMEEditionInputSchemes()) copy];
 }
 /// The custom theme as this window stores it, for the host resolver.
 - (msime::mac::CustomTheme)customTheme {
@@ -1688,12 +1689,13 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)helpcodeDisplayChanged:(NSSwitch *)sender {
     [self setHelpcodeOption:@"show_in_candidate_window" value:@(sender.state == NSControlStateValueOn) scheme:sender.identifier];
 }
-- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return [MSIMEInputSchemeNames() containsObject:value] ? value : @"quanpin"; }
-- (void)setInputScheme:(NSString *)value { if (![MSIMEInputSchemeNames() containsObject:value]) value = @"quanpin"; if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
+// 不是本版本的方案（包括引擎不认识的值）读作本版本的默认方案，full 是全拼。
+- (NSString *)inputScheme { NSString *value = _sharedInputScheme ?: [_defaults stringForKey:SchemeKey]; return MSIMEEditionOffersScheme(value) ? value : MSIMEEditionDefaultScheme(); }
+- (void)setInputScheme:(NSString *)value { if (!MSIMEEditionOffersScheme(value)) value = MSIMEEditionDefaultScheme(); if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:self.inputScheme]) _lastChineseScheme = self.inputScheme; _sharedInputScheme = nil; [_defaults setObject:value forKey:SchemeKey]; [self preferencesChanged]; }
 - (NSString *)lastChineseScheme {
     NSString *scheme = self.inputScheme;
     if (![@[@"japanese", @"korean", @"vietnamese", @"tibetan"] containsObject:scheme]) return scheme;
-    return _lastChineseScheme ?: @"quanpin";
+    return _lastChineseScheme ?: MSIMEEditionDefaultScheme();
 }
 - (NSString *)lastSyncedInputScheme { return [_defaults stringForKey:LastSyncedSchemeKey]; }
 - (void)setLastSyncedInputScheme:(NSString *)value { [_defaults setObject:value forKey:LastSyncedSchemeKey]; }
@@ -1703,8 +1705,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 - (void)setWubiProfile:(NSString *)value { if (![@[@"wubi86", @"wubi98"] containsObject:value]) value = @"wubi86"; _sharedWubiProfile = nil; [_defaults setObject:value forKey:WubiProfileKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinPreeditUsesRaw { if (_sharedShuangpinPreeditUsesRaw) return _sharedShuangpinPreeditUsesRaw.boolValue; return [_defaults objectForKey:ShuangpinPreeditKey] == nil ? YES : [_defaults boolForKey:ShuangpinPreeditKey]; }
 - (void)setShuangpinPreeditUsesRaw:(BOOL)value { _sharedShuangpinPreeditUsesRaw = nil; [_defaults setBool:value forKey:ShuangpinPreeditKey]; [self preferencesChanged]; }
+// 从没设置过时取本版本的默认值：五笔版默认打开混拼，full 默认关闭（与 client-core 的版本默认偏好一致）。它会被合并进共享偏好文档，所以缺省值不能是一个固定的 NO。
 - (BOOL)wubiMixedPinyinEnabled {
-    return _sharedWubiMixedPinyin ? _sharedWubiMixedPinyin.boolValue : [_defaults boolForKey:WubiMixedPinyinKey];
+    if (_sharedWubiMixedPinyin) return _sharedWubiMixedPinyin.boolValue;
+    return [_defaults objectForKey:WubiMixedPinyinKey] == nil ? MSIMEEditionWubiMixedPinyinDefault() : [_defaults boolForKey:WubiMixedPinyinKey];
 }
 - (void)setWubiMixedPinyinEnabled:(BOOL)value {
     _sharedWubiMixedPinyin = nil;
@@ -1777,9 +1781,9 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     id raw = preferences[@"shuangpin_preedit_uses_raw"];
     id wubiMixedPinyin = preferences[@"wubi_mixed_pinyin"];
     id wubiProfile = preferences[@"wubi_profile"];
-    if ([MSIMEInputSchemeNames() containsObject:scheme]) _sharedInputScheme = [scheme copy];
+    if (MSIMEEditionOffersScheme(scheme)) _sharedInputScheme = [scheme copy];
     id lastChinese = preferences[@"last_chinese_scheme"];
-    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin", @"stroke"] containsObject:lastChinese]) _lastChineseScheme = [lastChinese copy];
+    if ([@[@"quanpin", @"shuangpin", @"wubi", @"cantonese", @"zhuyin", @"stroke"] containsObject:lastChinese] && MSIMEEditionOffersScheme(lastChinese)) _lastChineseScheme = [lastChinese copy];
     if ([@[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"] containsObject:profile]) _sharedShuangpinProfile = [profile copy];
     if (LocalModeBoolean(raw)) _sharedShuangpinPreeditUsesRaw = raw;
     if (LocalModeBoolean(wubiMixedPinyin)) _sharedWubiMixedPinyin = wubiMixedPinyin;
@@ -2613,7 +2617,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (ValidFallbackFonts(fallbacks)) _sharedFallbackFonts = [[NSArray alloc] initWithArray:fallbacks copyItems:YES];
     id preeditFont = preferences[@"candidate_preedit_font_size"];
     id preeditStyle = preferences[@"candidate_preedit_style"];
-    if ([preeditFont isKindOfClass:NSNumber.class] && !LocalModeBoolean(preeditFont) && [preeditFont doubleValue] == [preeditFont integerValue] && [preeditFont integerValue] >= 12 && [preeditFont integerValue] <= 32) _sharedPreeditFontSize = preeditFont;
+    if (ValidCandidateStyleInteger(preeditFont, 12, 32)) _sharedPreeditFontSize = preeditFont;
     if ([@[@"pinyin", @"empty"] containsObject:preeditStyle]) _sharedCandidatePreedit = preeditStyle;
     // The shared serializer leaves out a style value at its default, so an omitted key always reads as 100% or as following the skin, on the first document too: these keys are newer than the shared document, so there is no native-only value to keep the way 候选窗英文字体 above does, and a stored value that outlived a reset elsewhere would otherwise draw and then be published back. A value outside the shared ranges is ignored rather than clamped.
     id scale = preferences[@"candidate_scale_percent"];
@@ -2627,8 +2631,8 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     else if (!cornerRadius || cornerRadius == NSNull.null) _sharedCandidateCornerRadius = NSNull.null;
     id page = preferences[@"candidate_page_size"];
     // Match the shared integer ranges; booleans and fractions are not sizes.
-    if ([font isKindOfClass:NSNumber.class] && !LocalModeBoolean(font) && [font doubleValue] == [font integerValue] && [font integerValue] >= 12 && [font integerValue] <= 32) _sharedFontSize = font;
-    if ([page isKindOfClass:NSNumber.class] && !LocalModeBoolean(page) && [page doubleValue] == [page integerValue] && [page integerValue] >= 1 && [page integerValue] <= 9)
+    if (ValidCandidateStyleInteger(font, 12, 32)) _sharedFontSize = font;
+    if (ValidCandidateStyleInteger(page, 1, 9))
         _sharedPageSize = @(msime::mac::NormalizeCandidatePageSize([page unsignedIntegerValue]));
     id theme = preferences[@"theme"];
     if ([ThemeModes() containsObject:theme]) _sharedTheme = [theme copy];
@@ -2988,7 +2992,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                                                              NSWindowStyleMaskFullSizeContentView
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
-    window.title = @"水杉输入法设置";
+    window.title = [MSIMEEditionDisplayName() stringByAppendingString:@"设置"];
     // A window the user is expected to come back to, at the size and place they left it. The
     // identifier is what makes restorable more than a flag: AppKit keys a window's saved state by
     // it, and a window without one is encoded into the saved-state bundle and then cannot be found
@@ -3360,9 +3364,11 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
         }
         [schemeButtons addObject:button];
         NSView *accessory = index == 1 ? _shuangpinSchemeButton : (index == 2 ? _wubiSchemeButton : nil);
+        // 本版本没有的方案不列出来（而不是显示为不可用）；按钮照样建好，_schemeButtons 仍按方案编号取。
+        if (!MSIMEEditionOffersScheme(MSIMEInputSchemeNames()[index])) continue;
         [self registerSearchRow:button named:schemeTitles[index] aka:@[@"输入方案"]];
+        if (schemeRows.count > 2) [schemeRows addObject:MSIMECardSeparator()];
         [schemeRows addObject:SchemeChoiceRow(button, accessory)];
-        if (index < (NSInteger)schemeTitles.count - 1) [schemeRows addObject:MSIMECardSeparator()];
     }
     _schemeButtons = schemeButtons;
     // macOS 27 不允许进程启用键盘输入模式，选中粤拼、注音、笔画这类方案后菜单栏里不会自动出现对应入口；这一行说明它在系统设置「添加」对话框的哪个语言下。
@@ -3751,7 +3757,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     _uninstallButton = [NSButton buttonWithTitle:@"卸载…" target:self action:@selector(uninstallInputSource:)];
     _uninstallButton.bezelStyle = NSBezelStyleRounded;
     _uninstallButton.contentTintColor = NSColor.systemRedColor;
-    _uninstallButton.accessibilityLabel = @"卸载水杉输入法";
+    _uninstallButton.accessibilityLabel = [@"卸载" stringByAppendingString:MSIMEEditionDisplayName()];
     _uninstallButton.enabled = msime_macos_uninstall_input_source != nullptr;
     // The checkbox goes above the button, because it changes what the button does: below it, it
     // read as a consequence of a press that had already happened.
@@ -3773,7 +3779,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     logo.translatesAutoresizingMaskIntoConstraints = NO;
     [logo.widthAnchor constraintEqualToConstant:52.0].active = YES;
     [logo.heightAnchor constraintEqualToConstant:52.0].active = YES;
-    NSTextField *brand = [NSTextField labelWithString:@"水杉输入法"];
+    NSTextField *brand = [NSTextField labelWithString:MSIMEEditionDisplayName()];
     brand.font = [NSFont systemFontOfSize:17.0 weight:NSFontWeightSemibold];
     NSTextField *tagline = [NSTextField labelWithString:@"Metasequoia IME"];
     tagline.font = [NSFont systemFontOfSize:kBodyFontSize];
@@ -4823,7 +4829,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
 // 系统设置的键盘设置扩展跑在沙盒里，用的是自己容器里的输入源缓存，替换 bundle 后不刷新，所以新版本加的模式要注销重新登录后才进得了「添加」对话框，提示里一并说明。
 - (void)refreshInputModeHint {
     if (!_inputModeHintRow) return;
-    NSString *mode = MSIMEInputModeID(MSIMEInputModeFor(NO, self.inputScheme));
+    NSString *mode = MSIMEInputModeIDForSchemeIn(MSIMEEditionInfo(), self.inputScheme);
     const BOOL missing = MSIMEInputModeEnabledProbe != nullptr && !MSIMEInputModeEnabledProbe(mode);
     _inputModeHintRow.hidden = !missing;
     if (!missing) return;
@@ -4867,7 +4873,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     if (msime_macos_uninstall_input_source == nullptr) return;
     NSAlert *confirmation = [NSAlert new];
     confirmation.alertStyle = NSAlertStyleWarning;
-    confirmation.messageText = @"确认卸载水杉输入法？";
+    confirmation.messageText = [NSString stringWithFormat:@"确认卸载%@？", MSIMEEditionDisplayName()];
     confirmation.informativeText = _removeUserDataButton.state == NSControlStateValueOn
         ? @"输入法会移到废纸篓，并删除本机词库、学习记录、偏好与语音密钥。"
         : @"输入法会移到废纸篓；本机词库、学习记录和偏好会保留。";
@@ -4885,7 +4891,10 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
                                             create:NO
                                              error:nil];
     NSURL *inputMethods = [library URLByAppendingPathComponent:@"Input Methods" isDirectory:YES];
-    NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法.app" isDirectory:YES];
+    // 只卸载本版本的 bundle，同时安装的其他版本不动。
+    NSString *bundleName = MSIMEInputMethodBundleName();
+    if (!bundleName) return;
+    NSURL *bundle = [inputMethods URLByAppendingPathComponent:bundleName isDirectory:YES];
     NSDictionary *runtime = MSIMELoadRuntimeOptions();
     NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]
         && [runtime[@"preferences_directory"] isAbsolutePath] ? runtime[@"preferences_directory"] : nil;
@@ -4893,7 +4902,7 @@ static NSArray<NSString *> *PinyinSpellings(NSString *text) {
     NSString *userData = configuredState ?: defaultState.path;
     BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
                                                   userData.fileSystemRepresentation,
-                                                  "app.msime.inputmethod.MetasequoiaIME",
+                                                  MSIMEInputMethodBundleIdentifier().UTF8String,
                                                   _removeUserDataButton.state == NSControlStateValueOn);
     if (!ok) {
         NSAlert *failure = [NSAlert new];
@@ -5039,7 +5048,8 @@ static const NSUInteger MSIMESettingsDocumentLimit = 1 << 20;
                                      reason:@"它不是水杉输入法导出的设置文件。"];
         return;
     }
-    id values = document[MSIMESettingsDocumentSettingsField];
+    // 另一个版本导出的文件先收窄到本版本，见 MSIMEAdoptCloudAppearance。
+    id values = MSIMEAdoptCloudAppearance(document[MSIMESettingsDocumentSettingsField], [self cloudSettingsSnapshot], MSIMEEditionInputSchemes());
     // The same check the account sync puts a downloaded snapshot through — +[MSIMEPreferencesWindowController validateCloudSettingsSnapshot:] is one line around this function — asked here first so that a document this host cannot read is told apart from one it can read and still has to refuse.
     if (![values isKindOfClass:NSDictionary.class] || !MSIMEValidateCloudAppearance(values)) {
         [self reportSettingsDocumentFailure:@"无法导入这个文件"

@@ -15,6 +15,7 @@ import {
   CandidateColors, CustomThemeDocument, GlobalTheme, ResolvedTheme, ResolveThemeRequest, ThemeCatalogEntry
 } from './skin/GlobalTheme';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
+import { AppEdition } from './AppEdition';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { EditEchoLedger } from './input/EditEchoLedger';
@@ -126,6 +127,7 @@ import { InlinePreeditPolicy, InlinePreeditStyle } from './input/InlinePreeditPo
 import {
   CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
+import { EngineViewNumericFields, EngineViewValuePolicy } from './input/EngineViewValuePolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -163,7 +165,7 @@ export interface CandidateEntry {
   readonly translation: string | null;
 }
 
-interface EngineView {
+interface EngineView extends EngineViewNumericFields {
   candidates: Candidate[];
   editing_text: string;
   /**
@@ -643,9 +645,10 @@ interface SkinToolbarStylesheetResponse {
 }
 
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
-interface PrepareRequest {
+export interface PrepareRequest {
   resources: string;
   state_root: string;
+  edition?: string;
 }
 
 interface SnapshotQueueProcessAction {
@@ -1045,7 +1048,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // The grid is the Engine's business too: it decides what a 2 means, and it only reads them as
   // nine-key spellings once it has been told the grid is up.
   private nineKeyMode: boolean = false;
-  private schemeName: string = 'quanpin';
+  // 还没读到 Engine 的视图时按本版本的默认方案算（full 是全拼）。
+  private schemeName: string = AppEdition.current().defaultScheme;
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
   // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
@@ -1099,7 +1103,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     enabledSchemes: KeyboardScheme.DEFAULT_ENABLED.map(
       (candidate: SchemeDefinition): string => candidate.preferenceId),
     selectedScheme: null,
-    scheme: 'quanpin',
+    scheme: AppEdition.current().defaultScheme,
     shuangpinProfile: 'xiaohe',
     wubiProfile: KeyboardScheme.WUBI_86,
     layout: 'twenty_six_key',
@@ -1455,7 +1459,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
     this.preferencesRevision = this.storedRevision(stateRoot);
-    const request: PrepareRequest = { resources: resources, state_root: stateRoot };
+    const request: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
     let options: string;
     try {
       const prepared: PrepareResponse =
@@ -2556,7 +2560,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   voiceInputConfiguration(): VoiceInputConfiguration {
-    return this.voiceInput;
+    const root: string = this.clipboardRoot();
+    return {
+      ...this.voiceInput,
+      local_model_root: root.length > 0 ? `${root}/voice-models` : ''
+    };
   }
 
   /** The prepared host options the on-device recognizer reads the user's own words through, or null before the host has been prepared. */
@@ -3009,7 +3017,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     let result: string;
     try {
-      const bootstrap: PrepareRequest = { resources: resources, state_root: stateRoot };
+      const bootstrap: PrepareRequest = KeyboardSession.prepareRequest(resources, stateRoot);
       const prepared: PrepareResponse =
         JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
       if (!prepared.ok) {
@@ -3544,6 +3552,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       return false;
     }
     const value: EngineValue = response.value;
+    if (!EngineViewValuePolicy.isValid(value.view)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
+      return false;
+    }
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
     // stack trace into a keyboard four rows tall.
     this.editing = value.view.editing_text;
@@ -3584,6 +3596,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     if (!response.ok) {
       KeyboardLog.error(`engine refused: ${response.error}`);
+      return;
+    }
+    if (!EngineViewValuePolicy.isValid(response.value)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
       return;
     }
     this.render(response.value);
@@ -3650,6 +3666,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   private englishCandidates: boolean = false;
 
   private render(view: EngineView): void {
+    if (!EngineViewValuePolicy.isValid(view)) {
+      KeyboardLog.error('engine view has malformed numeric fields');
+      return;
+    }
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
@@ -4430,6 +4450,16 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
+  /** `prepareHost` 的请求。full 不带版本，与引入版本之前相同；其他版本让 host-api 按本版本收窄方案、按本版本的资源锁校验词库。 */
+  static prepareRequest(resources: string, stateRoot: string): PrepareRequest {
+    const request: PrepareRequest = { resources: resources, state_root: stateRoot };
+    const edition: AppEdition = AppEdition.current();
+    if (!edition.isFull()) {
+      request.edition = edition.id;
+    }
+    return request;
+  }
+
   static saveFeedbackIn(stateRoot: string, settings: FeedbackSettings): boolean {
     try {
       const path: string = KeyboardSession.feedbackFileIn(stateRoot);
@@ -4965,7 +4995,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.changePreferences(changes)) {
       return false;
     }
-    this.useScheme(selected.engineScheme, selected.shuangpinProfile);
+    this.useScheme(KeyboardScheme.engineSchemeOf(selected), selected.shuangpinProfile);
     KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
       + `${applied.preferenceId} is no longer enabled`);
     return true;
@@ -5630,6 +5660,11 @@ export class KeyboardSession implements HardwareKeyTarget {
         JSON.parse(client.allCandidates(this.handle)) as SnapshotCandidates;
       if (!response.ok) {
         KeyboardLog.error(`candidate list refused: ${response.error}`);
+        return [];
+      }
+      if (response.value === undefined || response.value === null
+        || !EngineViewValuePolicy.isGeneration(response.value.generation)) {
+        KeyboardLog.error('candidate list has malformed generation');
         return [];
       }
       // The generation identifies the composition these belong to; selecting against a stale one

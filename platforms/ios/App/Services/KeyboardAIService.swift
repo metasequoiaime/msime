@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum KeyboardAIService {
-  static let group = "group.app.msime.ios"
+  static let group = MSIMEAppEdition.appGroupIdentifier
   private static let preference = "keyboard.ai.configuration"
   private static var defaults: UserDefaults? { UserDefaults(suiteName: group) }
 

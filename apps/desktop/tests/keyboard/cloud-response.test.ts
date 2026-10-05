@@ -18,8 +18,22 @@ describe("cloud dictionary response validation", () => {
     const entries = cloudDictionaryEntries({
       entries: [
         { id: "valid", kind: "pinyin", code: "he", word: "合成", weight: 1, revision: 2 },
-        { id: "fractional-weight", kind: "pinyin", code: "he", word: "合成", weight: 1.5, revision: 2 },
-        { id: "fractional-revision", kind: "pinyin", code: "he", word: "合成", weight: 1, revision: 2.5 },
+        {
+          id: "fractional-weight",
+          kind: "pinyin",
+          code: "he",
+          word: "合成",
+          weight: 1.5,
+          revision: 2,
+        },
+        {
+          id: "fractional-revision",
+          kind: "pinyin",
+          code: "he",
+          word: "合成",
+          weight: 1,
+          revision: 2.5,
+        },
         {
           id: "unsafe-weight",
           kind: "pinyin",

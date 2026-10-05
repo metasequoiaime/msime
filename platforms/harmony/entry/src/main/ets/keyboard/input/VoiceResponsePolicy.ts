@@ -100,7 +100,10 @@ export class VoiceResponsePolicy {
   }
 
   private static record(value: unknown): Record<string, Object> | null {
-    return value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value)
+    return value !== undefined &&
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value)
       ? (value as Record<string, Object>)
       : null;
   }

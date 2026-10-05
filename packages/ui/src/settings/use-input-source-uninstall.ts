@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface UseInputSourceUninstallOptions {
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
@@ -8,25 +9,25 @@ export interface UseInputSourceUninstallOptions {
 export function useInputSourceUninstall({ uninstallInputSource }: UseInputSourceUninstallOptions) {
   const [removeUserData, setRemoveUserData] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<"success" | "error" | null>(null);
-  const actionRunning = useRef(false);
+  const { busy, run } = useAsyncActionRunner(
+    (message) => setResult(message ? "error" : null),
+    undefined,
+    uninstallInputSource,
+  );
 
   async function confirmUninstall() {
-    if (!uninstallInputSource || busy || actionRunning.current) return;
-    actionRunning.current = true;
-    setBusy(true);
+    if (!uninstallInputSource || busy) return;
     setResult(null);
-    try {
-      await uninstallInputSource(removeUserData);
-      setConfirmation(false);
-      setResult("success");
-    } catch {
-      setResult("error");
-    } finally {
-      actionRunning.current = false;
-      setBusy(false);
-    }
+    await run(
+      async (isCurrent) => {
+        await uninstallInputSource(removeUserData);
+        if (!isCurrent()) return;
+        setConfirmation(false);
+        setResult("success");
+      },
+      { formatError: () => "error" },
+    );
   }
 
   function requestUninstall() {

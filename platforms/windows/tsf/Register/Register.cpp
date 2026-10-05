@@ -14,8 +14,8 @@ static const WCHAR RegInfo_Prefix_CLSID[] = L"CLSID\\";
 static const WCHAR RegInfo_Key_InProSvr32[] = L"InProcServer32";
 static const WCHAR RegInfo_Key_ThreadModel[] = L"ThreadingModel";
 
-// IME text service description, will be displayed in the language menu when switching IME
-static const WCHAR TEXTSERVICE_DESC[] = L"Metasequoia \u6c34\u6749\u8f93\u5165\u6cd5";
+// 系统输入法列表里显示的文本服务名，按版本取（版本表 platforms.windows.text_service_description）；full 是「Metasequoia 水杉输入法」。
+static const WCHAR TEXTSERVICE_DESC[] = MSIME_EDITION_TEXT_SERVICE_DESCRIPTION;
 
 static const GUID SupportCategories[] = {
     GUID_TFCAT_TIP_KEYBOARD,

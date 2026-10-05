@@ -101,11 +101,14 @@ enum DictionarySnapshotBridge {
                  root.appendingPathComponent("dictionaries", isDirectory: true)] {
       try? FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
     }
-    return ["api_version": 1, "resources": resources.path, "user_data": user.path,
+    var options: [String: Any] = ["api_version": 1, "resources": resources.path, "user_data": user.path,
             "cache": root.appendingPathComponent("cache", isDirectory: true).path,
             "dictionaries": root.appendingPathComponent("dictionaries", isDirectory: true).path,
-            "preferences": ["scheme": "quanpin", "candidate_page_size": 9,
+            "preferences": ["scheme": MSIMEAppEdition.defaultScheme, "candidate_page_size": 9,
                              "learning": true, "chinese_punctuation": true]]
+    // 与键盘的 HostOptions 一样：full 不带版本，与引入版本之前相同；其他版本让 host-api 按本版本的方案和资源锁处理。
+    if !MSIMEAppEdition.isFull { options["edition"] = MSIMEAppEdition.identifier }
+    return options
   }
 
   private static func version(_ options: [String: Any]) throws -> String {

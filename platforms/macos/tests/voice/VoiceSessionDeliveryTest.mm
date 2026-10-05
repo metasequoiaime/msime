@@ -1,6 +1,16 @@
 #import "../../src/voice/VoiceInputService.h"
 #include <cassert>
 
+@interface MalformedVoiceSession : MSIMEClientSession
+@property(nonatomic, strong) id generationValue;
+@end
+@implementation MalformedVoiceSession
+- (NSDictionary *)startVoiceWithError:(NSError **)error {
+    (void)error;
+    return @{@"generation":self.generationValue};
+}
+@end
+
 static void Pump(BOOL *done) {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
     while (!*done && deadline.timeIntervalSinceNow > 0)
@@ -16,6 +26,14 @@ int main() {
             NSString *path = [root stringByAppendingPathComponent:name];
             assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
             options[name] = path;
+        }
+        for (id invalid in @[@YES, @1.5, @(-1)]) {
+            MalformedVoiceSession *session = [[MalformedVoiceSession alloc] initWithOptions:options error:nil];
+            assert(session);
+            session.generationValue = invalid;
+            MSIMEVoiceInputService *service = [MSIMEVoiceInputService new];
+            uint64_t generation = 0;
+            assert(![service startWithSession:session generation:&generation error:nil] && !service.active);
         }
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];

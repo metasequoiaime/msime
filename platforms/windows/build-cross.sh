@@ -4,7 +4,10 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
-arch=${1:?usage: build-cross.sh x64|x86}
+arch=${1:?usage: build-cross.sh x64|x86 [edition]}
+# 产品版本（shared/contracts/editions.json 里有 Windows 段的 id），缺省是 full。full 的输出仍在 target/windows-full/<arch>，其他版本在 target/windows-<id>/<arch>，host DLL 按版本表改名并生成同名导入库。
+edition=${2:-full}
+[[ "$edition" =~ ^[a-z][a-z0-9]*$ ]] || { echo "Expected an edition id" >&2; exit 2; }
 case "$arch" in
   x64) triple=x86_64-pc-windows-gnu; compiler=x86_64-w64-mingw32; linker_var=CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER ;;
   x86) triple=i686-pc-windows-gnu; compiler=i686-w64-mingw32; linker_var=CARGO_TARGET_I686_PC_WINDOWS_GNU_LINKER ;;
@@ -46,7 +49,18 @@ VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --x-manifest-root="$repo_root/platforms/windows" --x-install-root="$deps_root"
 env "$linker_var=$compiler-gcc" \
   cargo build --locked -p msime-host-api --target "$triple"
-output="$repo_root/target/windows-full/$arch"
+output="$repo_root/target/windows-$edition/$arch"
+host_dll=msime_host_api.dll
+host_library="$repo_root/target/$triple/debug/libmsime_host_api.dll.a"
+if [[ "$edition" != full ]]; then
+  # 两个版本的 TIP 被同一个应用加载时，按导入表找 DLL 会拿到先加载的那一个，所以不是 full 的版本换一个 DLL 名，再用 dlltool 按原 DLL 的导出表生成同名的导入库。
+  host_dll=$(python3 platforms/windows/scripts/edition_windows.py field --edition "$edition" host_dll)
+  mkdir -p "$output"
+  python3 platforms/windows/scripts/edition_windows.py host-def --edition "$edition" \
+    --dll "$repo_root/target/$triple/debug/msime_host_api.dll" --output "$output/${host_dll%.dll}.def"
+  host_library="$output/lib$host_dll.a"
+  "$compiler-dlltool" -d "$output/${host_dll%.dll}.def" -D "$host_dll" -l "$host_library"
+fi
 # compile_commands.json is what lets the same sources be re-checked for the
 # other architecture with the flags they are really built with, rather than a
 # second hand-maintained list that drifts.
@@ -57,7 +71,8 @@ cmake -S platforms/windows -B "$output" \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix" \
   -DMSIME_WINDOWS_PIPE_ONLY=OFF \
   -DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF \
-  -DMSIME_HOST_LIBRARY="$repo_root/target/$triple/debug/libmsime_host_api.dll.a"
+  -DMSIME_EDITION="$edition" \
+  -DMSIME_HOST_LIBRARY="$host_library"
 cmake --build "$output" --parallel 4
-cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output"
-echo "$arch Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; MinGW runtime DLLs are not bundled."
+cmake -E copy_if_different "$repo_root/target/$triple/debug/msime_host_api.dll" "$output/$host_dll"
+echo "$arch $edition Windows GNU host/TSF DLLs, Server and native tests linked; SDK C++/WinRT handwriting demo excluded; Windows execution not performed; MinGW runtime DLLs are not bundled."

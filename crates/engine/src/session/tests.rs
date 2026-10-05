@@ -13,7 +13,7 @@ use crate::local::date_time::LocalDateTime;
 use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateEdge, CandidateSource, Command, FrequencyAdjustmentMode, FrequencyAdjustmentOptions,
-    LocalInputMode, SchemeType, ShuangpinProfileKind,
+    LocalInputMode, SchemeSet, SchemeType, ShuangpinProfileKind,
 };
 
 /// test_input_session.cpp:390-430 (fixture M), the rows the portable-selection, caret and edge cases read.
@@ -3865,6 +3865,125 @@ fn a_host_helpcode_table_replaces_the_schema_table() {
     session.set_helpcode_table(table(&[("你", "aa"), ("拟", "cc")]));
     type_text(&mut session, "niC");
     assert_eq!(words(&session), ["拟", "你"]);
+}
+
+/// 只允许五笔的会话（五笔版）：混拼照样从全拼 provider 拿到拼音行，和全部方案都允许时的列表一模一样。
+#[test]
+fn a_wubi_only_session_still_mixes_quanpin_rows() {
+    let fixture = Fixture::new(WUBI_ROUTING_FIXTURE);
+    let wubi_only = |options: &mut SessionOptions| {
+        options.scheme = SchemeType::Wubi;
+        options.enabled_schemes = SchemeSet::of(&[SchemeType::Wubi]);
+        options.wubi.mixed_pinyin = true;
+    };
+    let mut narrowed = fixture.session_with(wubi_only);
+    let mut full = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.wubi.mixed_pinyin = true;
+    });
+    type_text(&mut narrowed, "gege");
+    type_text(&mut full, "gege");
+    let schemes = |session: &Session| -> Vec<(String, SchemeType)> {
+        session
+            .snapshot()
+            .candidates
+            .into_iter()
+            .map(|item| (item.word, item.scheme))
+            .collect()
+    };
+    let narrowed_rows = schemes(&narrowed);
+    assert_eq!(
+        narrowed_rows.first(),
+        Some(&("工".to_owned(), SchemeType::Wubi))
+    );
+    assert!(narrowed_rows.contains(&("哥哥".to_owned(), SchemeType::Quanpin)));
+    assert_eq!(narrowed_rows, schemes(&full));
+
+    // 只有拼音行的编码走拼音回退。
+    narrowed.command(Command::Cancel);
+    type_text(&mut narrowed, "gg");
+    let snapshot = narrowed.snapshot();
+    assert!(snapshot.answered_by_pinyin_fallback, "{snapshot:?}");
+    assert_eq!(snapshot.candidates[0].word, "哥哥");
+}
+
+/// 集合外的方案切不过去，会话留在原方案，组合原样保留；也不能以集合外的方案建会话。
+#[test]
+fn a_wubi_only_session_refuses_schemes_outside_its_set() {
+    let fixture = Fixture::new(WUBI_ROUTING_FIXTURE);
+    let enabled = SchemeSet::of(&[SchemeType::Wubi]);
+    let mut session = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.enabled_schemes = enabled;
+    });
+    type_text(&mut session, "ge");
+    let before = session.snapshot();
+    for scheme in [
+        SchemeType::Quanpin,
+        SchemeType::Shuangpin,
+        SchemeType::JapaneseRomaji,
+        SchemeType::Korean,
+        SchemeType::Cantonese,
+        SchemeType::Zhuyin,
+        SchemeType::Vietnamese,
+    ] {
+        let error = session.switch_scheme(scheme).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            crate::diagnostics::INPUT_SCHEME_NOT_ENABLED,
+            "{scheme:?}"
+        );
+        assert_eq!(session.snapshot(), before, "{scheme:?}");
+    }
+    session.switch_scheme(SchemeType::Wubi).unwrap();
+    assert_eq!(session.snapshot().scheme, SchemeType::Wubi);
+
+    let mut options = fixture.options();
+    options.scheme = SchemeType::Quanpin;
+    options.enabled_schemes = enabled;
+    let error = Session::new(options).err().expect("quanpin is not enabled");
+    assert_eq!(
+        error.to_string(),
+        crate::diagnostics::INPUT_SCHEME_NOT_ENABLED
+    );
+}
+
+/// 临时日文要切到日文方案：集合里没有日文时 `R` 进不了这个模式，有日文（拼音版）时照常进入并回到原方案。
+#[test]
+fn temporary_japanese_needs_japanese_in_the_enabled_set() {
+    let fixture = Fixture::new(QUANPIN_FIXTURE);
+    let mut wubi = fixture.session_with(|options| {
+        options.scheme = SchemeType::Wubi;
+        options.enabled_schemes = SchemeSet::of(&[SchemeType::Wubi]);
+        options.local_modes.temporary_japanese = true;
+    });
+    wubi.character(b'R', true);
+    let snapshot = wubi.snapshot();
+    assert_ne!(snapshot.local_mode, LocalInputMode::TemporaryJapanese);
+    assert_eq!(snapshot.scheme, SchemeType::Wubi);
+    assert_eq!(wubi.input.engine.current_scheme_type(), SchemeType::Wubi);
+
+    let mut pinyin = fixture.session_with(|options| {
+        options.scheme = SchemeType::Quanpin;
+        options.enabled_schemes = SchemeSet::of(&[
+            SchemeType::Quanpin,
+            SchemeType::Shuangpin,
+            SchemeType::JapaneseRomaji,
+        ]);
+        options.local_modes.temporary_japanese = true;
+    });
+    assert!(pinyin.character(b'R', true).handled);
+    assert_eq!(
+        pinyin.snapshot().local_mode,
+        LocalInputMode::TemporaryJapanese
+    );
+    type_text(&mut pinyin, "ka");
+    assert!(words(&pinyin).contains(&"か".to_owned()));
+    pinyin.command(Command::Cancel);
+    assert_eq!(
+        pinyin.input.engine.current_scheme_type(),
+        SchemeType::Quanpin
+    );
 }
 
 // ---- 网址模式 ----

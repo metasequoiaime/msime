@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/msime-linux-setup"
 
 # Stands in for msime-linux-prepare. --refresh points the options at a new generation, the observable effect of the real command, unless STUB_REFRESH_EXIT asks for a failure. It also records what the hosts would see at that moment: whether the quiesce lease is live and whether the session lock is held exclusively, and which resource directory it was asked to prepare.
-PREPARE_STUB = r'''#!/usr/bin/env python3
-import fcntl, json, os, sys, time
+# 首行用跑测试的同一个解释器，不经 /usr/bin/env：没有 FHS 布局的环境（Nix 构建沙箱）里没有它。
+PREPARE_STUB = f"#!{sys.executable}\n" + r'''import fcntl, json, os, sys, time
 from pathlib import Path
 
 with open(os.environ["STUB_LOG"], "a") as log:

@@ -1,4 +1,4 @@
-//! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。
+//! 代次准备（core-session.md §12、data-formats.md §3、`runtime_paths.cpp:116-182`）：`user_data/dictionaries/<content id>` 里是经 backup API 复制的 `msime-pinyin.db` 与 `msime-english.db`（资源单独发布的 `msime-wubi.db` 五笔码表并回前者），回放过用户日志，旁边还有 n-gram 表。不读 `msime-pinyin.db` 的方案集合（见 `SchemeSet::reads_main_dictionary`）准备的代次只有 `msime-english.db`。
 
 use std::ffi::OsString;
 use std::fs;
@@ -12,7 +12,10 @@ use crate::assets;
 use crate::diagnostics;
 use crate::error::{EngineError, Result};
 use crate::paths::RuntimePaths;
-use crate::user_dictionary::replay::replay;
+use crate::types::SchemeSet;
+use crate::user_dictionary::journal::open_database;
+use crate::user_dictionary::replay::{replay, replay_english};
+use crate::wubi::provider::ensure_reverse_indexes;
 
 pub const MAX_CONTENT_ID_LENGTH: usize = 128;
 
@@ -29,6 +32,18 @@ pub fn prepare_runtime_paths(
     cache: &Path,
     content_id: &str,
 ) -> Result<RuntimePaths> {
+    prepare_runtime_paths_for(resources, user_data, cache, content_id, SchemeSet::ALL)
+}
+
+/// 按会话允许的方案准备代次。`schemes` 读 `msime-pinyin.db`（[`SchemeSet::reads_main_dictionary`]）时与 [`prepare_runtime_paths`] 完全相同：`msime-pinyin.db` 和 `msime-english.db` 都必须在资源目录里，都复制进代次。不读它时（只有日文、越南文、藏文这类方案的版本）资源目录里本来就没有它：代次只复制并要求 `msime-english.db`，日志只回放英文行（`replay_english`）。
+pub fn prepare_runtime_paths_for(
+    resources: &Path,
+    user_data: &Path,
+    cache: &Path,
+    content_id: &str,
+    schemes: SchemeSet,
+) -> Result<RuntimePaths> {
+    let main_dictionary = schemes.reads_main_dictionary();
     if !valid_content_id(content_id) {
         return Err(EngineError::invalid(
             diagnostics::INVALID_RUNTIME_CONTENT_ID,
@@ -59,17 +74,21 @@ pub fn prepare_runtime_paths(
     reject_redirected_directory(cache)?;
 
     if result.dictionaries.join(assets::GENERATION_READY).exists() {
-        for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        for name in generation_dictionaries(main_dictionary) {
             if !is_real_file(&result.dictionary(name)) {
                 return Err(EngineError::failed(
                     diagnostics::INCOMPLETE_RUNTIME_GENERATION,
                 ));
             }
         }
-        // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。
-        merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
+        // 拆分五笔码表之后准备的代次也要有五笔表；表已在时这一步只读不写。没有工作主词库的代次没有地方放五笔表。
+        if main_dictionary {
+            merge_split_wubi(resources, &result.dictionary(assets::MAIN_DICTIONARY))?;
+        }
         // A host can switch back to a previously prepared generation. Replay the current journal again so changes learned on a newer generation survive that switch (RP:143-144).
-        replay_into(&result, &result.dictionaries)?;
+        replay_into(&result, &result.dictionaries, main_dictionary)?;
+        // 旧版本准备的代次没有反查索引，重新打开时补上；已有索引时只读一次 schema。
+        index_reverse_lookup(&result.dictionaries, main_dictionary);
         stage_generation_copies(resources, &result.dictionaries, false)?;
         return Ok(result);
     }
@@ -86,12 +105,15 @@ pub fn prepare_runtime_paths(
         Err(error) => return Err(error.into()),
     }
     let staged = (|| -> Result<()> {
-        for name in [assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY] {
+        for name in generation_dictionaries(main_dictionary) {
             copy_database(&resources.join(name), &stage.join(name))?;
         }
-        merge_split_wubi(resources, &stage.join(assets::MAIN_DICTIONARY))?;
+        if main_dictionary {
+            merge_split_wubi(resources, &stage.join(assets::MAIN_DICTIONARY))?;
+        }
         stage_generation_copies(resources, &stage, true)?;
-        replay_into(&result, &stage)?;
+        replay_into(&result, &stage, main_dictionary)?;
+        index_reverse_lookup(&stage, main_dictionary);
         fs::write(
             stage.join(assets::GENERATION_READY),
             format!("{content_id}\n"),
@@ -116,13 +138,28 @@ fn valid_content_id(content_id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-/// Replay the journal of `paths` into the dictionaries in `generation`; any failed row or error refuses the generation.
-fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
-    let replayed = replay(
-        &paths.user(assets::USER_JOURNAL),
-        &generation.join(assets::MAIN_DICTIONARY),
-        &generation.join(assets::ENGLISH_DICTIONARY),
-    );
+/// 代次里的词库工作副本：`main_dictionary` 为假时没有 `msime-pinyin.db`，只有 `msime-english.db`。
+fn generation_dictionaries(main_dictionary: bool) -> &'static [&'static str] {
+    if main_dictionary {
+        &[assets::MAIN_DICTIONARY, assets::ENGLISH_DICTIONARY]
+    } else {
+        &[assets::ENGLISH_DICTIONARY]
+    }
+}
+
+/// Replay the journal of `paths` into the dictionaries in `generation`; any failed row or error refuses the generation. 没有 `msime-pinyin.db` 的代次只回放英文行。
+fn replay_into(paths: &RuntimePaths, generation: &Path, main_dictionary: bool) -> Result<()> {
+    let journal = paths.user(assets::USER_JOURNAL);
+    let english = generation.join(assets::ENGLISH_DICTIONARY);
+    let replayed = if main_dictionary {
+        replay(
+            &journal,
+            &generation.join(assets::MAIN_DICTIONARY),
+            &english,
+        )
+    } else {
+        replay_english(&journal, &english)
+    };
     if replayed.failed != 0 || !replayed.error.is_empty() {
         return Err(EngineError::failed(format!(
             "{}{}",
@@ -131,6 +168,23 @@ fn replay_into(paths: &RuntimePaths, generation: &Path) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// 给代次里每个词库副本（`main_dictionary` 为假时只有英文词库）补上五笔反查索引（见 `wubi::provider::ensure_reverse_indexes`）。代次是用户可写的副本，资源目录保持只读、原样；索引不进日志，也不影响词库状态的摘要。
+///
+/// 只是提速，从不失败：建索引要写盘（约 1.3 MB 加回滚日志），磁盘满、文件只读或被别的进程长时间锁住时记一条日志、照常用没有索引的副本，反查仍然正确，只是慢。这里报错会让宿主起不来。新词库在 dict-builder 里就带着同名索引，这里只为旧词库和旧代次补建。
+fn index_reverse_lookup(generation: &Path, main_dictionary: bool) {
+    for name in generation_dictionaries(main_dictionary) {
+        let database = generation.join(name);
+        let indexed = open_database(&database, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .and_then(|connection| ensure_reverse_indexes(&connection).map_err(Into::into));
+        if let Err(error) = indexed {
+            eprintln!(
+                "msime: wubi reverse lookup index unavailable in {}, lookups stay unindexed: {error}",
+                database.display()
+            );
+        }
+    }
 }
 
 /// Copy through the SQLite backup API, which includes committed WAL content that a plain file copy of a live database would lose (RP:38-55).
@@ -659,6 +713,66 @@ mod tests {
         );
     }
 
+    fn reverse_indexes(database: &Path) -> Vec<String> {
+        let connection = Connection::open(database).unwrap();
+        let mut statement = connection
+            .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_wubi%_value' ORDER BY name")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn generations_get_the_wubi_reverse_index_and_resources_stay_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        // 只有 wubi86：没有的 wubi98 不会凭空建表或建索引。
+        sql(
+            &resources.join(assets::MAIN_DICTIONARY),
+            "CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER,UNIQUE(key,value));
+             INSERT INTO wubi86 VALUES('wqvb','你好',300);",
+        );
+        let original = fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+
+        let paths = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        let main = paths.dictionary(assets::MAIN_DICTIONARY);
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert!(reverse_indexes(&paths.dictionary(assets::ENGLISH_DICTIONARY)).is_empty());
+        assert_eq!(
+            fs::read(resources.join(assets::MAIN_DICTIONARY)).unwrap(),
+            original
+        );
+
+        sql(&main, "DROP INDEX idx_wubi86_value;");
+        // 补建索引只是提速：副本写不进去（磁盘满、只读、被锁）时照常打开代次，只是没有索引。
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o444)).unwrap();
+            let reopened = prepare_runtime_paths(&resources, &user, &cache, "v1");
+            fs::set_permissions(&main, fs::Permissions::from_mode(0o644)).unwrap();
+            reopened.unwrap();
+            assert!(reverse_indexes(&main).is_empty());
+        }
+        // 旧版本准备的代次没有这个索引：再次打开同一代次时补上。
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        // 已有索引时什么也不改。
+        let indexed = fs::read(&main).unwrap();
+        prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap();
+        assert_eq!(reverse_indexes(&main), ["idx_wubi86_value"]);
+        assert_eq!(fs::read(&main).unwrap(), indexed);
+        assert_eq!(
+            weight(&main, "SELECT weight FROM wubi86 WHERE value='你好'"),
+            Some(300)
+        );
+    }
+
     // test_runtime_isolation.cpp:754-782.
     #[test]
     fn generation_tables_are_staged_and_later_ones_added_without_replacing() {
@@ -843,5 +957,90 @@ mod tests {
             shipped(&main),
             shipped(&resources.join(assets::MAIN_DICTIONARY)) + 1
         );
+    }
+
+    fn japanese_only() -> SchemeSet {
+        SchemeSet::of(&[crate::types::SchemeType::JapaneseRomaji])
+    }
+
+    /// 只有日文（或越南文、藏文）的版本不带 `msime-pinyin.db`：代次只复制 `msime-english.db`，日志里的英文词照样回放，拼音行跳过而不拒绝这个代次；再次准备同一个代次也不要求 `msime-pinyin.db`。读 `msime-pinyin.db` 的集合缺了它仍然失败，与以前相同。
+    #[test]
+    fn a_generation_without_the_main_dictionary_holds_only_english() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = resources(root.path());
+        fs::remove_file(resources.join(assets::MAIN_DICTIONARY)).unwrap();
+        let user = root.path().join("user");
+        let cache = root.path().join("cache");
+        let journal = user.join(assets::USER_JOURNAL);
+        fs::create_dir_all(&user).unwrap();
+        learn(&journal, "你", 1);
+        sql(
+            &journal,
+            "INSERT INTO user_dictionary_operations(dictionary,key,value,operation,weight,display,user_inserted,updated_at) VALUES('english','zzfixture','Zzfixture','upsert',11,'Zzfixture',1,2)",
+        );
+
+        let paths =
+            prepare_runtime_paths_for(&resources, &user, &cache, "v1", japanese_only()).unwrap();
+        assert!(paths.dictionaries.join(assets::GENERATION_READY).is_file());
+        assert!(!paths.dictionary(assets::MAIN_DICTIONARY).exists());
+        assert!(!resources.join(assets::MAIN_DICTIONARY).exists());
+        assert_eq!(
+            weight(
+                &paths.dictionary(assets::ENGLISH_DICTIONARY),
+                "SELECT weight FROM english_words WHERE word='zzfixture' AND display='Zzfixture'"
+            ),
+            Some(11)
+        );
+
+        // 已经准备好的代次再准备一次：不要求 msime-pinyin.db，日志再回放一次。
+        let again =
+            prepare_runtime_paths_for(&resources, &user, &cache, "v1", japanese_only()).unwrap();
+        assert_eq!(again, paths);
+        assert!(!again.dictionary(assets::MAIN_DICTIONARY).exists());
+
+        // 同一个资源目录给读 msime-pinyin.db 的集合准备，照旧因为缺 msime-pinyin.db 失败。
+        let error = prepare_runtime_paths(&resources, &user, &cache, "v2").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{}{}",
+                diagnostics::RUNTIME_COPY_FAILED,
+                resources.join(assets::MAIN_DICTIONARY).display()
+            )
+        );
+        assert!(!user.join("dictionaries/v2").exists());
+        // 读 msime-pinyin.db 的集合也不接受一个没有 msime-pinyin.db 的现成代次。
+        let error = prepare_runtime_paths(&resources, &user, &cache, "v1").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            diagnostics::INCOMPLETE_RUNTIME_GENERATION
+        );
+    }
+
+    /// 不读 msime-pinyin.db 的代次仍然要求 `msime-english.db`：资源目录缺了它就失败，不留下暂存目录。
+    #[test]
+    fn a_generation_without_the_main_dictionary_still_needs_english() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing-resources");
+        fs::create_dir_all(&missing).unwrap();
+        let user = root.path().join("user");
+        let error = prepare_runtime_paths_for(
+            &missing,
+            &user,
+            &root.path().join("cache"),
+            "v1",
+            japanese_only(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{}{}",
+                diagnostics::RUNTIME_COPY_FAILED,
+                missing.join(assets::ENGLISH_DICTIONARY).display()
+            )
+        );
+        assert!(!user.join("dictionaries/v1.incoming").exists());
+        assert!(!user.join("dictionaries/v1").exists());
     }
 }

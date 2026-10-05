@@ -145,12 +145,14 @@ function fallbackGraphemeCount(text: string): number {
           const currentHangul: ReturnType<typeof hangulClass> = hangulClass(codePoint);
           noBreak =
             previousHangul === "L" &&
-            (currentHangul === "L" || currentHangul === "V" || currentHangul === "LV" || currentHangul === "LVT");
+            (currentHangul === "L" ||
+              currentHangul === "V" ||
+              currentHangul === "LV" ||
+              currentHangul === "LVT");
           noBreak ||=
             (previousHangul === "LV" || previousHangul === "V") &&
             (currentHangul === "V" || currentHangul === "T");
-          noBreak ||=
-            (previousHangul === "LVT" || previousHangul === "T") && currentHangul === "T";
+          noBreak ||= (previousHangul === "LVT" || previousHangul === "T") && currentHangul === "T";
         }
         if (!noBreak && isRegionalIndicator(codePoint)) {
           noBreak = isRegionalIndicator(previousCodePoint) && regionalIndicatorRun % 2 === 1;

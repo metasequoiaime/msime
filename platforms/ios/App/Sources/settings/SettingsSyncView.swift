@@ -26,9 +26,14 @@ private enum IOSCloudSettings {
     if let profile = scheme.shuangpinProfile { settings["input.shuangpin_schema"] = .string(profile) }
     // `input.wubi_schema` 是 `wubi_profile` 在云端的名字，与双拼版本一样只在当前方案是五笔时上传。
     if scheme == .wubi { settings["input.wubi_schema"] = .string(document.map(WubiProfilePreference.profile(in:)) ?? WubiProfilePreference.profile) }
+    // 单方案版本不上传方案，多方案版本只上传本版本提供的方案；full 什么也不去掉。
+    IOSPreferencePlan.filterUploaded(&settings, offered: MSIMEAppEdition.inputSchemes)
     return settings
   }
-  static func apply(_ values: [String: BackendPreferenceValue]) throws {
+  static func apply(_ cloud: [String: BackendPreferenceValue]) throws {
+    // 单方案版本不应用账号里的方案，多方案版本把本版本没有的方案当作缺失；full 什么也不去掉。
+    var values = cloud
+    IOSPreferencePlan.filterDownloaded(&values, offered: MSIMEAppEdition.inputSchemes)
     let plan = try IOSPreferencePlan(values, themes: Set(GlobalThemeCatalog.ids))
     let custom = try plan.customSkinJSON.map { try JSONDecoder().decode(CustomKeyboardSkin.self, from: Data($0.utf8)).normalized }
     let design = try custom.map { skin -> [String: Any] in

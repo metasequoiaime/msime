@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/metasequoiaime/msime/shared/contracts/editions.schema.json",
+  "title": "水杉输入法版本表",
+  "description": "shared/contracts/editions.json 的结构说明。版本表是各版本（full、pinyin、wubi 等）的单一事实源：Rust 侧由 crates/client-core/src/edition.rs 用 include_str! 读入，结构与跨字段约束由 scripts/test-editions.py 在 contracts job 里检查，该脚本同时核对本文件声明的字段集合与版本表一致。多个版本可以同时安装，彼此完全隔离；full 保持现有的全部标识和行为不变。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "resource_components", "editions"],
+  "properties": {
+    "schema_version": {
+      "description": "版本表格式的版本号。读取方只接受自己认识的版本。",
+      "const": 1
+    },
+    "resource_components": {
+      "description": "把 resources/desktop-dictionary.lock.json 的条目按用途分组。键是组件名，值是该组件包含的锁文件条目名。各组件互不重叠，并集恰好等于锁文件的全部条目。",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 1,
+        "uniqueItems": true
+      }
+    },
+    "editions": {
+      "description": "全部版本。第一个必须是 full。",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/edition" }
+    }
+  },
+  "$defs": {
+    "edition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "display_name", "input_schemes", "default_scheme", "preference_defaults", "resources", "features", "language_dictionaries", "platforms"],
+      "properties": {
+        "id": {
+          "description": "版本 id，小写字母开头，只含小写字母和数字（不含连字符：它会拼进 `msime-linux-<id>-<版本>` 这类资产名，更新检查也只认这种 id）。写入后不能改名：它会成为状态目录、包名等标识的一部分，由 editions.frozen.json 守住。",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*$"
+        },
+        "display_name": {
+          "description": "版本的产品名。full 等于现有的 CFBundleDisplayName 和 Tauri productName。所有版本共用同一个图标，只有名字不同。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["zh-Hans", "en"],
+          "properties": {
+            "zh-Hans": { "type": "string", "minLength": 1 },
+            "en": { "type": "string", "minLength": 1 }
+          }
+        },
+        "input_schemes": {
+          "description": "本版本提供的输入方案，取值与 InputScheme 的 serde 名相同，顺序与 crates/client-core/src/host_surface.rs 的 ALL_INPUT_SCHEMES 一致。不在列表里的方案在本版本中不存在，而不是显示为禁用。",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"] }
+        },
+        "default_scheme": {
+          "description": "本版本的默认方案，也是偏好里的方案不可用时的回退值。必须在 input_schemes 里。",
+          "enum": ["quanpin", "shuangpin", "wubi", "japanese", "korean", "cantonese", "zhuyin", "vietnamese", "tibetan", "stroke"]
+        },
+        "preference_defaults": {
+          "description": "叠加在 Preferences::default() 之上的版本默认值，没有偏好文件时和恢复默认时都生效。用户之后仍可以修改这些偏好。",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wubi_mixed_pinyin": {
+              "description": "五笔混拼的默认值，只对含 wubi 方案的版本有意义。",
+              "type": "boolean"
+            }
+          }
+        },
+        "resources": {
+          "description": "本版本随包带的资源。资源锁不在这里写路径：full 的是 resources/desktop-dictionary.lock.json 本身，其他版本的是 scripts/editions.py gen-locks 按 components 生成并提交的 resources/editions/<id>.lock.json。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["components"],
+          "properties": {
+            "components": {
+              "description": "resource_components 里的组件名。必须包含 core；full 包含全部组件。提供全拼、双拼或五笔的版本必须包含 chinese-main（msime-pinyin.db）；三者都不提供的版本（日文、越南文、藏文）不能包含 chinese-main 和 ngram：Engine 为它们准备的代次里没有 msime-pinyin.db，用户词库只收英文词。",
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "features": {
+          "description": "本版本是否提供这些可选功能。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["temporary_japanese", "neural_keyboard", "offline_glosses", "handwriting"],
+          "properties": {
+            "temporary_japanese": {
+              "description": "临时日文。为 true 时 resources.components 必须包含 japanese。",
+              "type": "boolean"
+            },
+            "neural_keyboard": {
+              "description": "神经网络整句重排。为 true 时 resources.components 必须包含 sentence-model。",
+              "type": "boolean"
+            },
+            "offline_glosses": {
+              "description": "非英文目标语言的离线候选释义（offline-glosses/zh-<语言>.db，按中文候选词查法、德、日、西、俄、韩文释义）。它只认中文候选，所以必须等于本版本是否提供中文方案（全拼、双拼、五笔、粤拼、注音、笔画，与 client-core 的 ChineseScheme::of 相同）；为 false 的版本各平台都不打包这些数据库。",
+              "type": "boolean"
+            },
+            "handwriting": {
+              "description": "手写输入。手写模型（桌面的 Zinnia handwriting-zh_CN.model、Android 的 ML Kit zh-Hani-CN）只认汉字，所以必须等于本版本是否提供中文方案；为 false 的版本不打包、不下载手写模型，也不提供手写面板和它的设置。",
+              "type": "boolean"
+            }
+          }
+        },
+        "language_dictionaries": {
+          "description": "本版本需要的语言词库，取值是 resources/language-dictionaries.lock.json 里的条目名。含 cantonese 方案的版本必须列出 msime-cantonese.db，含 zhuyin 的必须列出 msime-zhuyin.db，含 stroke 的必须列出 msime-stroke.db，不需要的不能列。",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "platforms": {
+          "description": "各平台的身份标识（bundle id、CLSID、包名等）。六个平台的键都必须出现；值为 null 表示该平台的标识尚未定义，由引入该平台的阶段补齐。非 null 的段必须同时原样写进 editions.frozen.json，写入后不能修改。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["macos", "windows", "linux", "android", "ios", "harmony"],
+          "properties": {
+            "macos": {
+              "description": "macOS 的身份标识。所有版本的每个字段两两不同（不区分大小写），由 scripts/test-editions.py 检查；full 的值等于现有的 Info.plist.in、tauri.macos.conf.json、Homebrew cask 和 DMG 名。输入模式标识符是 `<input_method_bundle_id>.<后缀>`，不单独写在这里：模式集合由 input_schemes 决定，见 platforms/macos/scripts/edition_bundle.py。",
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["input_method_bundle_id", "input_method_name", "settings_bundle_id", "keychain_service", "cask", "dmg_prefix"],
+              "properties": {
+                "input_method_bundle_id": {
+                  "description": "InputMethodKit bundle 的 CFBundleIdentifier，也是它的 NSUserDefaults 域、os_log 子系统和 TIS 输入模式标识符的前缀；连接名是它加上 `_Connection`。不能等于另一个版本的 bundle id，也不能以另一个版本的 bundle id 加点开头，否则一个版本的输入模式会和另一个版本撞名。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.inputmethod\\.[A-Za-z][A-Za-z0-9]*$"
+                },
+                "input_method_name": {
+                  "description": "输入法 bundle 的文件名（不含 .app）和可执行文件名。Dock 和进程列表显示的就是它。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "settings_bundle_id": {
+                  "description": "设置应用（Tauri）的 bundle identifier，也是 Application Support 下状态目录的名字和设置应用的 NSUserDefaults 域。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.macos(\\.[a-z][a-z0-9]*)?$"
+                },
+                "keychain_service": {
+                  "description": "原生账号窗口存访问令牌的钥匙串服务名；刷新令牌存在它加上 `.refresh` 的服务名下。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cask": {
+                  "description": "Homebrew cask 名，也是 homebrew-tap 里 Casks/<cask>.rb 的文件名。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "dmg_prefix": {
+                  "description": "发布 DMG 的文件名前缀，完整文件名是 `<dmg_prefix>-<版本>-universal.dmg`。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                }
+              }
+            },
+            "windows": {
+              "description": "Windows 的身份标识。所有版本的每个 GUID 两两不同（不区分大小写），名字类字段两两不同，一个版本的注册表键、目录不能嵌在另一个版本的里面，由 scripts/test-editions.py 检查；full 的值等于今天写死在 TSF、Server、安装器和 tauri.windows.conf.json 里的值。C++ 侧从 platforms/windows/scripts/edition_windows.py 生成的 shared/contracts/msime_edition.h 读，Inno Setup 从同一个脚本生成的 platforms/windows/installer/editions.iss 读，Rust 侧由 crates/client-core/src/edition.rs 解析。",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "langid",
+                "clsid",
+                "profile_guid",
+                "tsf_guids",
+                "inno_app_id",
+                "app_name",
+                "text_service_description",
+                "install_dir",
+                "registry_key",
+                "state_directory",
+                "user_data_directory",
+                "data_dir_environment_variable",
+                "name_suffix",
+                "watchdog_task",
+                "host_dll",
+                "tauri_identifier",
+                "installer_base_name"
+              ],
+              "properties": {
+                "langid": {
+                  "description": "输入法注册的语言（十六进制 LANGID），即默认方案所属的语言：中文版本都是 0x0804（简体中文），日文版 0x0411，越南文版 0x042A，藏文版 0x0451。TSF 按它把文本服务列在 Windows 设置的对应语言下。",
+                  "type": "string",
+                  "pattern": "^0x[0-9A-F]{4}$"
+                },
+                "clsid": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "TSF 文本服务的 CLSID，也是 HKLM\\SOFTWARE\\Microsoft\\CTF\\TIP 下的键名。"
+                },
+                "profile_guid": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "TSF 语言 profile 的 GUID。"
+                },
+                "tsf_guids": {
+                  "description": "TSF 文本服务内部注册的其余 GUID。两个版本的 TIP 可能被同一个应用同时加载，保留键、compartment、语言栏按钮和显示属性的 GUID 撞了会互相覆盖。",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "preserve_key_ime_mode",
+                    "preserve_key_ime_mode_02",
+                    "preserve_key_ime_mode_03",
+                    "preserve_key_english_input_mode",
+                    "preserve_key_double_single_byte",
+                    "preserve_key_punctuation",
+                    "compartment_double_single_byte",
+                    "compartment_punctuation",
+                    "langbar_ime_mode",
+                    "langbar_double_single_byte",
+                    "langbar_punctuation",
+                    "display_attribute_input",
+                    "display_attribute_converted",
+                    "candidate_ui_element"
+                  ],
+                  "properties": {
+                    "preserve_key_ime_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Shift）的保留键。"
+                    },
+                    "preserve_key_ime_mode_02": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Ctrl+Alt+Space）的保留键。"
+                    },
+                    "preserve_key_ime_mode_03": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英切换（Ctrl）的保留键。"
+                    },
+                    "preserve_key_english_input_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "英文候选输入（Ctrl+Shift+E）的保留键。"
+                    },
+                    "preserve_key_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "全半角切换（Ctrl+Shift+Space）的保留键。"
+                    },
+                    "preserve_key_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英标点切换（Ctrl+.）的保留键。"
+                    },
+                    "compartment_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "全半角状态的 compartment。"
+                    },
+                    "compartment_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "中英标点状态的 compartment。"
+                    },
+                    "langbar_ime_mode": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的中英按钮。"
+                    },
+                    "langbar_double_single_byte": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的全半角按钮。"
+                    },
+                    "langbar_punctuation": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "语言栏的标点按钮。"
+                    },
+                    "display_attribute_input": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "组字中文本的显示属性。"
+                    },
+                    "display_attribute_converted": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "已转换文本的显示属性。"
+                    },
+                    "candidate_ui_element": {
+                      "type": "string",
+                      "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                      "description": "候选列表的 UI element。"
+                    }
+                  }
+                },
+                "inno_app_id": {
+                  "type": "string",
+                  "pattern": "^\\{[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\\}$",
+                  "description": "Inno Setup 的 AppId，决定卸载项和升级时认哪个已安装的产品。"
+                },
+                "app_name": {
+                  "description": "安装器、开始菜单和「已安装的应用」里显示的产品名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text_service_description": {
+                  "description": "注册进系统输入法列表的文本服务名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "install_dir": {
+                  "description": "Program Files 下的安装目录名（32 位和 64 位各一个），也是安装器默认数据目录 %LOCALAPPDATA%\\<install_dir> 的名字。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "registry_key": {
+                  "description": "HKLM 下记录 VersionDir、ServerPath 和 DataDir 的键。",
+                  "type": "string",
+                  "pattern": "^Software\\\\Metasequoia\\\\[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "state_directory": {
+                  "description": "没有 DataDir 时 %LOCALAPPDATA% 下的状态目录名。",
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "user_data_directory": {
+                  "description": "%LOCALAPPDATA% 下按 Windows 用户存放匿名账号和使用统计的目录名。",
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9-]*$"
+                },
+                "data_dir_environment_variable": {
+                  "description": "覆盖状态目录的环境变量名。",
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                },
+                "name_suffix": {
+                  "description": "拼在命名管道、命名事件、互斥量和窗口类名后面的后缀。full 是空串，所以 full 的名字与引入版本之前相同；其他版本是 `.<id>`。",
+                  "type": "string",
+                  "pattern": "^(\\.[a-z][a-z0-9]*)?$"
+                },
+                "watchdog_task": {
+                  "description": "看门狗的登录计划任务名。",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "host_dll": {
+                  "description": "msime-host-api 的 DLL 文件名。TSF DLL 被加载进每个宿主应用，同一个进程里两个版本的 TIP 按导入表找同名 DLL 时会拿到先加载的那一个，所以每个版本的名字不同。",
+                  "type": "string",
+                  "pattern": "^msime_host_api(_[a-z][a-z0-9]*)?\\.dll$"
+                },
+                "tauri_identifier": {
+                  "description": "MSIME.exe（Tauri）的 identifier，决定它的应用数据目录和单实例互斥量。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.windows(\\.[a-z][a-z0-9]*)?$"
+                },
+                "installer_base_name": {
+                  "description": "安装包文件名前缀，完整文件名是 `<installer_base_name>_v<版本>.exe`；不是 full 时必须是 packages/ui/src/settings/update-manifest.ts 认的 `MetasequoiaIME-<Id>_Setup`。",
+                  "type": "string",
+                  "pattern": "^MetasequoiaIME(-[A-Z][a-z0-9]*)?_Setup$"
+                }
+              }
+            },
+            "linux": {
+              "description": "Linux 的身份标识。各版本是各自独立的安装包，可以同时安装：full 仍是今天装在 /usr 下的 msime-linux，包结构不变；其他版本整个装在自己的前缀（/opt/<package>）下，只有系统按名字查找的那几样（IBus 组件、Fcitx5 插件与输入法条目、systemd 用户单元、桌面入口、XDG 自启动项、图标和 /usr/bin 下的两个命令）装到系统目录，名字都带版本。所有版本的每个字段两两不同，一个版本的前缀不能嵌在另一个版本的前缀里，由 scripts/test-editions.py 检查；不是 full 的版本按版本 id 推出（package 是 msime-linux-<id>，其余字段同理）。full 的值等于今天写死在 CMake、IBus 组件、Fcitx5 配置和 tauri.linux.conf.json 里的值。systemd 用户单元、图标和 /usr/bin 命令名由 package 推出（<package>-online.socket、<package>-setup 等），Fcitx5 主题名与 fcitx5_addon 相同，登记的语言（IBus 的 `<language>`、Fcitx5 的 `LangCode`）由默认方案推出（中文方案是 zh / zh_CN，日文、越南文、藏文是 ja、vi、bo，见 platforms/linux/scripts/edition_linux.py 的 SCHEME_LANGUAGES），都不单独列在这里。C++ 侧读 platforms/linux/scripts/edition_linux.py 生成的 platforms/linux/src/core/LinuxEdition.h，Rust 侧由 crates/client-core/src/edition.rs 解析。",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "package",
+                "install_prefix",
+                "client_directory",
+                "ibus_engine",
+                "fcitx5_addon",
+                "tauri_identifier"
+              ],
+              "properties": {
+                "package": {
+                  "description": "deb 和 rpm 的包名，也是发布资产名的前缀、IBus 组件文件名、图标名，以及 systemd 用户单元和 /usr/bin 命令名的前缀。full 是 `msime-linux`；其他版本是 `msime-linux-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-linux(-[a-z][a-z0-9]*)?$"
+                },
+                "install_prefix": {
+                  "description": "CMAKE_INSTALL_PREFIX。full 是 `/usr`；其他版本是 `/opt/<package>`，程序、词库、宿主库和文档都在这个前缀下，互不覆盖。",
+                  "type": "string",
+                  "pattern": "^/(usr|opt/msime-linux-[a-z][a-z0-9]*)$"
+                },
+                "client_directory": {
+                  "description": "每个用户的状态目录（$XDG_CONFIG_HOME/<client_directory>）、运行时目录（$XDG_RUNTIME_DIR/<client_directory>，放 panel-input.sock 等 socket 和状态文件）、自行下载的词库目录（$XDG_DATA_HOME/<client_directory>）和缓存目录的名字，也是前缀下 share、lib、doc 和 /etc 里的子目录名。full 是 `msime-client`；其他版本是 `msime-client-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-client(-[a-z][a-z0-9]*)?$"
+                },
+                "ibus_engine": {
+                  "description": "IBus 组件名和引擎名，也是 GNOME 输入源和 IBus preload-engines 里记的名字。full 是 `msime-linux`；其他版本是 `msime-linux-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime-linux(-[a-z][a-z0-9]*)?$"
+                },
+                "fcitx5_addon": {
+                  "description": "Fcitx5 插件名和输入法条目名（addon 与 inputmethod 下的 <名字>.conf，插件库是 lib<名字>-fcitx5.so），也是宿主生成的 Fcitx5 主题名和 Omarchy 钩子名。full 是 `msime`；其他版本是 `msime-<id>`。",
+                  "type": "string",
+                  "pattern": "^msime(-[a-z][a-z0-9]*)?$"
+                },
+                "tauri_identifier": {
+                  "description": "设置应用（Tauri）的 identifier，决定它的应用数据目录和单实例的 D-Bus 名。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.linux(\\.[a-z][a-z0-9]*)?$"
+                }
+              }
+            },
+            "android": {
+              "description": "Android 的身份标识。所有版本的每个字段两两不同，由 scripts/test-editions.py 检查；full 的值等于现有的 applicationId 和发布 APK 名。版本在 platforms/android/gradle-app 里是同名的 productFlavor，应用名和输入法列表里的子类型名取自 platforms/android/editions/<id>/res（full 用主资源），图标所有版本相同。ContentProvider 的 authority 一律写成 `${applicationId}.<名字>`，随 application_id 各不相同，不单独列在这里。",
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["application_id", "apk_name"],
+              "properties": {
+                "application_id": {
+                  "description": "APK 的 applicationId，也是系统里的包名、私有数据目录和输入法服务的组件包名。full 是 `app.msime.android`；其他版本是它加上 `.<id>`，Gradle 里写成 flavor 的 applicationIdSuffix。",
+                  "type": "string",
+                  "pattern": "^app\\.msime\\.android(\\.[a-z][a-z0-9]*)?$"
+                },
+                "apk_name": {
+                  "description": "build-apk.sh 产出、发布到 android-v 版本页的 APK 文件名（不含 `.apk`）。full 是 `msime-client`；其他版本是 `msime-client-<id>`。",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                }
+              }
+            },
+            "ios": { "type": ["object", "null"] },
+            "harmony": { "type": ["object", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

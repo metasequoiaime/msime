@@ -1,8 +1,10 @@
 #pragma once
 #include "PrepareHost.h"
+#include "../../../../shared/contracts/msime_edition.h"
 
 namespace msime::windows {
-inline constexpr const wchar_t *kDataDirectoryMarker = L".metasequoiaime-data";
+// 安装器写下的所有权标记，文件名按版本取（full 是 .metasequoiaime-data）。只认本版本的文件名：带着别的版本标记的目录不是本版本安装器准备的，Server 不在里面准备状态。
+inline constexpr const wchar_t *kDataDirectoryMarker = MSIME_EDITION_DATA_DIR_MARKER;
 
 // Called only after acquiring the production single-instance guard and before
 // StateRootLease (which would itself create the directory). Installer-created

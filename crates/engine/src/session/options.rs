@@ -7,8 +7,8 @@ use crate::paths::RuntimePaths;
 use crate::types::{
     CandidateSource, CommandTableEntry, EnglishInputOptions, FrequencyAdjustmentOptions,
     FuzzyPinyinOptions, LocalInputMode, LocalModeOptions, MentionEntry, MixedExpressiveOptions,
-    QuickPhraseEntry, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind, WordItem,
-    WubiInputOptions,
+    QuickPhraseEntry, SchemeSet, SchemeType, SentenceAssociationOptions, ShuangpinProfileKind,
+    WordItem, WubiInputOptions,
 };
 use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as VietnameseToneStyle};
 
@@ -17,6 +17,8 @@ use crate::vietnamese::{InputMethod as VietnameseInputMethod, ToneStyle as Vietn
 pub struct SessionOptions {
     pub paths: RuntimePaths,
     pub scheme: SchemeType,
+    /// 会话允许运行的方案，缺省全部。`scheme` 和之后的 `switch_scheme` 都必须在其中；只为其中的方案构造 provider（见 [`SchemeSet`]）。
+    pub enabled_schemes: SchemeSet,
     pub shuangpin_profile: ShuangpinProfileKind,
     /// Shuangpin preedit shows the typed keys rather than the decoded quanpin.
     pub shuangpin_preedit_uses_raw: bool,
@@ -70,6 +72,7 @@ impl SessionOptions {
         Self {
             paths,
             scheme: SchemeType::Quanpin,
+            enabled_schemes: SchemeSet::ALL,
             shuangpin_profile: ShuangpinProfileKind::Xiaohe,
             shuangpin_preedit_uses_raw: true,
             vietnamese_input_method: VietnameseInputMethod::Telex,

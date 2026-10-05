@@ -538,7 +538,7 @@ std::filesystem::path DefaultSkinsRoot()
     {
         return {};
     }
-    // The same directory as MSIMEDefaultClientStateDirectory in RuntimeOptions.h.
+    // 与 RuntimeOptions.h 的 MSIMEDefaultClientStateDirectory 是同一个目录。这里是 full 的目录名；其他版本的输入法启动时经 SetDefaultSkinsRoot 换成自己的状态目录（input_method_main.mm 的 MSIMEConfigureMovableState）。
     return std::filesystem::path(home) / "Library" / "Application Support" / "app.msime.macos" / "skins";
 }
 

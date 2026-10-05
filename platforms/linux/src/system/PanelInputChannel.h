@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "../core/LinuxEdition.h"
 #include "../core/SafePath.h"
 
 namespace msime::linux_host {
@@ -204,7 +205,7 @@ private:
 inline std::string panel_input_socket_path() {
   const char *runtime = std::getenv("XDG_RUNTIME_DIR");
   if (!runtime || runtime[0] != '/') return {};
-  return std::string(runtime) + "/msime-client/panel-input.sock";
+  return std::string(runtime) + "/" MSIME_EDITION_CLIENT_DIRECTORY "/panel-input.sock";
 }
 
 // 逐组件检查 socket 目录，避免 mkdir 沿着中间符号链接在外部创建目录。

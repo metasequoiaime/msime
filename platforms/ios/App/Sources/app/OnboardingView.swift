@@ -49,7 +49,7 @@ struct InputSettingsView: View {
   @AppStorage(KeyboardFeedbackPreference.strengthKey, store: KeyboardFeedbackPreference.defaults)
   private var hapticStrength = KeyboardHapticStrength.medium.rawValue
   @AppStorage(WubiMixedPinyinPreference.enabledKey, store: WubiMixedPinyinPreference.defaults)
-  private var wubiMixedPinyin = false
+  private var wubiMixedPinyin = MSIMEAppEdition.wubiMixedPinyinDefault
   @AppStorage(WubiCodeHintPreference.enabledKey, store: WubiCodeHintPreference.defaults)
   private var wubiCodeHint = true
   @State private var previewFeedback: UIImpactFeedbackGenerator?
@@ -76,7 +76,8 @@ struct InputSettingsView: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets())
         Section {
-          ForEach(ChineseInputScheme.allCases, id: \.self) { scheme in
+          // 只列本版本提供的入口；full 列出全部方案。
+          ForEach(ChineseInputScheme.allCases.filter(\.isOfferedByEdition), id: \.self) { scheme in
             HStack {
               Button {
                 schemeSaveFailed = !InputSchemePreference.save(scheme: scheme, enabled: enabledSchemes)

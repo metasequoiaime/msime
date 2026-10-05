@@ -28,18 +28,6 @@ fn sample_frame_capacity(declared: Option<u64>, limit: u64) -> usize {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod capacity_tests {
-    use super::*;
-
-    #[test]
-    fn sample_frame_capacity_uses_a_valid_declared_length() {
-        assert_eq!(sample_frame_capacity(Some(123), 1_000), 123);
-        assert_eq!(sample_frame_capacity(None, 1_000), 0);
-        assert_eq!(sample_frame_capacity(Some(1_001), 1_000), 0);
-    }
-}
-
 /// An opened file's audio track.
 struct Source {
     reader: Box<dyn FormatReader>,
@@ -223,5 +211,17 @@ impl Decoder for TrackDecoder {
             self.ended.store(true, Ordering::Release);
         }
         Ok(index)
+    }
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::*;
+
+    #[test]
+    fn sample_frame_capacity_uses_a_valid_declared_length() {
+        assert_eq!(sample_frame_capacity(Some(123), 1_000), 123);
+        assert_eq!(sample_frame_capacity(None, 1_000), 0);
+        assert_eq!(sample_frame_capacity(Some(1_001), 1_000), 0);
     }
 }

@@ -359,14 +359,18 @@ pub fn apply_reading_corrections(
 struct CodeTable {
     name: &'static str,
     create: &'static str,
-    index: &'static str,
+    indexes: &'static [&'static str],
     code_first: bool,
 }
 
 const WUBI86: CodeTable = CodeTable {
     name: "wubi86",
     create: CREATE_WUBI_TABLE,
-    index: "CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC)",
+    // 第二个索引给按词条反查五笔编码用（engine 的 `WubiProvider::reverse_code`），名字与 engine 在代次副本里补建的一致，补建时见到同名索引就跳过。
+    indexes: &[
+        "CREATE INDEX idx_wubi86_key_weight ON wubi86(\"key\", \"weight\" DESC)",
+        "CREATE INDEX idx_wubi86_value ON wubi86(\"value\")",
+    ],
     code_first: false,
 };
 
@@ -374,7 +378,10 @@ const WUBI86: CodeTable = CodeTable {
 const WUBI98: CodeTable = CodeTable {
     name: "wubi98",
     create: CREATE_WUBI98_TABLE,
-    index: "CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC)",
+    indexes: &[
+        "CREATE INDEX idx_wubi98_key_weight ON wubi98(\"key\", \"weight\" DESC)",
+        "CREATE INDEX idx_wubi98_value ON wubi98(\"value\")",
+    ],
     code_first: false,
 };
 
@@ -384,7 +391,9 @@ const WUBI98_WEIGHT_STEP: i64 = 10;
 const QUICK_PHRASES: CodeTable = CodeTable {
     name: "quick_parases",
     create: CREATE_QUICK_PHRASE_TABLE,
-    index: "CREATE INDEX idx_quick_parases_key_weight ON quick_parases(\"key\", \"weight\" DESC)",
+    indexes: &[
+        "CREATE INDEX idx_quick_parases_key_weight ON quick_parases(\"key\", \"weight\" DESC)",
+    ],
     code_first: true,
 };
 
@@ -438,7 +447,9 @@ fn write_code_table<'a>(
     let transaction = connection.transaction()?;
     transaction.execute_batch(&format!("DROP TABLE IF EXISTS {}", table.name))?;
     transaction.execute_batch(table.create)?;
-    transaction.execute_batch(table.index)?;
+    for index in table.indexes {
+        transaction.execute_batch(index)?;
+    }
     let (mut imported, mut skipped) = (0, 0);
     {
         let mut insert = transaction.prepare(&format!(
@@ -850,12 +861,12 @@ mod tests {
         );
         let indexes: i64 = connection
             .query_row(
-                "select count(*) from sqlite_master where name = 'idx_wubi98_key_weight'",
+                "select count(*) from sqlite_master where name in ('idx_wubi98_key_weight', 'idx_wubi98_value')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(indexes, 1);
+        assert_eq!(indexes, 2);
     }
 
     #[test]
@@ -921,6 +932,15 @@ mod tests {
             wubi_rows,
             [("a".into(), "戈".into(), 10), ("a".into(), "工".into(), 30)]
         );
+        // 反查按词条找编码，发布的表要带上这个索引，否则每次都扫整张表。
+        let plan: String = connection
+            .query_row(
+                "explain query plan select key from wubi86 where value = '工'",
+                [],
+                |row| row.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("idx_wubi86_value"), "{plan}");
 
         let phrases = write(
             dir.path(),

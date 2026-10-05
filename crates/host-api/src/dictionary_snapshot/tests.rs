@@ -291,6 +291,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         cache: root.path().join("cache").to_string_lossy().into_owned(),
         dictionaries: dictionaries.to_string_lossy().into_owned(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -391,6 +392,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         cache: base.join("cache").to_str().unwrap().into(),
         dictionaries: base.join(dictionaries).to_str().unwrap().into(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: false,
@@ -624,6 +626,7 @@ fn activation_reopens_the_personal_context_store_on_the_restored_journal() {
         cache: base.join("cache").to_str().unwrap().into(),
         dictionaries: base.join("dictionaries").to_str().unwrap().into(),
         scheme: 0,
+        enabled_schemes: msime_engine::SchemeSet::ALL,
         shuangpin_profile: 0,
         shuangpin_preedit_uses_raw: true,
         learning: true,
@@ -745,6 +748,7 @@ fn snapshot_preparation_accepts_resources_shipped_without_the_on_demand_pair() {
     let specification = crate::tests::synthetic_desktop_lock(&resources);
     fs::remove_file(resources.join("msime-japanese.dat")).unwrap();
     fs::remove_file(resources.join("msime-mozc_dictionary_oss_README.txt")).unwrap();
+    fs::remove_file(resources.join("msime-mozc_LICENSE.txt")).unwrap();
     for name in ["user", "cache", "dictionaries", "staging"] {
         fs::create_dir_all(root.path().join(name)).unwrap();
     }

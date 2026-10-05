@@ -43,7 +43,8 @@ test("emoji panel paginates catalog items and resets on search", async () => {
 });
 
 test("emoji panel reloads a failed catalog and displays the recovered items", async () => {
-  const loadCatalog = vi.fn()
+  const loadCatalog = vi
+    .fn()
     .mockRejectedValueOnce(new Error("synthetic catalog failure"))
     .mockResolvedValueOnce({
       emoji: [{ title: "Recovered", icon: "🦉", items: [{ text: "🦉", keywords: "owl" }] }],

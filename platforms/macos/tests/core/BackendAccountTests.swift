@@ -196,9 +196,18 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     // An unchanged value is sent as "", an empty one stays, and a duplicate keeps its non-empty answer whichever comes first.
     try require(info["translations"] as? [String: String] == ["测试": "test", "东京": "", "空白": "", "你好": "hello"])
   }
+  @MainActor static func snapshotHandleValidation() throws {
+    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42)) == 42)
+    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42.0)) == nil)
+    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: 42.5)) == nil)
+    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: -1)) == nil)
+    try require(MacPreparedLocalSnapshot.strictHandle(true) == nil)
+    try require(MacPreparedLocalSnapshot.strictHandle(NSNumber(value: UInt64.max)) == UInt64.max)
+  }
   @MainActor static func main() async throws {
     try windowAccountIsolation()
     try candidateGlossPayload()
+    try snapshotHandleValidation()
     try await candidateGlossSingleFlight()
     try await fileTransfer()
     try await anonymousAccountFallback()
