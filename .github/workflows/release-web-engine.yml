@@ -8,6 +8,7 @@ name: Release Web Engine
 on:
   workflow_dispatch:
     inputs:
+      ref: {description: 要发布的分支、标签或提交（默认 main）, required: false, default: main, type: string}
       version: {description: Semantic version of the web engine release (web-engine-vX.Y.Z), required: true, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a web-engine-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
@@ -20,7 +21,10 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
+        with: {ref: "${{ inputs.ref }}", persist-credentials: false}
+      # 构建用的是 inputs.ref 检出的提交，而不是触发 workflow 的分支；清单里的 source_commit 和 release 的 tag 都以它为准。
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: version
         env: {REQUESTED: "${{ inputs.version }}", MAX_P95: "${{ inputs.max_p95_ms }}"}
         run: |
@@ -86,12 +90,12 @@ jobs:
         env: {MAX_P95: "${{ inputs.max_p95_ms }}"}
         run: node crates/engine-wasm/bench/latency.mjs --max-p95 "$MAX_P95"
       - name: Verify the release files
-        env: {VERSION: "${{ steps.version.outputs.value }}"}
+        env: {VERSION: "${{ steps.version.outputs.value }}", SOURCE_SHA: "${{ steps.source.outputs.sha }}"}
         run: |
           set -euo pipefail
           dist=target/web-engine/dist
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
-          jq -e --arg v "$VERSION" --arg c "$GITHUB_SHA" '.version == $v and .source_commit == $c and ([.artifacts[].role] | sort) == (["glue", "model", "notice", "pinyin", "wasm", "wubi86"])' "$dist/web-engine-manifest.json" > /dev/null || { echo "web-engine-manifest.json does not match this build" >&2; cat "$dist/web-engine-manifest.json" >&2; exit 1; }
+          jq -e --arg v "$VERSION" --arg c "$SOURCE_SHA" '.version == $v and .source_commit == $c and ([.artifacts[].role] | sort) == (["glue", "model", "notice", "pinyin", "wasm", "wubi86"])' "$dist/web-engine-manifest.json" > /dev/null || { echo "web-engine-manifest.json does not match this build" >&2; cat "$dist/web-engine-manifest.json" >&2; exit 1; }
           if grep -q '{{source_commit}}' "$dist/NOTICE.md"; then echo "NOTICE.md still has the source commit placeholder" >&2; exit 1; fi
       # 4. 不论是否发布，都上传为 workflow artifact。
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -101,6 +105,7 @@ jobs:
           if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
+      sha: ${{ steps.source.outputs.sha }}
   publish:
     needs: [build]
     if: ${{ inputs.publish }}
@@ -109,14 +114,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with: {name: "web-engine-${{ needs.build.outputs.version }}", path: dist}
-      # workflow_dispatch 可以在任何分支上运行，所以发布必须显式要求，不能默认发生；否则在功能分支上点一次就会发出一个公开且不能撤回的 release。
+      # 构建的是 inputs.ref 指定的任意提交，所以发布必须显式要求，不能默认发生；否则构建一次功能分支就会发出一个公开且不能撤回的 release。
       # 5. 发布 web-engine-vX.Y.Z，带上 dist/ 里的全部文件。不标为 latest：仓库的最新版本应当仍是客户端的发布。
       - name: Publish web engine release
-        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ needs.build.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
+        env: {GH_TOKEN: "${{ github.token }}", GH_REPO: "${{ github.repository }}", VERSION: "${{ needs.build.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", SOURCE_SHA: "${{ needs.build.outputs.sha }}"}
         run: |
           set -euo pipefail
           dist=dist
           (cd "$dist" && sha256sum -c SHA256SUMS.txt)
           jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
           tag="web-engine-v${VERSION}"; flags=(--latest=false); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          gh release create "$tag" "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt --target "$GITHUB_SHA" --title "Web engine ${VERSION}" --notes-file notes.md "${flags[@]}"
+          gh release create "$tag" "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt --target "$SOURCE_SHA" --title "Web engine ${VERSION}" --notes-file notes.md "${flags[@]}"

@@ -2,14 +2,27 @@ name: Release Android
 on:
   workflow_dispatch:
     inputs:
+      ref: {description: 要发布的分支、标签或提交（默认 main）, required: false, default: main, type: string}
       version: {description: Semantic version (defaults to platforms/android/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as an android-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-android, cancel-in-progress: false}
 jobs:
+  # Resolves inputs.ref to one commit up front, so every edition and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ inputs.ref }}", persist-credentials: false}
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
   # 每个版本（shared/contracts/editions.json 里有 Android 段的 id，也是 gradle-app 的 flavor 名）各打一个 APK，applicationId 各不相同，可以同时装在一台设备上。full 的 applicationId 和 APK 名（msime-client.apk）与引入版本之前相同。
   release:
+    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -18,7 +31,7 @@ jobs:
         edition: [full, wubi, pinyin, japanese, vietnamese, tibetan]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -66,14 +79,14 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
   publish:
-    needs: release
-    # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+    needs: [source, release]
+    # The build takes whatever commit inputs.ref names, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-android-*-${{ needs.release.outputs.version }}

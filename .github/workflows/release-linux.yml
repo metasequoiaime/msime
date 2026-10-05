@@ -2,18 +2,31 @@ name: Release Linux
 on:
   workflow_dispatch:
     inputs:
+      ref: {description: 要发布的分支、标签或提交（默认 main）, required: false, default: main, type: string}
       version: {description: Semantic version (defaults to platforms/linux/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a linux-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
+  # Resolves inputs.ref to one commit up front, so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ inputs.ref }}", persist-credentials: false}
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
   deb:
+    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -65,11 +78,12 @@ jobs:
       version: ${{ steps.version.outputs.value }}
   # The RPM is built separately in a Fedora container rather than converted from the .deb: rpmbuild records the libraries the binaries link as Requires, and Debian's carry sonames and symbol versions no Fedora package provides (#2095).
   rpm:
+    needs: source
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
@@ -111,15 +125,15 @@ jobs:
           path: target/linux-package-rpm/dist/
           if-no-files-found: error
   publish:
-    needs: [deb, rpm]
+    needs: [source, deb, rpm]
     if: ${{ inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with: {path: dist, merge-multiple: true}
-      # workflow_dispatch runs on whatever ref it is given, so publishing has to be asked for rather than implied. Without the gate a dispatch on a feature branch cuts a real public release.
+      # The build takes whatever commit inputs.ref names, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent Linux release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |

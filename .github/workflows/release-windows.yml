@@ -2,14 +2,27 @@ name: Release Windows
 on:
   workflow_dispatch:
     inputs:
+      ref: {description: 要发布的分支、标签或提交（默认 main）, required: false, default: main, type: string}
       version: {description: Semantic version (defaults to platforms/windows/version.txt), required: false, type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the installer as a windows-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: true, type: boolean}
 permissions: {contents: write}
 concurrency: {group: release-windows, cancel-in-progress: false}
 jobs:
+  # Resolves inputs.ref to one commit up front, so every edition, the coexistence check and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {ref: "${{ inputs.ref }}", persist-credentials: false}
+      - id: commit
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
   # 每个版本（shared/contracts/editions.json 里有 Windows 段的 id）各打一个安装包，可以同时安装。full 的安装包名、AppId、目录和注册表键与引入版本之前相同。
   release:
+    needs: source
     runs-on: windows-2025
     timeout-minutes: 150
     strategy:
@@ -22,7 +35,7 @@ jobs:
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - id: version
         shell: pwsh
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -179,12 +192,12 @@ jobs:
       version: ${{ steps.version.outputs.value }}
   # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full。runner 是一次性的管理员环境。
   coexistence:
-    needs: release
+    needs: [source, release]
     runs-on: windows-2025
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
@@ -201,13 +214,13 @@ jobs:
           }
           ./platforms/windows/installer/tests/coexistence-smoke.ps1 -Installers $installers
   publish:
-    needs: [release, coexistence]
+    needs: [source, release, coexistence]
     if: inputs.publish
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: msime-windows-*-${{ needs.release.outputs.version }}
