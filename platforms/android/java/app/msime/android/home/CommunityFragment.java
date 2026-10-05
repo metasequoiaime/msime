@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import app.msime.android.CommonPhrasesStore;
 import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
+import app.msime.android.CommunitySkinCache;
 import app.msime.android.CustomSkinLibrary;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.R;
@@ -183,6 +184,31 @@ public final class CommunityFragment extends Fragment {
 
         load(true);
         updateSearchHint();
+        cacheSkinCatalogue();
+    }
+
+    /** 拉全社区皮肤目录写进本机缓存，键盘的皮肤面板据此列出全部社区皮肤（键盘进程不为浏览目录联网）。最多翻十页，失败时保留旧缓存。 */
+    private void cacheSkinCatalogue() {
+        HostTask.runNetwork(this, context -> {
+            String directory = HostStore.directory(context);
+            if (directory.isEmpty()) return null;
+            CommunityCatalog catalog = new CommunityCatalog(context);
+            java.util.List<CommunitySkinCache.Entry> entries = new java.util.ArrayList<>();
+            for (int page = 0; page < 10; page++) {
+                CommunityCatalog.Page result = catalog.list(CommunityRequest.Kind.SKIN, "", entries.size(), null);
+                if (result == null || result.failed()) return null;
+                for (CommunityCatalog.Item item : result.items()) {
+                    if (item.payload() != null) entries.add(new CommunitySkinCache.Entry(item.id(), item.name(), item.author(), item.payload()));
+                }
+                if (!result.hasMore() || result.items().isEmpty()) break;
+            }
+            try {
+                CommunitySkinCache.write(Paths.get(directory), entries);
+            } catch (java.io.IOException error) {
+                android.util.Log.w("MSIMECommunity", "Skin catalogue cache was not written", error);
+            }
+            return null;
+        }, ignored -> { });
     }
 
     private void updateSearchHint() {

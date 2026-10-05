@@ -363,14 +363,34 @@ final class ImePanels {
             KeyboardSkin system = KeyboardSkin.system(hostDark);
             choices.add(new MSIMEInputService.SkinChoice(system.id(), system.title(), system, null));
         }
+        // 已获取的设计与社区目录缓存里的设计，按皮肤的绘制键去重；「我的皮肤」与其中某一款相同时只留带名字的那一格。
+        java.util.Set<String> libraryIds = new java.util.HashSet<>();
+        java.util.Set<String> namedKeys = new java.util.HashSet<>();
         try {
             for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(s.preferencesDirectory))) {
                 JSONObject design = item.design();
-                choices.add(new MSIMEInputService.SkinChoice("custom", item.name(), KeyboardSkin.custom(design, hostDark), design));
+                KeyboardSkin skin = KeyboardSkin.custom(design, hostDark);
+                libraryIds.add(item.id());
+                namedKeys.add(skin.key());
+                choices.add(new MSIMEInputService.SkinChoice("custom", item.name(), skin, design));
             }
         } catch (Exception ignored) {
             // 写到一半的自定义库不能把主题也藏起来。
         }
+        // 社区里还没获取的皮肤：目录由 App 缓存（键盘不为浏览目录联网），选中时先存进皮肤库再换上。
+        java.util.Map<MSIMEInputService.SkinChoice, CommunitySkinCache.Entry> uninstalled = new java.util.HashMap<>();
+        if (!s.preferencesDirectory.isEmpty()) {
+            for (CommunitySkinCache.Entry entry : CommunitySkinCache.read(java.nio.file.Paths.get(s.preferencesDirectory))) {
+                if (libraryIds.contains(entry.id())) continue;
+                KeyboardSkin skin = KeyboardSkin.custom(entry.design(), hostDark);
+                if (!namedKeys.add(skin.key())) continue;
+                MSIMEInputService.SkinChoice choice = new MSIMEInputService.SkinChoice("custom", entry.name(), skin, entry.design());
+                uninstalled.put(choice, entry);
+                choices.add(choice);
+            }
+        }
+        choices.removeIf(choice -> "custom".equals(choice.id()) && choice.design() == null
+            && namedKeys.contains(choice.skin().key()));
         String globalTheme = preferences == null ? "system" : preferences.optString("global_theme", "system");
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
@@ -402,7 +422,19 @@ final class ImePanels {
                     other.setSelected(other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
-                // 选中即换色，面板留着，方便接着比较别的皮肤。
+                // 选中即换色，面板留着，方便接着比较别的皮肤。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
+                CommunitySkinCache.Entry install = uninstalled.get(choice);
+                if (install != null) {
+                    final String directory = s.preferencesDirectory;
+                    s.preferencesWorker.execute(() -> {
+                        try {
+                            if (!CustomSkinLibrary.add(java.nio.file.Paths.get(directory), install.id(), install.name(), install.design()))
+                                android.util.Log.i("MSIMESkin", "Skin library is full; the community skin is applied without being saved");
+                        } catch (java.io.IOException | RuntimeException error) {
+                            android.util.Log.w("MSIMESkin", "Community skin was not saved to the library", error);
+                        }
+                    });
+                }
                 s.saveKeyboardSkin(choice.id(), choice.design());
                 s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
                 styleSkinPicker(cards);
