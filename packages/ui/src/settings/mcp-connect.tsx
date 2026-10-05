@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "../core/confirm";
 import { errorCode } from "../core/error-code";
 import { SettingsServiceRow } from "./settings-service-row";
 import { GroupList, Segmented, Switch } from "../core/platform-controls";
 import { mcpFailureMessage } from "./mcp-errors";
-import { useMountedRef } from "./use-mounted-ref";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import { jsonTokens, plain, SyntaxBlock, type SyntaxToken, tokensText } from "./mcp-syntax";
 import { ActionButton } from "./action-button";
 import { SettingsManagerNote } from "./settings-manager-note";
@@ -230,7 +230,7 @@ export function McpConnectSection({
   const { confirm, confirmation } = useConfirm();
   const [server, setServer] = useState<McpServerStatus>();
   const [loadFailed, setLoadFailed] = useState(false);
-  const [busy, setBusy] = useState<McpClientId>();
+  const [busyClient, setBusyClient] = useState<McpClientId>();
   const [result, setResult] = useState<string>();
   const [copied, setCopied] = useState<string>();
   const [tab, setTab] = useState<McpTab>("claude_code");
@@ -238,14 +238,16 @@ export function McpConnectSection({
   const [preferred, setPreferred] = useState<McpFlag[]>(savedFlags);
   // 已连接的助手页上，开关先显示它现有条目的权限；用户改过之后记在这里，直到写入。
   const [drafts, setDrafts] = useState<Partial<Record<McpClientId, McpFlag[]>>>({});
-  const mounted = useMountedRef();
   const refreshGeneration = useAsyncGeneration(status, install, copyText);
-  const clientGeneration = useAsyncGeneration(status, install, copyText);
-  const actionRunning = useRef(false);
+  const {
+    busy,
+    mounted,
+    generation: clientGeneration,
+    run,
+  } = useAsyncActionRunner((message) => setResult(message), undefined, status, install, copyText);
 
   useEffect(() => {
-    actionRunning.current = false;
-    setBusy(undefined);
+    setBusyClient(undefined);
   }, [status, install, copyText]);
 
   const refresh = useCallback(() => {
@@ -267,62 +269,59 @@ export function McpConnectSection({
     void refresh();
   }, [refresh]);
 
-  async function write(id: McpClientId, flags: readonly McpFlag[]) {
-    if (!install || busy !== undefined || actionRunning.current) return;
+  function write(id: McpClientId, flags: readonly McpFlag[]) {
+    if (!install || busy) return;
     const generation = clientGeneration.current;
     const name = clientNames[id];
-    actionRunning.current = true;
-    setBusy(id);
-    setResult(undefined);
-    try {
-      if (flags.length > 0) {
-        const granted = await confirm({
-          title: `允许 ${name} 中的助手使用这些权限？`,
-          message: grantMessage(name, flags),
-          confirmLabel: "允许并写入",
-        });
-        if (!granted) return;
-        if (!mounted.current || generation !== clientGeneration.current) return;
-      }
-      let outcome: McpInstallOutcome;
-      try {
-        outcome = await install(id, false, flags);
-      } catch (error) {
-        if (errorCode(error) !== "mcp_entry_exists") throw error;
-        const replace = await confirm({
-          title: `替换 ${name} 中的 msime？`,
-          message: `${name} 的配置里已有另一个名为 msime 的服务器。替换后，它原来的命令和参数（包括手动加上的 --allow-write）会被这里的设置覆盖。`,
-          confirmLabel: "替换",
-        });
-        if (!replace) return;
-        if (!mounted.current || generation !== clientGeneration.current) return;
-        outcome = await install(id, true, flags);
-      }
-      if (mounted.current && generation === clientGeneration.current) {
-        setDrafts((current) => {
-          const next = { ...current };
-          delete next[id];
-          return next;
-        });
-        setResult(
-          outcome === "unchanged"
-            ? `${name} 已经连接，无需改动。`
-            : outcome === "updated"
-              ? `已更新 ${name} 的配置。重新启动 ${name} 后生效。`
-              : `已写入 ${name} 的配置。重新启动 ${name} 后生效。`,
-        );
-      }
-      if (!mounted.current || generation !== clientGeneration.current) return;
-      await refresh();
-    } catch (error) {
-      if (mounted.current && generation === clientGeneration.current)
-        setResult(mcpFailureMessage(error, name));
-    } finally {
-      if (mounted.current && generation === clientGeneration.current) {
-        actionRunning.current = false;
-        setBusy(undefined);
-      }
-    }
+    const pending = run(
+      async (isCurrent) => {
+        if (flags.length > 0) {
+          const granted = await confirm({
+            title: `允许 ${name} 中的助手使用这些权限？`,
+            message: grantMessage(name, flags),
+            confirmLabel: "允许并写入",
+          });
+          if (!granted) return;
+          if (!isCurrent()) return;
+        }
+        let outcome: McpInstallOutcome;
+        try {
+          outcome = await install(id, false, flags);
+        } catch (error) {
+          if (errorCode(error) !== "mcp_entry_exists") throw error;
+          const replace = await confirm({
+            title: `替换 ${name} 中的 msime？`,
+            message: `${name} 的配置里已有另一个名为 msime 的服务器。替换后，它原来的命令和参数（包括手动加上的 --allow-write）会被这里的设置覆盖。`,
+            confirmLabel: "替换",
+          });
+          if (!replace) return;
+          if (!isCurrent()) return;
+          outcome = await install(id, true, flags);
+        }
+        if (isCurrent()) {
+          setDrafts((current) => {
+            const next = { ...current };
+            delete next[id];
+            return next;
+          });
+          setResult(
+            outcome === "unchanged"
+              ? `${name} 已经连接，无需改动。`
+              : outcome === "updated"
+                ? `已更新 ${name} 的配置。重新启动 ${name} 后生效。`
+                : `已写入 ${name} 的配置。重新启动 ${name} 后生效。`,
+          );
+        }
+        if (!isCurrent()) return;
+        await refresh();
+      },
+      { formatError: (error) => mcpFailureMessage(error, name) },
+    );
+    if (!pending) return;
+    setBusyClient(id);
+    void pending.finally(() => {
+      if (mounted.current && generation === clientGeneration.current) setBusyClient(undefined);
+    });
   }
 
   function copy(key: string, text: string) {
@@ -449,10 +448,12 @@ export function McpConnectSection({
                   <SettingsManagerActions>
                     <ActionButton
                       action={() => void write(client.id, flags)}
-                      disabled={busy !== undefined || (client.configured && !outdated)}
-                      ariaBusy={busy === client.id}
+                      disabled={
+                        busy || busyClient !== undefined || (client.configured && !outdated)
+                      }
+                      ariaBusy={busyClient === client.id}
                       label={
-                        busy === client.id
+                        busyClient === client.id
                           ? "正在写入…"
                           : `${outdated ? "更新" : "写入"} ${clientNames[client.id]}`
                       }
