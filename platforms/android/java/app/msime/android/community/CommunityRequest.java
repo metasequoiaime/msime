@@ -188,6 +188,64 @@ public final class CommunityRequest {
         return "/v1/community/skins/" + encode(id) + "?" + INCLUDE_CATEGORY;
     }
 
+    /** 记一次皮肤下载（服务端的「使用次数」）：`POST` 这条路径，同一账号重复记只算一次。 */
+    public static String skinDownloadPath(String id) {
+        return "/v1/community/skins/" + encode(id) + "/download";
+    }
+
+    /** 皮肤卡上的使用次数：一万以下照写，一万起按「万」取一位小数（去掉 `.0`），如「15.8 万 次使用」。 */
+    public static String usesLabel(long downloads) {
+        long count = Math.max(0, downloads);
+        if (count < 10_000) return count + " 次使用";
+        long tenths = Math.round(count / 1_000.0);
+        String value = tenths % 10 == 0 ? Long.toString(tenths / 10) : (tenths / 10) + "." + (tenths % 10);
+        return value + " 万 次使用";
+    }
+
+    /** 条数按千位分隔，如「4,812 条」。 */
+    public static String entriesLabel(int count) {
+        return String.format(java.util.Locale.ROOT, "%,d 条", Math.max(0, count));
+    }
+
+    /**
+     * 一个词库或短语包里的条数：词库数 `content.entries`，短语包数 `content.phrases`；回复模板和读不出的内容为 -1，界面上不写条数。
+     */
+    public static int entryCount(Kind kind, org.json.JSONObject content) {
+        if (content == null) return -1;
+        String key = switch (kind) {
+            case DICTIONARY -> "entries";
+            case PHRASE -> "phrases";
+            default -> "";
+        };
+        if (key.isEmpty()) return -1;
+        org.json.JSONArray values = content.optJSONArray(key);
+        return values == null ? -1 : values.length();
+    }
+
+    /**
+     * `updatedAt`（RFC 3339，来自条目原始 JSON 的 `updated_at`）是否在 `nowMillis` 之前七天以内；为空或读不出时为 false，界面上就不写「本周更新」。
+     */
+    public static boolean updatedThisWeek(String updatedAt, long nowMillis) {
+        if (updatedAt == null || updatedAt.isEmpty()) return false;
+        try {
+            long updated = java.time.OffsetDateTime.parse(updatedAt).toInstant().toEpochMilli();
+            return updated <= nowMillis && nowMillis - updated <= 7L * 24 * 60 * 60 * 1000;
+        } catch (java.time.format.DateTimeParseException error) {
+            return false;
+        }
+    }
+
+    /**
+     * 词库和短语行的副标题：「@作者 · 4,812 条 · 本周更新」；作者为空时不写作者，条数未知（负数）时不写条数。
+     */
+    public static String resourceSubtitle(String author, int entries, boolean updatedThisWeek) {
+        List<String> parts = new java.util.ArrayList<>();
+        if (author != null && !author.isEmpty()) parts.add("@" + author);
+        if (entries >= 0) parts.add(entriesLabel(entries));
+        if (updatedThisWeek) parts.add("本周更新");
+        return String.join(" · ", parts);
+    }
+
     /** 修改分类的请求体，只有 `category` 一个字段。分类 id 是固定的 ASCII 小写字母，不需要转义。 */
     public static String categoryBody(Category category) {
         return "{\"category\":\"" + category.id() + "\"}";

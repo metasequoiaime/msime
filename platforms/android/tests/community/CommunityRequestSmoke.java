@@ -103,6 +103,26 @@ public final class CommunityRequestSmoke {
         check("审核服务暂时不可用，请稍后重试".equals(CommunityRequest.message("screening_unavailable", 503)),
             "screening outage asks for a retry");
         check(CommunityRequest.message("account_banned", 403).contains("封禁"), "a ban is named");
+        // 卡片上的计数与副标题。
+        String skinId = "10000000-0000-4000-8000-000000000001";
+        check(("/v1/community/skins/" + skinId + "/download").equals(CommunityRequest.skinDownloadPath(skinId)),
+            "getting a skin counts a download on the skin's own endpoint");
+        check("0 次使用".equals(CommunityRequest.usesLabel(0)) && "9999 次使用".equals(CommunityRequest.usesLabel(9_999))
+            && "0 次使用".equals(CommunityRequest.usesLabel(-3)), "small use counts are written out");
+        check("15.8 万 次使用".equals(CommunityRequest.usesLabel(158_000))
+            && "1 万 次使用".equals(CommunityRequest.usesLabel(10_000))
+            && "2.9 万 次使用".equals(CommunityRequest.usesLabel(29_049)), "large use counts are in 万 with one decimal");
+        check("4,812 条".equals(CommunityRequest.entriesLabel(4_812)), "entry counts are grouped by thousands");
+        check("@水杉词库组 · 4,812 条 · 本周更新".equals(CommunityRequest.resourceSubtitle("水杉词库组", 4_812, true))
+            && "18 条".equals(CommunityRequest.resourceSubtitle("", 18, false))
+            && "@寻章".equals(CommunityRequest.resourceSubtitle("寻章", -1, false)),
+            "a resource row says author, entries and a recent update, leaving out what it does not know");
+        long now = java.time.OffsetDateTime.parse("2026-10-05T12:00:00Z").toInstant().toEpochMilli();
+        check(CommunityRequest.updatedThisWeek("2026-10-01T08:00:00+08:00", now)
+            && !CommunityRequest.updatedThisWeek("2026-09-20T00:00:00Z", now)
+            && !CommunityRequest.updatedThisWeek("2026-10-06T00:00:00Z", now)
+            && !CommunityRequest.updatedThisWeek("yesterday", now)
+            && !CommunityRequest.updatedThisWeek(null, now), "only an update within the last seven days counts");
         System.out.println("Android community requests: paths, categories, query encoding, reports and failures passed");
     }
 

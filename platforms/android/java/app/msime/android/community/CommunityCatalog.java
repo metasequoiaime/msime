@@ -515,4 +515,70 @@ public final class CommunityCatalog {
             return "保存失败，请稍后重试。";
         }
     }
+
+    /**
+     * 获取一款皮肤后在服务端记一次下载（`POST /v1/community/skins/{id}/download`），这就是卡片上的「使用次数」。
+     *
+     * <p>尽力而为：皮肤已经在本机皮肤库里，记不上只是计数少一次，不影响使用，所以失败只记日志。身份与举报相同：有水杉账号用账号令牌，否则用键盘的匿名身份；令牌被拒时换新令牌重试一次。
+     *
+     * @return 服务端是否记下了这次下载
+     */
+    public boolean recordDownload(Item item) {
+        if (item == null || item.kind() != CommunityRequest.Kind.SKIN) return false;
+        BackendAccount account = new BackendAccount(context);
+        String token = account.accessToken();
+        boolean anonymous = false;
+        try {
+            if (token.isEmpty()) {
+                token = new BackendAnonymousAccount(context).accessToken();
+                anonymous = true;
+            }
+            for (int attempt = 0; attempt < 2; attempt++) {
+                int status = postDownload(item.id(), token);
+                if (status == 200) return true;
+                if (status != 401 || attempt > 0) return false;
+                String fresh = anonymous
+                    ? new BackendAnonymousAccount(context).accessToken(token)
+                    : account.currentAccessToken(token);
+                if (fresh.isEmpty() || fresh.equals(token)) return false;
+                token = fresh;
+            }
+            return false;
+        } catch (Exception | LinkageError error) {
+            android.util.Log.i("MSIMECommunity", "Skin download was not counted", error);
+            return false;
+        }
+    }
+
+    private static int postDownload(String id, String token) throws java.io.IOException {
+        HttpsURLConnection connection = null;
+        try {
+            connection = (HttpsURLConnection) new URL(
+                ORIGIN + CommunityRequest.skinDownloadPath(id)).openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(TIMEOUT_MILLIS);
+            connection.setReadTimeout(TIMEOUT_MILLIS);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            try (java.io.OutputStream output = connection.getOutputStream()) {
+                output.write("{}".getBytes(StandardCharsets.UTF_8));
+            }
+            int status = connection.getResponseCode();
+            // 回来的是整份设计，本机已经有了，只读掉不用；读取有上限，免得一个异常大的回复占满内存。
+            if (status == 200) {
+                try (InputStream input = connection.getInputStream()) {
+                    readBounded(input, MAX_RESPONSE_BYTES);
+                } catch (Exception error) {
+                    throw new java.io.IOException(error);
+                }
+            }
+            return status;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
 }

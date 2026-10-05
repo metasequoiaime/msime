@@ -1,31 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The 社区 tab in the design's Android form: large title, the 皮肤/词库/短语 segmented control, a pill search field, the skin category chips, then the listing. Skins lay out as a two-column grid of preview cards; dictionaries and replies as rows in one grouped card (see CommunityAdapter). The list is inset 10dp so the 6dp margins around each card land its outer edge on the 16dp page margin with a 12dp gutter between columns. -->
+<!-- The 社区 tab in the design's Android form: large title, the outlined 皮肤/词库/短语 segmented control (accentSoft under the selected segment), a pill search field, the skin category chips, then the listing. Skins lay out as a two-column grid of preview cards; dictionaries and phrase packs as rows in one grouped card, with the 「AI 回复模板」 section under the phrase packs (see CommunityAdapter). The list is inset 10dp so the 6dp margins around each card land its outer edge on the 16dp page margin with a 12dp gutter between columns. -->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
     android:orientation="vertical">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:accessibilityHeading="true"
-        android:paddingStart="16dp"
+        android:paddingStart="@dimen/ms_large_title_padding_horizontal"
         android:paddingTop="22dp"
-        android:paddingEnd="16dp"
+        android:paddingEnd="@dimen/ms_large_title_padding_horizontal"
         android:paddingBottom="10dp"
         android:text="@string/tab_community"
-        android:textColor="@color/ink"
-        android:textSize="28sp" />
+        android:textColor="?attr/colorOnSurface"
+        android:textSize="@dimen/ms_text_page_title" />
 
     <com.google.android.material.button.MaterialButtonToggleGroup
         android:id="@+id/community_kinds"
+        style="@style/Widget.MSIME.SegmentGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="@dimen/ms_large_title_padding_horizontal"
         android:layout_marginTop="6dp"
-        android:layout_marginEnd="16dp"
+        android:layout_marginEnd="@dimen/ms_large_title_padding_horizontal"
         app:selectionRequired="true"
         app:singleSelection="true" />
 
@@ -34,10 +36,10 @@
         style="@style/Widget.Material3.TextInputLayout.FilledBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="@dimen/ms_large_title_padding_horizontal"
         android:layout_marginTop="12dp"
-        android:layout_marginEnd="16dp"
-        app:boxBackgroundColor="@color/search_field"
+        android:layout_marginEnd="@dimen/ms_large_title_padding_horizontal"
+        app:boxBackgroundColor="?attr/colorSurfaceContainer"
         app:boxCornerRadiusBottomEnd="28dp"
         app:boxCornerRadiusBottomStart="28dp"
         app:boxCornerRadiusTopEnd="28dp"
@@ -47,7 +49,7 @@
         app:endIconMode="clear_text"
         app:hintEnabled="false"
         app:startIconDrawable="@drawable/ic_search"
-        app:startIconTint="@color/text_secondary">
+        app:startIconTint="?attr/colorOnSurfaceVariant">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/community_search"
@@ -58,20 +60,20 @@
             android:paddingTop="14dp"
             android:paddingBottom="14dp"
             android:singleLine="true"
-            android:textColor="@color/ink"
-            android:textColorHint="@color/text_secondary"
+            android:textColor="?attr/colorOnSurface"
+            android:textColorHint="?attr/colorOnSurfaceVariant"
             android:textSize="15sp" />
     </com.google.android.material.textfield.TextInputLayout>
 
-    <!-- 皮肤的分类筛选条：「全部」和八个分类，一行横向滚动。词库和回复没有分类，切过去时隐藏。 -->
+    <!-- 皮肤的分类筛选条：「全部」和八个分类，一行横向滚动。词库和短语没有分类，切过去时隐藏。 -->
     <HorizontalScrollView
         android:id="@+id/community_categories_scroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="@dimen/ms_large_title_padding_horizontal"
+        android:paddingEnd="@dimen/ms_large_title_padding_horizontal"
         android:scrollbars="none">
 
         <com.google.android.material.chip.ChipGroup
@@ -89,8 +91,8 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="20dp"
         android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp"
-        android:textColor="@color/text_secondary"
+        android:layout_marginEnd="@dimen/ms_large_title_padding_horizontal"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:textSize="14sp"
         android:visibility="gone" />
 
@@ -99,7 +101,7 @@
         style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="@dimen/ms_large_title_padding_horizontal"
         android:layout_marginTop="12dp"
         android:text="重试"
         android:visibility="gone"

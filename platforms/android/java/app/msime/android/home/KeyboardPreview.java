@@ -46,6 +46,7 @@ public final class KeyboardPreview extends View {
     private String[][] rows = FULL_ROWS;
     private String caption = "";
     @Nullable private KeyboardSkin skin;
+    private float cornerRadiusDp = 16f;
 
     /** Inflated from a layout, so it takes the two-argument constructor. */
     public KeyboardPreview(Context context, AttributeSet attributes) {
@@ -79,8 +80,15 @@ public final class KeyboardPreview extends View {
         setKeyboard(skin, nineKey, "");
     }
 
+    /** 圆角半径（dp）；默认 16，社区皮肤卡上的小预览用 6，与外面那圈描边对齐。 */
+    public void setCornerRadiusDp(float radius) {
+        cornerRadiusDp = Math.max(0f, radius);
+        applyBackground();
+        invalidate();
+    }
+
     private void applyBackground() {
-        int radius = Ui.dp(getContext(), 16);
+        int radius = Ui.dp(getContext(), cornerRadiusDp);
         setBackground(Ui.rounded(skin == null ? Ui.card(getContext()) : parse(skin.background(), Ui.card(getContext())), radius));
         setClipToOutline(true);
     }
