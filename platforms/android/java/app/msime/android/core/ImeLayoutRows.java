@@ -595,6 +595,9 @@ final class ImeLayoutRows {
      */
     private void placeSpellingRow(boolean candidateRow) {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
+        // 两处的按钮样式不同：叠在候选行上时样式通道按候选按钮给了最小宽高和内边距，挂回侧栏后只重设颜色和字体，拼音按钮就一直是候选的尺寸。换位置时清空，renderNineKeySpellings 按当前位置重建。
+        s.nineKeySpellings.removeAllViews();
+        s.nineKeySpellingButtons.clear();
         s.nineKeySpellingScroll.setFillViewport(candidateRow);
         s.nineKeySpellings.setGravity(candidateRow ? Gravity.CENTER_VERTICAL : Gravity.NO_GRAVITY);
         if (s.nineKeySpellings.getLayoutParams() != null) {
