@@ -46,6 +46,8 @@ pub struct NineKeySession {
     english_options: EnglishInputOptions,
     digits: String,
     locked: Vec<String>,
+    /// Digit offsets where the user split syllables with `'`, ascending and past the locked span. Unlike a locked spelling, a split fixes only where a syllable ends, so every reading of the digits on either side stays open: `94'26` is xi'an as well as yi'an, never xian.
+    splits: Vec<usize>,
     spellings: Vec<String>,
     candidates: Vec<WordItem>,
     english_only: bool,
@@ -74,6 +76,7 @@ impl NineKeySession {
             english_options: english,
             digits: String::new(),
             locked: Vec::new(),
+            splits: Vec::new(),
             spellings: Vec::new(),
             candidates: Vec::new(),
             english_only: false,
@@ -97,8 +100,19 @@ impl NineKeySession {
         self.refresh();
     }
 
-    /// `2`..=`9`; at 32 digits handled with `NINE_KEY_DIGIT_LIMIT`.
+    /// `2`..=`9`; at 32 digits handled with `NINE_KEY_DIGIT_LIMIT`. `'` while composing splits the syllables at the end of what is typed; a second split there, or one right after a locked spelling, changes nothing.
     pub fn character(&mut self, digit: u8) -> KeyResult {
+        if digit == b'\'' {
+            if !self.active() {
+                return KeyResult::unhandled();
+            }
+            let end = self.digits.len();
+            if end > self.locked_length() && self.splits.last() != Some(&end) {
+                self.splits.push(end);
+                self.refresh();
+            }
+            return KeyResult::handled();
+        }
         if !(b'2'..=b'9').contains(&digit) {
             return KeyResult::unhandled();
         }
@@ -120,6 +134,8 @@ impl NineKeySession {
         let end = offset + spelling.len().min(self.digits.len() - offset);
         self.digits.replace_range(offset..end, &encode(&spelling));
         self.locked.push(spelling);
+        let locked_length = self.locked_length();
+        self.splits.retain(|&split| split > locked_length);
         self.refresh();
         KeyResult::handled()
     }
@@ -186,11 +202,19 @@ impl NineKeySession {
             Command::Cancel => {
                 self.digits.clear();
                 self.locked.clear();
+                self.splits.clear();
             }
+            // A split at the end goes first, so Backspace undoes the last key pressed.
             Command::Backspace => {
-                self.digits.pop();
-                while self.locked_length() > self.digits.len() {
-                    self.locked.pop();
+                if self.splits.last() == Some(&self.digits.len()) {
+                    self.splits.pop();
+                } else {
+                    self.digits.pop();
+                    while self.locked_length() > self.digits.len() {
+                        self.locked.pop();
+                    }
+                    let length = self.digits.len();
+                    self.splits.retain(|&split| split <= length);
                 }
             }
             _ => return KeyResult::unhandled(),
@@ -269,7 +293,13 @@ impl NineKeySession {
             if !preedit.is_empty() {
                 preedit.push('\'');
             }
-            preedit.push_str(&self.digits[locked_length..]);
+            let mut start = locked_length;
+            for &split in &self.splits {
+                preedit.push_str(&self.digits[start..split]);
+                preedit.push('\'');
+                start = split;
+            }
+            preedit.push_str(&self.digits[start..]);
         }
         SessionSnapshot {
             scheme: SchemeType::Quanpin,
@@ -311,11 +341,16 @@ impl NineKeySession {
         let table = spelling_table();
         let locked_length = self.locked_length();
         let remaining = remaining_digits(&self.digits, locked_length);
-        self.spellings = table.spellings_for(remaining, locked_length);
+        let splits: Vec<usize> = self
+            .splits
+            .iter()
+            .map(|split| split - locked_length)
+            .collect();
+        self.spellings = table.spellings_for(remaining, locked_length, splits.first().copied());
         let alternatives = if remaining.is_empty() {
             vec![Vec::new()]
         } else {
-            let mut alternatives = table.paths(remaining);
+            let mut alternatives = table.split_paths(remaining, &splits);
             // Even an unfinished or invalid tail must still offer the leading syllable for partial selection.
             alternatives.extend(
                 self.spellings
@@ -469,6 +504,12 @@ impl NineKeySession {
     fn consume(&mut self, count: usize) {
         let count = count.min(self.digits.len());
         self.digits.drain(..count);
+        self.splits = self
+            .splits
+            .iter()
+            .filter(|&&split| split > count)
+            .map(|split| split - count)
+            .collect();
         let mut consumed = count;
         while let Some(front) = self.locked.first() {
             if consumed < front.len() {
@@ -715,16 +756,25 @@ impl SpellingTable {
     }
 
     /// Complete syllables the unlocked digits can start with, or that complete them, longest covered first (NK:238-250). Coverage is counted in digits: comparing letter counts would put a syllable that needs two digits ahead under the same digit prefix.
-    fn spellings_for(&self, remaining: &str, locked_length: usize) -> Vec<String> {
+    /// With a split, only syllables that end at or before it qualify.
+    fn spellings_for(
+        &self,
+        remaining: &str,
+        locked_length: usize,
+        split: Option<usize>,
+    ) -> Vec<String> {
         if remaining.is_empty() {
             return Vec::new();
         }
         let mut matches: Vec<&(String, String)> = self
             .syllables
             .iter()
-            .filter(|(_, code)| {
-                locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
-                    && (remaining.starts_with(code.as_str()) || code.starts_with(remaining))
+            .filter(|(_, code)| match split {
+                Some(split) => code.len() <= split && remaining.starts_with(code.as_str()),
+                None => {
+                    locked_length + remaining.len().max(code.len()) <= DIGIT_LIMIT
+                        && (remaining.starts_with(code.as_str()) || code.starts_with(remaining))
+                }
             })
             .collect();
         let covered = |code: &str| code.len().min(remaining.len());
@@ -735,18 +785,28 @@ impl SpellingTable {
     }
 
     /// Syllable paths spelling `digits`, built from the end. A piece may end a path early only if it is a complete syllable; each offset keeps the 48 best by fewer syllables, complete last syllable, then lexicographic (NK:122-156).
+    #[cfg(test)]
     fn paths(&self, digits: &str) -> Vec<Path> {
+        self.split_paths(digits, &[])
+    }
+
+    /// `paths` where a syllable must end at each of `splits` (offsets into `digits`), and that syllable must be complete.
+    fn split_paths(&self, digits: &str, splits: &[usize]) -> Vec<Path> {
         let length = digits.len();
         let mut suffix: Vec<Vec<Path>> = vec![Vec::new(); length + 1];
         suffix[length].push(Vec::new());
         for offset in (0..length).rev() {
             let mut result = Vec::with_capacity(PATH_LIMIT);
             for end in offset + 1..=length.min(offset + self.longest_code) {
+                if splits.iter().any(|&split| offset < split && split < end) {
+                    break;
+                }
                 let Some(pieces) = self.by_code.get(&digits[offset..end]) else {
                     continue;
                 };
+                let must_complete = end != length || splits.contains(&end);
                 for piece in pieces {
-                    if end != length && !self.intact.contains(piece) {
+                    if must_complete && !self.intact.contains(piece) {
                         continue;
                     }
                     for tail in &suffix[end] {
@@ -842,12 +902,14 @@ mod tests {
             "ga", "gan", "gang", "gao", "ha", "han", "hang", "hao", "ni", "a", "ai",
         ]);
         assert_eq!(
-            table.spellings_for("426", 2),
+            table.spellings_for("426", 2, None),
             ["gan", "gang", "gao", "han", "hang", "hao", "ga", "ha"]
         );
         // With 31 digits already locked, only a one-digit completion still fits in 32.
-        assert_eq!(table.spellings_for("2", 31), ["a"]);
-        assert!(table.spellings_for("", 0).is_empty());
+        assert_eq!(table.spellings_for("2", 31, None), ["a"]);
+        assert!(table.spellings_for("", 0, None).is_empty());
+        // A split after two digits rules out every syllable that runs past it.
+        assert_eq!(table.spellings_for("426", 0, Some(2)), ["ga", "ha"]);
     }
 
     fn item(word: &str, digits: &str, weight: i64, source: CandidateSource) -> WordItem {
@@ -1173,6 +1235,63 @@ mod tests {
         assert!(
             words(&session).contains(&"don't".to_owned()),
             "T9 should match the lookup key even when the displayed word contains punctuation"
+        );
+    }
+
+    #[test]
+    fn split_keeps_both_sides_open_and_backspace_removes_it_first() {
+        let table = SpellingTable::new(&["xi", "yi", "an", "xian", "yan"]);
+        assert_eq!(
+            table.split_paths("9426", &[]).first(),
+            Some(&vec!["xian".to_string()])
+        );
+        let split = table.split_paths("9426", &[2]);
+        assert!(!split.is_empty());
+        assert!(
+            split.iter().all(|path| path.len() == 2 && path[1] == "an"),
+            "{split:?}"
+        );
+
+        let fixture = fixture();
+        let mut session = open(&fixture.paths, false, mixed());
+        assert!(!session.character(b'\'').handled, "nothing to split");
+        type_digits(&mut session, "64");
+        assert!(session.character(b'\'').handled);
+        assert!(
+            session.character(b'\'').handled,
+            "a repeated split is absorbed"
+        );
+        assert_eq!(session.snapshot().preedit, "64'");
+        assert!(
+            session
+                .snapshot()
+                .nine_key_spellings
+                .iter()
+                .all(|s| s.len() <= 2),
+            "no syllable runs past the split"
+        );
+        type_digits(&mut session, "426");
+        assert_eq!(session.snapshot().preedit, "64'426");
+        assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(session.snapshot().preedit, "64'42");
+        type_digits(&mut session, "6");
+        let result = session.select(index_of(&session, "你"));
+        assert_eq!(result.commit.as_deref(), Some("你"));
+        assert_eq!(
+            session.snapshot().preedit,
+            "426",
+            "the split went with the consumed digits"
+        );
+
+        session.command(Command::Cancel);
+        type_digits(&mut session, "64");
+        session.character(b'\'');
+        assert!(session.command(Command::Backspace).handled);
+        assert_eq!(
+            session.snapshot().preedit,
+            "64",
+            "Backspace takes the split before a digit"
         );
     }
 

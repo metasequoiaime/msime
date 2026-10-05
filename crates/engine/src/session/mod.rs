@@ -73,6 +73,11 @@ impl Session {
             return self.after_nine_key(result);
         }
         if self.nine_key.active() {
+            // `'` splits the grid's syllables where the user is typing; any other key is still the host's to handle.
+            if value == b'\'' {
+                let result = self.nine_key.character(value);
+                return self.after_nine_key(result);
+            }
             return KeyResult::unhandled();
         }
         self.input.handle_character(value, shift_only)

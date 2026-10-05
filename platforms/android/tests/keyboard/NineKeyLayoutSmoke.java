@@ -24,7 +24,7 @@ public final class NineKeyLayoutSmoke {
         check(NineKeyLayout.face(separator, false).equals("@#"));
         check(NineKeyLayout.face(letters, false).equals("ABC"));
         check(NineKeyLayout.description(separator, false).equals("符号"));
-        // 1 键在拼音键面上打开符号面板，数字键面上照常是 1；切分音节由右列的「拆分」锁定拼音列的第一个拼音。
+        // 1 键在拼音键面上打开符号面板，数字键面上照常是 1；切分音节由右列的「拆分」向引擎送 '，在已打的数字末尾定一个音节分界。
         check(NineKeyLayout.opensSymbols(separator, false));
         check(!NineKeyLayout.opensSymbols(separator, true));
         check(!NineKeyLayout.opensSymbols(letters, false));

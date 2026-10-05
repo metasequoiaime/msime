@@ -369,10 +369,9 @@ final class ImeLayoutRows {
         s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
         if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, delete);
-        // 拆分：引擎的九键只收 2–9，分隔符 ' 送进去会被忽略；九键切分音节靠左侧拼音列（choose_spelling）。所以拆分就是锁定拼音列当前的第一个拼音，等同点它：例如 94664 先拆出 xi，余下的接着打。没在组字时什么也不做。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
+        // 拆分：组字时把 ' 送给引擎，在已打的数字末尾定一个音节分界，只定在哪里断、不定是哪个拼音：94 拆分 26 仍可以是 xi'an（西安）或 yi'an，但不再是 xian（先）。读音栏显示成 94'26；⌫ 先删分界再删数字。原来锁定拼音列第一项的做法会把 94 定成首选的 yi，打不出西安。没在组字时引擎不处理，什么也不发生。原来的「重输」改为长按 ⌫：组字时长按删除键丢掉整串拼音（bindBackspaceRepeat）。
         Button split = s.keyboardKey("拆分", "拆分音节", () -> {
-            if (!s.nineKeySpellingIndices.isEmpty())
-                chooseNineKeySpelling(s.nineKeySpellingGeneration, s.nineKeySpellingIndices.get(0));
+            if (s.view != null && !s.view.optString("editing_text", "").isEmpty()) s.character('\'', false);
         });
         if (split instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(actions, split);
