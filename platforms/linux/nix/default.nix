@@ -20,8 +20,18 @@ let
   };
 
   msime-host-api = pkgs.callPackage ./host-api.nix (common // { inherit craneLib; });
-  msime-resources = pkgs.callPackage ./resources.nix { };
-  msime-handwriting-model = pkgs.callPackage ./handwriting-model.nix { };
+  lockedArtifacts = pkgs.callPackage ./locked-artifacts.nix { };
+  # desktop-dictionary.lock.json 钉住的词库，默认不随包（见 fcitx5.nix 的 bundledResources）。
+  msime-resources = lockedArtifacts {
+    name = "msime-resources";
+    lock = ../../../resources/desktop-dictionary.lock.json;
+  };
+  # `msime-linux-handwriting --local` 用的 Zinnia 模型和它的许可证；许可证与 debian/copyright 的记载一致。
+  msime-handwriting-model = lockedArtifacts {
+    name = "msime-handwriting-model";
+    lock = ../../../resources/handwriting-model.lock.json;
+    meta.license = pkgs.lib.licenses.lgpl21Only;
+  };
   # 需要随包词库时：msime-fcitx5.override { bundledResources = msime-resources; }
   msime-fcitx5 = pkgs.callPackage ./fcitx5.nix (
     common
