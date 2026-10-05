@@ -77,6 +77,32 @@ fn valid_items_reserves_the_notice_limit_or_input_capacity() {
 }
 
 #[test]
+fn cached_items_are_revalidated_before_they_are_served() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut items = (0..=MAX_NOTICES)
+        .map(|index| notice(&index.to_string()))
+        .collect::<Vec<_>>();
+    items[0].title.clear();
+    let cache = NoticeCache {
+        feed: "app/windows".into(),
+        attempted_at_unix_ms: unix_ms(at(0)),
+        items,
+        dismissed: Vec::new(),
+    };
+    std::fs::write(
+        directory.path().join(NOTICES_FILE),
+        serde_json::to_vec(&cache).unwrap(),
+    )
+    .unwrap();
+
+    let shown = NoticeStore::new(directory.path())
+        .current(NoticeChannel::App, "windows", at(1), || Ok(vec![]))
+        .unwrap();
+    assert_eq!(shown.len(), MAX_NOTICES);
+    assert!(shown.iter().all(Notice::is_valid));
+}
+
+#[test]
 fn the_cache_is_used_within_a_minute_and_refreshed_after() {
     let directory = tempfile::tempdir().unwrap();
     let store = NoticeStore::new(directory.path().join("notices"));

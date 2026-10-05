@@ -223,11 +223,15 @@ impl NoticeStore {
         if !metadata.file_type().is_file() {
             return NoticeCache::default();
         }
-        File::open(path)
+        let mut cache: NoticeCache = File::open(path)
             .ok()
             .and_then(|file| crate::bounded_io::read_bounded(file, MAX_CACHE_BYTES).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // The cache is a local persistence boundary, not a trusted copy of the feed. Reapply the
+        // same shape and size limits used for a network response before any host can render it.
+        cache.items = valid_items(cache.items);
+        cache
     }
 
     fn write(&self, cache: &NoticeCache) -> Result<(), NoticeError> {
