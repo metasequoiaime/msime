@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { runAsyncAction } from "../core/async-action";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import type { ConfirmRequest } from "../core/confirm";
 import * as settings from "./settings-style";
 import { withoutRemovedPack, type PluginPreferences } from "./plugin-preferences";
@@ -108,14 +108,19 @@ export function PluginsSection({
   const [catalog, setCatalog] = useState<PluginCatalogResult>({ packages: [], issues: [] });
   // Until a catalog has been read, an empty one says nothing about what is installed: no pack is reported missing.
   const [catalogState, setCatalogState] = useState<"loading" | "loaded" | "failed">("loading");
-  const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
   const [mentions, setMentions] = useState<MentionEntry[]>([]);
   const [savedMentions, setSavedMentions] = useState<MentionEntry[]>([]);
   const [view, setView] = useState<PluginView>(listView);
   const mentionsEditable = triggers && Boolean(client);
-  const actionRunning = useRef(false);
   const clientGeneration = useAsyncGeneration(active, client, mentionsEditable);
+  const { busy: working, run: runAsyncPluginAction } = useAsyncActionRunner(
+    onError,
+    setNotice,
+    active,
+    client,
+    mentionsEditable,
+  );
   // The page stays mounted while hidden, so a reload on the next visit must not overwrite edits that were never saved.
   const mentionsDirtyRef = useRef(false);
   const root = useRef<HTMLDivElement>(null);
@@ -230,26 +235,10 @@ export function PluginsSection({
     operation: (isCurrent: () => boolean) => Promise<void>,
     fallback: string,
   ) {
-    if (!client || actionRunning.current) return;
-    actionRunning.current = true;
-    const generation = clientGeneration.current;
-    try {
-      await runAsyncAction(
-        {
-          busy: false,
-          isCurrent: () => generation === clientGeneration.current,
-          setBusy: setWorking,
-          setError: onError,
-          setNotice,
-        },
-        operation,
-        { formatError: (error) => pluginErrorMessage(error, fallback) },
-      );
-    } finally {
-      actionRunning.current = false;
-      // `runAsyncAction` leaves the busy flag alone once the action went stale (the page was left while a picker was open), and nothing else would clear it: the buttons would stay disabled until the page was mounted again.
-      setWorking(false);
-    }
+    if (!client) return;
+    await runAsyncPluginAction(operation, {
+      formatError: (error) => pluginErrorMessage(error, fallback),
+    });
   }
 
   const importPack = async (source: "folder" | "archive") => {
