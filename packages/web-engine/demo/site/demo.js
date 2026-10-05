@@ -40,6 +40,18 @@ const DEFAULTS = { scheme: "quanpin", pageSize: 9, model: true, modelEnabled: tr
 const options = { ...DEFAULTS };
 
 const $ = (id) => document.getElementById(id);
+
+// 嵌入模式（?embed）：msime.app 用 iframe 嵌入这个页面时只显示演练场，加载时不抢焦点（否则打开官网时键盘焦点会被拉进 iframe），并把内容高度告诉外层页面，让它把 iframe 调到正好的高度。
+const EMBED = new URLSearchParams(location.search).has("embed");
+if (EMBED) {
+  document.documentElement.dataset.embed = "";
+  if (window.parent !== window) {
+    // 报内容实际的底部，不用 scrollHeight：它不会小于 iframe 当前的高度，iframe 一旦比内容高就再也缩不回来。
+    const main = document.querySelector("main");
+    const report = () => window.parent.postMessage({ type: "msime-demo:height", height: Math.ceil(main.getBoundingClientRect().bottom + window.scrollY) }, "*");
+    new ResizeObserver(report).observe(document.body);
+  }
+}
 const editor = $("editor");
 const before = editor.querySelector(".before");
 const preeditSpan = editor.querySelector(".preedit");
@@ -598,5 +610,5 @@ if (matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)"
 
 render();
 syncControls();
-focusEditor();
+if (!EMBED) focusEditor();
 applyOptions();

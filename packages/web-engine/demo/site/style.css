@@ -89,6 +89,23 @@ code {
   color: var(--accent-ink);
 }
 
+/* ---- 嵌入模式：只留演练场 ---- */
+
+.embed-bar { display: none; }
+
+html[data-embed] body { background-image: none; }
+html[data-embed] main { padding: 0 2px 4px; }
+html[data-embed] main > :not(.playground, .embed-bar), html[data-embed] .topbar, html[data-embed] .footer { display: none; }
+html[data-embed] .footer { margin: 0; }
+html[data-embed] .options-lead { display: none; }
+
+html[data-embed] .embed-bar {
+  display: block;
+  margin: 0 0 10px;
+  text-align: right;
+  font-size: 13px;
+}
+
 /* ---- 顶栏 ---- */
 
 .topbar {
