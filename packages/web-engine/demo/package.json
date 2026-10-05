@@ -6,7 +6,7 @@
     "build": "msime-web-engine copy site/msime --clean && cp ../../ui/src/assets/msime.svg site/msime.svg && mkdir -p site/vendor && cp node_modules/prismjs/components/prism-core.min.js node_modules/prismjs/components/prism-markup.min.js node_modules/prismjs/components/prism-clike.min.js node_modules/prismjs/components/prism-javascript.min.js node_modules/prismjs/components/prism-bash.min.js site/vendor/ && cp node_modules/prismjs/LICENSE site/vendor/prism-LICENSE.txt"
   },
   "dependencies": {
-    "@msime/web-engine": "0.1.3",
+    "@msime/web-engine": "0.2.0",
     "prismjs": "^1.30.0"
   }
 }
