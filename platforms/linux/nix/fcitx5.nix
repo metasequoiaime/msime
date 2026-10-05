@@ -32,6 +32,12 @@
   # 取回；传入 msime-resources 时装进 share/msime-client/resources 并跑带词库的引擎冒烟。
   # 不叫 msime-resources：经 overlay 时 pkgs 里有同名的包，callPackage 会自动填上它。
   bundledResources ? null,
+  # 离线手写模型（msime-handwriting-model）。default.nix 默认传入，与各发行版的包一致；
+  # 传 null 时不装模型，`msime-linux-handwriting --local` 报告没有安装模型。
+  handwritingModel ? null,
+  # 本地语音识别用的 sherpa-onnx 运行库（msime-voice-runtime）。default.nix 默认传入，与各发行版的包
+  # 一致；传 null 时 msime-voice-local 报告运行库缺失，本地识别不可用，云端识别不受影响。
+  voiceRuntime ? null,
 }:
 stdenv.mkDerivation {
   pname = "msime-fcitx5";
@@ -112,7 +118,13 @@ stdenv.mkDerivation {
     (lib.cmakeFeature "MSIME_HOST_LIBRARY" "${msime-host-api}/lib/libmsime_host_api.so")
   ]
   ++ lib.optional (bundledResources != null) (
-    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}"
+    lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}/${bundledResources.directory}"
+  )
+  ++ lib.optional (handwritingModel != null) (
+    lib.cmakeFeature "MSIME_HANDWRITING_MODEL_DIR" "${handwritingModel}/${handwritingModel.directory}"
+  )
+  ++ lib.optional (voiceRuntime != null) (
+    lib.cmakeFeature "MSIME_VOICE_RUNTIME_DIR" "${voiceRuntime}"
   );
 
   doCheck = true;
@@ -125,20 +137,34 @@ stdenv.mkDerivation {
   ];
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
-  # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。
+  # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。语音运行库同理，另外它的依赖都要
+  # 能单独解析：msime-voice-local 自己已经载入了 libstdc++，只看它能否打开运行库发现不了缺依赖。
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
-    resolved=$(ldd $out/lib/fcitx5/libmsime-fcitx5.so | awk '$1 == "libmsime_host_api.so" { print $3 }')
-    echo "libmsime_host_api.so => $resolved"
-    [[ $(realpath -- "$resolved") == "$out/lib/msime-client/libmsime_host_api.so" ]]
+    resolves() {
+      local resolved
+      resolved=$(ldd "$1" | awk -v name="$2" '$1 == name { print $3 }')
+      echo "$2 => $resolved"
+      [[ $(realpath -- "$resolved") == "$out/lib/msime-client/$2" ]]
+    }
+    resolves $out/lib/fcitx5/libmsime-fcitx5.so libmsime_host_api.so
+    ${lib.optionalString (voiceRuntime != null) ''
+      resolves $out/lib/msime-client/libsherpa-onnx-c-api.so libonnxruntime.so
+      [[ $(ldd $out/lib/msime-client/libsherpa-onnx-c-api.so $out/lib/msime-client/libonnxruntime.so) != *"not found"* ]]
+      python3 ../platforms/linux/tests/voice/local_runtime.py $out/lib/msime-client/msime-voice-local
+    ''}
     runHook postInstallCheck
   '';
 
   meta = {
     description = "水杉输入法的 Fcitx5 插件与 Linux 原生宿主";
     homepage = "https://github.com/metasequoiaime/msime";
-    license = lib.licenses.gpl3Only;
+    license = [
+      lib.licenses.gpl3Only
+    ]
+    ++ lib.optional (handwritingModel != null) handwritingModel.meta.license
+    ++ lib.optionals (voiceRuntime != null) voiceRuntime.meta.license;
     platforms = lib.platforms.linux;
   };
 }

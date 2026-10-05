@@ -1,0 +1,5 @@
+# Ubuntu 24.04 默认的 cargo 是 1.75，Build-Depends 里的第二候选 cargo-1.91、rustc-1.91 才够新（debian/rules 会把 /usr/lib/rust-1.*/bin 放到 PATH 最前面）。OBS 展开备选依赖时取第一个，这里让它优先选版本化的包；其他发行版没有这两个包，这一行对它们不起作用。
+Prefer: cargo-1.91 rustc-1.91
+
+# Debian unstable 里 libgio-2.0-dev、libmount-dev 依赖的 libselinux-dev 同时由新名字 libselinux-dev 和过渡包 libselinux1-dev 提供，OBS 不替人选；选新名字。
+Prefer: libselinux-dev

@@ -212,7 +212,7 @@ npm_pkg="$npm_dir/package"
 rm -rf "$npm_dir"
 mkdir -p "$npm_pkg/assets" "$npm_pkg/bin"
 sdk="packages/web-engine"
-cp "$sdk/src/index.js" "$sdk/src/index.d.ts" "$sdk/src/keys.js" "$sdk/src/input.js" "$sdk/src/skin.js" "$sdk/src/candidates.js" "$sdk/src/worker.js" "$sdk/README.md" "$npm_pkg/"
+cp "$sdk/src/index.js" "$sdk/src/index.d.ts" "$sdk/src/keys.js" "$sdk/src/input.js" "$sdk/src/skin.js" "$sdk/src/candidates.js" "$sdk/src/candidates.d.ts" "$sdk/src/worker.js" "$sdk/README.md" "$npm_pkg/"
 # skin.js 导入的内置皮肤表从 packages/ui/src/theme/theme-catalog.json 和 crates/client-core/src/skin/catalog/windows_looks.rs 生成，SDK 里没有手写的配色副本；来源的格式变了生成器会报错，构建随之失败。
 node "$sdk/tools/theme-catalog.mjs" "$npm_pkg/theme-catalog.js"
 cp "$sdk/bin/msime-web-engine.mjs" "$npm_pkg/bin/"

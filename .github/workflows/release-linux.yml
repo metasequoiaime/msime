@@ -204,3 +204,12 @@ jobs:
           path: target/package-definitions/
           include-hidden-files: true
           if-no-files-found: error
+  # 把同一个版本提交到 openSUSE OBS，由它构建并托管 apt、dnf 与 zypper 软件源。和上面的包定义一样只对从 main 发出的正式版本；逻辑在 publish-linux-obs.yml，提交失败时单独手动触发它即可，不用重新发版。
+  obs:
+    needs: [deb, package-definitions]
+    if: ${{ needs.package-definitions.result == 'success' }}
+    permissions: {contents: read}
+    uses: ./.github/workflows/publish-linux-obs.yml
+    with:
+      version: ${{ needs.deb.outputs.version }}
+    secrets: inherit
