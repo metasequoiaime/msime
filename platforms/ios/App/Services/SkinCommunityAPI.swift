@@ -201,6 +201,20 @@ actor SkinCommunityAPI {
     }
     return CommunityFailure(message: message)
   }
+
+  /// Run one account request with the token that was actually used. A session may still look
+  /// unexpired locally when the backend has revoked that access token, so retry exactly once after
+  /// rotating it. Callers receive the token paired with the successful result for session updates.
+  private func accountRequest<T>(_ operation: (String) async throws -> T) async throws -> (value: T, token: String) {
+    var token = try await account.accessToken()
+    do {
+      return (try await operation(token), token)
+    } catch let error as BackendAccountClient.Failure where error.status == 401 {
+      token = try await account.accessToken(retrying: token)
+      return (try await operation(token), token)
+    }
+  }
+
   func challenge() async throws -> CommunityChallenge {
     let value = try await client.challenge(provider: "apple")
     guard let nonce = value.nonce else { throw CommunityFailure(message: "Apple 登录暂不可用，请稍后重试。") }
@@ -210,9 +224,9 @@ actor SkinCommunityAPI {
     try await account.signIn(challenge: challenge, credential: identityToken)
   }
   func profile() async throws -> CommunityProfile {
-    let token = try await account.accessToken()
-    let profile = try await client.profile(token: token)
-    try await account.updateUser(profile.user, matching: token)
+    let result = try await accountRequest { token in try await client.profile(token: token) }
+    try await account.updateUser(result.value.user, matching: result.token)
+    let profile = result.value
     return profile
   }
   func updateProfile(name: String) async throws -> CommunityProfile {
@@ -220,16 +234,14 @@ actor SkinCommunityAPI {
     guard CommunityProfilePolicy.validName(name) else {
       throw CommunityFailure(message: "昵称需为 1–64 个字符，不能包含换行或控制字符。")
     }
-    let token = try await account.accessToken()
-    try await client.rename(name, token: token)
-    let profile = try await client.profile(token: token)
-    try await account.updateUser(profile.user, matching: token)
-    return profile
+    _ = try await accountRequest { token in try await client.rename(name, token: token) }
+    let result = try await accountRequest { token in try await client.profile(token: token) }
+    try await account.updateUser(result.value.user, matching: result.token)
+    return result.value
   }
   func logout(deleteAccount: Bool = false, all: Bool = false) async throws {
     if deleteAccount {
-      let token = try await account.accessToken()
-      try await client.deleteAccount(token: token)
+      _ = try await accountRequest { token in try await client.deleteAccount(token: token) }
       try await account.forget()
     } else { try await account.logout(all: all) }
   }
@@ -428,8 +440,9 @@ actor SkinCommunityAPI {
     guard let id = UUID(uuidString: itemID) else { throw CommunityFailure(message: "作品不存在或已下架。") }
     do {
       if try await account.user() != nil {
-        let token = try await account.accessToken()
-        try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token)
+        _ = try await accountRequest { token in
+          try await client.reportContent(kind: kind, itemID: id, reason: reason, detail: detail, token: token)
+        }
         return
       }
       let anonymous = BackendAnonymousAccount.session

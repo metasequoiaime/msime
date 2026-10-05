@@ -118,7 +118,7 @@ fn resource_verification_rejects_an_existing_state_root_below_a_symlink() {
     std::fs::create_dir(outside.path().join("state")).unwrap();
     let parent = tempfile::tempdir().unwrap();
     let linked = parent.path().join("linked");
-    std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
+    msime_path_trust::untrusted_symlink(outside.path(), &linked).unwrap();
     let state = linked.join("state");
 
     assert!(
@@ -5219,6 +5219,53 @@ fn direct_cloud_callbacks_follow_a_pending_disable() {
 }
 
 #[test]
+fn direct_cloud_callbacks_follow_a_pending_enable() {
+    let dir = tempfile::tempdir().unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Quanpin,
+        cloud_candidates: false,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences.clone());
+    read(msime_client_focus(handle, true));
+    for byte in b"nihao" {
+        read(msime_client_character(handle, *byte, false));
+    }
+    assert_eq!(
+        read(msime_client_online_query(handle))["value"]["cloud_candidates"],
+        false
+    );
+
+    // A menu switch during the composition defers the preference change, but the cloud row it asks for is taken at once.
+    let enabled = Preferences {
+        cloud_candidates: true,
+        ..preferences
+    };
+    assert_eq!(update(handle, 1, &enabled)["value"]["deferred"], true);
+    let query = read(msime_client_online_query(handle))["value"].clone();
+    assert_eq!(query["cloud_candidates"], true);
+    let query = query.to_string();
+    let candidates = serde_json::to_vec(&json!(["云候选"])).unwrap();
+    let result = read(unsafe {
+        msime_client_apply_online_candidates(
+            handle,
+            query.as_ptr(),
+            query.len(),
+            candidates.as_ptr(),
+            candidates.len(),
+            0,
+        )
+    });
+    assert_eq!(result["value"]["applied"], true, "{result}");
+    assert!(result["value"]["view"]["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|candidate| candidate["text"] == "云候选"));
+    read(msime_client_destroy(handle));
+}
+
+#[test]
 fn an_ai_credential_handed_over_in_memory_signs_requests_without_being_stored() {
     let dir = tempfile::tempdir().unwrap();
     let mut preferences = Preferences {
@@ -8724,7 +8771,7 @@ fn refresh_leaves_a_symlinked_options_file_alone() {
 #[cfg(unix)]
 #[test]
 fn refresh_rejects_a_symlinked_options_parent() {
-    use std::os::unix::fs::symlink;
+    use msime_path_trust::untrusted_symlink as symlink;
 
     let directory = tempfile::tempdir().unwrap();
     let target = tempfile::tempdir().unwrap();

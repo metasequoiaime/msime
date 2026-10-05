@@ -357,7 +357,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_ancestor_before_creating_the_engine_database() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();
@@ -377,7 +377,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_an_existing_directory_below_a_symlinked_ancestor() {
-        use std::os::unix::fs::symlink;
+        use msime_path_trust::untrusted_symlink as symlink;
 
         let outside = tempfile::tempdir().unwrap();
         let parent = tempfile::tempdir().unwrap();

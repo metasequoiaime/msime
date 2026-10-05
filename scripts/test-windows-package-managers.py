@@ -98,7 +98,8 @@ def check_installer_facts(render) -> None:
     check(render.installer_name("1.2.3") == f"{full['installer_base_name']}_v1.2.3.exe", "render.installer_name does not follow the full edition's installer_base_name")
 
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    check('tag="windows-v${VERSION}"' in workflow, "release-windows.yml no longer tags windows-v${VERSION}; render.TAG_PREFIX follows it")
+    # A release from main is tagged windows-vX.Y.Z; one from develop or another branch carries -beta or -alpha and is a prerelease, which the package definitions are not rendered from.
+    check('tag="windows-v${RELEASE}"' in workflow and "{'main' {''}" in workflow, "release-windows.yml no longer tags a release from main windows-v${VERSION}; render.TAG_PREFIX follows it")
     check('"dist/$name.sha256"' in workflow, "release-windows.yml no longer uploads <installer>.sha256; render.py reads it")
     check("'^\\d+\\.\\d+\\.\\d+$'" in workflow and render.VERSION_PATTERN.pattern == r"^\d+\.\d+\.\d+$", "release versions are no longer MAJOR.MINOR.PATCH in both release-windows.yml and render.py")
 

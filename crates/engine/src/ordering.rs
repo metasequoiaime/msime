@@ -10,6 +10,9 @@ pub use chinese_ime_lm::{CandidateFacts, Reranker, SentenceModel, DICTIONARY_SOU
 /// whose members really are alternative readings of the same key.
 pub const LATTICE_SOURCE: u8 = 8;
 
+/// `CandidateSource::QuickPhrase`, `Emoji` and `Kaomoji`: entries a keyword finds in a catalog, listed in the catalog's order. They are not readings of the key, so the reranker neither compares them nor promotes them: typing `kiss` in kaomoji mode had the model seat the catalog's 646th entry, `French Kiss!(*￣(￣　*)`, above its first.
+const CATALOG_SOURCES: [u8; 3] = [5, 6, 7];
+
 /// The traits of the scheme behind `scheme`, which the Engine reports as its `SchemeType` ordinal. Only the placeholder snapshot of a failed refresh carries an ordinal no scheme has; each caller decides what that placeholder means, the way the ordinal comparisons this replaces did.
 fn scheme_type(scheme: u8) -> Option<SchemeType> {
     SchemeType::from_u8(scheme)
@@ -125,16 +128,18 @@ pub fn rerank_pick(
     // With correction off, or with nothing corrected, this is exactly the previous behaviour,
     // which is what the 2052-case dictionary measurement was taken on.
     let corrected_key = rows.iter().any(|row| row.corrected);
+    let answers_key =
+        |row: &OrderRow<'_>| row.answers_key && !CATALOG_SOURCES.contains(&row.source);
     // Only candidates that answer the key are scored, so they are the ones the window has to leave room for.
     let longest = rows
         .iter()
-        .filter(|row| row.answers_key)
+        .filter(|row| answers_key(row))
         .map(|row| row.text.chars().count())
         .max()
         .unwrap_or(0);
     let context = rerank_context(context, reranker.model().context_length(), longest);
     reranker.best_where(context, &texts, |index| CandidateFacts {
-        answers_key: rows[index].answers_key,
+        answers_key: answers_key(&rows[index]),
         trusted_dictionary_hit: DICTIONARY_SOURCES.contains(&rows[index].source) && !corrected_key,
     })
 }

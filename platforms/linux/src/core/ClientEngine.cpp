@@ -1888,7 +1888,7 @@ void render(IBusEngine *engine, const Json &view);
 void exit_translation_candidates(IBusEngine *engine);
 void render_translation_candidates(IBusEngine *engine);
 void apply_live_preferences(IBusEngine *engine, Json snapshot);
-void sync_translation_preferences(IBusEngine *engine) {
+void sync_session_preferences(IBusEngine *engine) {
   auto &s = state(engine);
   apply_live_preferences(engine, Json{
       {"format_version", 1},
@@ -3587,6 +3587,7 @@ std::string candidate_aux_text(IBusEngine *engine, const Json &view) {
   return paging;
 }
 void render(IBusEngine *engine, const Json &view) {
+  const bool hide_pending = state(engine).candidate_hide_source != 0;
   cancel_candidate_hide(engine);
   // Engine caret offsets refer to ASCII editing_text, never the display
   // preedit.
@@ -3601,6 +3602,9 @@ void render(IBusEngine *engine, const Json &view) {
         engine, voice_text, voice_length, !s.voice_preedit.empty(),
         IBUS_ENGINE_PREEDIT_CLEAR);
     ibus_engine_hide_lookup_table(engine);
+    // The cancelled hide would have taken the auxiliary line down with the list; the line is otherwise left alone, because the input mode hint may be showing on it.
+    if (hide_pending)
+      ibus_engine_hide_auxiliary_text(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
     s.rendered_session = 0;
@@ -3666,16 +3670,18 @@ void render(IBusEngine *engine, const Json &view) {
     auto &s = state(engine);
     const bool had_candidates = s.rendered_candidates.is_array() &&
                                 !s.rendered_candidates.empty();
-    ibus_engine_hide_auxiliary_text(engine);
     s.rendered_candidates = Json::array();
     s.rendered_scheme = 255;
     s.rendered_session = 0;
     s.rendered_view = nullptr;
     publish_candidate_properties(engine);
-    if (had_candidates)
+    // The auxiliary line goes down with the list, never ahead of it: hiding it alone shrinks a window that is still showing, and GNOME then moves a window above the cursor to below it before the list hides.
+    if (had_candidates) {
       schedule_candidate_hide(engine);
-    else
+    } else {
       ibus_engine_hide_lookup_table(engine);
+      ibus_engine_hide_auxiliary_text(engine);
+    }
     return;
   }
   const auto auxiliary = candidate_aux_text(engine, view);
@@ -4914,6 +4920,8 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.cloud_candidates_override = enabled;
       s.cloud_candidates = enabled;
       s.invalidate_providers();
+      // The session refuses cloud answers its own preferences turn off, and one opened while the override was off keeps them off until it hears otherwise.
+      sync_session_preferences(engine);
       publish_mode(engine);
       if (enabled) online_schedule(engine);
       return;
@@ -4930,7 +4938,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.candidate_translations_override = enabled;
       s.candidate_translations = enabled;
       s.invalidate_providers();
-      sync_translation_preferences(engine);
+      sync_session_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (enabled)
@@ -4957,7 +4965,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       s.translation_target_language_override = selected;
       s.translation_target_language = selected;
       s.invalidate_providers();
-      sync_translation_preferences(engine);
+      sync_session_preferences(engine);
       clear_candidate_translations(engine);
       publish_mode(engine);
       if (s.candidate_translations)
@@ -6467,7 +6475,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // A key the active local mode or scheme spells with is input before any binding below can claim it: a page key, a paired bracket, smart punctuation or a candidate digit (SpellingSymbols.h). Space is one of them only while a Zhuyin syllable composes, where it is the first tone.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0) {
       const gunichar spelled = ibus_keyval_to_unicode(key);
-      if (msime::linux_host::engine_spelling(s.view, spelled) ||
+      // IBus clients send evdev codes, where the number row is 2..11.
+      const bool picks = msime::linux_host::shifted_number_row_picks(
+          s.view, spelled, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
+          s.number_row_selection && !s.view.value("nine_key", false) &&
+              s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+              !s.rendered_candidates.empty());
+      if ((!picks && msime::linux_host::engine_spelling(s.view, spelled)) ||
           (modifiers == 0 && spelled == U' ' && msime::linux_host::spelling_space(s.view))) {
         handled = apply(engine, msime_client_character(
                                     s.session, static_cast<uint8_t>(spelled),

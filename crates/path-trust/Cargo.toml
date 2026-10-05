@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# 给检查本 crate 拒绝行为的其他 crate 的测试用，只在它们的 dev-dependencies 里打开。
+test-support = []
+
 [dev-dependencies]
 tempfile.workspace = true
 

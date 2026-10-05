@@ -13,6 +13,10 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var failLogout = false
   static var allowDelete = false
+  static var rejectFirstRename = false
+  static var renameRequests = 0
+  static var rejectFirstDelete = false
+  static var deleteRequests = 0
   static var omittedPreferenceKey: String?
   static var themeSchema = true
   private static var preferenceRevision = 1
@@ -63,12 +67,19 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     case (_, "/v1/auth/login"):
       let token = String(repeating: "a", count: 64), refresh = String(repeating: "b", count: 64)
       body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08\"}}"
+    case (_, "/v1/auth/refresh"):
+      let token = String(repeating: "c", count: 64), refresh = String(repeating: "d", count: 64)
+      body = "{\"access_token\":\"\(token)\",\"refresh_token\":\"\(refresh)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"synthetic-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08\"}}"
     case (_, "/v1/auth/logout"): body = ""; status = Self.failLogout ? 503 : 204
-    case ("PATCH", "/v1/users/me"): body = ""; status = 204
+    case ("PATCH", "/v1/users/me"):
+      Self.renameRequests += 1
+      if Self.rejectFirstRename { Self.rejectFirstRename = false; body = #"{"error":{"code":"invalid_credentials"}}"#; status = 401 }
+      else { body = ""; status = 204 }
     case ("GET", "/v1/users/me"): body = #"{"user":{"id":"synthetic-user","display_name":"新昵称","created_at":"2026-09-08"},"identities":[]}"#
     case ("DELETE", "/v1/users/me"):
-      body = Self.allowDelete ? "" : #"{"error":{"code":"recent_login_required"}}"#
-      status = Self.allowDelete ? 204 : 403
+      Self.deleteRequests += 1
+      if Self.rejectFirstDelete { Self.rejectFirstDelete = false; body = #"{"error":{"code":"invalid_credentials"}}"#; status = 401 }
+      else { body = Self.allowDelete ? "" : #"{"error":{"code":"recent_login_required"}}"#; status = Self.allowDelete ? 204 : 403 }
     default: body = "{}"; status = 404
     }
     client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
@@ -149,8 +160,11 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try await realSession.forget()
     AccountFixture.allowDelete = true
     defer { AccountFixture.allowDelete = false }
+    AccountFixture.deleteRequests = 0
+    AccountFixture.rejectFirstDelete = true
     model.logout(delete: true); try await finished(model)
-    try require(model.user == nil && !model.anonymous && discarded == 1 && anonymousStorage.load() == nil)
+    try require(AccountFixture.deleteRequests == 2 && model.user == nil && !model.anonymous
+                && discarded == 1 && anonymousStorage.load() == nil)
   }
   // Three pages asked for while the first is still on the network send two requests: the first runs to the end and the third replaces the second in the waiting slot, so a slow connection never has more than one page in flight.
   @MainActor static func candidateGlossSingleFlight() async throws {
@@ -239,6 +253,11 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(clipboardAccount == "synthetic-user" && signInRequests == 1)
     model.name = "新昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && storage.load()?.tokens.user.display_name == "新昵称")
+    AccountFixture.renameRequests = 0
+    AccountFixture.rejectFirstRename = true
+    model.name = "刷新昵称"; model.rename(); try await finished(model)
+    try require(AccountFixture.renameRequests == 2 && model.user?.display_name == "新昵称"
+                && storage.load()?.tokens.access_token == String(repeating: "c", count: 64))
     model.logout(delete: true); try await finished(model)
     try require(model.user != nil && model.message != nil && storage.load() != nil)
     try require(windowClosures == 0)

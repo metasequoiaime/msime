@@ -37,7 +37,7 @@ pub(crate) fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
         return Err(CommandError { code: "ai_invalid" });
     }
     let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
-    if !matches!(url.scheme(), "http" | "https")
+    if !msime_client_core::translation::is_secure_endpoint(value)
         || !value.split_once("://").is_some_and(|(_, authority)| {
             authority
                 .as_bytes()

@@ -59,7 +59,7 @@ DMG 里是设置应用（`MSIME.app`）、指向 `/Applications` 的链接和一
 
 ### 核心词库与按需下载的资源包
 
-发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 124000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
+发布包只带装好就能打中文的核心词库：`EngineResources` 里的 `msime-pinyin.db`、`msime-wubi.db`、`msime-bigram.bin`、`msime-trigram.bin`、`msime-english.db` 与 SCOWL 的许可声明 `msime-scowl_Copyright.txt`、`msime-others.db`、`sentence-model.safetensors`、`msime-dictionary-manifest.json` 和 `helpcodes/`（缺了辅助码表会话建不起来），另有离线释义、许可证、`msime-mcp` 和内嵌的输入法。`stage-resources.sh` 在 `MSIME_MACOS_OMIT_ON_DEMAND=1` 下按这条规则暂存，`check_app` 断言日文词典、粤拼、注音与笔画词库、手写模型都不在包里，并给 `EngineResources` 定了 126000 KiB 的体积预算；打包结束时打印 DMG 和 `Contents/Resources` 的体积，在 GitHub Actions 里同时写进步骤摘要。
 
 其余三个资源包由设置应用下载到 `<state_root>/resource-packs/<id>/`（`state_root` 是 HostOptions 的 `preferences_directory`，默认 `~/Library/Application Support/app.msime.macos`），文件平铺、许可证放在数据旁边，最后写入的 `msime-model.json` 标记安装完整。地址、长度和 SHA-256 来自仓库里的锁文件，镜像沿用 `voice_input.asr_model_mirror`：
 

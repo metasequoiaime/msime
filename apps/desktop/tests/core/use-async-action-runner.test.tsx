@@ -39,6 +39,42 @@ test("exposes the shared mounted guard to consumers", () => {
   expect(result.current.mounted.current).toBe(false);
 });
 
+test("invalidates an active action without allowing its late rejection to unlock a replacement", async () => {
+  const setError = vi.fn();
+  let reject!: (error: Error) => void;
+  let resolveReplacement!: () => void;
+  const { result } = renderHook(() => useAsyncActionRunner(setError, undefined));
+  let stale!: Promise<void> | undefined;
+  act(() => {
+    stale = result.current.run(() => new Promise<void>((_, fail) => (reject = fail)), {
+      formatError: () => "旧操作失败",
+    });
+  });
+  expect(result.current.busy).toBe(true);
+  act(() => result.current.invalidate());
+  expect(result.current.busy).toBe(false);
+  let replacement!: Promise<void> | undefined;
+  act(() => {
+    replacement = result.current.run(
+      () => new Promise<void>((finish) => (resolveReplacement = finish)),
+      { formatError: () => "新操作失败" },
+    );
+  });
+  expect(result.current.busy).toBe(true);
+  reject(new Error("stale"));
+  await act(async () => {
+    await stale;
+  });
+  expect(result.current.running.current).toBe(true);
+  expect(result.current.run(async () => {}, { formatError: () => "不应执行" })).toBeUndefined();
+  expect(setError).not.toHaveBeenCalledWith("旧操作失败");
+  resolveReplacement();
+  await act(async () => {
+    await replacement;
+  });
+  expect(result.current.busy).toBe(false);
+});
+
 test.each(["resolve", "reject"])(
   "a stale action that %s cannot unlock its replacement",
   async (completion) => {

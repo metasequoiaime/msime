@@ -6782,7 +6782,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper,
                                        fcitx::KeyState::Meta, fcitx::KeyState::Mod5})) {
     const auto spelled = static_cast<char32_t>(fcitx::Key::keySymToUnicode(sym));
-    if (msime::linux_host::engine_spelling(view_, spelled) ||
+    // The XKB keycode (evdev + 8) of the number row is 10..19; Fcitx5 drops Shift from a normalised symbol, so ask the raw event.
+    const auto rowCode = event.rawKey().code();
+    const bool picks = msime::linux_host::shifted_number_row_picks(
+        view_, spelled, event.rawKey().states().test(fcitx::KeyState::Shift), rowCode >= 10 && rowCode <= 19,
+        preferences_.value("number_row_selection", true) && !view_.value("nine_key", false) &&
+            !view_.value("candidates", Json::array()).empty());
+    if ((!picks && msime::linux_host::engine_spelling(view_, spelled)) ||
         (spelled == U' ' && !states.test(fcitx::KeyState::Shift) && msime::linux_host::spelling_space(view_)))
       return apply(msime_client_character(session_, static_cast<uint8_t>(spelled),
                                           event.rawKey().states().test(fcitx::KeyState::Shift)));

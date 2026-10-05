@@ -14,6 +14,51 @@ private func communitySession(_ client: BackendAccountClient, _ storage: Communi
   BackendAccountSession(api: client, storage: storage, refreshLock: BackendProcessRefreshLock())
 }
 
+private final class RetryReportProtocol: URLProtocol, @unchecked Sendable {
+  static let skinID = UUID(uuidString: "a1234567-1234-1234-1234-123456789abc")!
+  private static let lock = NSLock()
+  private static var attempts = 0
+  static var reportAttempts: Int { lock.lock(); defer { lock.unlock() }; return attempts }
+  static func reset() { lock.lock(); defer { lock.unlock() }; attempts = 0 }
+
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let path = request.url!.path
+    let tokenA = String(repeating: "a", count: 64)
+    let tokenB = String(repeating: "b", count: 64)
+    let refreshA = String(repeating: "f", count: 64)
+    let refreshB = String(repeating: "e", count: 64)
+    let body: String
+    let status: Int
+    if path == "/v1/auth/login" {
+      body = "{\"access_token\":\"\(tokenA)\",\"refresh_token\":\"\(refreshA)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
+      status = 200
+    } else if path == "/v1/auth/refresh" {
+      body = "{\"access_token\":\"\(tokenB)\",\"refresh_token\":\"\(refreshB)\",\"token_type\":\"Bearer\",\"expires_in\":900,\"user\":{\"id\":\"fixture-user\",\"display_name\":\"测试\",\"created_at\":\"2026-09-08T00:00:00Z\"}}"
+      status = 200
+    } else if path == "/v1/community/reports" {
+      Self.lock.lock(); Self.attempts += 1; let attempt = Self.attempts; Self.lock.unlock()
+      if attempt == 1 && request.value(forHTTPHeaderField: "Authorization") == "Bearer \(tokenA)" {
+        body = #"{"error":{"code":"invalid_credentials"}}"#
+        status = 401
+      } else {
+        body = "{}"
+        status = 201
+      }
+    } else {
+      body = "{}"
+      status = 200
+    }
+    let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(body.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 private final class CommunityFixtureProtocol: URLProtocol, @unchecked Sendable {
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -107,6 +152,22 @@ final class SkinCommunityTests: XCTestCase {
     try await api.logout()
     do { _ = try await api.profile(); XCTFail("signed-out profile must require authentication") }
     catch let error as BackendAccountClient.Failure { XCTAssertEqual(error.status, 401) }
+  }
+
+  func testSignedInReportRefreshesRejectedToken() async throws {
+    RetryReportProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RetryReportProtocol.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let memory = CommunityMemoryCredentials()
+    let api = SkinCommunityAPI(client: client, account: communitySession(client, memory))
+    try await api.login(challenge: "fixture", identityToken: "synthetic")
+
+    try await api.report(kind: "skins", itemID: RetryReportProtocol.skinID.uuidString,
+                         reason: "其他", detail: "合成说明")
+    XCTAssertEqual(RetryReportProtocol.reportAttempts, 2)
+    XCTAssertEqual(try memory.load()?.tokens.access_token,
+                   String(repeating: "b", count: 64))
   }
   @MainActor func testCommunityPreviewDoesNotChangeActiveDesign() throws {
     let previous = CustomKeyboardSkinStore.current

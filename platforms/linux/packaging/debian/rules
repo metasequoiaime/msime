@@ -89,6 +89,8 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	set -e; resolved=$$(ldd $(PRIVATE_LIB)/libsherpa-onnx-c-api.so | awk '$$1 == "libonnxruntime.so" { print $$3 }'); \
 	  echo "libsherpa-onnx-c-api.so: libonnxruntime.so => $$resolved"; \
 	  test "$$(realpath -- "$$resolved")" = "$$(realpath -- $(PRIVATE_LIB)/libonnxruntime.so)"
+	# 插件条目按绝对路径指向插件：fcitx5 插件目录不是多架构目录的发行版（AOSC OS）装这个包时，插件才加载得到。
+	grep -qx 'Library=/usr/lib/$(DEB_HOST_MULTIARCH)/fcitx5/libmsime-fcitx5' debian/msime/usr/share/fcitx5/addon/msime.conf
 endif
 
 # 维护脚本用 CMake 由 platforms/linux/cmake/deb-*.in 配置出的那两份，与发布页的 .deb 是同一份；只在结尾的 exit 0 前给 debhelper 留出插入点。postinst 在那之前再接上 debian/postinst-register：每次安装（替换掉 msime-linux，或从 config-files 状态重装）之后替每个用户恢复卸载时撤下的用户单元和输入法列表，「这次是安装」由 debian/msime.preinst 留下的标记告诉它，debian/msime.postrm 在 purge 与 abort-install 时清掉没用上的标记。

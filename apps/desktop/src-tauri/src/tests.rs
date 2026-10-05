@@ -153,6 +153,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
     }
     for endpoint in [
         "file:///tmp/models",
+        "http://api.example.test/v1/chat/completions",
         "https:///v1/chat/completions",
         "https://user:password@example.test/v1/chat/completions",
         "https://example.test/v1/chat/completions#fragment",
@@ -233,6 +234,31 @@ fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() 
     assert_eq!(
         super::read_runtime_options_bytes(&path).unwrap_err().kind(),
         std::io::ErrorKind::InvalidData
+    );
+}
+
+#[test]
+fn linux_runtime_state_directory_treats_a_missing_locator_as_first_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("runtime-options.json");
+    assert_eq!(super::linux_runtime_state_directory_at(&path), Ok(None));
+
+    let preferences = directory.path().join("preferences");
+    std::fs::write(
+        &path,
+        serde_json::json!({ "preferences_directory": preferences }).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        super::linux_runtime_state_directory_at(&path),
+        Ok(Some(preferences))
+    );
+
+    std::fs::write(&path, "{").unwrap();
+    assert!(super::linux_runtime_state_directory_at(&path).is_err());
+    assert!(
+        super::linux_runtime_state_directory_at(std::path::Path::new("runtime-options.json"))
+            .is_err()
     );
 }
 

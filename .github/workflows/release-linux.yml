@@ -30,10 +30,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ needs.source.outputs.sha }}", fetch-depth: 0, persist-credentials: false}
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         env: {REQUESTED: "${{ inputs.version }}"}
         run: |
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/linux/version.txt)}"; [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # The desktop binary embeds the web frontend at compile time; package-container.sh has no Node toolchain and requires this output.
       - name: Build desktop frontend
         run: |
@@ -79,6 +81,7 @@ jobs:
           if-no-files-found: error
     outputs:
       version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
   # The RPM is built separately in a Fedora container rather than converted from the .deb: rpmbuild records the libraries the binaries link as Requires, and Debian's carry sonames and symbol versions no Fedora package provides (#2095).
   rpm:
     needs: source
@@ -167,21 +170,26 @@ jobs:
           merge-multiple: true
       # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent Linux release
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.deb.outputs.version }}", RELEASE: "${{ needs.deb.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
           dist=dist
           # 没有 distro-sources 时 dist 里没有 .tar.xz，nullglob 让这个模式展开为空而不是原样传给 sha256sum 和 gh。
           shopt -s nullglob
           # Each build wrote a SHA256SUMS of its own; the release carries one covering every package.
           (cd "$dist" && rm -f SHA256SUMS && sha256sum -- *.deb *.rpm *.tar.gz *.tar.xz > SHA256SUMS)
-          start=$(git tag --list 'linux-v*' --sort=-v:refname | head -1)
-          tag="linux-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          python3 scripts/generate-release-notes.py --platform linux --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS" --target "$(git rev-parse HEAD)" --title "Linux ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          tag="linux-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^linux-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'linux-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform linux --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Linux ${RELEASE}" release-notes.md "$dist"/*.deb "$dist"/*.rpm "$dist"/*.tar.gz "$dist"/*.tar.xz "$dist/SHA256SUMS"
   # 按刚发布的 linux-vVERSION 渲染各发行版的包定义（RPM 规格与 SRPM、Debian 源码包、AUR 的两个 PKGBUILD 与 .SRCINFO、Gentoo overlay），作为构建产物上传，由维护者按 platforms/linux/README.md「包管理器」一节发布到各自的仓库；这里不向任何外部仓库推送。放在发布之后，因为这些定义按发布页地址取文件，SHA256SUMS 也以发布页上的为准。
   package-definitions:
     needs: [source, deb, publish]
-    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' }}
+    # Only for a final release from main: the definitions fetch the assets from linux-vVERSION, which a -beta or -alpha release is not tagged as, and a distribution repository takes final releases only.
+    if: ${{ inputs.publish && needs.source.outputs.packaging == 'true' && github.ref_name == 'main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

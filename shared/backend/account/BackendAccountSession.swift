@@ -377,6 +377,20 @@ actor BackendAccountSession {
           expected == nil || saved.tokens.user.id == expected else { throw CancellationError() }
     return (saved.tokens.user.id, token)
   }
+  /// Perform one authenticated request and retry it once when the backend rejects the
+  /// still locally valid access token. The returned token is the one paired with the
+  /// successful result, so callers that update cached account data cannot bind it to a
+  /// token that was already rejected.
+  func authenticated<T: Sendable>(matchingUserID expected: String,
+                                  _ operation: @Sendable (String) async throws -> T) async throws -> (value: T, token: String) {
+    var identity = try await credentials(matchingUserID: expected)
+    do {
+      return (try await operation(identity.token), identity.token)
+    } catch let failure as BackendAccountClient.Failure where failure.status == 401 {
+      identity = try await credentials(retrying: identity.token, matchingUserID: expected)
+      return (try await operation(identity.token), identity.token)
+    }
+  }
   func forget() async throws {
     generation += 1
     refreshing?.cancel(); refreshing = nil

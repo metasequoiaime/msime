@@ -1,4 +1,4 @@
-//! The pinned inputs (`resources/dictionary-sources.lock.json`): where each file comes from and the SHA-256 it must have. Large or third-party inputs are downloaded into a cache directory on demand; nothing is fetched without a pin, and a cached file is reused only while its size and digest still match.
+//! 构建输入的固定记录（`resources/dictionary-sources.lock.json`）：每个文件从哪里来、必须有怎样的 SHA-256。大文件和第三方输入按需下载到缓存目录；没有固定记录的文件一律不下载，缓存里的文件只在大小和摘要仍然一致时复用。msime-dictionary 的 `sources/` 和 `custom/` 不在锁文件里，只从 `--dictionary` checkout 读取；其中的上游数据按该 checkout 的 `upstream.lock.json` 校验。
 
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -49,11 +49,9 @@ impl Lock {
     }
 }
 
-/// The raw URL prefix of files pinned from the dictionary source repository: `<RAW><commit>/<path>`.
-const DICTIONARY_RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
-/// Top-level directories of the dictionary source repository the builder reads; with a checkout, a path under them resolves from the checkout even when the lock has no entry for it.
+/// 构建器读取的 msime-dictionary 顶层目录；其下的路径只从 `--dictionary` checkout 读取，锁文件不固定其中任何文件。
 const DICTIONARY_DIRECTORIES: [&str; 2] = ["sources/", "custom/"];
-/// msime-dictionary files that copy or are generated from an upstream at a commit msime records outside the file itself (a lock reference, the Mozc revision, or the licence texts and notices in `resources/licenses`), as an exact path or a directory prefix, with the upstream's name. The manifest's references and `mozc_revision`, `source_commit` in the language databases and the shipped licence texts all name those commits, so even with `--dictionary` these files must still match the lock's size and SHA-256: replacing one with a newer upstream version needs that record, the lock entry and the licences in msime updated first. This covers the tables msime's own generators write from such an upstream (`hkcancor-counts` from HKCanCor, `english-supplement` from SCOWL), whose headers name the msime commit that pins them in the lock.
+/// msime 认定为上游数据的 msime-dictionary 文件：原样复制自某个上游、或由 msime 的生成器从某个上游生成（`hkcancor-counts` 来自 HKCanCor，`english-supplement` 来自 SCOWL），写成精确路径或目录前缀，并配上上游名。manifest 的 references 和 `mozc_revision`、语言词库的 `source_commit` 以及随包许可证都写着这些上游的提交，所以 checkout 的 `upstream.lock.json` 必须用同一个上游名列出这些路径，并固定它们的大小和 SHA-256；记录里每个上游的提交必须等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）。要换成新版上游，先在 msime 改 reference 和 `resources/licenses`，再改 `upstream.lock.json`。
 const UPSTREAM_FILES: [(&str, &str); 15] = [
     ("sources/pinyin/rime-ice.txt", "rime-ice"),
     (
@@ -82,7 +80,7 @@ const UPSTREAM_FILES: [(&str, &str); 15] = [
 ];
 
 /// The upstream reference `path` is a copy of or is generated from at a recorded commit, if any. The first matching entry of `UPSTREAM_FILES` wins, so an exact path listed before its directory's prefix (HKCanCor's counts beside rime-cantonese's files) names its own upstream.
-fn upstream_reference(path: &str) -> Option<&'static str> {
+pub(crate) fn upstream_reference(path: &str) -> Option<&'static str> {
     UPSTREAM_FILES
         .iter()
         .find(|(upstream, _)| {
@@ -95,14 +93,139 @@ fn upstream_reference(path: &str) -> Option<&'static str> {
         .map(|(_, reference)| *reference)
 }
 
+/// msime-dictionary checkout 根目录下的上游记录文件。
+pub const UPSTREAM_LOCK: &str = "upstream.lock.json";
+
+/// `upstream.lock.json` 的内容：上游名到 repository 与 commit，以及上游数据文件的大小和 SHA-256。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpstreamLock {
+    version: u32,
+    upstreams: BTreeMap<String, Reference>,
+    files: Vec<UpstreamFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpstreamFile {
+    path: String,
+    upstream: String,
+    size: u64,
+    sha256: String,
+}
+
+/// 构建读取的 msime-dictionary checkout（`--dictionary`），以及它的 `upstream.lock.json`；`open` 已经证明这份记录与锁文件一致。
+pub struct Dictionary {
+    pub root: PathBuf,
+    upstream: UpstreamLock,
+}
+
+fn is_lowercase_hex(text: &str, length: usize) -> bool {
+    text.len() == length
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+impl Dictionary {
+    /// 读取 `root/upstream.lock.json` 并与锁文件核对：版本必须是 1；每个上游的提交是 40 位小写十六进制，repository 和 commit 等于锁文件的同名 reference（`mozc` 对应 `lock.mozc`）；每个文件条目的上游名等于 msime 按 `UPSTREAM_FILES` 给它的上游名，并在 upstreams 里有记录；路径不重复。任何一项不符都报错。
+    pub fn open(root: PathBuf, lock: &Lock) -> Result<Self> {
+        let path = root.join(UPSTREAM_LOCK);
+        if !path.is_file() {
+            bail!(
+                "{} has no {UPSTREAM_LOCK}; msime's builder needs msime-dictionary at or after the commit that added it",
+                root.display()
+            );
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let upstream: UpstreamLock =
+            serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        if upstream.version != 1 {
+            bail!(
+                "{}: version {} is not 1, the only version this builder reads",
+                path.display(),
+                upstream.version
+            );
+        }
+        for (name, recorded) in &upstream.upstreams {
+            if !is_lowercase_hex(&recorded.commit, 40) {
+                bail!(
+                    "{}: the commit of {name}, {:?}, is not 40 lowercase hex digits",
+                    path.display(),
+                    recorded.commit
+                );
+            }
+            let expected = if name == "mozc" {
+                Some(&lock.mozc)
+            } else {
+                lock.references.get(name)
+            };
+            let Some(expected) = expected else {
+                bail!("{name} is recorded in {UPSTREAM_LOCK} but resources/dictionary-sources.lock.json has no such reference; add it, with the licence texts that name it, in msime first");
+            };
+            if recorded.repository != expected.repository || recorded.commit != expected.commit {
+                bail!(
+                    "{name} is recorded in {UPSTREAM_LOCK} as {} at {}, but resources/dictionary-sources.lock.json has {} at {}; change the reference (the Mozc revision for mozc) and the commits resources/licenses names in msime first, then {UPSTREAM_LOCK}",
+                    recorded.repository,
+                    recorded.commit,
+                    expected.repository,
+                    expected.commit
+                );
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        for file in &upstream.files {
+            if !seen.insert(file.path.as_str()) {
+                bail!("{} is listed twice in {UPSTREAM_LOCK}", file.path);
+            }
+            let label = upstream_reference(&file.path);
+            if label != Some(file.upstream.as_str()) {
+                bail!(
+                    "{} is listed under {} in {UPSTREAM_LOCK}, but msime treats it as {}",
+                    file.path,
+                    file.upstream,
+                    label.unwrap_or("not upstream data")
+                );
+            }
+            if !upstream.upstreams.contains_key(&file.upstream) {
+                bail!(
+                    "{} is listed under {}, which {UPSTREAM_LOCK} does not record among its upstreams",
+                    file.path,
+                    file.upstream
+                );
+            }
+            if !is_lowercase_hex(&file.sha256, 64) {
+                bail!(
+                    "{}: the SHA-256 {UPSTREAM_LOCK} records, {:?}, is not 64 lowercase hex digits",
+                    file.path,
+                    file.sha256
+                );
+            }
+        }
+        Ok(Self { root, upstream })
+    }
+
+    fn file(&self, path: &str) -> Option<&UpstreamFile> {
+        self.upstream.files.iter().find(|file| file.path == path)
+    }
+}
+
+/// `path` 是否属于 msime-dictionary（在 `DICTIONARY_DIRECTORIES` 之下）。
+fn is_dictionary_path(path: &str) -> bool {
+    DICTIONARY_DIRECTORIES
+        .iter()
+        .any(|directory| path.starts_with(directory))
+}
+
 /// Resolves the inputs a stage reads: hand-maintained files from the repository, pinned files from the cache (downloading them unless offline).
 pub struct Sources {
     pub lock: Lock,
     pub repository_inputs: PathBuf,
     pub cache: PathBuf,
     pub offline: bool,
-    /// A msime-dictionary checkout (`--dictionary`). Files the lock pins from that repository, and paths under `sources/` or `custom/` the lock does not pin, are read from it instead of the cache; its Git commit pins their content, so the lock's size and SHA-256 are not checked, except for the upstream data in `UPSTREAM_FILES`, which must still match the lock.
-    pub dictionary: Option<PathBuf>,
+    /// msime-dictionary checkout，`sources/` 和 `custom/` 只从这里读；内容由它的 Git 提交固定，上游数据另按它的 `upstream.lock.json` 校验。
+    pub dictionary: Option<Dictionary>,
 }
 
 impl Sources {
@@ -115,34 +238,35 @@ impl Sources {
         Ok(resolved)
     }
 
-    /// Where `path` is read from in the `--dictionary` checkout, or `None` when it comes from the lock (no checkout given, or the lock pins it from another repository).
+    /// `path` 在 `--dictionary` checkout 里的位置；没有 checkout，或 `path` 不属于 msime-dictionary 时为 `None`。
     pub fn checkout_file(&self, path: &str) -> Option<PathBuf> {
-        let checkout = self.dictionary.as_ref()?;
-        let from_checkout = match self.lock.files.iter().find(|file| file.path == path) {
-            Some(file) => file.url.starts_with(DICTIONARY_RAW),
-            None => DICTIONARY_DIRECTORIES
-                .iter()
-                .any(|directory| path.starts_with(directory)),
-        };
-        from_checkout.then(|| checkout.join(path))
+        self.dictionary
+            .as_ref()
+            .filter(|_| is_dictionary_path(path))
+            .map(|dictionary| dictionary.root.join(path))
     }
 
-    /// A pinned input, verified and cached; with `--dictionary`, a msime-dictionary file read from the checkout (upstream data still checked against the lock).
+    /// 解析一个输入：msime-dictionary 的路径只从 `--dictionary` checkout 读，其中的上游数据按 checkout 的 `upstream.lock.json` 校验；其他路径按锁文件校验并缓存，必要时下载。
     pub fn pinned(&self, path: &str) -> Result<PathBuf> {
-        if let Some(resolved) = self.checkout_file(path) {
+        // 这个分支在查锁文件之前：即使锁文件里重新出现 `sources/` 或 `custom/` 的条目，也不会被读到。
+        if is_dictionary_path(path) {
+            let Some(dictionary) = self.dictionary.as_ref() else {
+                bail!("{path} is msime-dictionary data, which the sources lock no longer pins; pass --dictionary <msime-dictionary checkout>");
+            };
+            let resolved = dictionary.root.join(path);
             if !resolved.is_file() {
                 bail!(
                     "{path} is not in the dictionary checkout at {}",
                     resolved.display()
                 );
             }
-            if let Some(upstream) = upstream_reference(path) {
-                let file = self.lock.file(path).with_context(|| {
-                    format!("{path} is {upstream} data, which the dictionary checkout cannot add without a lock entry")
+            if let Some(label) = upstream_reference(path) {
+                let file = dictionary.file(path).with_context(|| {
+                    format!("{path} is {label} data at an upstream commit msime records, but the checkout's {UPSTREAM_LOCK} does not list it")
                 })?;
-                if !matches(&resolved, file)? {
+                if !matches(&resolved, file.size, &file.sha256)? {
                     bail!(
-                        "{path} in the dictionary checkout at {} differs from the size and SHA-256 the sources lock pins; it is {upstream} data at an upstream commit msime records, so update that commit (the lock reference or Mozc revision and resources/licenses), the lock entry and the licence texts in msime before building from this checkout",
+                        "{path} in the dictionary checkout at {} differs from the size and SHA-256 the checkout's {UPSTREAM_LOCK} records; it is {label} data at an upstream commit msime records, so to replace it change the {label} reference (the Mozc revision for mozc) and the licence texts in resources/licenses in msime first, then {UPSTREAM_LOCK}",
                         resolved.display()
                     );
                 }
@@ -151,7 +275,7 @@ impl Sources {
         }
         let file = self.lock.file(path)?;
         let target = self.cache.join(&file.path);
-        if target.is_file() && matches(&target, file)? {
+        if target.is_file() && matches(&target, file.size, &file.sha256)? {
             return Ok(target);
         }
         if self.offline {
@@ -180,35 +304,8 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-/// 断言 `file` 是固定提交中的 msime-dictionary 仓库文件。
-#[cfg(test)]
-pub(crate) fn assert_dictionary_repository_file(file: &PinnedFile) {
-    const RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
-    let rest = file.url.strip_prefix(RAW).unwrap_or_else(|| {
-        panic!(
-            "{} is not a pinned msime-dictionary repository file",
-            file.url
-        )
-    });
-    let (commit, path) = rest
-        .split_once('/')
-        .unwrap_or_else(|| panic!("{}", file.url));
-    assert_eq!(
-        commit.len(),
-        40,
-        "{} must pin a full commit, not a release tag",
-        file.url
-    );
-    assert!(
-        commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "{}",
-        file.url
-    );
-    assert_eq!(path, file.path, "{}", file.url);
-}
-
-fn matches(path: &Path, file: &PinnedFile) -> Result<bool> {
-    Ok(std::fs::metadata(path)?.len() == file.size && sha256_file(path)? == file.sha256)
+fn matches(path: &Path, size: u64, sha256: &str) -> Result<bool> {
+    Ok(std::fs::metadata(path)?.len() == size && sha256_file(path)? == sha256)
 }
 
 fn download(file: &PinnedFile, target: &Path) -> Result<()> {
@@ -279,7 +376,15 @@ fn write_pinned_response<R: Read>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::io::Cursor;
+
+    /// 锁文件曾经固定 msime-dictionary 文件时用的 raw URL 前缀：`<RAW><commit>/<path>`。
+    const DICTIONARY_RAW: &str =
+        "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
+    const CANTONESE_REPOSITORY: &str = "https://github.com/rime/rime-cantonese.git";
+    const CHEWING_REPOSITORY: &str = "https://github.com/chewing/libchewing-data.git";
+    const MOZC_REPOSITORY: &str = "https://github.com/google/mozc.git";
 
     fn lock_with(file: PinnedFile) -> Lock {
         Lock {
@@ -290,6 +395,61 @@ mod tests {
             },
             files: vec![file],
         }
+    }
+
+    /// 带指定 references 和 Mozc 修订的锁文件，不固定任何文件。
+    fn lock_with_references(references: &[(&str, &str, String)], mozc: (&str, String)) -> Lock {
+        Lock {
+            references: references
+                .iter()
+                .map(|(name, repository, commit)| {
+                    (
+                        (*name).to_owned(),
+                        Reference {
+                            repository: (*repository).to_owned(),
+                            commit: commit.clone(),
+                        },
+                    )
+                })
+                .collect(),
+            mozc: Reference {
+                repository: mozc.0.to_owned(),
+                commit: mozc.1,
+            },
+            files: Vec::new(),
+        }
+    }
+
+    /// 只有 rime-cantonese 一个 reference 的锁文件，以及与它一致的 upstreams。
+    fn cantonese_lock() -> (Lock, serde_json::Value) {
+        let lock = lock_with_references(
+            &[("rime-cantonese", CANTONESE_REPOSITORY, "a".repeat(40))],
+            (MOZC_REPOSITORY, "b".repeat(40)),
+        );
+        let upstreams = json!({
+            "rime-cantonese": {"repository": CANTONESE_REPOSITORY, "commit": "a".repeat(40)}
+        });
+        (lock, upstreams)
+    }
+
+    /// 在临时目录里写出 checkout 的文件和 `upstream.lock.json`。
+    fn checkout(files: &[(&str, &[u8])], record: serde_json::Value) -> tempfile::TempDir {
+        let directory = tempfile::tempdir().unwrap();
+        for (path, content) in files {
+            let target = directory.path().join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(target, content).unwrap();
+        }
+        std::fs::write(
+            directory.path().join(UPSTREAM_LOCK),
+            serde_json::to_string_pretty(&record).unwrap(),
+        )
+        .unwrap();
+        directory
+    }
+
+    fn dictionary_at(checkout: &tempfile::TempDir, lock: &Lock) -> Dictionary {
+        Dictionary::open(checkout.path().into(), lock).unwrap()
     }
 
     #[test]
@@ -324,35 +484,32 @@ mod tests {
         assert!(error.contains("--offline"), "{error}");
     }
 
-    fn dictionary_file(path: &str, sha256: &str) -> PinnedFile {
-        PinnedFile {
-            path: path.into(),
-            url: format!("{DICTIONARY_RAW}{}/{path}", "a".repeat(40)),
-            sha256: sha256.into(),
-            size: 1,
-        }
-    }
-
-    /// With `--dictionary`, a file the lock pins from msime-dictionary is read from the checkout even though its content no longer matches the pin, and nothing is downloaded; a file pinned from elsewhere still goes through the cache.
+    /// 有 `--dictionary` 时，msime-dictionary 的路径只从 checkout 读：锁文件里即使还留着一条摘要不符的 `custom/words.txt` 也不看，也不下载；其他仓库的文件照常走缓存。
     #[test]
-    fn a_checkout_overrides_files_pinned_from_the_dictionary_repository() {
-        let checkout = tempfile::tempdir().unwrap();
+    fn a_checkout_serves_dictionary_paths_and_other_inputs_use_the_cache() {
         let cache = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(checkout.path().join("custom")).unwrap();
-        std::fs::write(checkout.path().join("custom/words.txt"), b"edited").unwrap();
-        let mut lock = lock_with(dictionary_file("custom/words.txt", &"0".repeat(64)));
+        let mut lock = lock_with(PinnedFile {
+            path: "custom/words.txt".into(),
+            url: format!("{DICTIONARY_RAW}{}/custom/words.txt", "a".repeat(40)),
+            sha256: "0".repeat(64),
+            size: 1,
+        });
         lock.files.push(PinnedFile {
             path: "ecdict/ecdict.csv".into(),
             url: "http://127.0.0.1:9/unreachable".into(),
             sha256: "0".repeat(64),
             size: 1,
         });
+        let checkout = checkout(
+            &[("custom/words.txt", b"edited")],
+            json!({"version": 1, "upstreams": {}, "files": []}),
+        );
         let sources = Sources {
+            dictionary: Some(dictionary_at(&checkout, &lock)),
             lock,
             repository_inputs: cache.path().into(),
             cache: cache.path().into(),
             offline: true,
-            dictionary: Some(checkout.path().into()),
         };
         assert_eq!(
             sources.pinned("custom/words.txt").unwrap(),
@@ -362,26 +519,34 @@ mod tests {
         let error = sources.pinned("ecdict/ecdict.csv").unwrap_err().to_string();
         assert!(error.contains("--offline"), "{error}");
         assert_eq!(sources.checkout_file("ecdict/ecdict.csv"), None);
+        assert_eq!(
+            sources.checkout_file("custom/words.txt"),
+            Some(checkout.path().join("custom/words.txt"))
+        );
     }
 
-    /// With `--dictionary`, a new file under `sources/` or `custom/` resolves from the checkout without a lock entry; a pinned file missing from the checkout is an error rather than a fallback to the cache.
+    /// 有 `--dictionary` 时，`sources/` 或 `custom/` 下的新文件不需要任何固定记录就从 checkout 读；checkout 里缺的文件直接报错，不退回缓存。
     #[test]
     fn a_checkout_resolves_dictionary_paths_the_lock_does_not_pin() {
-        let checkout = tempfile::tempdir().unwrap();
         let cache = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(checkout.path().join("sources/pinyin")).unwrap();
-        std::fs::write(checkout.path().join("sources/pinyin/new.txt"), b"new").unwrap();
         std::fs::create_dir_all(cache.path().join("custom")).unwrap();
         std::fs::write(cache.path().join("custom/words.txt"), b"w").unwrap();
+        let lock = lock_with(PinnedFile {
+            path: "custom/words.txt".into(),
+            url: format!("{DICTIONARY_RAW}{}/custom/words.txt", "a".repeat(40)),
+            sha256: hex::encode(Sha256::digest(b"w")),
+            size: 1,
+        });
+        let checkout = checkout(
+            &[("sources/pinyin/new.txt", b"new")],
+            json!({"version": 1, "upstreams": {}, "files": []}),
+        );
         let sources = Sources {
-            lock: lock_with(dictionary_file(
-                "custom/words.txt",
-                &hex::encode(Sha256::digest(b"w")),
-            )),
+            dictionary: Some(dictionary_at(&checkout, &lock)),
+            lock,
             repository_inputs: cache.path().into(),
             cache: cache.path().into(),
             offline: true,
-            dictionary: Some(checkout.path().into()),
         };
         assert_eq!(
             sources.pinned("sources/pinyin/new.txt").unwrap(),
@@ -398,48 +563,55 @@ mod tests {
         assert!(error.contains("not pinned in the sources lock"), "{error}");
     }
 
-    /// With `--dictionary`, upstream data (here rime-cantonese's) is read from the checkout only while it matches the lock: a replaced file, or a new one the lock does not pin, fails instead of shipping under the old upstream commit.
+    /// 有 `--dictionary` 时，上游数据（这里是 rime-cantonese 的）只在与 checkout 的 `upstream.lock.json` 一致时才读：记录没有列出的新文件、或字节与记录不符的文件都报错，而不是顶着旧的上游提交发布。
     #[test]
-    fn a_checkout_cannot_change_upstream_data_the_lock_pins() {
-        let checkout = tempfile::tempdir().unwrap();
+    fn a_checkout_cannot_change_upstream_data_its_record_pins() {
         let cache = tempfile::tempdir().unwrap();
-        let directory = checkout.path().join("sources/cantonese");
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("essay-cantonese.txt"), b"e").unwrap();
-        std::fs::write(directory.join("new.txt"), b"n").unwrap();
-        let mut file = dictionary_file(
-            "sources/cantonese/essay-cantonese.txt",
-            &hex::encode(Sha256::digest(b"e")),
-        );
+        let (lock, upstreams) = cantonese_lock();
+        let files: &[(&str, &[u8])] = &[
+            ("sources/cantonese/essay-cantonese.txt", b"e"),
+            ("sources/cantonese/new.txt", b"n"),
+        ];
+        let record = |sha256: String| {
+            json!({
+                "version": 1,
+                "upstreams": upstreams.clone(),
+                "files": [{
+                    "path": "sources/cantonese/essay-cantonese.txt",
+                    "upstream": "rime-cantonese",
+                    "size": 1,
+                    "sha256": sha256,
+                }],
+            })
+        };
+        let good = checkout(files, record(hex::encode(Sha256::digest(b"e"))));
         let mut sources = Sources {
-            lock: lock_with(dictionary_file(
-                "sources/cantonese/essay-cantonese.txt",
-                &hex::encode(Sha256::digest(b"e")),
-            )),
+            dictionary: Some(dictionary_at(&good, &lock)),
+            lock,
             repository_inputs: cache.path().into(),
             cache: cache.path().into(),
             offline: true,
-            dictionary: Some(checkout.path().into()),
         };
         assert_eq!(
             sources
                 .pinned("sources/cantonese/essay-cantonese.txt")
                 .unwrap(),
-            directory.join("essay-cantonese.txt")
+            good.path().join("sources/cantonese/essay-cantonese.txt")
         );
         let error = format!(
             "{:#}",
             sources.pinned("sources/cantonese/new.txt").unwrap_err()
         );
-        assert!(error.contains("not pinned in the sources lock"), "{error}");
+        assert!(error.contains("does not list it"), "{error}");
 
-        file.sha256 = "0".repeat(64);
-        sources.lock = lock_with(file);
+        let stale = checkout(files, record("0".repeat(64)));
+        sources.dictionary = Some(dictionary_at(&stale, &sources.lock));
         let error = sources
             .pinned("sources/cantonese/essay-cantonese.txt")
             .unwrap_err()
             .to_string();
         assert!(error.contains("rime-cantonese"), "{error}");
+        assert!(error.contains(UPSTREAM_LOCK), "{error}");
         assert!(!cache.path().join("sources/cantonese").exists());
         assert_eq!(upstream_reference("sources/pinyin/places.txt"), None);
         assert_eq!(upstream_reference("custom/words.txt"), None);
@@ -463,34 +635,147 @@ mod tests {
         );
     }
 
-    /// Without `--dictionary` a path the lock does not pin is still an error, even under `sources/`, and pinned files come from the cache.
+    /// 没有 `--dictionary` 时，`sources/` 和 `custom/` 下的路径一律报错并提示传 `--dictionary`，即使锁文件固定了它、缓存里也有这个文件。
     #[test]
-    fn without_a_checkout_unpinned_dictionary_paths_are_rejected() {
+    fn without_a_checkout_dictionary_paths_are_rejected() {
         let cache = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(cache.path().join("custom")).unwrap();
         std::fs::write(cache.path().join("custom/words.txt"), b"w").unwrap();
         std::fs::create_dir_all(cache.path().join("sources/pinyin")).unwrap();
         std::fs::write(cache.path().join("sources/pinyin/new.txt"), b"new").unwrap();
         let sources = Sources {
-            lock: lock_with(dictionary_file(
-                "custom/words.txt",
-                &hex::encode(Sha256::digest(b"w")),
-            )),
+            lock: lock_with(PinnedFile {
+                path: "custom/words.txt".into(),
+                url: format!("{DICTIONARY_RAW}{}/custom/words.txt", "a".repeat(40)),
+                sha256: hex::encode(Sha256::digest(b"w")),
+                size: 1,
+            }),
             repository_inputs: cache.path().into(),
             cache: cache.path().into(),
             offline: true,
             dictionary: None,
         };
         assert_eq!(sources.checkout_file("sources/pinyin/new.txt"), None);
-        let error = sources
-            .pinned("sources/pinyin/new.txt")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("not pinned in the sources lock"), "{error}");
-        assert_eq!(
-            sources.pinned("custom/words.txt").unwrap(),
-            cache.path().join("custom/words.txt")
+        assert_eq!(sources.checkout_file("custom/words.txt"), None);
+        for path in ["custom/words.txt", "sources/pinyin/new.txt"] {
+            let error = sources.pinned(path).unwrap_err().to_string();
+            assert!(error.contains("--dictionary"), "{error}");
+        }
+    }
+
+    /// `Dictionary::open` 拒绝与锁文件或 `UPSTREAM_FILES` 不一致的记录。
+    #[test]
+    fn a_record_must_agree_with_the_lock() {
+        let lock = lock_with_references(
+            &[
+                ("rime-cantonese", CANTONESE_REPOSITORY, "a".repeat(40)),
+                ("libchewing-data", CHEWING_REPOSITORY, "c".repeat(40)),
+            ],
+            (MOZC_REPOSITORY, "b".repeat(40)),
         );
+        let good = || {
+            json!({
+                "version": 1,
+                "upstreams": {
+                    "libchewing-data": {"repository": CHEWING_REPOSITORY, "commit": "c".repeat(40)},
+                    "mozc": {"repository": MOZC_REPOSITORY, "commit": "b".repeat(40)},
+                    "rime-cantonese": {"repository": CANTONESE_REPOSITORY, "commit": "a".repeat(40)},
+                },
+                "files": [
+                    {"path": "sources/cantonese/essay-cantonese.txt", "upstream": "rime-cantonese", "size": 1, "sha256": "e".repeat(64)},
+                    {"path": "sources/japanese/id.def", "upstream": "mozc", "size": 2, "sha256": "d".repeat(64)},
+                    {"path": "sources/zhuyin/tsi.csv", "upstream": "libchewing-data", "size": 3, "sha256": "f".repeat(64)},
+                ],
+            })
+        };
+        let open = |record: serde_json::Value| {
+            let directory = checkout(&[], record);
+            Dictionary::open(directory.path().into(), &lock).map(|_| ())
+        };
+        open(good()).unwrap();
+
+        let missing = tempfile::tempdir().unwrap();
+        let error = Dictionary::open(missing.path().into(), &lock)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("has no upstream.lock.json"), "{error}");
+
+        // 每一项是预期报错里的一段文字，以及把正例改坏的方法。
+        type Mutation = fn(&mut serde_json::Value);
+        let cases: Vec<(&str, Mutation)> = vec![
+            ("version 2 is not 1", |record| record["version"] = json!(2)),
+            (
+                "resources/dictionary-sources.lock.json has https://github.com/rime/rime-cantonese.git at aaaa",
+                |record| {
+                    record["upstreams"]["rime-cantonese"]["commit"] = json!("9".repeat(40));
+                },
+            ),
+            (
+                "rime-cantonese-2 is recorded in upstream.lock.json but resources/dictionary-sources.lock.json has no such reference",
+                |record| {
+                    let reference = record["upstreams"]["rime-cantonese"].take();
+                    let upstreams = record["upstreams"].as_object_mut().unwrap();
+                    upstreams.remove("rime-cantonese");
+                    upstreams.insert("rime-cantonese-2".into(), reference);
+                    record["files"][0]["upstream"] = json!("rime-cantonese-2");
+                },
+            ),
+            (
+                "mozc is recorded in upstream.lock.json as https://github.com/google/mozc.git at 9999",
+                |record| {
+                    record["upstreams"]["mozc"]["commit"] = json!("9".repeat(40));
+                },
+            ),
+            (
+                "sources/zhuyin/tsi.csv is listed under McBopomofo in upstream.lock.json, but msime treats it as libchewing-data",
+                |record| record["files"][2]["upstream"] = json!("McBopomofo"),
+            ),
+            (
+                "custom/words.txt is listed under rime-cantonese in upstream.lock.json, but msime treats it as not upstream data",
+                |record| {
+                    let mut file = record["files"][0].clone();
+                    file["path"] = json!("custom/words.txt");
+                    record["files"].as_array_mut().unwrap().push(file);
+                },
+            ),
+            (
+                "sources/japanese/id.def is listed twice",
+                |record| {
+                    let file = record["files"][1].clone();
+                    record["files"].as_array_mut().unwrap().push(file);
+                },
+            ),
+            (
+                "is not 40 lowercase hex digits",
+                |record| {
+                    record["upstreams"]["mozc"]["commit"] = json!("B".repeat(40));
+                },
+            ),
+            (
+                "sources/zhuyin/tsi.csv is listed under libchewing-data, which upstream.lock.json does not record",
+                |record| {
+                    record["upstreams"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("libchewing-data");
+                },
+            ),
+            (
+                "is not 64 lowercase hex digits",
+                |record| record["files"][0]["sha256"] = json!("e".repeat(63)),
+            ),
+            (
+                "unknown field",
+                |record| record["files"][0]["url"] = json!("https://example.invalid/"),
+            ),
+        ];
+        for (expected, mutate) in cases {
+            let mut record = good();
+            mutate(&mut record);
+            let error = format!("{:#}", open(record).unwrap_err());
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
     }
 
     #[test]
@@ -510,11 +795,18 @@ mod tests {
         assert!(!incoming.exists());
     }
 
+    fn repository_lock() -> Lock {
+        Lock::load(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../resources/dictionary-sources.lock.json"),
+        )
+        .unwrap()
+    }
+
+    /// 锁文件每个路径只固定一次，并且不再固定 msime-dictionary 的任何文件，也没有 `msime-dictionary` reference。
     #[test]
     fn the_repository_lock_parses_and_pins_every_file_once() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../resources/dictionary-sources.lock.json");
-        let lock = Lock::load(&path).unwrap();
+        let lock = repository_lock();
         let mut paths: Vec<_> = lock.files.iter().map(|file| file.path.as_str()).collect();
         let count = paths.len();
         paths.sort_unstable();
@@ -523,32 +815,29 @@ mod tests {
         for file in &lock.files {
             assert_eq!(file.sha256.len(), 64, "{}", file.path);
             assert!(file.url.starts_with("https://"), "{}", file.path);
-            if file.path.starts_with("sources/japanese/")
-                || file.path.starts_with("sources/korean/")
-            {
-                assert_dictionary_repository_file(file);
-            }
+            assert!(!file.url.starts_with(DICTIONARY_RAW), "{}", file.url);
+            assert!(!is_dictionary_path(&file.path), "{}", file.path);
         }
+        assert!(!lock.references.contains_key("msime-dictionary"));
     }
 
-    // The manifest reports references["msime-dictionary"].commit as the source commit of a release, so every file fetched from that repository has to come from that same commit.
+    /// `UPSTREAM_FILES` 的每个上游名都是锁文件的 reference（`mozc` 对应 `lock.mozc`），提交是完整的小写十六进制，所以按真实锁文件写出的 `upstream.lock.json` 能通过 `Dictionary::open`。
     #[test]
-    fn every_dictionary_repository_file_is_pinned_to_the_referenced_commit() {
-        const RAW: &str = "https://raw.githubusercontent.com/metasequoiaime/msime-dictionary/";
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../resources/dictionary-sources.lock.json");
-        let lock = Lock::load(&path).unwrap();
-        let commit = &lock.references["msime-dictionary"].commit;
-        let mut pinned = 0;
-        for file in lock.files.iter().filter(|file| file.url.starts_with(RAW)) {
-            assert_dictionary_repository_file(file);
-            assert!(
-                file.url.starts_with(&format!("{RAW}{commit}/")),
-                "{} is not pinned to the referenced msime-dictionary commit {commit}",
-                file.url
-            );
-            pinned += 1;
+    fn every_upstream_name_is_a_lock_reference() {
+        let lock = repository_lock();
+        for (path, name) in UPSTREAM_FILES {
+            let commit = if name == "mozc" {
+                &lock.mozc.commit
+            } else {
+                &lock
+                    .references
+                    .get(name)
+                    .unwrap_or_else(|| {
+                        panic!("{path}: {name} is not a reference in the sources lock")
+                    })
+                    .commit
+            };
+            assert!(is_lowercase_hex(commit, 40), "{name}: {commit}");
         }
-        assert!(pinned > 0, "no msime-dictionary file is pinned");
     }
 }

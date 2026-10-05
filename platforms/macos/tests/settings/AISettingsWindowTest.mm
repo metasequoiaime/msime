@@ -39,6 +39,10 @@ int main() {
         limit.stringValue = @"11"; [window controlTextDidEndEditing:endEditing]; assert(saves == 1);
         limit.stringValue = @"5";
         enabled.state = NSControlStateValueOn; endpoint.stringValue = @"file:///synthetic"; [window commit:enabled]; assert(saves == 1);
+        // 远程 HTTP 与伪装成 localhost 的远程域名不能保存。
+        for (NSString *invalid in @[@"http://remote.invalid/v1", @"http://localhost.example/v1", @"http://192.0.2.1/v1", @"http://[2001:db8::1]/v1", @"http://user:synthetic@localhost/v1", @"http://@:localhost/v1", @"http://localhost/v1#fragment"]) {
+            endpoint.stringValue = invalid; [window commit:enabled]; assert(saves == 1);
+        }
         // Another writer saved in between: the edit is merged onto its revision and keeps its change.
         stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
         NSMutableDictionary *other = [stored mutableCopy], *otherPreferences = [stored[@"preferences"] mutableCopy];
@@ -59,6 +63,15 @@ int main() {
         assert([stored[@"preferences"][@"ai_assistant"][@"model"] isEqual:@"closing-model"]);
         [window showWindow:nil]; assert([model.stringValue isEqual:@"closing-model"]);
         [window close]; assert(saves == 4);
+        // 本机服务仍可使用 HTTP；写入后重读，确认并未只更新窗口。
+        [window showWindow:nil];
+        NSUInteger expectedSaves = saves;
+        for (NSString *local in @[@"http://localhost:8080/v1", @"http://127.0.0.1:8080/v1", @"http://[::1]:8080/v1"]) {
+            endpoint.stringValue = local; [window controlTextDidEndEditing:endEditing]; assert(saves == ++expectedSaves);
+            stored = [MSIMEClientSession loadPreferencesInDirectory:root error:&error];
+            assert([stored[@"preferences"][@"ai_assistant"][@"endpoint"] isEqual:local]);
+        }
+        [window close]; assert(saves == expectedSaves);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
     }
     return 0;

@@ -1,0 +1,8 @@
+// Cloudflare Workers Static Assets：先 npm run build，再 npx wrangler deploy。这里没有 Worker 脚本，所有请求都由静态资源回答，引擎在用户的浏览器里运行。
+{
+  "name": "msime-web-engine-demo",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site"
+  }
+}

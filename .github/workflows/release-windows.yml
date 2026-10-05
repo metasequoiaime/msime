@@ -41,6 +41,8 @@ jobs:
         run: |
           # Build-Client.ps1 stamps this into the Tauri and Server metadata, which take three numeric components only.
           $v = if ($env:REQUESTED) {$env:REQUESTED.Trim()} else {(Get-Content platforms/windows/version.txt -Raw).Trim()}; if ($v -notmatch '^\d+\.\d+\.\d+$') {throw 'invalid version'}; "value=$v" >> $env:GITHUB_OUTPUT
+          # The release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
+          $suffix = switch ($env:GITHUB_REF_NAME) {'main' {''} 'develop' {'-beta'} default {'-alpha'}}; "release=$v$suffix" >> $env:GITHUB_OUTPUT
           $baseline = (Get-Content platforms/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'; "vcpkg-baseline=$baseline" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: {node-version: 24}
@@ -111,6 +113,11 @@ jobs:
           if ($msbuild.Count -lt 1) { throw 'no MSBuild in the Visual Studio installation' }
           $env:PATH = "$(Split-Path -Parent $msbuild[0]);$env:PATH"
           Write-Output "MSBuild: $($msbuild[0])"
+          # Every edition but full renames the host DLL and makes its import library with lib.exe (Build-Client.ps1), which a Developer PowerShell also has on PATH and the plain pwsh does not; without it those five editions fail with "The term 'lib' is not recognized" (run 37274616998). The x64-hosted lib.exe writes the X86 import library as well, given /MACHINE:X86.
+          $lib = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\lib.exe')
+          if ($lib.Count -lt 1) { throw 'no lib.exe in the Visual Studio installation' }
+          $env:PATH = "$(Split-Path -Parent $lib[-1]);$env:PATH"
+          Write-Output "lib: $($lib[-1])"
           ./platforms/windows/Build-Client.ps1 -X64Dependencies (Join-Path $deps 'x64-windows/x64-windows') -X86Dependencies (Join-Path $deps 'x86-windows/x86-windows') -TargetVersion $env:VERSION -Generator $generator -Edition $env:EDITION
       - name: Collect third-party notices
         shell: pwsh
@@ -189,6 +196,7 @@ jobs:
           ./platforms/windows/installer/tests/install-smoke.ps1 -Installer "dist/${base}_v$env:VERSION.exe" -Edition $env:EDITION
     outputs:
       version: ${{ steps.version.outputs.value }}
+      release: ${{ steps.version.outputs.release }}
   # 几个版本的安装包装在同一台机器上：各自的 TIP、COM 注册、HKLM 键、看门狗任务和数据目录同时存在，卸掉一个版本不碰 full。runner 是一次性的管理员环境。
   coexistence:
     needs: [source, release]
@@ -227,9 +235,13 @@ jobs:
           merge-multiple: true
       - name: Publish independent Windows release
         shell: bash
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.release.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ needs.release.outputs.version }}", RELEASE: "${{ needs.release.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          tag="windows-v${VERSION}"; flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          start=$(git tag --list 'windows-v*' --sort=-v:refname | head -1)
-          python3 scripts/generate-release-notes.py --platform windows --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" dist/* --target "$(git rev-parse HEAD)" --title "Windows ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          tag="windows-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^windows-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'windows-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform windows --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "Windows ${RELEASE}" release-notes.md dist/*

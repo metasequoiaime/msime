@@ -757,6 +757,25 @@ pub(crate) fn is_packaged_resource_directory(resource_directory: &Path) -> bool 
 }
 
 /// Whether an enabled input source list, as JSON, has any entry for this input method.
+/// Whether the list still has this input method itself, the `Keyboard Input Method` entry, rather than any entry of it. System Settings shows the input method's modes only while that entry is there, and removing the last visible mode there can drop it and leave a mode entry behind, which no page shows and so nobody can remove (measured on macOS 27: an orphaned `.Cantonese` entry with no parent entry, while Input Sources listed nothing of 水杉输入法).
+fn input_method_in_input_source_list(json: &[u8]) -> Option<bool> {
+    let list: serde_json::Value = serde_json::from_slice(json).ok()?;
+    Some(list.as_array()?.iter().any(|entry| {
+        entry.get("Bundle ID").and_then(serde_json::Value::as_str) == Some(input_source_bundle_id())
+            && entry
+                .get("InputSourceKind")
+                .and_then(serde_json::Value::as_str)
+                == Some("Keyboard Input Method")
+    }))
+}
+
+/// Whether System Settings still shows this input method, so an uninstall has to wait for the user to remove it there. `None` when no list can be read.
+pub(crate) fn input_method_listed() -> Option<bool> {
+    enabled_in_any_list(ENABLED_INPUT_SOURCE_LISTS.iter().map(|(domain, key)| {
+        input_method_in_input_source_list(&preference_list_json(domain, key)?)
+    }))
+}
+
 fn enabled_in_input_source_list(json: &[u8]) -> Option<bool> {
     let list: serde_json::Value = serde_json::from_slice(json).ok()?;
     Some(list.as_array()?.iter().any(|entry| {
@@ -1139,6 +1158,19 @@ mod tests {
         let absent = br#"[{"Bundle ID":"com.apple.inputmethod.Kotoeri.RomajiTyping"}]"#;
         assert_eq!(enabled_in_input_source_list(absent), Some(false));
         assert_eq!(enabled_in_input_source_list(b"not json"), None);
+    }
+
+    #[test]
+    fn listed_means_the_input_method_entry_not_an_orphaned_mode() {
+        let listed = br#"[{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","InputSourceKind":"Keyboard Input Method"},{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","Input Mode":"app.msime.inputmethod.MetasequoiaIME.Cantonese","InputSourceKind":"Input Mode"}]"#;
+        assert_eq!(input_method_in_input_source_list(listed), Some(true));
+        // What System Settings left after the user removed every visible entry: a mode whose input method entry is gone.
+        let orphan = br#"[{"InputSourceKind":"Keyboard Layout","KeyboardLayout Name":"ABC"},{"Bundle ID":"app.msime.inputmethod.MetasequoiaIME","Input Mode":"app.msime.inputmethod.MetasequoiaIME.Cantonese","InputSourceKind":"Input Mode"}]"#;
+        assert_eq!(input_method_in_input_source_list(orphan), Some(false));
+        let other =
+            br#"[{"Bundle ID":"com.example.other","InputSourceKind":"Keyboard Input Method"}]"#;
+        assert_eq!(input_method_in_input_source_list(other), Some(false));
+        assert_eq!(input_method_in_input_source_list(b"not json"), None);
     }
 
     #[test]

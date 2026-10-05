@@ -95,6 +95,8 @@ if [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/his
 fi
 echo "Linux clipboard history size limit passed"
 
+# The size-limit check left an empty history, so put back the entry remove-index must keep.
+/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add second
 unicode_text='水杉输入法 😀'
 /build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" add "$unicode_text"
 [[ $(/build/stage/usr/local/bin/msime-linux-clipboard "$clipboard_fixture/history.json" get 0) == "$unicode_text" ]]

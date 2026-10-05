@@ -34,7 +34,7 @@
 
 ## 发布前人工确认
 
-六个平台各有独立的手动发布工作流（`.github/workflows/release-<平台>.yml`），版本号默认取自 `platforms/<平台>/version.txt`，一个平台发版不牵动其余五个。触发前按下面五条逐项确认。
+六个平台各有独立的手动发布工作流（`.github/workflows/release-<平台>.yml`），版本号默认取自 `platforms/<平台>/version.txt`，一个平台发版不牵动其余五个。从 `main` 触发的是正式版；从 `develop` 触发的 tag 和标题带 `-beta`，从其他分支触发的带 `-alpha`，两者都自动标为 prerelease（规则见 [AGENTS.md](../AGENTS.md)「发版」）。触发前按下面五条逐项确认。
 
 发布说明由 `scripts/generate-release-notes.py` 按平台 tag 和实际改动路径筛选，只传入目标平台与纯共享改动；配置仓库 Secret `EVERYAPI_RELEASE_NOTES_TOKEN` 后，会用 EveryAPI 的模型生成中文 Markdown，模型不可用时自动使用同一筛选结果生成确定性说明。可选的仓库变量 `EVERYAPI_RELEASE_NOTES_MODEL` 用来指定模型，默认是 `gpt-5.5`。
 

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>水杉输入法网页版｜不用安装，在浏览器里打中文</title>
+    <meta name="description" content="水杉输入法的 Rust 引擎编译成 WebAssembly，在浏览器里离线运行。全拼、小鹤双拼、自然码双拼和五笔 86，输入的内容不会离开你的设备。在线试用各项选项，查看对应的接入代码。" />
+    <meta property="og:title" content="水杉输入法网页版" />
+    <meta property="og:description" content="不用安装，在浏览器里打中文。全拼、双拼、五笔，完全离线运行，两行代码嵌进你的网页。" />
+    <meta name="theme-color" content="#1E8E4E" />
+    <link rel="icon" href="msime.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="modulepreload" href="msime/index.js" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="https://msime.app/">
+        <span class="logo"><img src="msime.svg" width="22" height="22" alt="" /></span>
+        <span>水杉输入法</span>
+      </a>
+      <nav class="links">
+        <a href="#playground">试用</a>
+        <a href="#code">代码</a>
+        <a href="https://msime.app/download/?platform=web">文档</a>
+        <a href="https://github.com/metasequoiaime/msime/tree/develop/packages/web-engine">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">MSIME · WebAssembly</p>
+        <h1>不用安装，<br class="br-narrow" />在浏览器里打中文</h1>
+        <p class="lead">水杉输入法的 Rust 引擎编译成 WebAssembly，就运行在这个页面里。全拼、双拼、五笔，整句联想，完全离线，输入的内容不会离开你的设备。</p>
+        <p class="hero-actions">
+          <a class="btn primary" href="#playground">立即试用</a>
+          <a class="btn" href="#code">查看接入代码</a>
+        </p>
+        <dl class="stats">
+          <div><dt>4</dt><dd>输入方案：全拼、小鹤、自然码、五笔</dd></div>
+          <div><dt>0</dt><dd>加载后的网络请求，断网也能打字</dd></div>
+          <div><dt>16 MB</dt><dd>首次下载，之后由浏览器缓存</dd></div>
+          <div><dt>GPL-3.0</dt><dd>开源，引擎与桌面版相同</dd></div>
+        </dl>
+      </section>
+
+      <!-- ---- 演练场：输入区 + 选项 ---- -->
+      <p class="embed-bar"><a href="./" target="_blank" rel="noopener">打开完整演示，查看接入代码 ↗</a></p>
+      <section class="playground" id="playground" aria-label="在线试用">
+        <div class="demo">
+          <div class="demo-bar">
+            <span class="demo-title">试一试</span>
+            <div class="status" id="status" aria-live="polite">
+              <span class="dot"></span><span id="status-text">正在加载引擎…</span>
+            </div>
+          </div>
+          <div class="progress" id="progress" aria-hidden="true"><span></span></div>
+
+          <div class="editor-wrap">
+            <!-- 按键由这个看不见的密码框接收：浏览器在密码框里停用系统输入法，访客不用切到英文。autocomplete 和几个 data- 属性让浏览器与密码管理器不把它当成要保存的密码。 -->
+            <input class="keysink" id="keysink" type="password" autocomplete="new-password" spellcheck="false" aria-label="在这里打字" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" />
+            <!-- 输入区按 pre-wrap 显示文字，标签之间不能有空白，否则缩进会被当成文字显示出来。 -->
+            <div class="editor" id="editor" aria-hidden="true" data-empty="true"><span class="before"></span><span class="preedit"></span><span class="caret" aria-hidden="true"></span><span class="after"></span></div>
+            <p class="placeholder" id="placeholder">点这里直接打字，比如 <kbd>woshizhongguoren</kbd> 再按空格</p>
+            <div class="candidates" id="candidates" hidden>
+              <div class="cand-preedit"></div>
+              <ol class="cand-list"></ol>
+            </div>
+          </div>
+
+          <div class="examples" aria-label="自动演示">
+            <span class="examples-label">看它打字</span>
+            <div class="chips" id="examples"></div>
+          </div>
+
+          <div class="demo-foot">
+            <span class="hint" id="hint">空格上屏，数字键或鼠标选字，<kbd>-</kbd> <kbd>=</kbd> 翻页，<kbd>←</kbd> <kbd>→</kbd> 移动高亮，单按 <kbd>Shift</kbd> 切换中英文</span>
+            <span class="actions">
+              <button type="button" id="copy">复制文字</button>
+              <button type="button" id="clear">清空</button>
+            </span>
+          </div>
+          <p class="notice" id="ime-notice" hidden>检测到系统输入法正在处理按键。请把系统输入法切换到英文（如 macOS 的 ABC、Windows 的英语键盘），就能用上水杉。</p>
+          <p class="notice" id="touch-notice" hidden>这个演示需要实体键盘。手机和平板上请连接键盘，或在电脑上打开。</p>
+        </div>
+
+        <aside class="options" aria-label="选项">
+          <h2>选项</h2>
+          <p class="options-lead">改动立刻生效，下方的接入代码会同步更新。</p>
+
+          <div class="option">
+            <div class="option-head"><span>输入方案</span><code>scheme</code></div>
+            <div class="segmented" role="radiogroup" aria-label="输入方案" data-option="scheme">
+              <button type="button" role="radio" data-value="quanpin">全拼</button>
+              <button type="button" role="radio" data-value="xiaohe">小鹤双拼</button>
+              <button type="button" role="radio" data-value="ziranma">自然码</button>
+              <button type="button" role="radio" data-value="wubi86">五笔 86</button>
+            </div>
+            <p class="option-note" id="scheme-note"></p>
+          </div>
+
+          <div class="option">
+            <div class="option-head"><span>每页候选数</span><code>pageSize</code></div>
+            <div class="segmented" role="radiogroup" aria-label="每页候选数" data-option="pageSize">
+              <button type="button" role="radio" data-value="5">5</button>
+              <button type="button" role="radio" data-value="7">7</button>
+              <button type="button" role="radio" data-value="9">9</button>
+            </div>
+            <p class="option-note">候选栏一页显示几个词，翻页用 <kbd>-</kbd> <kbd>=</kbd> 或方向键。</p>
+          </div>
+
+          <div class="option">
+            <div class="option-head"><span>下载整句模型</span><code>model</code></div>
+            <label class="switch"><input type="checkbox" data-option="model" checked /><span>约 4 MB，仅拼音方案使用</span></label>
+            <p class="option-note">不下载时首次加载少 4 MB，候选只按词频排序。</p>
+          </div>
+
+          <div class="option">
+            <div class="option-head"><span>启用整句模型</span><code>setModelEnabled()</code></div>
+            <label class="switch"><input type="checkbox" data-option="modelEnabled" checked /><span>参与候选排序</span></label>
+            <p class="option-note">已下载的模型可以随时开关，不用重新加载。</p>
+          </div>
+        </aside>
+      </section>
+
+      <!-- ---- 接入代码 + 引擎状态 ---- -->
+      <section class="dev" id="code">
+        <div class="section-head">
+          <h2>接入代码</h2>
+          <p>按上面选中的选项生成，复制即可用。</p>
+        </div>
+        <div class="dev-grid">
+          <div class="code">
+            <div class="code-head">
+              <div class="tabs" role="tablist" aria-label="接入方式">
+                <button type="button" role="tab" data-tab="textarea" aria-selected="true">挂到文本框</button>
+                <button type="button" role="tab" data-tab="custom" aria-selected="false">自绘输入区</button>
+                <button type="button" role="tab" data-tab="deploy" aria-selected="false">部署方式</button>
+              </div>
+              <button type="button" class="copy" id="copy-code">复制</button>
+            </div>
+            <p class="code-note" id="code-note"></p>
+            <pre><code id="code-body"></code></pre>
+          </div>
+
+          <div class="inspector">
+            <div class="inspector-block">
+              <h3>引擎</h3>
+              <dl class="facts" id="facts">
+                <div><dt>SDK</dt><dd id="fact-version">–</dd></div>
+                <div><dt>方案</dt><dd id="fact-scheme">–</dd></div>
+                <div><dt>下载</dt><dd id="fact-download">–</dd></div>
+                <div><dt>编译 wasm</dt><dd id="fact-compile">–</dd></div>
+                <div><dt>导入词库</dt><dd id="fact-import">–</dd></div>
+                <div><dt>创建会话</dt><dd id="fact-session">–</dd></div>
+                <div><dt>wasm 内存</dt><dd id="fact-memory">–</dd></div>
+                <div><dt>上一次按键</dt><dd id="fact-latency">–</dd></div>
+              </dl>
+            </div>
+            <div class="inspector-block">
+              <h3>最新一帧 <code>MsimeFrame</code></h3>
+              <pre class="frame" id="frame">打字后，这里显示引擎返回的每一帧。</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---- 按键 ---- -->
+      <section class="keys" id="keys">
+        <div class="section-head">
+          <h2>按键</h2>
+          <p>和桌面版的操作一致。<code>attachInput</code> 和 <code>keyFromEvent</code> 已经处理好这些按键，接入时不用再写。</p>
+        </div>
+        <div class="key-grid">
+          <div><span class="k"><kbd>空格</kbd></span><span>上屏高亮的候选</span></div>
+          <div><span class="k"><kbd>1</kbd> – <kbd>9</kbd></span><span>选当前页对应的候选</span></div>
+          <div><span class="k"><kbd>-</kbd> <kbd>=</kbd></span><span>上一页、下一页；不在组字时打出这两个符号</span></div>
+          <div><span class="k"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd></span><span>翻页</span></div>
+          <div><span class="k"><kbd>←</kbd> <kbd>→</kbd></span><span>在当前页里移动高亮</span></div>
+          <div><span class="k"><kbd>Enter</kbd></span><span>把拼音原样上屏</span></div>
+          <div><span class="k"><kbd>Esc</kbd></span><span>取消组字</span></div>
+          <div><span class="k"><kbd>Backspace</kbd></span><span>删一个字母；加 <kbd>Ctrl</kbd> 或 <kbd>Alt</kbd> 删一个词</span></div>
+          <div><span class="k"><kbd>Shift</kbd></span><span>单按切换中英文；按住 <kbd>Shift</kbd> 打的大写字母直接上屏</span></div>
+          <div><span class="k"><kbd>,</kbd> <kbd>.</kbd> <kbd>?</kbd></span><span>中文模式下自动转成全角标点</span></div>
+        </div>
+      </section>
+
+      <!-- ---- 常见问题 ---- -->
+      <section class="faq" id="faq">
+        <div class="section-head">
+          <h2>常见问题</h2>
+        </div>
+        <details>
+          <summary>为什么有时候需要把系统输入法切换到英文？</summary>
+          <p>浏览器会先把可编辑元素（<code>&lt;textarea&gt;</code>、<code>&lt;input&gt;</code>）上的按键交给系统输入法。访客开着系统的中文输入法时，按键会先被它接走，水杉拿不到。用 <code>attachInput</code> 挂在文本框上时，需要访客切到英文输入；像这个页面一样用一个看不见的密码框接收按键、自己画输入区，就不受系统输入法影响：浏览器在密码框里会停用系统输入法。</p>
+        </details>
+        <details>
+          <summary>输入的内容会被上传吗？</summary>
+          <p>不会。引擎、词库和整句模型都下载到浏览器里，在 Web Worker 中运行，转换过程不访问任何服务器。页面加载完以后断网也能继续打字。</p>
+        </details>
+        <details>
+          <summary>需要下载多少数据？</summary>
+          <p>全拼和双拼约 16 MB（不下载整句模型约 12 MB），五笔约 8 MB，只下载当前方案用到的文件。浏览器会缓存这些文件，再次打开基本不用重新下载。</p>
+        </details>
+        <details>
+          <summary>手机能用吗？</summary>
+          <p>引擎能在手机浏览器里运行，但它处理的是实体键盘的按键，手机的屏幕键盘不会发出这些按键事件，所以需要连接实体键盘。</p>
+        </details>
+        <details>
+          <summary>支持哪些浏览器？</summary>
+          <p>需要 WebAssembly、模块 Worker 和 <code>DecompressionStream</code>：Chrome / Edge 80 及以上、Firefox 114 及以上、Safari 16.4 及以上。页面设置了内容安全策略（CSP）时，<code>script-src</code> 要允许 <code>'wasm-unsafe-eval'</code>。</p>
+        </details>
+        <details>
+          <summary>可以用在商业网站里吗？</summary>
+          <p><code>@msime/web-engine</code> 以 GPL-3.0-only 发布，使用时需要遵守 GPL 的条款。词库、模型和第三方组件的许可见包内的 <code>assets/NOTICE.md</code>，部署时请一并发布。</p>
+        </details>
+      </section>
+
+      <section class="features">
+        <article>
+          <h2>完全离线</h2>
+          <p>引擎、词库和整句模型都在浏览器的 Web Worker 里运行。没有服务器参与转换，输入的内容不会被上传。</p>
+        </article>
+        <article>
+          <h2>和桌面版同一个引擎</h2>
+          <p>与 macOS、Linux、Android、iOS、HarmonyOS 版共用一套 Rust 输入引擎，同样的词库，同样的候选排序。</p>
+        </article>
+        <article>
+          <h2>部署到任意静态托管</h2>
+          <p>以 npm 包 <code>@msime/web-engine</code> 发布，GitHub Pages、Vercel、Cloudflare Pages / Workers 都能直接托管，也能从 jsDelivr CDN 引用。</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>水杉输入法 · GPL-3.0 开源 · <span id="build"></span></span>
+      <span><a href="https://msime.app/">msime.app</a> · <a href="https://www.npmjs.com/package/@msime/web-engine">npm</a> · <a href="msime/assets/NOTICE.md">第三方许可声明</a></span>
+    </footer>
+
+    <!-- 代码高亮：Prism（MIT，许可见 vendor/prism-LICENSE.txt），data-manual 让它不自动扫描页面，由 demo.js 在生成代码时调用。 -->
+    <script src="vendor/prism-core.min.js" data-manual></script>
+    <script src="vendor/prism-markup.min.js"></script>
+    <script src="vendor/prism-clike.min.js"></script>
+    <script src="vendor/prism-javascript.min.js"></script>
+    <script src="vendor/prism-bash.min.js"></script>
+    <script type="module" src="demo.js"></script>
+  </body>
+</html>

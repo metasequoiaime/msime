@@ -9,8 +9,10 @@ test("panel actions reuse shared mounted and generation hooks", () => {
     }),
   )[0];
 
-  expect(source).toContain("useMountedRef()");
-  expect(source).toContain("useAsyncGeneration()");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).toContain("invalidate");
+  expect(source).not.toContain("useMountedRef()");
+  expect(source).not.toContain("useAsyncGeneration()");
   expect(source).not.toContain("const mounted = useRef(true)");
   expect(source).not.toContain("const revisionRef = useRef(0)");
 });

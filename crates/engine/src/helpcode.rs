@@ -39,6 +39,11 @@ impl HelpcodeKeymap {
     pub(crate) fn len(&self) -> usize {
         self.codes.len()
     }
+
+    /// A built-in table that is missing from the resources loads as an empty map rather than failing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.codes.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

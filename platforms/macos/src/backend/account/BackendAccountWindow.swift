@@ -92,12 +92,17 @@ final class MacAccountModel: NSObject, ObservableObject {
       message = "昵称需为 1–64 个字符，不能包含换行或控制字符。"; return
     }
     perform {
-      let identity = try await self.currentSession.credentials()
-      try await self.client.rename(value, token: identity.token)
-      let profile = try await self.client.profile(token: identity.token)
-      try await self.currentSession.updateUser(profile.user, matching: identity.token)
+      let session = self.currentSession
+      let identity = try await session.credentials()
+      _ = try await session.authenticated(matchingUserID: identity.userID) { token in
+        try await self.client.rename(value, token: token)
+      }
+      let profile = try await session.authenticated(matchingUserID: identity.userID) { token in
+        try await self.client.profile(token: token)
+      }
+      try await session.updateUser(profile.value.user, matching: profile.token)
       try Task.checkCancellation()
-      self.user = profile.user; self.name = profile.user.preferredDisplayName
+      self.user = profile.value.user; self.name = profile.value.user.preferredDisplayName
     }
   }
   func logout(all: Bool = false, delete: Bool = false) {
@@ -105,7 +110,9 @@ final class MacAccountModel: NSObject, ObservableObject {
       let session = self.currentSession
       if delete {
         let identity = try await session.credentials()
-        try await self.client.deleteAccount(token: identity.token)
+        _ = try await session.authenticated(matchingUserID: identity.userID) { token in
+          try await self.client.deleteAccount(token: token)
+        }
         self.closeAccountWindows()
         try await session.forget()
         if self.anonymous { try await self.discardAnonymous() }

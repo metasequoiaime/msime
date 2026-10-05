@@ -1,0 +1,121 @@
+<!doctype html>
+<!--
+候选栏的独立预览页，不需要引擎：用假的一帧画 src/candidates.js 的候选栏，供手动查看和浏览器自动截图。src/skin.js 导入的 src/theme-catalog.js 是生成的，先跑一次 `node packages/web-engine/tools/theme-catalog.mjs`（或 `node --test 'packages/web-engine/test/*.test.mjs'`），再用以 packages/web-engine 为根的静态服务器打开，例如 `python3 -m http.server -d packages/web-engine 8000` 后访问 http://localhost:8000/test/candidates-preview.html?skin=wechat&layout=vertical&dark=1。
+
+查询参数：
+- skin：内置皮肤 id，默认 shuishan。
+- layout：horizontal（默认）或 vertical。
+- dark：1、0 或 auto（默认，跟随系统）。
+- sample：decorated 时把 skin 当作 base，画一个带装饰图和背景图的皮肤对象；bar-off 时画一个关掉选中条的皮肤对象。
+- count：候选数，1 到 9，默认 6。
+- highlight：高亮的候选下标，默认 0。
+- paging：none、next（默认）、both 或 prev。
+- helpcode：1 时显示编码提示。
+- anchor：bottom 时把输入框放在视口底部，用来检查翻到上方的定位；right 时放在右侧，检查横向夹紧。
+
+页面的 CSP 不允许任何内联样式（style-src 'none'），用来证明候选栏只靠可构造样式表和 setProperty 也能画出来。画完后 document.body 带 data-ready；出错时带 data-error，错误信息写在 #status 里。window.msimeBar 是候选栏对象，window.msimePicks 记着点过的候选下标。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'none'; img-src 'self' data:" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@msime/web-engine 候选栏预览</title>
+  </head>
+  <body>
+    <p id="status">loading</p>
+    <div id="field" contenteditable="true">ni'men</div>
+    <script type="module">
+      import { createCandidateBar } from "../src/candidates.js";
+
+      const params = new URLSearchParams(location.search);
+      const status = document.getElementById("status");
+      const field = document.getElementById("field");
+
+      // 页面自己的样式同样走可构造样式表，CSP 不放行内联样式。
+      const page = new CSSStyleSheet();
+      page.replaceSync(`
+        html, body { margin: 0; height: 100%; }
+        body { font: 14px system-ui, sans-serif; background: #8a8f98; }
+        #status { margin: 8px 16px; color: #fff; }
+        #field { position: absolute; left: 40px; top: 60px; width: 320px; padding: 6px 8px; border: 1px solid #555; border-radius: 4px; background: #fff; color: #222; font-size: 16px; }
+        body[data-anchor="bottom"] #field { top: auto; bottom: 8px; }
+        body[data-anchor="right"] #field { left: auto; right: 8px; width: 120px; }
+      `);
+      document.adoptedStyleSheets = [page];
+
+      const svg = (body, width, height) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`)}`;
+      const MASCOT = svg('<circle cx="40" cy="44" r="32" fill="#f4a261"/><circle cx="29" cy="38" r="5" fill="#264653"/><circle cx="51" cy="38" r="5" fill="#264653"/><path d="M28 56 Q40 66 52 56" stroke="#264653" stroke-width="4" fill="none"/>', 80, 80);
+      const PATTERN = svg('<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a9d8f"/><stop offset="1" stop-color="#e9c46a"/></linearGradient></defs><rect width="200" height="80" fill="url(#g)"/>', 200, 80);
+
+      // 皮肤对象的写法与 SkinSummary 相同（camelCase）；颜色故意混用几种写法，交给 resolveSkin 规范化。
+      function sampleSkin(kind, base) {
+        if (kind === "decorated") {
+          return {
+            base,
+            minWidthDip: 220,
+            cornerRadiusDip: 10,
+            decorationTopDip: 36,
+            decorationWidthDip: 64,
+            decorationImage: MASCOT,
+            decorationAlign: params.get("align") ?? "right",
+            background: { image: PATTERN, fit: "cover", opacity: 0.35 },
+            candidate: { dark: { accent: "#E76F51" }, light: { accent: "rgb(231, 111, 81)" } },
+          };
+        }
+        if (kind === "bar-off") {
+          return { base, candidate: { dark: { showSelectedBar: false }, light: { showSelectedBar: false } } };
+        }
+        throw new TypeError(`unknown sample: ${kind}`);
+      }
+
+      try {
+        const base = params.get("skin") ?? "shuishan";
+        const sample = params.get("sample");
+        const skin = sample ? sampleSkin(sample, base) : base;
+        const darkParam = params.get("dark") ?? "auto";
+        const dark = darkParam === "1" ? true : darkParam === "0" ? false : "auto";
+        const layout = params.get("layout") ?? "horizontal";
+        const count = Math.min(9, Math.max(1, Number(params.get("count") ?? 6) || 6));
+        const paging = params.get("paging") ?? "next";
+        const words = ["你们", "你", "尼", "妮", "泥", "逆", "拟", "腻", "拧"];
+        const codes = ["rR", "rX", "uV", "nV", "dV", "zQ", "fR", "oD", "nG"];
+        const frame = {
+          out: [],
+          composing: true,
+          preedit: "ni'men",
+          caret: 5,
+          page: words.slice(0, count).map((text, i) => ({ text, code: codes[i] })),
+          pageIndex: paging === "prev" || paging === "both" ? 1 : 0,
+          hasPrev: paging === "prev" || paging === "both",
+          hasNext: paging === "next" || paging === "both",
+          highlight: Number(params.get("highlight") ?? 0),
+          emptyCode: false,
+          english: false,
+          modelOn: false,
+          rerankMs: 0,
+        };
+        document.body.dataset.anchor = params.get("anchor") ?? "";
+        window.msimePicks = [];
+        const bar = createCandidateBar({
+          skin,
+          layout,
+          dark,
+          helpcode: params.get("helpcode") === "1",
+          onPick: (i) => window.msimePicks.push(i),
+        });
+        window.msimeBar = bar;
+        window.msimeFrame = frame;
+        const draw = () => bar.render(frame, field.getBoundingClientRect());
+        draw();
+        addEventListener("resize", draw);
+        status.textContent = `skin=${base}${sample ? ` sample=${sample}` : ""} layout=${layout} dark=${darkParam}`;
+        document.body.dataset.ready = "";
+      } catch (error) {
+        status.textContent = String(error?.stack ?? error);
+        document.body.dataset.error = "";
+        throw error;
+      }
+    </script>
+  </body>
+</html>

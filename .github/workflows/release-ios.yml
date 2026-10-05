@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", fetch-depth: 0, persist-credentials: false}
+      # The packages keep the plain X.Y.Z (Info.plist, versionName, Tauri, deb and rpm metadata take nothing else); the release tag and title carry the branch the run was dispatched from: none on main, -beta on develop, -alpha anywhere else. A suffixed release is always published as a prerelease, which the in-app update checks skip.
       - id: version
         name: Resolve independent iOS version
         env: {REQUESTED: "${{ inputs.version }}"}
@@ -27,6 +28,7 @@ jobs:
           version="${REQUESTED:-$(tr -d '[:space:]' < platforms/ios/version.txt)}"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
+          case "$GITHUB_REF_NAME" in main) suffix= ;; develop) suffix=-beta ;; *) suffix=-alpha ;; esac; echo "release=${version}${suffix}" >> "$GITHUB_OUTPUT"
       # build-app.sh takes the directory install_resources verified and unpacked, not the repository's
       # resources/ directory -- that one holds the lock files install_resources reads. ci-ios.yml
       # resolves it the same way before every Xcode build.
@@ -104,6 +106,11 @@ jobs:
           check_profile "$dir/app.mobileprovision" app.msime.ios
           check_profile "$dir/keyboard.mobileprovision" app.msime.ios.keyboard
           printf 'dir=%s\nkeychain=%s\n' "$dir" "$keychain" >> "$GITHUB_OUTPUT"
+      # A build number App Store Connect has already taken is refused, and it can never be overwritten. A re-run keeps github.run_number, so the attempt is folded in: every run and every re-run of it gets a larger number than any before (the earlier builds were numbered by run_number alone, all far below this).
+      - name: Choose the build number
+        id: build-number
+        if: ${{ inputs.testflight }}
+        run: echo "value=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))" >> "$GITHUB_OUTPUT"
       - name: Upload the signed build to App Store Connect
         if: ${{ inputs.testflight }}
         env:
@@ -113,8 +120,8 @@ jobs:
           MSIME_IOS_AUTH_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
           MSIME_IOS_VERSION: ${{ steps.version.outputs.value }}
-          # 每次上传的构建号必须比同一版本已上传的大；本 workflow 的运行序号只增不减。
-          MSIME_IOS_BUILD_NUMBER: ${{ github.run_number }}
+          # 每次上传的构建号必须比同一版本已上传的大，见上一步。
+          MSIME_IOS_BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
         run: |
           set -euo pipefail
           rustup target add aarch64-apple-ios
@@ -127,7 +134,7 @@ jobs:
       - name: Hand the build to its testers
         if: ${{ inputs.testflight }}
         env:
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_NUMBER: ${{ steps.build-number.outputs.value }}
           IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
           IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
           SIGNING_DIR: ${{ steps.signing.outputs.dir }}
@@ -153,10 +160,13 @@ jobs:
       # The build takes the dispatched commit, and the release is tagged at that checked-out commit (git rev-parse HEAD), so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent iOS release
         if: ${{ inputs.publish }}
-        env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ steps.version.outputs.value }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
+        # RELEASE_PUBLISH_TOKEN (org secret, a fine-grained token with Contents and Workflows write) creates the tag: GitHub refuses GITHUB_TOKEN a new ref whose .github/workflows differs from the default branch, which is the case whenever develop takes a workflow change while the release builds (Release Linux run 37259338700, 403 Resource not accessible by integration). Without the secret, as on a fork, it falls back to GITHUB_TOKEN.
+        env: {GH_TOKEN: "${{ secrets.RELEASE_PUBLISH_TOKEN || github.token }}", VERSION: "${{ steps.version.outputs.value }}", RELEASE: "${{ steps.version.outputs.release }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
-          tag="ios-v${VERSION}"
-          start=$(git tag --list 'ios-v*' --sort=-v:refname | head -1)
-          flags=(); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
-          python3 scripts/generate-release-notes.py --platform ios --version "$VERSION" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
-          gh release create "$tag" "dist/msime-ios-${VERSION}.tar.gz" --target "$(git rev-parse HEAD)" --title "iOS ${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          tag="ios-v${RELEASE}"
+          [[ "$RELEASE" == "$VERSION" ]] || export PRERELEASE=true
+          # A re-run for the same version overwrites its release (scripts/publish-release.sh), so the notes start at the release before it rather than at its own tag. A final release starts at the previous final release, a -beta or -alpha one at the latest release of either kind.
+          stable='^ios-v[0-9]+\.[0-9]+\.[0-9]+$'; [[ "$RELEASE" == "$VERSION" ]] || stable=.
+          start=$(git tag --list 'ios-v*' --sort=-v:refname | grep -vxF "$tag" | grep -E "$stable" | head -1 || true)
+          python3 scripts/generate-release-notes.py --platform ios --version "$RELEASE" --start-tag "$start" --end-ref "$(git rev-parse HEAD)" --output release-notes.md
+          bash scripts/publish-release.sh "$tag" "$(git rev-parse HEAD)" "iOS ${RELEASE}" release-notes.md "dist/msime-ios-${VERSION}.tar.gz"

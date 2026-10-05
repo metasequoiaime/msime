@@ -1,5 +1,6 @@
 //! The desktop dictionary product: release checks, `msime-dictionary-manifest.json` and `msime-SHA256SUMS.txt`. The manifest keeps the schema clients already read (`profile`, `source.commit`, `files`, ...).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
@@ -16,6 +17,8 @@ use crate::ngram;
 use crate::sources::{sha256_file, Lock, Reference};
 
 pub const MANIFEST: &str = "msime-dictionary-manifest.json";
+/// 产物和 manifest 的校验和文件，与 manifest 一起写出。
+pub const SUMS: &str = "msime-SHA256SUMS.txt";
 pub const SHIPPING_ARTIFACTS: [&str; 10] = [
     "msime-pinyin.db",
     "msime-wubi.db",
@@ -40,7 +43,7 @@ const FEATURES: [&str; 8] = [
 ];
 const REPOSITORY: &str = "metasequoiaime/msime";
 const SOURCE_PATH: &str = "resources/dictionary-sources";
-/// The dictionary source repository, pinned under this name in the sources lock. The custom words, translations and English words sit in its `custom/` directory; the base lexicons come from the same commit.
+/// manifest 的 references 用这个名字列出词库源仓库，提交取 `--dictionary` checkout 的 HEAD。自定义词、翻译和英文词在它的 `custom/` 目录，基础词库来自同一个提交。
 const CUSTOM_DICTIONARY: &str = "msime-dictionary";
 const CUSTOM_DICTIONARY_REPOSITORY: &str = "metasequoiaime/msime-dictionary";
 const CUSTOM_DICTIONARY_PATH: &str = "custom";
@@ -107,7 +110,7 @@ fn git(repository: &Path, arguments: &[&str]) -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
 }
 
-/// The msime commit the build came from, and whether the builder or its inputs had uncommitted changes: in the msime checkout, and with `--dictionary` also in the msime-dictionary checkout's `sources/` and `custom/`.
+/// 构建所在的 msime 提交，以及构建器或其输入是否有未提交改动：检查 msime checkout，有 `--dictionary` 时还检查 msime-dictionary checkout 的 `sources/`、`custom/` 和 `upstream.lock.json`。
 fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance> {
     let commit = git(repository, &["rev-parse", "HEAD"])?;
     let changes = git(
@@ -126,7 +129,14 @@ fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance
     if let Some(checkout) = dictionary {
         let changes = git(
             checkout,
-            &["status", "--porcelain", "--", "sources", "custom"],
+            &[
+                "status",
+                "--porcelain",
+                "--",
+                "sources",
+                "custom",
+                crate::sources::UPSTREAM_LOCK,
+            ],
         )?;
         dirty |= !changes.is_empty();
     }
@@ -138,18 +148,21 @@ fn provenance(repository: &Path, dictionary: Option<&Path>) -> Result<Provenance
     })
 }
 
-/// The msime-dictionary commit the build read: the lock's reference, or the HEAD of the `--dictionary` checkout the files actually came from.
-fn custom_dictionary_reference(lock: &Lock, dictionary: Option<&Path>) -> Result<Reference> {
-    let pinned = lock
-        .references
-        .get(CUSTOM_DICTIONARY)
-        .with_context(|| format!("{CUSTOM_DICTIONARY} is not pinned in the sources lock"))?;
-    Ok(match dictionary {
-        Some(checkout) => Reference {
-            repository: pinned.repository.clone(),
-            commit: git(checkout, &["rev-parse", "HEAD"])?,
-        },
-        None => pinned.clone(),
+/// 构建读取的 msime-dictionary 提交：`--dictionary` checkout 的 HEAD。
+fn custom_dictionary_reference(dictionary: &Path) -> Result<Reference> {
+    Ok(Reference {
+        repository: format!("https://github.com/{CUSTOM_DICTIONARY_REPOSITORY}.git"),
+        commit: git(dictionary, &["rev-parse", "HEAD"])?,
+    })
+}
+
+/// 生成器写进表头的 msime 提交：`provenance` 判定构建器或其输入有未提交改动时加 `-dirty` 后缀。
+pub(crate) fn builder_commit(repository: &Path) -> Result<String> {
+    let source = provenance(repository, None)?;
+    Ok(if source.dirty {
+        format!("{}-dirty", source.commit)
+    } else {
+        source.commit
     })
 }
 
@@ -337,16 +350,16 @@ fn verify_notices(out: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Writes the manifest and checksums. `dictionary` is the `--dictionary` checkout the msime-dictionary files were read from, if any; the manifest then names its HEAD as the msime-dictionary commit.
+/// 写出 manifest 和校验和。`dictionary` 是读取 msime-dictionary 文件的 `--dictionary` checkout，manifest 把它的 HEAD 记为 msime-dictionary 的提交；其余 references 和 `mozc_revision` 原样取自锁文件。`Dictionary::open` 只核对了 checkout 的 `upstream.lock.json` 也列出的上游（`mozc_revision` 对应其中的 `mozc`）：它们的 repository 和 commit 与锁文件相同；记录里没有的 reference（如 `ECDICT`）没有和任何东西比对。
 pub fn write_manifest(
     out: &Path,
     repository: &Path,
-    dictionary: Option<&Path>,
+    dictionary: &Path,
     lock: &Lock,
     complete: bool,
 ) -> Result<()> {
-    let source = provenance(repository, dictionary)?;
-    let custom_dictionary = custom_dictionary_reference(lock, dictionary)?;
+    let source = provenance(repository, Some(dictionary))?;
+    let custom_dictionary = custom_dictionary_reference(dictionary)?;
     let mut files = IndexMap::new();
     for name in SHIPPING_ARTIFACTS {
         let path = out.join(name);
@@ -371,18 +384,11 @@ pub fn write_manifest(
         custom_dictionary_commit: custom_dictionary.commit.clone(),
         custom_dictionary_repository: CUSTOM_DICTIONARY_REPOSITORY,
         custom_dictionary_path: CUSTOM_DICTIONARY_PATH,
-        references: lock
-            .references
-            .iter()
-            .map(|(name, reference)| {
-                let reference = if name == CUSTOM_DICTIONARY {
-                    custom_dictionary.clone()
-                } else {
-                    reference.clone()
-                };
-                (name.clone(), reference)
-            })
-            .collect(),
+        references: {
+            let mut references: BTreeMap<String, Reference> = lock.references.clone();
+            references.insert(CUSTOM_DICTIONARY.to_owned(), custom_dictionary.clone());
+            references.into_iter().collect()
+        },
         mozc_revision: lock.mozc.commit.clone(),
         features: FEATURES,
         licensing: Licensing {
@@ -407,14 +413,29 @@ pub fn write_manifest(
     for name in SHIPPING_ARTIFACTS.iter().chain([&MANIFEST]) {
         sums.push_str(&format!("{}  {name}\n", sha256_file(&out.join(name))?));
     }
-    std::fs::write(out.join("msime-SHA256SUMS.txt"), sums)?;
+    std::fs::write(out.join(SUMS), sums)?;
     Ok(())
+}
+
+/// 删掉 `out` 里已有的 manifest 和校验和文件，返回删掉了哪些。这次构建不写 manifest 时调用：`--out` 里的数据库已经被重新构建或冻结，留下的旧文件会写着不再相符的大小和 SHA-256。
+pub fn remove_stale_manifest(out: &Path) -> Result<Vec<&'static str>> {
+    let mut removed = Vec::new();
+    for name in [MANIFEST, SUMS] {
+        let path = out.join(name);
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(name),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("removing {}", path.display()))
+            }
+        }
+    }
+    Ok(removed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
 
     fn git_repository_with_commit(directory: &Path) -> String {
         let run = |arguments: &[&str]| {
@@ -442,34 +463,37 @@ mod tests {
         git(directory, &["rev-parse", "HEAD"]).unwrap()
     }
 
-    /// With `--dictionary` the manifest names the checkout's HEAD, not the lock's commit, and an uncommitted change to its sources or custom files marks the build dirty; without it the lock's reference is reported unchanged.
+    /// manifest 记下 `--dictionary` checkout 的 HEAD，repository 由常量拼出，不读锁文件；checkout 的 `sources/`、`custom/` 或 `upstream.lock.json` 有未提交改动时构建记为 dirty。
     #[test]
     fn a_dictionary_checkout_is_the_recorded_provenance() {
         let msime = tempfile::tempdir().unwrap();
         let checkout = tempfile::tempdir().unwrap();
         git_repository_with_commit(msime.path());
         let head = git_repository_with_commit(checkout.path());
-        let pinned = Reference {
-            repository: "https://github.com/metasequoiaime/msime-dictionary.git".into(),
-            commit: "a".repeat(40),
-        };
-        let lock = Lock {
-            references: BTreeMap::from([(CUSTOM_DICTIONARY.to_owned(), pinned.clone())]),
-            mozc: pinned.clone(),
-            files: Vec::new(),
-        };
 
-        let reference = custom_dictionary_reference(&lock, Some(checkout.path())).unwrap();
+        let reference = custom_dictionary_reference(checkout.path()).unwrap();
         assert_eq!(reference.commit, head);
-        assert_eq!(reference.repository, pinned.repository);
-        let reference = custom_dictionary_reference(&lock, None).unwrap();
-        assert_eq!(reference.commit, pinned.commit);
+        assert_eq!(
+            reference.repository,
+            "https://github.com/metasequoiaime/msime-dictionary.git"
+        );
 
         assert!(
             !provenance(msime.path(), Some(checkout.path()))
                 .unwrap()
                 .dirty
         );
+        std::fs::write(
+            checkout.path().join(crate::sources::UPSTREAM_LOCK),
+            "{\"version\": 1}\n",
+        )
+        .unwrap();
+        assert!(
+            provenance(msime.path(), Some(checkout.path()))
+                .unwrap()
+                .dirty
+        );
+        std::fs::remove_file(checkout.path().join(crate::sources::UPSTREAM_LOCK)).unwrap();
         std::fs::write(checkout.path().join("custom/words.txt"), "changed\n").unwrap();
         assert!(
             provenance(msime.path(), Some(checkout.path()))
@@ -477,6 +501,28 @@ mod tests {
                 .dirty
         );
         assert!(!provenance(msime.path(), None).unwrap().dirty);
+        let msime_head = git(msime.path(), &["rev-parse", "HEAD"]).unwrap();
+        assert_eq!(builder_commit(msime.path()).unwrap(), msime_head);
+        std::fs::create_dir_all(msime.path().join("crates/dict-builder")).unwrap();
+        std::fs::write(msime.path().join("crates/dict-builder/new.rs"), "\n").unwrap();
+        assert_eq!(
+            builder_commit(msime.path()).unwrap(),
+            format!("{msime_head}-dirty")
+        );
+    }
+
+    /// 不写 manifest 的构建删掉旧的 manifest 和校验和，不碰别的文件；两者本来就不存在时什么也不做。
+    #[test]
+    fn a_build_without_a_manifest_removes_the_stale_one() {
+        let out = tempfile::tempdir().unwrap();
+        for name in [MANIFEST, SUMS, "msime-others.db"] {
+            std::fs::write(out.path().join(name), b"old").unwrap();
+        }
+        assert_eq!(remove_stale_manifest(out.path()).unwrap(), [MANIFEST, SUMS]);
+        assert!(!out.path().join(MANIFEST).exists());
+        assert!(!out.path().join(SUMS).exists());
+        assert!(out.path().join("msime-others.db").is_file());
+        assert!(remove_stale_manifest(out.path()).unwrap().is_empty());
     }
 
     /// A release missing either Mozc notice or SCOWL's, or carrying a SCOWL notice that is not the committed text, fails product verification.

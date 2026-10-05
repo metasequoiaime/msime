@@ -1,16 +1,18 @@
-//! `msime-dict-build`: builds the dictionary artifacts msime ships (see `resources/desktop-dictionary.lock.json`) from the inputs pinned in `resources/dictionary-sources.lock.json` and the hand-maintained files in `resources/dictionary-sources/`.
+//! `msime-dict-build`：构建 msime 发布的词库产物（见 `resources/desktop-dictionary.lock.json`），输入是 `resources/dictionary-sources.lock.json` 固定的第三方文件、`--dictionary` 给出的 msime-dictionary checkout，以及 `resources/dictionary-sources/` 里人工维护的文件。
 //!
 //! ```text
-//! msime-dict-build --cache <dir> --out <dir>                 every stage, then the manifest
-//! msime-dict-build --cache <dir> --out <dir> --skip ngram    a quick local build without the corpus pass
-//! msime-dict-build --cache <dir> --out <dir> --dictionary <msime-dictionary checkout>
+//! msime-dict-build --cache <dir> --out <dir> --dictionary <msime-dictionary checkout>               全部阶段，然后写 manifest
+//! msime-dict-build --cache <dir> --out <dir> --dictionary <msime-dictionary checkout> --skip ngram  跳过语料统计的快速本地构建
+//! msime-dict-build --cache <dir> --out <dir> --only emoji                                           只跑不读 msime-dictionary 数据的阶段，不写 manifest 并删掉旧的
 //! msime-dict-build --list
 //! msime-dict-build places --cache <dir> [--out <places.tsv>] [--offline]
-//! msime-dict-build places-supplement --cache <dir> --out <places.txt> [--offline]
-//! msime-dict-build english-supplement --cache <dir> --out <scowl-words.txt> [--offline]
-//! msime-dict-build hanja --cache <dir> [--out <hanja.tsv>] [--offline]
+//! msime-dict-build places-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <places.txt> [--offline]
+//! msime-dict-build english-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <scowl-words.txt> [--offline]
+//! msime-dict-build wubi86-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <wubi86-supplement.txt> [--offline]
+//! msime-dict-build wubi98-supplement --dictionary <msime-dictionary checkout> --cache <dir> --out <wubi98-supplement.txt> [--offline]
+//! msime-dict-build hanja --dictionary <msime-dictionary checkout> --cache <dir> [--out <hanja.tsv>] [--offline]
 //! msime-dict-build hkcancor-counts --cache <dir> --out <hkcancor-word-counts.txt> [--offline]
-//! msime-dict-build languages --cache <dir> [--out <dir>] [--offline] [--dictionary <msime-dictionary checkout>]
+//! msime-dict-build languages --dictionary <msime-dictionary checkout> --cache <dir> [--out <dir>] [--offline]
 //! msime-dict-build web --pinyin <msime-pinyin.db> --wubi <msime-wubi.db> --out-dir <dir> [--keep-multi 200000]
 //! msime-dict-build check-words [--base <words.txt> --head <words.txt>] [--translations-base <translations.txt> --translations-head <translations.txt>] [--english-base <english.txt> --english-head <english.txt>] [--msime-db <msime-pinyin.db>] [--english-db <msime-english.db>] [--json <report.json>] [--markdown <summary.md>]
 //! ```
@@ -36,6 +38,8 @@ mod sqlite;
 mod stroke;
 mod text;
 mod web;
+mod wubi86_supplement;
+mod wubi98_supplement;
 mod zhuyin;
 
 use std::collections::HashSet;
@@ -45,29 +49,29 @@ use std::time::Instant;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::sources::{Lock, Sources};
+use crate::sources::{sha256_file, Dictionary, Lock, Sources};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Stage {
     /// Quanpin tables in msime-pinyin.db (tbl_{1..7,others}_{initial})
     Quanpin,
-    /// sources/pinyin/places.txt (pinned from msime-dictionary) merged into the quanpin tables, raising weights only
+    /// 从 --dictionary checkout 读取的 sources/pinyin/places.txt 并入全拼表，只升不降
     PlacesSupplement,
-    /// custom/words.txt (pinned from msime-dictionary) merged into the quanpin tables
+    /// 从 --dictionary checkout 读取的 custom/words.txt 并入全拼表
     CustomWords,
     /// Wrong readings listed in resources/dictionary-sources/pinyin-reading-corrections.txt removed from the quanpin tables
     ReadingCorrections,
-    /// 86 wubi table in msime-pinyin.db
+    /// msime-pinyin.db 里的 86 五笔表，先后取自 sources/wubi/wubi86-jidian.txt 和 sources/wubi/wubi86-supplement.txt（都从 --dictionary checkout 读取）
     Wubi,
-    /// 98 wubi table in msime-pinyin.db
+    /// msime-pinyin.db 里的 98 五笔表，先后取自 sources/wubi/wubi98.txt、sources/wubi/wubi98-fcitx.txt 和 sources/wubi/wubi98-supplement.txt（都从 --dictionary checkout 读取）
     Wubi98,
     /// Quick phrase table in msime-pinyin.db, then msime-pinyin.db's planner statistics
     QuickPhrases,
-    /// english_words table in msime-english.db from the rime-ice word lists and sources/english/scowl-words.txt, plus custom/english.txt (pinned from msime-dictionary)
+    /// msime-english.db 的 english_words 表，来自 rime-ice 英文词表和 sources/english/scowl-words.txt，再加 custom/english.txt（都从 --dictionary checkout 读取）
     English,
     /// Bidirectional gloss tables in msime-english.db, derived from ECDICT (reads msime-pinyin.db)
     EnglishGlosses,
-    /// custom/translations.txt (pinned from msime-dictionary) over the gloss tables
+    /// 从 --dictionary checkout 读取的 custom/translations.txt 覆盖释义表
     CustomTranslations,
     /// emoji tables in msime-others.db
     Emoji,
@@ -137,7 +141,7 @@ struct Arguments {
     /// The msime checkout the manifest's provenance is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
-    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files, and the HKCanCor counts and SCOWL supplement generated from upstream commits the lock records) must still match the lock.
+    /// msime-dictionary checkout，`sources/` 和 `custom/` 下的每个路径都从这里读（msime 的锁文件不固定其中任何文件）。它的 Git 提交固定内容，manifest 会记下这个提交；msime 认定为上游数据的文件必须与 checkout 的 `upstream.lock.json` 一致，记录里的提交必须等于锁文件的 references。不传时，读 msime-dictionary 数据的阶段会失败，也不写 manifest，`--out` 里旧的 manifest 和校验和文件会被删掉。
     #[arg(long, value_name = "PATH")]
     dictionary: Option<PathBuf>,
 }
@@ -148,15 +152,19 @@ enum Command {
     CheckWords(CheckWords),
     /// Write the `@` mode place table (crates/engine/src/local/places.tsv) from the administrative divisions pinned under places/ in the sources lock.
     Places(Places),
-    /// Write msime-dictionary's sources/pinyin/places.txt: the administrative place names (full and short) the pinned pinyin sources lack or rank below their level's floor, from the divisions pinned under places/.
+    /// 写出 msime-dictionary 的 sources/pinyin/places.txt：msime-dictionary 的拼音词库没有、或排名低于所在层级下限的行政区划地名（全称和简称），区划数据取自锁文件在 places/ 下固定的文件。
     PlacesSupplement(PlacesSupplement),
-    /// Write msime-dictionary's sources/english/scowl-words.txt: the words of SCOWL's size-60 Aspell dictionary (American plus British -ise spellings, pinned under scowl/) that the pinned rime-ice word lists (entries and commented-out entries) and custom/english.txt lack, less slurs, capitalised-only names spelling a pinyin key and words without a Google count (see english_supplement.rs).
+    /// 写出 msime-dictionary 的 sources/english/scowl-words.txt：SCOWL 60 级 Aspell 词典（美式拼写加英式 -ise 拼写，固定在 scowl/ 下）里 msime-dictionary 的 rime-ice 英文词表（含被注释掉的条目）和 custom/english.txt 都没有的词，去掉蔑称、只有大写形式且拼出某个全拼的名字，以及没有 Google 词频的词（见 english_supplement.rs）。
     EnglishSupplement(EnglishSupplement),
-    /// 从 sources lock 固定的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
+    /// 写出 msime-dictionary 的 sources/wubi/wubi86-supplement.txt：msime-dictionary 的 86 码表（sources/wubi/wubi86-jidian.txt）缺少、而 98 码表列有或 sources/pinyin/rime-ice.txt 里权重不低于 5000 的二字词，限两个及以上汉字；编码按 86 版词组规则由 86 码表的单字编码推出，权重低于 86 码表同一编码下的行（见 wubi86_supplement.rs）。
+    Wubi86Supplement(Wubi86Supplement),
+    /// 写出 msime-dictionary 的 sources/wubi/wubi98-supplement.txt：两张 98 码表（sources/wubi/wubi98.txt、sources/wubi/wubi98-fcitx.txt）缺少、而 86 码表列有或 sources/pinyin/rime-ice.txt 里权重不低于 5000 的二字词，限两个及以上基本区汉字；编码按词组规则由 98 码表的单字编码推出，权重低于 98 码表同一编码下的行（见 wubi98_supplement.rs）。
+    Wubi98Supplement(Wubi98Supplement),
+    /// 从 --dictionary checkout 的 libhangul `sources/korean/hanja.txt` 生成韩文 Hanja 表（crates/engine/src/korean/hanja.tsv）。
     Hanja(Hanja),
     /// Write msime-dictionary's sources/cantonese/hkcancor-word-counts.txt: how often each word of two or more Han characters occurs in the HKCanCor transcriptions pinned under hkcancor/ in the sources lock.
     HkcancorCounts(HkcancorCounts),
-    /// Write the dictionaries that ship beside the resource set (msime-cantonese.db, msime-zhuyin.db, msime-stroke.db) with their licence texts and checksums, from the sources pinned under sources/cantonese/ and sources/zhuyin/ in the sources lock, rime-stroke's stroke.dict.yaml pinned at sources/stroke/stroke.dict.yaml in the sources lock (stroke.rs's recorded commit, size and SHA-256 only check a file placed in the cache when the lock has no such entry) and the pinned sources/pinyin/single-chars.txt frequencies.
+    /// 写出随资源集一起发布的词库（msime-cantonese.db、msime-zhuyin.db、msime-stroke.db）及其许可证文本和校验和，数据来自 --dictionary checkout 的 sources/cantonese/、sources/zhuyin/、sources/stroke/stroke.dict.yaml 和 sources/pinyin/single-chars.txt。
     Languages(Languages),
     /// 从词库 release 的 msime-pinyin.db 和 msime-wubi.db 裁出网页内置输入法用的 msime-pinyin.db（全部单字加按权重排名前 N 的多字词，不含五笔）和 msime-wubi86.db（只含 86 五笔），两者逐字节可复现。
     Web(WebArgs),
@@ -243,16 +251,21 @@ struct PlacesSupplement {
     /// The msime checkout the sources lock is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
 }
 
 fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
     let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
     let sources = Sources {
-        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        lock,
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
-        dictionary: None,
+        dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let (provinces, cities, areas) = (
@@ -287,18 +300,19 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
         .split('/')
         .find(|segment| segment.len() == 40 && segment.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .with_context(|| format!("{areas_url} names no commit"))?;
+    // 表头里的 SHA-256 按实际读到的字节计算。
+    let digest = |path: &str| -> Result<String> { sha256_file(&sources.pinned(path)?) };
+    let base_sha256 = digest(places_supplement::BASE)?;
+    let rime_ice_supplement_sha256 = digest(places_supplement::RIME_ICE_SUPPLEMENT)?;
+    let single_chars_sha256 = digest(places_supplement::SINGLE_CHARS)?;
     let compared = [
-        (
-            places_supplement::BASE,
-            pinned(places_supplement::BASE)?.sha256.as_str(),
-        ),
+        (places_supplement::BASE, base_sha256.as_str()),
         (
             places_supplement::RIME_ICE_SUPPLEMENT,
-            pinned(places_supplement::RIME_ICE_SUPPLEMENT)?
-                .sha256
-                .as_str(),
+            rime_ice_supplement_sha256.as_str(),
         ),
     ];
+    let generator_commit = product::builder_commit(root)?;
     let rendered = places_supplement::render(
         &supplement,
         &places_supplement::Provenance {
@@ -306,8 +320,9 @@ fn build_places_supplement(arguments: &PlacesSupplement) -> Result<()> {
             compared: &compared,
             single_chars: (
                 places_supplement::SINGLE_CHARS,
-                pinned(places_supplement::SINGLE_CHARS)?.sha256.as_str(),
+                single_chars_sha256.as_str(),
             ),
+            generator_commit: &generator_commit,
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -344,16 +359,21 @@ struct EnglishSupplement {
     /// The msime checkout the sources lock is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
 }
 
 fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
     let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
     let sources = Sources {
-        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        lock,
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
-        dictionary: None,
+        dictionary: Some(dictionary),
     };
     let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
     let [rime_ice_en, rime_ice_en_supplement, custom_english] = english_supplement::COMPARED;
@@ -394,23 +414,35 @@ fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
                 english_supplement::REFERENCE
             )
         })?;
+    // 表头里的 SHA-256 按实际读到的字节计算。
     let with_sha256 = |paths: &[&'static str]| {
         paths
             .iter()
-            .map(|path| Ok((*path, pinned(path)?.sha256.as_str())))
-            .collect::<Result<Vec<_>>>()
+            .map(|path| Ok((*path, sha256_file(&sources.pinned(path)?)?)))
+            .collect::<Result<Vec<(&'static str, String)>>>()
     };
     let compared_files = with_sha256(&english_supplement::COMPARED)?;
     let pinyin_files = with_sha256(&english_supplement::PINYIN)?;
+    let compared_refs: Vec<(&str, &str)> = compared_files
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let pinyin_refs: Vec<(&str, &str)> = pinyin_files
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let counts_sha256 = sha256_file(&sources.pinned(english_supplement::COUNTS)?)?;
+    let generator_commit = product::builder_commit(root)?;
     let rendered = english_supplement::render(
         &supplement,
         &english_supplement::Provenance {
             archive_url: &archive_file.url,
             archive_sha256: &archive_file.sha256,
             upstream_commit: &upstream.commit,
-            compared: &compared_files,
-            pinyin: &pinyin_files,
-            counts_sha256: &pinned(english_supplement::COUNTS)?.sha256,
+            compared: &compared_refs,
+            pinyin: &pinyin_refs,
+            counts_sha256: &counts_sha256,
+            generator_commit: &generator_commit,
         },
     )?;
     std::fs::write(&arguments.out, rendered)
@@ -421,6 +453,166 @@ fn build_english_supplement(arguments: &EnglishSupplement) -> Result<()> {
     eprintln!(
         "[done] {} words -> {}",
         supplement.words.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct Wubi86Supplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/wubi/wubi86-supplement.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
+}
+
+fn build_wubi86_supplement(arguments: &Wubi86Supplement) -> Result<()> {
+    let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
+    let sources = Sources {
+        lock,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: Some(dictionary),
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let wubi98_path = sources.pinned(wubi86_supplement::WUBI98)?;
+    let wubi98 = msime::decode_utf16le(&std::fs::read(&wubi98_path)?)
+        .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+    let (jidian, wubi98_fcitx, base) = (
+        read(wubi86_supplement::JIDIAN)?,
+        read(wubi86_supplement::WUBI98_FCITX)?,
+        read(wubi86_supplement::BASE)?,
+    );
+    let supplement = wubi86_supplement::build(&wubi86_supplement::Inputs {
+        jidian: &jidian,
+        wubi98: &wubi98,
+        wubi98_fcitx: &wubi98_fcitx,
+        base: &base,
+    })?;
+    // 表头里的 SHA-256 按实际读到的字节计算。
+    let digests = [
+        wubi86_supplement::JIDIAN,
+        wubi86_supplement::WUBI98,
+        wubi86_supplement::WUBI98_FCITX,
+        wubi86_supplement::BASE,
+    ]
+    .into_iter()
+    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .collect::<Result<Vec<_>>>()?;
+    let inputs: Vec<(&str, &str)> = digests
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let generator_commit = product::builder_commit(root)?;
+    let rendered = wubi86_supplement::render(
+        &supplement,
+        &wubi86_supplement::Provenance {
+            inputs: &inputs,
+            generator_commit: &generator_commit,
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in wubi86_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    eprintln!(
+        "[done] {} words -> {}",
+        supplement.entries.len(),
+        arguments.out.display()
+    );
+    Ok(())
+}
+
+#[derive(Args)]
+struct Wubi98Supplement {
+    /// Where pinned sources are downloaded and reused from.
+    #[arg(long)]
+    cache: PathBuf,
+    /// The supplement to write (msime-dictionary's sources/wubi/wubi98-supplement.txt).
+    #[arg(long)]
+    out: PathBuf,
+    /// Fail instead of downloading a source that is not cached.
+    #[arg(long)]
+    offline: bool,
+    /// The msime checkout the sources lock is read from.
+    #[arg(long, default_value_os_t = repository_root())]
+    repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
+}
+
+fn build_wubi98_supplement(arguments: &Wubi98Supplement) -> Result<()> {
+    let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
+    let sources = Sources {
+        lock,
+        repository_inputs: root.join("resources/dictionary-sources"),
+        cache: arguments.cache.clone(),
+        offline: arguments.offline,
+        dictionary: Some(dictionary),
+    };
+    let read = |path: &str| -> Result<String> { text::read(&sources.pinned(path)?) };
+    let wubi98_path = sources.pinned(wubi98_supplement::WUBI98)?;
+    let wubi98 = msime::decode_utf16le(&std::fs::read(&wubi98_path)?)
+        .with_context(|| format!("decoding {}", wubi98_path.display()))?;
+    let (wubi98_fcitx, jidian, base) = (
+        read(wubi98_supplement::WUBI98_FCITX)?,
+        read(wubi98_supplement::JIDIAN)?,
+        read(wubi98_supplement::BASE)?,
+    );
+    let supplement = wubi98_supplement::build(&wubi98_supplement::Inputs {
+        wubi98: &wubi98,
+        wubi98_fcitx: &wubi98_fcitx,
+        jidian: &jidian,
+        base: &base,
+    })?;
+    // 表头里的 SHA-256 按实际读到的字节计算。
+    let digests = [
+        wubi98_supplement::WUBI98,
+        wubi98_supplement::WUBI98_FCITX,
+        wubi98_supplement::JIDIAN,
+        wubi98_supplement::BASE,
+    ]
+    .into_iter()
+    .map(|path| Ok((path, sha256_file(&sources.pinned(path)?)?)))
+    .collect::<Result<Vec<_>>>()?;
+    let inputs: Vec<(&str, &str)> = digests
+        .iter()
+        .map(|(path, sha256)| (*path, sha256.as_str()))
+        .collect();
+    let generator_commit = product::builder_commit(root)?;
+    let rendered = wubi98_supplement::render(
+        &supplement,
+        &wubi98_supplement::Provenance {
+            inputs: &inputs,
+            generator_commit: &generator_commit,
+        },
+    );
+    std::fs::write(&arguments.out, rendered)
+        .with_context(|| format!("writing {}", arguments.out.display()))?;
+    for line in wubi98_supplement::report(&supplement) {
+        eprintln!("[report] {line}");
+    }
+    eprintln!(
+        "[done] {} words -> {}",
+        supplement.entries.len(),
         arguments.out.display()
     );
     Ok(())
@@ -440,16 +632,21 @@ struct Hanja {
     /// The msime checkout the sources lock is read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
+    /// 读取 `sources/` 和 `custom/` 文件的 msime-dictionary checkout（按其 `upstream.lock.json` 校验）。
+    #[arg(long, value_name = "PATH")]
+    dictionary: PathBuf,
 }
 
 fn build_hanja(arguments: &Hanja) -> Result<()> {
     let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
     let sources = Sources {
-        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        lock,
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
-        dictionary: None,
+        dictionary: Some(dictionary),
     };
     let readings = hanja::build(&text::read(&sources.pinned(hanja::SOURCE)?)?)?;
     hanja::write(&readings, &arguments.out)?;
@@ -518,10 +715,12 @@ fn build_hkcancor_counts(arguments: &HkcancorCounts) -> Result<()> {
         .map(|(path, text)| (path.as_str(), text.as_str()))
         .collect();
     let counts = hkcancor::count(&files)?;
+    let generator_commit = product::builder_commit(root)?;
     let rendered = hkcancor::render(
         &counts,
         &hkcancor::Provenance {
             upstream_commit: &upstream_commit,
+            generator_commit: &generator_commit,
         },
     );
     std::fs::write(&arguments.out, rendered)
@@ -551,19 +750,21 @@ struct Languages {
     /// The msime checkout the sources lock and licence texts are read from.
     #[arg(long, default_value_os_t = repository_root())]
     repository: PathBuf,
-    /// A msime-dictionary checkout to read its files from instead of the lock: every file the lock pins from msime-dictionary, and any path under sources/ or custom/ the lock does not pin, is read from <path>/<lock path> without the lock's size and SHA-256 check (the checkout's Git commit pins the content, and the manifest records it); upstream data whose commit msime records (the rime-ice, rime-cantonese, libchewing-data, McBopomofo, rime-stroke, Mozc, libhangul and 98 Wubi files, and the HKCanCor counts and SCOWL supplement generated from upstream commits the lock records) must still match the lock.
+    /// msime-dictionary checkout，`sources/` 和 `custom/` 下的每个路径都从这里读（msime 的锁文件不固定其中任何文件）。它的 Git 提交固定内容；msime 认定为上游数据的文件必须与 checkout 的 `upstream.lock.json` 一致，记录里的提交必须等于锁文件的 references。
     #[arg(long, value_name = "PATH")]
-    dictionary: Option<PathBuf>,
+    dictionary: PathBuf,
 }
 
 fn build_languages(arguments: &Languages) -> Result<()> {
     let root = &arguments.repository;
+    let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = Dictionary::open(arguments.dictionary.clone(), &lock)?;
     let sources = Sources {
-        lock: Lock::load(&root.join("resources/dictionary-sources.lock.json"))?,
+        lock,
         repository_inputs: root.join("resources/dictionary-sources"),
         cache: arguments.cache.clone(),
         offline: arguments.offline,
-        dictionary: arguments.dictionary.clone(),
+        dictionary: Some(dictionary),
     };
     for summary in languages::build(&sources, &root.join("resources/licenses"), &arguments.out)? {
         eprintln!("[done] {summary}");
@@ -780,18 +981,24 @@ impl Build {
                 Ok(format!("{} entries: {removed} rows removed", entries.len()))
             }
             Stage::Wubi => {
-                let (imported, skipped) = msime::build_wubi(
+                let jidian = self.sources.pinned(wubi86_supplement::JIDIAN)?;
+                let supplement = self.sources.pinned(wubi86_supplement::OUTPUT)?;
+                let (imported, skipped, outside) = msime::build_wubi(
                     &mut self.database("msime-pinyin.db")?,
-                    &self.sources.pinned("sources/wubi/wubi86-jidian.txt")?,
+                    &[jidian.as_path(), supplement.as_path()],
                 )?;
-                Ok(format!("{imported} rows imported, {skipped} skipped"))
+                Ok(format!(
+                    "{imported} rows imported, {skipped} skipped, {outside} outside the basic CJK set left out"
+                ))
             }
             Stage::Wubi98 => {
-                let supplement = self.sources.pinned("sources/wubi/wubi98-fcitx.txt")?;
+                let supplement = self.sources.pinned(wubi98_supplement::WUBI98_FCITX)?;
+                let generated = self.sources.pinned(wubi98_supplement::OUTPUT)?;
                 let (imported, skipped) = msime::build_wubi98_sources(
                     &mut self.database("msime-pinyin.db")?,
-                    &self.sources.pinned("sources/wubi/wubi98.txt")?,
+                    &self.sources.pinned(wubi98_supplement::WUBI98)?,
                     &[supplement.as_path()],
+                    &[generated.as_path()],
                 )?;
                 Ok(format!("{imported} rows imported, {skipped} skipped"))
             }
@@ -1024,6 +1231,12 @@ fn main() -> Result<()> {
     if let Some(Command::EnglishSupplement(supplement)) = &arguments.command {
         return build_english_supplement(supplement);
     }
+    if let Some(Command::Wubi98Supplement(supplement)) = &arguments.command {
+        return build_wubi98_supplement(supplement);
+    }
+    if let Some(Command::Wubi86Supplement(supplement)) = &arguments.command {
+        return build_wubi86_supplement(supplement);
+    }
     if let Some(Command::Hanja(hanja)) = &arguments.command {
         return build_hanja(hanja);
     }
@@ -1076,6 +1289,11 @@ fn main() -> Result<()> {
     }
     let root = &arguments.repository;
     let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json"))?;
+    let dictionary = arguments
+        .dictionary
+        .clone()
+        .map(|checkout| Dictionary::open(checkout, &lock))
+        .transpose()?;
     std::fs::create_dir_all(&out)?;
     let build = Build {
         sources: Sources {
@@ -1083,7 +1301,7 @@ fn main() -> Result<()> {
             repository_inputs: root.join("resources/dictionary-sources"),
             cache,
             offline: arguments.offline,
-            dictionary: arguments.dictionary.clone(),
+            dictionary,
         },
         out,
         complete,
@@ -1124,25 +1342,78 @@ fn main() -> Result<()> {
         .into_iter()
         .filter(|name| !build.out.join(name).is_file())
         .collect();
+    // 不写 manifest 时删掉 `--out` 里旧的 manifest 和校验和：上面刚重新构建或冻结过的数据库已经和它们记下的大小、SHA-256 不符。
     if !missing.is_empty() {
         eprintln!(
-            "[product] not writing {}: missing {}",
+            "[product] not writing {}: missing {}{}",
             product::MANIFEST,
-            missing.join(", ")
+            missing.join(", "),
+            removed_note(&product::remove_stale_manifest(&build.out)?)
         );
         return Ok(());
     }
+    let Some(dictionary) = build.sources.dictionary.as_ref() else {
+        eprintln!(
+            "[product] not writing {}: it records the msime-dictionary commit the build read; pass --dictionary{}",
+            product::MANIFEST,
+            removed_note(&product::remove_stale_manifest(&build.out)?)
+        );
+        return Ok(());
+    };
     product::verify(&build.out, complete)?;
     product::write_manifest(
         &build.out,
         root,
-        build.sources.dictionary.as_deref(),
+        &dictionary.root,
         &build.sources.lock,
         complete,
     )?;
     eprintln!(
-        "[product] verified; wrote {} and msime-SHA256SUMS.txt",
-        product::MANIFEST
+        "[product] verified; wrote {} and {}",
+        product::MANIFEST,
+        product::SUMS
     );
     Ok(())
+}
+
+/// 不写 manifest 时附在提示后面，说明删掉了哪些旧文件。
+fn removed_note(removed: &[&str]) -> String {
+    if removed.is_empty() {
+        String::new()
+    } else {
+        format!(" (removed the stale {})", removed.join(" and "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 五个生成器和 `languages` 必须传 `--dictionary`，不能退回到静默跳过笔画词库之类的路径；`hkcancor-counts` 不读 msime-dictionary，不需要它。
+    #[test]
+    fn generators_and_languages_require_a_dictionary_checkout() {
+        let parses = |arguments: &[&str]| {
+            Arguments::try_parse_from(
+                std::iter::once("msime-dict-build").chain(arguments.iter().copied()),
+            )
+            .is_ok()
+        };
+        for command in [
+            &["languages", "--cache", "c"][..],
+            &["hanja", "--cache", "c"],
+            &["places-supplement", "--cache", "c", "--out", "o"],
+            &["english-supplement", "--cache", "c", "--out", "o"],
+            &["wubi86-supplement", "--cache", "c", "--out", "o"],
+            &["wubi98-supplement", "--cache", "c", "--out", "o"],
+        ] {
+            assert!(!parses(command), "{command:?} parsed without --dictionary");
+            let with: Vec<&str> = command
+                .iter()
+                .copied()
+                .chain(["--dictionary", "d"])
+                .collect();
+            assert!(parses(&with), "{with:?}");
+        }
+        assert!(parses(&["hkcancor-counts", "--cache", "c", "--out", "o"]));
+    }
 }

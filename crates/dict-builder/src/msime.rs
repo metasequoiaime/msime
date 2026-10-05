@@ -86,6 +86,11 @@ pub fn build_quanpin(connection: &mut Connection, inputs: &QuanpinInputs) -> Res
             "\ncreate index idx_key_{suffix} on {table}(key);\n"
         ))?;
         transaction.execute_batch(&format!("\ncreate index idx_jp_{suffix} on {table}(jp);\n"))?;
+        // A reading listed by two inputs is one entry: without the licensing record both single-chars.txt and rime-ice.txt list every common character, and dict-v2.0.7 shipped 8740 single-character rows twice. The higher weight stays, the first loaded on a tie, as `parse_word_list` treats a word listed twice. Runs after the key index exists, which it uses.
+        count -= transaction.execute(
+            &format!("\ndelete from {table} where exists (select 1 from {table} as kept where kept.key = {table}.key and kept.value = {table}.value and (kept.weight > {table}.weight or (kept.weight = {table}.weight and kept.rowid < {table}.rowid)));\n"),
+            [],
+        )?;
     }
     transaction.commit()?;
     Ok(count)
@@ -245,7 +250,7 @@ pub fn apply_custom_words(
     Ok(counts)
 }
 
-/// Wrong readings removed from the quanpin tables once every pinyin input is merged (`resources/dictionary-sources/`). The pinned inputs are locked byte for byte, so a wrong row cannot be fixed where it lives.
+/// 所有拼音输入合并之后从全拼表删除的错误读音（`resources/dictionary-sources/`）。上游输入按字节原样保存（msime-dictionary 的 `upstream.lock.json`），所以错误的行不能在原文件里改。
 pub const READING_CORRECTIONS: &str = "pinyin-reading-corrections.txt";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -397,7 +402,7 @@ const QUICK_PHRASES: CodeTable = CodeTable {
     code_first: true,
 };
 
-fn parse_code_line(line: &str, code_first: bool) -> Option<(String, &str, i64)> {
+pub(crate) fn parse_code_line(line: &str, code_first: bool) -> Option<(String, &str, i64)> {
     let comment = if code_first {
         line.trim_start_matches(text::is_space)
     } else {
@@ -470,20 +475,77 @@ fn write_code_table<'a>(
     Ok((imported, skipped))
 }
 
-pub fn build_wubi(connection: &mut Connection, path: &Path) -> Result<(usize, usize)> {
-    build_code_table(connection, &WUBI86, path)
+/// Builds `wubi86` from the jidian table and then the generated supplement (`wubi86_supplement`), in that order: the provider breaks equal weights by rowid, so a supplement row of a code stays after the jidian rows of the same weight. Rows naming a character outside the basic CJK set ([`outside_basic_cjk`]) are left out. Returns the imported, skipped (blank, comment or invalid) and left-out counts.
+pub fn build_wubi(connection: &mut Connection, paths: &[&Path]) -> Result<(usize, usize, usize)> {
+    let sources = paths
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let mut outside = 0;
+    let rows = sources
+        .iter()
+        .flat_map(|source| {
+            text::universal_lines(text::without_bom(source))
+                .into_iter()
+                .map(|line| parse_code_line(line, false))
+        })
+        .filter_map(|row| match row {
+            Some((_, value, _)) if outside_basic_cjk(value) => {
+                outside += 1;
+                None
+            }
+            row => Some(row),
+        });
+    let (imported, skipped) = write_code_table(connection, &WUBI86, rows)?;
+    Ok((imported, skipped, outside))
+}
+
+/// The jidian table ends with its large character set: about 49 000 rows, nearly all at weight 0, of CJK Extension A (U+3400-U+4DBF) and of the extensions beyond the Basic Multilingual Plane. They became candidates when dict-v2.0.6 switched 86 Wubi to this table: 25 000 codes, `dui` among them, then offered such a character first, the candidate window's fonts drew it as a missing-glyph box, and with mixed pinyin it pushed the pinyin rows of the same letters (对 for `dui`) off the first page. The table before had none of them, so they are left out again.
+pub(crate) fn outside_basic_cjk(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| matches!(u32::from(character), 0x3400..=0x4DBF | 0x10000..))
 }
 
 /// Builds `wubi98` from the 98 wubi group's table as upstream ships it: UTF-16LE with a byte-order mark, `value<TAB>code` lines, no weights. Candidates of one code are listed best first, so each gets [`WUBI98_WEIGHT_STEP`] times the number of candidates after it plus one: the last of a code weighs one step, as the 86 table's lowest rank does.
-/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。
+/// 从主 UTF-16 表和完整的补充表构建 98 五笔。补充表作为独立来源保留，不写成手工特例；重复的“编码、词语”去重，主表保持原有权重和顺序。`generated` 是生成的补充表（`wubi98_supplement`，`value<TAB>code<TAB>weight` 行），按顺序插在两张 98 表之后：provider 同权重时按 rowid 排序，所以补充行排在同权重的原有行之后。
 pub fn build_wubi98_sources(
     connection: &mut Connection,
     path: &Path,
     supplements: &[&Path],
+    generated: &[&Path],
 ) -> Result<(usize, usize)> {
     let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let source = decode_utf16le(&bytes).with_context(|| format!("decoding {}", path.display()))?;
-    let lines = text::universal_lines(text::without_bom(&source));
+    let supplement_sources = supplements
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let supplement_texts: Vec<&str> = supplement_sources.iter().map(String::as_str).collect();
+    let (weighted, mut skipped) = wubi98_rows(&source, &supplement_texts);
+    let generated_sources = generated
+        .iter()
+        .map(|path| text::read(path))
+        .collect::<Result<Vec<_>>>()?;
+    let rows = weighted
+        .iter()
+        .map(|(key, value, weight)| Some((key.clone(), value.as_str(), *weight)))
+        .chain(generated_sources.iter().flat_map(|source| {
+            text::universal_lines(text::without_bom(source))
+                .into_iter()
+                .map(|line| parse_code_line(line, false))
+        }));
+    let (imported, generated_skipped) = write_code_table(connection, &WUBI98, rows)?;
+    skipped += generated_skipped;
+    Ok((imported, skipped))
+}
+
+/// 两张 98 表按构建的规则得到的行 `(code, value, weight)`，以及跳过的行数：主表 `primary`（已从 UTF-16LE 解码）按编码内的先后给 [`WUBI98_WEIGHT_STEP`] 的倍数，补充表（Fcitx 格式）里主表没有的“编码、词语”一律给 1，重复的去掉。构建和 `wubi98_supplement` 都用它，生成器看到的权重就是构建写进表里的权重。
+pub(crate) fn wubi98_rows(
+    primary: &str,
+    supplements: &[&str],
+) -> (Vec<(String, String, i64)>, usize) {
+    let lines = text::universal_lines(text::without_bom(primary));
     let mut parsed = Vec::new();
     let mut seen = HashSet::new();
     let mut skipped = 0;
@@ -506,27 +568,22 @@ pub fn build_wubi98_sources(
             .expect("every parsed code was counted");
         let weight = *left * WUBI98_WEIGHT_STEP;
         *left -= 1;
-        weighted.push(Some((key.clone(), value.clone(), weight)));
+        weighted.push((key.clone(), value.clone(), weight));
     }
     for supplement in supplements {
-        let source = text::read(supplement)?;
-        for line in text::universal_lines(&source) {
+        for line in text::universal_lines(supplement) {
             match parse_fcitx_wubi98_line(line) {
                 Some((key, value)) if seen.insert((key.to_owned(), value.to_owned())) => {
-                    weighted.push(Some((key.to_owned(), value, 1)));
+                    weighted.push((key.to_owned(), value, 1));
                 }
                 _ => skipped += 1,
             }
         }
     }
-    let rows = weighted.iter().map(|row| {
-        row.as_ref()
-            .map(|(key, value, weight)| (key.clone(), value.as_str(), *weight))
-    });
-    write_code_table(connection, &WUBI98, rows).map(|(imported, _)| (imported, skipped))
+    (weighted, skipped)
 }
 
-fn decode_utf16le(bytes: &[u8]) -> Result<String> {
+pub(crate) fn decode_utf16le(bytes: &[u8]) -> Result<String> {
     if !bytes.len().is_multiple_of(2) || !bytes.starts_with(&[0xff, 0xfe]) {
         bail!("not UTF-16LE with a byte-order mark");
     }
@@ -538,7 +595,7 @@ fn decode_utf16le(bytes: &[u8]) -> Result<String> {
 }
 
 /// `value<TAB>code`, the code one to four of the letters a to y (z is the wildcard and the pinyin fallback, never a code).
-fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
+pub(crate) fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
     let [value, key] = line.split('\t').collect::<Vec<_>>()[..] else {
         return None;
     };
@@ -547,7 +604,7 @@ fn parse_wubi98_line(line: &str) -> Option<(String, &str)> {
 }
 
 /// 解析 Fcitx5 table-extra 的 UTF-8 98 五笔表中的“编码 空格 词语”行。表头和规则区忽略，只接受由一到四个小写字母组成的编码。
-fn parse_fcitx_wubi98_line(line: &str) -> Option<(&str, String)> {
+pub(crate) fn parse_fcitx_wubi98_line(line: &str) -> Option<(&str, String)> {
     let (key, value) = line.split_once(' ')?;
     let key = key.trim();
     let value = value.trim();
@@ -661,6 +718,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(indexes, 2 * 8 * 23);
+    }
+
+    #[test]
+    fn a_reading_listed_by_two_inputs_is_stored_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let single = write(dir.path(), "single.txt", SINGLE_CHARS);
+        // Like rime-ice.txt, the phrase input repeats single characters: 宣 lower, 昊 equal, 昍 higher.
+        let phrases = write(
+            dir.path(),
+            "phrases.txt",
+            "宣\txuan\t300\n昊\thao\t100\n昍\txuan\t7\n你好\tni'hao\t9000\n你好\tni'hao\t9000\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        let count = build_quanpin(
+            &mut connection,
+            &QuanpinInputs {
+                single_chars: &single,
+                whitelist: None,
+                phrases: vec![&phrases],
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            rows(
+                &connection,
+                "select key, jp, value, weight from tbl_1_x order by weight"
+            ),
+            [
+                ("xuan".into(), "x".into(), "昍".into(), 7),
+                ("xuan".into(), "x".into(), "宣".into(), 500)
+            ]
+        );
+        assert_eq!(
+            rows(&connection, "select key, jp, value, weight from tbl_1_h"),
+            [("hao".into(), "h".into(), "昊".into(), 100)]
+        );
+        assert_eq!(
+            rows(&connection, "select key, jp, value, weight from tbl_2_n"),
+            [("ni'hao".into(), "nh".into(), "你好".into(), 9000)]
+        );
+        assert_eq!(count, 4, "the row count reports what is stored");
     }
 
     #[test]
@@ -838,7 +936,7 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &path, &[]).unwrap(),
+            build_wubi98_sources(&mut connection, &path, &[], &[]).unwrap(),
             (6, 5)
         );
         let rows: Vec<(String, String, i64)> = connection
@@ -874,7 +972,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), "wubi98.txt", "工\ta\r\n");
         let mut connection = Connection::open_in_memory().unwrap();
-        assert!(build_wubi98_sources(&mut connection, &path, &[]).is_err());
+        assert!(build_wubi98_sources(&mut connection, &path, &[], &[]).is_err());
     }
 
     #[test]
@@ -892,7 +990,7 @@ mod tests {
         );
         let mut connection = Connection::open_in_memory().unwrap();
         assert_eq!(
-            build_wubi98_sources(&mut connection, &primary, &[&supplement]).unwrap(),
+            build_wubi98_sources(&mut connection, &primary, &[&supplement], &[]).unwrap(),
             (2, 2)
         );
         let rows: Vec<(String, String, i64)> = connection
@@ -912,6 +1010,27 @@ mod tests {
     }
 
     #[test]
+    fn wubi86_leaves_out_extension_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        // 𡗜 (U+215DC) and 𥒜 (U+2549C) are the jidian rows that answered `dui` and `duiy`; 䔍 (U+450D) is Extension A. 磁浮 and 一 stay.
+        let wubi = write(
+            dir.path(),
+            "wubi.txt",
+            "𡗜\tdui\t0\n磁浮\tduie\t10\n𥒜\tduiy\t0\n䔍\tacu\t0\n一\tg\t100\n𡗜子\tdubb\t5\n",
+        );
+        let mut connection = Connection::open_in_memory().unwrap();
+        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (2, 0, 4));
+        let values: Vec<String> = connection
+            .prepare("select value from wubi86 order by key")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(values, ["磁浮", "一"]);
+    }
+
+    #[test]
     fn code_tables_skip_invalid_lines_and_keep_the_higher_weight() {
         let dir = tempfile::tempdir().unwrap();
         let wubi = write(
@@ -920,7 +1039,7 @@ mod tests {
             "\u{feff}工\ta\t20\r\n工\tA\t30\r\n戈\ta\t10\n# c\nx\t1a\t1\n戒\taa\n戒\taa\t-1\n",
         );
         let mut connection = Connection::open_in_memory().unwrap();
-        assert_eq!(build_wubi(&mut connection, &wubi).unwrap(), (3, 4));
+        assert_eq!(build_wubi(&mut connection, &[&wubi]).unwrap(), (3, 4, 0));
         let wubi_rows: Vec<(String, String, i64)> = connection
             .prepare("select key, value, weight from wubi86 order by weight")
             .unwrap()

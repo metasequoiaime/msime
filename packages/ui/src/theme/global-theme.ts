@@ -173,7 +173,8 @@ export function normalizedColor(value: string): string | null {
   const hex = (channel: number) => channel.toString(16).toUpperCase().padStart(2, "0");
   const rgb = `#${channels.map(hex).join("")}`;
   if (!alpha) return rgb;
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/.test(parts[3])) return null;
+  // 写成 `\d+(\.\d*)?` 而不是 `\d+\.?\d*`：两者接受的串相同，后者在一长串数字后跟非法字符时要回溯平方次，恶意皮肤的颜色能卡住页面。
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/.test(parts[3])) return null;
   const opacity = Number(parts[3]);
   if (!(opacity >= 0 && opacity <= 1)) return null;
   return `${rgb}${hex(Math.round(opacity * 255))}`;

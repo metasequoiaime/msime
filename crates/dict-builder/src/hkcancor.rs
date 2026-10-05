@@ -74,6 +74,8 @@ pub fn count(files: &[(&str, &str)]) -> Result<Counts> {
 
 pub struct Provenance<'a> {
     pub upstream_commit: &'a str,
+    /// 运行生成器的 msime 提交；构建器有未提交改动时带 `-dirty` 后缀。
+    pub generator_commit: &'a str,
 }
 
 /// The file: `#` header lines, then `word<TAB>count` by descending count, ties in code point order.
@@ -85,7 +87,7 @@ pub fn render(counts: &Counts, provenance: &Provenance) -> String {
         .collect();
     ordered.sort_unstable();
     let mut out = String::new();
-    let _ = writeln!(out, "# 香港粤语语料库（HKCanCor）词频表，由 msime 仓库 crates/dict-builder/src/hkcancor.rs 的 `msime-dict-build hkcancor-counts --cache <dir> --out {OUTPUT}` 生成，生成器所在的提交就是在 resources/dictionary-sources.lock.json 里固定本文件的 msime 提交；不要手工编辑。");
+    let _ = writeln!(out, "# 香港粤语语料库（HKCanCor）词频表，由 msime 仓库提交 {} 的 crates/dict-builder/src/hkcancor.rs 以 `msime-dict-build hkcancor-counts --cache <dir> --out {OUTPUT}` 生成；不要手工编辑。", provenance.generator_commit);
     let _ = writeln!(out, "# 上游：https://github.com/fcbond/hkcancor 提交 {} 的 data/utf8/ 下 {} 个转写文件（K. K. Luke and May L. Y. Wong, The Hong Kong Cantonese Corpus: Design and Uses, Journal of Chinese Linguistics Monograph Series 25, 2015；CC BY 4.0，见上游 data/LICENSE）。", provenance.upstream_commit, counts.files);
     let _ = writeln!(out, "# 计数：<sent_tag> 块里每行一个 词/词性/粤拼/ 标注，一行计一次，不分词性、跨文件相加；拆不成这三段加空尾段的行（转写者的 ○/#/#/@ 占位等）不计。共 {} 个标注，跳过 {} 行。只写出两个及以上汉字组成的词，单字、字母、数字与标点不写；不与其他文件对照去重，每个词一行。", counts.tokens, counts.skipped);
     for (count, word) in ordered {
@@ -141,8 +143,15 @@ mod tests {
             &counts,
             &Provenance {
                 upstream_commit: "39aeadf920e0b5ca93d0ad7792c59e740e7bdd65",
+                generator_commit: "0123456789abcdef0123456789abcdef01234567",
             },
         );
+        let first = rendered.lines().next().unwrap();
+        assert!(
+            first.contains("msime 仓库提交 0123456789abcdef0123456789abcdef01234567"),
+            "{first}"
+        );
+        assert!(!first.contains("dictionary-sources.lock.json"));
         let body: Vec<&str> = rendered
             .lines()
             .filter(|line| !line.starts_with('#'))

@@ -44,6 +44,8 @@ struct Observation {
   std::vector<PreeditAttribute> preedit_attributes;
   std::string auxiliary;
   gboolean auxiliary_visible = FALSE;
+  // HideLookupTable and HideAuxiliaryText in the order they arrived.
+  std::vector<std::string> hides;
   std::vector<std::string> candidates;
   std::vector<std::string> labels;
   std::string forbidden_gloss;
@@ -51,11 +53,16 @@ struct Observation {
   guint first_candidate_color = 0;
   guint first_candidate_background = 0;
   guint second_candidate_background = 0;
+  // The second row is not highlighted, so it carries the picked text and number colours themselves.
+  guint second_candidate_color = 0;
+  guint second_candidate_number_color = 0;
   guint first_candidate_number_color = 0;
   std::string first_candidate_fix_name;
   std::string first_candidate_clear_name;
   // Page positions of the rows the host offers candidate actions for, which it does only for dictionary rows (see candidate_actions in ClientEngine.cpp). Generated sentences are absent.
   std::vector<guint> dictionary_slots;
+  // How many candidate menus have arrived. The host publishes one on a timer after the page changes, so this is what says the slots above belong to the page on screen.
+  unsigned candidate_menus = 0;
   std::string clipboard_clear_name;
   bool desktop_help = false;
   bool desktop_feedback = false;
@@ -110,10 +117,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
     return;
   }
   if (std::string(name) == "HideLookupTable") {
+    seen.hides.emplace_back(name);
     seen.lookup_visible = false;
     return;
   }
   if (std::string(name) == "HideAuxiliaryText") {
+    seen.hides.emplace_back(name);
     seen.auxiliary.clear();
     seen.auxiliary_visible = FALSE;
     return;
@@ -150,6 +159,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   auto observe_property = [&](auto &&self, IBusProperty *property) -> void {
     const std::string key = ibus_property_get_key(property);
     if (key == "CandidateActions") {
+      ++seen.candidate_menus;
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
       seen.dictionary_slots.clear();
@@ -272,10 +282,17 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
         seen.first_candidate_color = ibus_attribute_get_value(attribute);
       if (auto attribute = ibus_attr_list_get(attributes, 1))
         seen.first_candidate_background = ibus_attribute_get_value(attribute);
-      if (ibus_lookup_table_get_number_of_candidates(table) > 1)
-        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1)))
+      if (ibus_lookup_table_get_number_of_candidates(table) > 1) {
+        if (auto second = ibus_text_get_attributes(ibus_lookup_table_get_candidate(table, 1))) {
+          if (auto attribute = ibus_attr_list_get(second, 0))
+            seen.second_candidate_color = ibus_attribute_get_value(attribute);
           if (auto attribute = ibus_attr_list_get(second, 1))
             seen.second_candidate_background = ibus_attribute_get_value(attribute);
+        }
+        if (auto label_attributes = ibus_text_get_attributes(ibus_lookup_table_get_label(table, 1)))
+          if (auto attribute = ibus_attr_list_get(label_attributes, 0))
+            seen.second_candidate_number_color = ibus_attribute_get_value(attribute);
+      }
       auto label = ibus_lookup_table_get_label(table, 0);
       if (auto label_attributes = ibus_text_get_attributes(label))
         if (auto attribute = ibus_attr_list_get(label_attributes, 0))
@@ -373,7 +390,7 @@ int main(int argc, char **argv) {
     options["preferences"]["voice_input"]["hotkey_rctrl_ralt"] = true;
     options["preferences"]["global_theme"] = "custom";
     options["preferences"]["custom_theme"]["candidate_colors"] = {
-        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#fedcba"}};
+        {"text", "#123456"}, {"surface", "#654321"}, {"number", "#abcdef"}, {"selected", "#204060"}};
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
     options["preferences"]["smart_punctuation_space_convert"] = true;
@@ -600,6 +617,15 @@ int main(int argc, char **argv) {
       std::cout << "IBus page-number visibility, paging and selection passed\n";
       return 0;
     }
+    // #3759: hiding the auxiliary line ahead of the list shrinks a window that is still showing, and GNOME then moves it from above the cursor to below it until the list hides.
+    phrase();
+    require(seen.lookup_visible, "Phrase did not show candidates");
+    seen.hides.clear();
+    require(key(IBUS_space) && seen.committed == "你好" &&
+                wait_until([&] { return !seen.lookup_visible && !seen.auxiliary_visible; }) &&
+                !seen.hides.empty() && seen.hides.front() == "HideLookupTable",
+            "Selection hid the auxiliary line before the candidate list");
+    seen.committed.clear();
     require(!seen.emoji_candidates,
             "Missing mixed Emoji preference did not default to disabled");
     require(seen.global_theme == "system",
@@ -2637,11 +2663,14 @@ int main(int argc, char **argv) {
             "Candidate signal mismatch");
     require(!seen.labels.empty() && seen.labels.front().rfind("1", 0) == 0,
             "Candidate numeric label missing");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.second_candidate_color == 0x123456,
             "Candidate text color attribute missing");
-    require(seen.first_candidate_background == 0xfedcba,
+    // A picked selection colour carries black or white text by its luminance (client-core skin/theme.rs), so the dark fixture fill gives white.
+    require(seen.first_candidate_color == 0xffffff,
+            "Highlighted candidate text is not readable on the picked selection colour");
+    require(seen.first_candidate_background == 0x204060,
             "Selected candidate color attribute missing");
-    require(seen.first_candidate_number_color == 0xabcdef,
+    require(seen.second_candidate_number_color == 0xabcdef,
             "Candidate number color attribute missing");
     // The host publishes the candidate menu on a 400ms timer after the page changes, so wait for it rather than reading it in the turn that drew the page.
     const auto candidate_actions_deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
@@ -2658,11 +2687,17 @@ int main(int argc, char **argv) {
                          PROP_STATE_UNCHECKED));
     require(seen.candidates.front().find("固定1") != std::string::npos,
             "Candidate position action did not fix the highlighted candidate");
-    require(seen.first_candidate_color == 0x123456,
+    require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
+    // Candidate actions are named by the generation they act on, and fixing advanced it, so the clear action is the one the republished menu carries; the one read before the fix is stale and refused.
+    seen.first_candidate_clear_name.clear();
+    require(wait_until([&] { return !seen.first_candidate_clear_name.empty(); }),
+            "Fixed candidate did not republish its clear action");
     invoke("PropertyActivate",
            g_variant_new("(su)", seen.first_candidate_clear_name.c_str(),
                          PROP_STATE_UNCHECKED));
+    require(seen.candidates.front().find("固定") == std::string::npos,
+            "Candidate position clear did not release the fixed candidate");
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
@@ -3373,7 +3408,7 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 3,
             "Deferred preferences did not apply after reset");
-    require(seen.first_candidate_color == 0xabcdef,
+    require(seen.second_candidate_color == 0xabcdef,
             "Reloaded candidate text color did not apply");
     std::ofstream(root / "preferences.json") << "invalid";
     settle();
@@ -3416,12 +3451,16 @@ int main(int argc, char **argv) {
             "Settings did not recover after writer unlock");
     // Only a dictionary row has a weight for the configured frequency mode to move. The lattice puts its generated sentences for nihao (倪好, 你号, ...) straight after the exact dictionary hits at the top, so the first two-character rows after 你好 are usually generated. Selecting one of those stores it as a user phrase instead (the Engine's standalone sentence learning, ported from MSIME-Windows 01c5bca3), which ignores the frequency mode and gives the row a fixed starting weight; it is not expected to come first. Learn a two-character dictionary row - one that shares nihao's two segments - wherever it is paged to. Returns its page position, or -1 if none shows up.
     auto dictionary_two_segment_index = [&] {
+      auto menus = seen.candidate_menus;
       for (int page = 0; page < 24; ++page) {
+        // The slots come with the candidate menu, which the host publishes 400ms after the page changes; reading them sooner reads the previous page's, or none.
+        wait_until([&] { return seen.candidate_menus != menus; });
         for (const auto slot : seen.dictionary_slots)
           if ((page > 0 || slot > 0) && slot < seen.candidates.size() &&
               g_utf8_strlen(seen.candidates[slot].c_str(), -1) == 2)
             return static_cast<int>(slot);
         const auto before = seen.candidates;
+        menus = seen.candidate_menus;
         if (!key(IBUS_Page_Down) || seen.candidates == before)
           break;
       }
@@ -4083,6 +4122,8 @@ int main(int argc, char **argv) {
           std::string("python3 '") + MSIME_STROKE_DICTIONARY_FIXTURE + "' '" + dictionaries.string() + "'";
       require(std::system(stroke_fixture.c_str()) == 0, "Stroke dictionary fixture was not written");
       languages["preferences"]["scheme"] = "quanpin";
+      // The shared fixture pages two candidates at a time; the stroke lists below are read as one page.
+      languages["preferences"]["candidate_page_size"] = 5;
       restart();
       require(offered("Scheme/Stroke") && offered("Scheme/Zhuyin") && !checked("Scheme/Stroke") &&
                   checked("Scheme/Quanpin"),

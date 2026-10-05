@@ -59,6 +59,21 @@ pub fn is_root_only_link(path: &Path) -> bool {
     }
 }
 
+/// 建一个本 crate 永远不会当作系统链接的符号链接，给测试拒绝行为用。Linux 上属于 root、所在目录只有 root 能写的链接是受信任的（见 [`is_root_only_link`]），以 root 身份运行的测试（测试容器、容器里的 CI 任务）建出的链接正是这样，所以那时把链接的属主交给 `nobody`。
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub fn untrusted_symlink(
+    original: impl AsRef<Path>,
+    link: impl AsRef<Path>,
+) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let link = link.as_ref();
+    std::os::unix::fs::symlink(original, link)?;
+    if std::fs::symlink_metadata(link)?.uid() == 0 {
+        std::os::unix::fs::lchown(link, Some(65534), Some(65534))?;
+    }
+    Ok(())
+}
+
 /// 拒绝 `path` 任何一级上的符号链接（包括最后一级），唯一的例外是最后一级之上至多一个受信任的系统链接。
 ///
 /// 不存在的层级可以接受，调用方正要创建它们；其它 I/O 错误原样返回。
@@ -153,13 +168,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rejects_links_the_system_did_not_make() {
-        use std::os::unix::fs::symlink;
-
         let outside = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(root.path()).unwrap();
         let linked = root.join("linked");
-        symlink(outside.path(), &linked).unwrap();
+        untrusted_symlink(outside.path(), &linked).unwrap();
         assert!(reject_symlinked_components(&linked.join("missing/below")).is_err());
         assert!(reject_symlinked_components(&linked).is_err());
         assert!(reject_symlinked_components(&root.join("missing/below")).is_ok());

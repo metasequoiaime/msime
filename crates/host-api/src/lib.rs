@@ -314,12 +314,13 @@ impl HostSession {
             prompt_custom_3: ai.prompt_custom_3.clone(),
         });
     }
+    /// The latest requested preference decides, in both directions: a change deferred until the composition ends would otherwise keep a just-disabled cloud answering, or keep a just-enabled one silent for the rest of the composition. Engine takes a cloud row on the query's own eligibility, not on the applied preferences.
     fn cloud_candidates_enabled(&self) -> bool {
-        self.applied.cloud_candidates
-            && self
-                .requested
-                .as_ref()
-                .is_none_or(|snapshot| snapshot.preferences.cloud_candidates)
+        self.requested
+            .as_ref()
+            .map_or(self.applied.cloud_candidates, |snapshot| {
+                snapshot.preferences.cloud_candidates
+            })
     }
     /// Android 会话是否不记统计：宿主在隐私模式和不学习的输入框里以 `learning: false` 建立或更新会话，已应用的偏好或还没应用的请求里有一份关着学习就算。只在 [`PRIVATE_SESSIONS_SKIP_STATISTICS`] 时成立，其他宿主照旧计数。
     fn private_session(&self) -> bool {

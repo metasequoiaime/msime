@@ -107,9 +107,9 @@ pub fn build(sources: &Sources, licenses: &Path, out: &Path) -> Result<Vec<Strin
                 counts.weighted
             ));
         }
-        // 笔画源文件既没被锁文件固定、也没放进缓存：只跳过笔画词库，不让粤拼与注音的发布跟着失败。
+        // 没有 `--dictionary` checkout、缓存里也没有笔画源文件：只跳过笔画词库，不让粤拼与注音的发布跟着失败。
         None => summaries.push(format!(
-            "{}: skipped, {} is not pinned in the sources lock and not in the cache",
+            "{}: skipped, no --dictionary checkout and {} is not in the cache",
             stroke::DATABASE,
             stroke::SOURCE
         )),
@@ -125,7 +125,7 @@ fn reference_commit<'a>(sources: &'a Sources, reference: &str) -> Result<&'a str
         .lock
         .references
         .get(reference)
-        .with_context(|| format!("{reference} is not pinned in the sources lock"))?
+        .with_context(|| format!("{reference} is not a reference in the sources lock"))?
         .commit)
 }
 
@@ -149,7 +149,7 @@ fn write_sums(out: &Path, names: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sources::Lock;
+    use crate::sources::{Dictionary, Lock};
 
     #[test]
     fn sums_list_every_file_in_name_order() {
@@ -167,17 +167,23 @@ mod tests {
         );
     }
 
-    /// 用锁定的源文件完整构建一次，文件缓存在仓库的 `target/dict-cache`（首次使用时下载，约 17 MB）。
+    /// 从 `MSIME_DICTIONARY` 指向的 msime-dictionary checkout 完整构建一次，不下载任何文件。
     #[test]
-    #[ignore = "首次使用时下载 msime-dictionary 附件里的粤拼、注音与字频源文件"]
-    fn builds_from_the_pinned_sources() {
+    #[ignore = "needs MSIME_DICTIONARY=<msime-dictionary checkout> and downloads nothing"]
+    fn builds_from_a_dictionary_checkout() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let lock = Lock::load(&root.join("resources/dictionary-sources.lock.json")).unwrap();
+        let dictionary = Dictionary::open(
+            std::path::PathBuf::from(std::env::var("MSIME_DICTIONARY").expect("MSIME_DICTIONARY")),
+            &lock,
+        )
+        .unwrap();
         let sources = Sources {
-            lock: Lock::load(&root.join("resources/dictionary-sources.lock.json")).unwrap(),
+            lock,
             repository_inputs: root.join("resources/dictionary-sources"),
             cache: root.join("target/dict-cache"),
-            offline: false,
-            dictionary: None,
+            offline: true,
+            dictionary: Some(dictionary),
         };
         let out = tempfile::tempdir().unwrap();
         let summaries = build(&sources, &root.join("resources/licenses"), out.path()).unwrap();

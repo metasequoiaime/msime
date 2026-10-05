@@ -48,7 +48,7 @@ pub struct ProviderRegistry {
 }
 
 /// 五笔码表所在的数据库。准备代次时单独发布的 `msime-wubi.db` 已并回工作主词库，学习、删词与个人词典也写那里，所以优先读代次的 `msime-pinyin.db`，读写落在同一个文件上。代次目录就是资源目录（只读布局）时读其中的 `msime-wubi.db`；没有代次工作副本时退回资源目录，先找拆分后的 `msime-wubi.db`，再找旧的合并发布。
-fn wubi_database(paths: &RuntimePaths) -> PathBuf {
+pub(crate) fn wubi_database(paths: &RuntimePaths) -> PathBuf {
     [
         paths.dictionary(assets::WUBI_DICTIONARY),
         paths.dictionary(assets::MAIN_DICTIONARY),
