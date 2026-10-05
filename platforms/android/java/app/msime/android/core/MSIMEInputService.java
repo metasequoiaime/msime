@@ -373,12 +373,12 @@ public final class MSIMEInputService extends InputMethodService {
     /** 上次以 Toast 说过的空闲提示，同一条不重复弹。 */
     private String announcedIdleNotice = "";
 
-    /** 空闲时的临时提示不占状态行；其中的失败（失败、未能、稍后、无法）以 Toast 告诉用户，进度和成功提示由面板上的开关状态自己说明。 */
+    /** 空闲时的临时提示不占状态行；其中的失败（失败、未能、无法）以 Toast 告诉用户。进度、成功和「稍后重试」这类会自己恢复的提示不弹，免得每次弹出键盘都冒一条。 */
     private void announceIdleNotice(String notice) {
         String text = notice.startsWith(" · ") ? notice.substring(3) : notice;
         if (text.equals(announcedIdleNotice)) return;
         announcedIdleNotice = text;
-        if (text.contains("失败") || text.contains("未能") || text.contains("稍后") || text.contains("无法")) {
+        if (text.contains("失败") || text.contains("未能") || text.contains("无法")) {
             Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
         }
     }

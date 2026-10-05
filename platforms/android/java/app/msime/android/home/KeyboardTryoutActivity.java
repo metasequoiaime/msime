@@ -45,6 +45,10 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private Future<?> operation;
     private int generation;
     private boolean sending;
+    /** 模型目录正在加载。 */
+    private boolean loadingModels;
+    /** 目录还没到时就发出的一句：已经画成气泡，目录到了再真正发给模型。 */
+    private String pendingSend;
 
     @Override protected void onCreate(@Nullable Bundle state) {
         AppMode.restore(this);
@@ -66,7 +70,6 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         EditText field = findViewById(R.id.tryout_field);
         MaterialButton dismiss = findViewById(R.id.tryout_dismiss);
-        MaterialButton loadAi = findViewById(R.id.tryout_ai_load);
         MaterialButton sendAi = findViewById(R.id.tryout_ai_send);
 
         // 设计的输入栏：andCard 底、上面一条分隔线；输入框是页面底色的胶囊，描一圈 hair。
@@ -81,7 +84,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         field.setMaxLines(4);
         field.setOnEditorActionListener((view, action, event) -> {
             if (action != android.view.inputmethod.EditorInfo.IME_ACTION_SEND) return false;
-            if (sendAi.isEnabled()) sendAi.performClick();
+            // 请求进行中按钮是「停止」：回车不去点它，只有点按钮才停。
+            if (!sending && sendAi.isEnabled()) sendAi.performClick();
             return true;
         });
         int accent = Ui.accent(this);
@@ -109,15 +113,11 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
             @Override public void afterTextChanged(@NonNull Editable text) {
                 if (text.length() > DRAFT_LIMIT) text.delete(DRAFT_LIMIT, text.length());
-                // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。
-                sendAi.setEnabled(sending || (!models.isEmpty() && text.length() > 0));
+                // 请求进行中按钮是「停止」，继续编辑或清空草稿都不能禁用取消操作。默认就能和 AI 对话：有字就能发，目录还没加载完时发出的那句等目录到了再发。
+                sendAi.setEnabled(sending || text.length() > 0);
             }
         });
 
-        loadAi.setOnClickListener(ignored -> {
-            if (models.isEmpty()) loadModels(field, loadAi, sendAi);
-            else showModelMenu(loadAi, sendAi);
-        });
         sendAi.setOnClickListener(ignored -> {
             if (sending) cancelChat(sendAi);
             else sendChat(field, sendAi);
@@ -125,6 +125,8 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         findViewById(R.id.tryout_clear).setOnClickListener(ignored -> clear(field, sendAi));
 
         greet();
+        // 进页面就在后台加载模型目录，不再要用户先点「加载 AI」。
+        loadModels(field, sendAi);
 
         // Opening the screen is the user asking for the keyboard, so it is raised without a tap.
         field.requestFocus();
@@ -139,15 +141,17 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     /** 清空：停掉进行中的请求，清掉草稿、对话和上下文，回到只有问候的样子。 */
     private void clear(EditText field, MaterialButton send) {
         if (sending) cancelChat(send);
+        pendingSend = null;
         messages.clear();
         ((LinearLayout) findViewById(R.id.tryout_chat)).removeAllViews();
         field.setText("");
         greet();
     }
 
-    private void loadModels(EditText field, MaterialButton load, MaterialButton send) {
-        load.setEnabled(false);
-        load.setText("加载中…");
+    /** 后台加载模型目录；成功后刷新发送键，并把目录到之前发出的那句真正发出去。 */
+    private void loadModels(EditText field, MaterialButton send) {
+        if (loadingModels) return;
+        loadingModels = true;
         operation = worker.submit(() -> {
             try {
                 List<BackendAccount.ChatModel> loaded = new BackendAccount(this).chatModels();
@@ -155,56 +159,64 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
                     if (isFinishing() || isDestroyed()) return;
                     models.clear();
                     models.addAll(loaded);
-                    load.setEnabled(true);
-                    if (models.isEmpty()) {
-                        load.setText("重新加载 AI");
-                        send.setEnabled(false);
-                    } else {
-                        load.setText("模型 " + models.get(0).id());
-                        // The draft may have been typed while the catalogue was loading. Refresh
-                        // the action state here instead of waiting for another edit notification.
-                        send.setEnabled(field.length() > 0);
-                    }
+                    loadingModels = false;
+                    // The draft may have been typed while the catalogue was loading. Refresh
+                    // the action state here instead of waiting for another edit notification.
+                    send.setEnabled(sending || field.length() > 0);
+                    flushPendingSend(send);
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    load.setEnabled(true);
-                    load.setText("重新加载 AI");
-                    MsToast.show(this, "请先登录账号，或稍后重试模型目录");
+                    loadingModels = false;
+                    flushPendingSend(send);
                 });
             }
         });
     }
 
-    private void showModelMenu(MaterialButton load, MaterialButton send) {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, load);
-        for (BackendAccount.ChatModel model : models) {
-            menu.getMenu().add(model.id()).setOnMenuItemClickListener(item -> {
-                load.setText("模型 " + model.id());
-                load.setTag(model.id());
-                return true;
-            });
+    /** 目录到了（或没拿到）时处理等着的那句：有模型就发，没有就在对话里说明。 */
+    private void flushPendingSend(MaterialButton send) {
+        String text = pendingSend;
+        pendingSend = null;
+        if (text == null) return;
+        if (models.isEmpty()) {
+            appendBubble("请求失败，请检查登录状态或稍后重试。", false);
+            finishChat(send);
+            return;
         }
-        menu.show();
+        dispatchChat(text, send);
     }
 
     private void sendChat(EditText field, MaterialButton send) {
         String text = field.getText() == null ? "" : field.getText().toString().trim();
-        if (text.isEmpty() || models.isEmpty()) return;
-        while (messages.size() >= 14) messages.remove(0);
-        messages.add(new BackendAccount.ChatMessage("user", text));
+        if (text.isEmpty()) return;
         field.setText("");
         appendBubble(text, true);
+        if (models.isEmpty()) {
+            // 目录还没到：这句先画出来，按钮变成「停止」，目录到了再发。
+            pendingSend = text;
+            showStop(send);
+            loadModels(field, send);
+            return;
+        }
+        dispatchChat(text, send);
+    }
+
+    private void showStop(MaterialButton send) {
         sending = true;
         send.setEnabled(true);
         send.setIconResource(R.drawable.ms_w2_home_stop);
         send.setContentDescription("停止");
+    }
+
+    private void dispatchChat(String text, MaterialButton send) {
+        while (messages.size() >= 14) messages.remove(0);
+        messages.add(new BackendAccount.ChatMessage("user", text));
+        showStop(send);
         int token = ++generation;
         List<BackendAccount.ChatMessage> request = new ArrayList<>(messages);
-        String selected = (String) findViewById(R.id.tryout_ai_load).getTag();
-        if (selected == null || selected.isEmpty()) selected = models.get(0).id();
-        final String selectedModel = selected;
+        final String selectedModel = models.get(0).id();
         operation = worker.submit(() -> {
             try {
                 String reply = new BackendAccount(this).chat(request, selectedModel);
@@ -226,6 +238,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
     private void cancelChat(MaterialButton send) {
         generation++;
+        pendingSend = null;
         if (operation != null) operation.cancel(true);
         finishChat(send);
     }
@@ -235,7 +248,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         send.setIconResource(R.drawable.ms_w2_home_send);
         send.setContentDescription("发送");
         EditText field = findViewById(R.id.tryout_field);
-        send.setEnabled(!models.isEmpty() && field.getText() != null && field.length() > 0);
+        send.setEnabled(field.getText() != null && field.length() > 0);
     }
 
     /**
