@@ -2686,9 +2686,15 @@ int main(int argc, char **argv) {
             "Candidate position action did not fix the highlighted candidate");
     require(seen.first_candidate_color == 0xffffff,
             "Highlighted fixed candidate did not keep selected-row text color");
+    // Candidate actions are named by the generation they act on, and fixing advanced it, so the clear action is the one the republished menu carries; the one read before the fix is stale and refused.
+    seen.first_candidate_clear_name.clear();
+    require(wait_until([&] { return !seen.first_candidate_clear_name.empty(); }),
+            "Fixed candidate did not republish its clear action");
     invoke("PropertyActivate",
            g_variant_new("(su)", seen.first_candidate_clear_name.c_str(),
                          PROP_STATE_UNCHECKED));
+    require(seen.candidates.front().find("固定") == std::string::npos,
+            "Candidate position clear did not release the fixed candidate");
     require(key(IBUS_Left) && seen.auxiliary.find("niha|o") != std::string::npos,
             "Candidate auxiliary text did not expose the preedit caret");
     const auto stale_candidate_action = seen.first_candidate_fix_name;
