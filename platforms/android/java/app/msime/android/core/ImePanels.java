@@ -422,7 +422,7 @@ final class ImePanels {
                     other.setSelected(other == card);
                     if (Build.VERSION.SDK_INT >= 30) other.setStateDescription(other == card ? "已选中" : "未选中");
                 }
-                // 选中即换色，面板留着，方便接着比较别的皮肤。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
+                // 选中即换色并收起面板回到键盘，换上的皮肤直接在键盘上看。还没获取的社区皮肤先在同一个偏好线程上存进皮肤库，排在保存选择之前。
                 CommunitySkinCache.Entry install = uninstalled.get(choice);
                 if (install != null) {
                     final String directory = s.preferencesDirectory;
@@ -438,6 +438,8 @@ final class ImePanels {
                 s.saveKeyboardSkin(choice.id(), choice.design());
                 s.recordSkinStatistics(choice.design() == null ? choice.id() : "custom");
                 styleSkinPicker(cards);
+                s.closeSkinPicker();
+                s.render();
             });
             cards.add(card);
             grid.addView(card);
