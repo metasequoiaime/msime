@@ -4,14 +4,10 @@ import { useAsyncActionRunner } from "../core/use-async-action";
 
 export interface UseInputSourceUninstallOptions {
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
-  cancelInputSourceUninstall?: () => Promise<void>;
 }
 
 /** Owns the confirmation and result state for removing the native input source. */
-export function useInputSourceUninstall({
-  uninstallInputSource,
-  cancelInputSourceUninstall,
-}: UseInputSourceUninstallOptions) {
+export function useInputSourceUninstall({ uninstallInputSource }: UseInputSourceUninstallOptions) {
   const [removeUserData, setRemoveUserData] = useState(false);
   const [confirmation, setConfirmation] = useState(false);
   const [result, setResult] = useState<"success" | "error" | "listed" | null>(null);
@@ -36,15 +32,6 @@ export function useInputSourceUninstall({
     );
   }
 
-  function cancelUninstall() {
-    setConfirmation(false);
-    // An uninstall that stopped for the user to remove the input sources has kept the input method out of service; give it back.
-    if (result === "listed") {
-      setResult(null);
-      void cancelInputSourceUninstall?.().catch(() => undefined);
-    }
-  }
-
   function requestUninstall() {
     setResult(null);
     setConfirmation(true);
@@ -52,7 +39,7 @@ export function useInputSourceUninstall({
 
   return {
     busy,
-    cancelUninstall,
+    cancelUninstall: () => setConfirmation(false),
     confirmUninstall,
     confirmation,
     removeUserData,

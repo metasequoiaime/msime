@@ -2158,8 +2158,6 @@ export interface SettingsClient {
   };
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
-  /** Lets the input method serve again after an uninstall that was waiting for its sources to be removed in System Settings is called off. */
-  cancelInputSourceUninstall?: () => Promise<void>;
   /** macOS keeps small fixed locators while the state root itself may move to another volume. */
   dataDirectory?: {
     status(): Promise<{ path: string; isDefault: boolean }>;
@@ -2404,10 +2402,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     requestUninstall,
     result: uninstallResult,
     setRemoveUserData: setRemoveUserDataOnUninstall,
-  } = useInputSourceUninstall({
-    uninstallInputSource: client.uninstallInputSource,
-    cancelInputSourceUninstall: client.cancelInputSourceUninstall,
-  });
+  } = useInputSourceUninstall({ uninstallInputSource: client.uninstallInputSource });
   const {
     dismissInputSourceStartup,
     inputSourceStartup,

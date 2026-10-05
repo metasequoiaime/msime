@@ -12,27 +12,12 @@
 #import "../voice/VoiceAudioMuter.h"
 #include <cstring>
 #include <dlfcn.h>
-#include <libproc.h>
-#include <signal.h>
 
 static bool MSIMEShouldShowPreferences(int argc, const char *argv[]) {
     for (int index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "--preferences") == 0) return true;
     }
     return false;
-}
-
-// The settings app writes `uninstall-pending` into the state directory, holding its own process id, while an uninstall waits for the user to remove this input method's sources in System Settings (macos_input_source.rs, UNINSTALL_MARKER). A running input method makes TextInputMenuAgent sync the removed entries back, so a process imklaunchagent starts meanwhile stays out of service. Only a live settings app counts: a marker left by a crash, or a process id since taken by another program, never keeps the input method from starting.
-static bool MSIMEUninstallPending(NSDictionary *options) {
-    NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class] ? options[@"preferences_directory"] : nil;
-    if (directory.length == 0 || !directory.isAbsolutePath) return false;
-    NSString *text = [NSString stringWithContentsOfFile:[directory stringByAppendingPathComponent:@"uninstall-pending"]
-                                               encoding:NSUTF8StringEncoding error:nil];
-    const pid_t owner = (pid_t)text.integerValue;
-    if (owner <= 0 || kill(owner, 0) != 0) return false;
-    char path[PROC_PIDPATHINFO_MAXSIZE] = {};
-    if (proc_pidpath(owner, path, sizeof path) <= 0) return false;
-    return [@(path).lastPathComponent isEqualToString:@"msime-desktop"];
 }
 
 static void MSIMEConfigureMovableState(void) {
@@ -95,10 +80,6 @@ int main(int argc, const char *argv[]) {
             [[MSIMEPreferencesWindowController sharedController] showAndActivateForStandaloneLaunch];
             [NSApp run];
             [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
-            return 0;
-        }
-        if (MSIMEUninstallPending(MSIMELoadRuntimeOptions())) {
-            NSLog(@"MSIME is being uninstalled; not serving input");
             return 0;
         }
         // One input method process is one usage session; the standalone preferences window above is not.
