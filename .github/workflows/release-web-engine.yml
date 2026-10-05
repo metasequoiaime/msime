@@ -147,23 +147,13 @@ jobs:
           jq -r '"Built by scripts/build-web-engine.sh from metasequoiaime/msime \(.source_commit) (pinyin dictionary keeps \(.keep_multi) multi-character words).\n\nInputs: msime-pinyin.db, msime-wubi.db and sentence-model.safetensors as pinned in resources/desktop-dictionary.lock.json at that commit. Licences: NOTICE.md. Checksums: SHA256SUMS.txt; web-engine-manifest.json lists every file with its sha256 and size for data/msime/web-engine.lock.json in TapTapGo.\n\nmsime-web-engine-\(.version).tgz is the npm package @msime/web-engine \(.version) (SDK, loader, wasm, dictionaries and model); see packages/web-engine/README.md.\n\nPublished assets are never replaced or deleted, because TapTapGo pins them by sha256."' "$dist/web-engine-manifest.json" > notes.md
           tag="web-engine-v${VERSION}"; flags=(--latest=false); [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
           gh release create "$tag" "$dist"/msime_engine_bg.wasm "$dist"/msime_engine.js "$dist"/msime-pinyin.db.gz "$dist"/msime-wubi86.db.gz "$dist"/sentence-model.safetensors.gz "$dist"/NOTICE.md "$dist"/web-engine-manifest.json "$dist"/SHA256SUMS.txt "npm/msime-web-engine-${VERSION}.tgz" --target "$SOURCE_SHA" --title "Web engine ${VERSION}" --notes-file notes.md "${flags[@]}"
-  # 6. 把同一个 tgz 发布为 npm 包 @msime/web-engine。和 GitHub release 分成两个作业：npm 失败时只重跑这一个，不会去碰已经发布、不能替换的 release。预发布版本打 next 标签，不会成为 npm install 的默认版本。
+  # 6. 把附到 release 上的同一个 tgz 发布为 npm 包 @msime/web-engine。发布逻辑在 publish-web-engine-npm.yml：npm 失败时单独触发它补发这个版本，不用重跑这里，也不会碰已经发布、不能替换的 release。预发布版本打 next 标签，不会成为 npm install 的默认版本。
   npm:
     needs: [build, publish]
     if: ${{ inputs.publish }}
-    runs-on: ubuntu-24.04
-    # id-token 用于 npm provenance：npm 页面会显示这个包由本仓库的这次 workflow 构建。
     permissions: {contents: read, id-token: write}
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with: {name: "web-engine-npm-${{ needs.build.outputs.version }}", path: npm}
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: {node-version: 24, registry-url: "https://registry.npmjs.org"}
-      - name: Publish @msime/web-engine to npm
-        env: {NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", VERSION: "${{ needs.build.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}"}
-        run: |
-          set -euo pipefail
-          if [[ -z "$NODE_AUTH_TOKEN" ]]; then echo "::warning::NPM_TOKEN is not set; @msime/web-engine $VERSION was not published to npm."; exit 0; fi
-          tag=latest
-          if [[ "$PRERELEASE" == true || "$VERSION" == *-* ]]; then tag=next; fi
-          npm publish "npm/msime-web-engine-${VERSION}.tgz" --access public --provenance --tag "$tag"
+    uses: ./.github/workflows/publish-web-engine-npm.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+      prerelease: ${{ inputs.prerelease }}
+    secrets: inherit

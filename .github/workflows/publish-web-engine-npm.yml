@@ -1,0 +1,45 @@
+name: Publish Web Engine to npm
+
+# 把 web-engine-vX.Y.Z release 附带的 msime-web-engine-X.Y.Z.tgz 发布为 npm 包 @msime/web-engine。Release Web Engine 发布 release 之后调用它；npm 这一步失败时也可以单独手动触发，补发同一个版本。重跑 Release Web Engine 里失败的作业做不到这一点：重跑用的是当初那个提交里的 workflow，修过的 workflow 不会生效，而重新触发 Release Web Engine 又会发出一个新版本（release 不能替换）。
+#
+# 发布的文件取自 release 附件而不是构建产物，npm 上的包和 release 附件逐字节相同。版本已经在 npm 上时直接成功退出，重复触发无害。
+on:
+  workflow_call:
+    inputs:
+      version: {required: true, type: string}
+      prerelease: {required: false, default: false, type: boolean}
+    secrets:
+      NPM_TOKEN: {required: false}
+  workflow_dispatch:
+    inputs:
+      version: {description: "Version of an existing web-engine-vX.Y.Z release (X.Y.Z)", required: true, type: string}
+      prerelease: {description: "Publish under the next dist-tag instead of latest", required: false, default: false, type: boolean}
+permissions: {contents: read}
+concurrency: {group: publish-web-engine-npm, cancel-in-progress: false}
+jobs:
+  npm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # id-token 用于 npm provenance：npm 页面会显示这个包由本仓库的 workflow 构建。
+    permissions: {contents: read, id-token: write}
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: {node-version: 24, registry-url: "https://registry.npmjs.org"}
+      - name: Publish @msime/web-engine to npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "version must be X.Y.Z or X.Y.Z-pre, got '$VERSION'" >&2; exit 1; }
+          if [[ -z "$NODE_AUTH_TOKEN" ]]; then echo "::warning::NPM_TOKEN is not set; @msime/web-engine $VERSION was not published to npm."; exit 0; fi
+          if npm view "@msime/web-engine@${VERSION}" version > /dev/null 2>&1; then echo "@msime/web-engine $VERSION is already on npm."; exit 0; fi
+          mkdir -p npm
+          gh release download "web-engine-v${VERSION}" --pattern "msime-web-engine-${VERSION}.tgz" --dir npm
+          tag=latest
+          if [[ "$PRERELEASE" == true || "$VERSION" == *-* ]]; then tag=next; fi
+          # 路径必须以 ./ 开头：npm 会把 npm/<文件>.tgz 读成 GitHub 简写 <owner>/<repo> 并尝试 git clone（run 37286152198 就是这样失败的）。
+          npm publish "./npm/msime-web-engine-${VERSION}.tgz" --access public --provenance --tag "$tag"
