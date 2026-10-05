@@ -8,7 +8,6 @@ import {
   communitySkinPublishMessage,
   communityNeedsSignIn,
   communityPublishLoginAction,
-  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
@@ -38,8 +37,8 @@ import { CommunityGalleryHeading } from "./community-gallery-heading";
 import { CommunityGalleryGrid } from "./community-gallery-grid";
 import { CommunityPageShell } from "./community-page-shell";
 import { ActionButton } from "../core/action-button";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
-import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useCommunityDetailHistory } from "./use-community-detail-history";
 import { communityPublishFields } from "./community-publish-validation";
 import {
@@ -138,16 +137,22 @@ function CommunitySkinPublishDialog({
     resetPublication,
   } = useCommunityPublicationDraft();
   const [category, setCategory] = useState<CommunitySkinCategory>("other");
-  const [busy, setBusy] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Kept next to the sentence because publishMessage collapses the code, and this is the one
   // failure the dialog can do something about rather than only name.
   const [signInRequired, setSignInRequired] = useState(false);
-  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, library);
+  const {
+    busy: actionBusy,
+    generation: clientGeneration,
+    running: actionRunning,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, undefined, client, library);
+  const busy = loading || actionBusy;
 
   useEffect(() => {
     const generation = clientGeneration.current;
-    setBusy(true);
+    setLoading(true);
     void library
       .load()
       .then((items) => {
@@ -165,7 +170,7 @@ function CommunitySkinPublishDialog({
         setSignInRequired(communityNeedsSignIn(loadError));
       })
       .finally(() => {
-        if (generation === clientGeneration.current) setBusy(false);
+        if (generation === clientGeneration.current) setLoading(false);
       });
   }, [client, clientGeneration, library]);
 
@@ -173,23 +178,15 @@ function CommunitySkinPublishDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || actionRunning.current || !selected) return;
-    const generation = clientGeneration.current;
     const { normalizedName, normalizedDescription, nameValid, descriptionValid } =
       communityPublishFields(name, description);
     if (!nameValid || !descriptionValid || !agreed) {
       setError("请填写有效名称和说明，并确认拥有公开发布所需的素材权利。");
       return;
     }
-    await runCommunityPublishAction({
-      busy,
-      generation,
-      clientGeneration,
-      actionRunning,
-      setBusy,
-      setError,
-      setSignInRequired,
-      formatError: communitySkinPublishMessage,
-      operation: async () => {
+    setSignInRequired(false);
+    await runAsyncAction(
+      async (isCurrent) => {
         await client.publish(
           publicationId,
           normalizedName,
@@ -197,10 +194,14 @@ function CommunitySkinPublishDialog({
           selected.design,
           category,
         );
-        if (generation !== clientGeneration.current) return;
+        if (!isCurrent()) return;
         await onPublished();
       },
-    });
+      {
+        formatError: communitySkinPublishMessage,
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   return (
