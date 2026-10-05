@@ -51,10 +51,42 @@ public final class CommonPhrasesStore {
         static Result failed(String failure) { return new Result(null, failure); }
     }
 
+    /** 第一次读到空的常用语时预置的示例，取自设计稿；只放一次，用户删光以后不会再冒出来。 */
+    static final List<String> STARTER_PHRASES = List.of(
+        "好的，收到", "我在开会，稍后回复你", "马上到", "辛苦了，谢谢！",
+        "我的邮箱是 hi@msime.app", "方便的时候回个电话", "周末一起吃饭吗？", "已处理，请查收");
+    /** 放过示例的标记，与 `CommonPhrases.json` 同目录；有它就不再预置。 */
+    static final String STARTER_MARKER = "CommonPhrases.seeded";
+
     private CommonPhrasesStore() {}
 
+    /**
+     * 读整份常用语。第一次读到的是空列表（没有常用语也没有短语包）时，先按 {@link #STARTER_PHRASES} 逐条添加，再写下标记文件；之后只读不补。
+     *
+     * <p>设置进程和 `:ime` 进程可能同时第一次读：重复的文字会被 client-core 拒收，所以不会预置出两份。
+     */
     public static Result load(Context context) {
-        return perform(context, action("load"), false);
+        Result result = perform(context, action("load"), false);
+        if (!result.ok()) return result;
+        String directory = preferencesDirectory(context);
+        if (directory.isEmpty()) return result;
+        File marker = new File(directory, STARTER_MARKER);
+        if (marker.exists()) return result;
+        if (result.document().phrases().isEmpty() && result.document().packs().isEmpty()) {
+            for (String text : STARTER_PHRASES) {
+                Result added = add(context, text);
+                if (added.ok()) result = added;
+            }
+        }
+        try {
+            if (!marker.createNewFile() && !marker.exists()) {
+                android.util.Log.w("MSIMEPhrases", "Starter marker was not written");
+            }
+        } catch (IOException error) {
+            // 写不下标记时下次再试；最坏是对仍然为空的列表再补一次示例，不会覆盖用户自己的常用语。
+            android.util.Log.w("MSIMEPhrases", "Starter marker was not written", error);
+        }
+        return result;
     }
 
     public static Result add(Context context, String text) {

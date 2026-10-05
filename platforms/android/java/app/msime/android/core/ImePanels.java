@@ -1344,6 +1344,8 @@ final class ImePanels {
 
     /** 常用语面板的读取代次：面板关掉或重开后，迟到的结果直接丢弃。 */
     private long phraseGeneration;
+    /** 没有常用语时的提示；它下面跟一个直达应用常用语页的「添加常用语」按钮。 */
+    private static final String EMPTY_PHRASES = "还没有常用语";
 
     /** 工具栏「常用语」：先完成当前组词，在工作线程经 {@link CommonPhrasesStore} 读无编码常用语，全宽列表，点一条上屏并关闭面板。 */
     void showCommonPhrases() {
@@ -1367,7 +1369,7 @@ final class ImePanels {
             } else {
                 for (CommonPhrasesStore.Phrase phrase : result.document().phrases())
                     if (!phrase.text().isEmpty()) phrases.add(phrase.text());
-                message = phrases.isEmpty() ? "还没有常用语，可在应用的「常用语」页添加" : null;
+                message = phrases.isEmpty() ? EMPTY_PHRASES : null;
             }
             final String note = message;
             s.main.post(() -> {
@@ -1397,6 +1399,28 @@ final class ImePanels {
             note.setPadding(s.pixels(12), s.pixels(24), s.pixels(12), s.pixels(24));
             panel.addView(note, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        if (EMPTY_PHRASES.equals(message)) {
+            // 空的时候给一条去处：直接打开应用的常用语页去添加，而不是让人自己退出键盘去找。
+            KeyboardPressButton add = new KeyboardPressButton(s);
+            add.setKeyboardRole(KeyboardKeyRole.RETURN);
+            add.setAllCaps(false);
+            add.setText("添加常用语");
+            add.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            add.setMinHeight(s.pixels(44));
+            add.setMinimumHeight(s.pixels(44));
+            add.setPadding(s.pixels(24), 0, s.pixels(24), 0);
+            add.setStateListAnimator(null);
+            add.setContentDescription("添加常用语");
+            add.setOnClickListener(ignored -> {
+                s.imeKeyFeedback.playFeedback(add);
+                s.closeCommonPhrases();
+                s.openHostPage("PHRASES");
+            });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            params.gravity = Gravity.CENTER_HORIZONTAL;
+            panel.addView(add, params);
         }
         java.util.List<View> lines = new java.util.ArrayList<>();
         for (String phrase : phrases) {

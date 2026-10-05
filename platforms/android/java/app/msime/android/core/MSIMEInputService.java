@@ -5895,7 +5895,11 @@ public final class MSIMEInputService extends InputMethodService {
         phrasePanel.setOrientation(LinearLayout.VERTICAL);
         phrasePanel.setContentDescription("常用语面板");
         phraseScroll = new ScrollView(this);
-        phraseScroll.addView(phrasePanel);
+        // 与皮肤、剪贴板面板一样铺满键盘区：只按内容高度时，没有常用语的那一行提示只盖住第一排键，空白处的触摸还会穿到下面的键上。
+        phraseScroll.addView(phrasePanel, new ScrollView.LayoutParams(
+            ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
+        phraseScroll.setFillViewport(true);
+        phraseScroll.setClickable(true);
         phraseScroll.setVisibility(View.GONE);
         keyboardSurface.addView(phraseScroll, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
