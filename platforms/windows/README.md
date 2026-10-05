@@ -44,6 +44,12 @@ Windows 平台的实现源码在 `src/` 下；`tsf/`、`msimeui/`、`tests/`、`
 
 固定 Engine 的 `FanyImeNamedpipeData` 键包通过 `msime-host-api` 接入。共享库只进入独立 Server，不加载到注入应用的 TSF DLL 中；TSF DLL / Server 进程隔离、版本化 Named Pipe 契约和 UI 原生窗口所有权是这条边界上不变的三条约束。
 
+## 包管理器（winget、Scoop、Chocolatey）
+
+`packaging/` 下是 winget（`Metasequoia.MetasequoiaIME`）、Scoop（`msime`）与 Chocolatey（`msime`）的包定义模板和渲染脚本 `packaging/render.py`。三个包都只静默运行发布页上 full 的 Inno Setup 安装包，不另编二进制；包描述和主页 `https://github.com/metasequoiaime/msime` 与 Linux 各发行版的定义一致。包管理器只能指向签过名的安装包：`release-windows.yml` 先行发布的安装包未签名，其 uiAccess Server 无法启动，所以 `render.py` 拒绝没有有效 Authenticode 签名的安装包；维护者把 SimplySign 签名的安装包替换到发布上之后，手动触发 `package-definitions-windows.yml` 渲染并上传构建产物 `msime-package-definitions-windows-<版本>`（含 `.nupkg`），不向任何外部仓库推送。`scripts/test-windows-package-managers.py`（由 `scripts/run-checks.sh` 自动运行）核对模板里的安装包事实与 `installer/msime_setup.iss`、`installer/editions.iss` 和发布流程一致。
+
+上架之后的安装方式：`winget install Metasequoia.MetasequoiaIME`；`scoop bucket add msime https://github.com/metasequoiaime/scoop-bucket` 后 `scoop install msime`；`choco install msime`。各仓库的发布步骤（winget-pkgs PR、Scoop bucket、`choco push`）见 [packaging/README.md](packaging/README.md#发布步骤)。
+
 ## 原生界面渲染与皮肤
 
 候选窗、悬浮工具条、托盘菜单和 `msimeui` 的面板 demo 都通过 `msimeui` 的 Direct2D 设备资源绘制，本仓库不引入第二套 D2D 路径。几何与配色从已发布 Windows 呈现器移植：`CandidateCardSize.h` 提供卡片尺寸、行矩形与命中测试的唯一来源，`CandidatePalette.h` 解析皮肤清单里的 CSS 颜色子集（三位/六位/八位十六进制、`rgb()`/`rgba()`、`transparent`），无法表示的写法保留内置 token 而不是渲染出不可见窗口。候选卡片用 DirectWrite 实测预编辑与每个候选的宽度后合成尺寸，工作区一半封顶两个轴；绘制和命中读同一份 metrics，点击不会落到渲染器没画的行上。固定候选只在未高亮时使用 accent；进入高亮行后，候选正文、辅助码和翻译整体改用选中行正文颜色。

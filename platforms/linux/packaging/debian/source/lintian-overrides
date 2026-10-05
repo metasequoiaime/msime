@@ -1,0 +1,4 @@
+# 来自 vendor/cargo 里 cargo vendor 原样带下的 windows_* crate（Windows 导入库，Linux 构建用不到）。构建农场没有网络，crate 只能随源码包整体提供。
+source-contains-prebuilt-windows-binary
+# 许可证全文随数据和源码树提供（resources/licenses 与 vendor 里各数据目录），copyright 里只写名称与位置。
+incomplete-creative-commons-license

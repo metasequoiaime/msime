@@ -4,6 +4,8 @@
 pub(crate) mod mobile_account_helpers;
 // The account preference mapping is plain data, so host tests compile it to exercise the iOS upload and apply rules.
 pub(crate) mod mobile_account_preferences;
+#[cfg(any(target_os = "ios", target_os = "android", test))]
+pub(crate) mod mobile_ai_skin_requests;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub(crate) mod mobile_community;
 

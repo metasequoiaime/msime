@@ -61,7 +61,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 随包提供词库的安装由包管理器在升级时换掉词库，宿主下次启动就切到新代次。用 `msime-linux-setup --download` 自己下载的词库没有人替换：升级抬高了词库版本，而记录的词库目录仍是旧的那份时，`msime_client_refresh_host` 的校验失败以 `dictionary_outdated:` 开头报告，与其他准备失败区分开。这时宿主照旧继续用旧代次，IBus 宿主在 stderr 写明原因，Fcitx5 写诊断 `reason=dictionary_outdated`，两者都以不阻塞的方式调用随装的 `msime-linux-first-run-guide --reason dictionary-outdated`。有图形会话时它发一条桌面通知「水杉输入法词库需要更新」，指向 `msime-linux-setup --update --download`，不打开窗口；限流与首次配置引导相同，但标记是独立的 `dictionary-outdated.stamp`，两种引导互不抑制。`msime-linux-setup --update`（状态目录已有 `runtime-options.json` 时给 `--download` 即视为 `--update`）对应 Windows 安装程序升级时的用户词库回放：它读出这份配置记录的 `resources`，按随装的词库锁核对；不符时加 `--download` 在它旁边另建一份按锁内容命名的 `resources-<摘要>` 目录，与锁一致的文件直接硬链接过去，只取回缺失或不符的几项。`msime-linux-setup` 不往正在使用的那份目录写任何文件：旧代次的会话每次查询都按路径读其中的 `msime-others.db` 等文件，原地替换会让它读到新旧混杂的一份，切换失败时也无法退回；旧目录保留，确认后由用户自行删除，锁之外的多余文件也随之留在旧目录里。随后它像设置窗口做词库维护那样写入 `.msime-dictionary-quiesce` 租约（在切换期间续期），并独占会话锁证明两个宿主都已关掉输入会话，再运行 `msime-linux-prepare --refresh`，走与宿主启动时同一条刷新路径切到新代次并回放用户词库。新目录先写进同目录下的一份配置副本交给刷新，刷新成功后这份副本才原子替换 `runtime-options.json`。切换期间不开会话是为了回放完整：Engine 只在准备新代次时回放一次用户词库日志，之后一个仍开着的会话学到的词只会写进旧代次和日志，新代次再也拿不到。会话在 2.5 秒内未释放时不切换、配置不变，已下好的新目录留给下次重试。记录的词库目录是本次安装随包提供的那份（前缀下的 `share/msime-client/resources` 与 `$XDG_DATA_HOME/msime-client/resources` 重合时除外，例如装在 `~/.local` 下，那里的词库是首次配置时用户自己下载的），或不归当前用户所有、当前用户不可写时拒绝更新，说明它由包管理器负责；`--update` 不接受 `--resources`，没有 `runtime-options.json` 时报错并提示先做首次配置。`msime-linux-prepare --refresh` 输出 `refreshed` 或 `current`，词库仍与本版本不符时以 3 退出，其他失败以 1 退出，文件都保持原样。租约撤下后宿主重新打开的会话即使用新代次：Fcitx5 在建立会话时读取这份文件；IBus 宿主监视它并在 100 ms 内重读，监视不可用时每 5 秒重读一次，所以 IBus 在运行时租约会在切换后再保留 6 秒。
 
-**状态准备好后，setup 把输入法加进正在运行的宿主的输入法列表**，对应 Windows 安装程序注册 TSF profile 后输入法直接出现在列表里。两个宿主都在跑时以 Fcitx5 为准。Fcitx5 经 D-Bus（`org.fcitx.Fcitx5` 的 `/controller`）先看 `AvailableInputMethods` 是否已列出 `msime`，没有才调用 `Restart`（Fcitx5 只在启动时加载插件，写入组里的未加载输入法会被它丢掉），然后读出当前输入法组，把 `msime`（显示为「水杉输入法」，英文界面为「MSIME」）追加到组末尾后写回，再读回核对。IBus 下先看 `ibus list-engine` 是否已列出 `msime-linux`，没有才执行 `ibus restart`（ibus-daemon 只在启动时读组件文件），然后把 `('ibus', 'msime-linux')` 追加到 GNOME 的 `org.gnome.desktop.input-sources sources`（`XDG_CURRENT_DESKTOP` 含 GNOME 且装有该 schema 时；GNOME Shell 不读 IBus 自己的列表），其他桌面追加到 `org.freedesktop.ibus.general preload-engines`，输入源里显示为「Metasequoia 水杉输入法」。已在列表里时只读不写，重复运行不会重复添加；IBus 列表为空说明桌面在用一份没写进该项的默认输入源，这时不写，免得把它替换掉；Fcitx5 当前组为空时同样不写，因为组里第一项是非激活状态下使用的输入法，应当是键盘布局，只放本输入法会让它无处可切回。任何一步失败（宿主没在跑、D-Bus 调用失败、宿主重启后仍未加载本输入法、列表或当前组为空）都只在 stderr 说明原因并打印手动步骤：Fcitx5 用 `fcitx5-configtool` 把「水杉输入法」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里添加「Metasequoia 水杉输入法」；已经准备好的状态不受影响，退出码仍为 0。`--no-register` 跳过这一步，只打印手动步骤。卸载时由 `msime-linux-setup --unregister` 把本输入法从这些列表里移除（见下文「卸载 CMake 安装」）。
+**状态准备好后，setup 把输入法加进正在运行的宿主的输入法列表**，对应 Windows 安装程序注册 TSF profile 后输入法直接出现在列表里。两个宿主都在跑时以 Fcitx5 为准。Fcitx5 经 D-Bus（`org.fcitx.Fcitx5` 的 `/controller`）先看 `AvailableInputMethods` 是否已列出 `msime`，没有才调用 `Restart`（Fcitx5 只在启动时加载插件，写入组里的未加载输入法会被它丢掉），然后读出当前输入法组，把 `msime`（显示为「水杉输入法」，英文界面为「MSIME」）追加到组末尾后写回，再读回核对。IBus 下先看 `ibus list-engine` 是否已列出 `msime-linux`，没有才执行 `ibus restart`（ibus-daemon 只在启动时读组件文件），然后把 `('ibus', 'msime-linux')` 追加到 GNOME 的 `org.gnome.desktop.input-sources sources`（`XDG_CURRENT_DESKTOP` 含 GNOME 且装有该 schema 时；GNOME Shell 不读 IBus 自己的列表），其他桌面追加到 `org.freedesktop.ibus.general preload-engines`，输入源里显示为「Metasequoia 水杉输入法」。已在列表里时只读不写，重复运行不会重复添加；IBus 列表为空说明桌面在用一份没写进该项的默认输入源，这时不写，免得把它替换掉；Fcitx5 当前组为空时同样不写，因为组里第一项是非激活状态下使用的输入法，应当是键盘布局，只放本输入法会让它无处可切回。任何一步失败（宿主没在跑、D-Bus 调用失败、宿主重启后仍未加载本输入法、列表或当前组为空）都只在 stderr 说明原因并打印手动步骤：Fcitx5 用 `fcitx5-configtool` 把「水杉输入法」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里添加「Metasequoia 水杉输入法」；已经准备好的状态不受影响，退出码仍为 0。`--no-register` 跳过这一步，只打印手动步骤。卸载时由 `msime-linux-setup --unregister` 把本输入法从这些列表里移除（见下文「卸载 CMake 安装」）。`msime-linux-setup --register` 是反过来的那一步：默认位置的状态目录已有 `runtime-options.json` 时，重新启用首次配置启用的在线、语音和剪贴板服务、链回 Omarchy 的钩子和插件，并按上面的规则把输入法加回正在运行的宿主的列表，不检查词库、不改状态；没配置过时什么也不做。发行版仓库的包替换另一个同样内容的包之后自动替每个用户运行它（见下文「包管理器」）。
 
 **先选了输入法、还没做首次配置时，宿主会把用户引到首次配置页，而不是静默失效。** Windows 的安装程序在安装时就把数据目录准备好，输入法一能选中就能用；Linux 安装包不产生用户状态，此前在 IBus 里选中 MSIME 时启动器只往 stderr 写一行就退出，用户看到的是一个没反应的输入法，Fcitx5 则只显示笼统的「请检查运行配置」。现在只有「没有显式覆盖、用户的 `runtime-options.json` 与系统级配置都不存在」这一种状态被判为「尚未完成首次配置」；显式指定的 `MSIME_IBUS_OPTIONS`/`MSIME_FCITX5_OPTIONS` 无效、文件不可读或是悬空符号链接，仍按配置损坏处理，不做引导。判为尚未配置时，IBus 启动器照旧写 stderr 并以非零状态退出，Fcitx5 在面板上显示「水杉输入法尚未完成首次配置：请打开「水杉输入法」设置，或在终端运行 msime-linux-setup」，按键继续交给应用；两者随后都调用随装的 `msime-linux-first-run-guide`（Fcitx5 只在激活输入法时调用，按键只显示提示，免得打字途中弹出的窗口抢走键盘焦点）。这个脚本在有图形会话（设置了 `DISPLAY` 或 `WAYLAND_DISPLAY`）时以脱离调用方的方式打开 `msime-linux-settings`（窗口自己会进入首次配置页），并在装有 `notify-send` 时发一条桌面通知；没装设置窗口的最小安装只发通知，改为指向 `msime-linux-setup`。通知里的后续步骤按宿主区分（调用方传 `--host ibus|fcitx5`）：Fcitx5 下次按键或聚焦就会重读配置，写的是「完成后即可直接输入」；IBus 组件已经退出，写的是先切换到其他输入法再切回，仍不行就运行 `ibus restart`。ibus-daemon 每次选中都会重新拉起启动器、Fcitx5 每次聚焦都会激活输入法，所以引导有限流：标记放在 `$XDG_RUNTIME_DIR/msime-client/first-run-guide.stamp`，每个登录会话两个宿主合计只弹一次，标记不按时间过期，重新登录后才会再弹；会话没有 `XDG_RUNTIME_DIR` 时退到跨会话保留的 `$XDG_CACHE_HOME/msime-client/`，只能按 5 分钟冷却期限流。没有图形会话时既不弹窗也不写标记。脚本不创建状态目录（`msime-linux-setup` 拒绝准备已存在的目录），也不发起任何网络请求，下载仍只在用户勾选或传 `--download` 时发生。契约由 `tests/core/first_run_guide.py`（桩掉设置窗口与 `notify-send`，验证只调用一次、同一会话内不再调用、并发调用只引导一次、缓存目录下的冷却期、按宿主区分的通知文案、无图形会话时不调用，以及 `--reason dictionary-outdated` 只发通知不开窗口、与首次配置各用一个标记互不抑制）、`tests/core/first_run_guidance.cpp`（Fcitx5 的配置定位与「尚未配置」判定）和 `fcitx5/tests/native.cpp` 里的首次配置用例（真实插件：面板提示、按键不被拦截、按键不拉起引导、激活只拉起一次、不写失败诊断；词库过期时写 `reason=dictionary_outdated`、以 `--reason dictionary-outdated` 拉起引导且不改写配置）钉住。
 
@@ -92,7 +92,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ## 生成 Linux 安装包
 
-发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-linux_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`，以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。
+发行版由 `.github/workflows/release-linux.yml` 手动触发，标签为 `linux-v<版本>`（版本默认取 `platforms/linux/version.txt`），附件是一个 Debian 包 `msime-linux_<版本>_<架构>.deb`、一个与它同一套文件、按 `/usr` 布局的归档 `msime-linux-<版本>-linux-<架构>.tar.gz`、一个 Fedora 包 `msime-linux-<版本>-1.<架构>.rpm`、发行版源码构建用的三个 tarball `msime-<版本>.tar.xz`、`msime-<版本>-vendor.tar.xz` 与 `msime-<版本>-frontend.tar.xz`（见下文「包管理器」），以及覆盖全部附件的 `SHA256SUMS`。设置页的检查更新按 `linux-v` 标签前缀挑选发行版并打开发行页；附件只用来显示校验值，按扩展名 `.deb`（没有时取 `.tar.gz`）识别，不依赖其中的版本与架构段。同一个标签下其他版本（见下文「多版本」）各有同样的一组附件，包名换成 `msime-linux-<id>`，设置页按本版本的包名挑选自己的那一份。
 
 安装前先核对校验值：`sha256sum -c SHA256SUMS --ignore-missing`。Debian/Ubuntu 用 `sudo apt install ./msime-linux_<版本>_<架构>.deb`，依赖由 apt 一并装好，卸载用 `sudo apt remove msime-client`。对应 Windows 安装程序在卸载和升级时停止输入法进程：`apt remove` 删除文件前，包的 prerm 在每个已登录（或启用了 linger）用户的 systemd 用户实例里逐个 `disable --now` 与 CMake 卸载相同的那组在线、语音和剪贴板单元，免得它们指着已删除的程序反复重启，再在同一实例里以临时单元运行 `msime-linux-setup --unregister`，把本输入法从该用户的输入法列表里移除（见「卸载 CMake 安装」）；升级后 postinst 让这些实例重读单元文件，并重启其中正在运行的服务，使其换到新程序，socket 单元保持监听，输入法宿主自己换到新程序（见上文「安装后首次使用」里的升级一段）。联系不上的用户实例只打印该用户需要执行的命令；未登录的用户没有运行中的服务，但启用链接仍留在各自的 `~/.config/systemd/user`，需要时自行执行 `systemctl --user disable …`。没有 systemd 的环境（例如容器）两步都跳过，也都不会让 apt 失败。包里唯一不在 `/usr` 下的文件是剪贴板服务的 XDG 自启动项 `/etc/xdg/autostart/msime-linux-clipboard.desktop`（见「独立剪贴板采集」），它是 conffile：管理员修改或删除它之后，升级不会把它改回来；`apt remove` 留下它、`apt purge` 才删除，留下的自启动项在服务已被 prerm 停用后什么也不做。归档给不经 apt 安装的 Debian 系系统用，不是跨发行版的通用包：库目录是 Debian 的多架构布局 `usr/lib/<三元组>/`（例如 `usr/lib/x86_64-linux-gnu/`），Fcitx5 插件因此在 `usr/lib/<三元组>/fcitx5/`，Arch（`/usr/lib/fcitx5`）和 Fedora（`/usr/lib64/fcitx5`）上的 Fcitx5 不会去那里加载它。用法：`sudo tar -xzf msime-linux-<版本>-linux-<架构>.tar.gz --strip-components=1 -C /`，再执行 `sudo gtk-update-icon-cache -f -t /usr/share/icons/hicolor`；归档没有依赖声明，需由发行版提供 IBus 1.5.20+ 或 Fcitx5 5.0.20+、Python 3.9+，以及二进制链接的共享库（WebKitGTK 4.1、GTK 3、libsoup 3、ICU、libcurl、SQLite、D-Bus、Wayland、X11、xkbcommon 等，完整列表以同版本 `.deb` 的 Depends 为准）；它也没有卸载入口，删除时按归档内的文件列表（`tar -tzf`）逐个移除。两种方式装完都按上面的「安装后首次使用」执行 `msime-linux-setup`。
 
@@ -137,6 +137,79 @@ environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msim
 切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
 
 每次 `nixos-rebuild switch` 换了插件之后，要让 Fcitx5 从新的会话环境启动：注销后重新登录，或在新开的终端里执行 `fcitx5 -rd`。NixOS 的 `fcitx5-with-addons` 用 `FCITX_ADDON_DIRS` 指定插件目录，这个目录随每次构建换成新的 store 路径；从 Fcitx5 内部重启（托盘菜单的「重新启动」、`fcitx5-configtool`）沿用的是旧进程的环境，加载的仍是上一次构建的插件。旧插件里编译进去的词库锁和新版 `msime-linux-setup` 准备的词库不一致时，表现是能切到水杉输入法但打字没有候选。可以用 `grep msime-fcitx5 /proc/$(pgrep -x fcitx5)/maps` 核对正在运行的插件是否来自当前系统（`readlink -f /run/current-system/sw/bin/fcitx5` 所在的那份 `fcitx5-with-addons`）。
+
+### 包管理器
+
+除了发布页上的 `.deb`/`.rpm` 和上面的 Nix，仓库还维护这几个发行版仓库的包定义，都在 `platforms/linux/packaging/` 下，都只打完整版（full），内容与发布页的 `msime-linux` 包相同：Fcitx5 插件、IBus engine、`msime-linux-setup`、provider 服务、`msime-mcp`、设置窗口、语音运行库、手写模型、离线释义与粤语/注音/笔画词库；主词库同样不随包，装完每个用户运行一次 `msime-linux-setup --download`。
+
+| 仓库 | 定义 | 构建方式 |
+| --- | --- | --- |
+| Arch AUR `msime` | `arch/msime/PKGBUILD` | 从 `linux-v<版本>` 标签的源码构建，Rust 经 `rustup` 用 `rust-toolchain.toml` 钉住的版本，资源由 `scripts/fetch_*.py` 按锁文件下载 |
+| Arch AUR `msime-bin` | `arch/msime-bin/PKGBUILD` | 把发布页的 `.rpm` 改成 Arch 的目录布局重新打包，不编译 |
+| Fedora COPR、openSUSE OBS | `rpm/msime.spec` | 离线源码构建，依赖全部来自 `msime-<版本>-vendor.tar.xz`，编译器用发行版自己的 rust（≥ `Cargo.toml` 的 `rust-version`） |
+| Debian/Ubuntu（Launchpad PPA、OBS） | `debian/` | 同上，vendor 包作为 `orig-vendor` 组件 tarball |
+| Gentoo overlay | `gentoo/`（`msime-9999.ebuild` 与 `msime.ebuild.in`） | crate 由 `pycargoebuild` 逐个列进 `SRC_URI`，资源按锁文件地址列出，前端取 `msime-<版本>-frontend.tar.xz` |
+
+所有定义的构建步骤都照搬 `package-container.sh`（同样的 cargo 目标、同样的 `-DMSIME_*` 选项、`-DMSIME_EDITION=full`），跑与门禁相同的 ctest，装完核对插件按 RUNPATH 找到的是本包里的 Host API；包描述和主页 `https://github.com/metasequoiaime/msime` 在各定义里一致；许可证除了项目自己的 `GPL-3.0-only`，还列出随包的第三方代码与数据（静态链接的 Rust crate 与 npm 包、sherpa-onnx 与 ONNX Runtime、手写模型、方言词库、离线释义等，涉及 Apache-2.0、MIT、LGPL、CC-BY-4.0、CC-BY-SA-4.0 等），AUR 的 `license` 与 RPM 的 `License` 是同一份 SPDX 清单，Gentoo 用它自己的许可证名，Debian 写在 `debian/copyright`。资源的哈希只记在 `resources/*.lock.json`，各定义不另抄：构建时由同一批 fetch 脚本核对。`scripts/test-linux-distro-packaging.py` 核对五份定义传给 CMake 的选项与 `package-container.sh` 相同，`scripts/test-arch-gentoo-packaging.py` 核对 AUR 与 Gentoo 的维护脚本、单元列表、`.SRCINFO` 与 Rust 版本，两者都由 `scripts/run-checks.sh` 自动运行。各目录的 README（`arch/README.md`、`gentoo/README.md`、`debian/README.source`）写了更细的取舍，`arch/check-in-container.sh` 与 `gentoo/check-in-container.sh` 在容器里做完整构建或检查。
+
+**每次发布自动产出、不自动发布。** `release-linux.yml` 的 `distro-sources` job 用 `packaging/make-source-tarballs.sh` 生成上面三个 tarball，随发布上传；发布之后 `package-definitions` job 在同一提交上运行 `packaging/render-definitions.sh <版本> <目录>`，在各发行版的官方容器里渲染出 `rpm/`（`msime.spec`、`msime-rpmlintrc`、`msime-<版本>-1.src.rpm`）、`debian/`（`.dsc` 与 `.debian.tar.xz`）、`arch/`（两个包各自的 `PKGBUILD`、`.SRCINFO`、`msime.install`）和 `gentoo/`（带 Manifest 的完整 overlay），作为构建产物 `msime-package-definitions-linux-<版本>` 上传。版本号只来自 `platforms/linux/version.txt`（或手动触发时填的版本），`.rpm` 与 tarball 的校验值只来自发布页的 `SHA256SUMS`。本地也可以对任何一个已发布的版本跑同一个脚本（需要 docker），`MSIME_DEFINITIONS=arch,gentoo` 只渲染其中几部分。
+
+**上架之后的安装方式：**
+
+```sh
+yay -S msime            # 或 yay -S msime-bin
+sudo dnf copr enable <owner>/msime && sudo dnf install msime
+sudo zypper addrepo https://download.opensuse.org/repositories/home:/<user>/openSUSE_Tumbleweed/home:<user>.repo && sudo zypper install msime
+sudo add-apt-repository ppa:<owner>/msime && sudo apt install msime
+sudo eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git && sudo emaint sync -r msime && sudo emerge app-i18n/msime
+```
+
+发行版仓库里的包名是 `msime`；它与发布页的 `msime-linux` 文件完全重合，RPM 以 `Provides`/`Obsoletes`、Debian 以 `Conflicts`/`Replaces` 替换掉后者，AUR 的 `msime` 与 `msime-bin` 也互相冲突。被替换的包按卸载处理：它的卸载脚本对每个已登录用户停用 MSIME 的用户单元并运行 `msime-linux-setup --unregister`，输入法从 IBus 与 Fcitx5 的列表里消失。所以新包在替换完成后替每个已登录用户以临时单元运行 `msime-linux-setup --register` 恢复两者：RPM 在 `%triggerpostun -- msime-linux`（msime-linux 移除之后），Debian 在本包第一次配置的 postinst（`debian/postinst-register`），AUR 在 `post_install`。Debian 与 AUR 分不出这次安装替换了谁，所以卸载时保留了配置、之后重新安装的用户同样被恢复；没配置过的用户什么也不会发生。替换时没有登录的用户不受影响，被替换的包的卸载脚本也够不到他们；systemd 用户实例连不上的用户会在包管理器的输出里看到提示，登录后自己运行一次 `msime-linux-setup --register`。其他版本（`msime-linux-<id>`）装在 `/opt` 下，与它不冲突。
+
+#### 发布到各仓库
+
+仓库不向任何外部仓库推送，下面每一步都由维护者手动执行。以版本 `V` 为例，先从 `release-linux.yml` 那次运行下载构建产物 `msime-package-definitions-linux-V` 并解开到 `defs/`。
+
+**AUR**（先在 aur.archlinux.org 注册 `msime` 与 `msime-bin` 两个包并上传 SSH 公钥）：
+
+```sh
+git clone ssh://aur@aur.archlinux.org/msime.git aur-msime
+cp defs/arch/msime/{PKGBUILD,.SRCINFO,msime.install} aur-msime/
+cd aur-msime && git add PKGBUILD .SRCINFO msime.install && git commit -m "Update to V" && git push origin master
+```
+
+`msime-bin` 同理，仓库换成 `ssh://aur@aur.archlinux.org/msime-bin.git`，文件取 `defs/arch/msime-bin/`。再把 `defs/arch/` 下的两个目录拷回 `platforms/linux/packaging/arch/`，经普通 PR 合入 `develop`，让仓库里的副本与 AUR 一致。
+
+**Fedora COPR**（首次：`copr-cli create msime --chroot fedora-43-x86_64 --chroot fedora-43-aarch64 --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 --description '水杉输入法'`，构建默认不联网，正合需要）：
+
+```sh
+copr-cli build <owner>/msime defs/rpm/msime-V-1.src.rpm
+```
+
+**openSUSE OBS**（首次：`osc meta pkg -e home:<user> msime`，仓库选 `openSUSE_Tumbleweed`、`openSUSE_Leap_16.0`，架构 x86_64 与 aarch64）：
+
+```sh
+osc checkout home:<user>/msime && cd home:<user>/msime
+rm -f msime-*.tar.xz
+cp ../../defs/rpm/msime.spec ../../defs/rpm/msime-rpmlintrc .
+curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V.tar.xz
+curl -LO https://github.com/metasequoiaime/msime/releases/download/linux-vV/msime-V-vendor.tar.xz
+osc addremove && osc commit -m "Update to V" && osc results
+```
+
+OBS 也能构建 Debian/Ubuntu：把 `defs/debian/` 的 `.dsc`、`.debian.tar.xz` 和两个 orig tarball（发布页的 `msime-V.tar.xz`、`msime-V-vendor.tar.xz` 分别改名为 `msime_V.orig.tar.xz`、`msime_V.orig-vendor.tar.xz`）放进同一个包，再打开对应的 Debian/xUbuntu 仓库。
+
+**Launchpad PPA**：Launchpad 只收签名的源码上传，每个 Ubuntu 代号要单独的 `debian/changelog`，所以在本地按 `debian/README.source` 的「上传到 PPA」重新生成并签名，例如 Ubuntu 26.04：`render-sources.py --debian-distribution resolute --debian-revision 1~ppa1~ubuntu26.04`，`debuild -S -sa -k<密钥>`，`dput ppa:<owner>/msime ../msime_V-1~ppa1~ubuntu26.04_source.changes`。PPA 默认只构建 amd64，arm64 要在 PPA 设置里打开。Ubuntu 24.04 的默认 rustc 太旧，见 `debian/README.source`；Debian 13（rustc 1.85）不能作为目标。
+
+**Gentoo**（建议单独的 overlay 仓库，例如 `metasequoiaime/gentoo-overlay`）：
+
+```sh
+git clone git@github.com:metasequoiaime/gentoo-overlay.git
+cp -r defs/gentoo/. gentoo-overlay/
+cd gentoo-overlay && git add -A && git commit -m "app-i18n/msime: add V" && git push
+```
+
+`defs/gentoo/` 已经是带 Manifest、通过 `pkgcheck scan --exit error` 的完整 overlay；版本 ebuild 只有 `~amd64 ~arm64` 关键字。
 
 ## 多版本（水杉拼音、水杉五笔、水杉日语、水杉越南语、水杉藏文）
 

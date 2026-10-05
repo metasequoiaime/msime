@@ -1,0 +1,126 @@
+# Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
+#
+# 把 linux-v$pkgver 发布的 .rpm 重新打包，内容与 msime（源码包）相同，不在本机编译。选 .rpm 而不是 .deb：.deb 用 Debian 的多架构目录 usr/lib/<三元组>/，插件按相对 RUNPATH 找 Host API，挪到 Arch 的 /usr/lib/fcitx5 就断了；.rpm 用 /usr/lib64，Arch 上它本来就是指向 /usr/lib 的符号链接，整体挪进 /usr/lib、把相对路径里的 lib64 改成 lib 即可，其余写死 /usr/lib64 的地方照样经那个链接解析。
+#
+# 本文件在仓库 platforms/linux/packaging/arch/msime-bin/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布的 SHA256SUMS 改写，AUR 上的副本只是它的拷贝。发布只有 x86_64 的 .rpm。
+
+pkgname=msime-bin
+_pkgname=msime
+pkgver=0.9.1
+pkgrel=1
+# CPack 生成的 .rpm 的 Release 字段。
+_rpmrel=1
+pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
+arch=('x86_64')
+url='https://github.com/metasequoiaime/msime'
+# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
+license=(
+  'GPL-3.0-only'
+  'Apache-2.0'
+  'MIT'
+  'BSD-3-Clause'
+  'HPND'
+  'LGPL-2.1-or-later'
+  'LGPL-3.0-only'
+  'CC-BY-4.0'
+  'CC-BY-SA-4.0'
+  'MPL-2.0'
+  'WTFPL'
+  'Unicode-3.0'
+  'ISC'
+  'Zlib'
+)
+depends=(
+  'alsa-lib'
+  'cairo'
+  'dbus'
+  'fcitx5'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'harfbuzz'
+  'hicolor-icon-theme'
+  # IBus 守护进程负责拉起 IBus engine；libibus 只是它链接的库。
+  'ibus'
+  'libgcc'
+  'libibus'
+  'libsoup3'
+  'libstdc++'
+  'libx11'
+  'libxext'
+  'libxfixes'
+  'libxkbcommon'
+  'libxrandr'
+  'pango'
+  # msime-linux-setup 切换词库前用 pgrep 确认宿主进程。
+  'procps-ng'
+  'python'
+  'wayland'
+  'webkit2gtk-4.1'
+)
+optdepends=(
+  'python-websockets: 豆包流式语音识别'
+  'libpulse: 用 parec 录音'
+  'pipewire: 用 pw-cat 录音'
+  'alsa-utils: 用 arecord 录音'
+)
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+makedepends=('patchelf')
+backup=('etc/xdg/autostart/msime-linux-clipboard.desktop')
+install=msime.install
+# 发布的二进制已经剥离过符号，再剥一遍只会白白改动文件。
+options=('!strip' '!debug')
+source_x86_64=("msime-linux-$pkgver-$_rpmrel.x86_64.rpm::$url/releases/download/linux-v$pkgver/msime-linux-$pkgver-$_rpmrel.x86_64.rpm")
+sha256sums_x86_64=('f2d001a2e2fcb7e754d1cfb58fd07e873a313d1b3cbe0636b9cfb38db96c9c63')
+
+package() {
+  # makepkg 已用 bsdtar 解开 .rpm 的载荷。Fedora 的 brp-hardlink 把内容相同的许可证文件做成了跨目录硬链接（/usr/share/doc 与 /usr/share/msime-client 之间），pacman 配了 NoExtract 跳过文档时另一端就丢了，所以复制时拆开硬链接。
+  cp -a --no-preserve=ownership,links "$srcdir/usr" "$pkgdir/"
+  if [[ -d "$srcdir/etc" ]]; then
+    cp -a --no-preserve=ownership,links "$srcdir/etc" "$pkgdir/"
+  fi
+  # Arch 的 /usr/lib64 是 filesystem 包拥有的符号链接，包里不能有这个目录。
+  if [[ -d "$pkgdir/usr/lib64" ]]; then
+    mkdir -p "$pkgdir/usr/lib"
+    cp -a "$pkgdir/usr/lib64/." "$pkgdir/usr/lib/"
+    rm -rf "$pkgdir/usr/lib64"
+  fi
+  # rpmbuild 生成的 build-id 链接归 Fedora 的调试信息机制所有，Arch 上没有意义。
+  rm -rf "$pkgdir/usr/lib/.build-id"
+  # 相对 RUNPATH（$ORIGIN/../lib64/msime-client）和 msime_voice_paths.py 里的相对路径在装好的系统上能经 /usr/lib64 链接解析，但 $pkgdir 里没有这个链接，下面的核对就做不了；直接改成 lib，不再依赖那个链接。
+  local elf runpath
+  while IFS= read -r -d '' elf; do
+    file -b "$elf" | grep -q '^ELF' || continue
+    runpath=$(patchelf --print-rpath "$elf")
+    if [[ $runpath == *lib64* ]]; then
+      patchelf --set-rpath "${runpath//lib64/lib}" "$elf"
+    fi
+  done < <(find "$pkgdir/usr/bin" "$pkgdir/usr/lib" -type f -print0)
+  sed -i 's|\.\./lib64/|../lib/|g' "$pkgdir/usr/bin/msime_voice_paths.py"
+
+  # GPL 之外的许可证（MIT、BSD-3-Clause、CC-BY-SA-4.0 等）在 Arch 上要随包放在 /usr/share/licenses/$pkgname；文本已在 /usr/share/doc/msime-client（与 .deb、.rpm 相同的位置），逐个链过去，不另存一份。
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  local notice
+  for notice in "$pkgdir"/usr/share/doc/msime-client/*; do
+    ln -s "/usr/share/doc/msime-client/${notice##*/}" "$pkgdir/usr/share/licenses/$pkgname/${notice##*/}"
+  done
+
+  # 与源码包 package() 相同的核对：插件按 RUNPATH 找到的 Host API 必须是本包里的那份，其余 ELF 也不能有解析不到的库。
+  local resolved
+  resolved=$(ldd "$pkgdir/usr/lib/fcitx5/libmsime-fcitx5.so" | awk '$1 == "libmsime_host_api.so" { print $3 }')
+  echo "libmsime_host_api.so => $resolved"
+  [[ $(realpath -- "$resolved") == "$pkgdir/usr/lib/msime-client/libmsime_host_api.so" ]]
+  local missing=0
+  while IFS= read -r -d '' elf; do
+    if file -b "$elf" | grep -q '^ELF'; then
+      if ldd "$elf" | grep -q 'not found'; then
+        echo "unresolved libraries in ${elf#"$pkgdir"}:" >&2
+        ldd "$elf" | grep 'not found' >&2
+        missing=1
+      fi
+    fi
+  done < <(find "$pkgdir/usr/bin" "$pkgdir/usr/lib" -type f -print0)
+  (( missing == 0 ))
+}

@@ -1,0 +1,179 @@
+# Maintainer: Metasequoia IME <metasequoiaime@gmail.com>
+#
+# 从 linux-v$pkgver 标签的源码构建完整版，内容与发布的 .deb/.rpm 相同：Fcitx5 插件、IBus engine、msime-linux-setup、设置窗口（Tauri 桌面二进制）、msime-mcp、语音运行库、手写模型、离线释义与粤语/注音/笔画词库。主词库（约 170 MB）不随包，与发布包一样由每个用户首次运行 `msime-linux-setup --download` 取回。
+#
+# 本文件在仓库 platforms/linux/packaging/arch/msime/ 下维护，版本号与校验值由 platforms/linux/packaging/arch/render.py 按每次发布改写，AUR 上的副本只是它的拷贝。构建步骤与 platforms/linux/package-container.sh 一致，改那边时这里一起改。
+
+pkgname=msime
+pkgver=0.9.1
+pkgrel=1
+pkgdesc='Metasequoia IME (水杉输入法): Chinese input method for Fcitx5 and IBus'
+arch=('x86_64' 'aarch64')
+url='https://github.com/metasequoiaime/msime'
+# 本项目代码为 GPL-3.0-only；其余是随包的第三方代码与数据，与 rpm/msime.spec 的 License 和 Gentoo ebuild 的 LICENSE 是同一份清单：静态链接的 Rust crate 与打进设置窗口的 npm 包（rust-crates-NOTICES.txt、frontend-npm-NOTICES.txt 逐个列出）、sherpa-onnx 与 ONNX Runtime、nlohmann/json、Wayland 协议代码、手写模型、方言词库、离线释义和 resources/licenses 下的各项数据。许可证文本由 CMake 装在 /usr/share/doc/msime-client，package() 再链进 /usr/share/licenses/$pkgname。
+license=(
+  'GPL-3.0-only'
+  'Apache-2.0'
+  'MIT'
+  'BSD-3-Clause'
+  'HPND'
+  'LGPL-2.1-or-later'
+  'LGPL-3.0-only'
+  'CC-BY-4.0'
+  'CC-BY-SA-4.0'
+  'MPL-2.0'
+  'WTFPL'
+  'Unicode-3.0'
+  'ISC'
+  'Zlib'
+)
+depends=(
+  'alsa-lib'
+  'cairo'
+  'dbus'
+  'fcitx5'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'hicolor-icon-theme'
+  # IBus 守护进程负责拉起 IBus engine；libibus 只是它链接的库。
+  'ibus'
+  'libgcc'
+  'libibus'
+  'libsoup3'
+  'libstdc++'
+  'libx11'
+  'libxext'
+  'libxfixes'
+  'libxkbcommon'
+  'libxrandr'
+  'pango'
+  # msime-linux-setup 切换词库前用 pgrep 确认宿主进程。
+  'procps-ng'
+  'python'
+  'wayland'
+  'webkit2gtk-4.1'
+)
+# 与 .deb 的 Recommends 相同：语音服务没有它们也能启动，只有用到的那部分请求会失败。
+optdepends=(
+  'python-websockets: 豆包流式语音识别'
+  'libpulse: 用 parec 录音'
+  'pipewire: 用 pw-cat 录音'
+  'alsa-utils: 用 arecord 录音'
+)
+makedepends=(
+  'cmake'
+  'curl'
+  'git'
+  'ninja'
+  'nlohmann-json'
+  'nodejs'
+  'pkgconf'
+  'pnpm'
+  'rustup'
+  'wayland-protocols'
+)
+# msime-linux-setup 的测试要 pgrep（procps-ng 已在 depends 里），IBus 遥测与翻页测试要起 dbus-daemon。
+checkdepends=('dbus')
+conflicts=('msime-bin')
+# 唯一不在 /usr 下的文件，对应 .deb 的 conffile 与 .rpm 的 %config(noreplace)。
+backup=('etc/xdg/autostart/msime-linux-clipboard.desktop')
+install=msime.install
+# makepkg 的 LTO 会让 cc crate 编出的 C 静态库（rusqlite 自带的 SQLite 等）带上 GCC 的 LTO 字节码，rustc 用的 rust-lld 读不懂，链接 msime-mcp 时报 sqlite3_* 未定义。
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/linux-v$pkgver.tar.gz")
+sha256sums=('d24ddfebe51d71752d2d431f06ba3e40569f259e3cce31ef8d9f531e1cf85b48')
+
+_srcdir() {
+  printf '%s' "$srcdir/msime-linux-v$pkgver"
+}
+
+prepare() {
+  cd "$(_srcdir)"
+  # 编译器取 rust-toolchain.toml 钉住的版本（不传参数时 rustup 安装工具链文件指定的那个），与其他平台和门禁一致，不用系统 rust 包。
+  rustup toolchain install
+  # 不按目标平台过滤：collect-notices.py 跑的 cargo metadata 要解析整张依赖图，build() 里是离线的。
+  cargo fetch --locked
+  pnpm install --frozen-lockfile
+  # 随包的锁定资源。脚本按 resources/*.lock.json 里的地址下载并核对 SHA-256，这里不另记一份哈希。
+  local voice_platform
+  case "$CARCH" in
+    x86_64) voice_platform=linux-x86_64 ;;
+    aarch64) voice_platform=linux-aarch64 ;;
+  esac
+  python scripts/fetch_voice_runtime.py --platform "$voice_platform" --out "$srcdir/voice-runtime"
+  python scripts/fetch_handwriting_model.py --out "$srcdir/handwriting-model"
+  python scripts/fetch_offline_glosses.py --out "$srcdir/offline-glosses"
+  python scripts/fetch_language_dictionaries.py --out "$srcdir/language-dictionaries"
+}
+
+build() {
+  cd "$(_srcdir)"
+  export CARGO_NET_OFFLINE=true
+  cargo build --release --locked -p msime-host-api
+  cargo build --release --locked -p msime-mcp-server --bin msime-mcp
+  # 桌面二进制在编译时嵌入前端，先构建前端。tauri/custom-protocol 是 `tauri build` 打开的特性，缺了它会得到加载 devUrl 的开发版；TAURI_CONFIG 设定应用报告的版本，与 package-container.sh 相同。
+  pnpm --filter @msime/desktop build
+  TAURI_CONFIG="{\"version\":\"$pkgver\"}" \
+    cargo build --release --locked -p msime-desktop --bin msime-desktop --features tauri/custom-protocol
+
+  # 静态链接进二进制的 crate 与打进前端的 npm 包的许可证，打包配置要求两者都在。
+  mkdir -p "$srcdir/notices"
+  python platforms/linux/collect-notices.py npm "$srcdir/notices/frontend-npm-NOTICES.txt" apps/desktop
+  python platforms/linux/collect-notices.py cargo "$srcdir/notices/rust-crates-NOTICES.txt" \
+    msime-host-api msime-mcp-server msime-desktop:tauri/custom-protocol
+
+  # MSIME_ENABLE_PACKAGING 打开与发布包相同的校验（前缀必须是 /usr、第三方声明齐全）；只用它的安装规则，不跑 CPack。
+  cmake -S platforms/linux -B "$srcdir/build" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DMSIME_EDITION=full \
+    -DMSIME_ENABLE_PACKAGING=ON \
+    -DMSIME_ENABLE_FCITX5=ON \
+    -DMSIME_PACKAGE_VERSION="$pkgver" \
+    -DMSIME_HOST_LIBRARY="$PWD/target/release/libmsime_host_api.so" \
+    -DMSIME_MCP_BINARY="$PWD/target/release/msime-mcp" \
+    -DMSIME_DESKTOP_BINARY="$PWD/target/release/msime-desktop" \
+    -DMSIME_RUST_NOTICES="$srcdir/notices/rust-crates-NOTICES.txt" \
+    -DMSIME_FRONTEND_NOTICES="$srcdir/notices/frontend-npm-NOTICES.txt" \
+    -DMSIME_VOICE_RUNTIME_DIR="$srcdir/voice-runtime" \
+    -DMSIME_HANDWRITING_MODEL_DIR="$srcdir/handwriting-model" \
+    -DMSIME_OFFLINE_GLOSSES="$srcdir/offline-glosses" \
+    -DMSIME_LANGUAGE_DICTIONARIES="$srcdir/language-dictionaries" \
+    -DMSIME_REQUIRE_LANGUAGE_DICTIONARIES=ON
+  cmake --build "$srcdir/build"
+}
+
+check() {
+  # 与拉取请求门禁和发布构建跑的是同一套 ctest。
+  ctest --test-dir "$srcdir/build" --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install "$srcdir/build"
+
+  # GPL 之外的许可证（MIT、BSD-3-Clause、CC-BY-SA-4.0 等）在 Arch 上要随包放在 /usr/share/licenses/$pkgname；文本已在 /usr/share/doc/msime-client（与 .deb、.rpm 相同的位置），逐个链过去，不另存一份。
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  local notice
+  for notice in "$pkgdir"/usr/share/doc/msime-client/*; do
+    ln -s "/usr/share/doc/msime-client/${notice##*/}" "$pkgdir/usr/share/licenses/$pkgname/${notice##*/}"
+  done
+
+  # ctest 跑的是构建目录，看不到装出去的程序能不能加载。这里在 $pkgdir 里核对：Fcitx5 按插件的 RUNPATH 找 Host API，它必须落在本包自己的 /usr/lib/msime-client；其余 ELF 也不能有解析不到的库。
+  local resolved
+  resolved=$(ldd "$pkgdir/usr/lib/fcitx5/libmsime-fcitx5.so" | awk '$1 == "libmsime_host_api.so" { print $3 }')
+  echo "libmsime_host_api.so => $resolved"
+  [[ $(realpath -- "$resolved") == "$pkgdir/usr/lib/msime-client/libmsime_host_api.so" ]]
+  local elf missing=0
+  while IFS= read -r -d '' elf; do
+    if file -b "$elf" | grep -q '^ELF'; then
+      if ldd "$elf" | grep -q 'not found'; then
+        echo "unresolved libraries in ${elf#"$pkgdir"}:" >&2
+        ldd "$elf" | grep 'not found' >&2
+        missing=1
+      fi
+    fi
+  done < <(find "$pkgdir/usr/bin" "$pkgdir/usr/lib" -type f -print0)
+  (( missing == 0 ))
+}
