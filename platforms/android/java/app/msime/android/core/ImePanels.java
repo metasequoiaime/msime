@@ -374,7 +374,8 @@ final class ImePanels {
         String globalTheme = preferences == null ? "system" : preferences.optString("global_theme", "system");
         PagedTileGrid grid = new PagedTileGrid(s);
         grid.setGrid(4, 2);
-        grid.setSpacing(84, 10, 10, 4);
+        // 行高容下按 390:292 的迷你键盘（约 86 dp 宽时 65 dp 高）、描边和下方的名字；行距、列距取设计的 6 / 10。
+        grid.setSpacing(92, 6, 10, 4);
         grid.setContentDescription("键盘皮肤选择器");
         java.util.List<KeyboardSkinCard> cards = new java.util.ArrayList<>();
         int selectedIndex = 0;

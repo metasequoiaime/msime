@@ -9,7 +9,7 @@ import android.graphics.Typeface;
 import android.util.TypedValue;
 
 /**
- * 键盘内皮肤面板的一格瓷砖：上面是圆角 8 dp 的皮肤缩略图，下面一行 12 sp 的皮肤名。
+ * 键盘内皮肤面板的一格瓷砖：上面是圆角 8 dp、按设计 MiniKb 比例的整副迷你键盘，下面一行 12 sp 的皮肤名。
  *
  * <p>选中时缩略图外一圈 2 dp 的 accent 描边、名字用 accent 加粗；未选中是 1 dp 的 kbHair 描边、名字用 kbFg。这几样颜色由调用方经 {@link #setTileColors} 从当前键盘皮肤传入（面板的配色，而不是瓷砖代表的那个皮肤）；没传时退回瓷砖皮肤自己的颜色。节点描述沿用构造时的标题，调用方可再覆盖。
  */
@@ -68,8 +68,11 @@ public final class KeyboardSkinCard extends KeyboardPressButton {
         Paint.FontMetrics metrics = paint.getFontMetrics();
         float labelHeight = metrics.descent - metrics.ascent;
         float ring = 2 * density;
-        tile.set(ring, ring, getWidth() - ring,
-            getHeight() - labelHeight - LABEL_GAP_DP * density - ring);
+        // 缩略图按设计 MiniKb 的 390:292 由宽度定高，名字紧贴在下方；格子更高时多出的空白留在名字下面，不拉伸缩略图。
+        float available = getHeight() - labelHeight - LABEL_GAP_DP * density - ring * 2;
+        float tileHeight = Math.min(available,
+            (getWidth() - ring * 2) * KeyboardSkinPreview.MINI_HEIGHT / KeyboardSkinPreview.MINI_WIDTH);
+        tile.set(ring, ring, getWidth() - ring, ring + tileHeight);
         if (tile.width() <= 0 || tile.height() <= 0) return;
         float radius = TILE_RADIUS_DP * density;
         if (splitStart != null && splitEnd != null) {
