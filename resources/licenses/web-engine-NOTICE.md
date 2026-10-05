@@ -38,9 +38,10 @@
 | 单字表（`sources/pinyin/single-chars.txt`） | [iDvel/rime-ice](https://github.com/iDvel/rime-ice)，读音以 [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) 校正 | GPL-3.0 + MIT | `msime-pinyin.db` |
 | `source/SampleIMESimplifiedQuanPin.txt` | [microsoft/Windows-classic-samples](https://github.com/microsoft/Windows-classic-samples) | MIT | `msime-pinyin.db` |
 | 五笔 86 码表（`sources/wubi/wubi86-jidian.txt`） | [KyleBing/rime-wubi86-jidian](https://github.com/KyleBing/rime-wubi86-jidian) | Apache-2.0 | `msime-wubi86.db` |
+| 五笔 86 词组补充表（`sources/wubi/wubi86-supplement.txt`） | 由 msime 的 `msime-dict-build wubi86-supplement` 生成：词条取自 rime-ice 与 98 五笔表（[yanhuacuo/98wubi-tables](https://github.com/yanhuacuo/98wubi-tables)、[fcitx/fcitx5-table-extra](https://github.com/fcitx/fcitx5-table-extra)），编码按 86 词组规则由 rime-wubi86-jidian 的单字码推出 | GPL-3.0（词条依据 GPL-3.0 的 rime-ice、GPL-3.0-or-later 的 Fcitx 表与 Unlicense 的 98 五笔表；编码依据 Apache-2.0 的 jidian 单字码） | `msime-wubi86.db` |
 | 本项目自建词条（`source/FanyExtDict.txt`、`cn/phrases.txt`、msime-dictionary 的 `custom/`） | [metasequoiaime/msime-dictionary](https://github.com/metasequoiaime/msime-dictionary) | GPL-3.0 | `msime-pinyin.db` |
 
-拼音库含 rime-ice 的数据，再分发时必须保留对 rime-ice 的署名，并按 GPL-3.0 提供；GPL-3.0 全文见下文 `LICENSE`。五笔 86 码表为 Apache-2.0，需保留署名。两个库里的五笔 98 码表与快捷短语表都已清空（只留表结构）。
+拼音库含 rime-ice 的数据，再分发时必须保留对 rime-ice 的署名，并按 GPL-3.0 提供；GPL-3.0 全文见下文 `LICENSE`。五笔 86 码表为 Apache-2.0，需保留署名；其中的词组补充表依据 GPL-3.0 的数据生成，随五笔库按 GPL-3.0 提供。两个库里的五笔 98 码表与快捷短语表都已清空（只留表结构）。
 
 ## 整句重排模型
 
