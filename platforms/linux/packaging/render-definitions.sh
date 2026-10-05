@@ -102,7 +102,7 @@ if want arch; then
   docker run --rm --platform linux/amd64 -v "$here/arch":/arch:ro -v "$release":/release:ro -v "$out/arch":/out archlinux:latest bash -euo pipefail -c '
     # pacman 7 的下载沙箱要 seccomp 与 Landlock，跨架构模拟的容器里两者都用不了。
     sed -i "/^\[options\]/a DisableSandbox" /etc/pacman.conf
-    pacman -Sy --noconfirm --needed base-devel python >/dev/null
+    pacman -Syu --noconfirm --needed base-devel python >/dev/null
     useradd -m builder
     cp -r /arch /home/builder/arch
     chown -R builder: /home/builder/arch
