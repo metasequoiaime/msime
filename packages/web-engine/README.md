@@ -90,6 +90,7 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 - `script-src` 需要 `'wasm-unsafe-eval'`，否则无法编译 wasm，`createMsimeEngine` 会以 `code: "csp"` 失败。
 - 第三种 CDN 用法还需要 `worker-src blob:`。
+- 默认候选栏不需要 `style-src 'unsafe-inline'`：它的样式是可构造样式表（`adoptedStyleSheets`），皮肤的取值经 `style.setProperty` 写入，没有 `<style>` 元素，也没有 `style=""` 属性，`style-src 'self'` 这样严格的策略下照常显示。皮肤图片要被 `img-src` 允许（`data:` 图片需要 `img-src data:`）。
 
 ## API
 
@@ -118,7 +119,117 @@ const engine = await createMsimeEngine({ scheme: "quanpin", assetBase: "/msime/a
 
 ### `attachInput(el, engine, options?)`
 
-把引擎接到 `<textarea>` 或 `<input>` 上，返回解除绑定的函数。组字时按键交给引擎；空闲时的回车、退格、方向键和 Esc 仍由浏览器处理。单按 Shift 切换中英文。默认在文本框下方显示候选栏，可以用 CSS 类 `msime-candidates`、`msime-candidate`、`msime-highlight` 覆盖样式；也可以传 `{ candidates: false, onFrame }` 自己画。
+把引擎接到 `<textarea>` 或 `<input>` 上，返回解除绑定的函数。组字时按键交给引擎；空闲时的回车、退格、方向键和 Esc 仍由浏览器处理。单按 Shift 切换中英文。默认在文本框下方显示按水杉候选框皮肤绘制的候选栏（见下文「候选框皮肤」），选项：
+
+- `skin`：内置皮肤 ID 或皮肤对象，默认 `"shuishan"`（水杉）。
+- `layout`：`"horizontal"`（默认，横排）或 `"vertical"`（竖排）。
+- `dark`：`"auto"`（默认，跟随页面的 `prefers-color-scheme`，切换时自动重画）、`true` 或 `false`。
+- `candidates: false`：不画候选栏，配合 `onFrame(frame)` 自己画。
+- `container`：候选栏挂在哪个元素里。不传时挂在文本框所在的顶层元素（打开的 `<dialog>`、popover 或全屏元素）里，都不是时挂在 `body` 上，每次显示前按当时的状态重新选；挂到 `body` 上的候选栏会被模态对话框盖住、点不到。
+- `onFrame(frame)`：每一帧都会回调。
+
+```js
+attachInput(textarea, engine, { skin: "wechat", layout: "vertical", dark: "auto" });
+```
+
+换皮肤时调用返回的函数解除绑定，再以新的选项重新 `attachInput`，引擎不用重建。解除绑定时正在组的字会被放弃（同 `engine.reset()`），还没回来的帧不再写进文本框，也不再回调 `onFrame`。
+
+## 候选框皮肤
+
+候选栏画的是水杉桌面端的候选框：同样的结构、配色和皮肤规则。配色表在构建时从桌面端的主题表生成，与桌面端同一个版本，SDK 里没有另抄一份。
+
+### 内置皮肤
+
+| ID | 名称 | 明暗 |
+| --- | --- | --- |
+| `system` | 跟随系统 | 跟随 `dark`。网页读不到系统配色，画的是桌面端设置页预览里的平台默认配色：浅色白底、深色 `#202020` 底，选中项是灰色底、普通文字色 |
+| `shuishan` | 水杉（默认） | 深色 |
+| `light` | 浅色 | 浅色 |
+| `paper` | 纸白 | 浅色 |
+| `night` | 夜青 | 深色 |
+| `ink` | 墨 | 深色 |
+| `wechat` | 微信绿 | 跟随 `dark` |
+| `graphite` | 石墨 | 跟随 `dark` |
+| `willow_green` | 杨柳青 | 跟随 `dark` |
+| `autumn_osmanthus` | 秋桂 | 跟随 `dark` |
+| `microsoft` | 微软 | 跟随 `dark` |
+
+五个全局主题自带明暗，和桌面端一样不受 `dark` 影响；后五个是 Windows 版的内置外观，深浅两套配色都有。`SKINS` 导出全部 ID。
+
+Windows 外观高亮候选的文字和序号色按 Windows 版的样式表画：`wechat`、`willow_green` 是绿底白字，`graphite` 没有选中底色，只靠更深（深色下更亮）的字色标出高亮。桌面端的 `theme::resolve` 没有这个槽位，`base` 是这些外观的皮肤包在桌面上画普通文字色；皮肤对象自己写了 `selected` 时也画普通文字色。
+
+### 自定义皮肤对象
+
+`skin` 也可以是一个对象，字段与桌面端皮肤包 `skin.toml` 解析后的 JSON（设置页的 `SkinSummary`）相同，只取候选框用得到的部分。尺寸单位 dip 在网页上就是 CSS px：
+
+```js
+attachInput(textarea, engine, {
+  skin: {
+    base: "light",                     // 画在哪个主题之上：全局主题、system 或 Windows 外观（wechat 等），默认 system
+    layouts: ["horizontal", "vertical"], // 支持的布局，不写为全部；也可写成 supports: { layouts, themes }
+    themes: ["light"],                 // 支持的明暗，不写为全部
+    cornerRadiusDip: 8,                // 圆角，0–32
+    minWidthDip: 240,                  // 最小宽度，0–1000
+    decorationTopDip: 28,              // 候选框上方装饰带的高度，0–500
+    decorationWidthDip: 96,            // 装饰图宽度，0–1000
+    decorationImage: "https://example.com/cat.png",
+    decorationAlign: "right",          // left、center、right
+    background: { image: "data:image/png;base64,...", fit: "cover", opacity: 0.6 }, // fit：cover、contain、stretch
+    candidate: {
+      light: { surface: "#FFF8F0", text: "#3A2A1A", number: "#8A6A4A", accent: "#E07020", selected: "#E0702030", hover: "#E0702014", border: "#E0C0A0", translation: "#8A6A4A", showSelectedBar: true },
+    },
+  },
+});
+```
+
+- 颜色接受 `#RGB`、`#RRGGBB`、`#RRGGBBAA`、`rgb()`、`rgba()` 和 `transparent`，读不懂的颜色当没写，由 `base` 补上；越界的尺寸当 0。
+- 图片可以是 `http:`、`https:`、`blob:`、`data:image/*` 或相对地址（按页面地址解析），其他地址（如 `javascript:`）和含引号、括号、空白的地址一律丢弃；`data:image/*` 里的括号和单引号（`encodeURIComponent` 写出的 SVG 常带）会换成百分号编码，图片不变。图片加载失败时只是不画它。
+- 皮肤不支持当前的布局或明暗时，和桌面端一样只画 `base`。`base` 是全局主题时，皮肤固定画在那个主题的明暗下。
+- `base` 是 `system`（或不写）时，皮肤没写的颜色用上面 `system` 那一行说的平台默认配色补；高亮候选的文字和序号同桌面端画普通的 `text`、`number`。
+
+### `resolveSkin(skin?, { dark, layout }?)`
+
+自己画候选栏的页面（例如有自己设计语言的 TapTapGo）可以只取水杉的配色：`resolveSkin` 把皮肤 ID 或皮肤对象解析成桌面端 `theme::resolve` 的结果，并补齐它留空的槽位（`system` 留空的用平台默认配色，Windows 外观补上高亮候选的文字色，见上文「内置皮肤」），不画任何东西。
+
+```js
+import { resolveSkin } from "@msime/web-engine";
+const { palette, geometry, variables, drawn } = resolveSkin("paper", { dark: false, layout: "horizontal" });
+// palette：surface、border、text、number、secondary、accent、selected、selectedText、selectedNumber、hover（都是 #RRGGBB 或 #RRGGBBAA）和 showSelectedBar
+// geometry：cornerRadius、minWidth（px 或 null）、decoration、background
+// variables：--cand-bg、--cand-text、--cand-selected、--msime-skin-radius 等 CSS 自定义属性，值都校验过，可以直接 setProperty
+for (const [name, value] of Object.entries(variables)) myBar.style.setProperty(name, value);
+```
+
+未知的皮肤 ID、`base` 或 `layout` 抛 `TypeError`。
+
+### `createCandidateBar(options?)`
+
+`attachInput` 用的候选栏，也可以单独使用（例如接到自己的编辑器上）：
+
+```js
+import { createCandidateBar } from "@msime/web-engine";
+const bar = createCandidateBar({ skin: "night", layout: "horizontal", dark: "auto", onPick: (i) => engine.pick(i).then(update) });
+bar.render(frame, caretRect);   // frame.composing 为 false 时隐藏；画在 caretRect 下方，放不下时翻到上方，并保持在视口内
+bar.setSkin("ink"); bar.setLayout("vertical"); bar.setDark(true);
+bar.hide(); bar.destroy();
+```
+
+`container` 是宿主元素放在哪里，默认 `document.body`；`helpcode: true` 时在候选后显示编码（帧里的 `page[i].code`），默认关闭，`attachInput` 不打开它。
+
+点候选不会让输入框失焦。浏览器不支持可构造样式表（Safari 16.4 以前）时抛 `Error`。
+
+### 改样式
+
+候选栏画在 `<msime-candidates>` 元素的 Shadow DOM 里，页面的 CSS 影响不到它，它的样式也不会漏到页面上。要改样式请用 `::part()`：
+
+```css
+msime-candidates::part(candidates) { font-size: 18px; }
+msime-candidates::part(highlight) { font-weight: 600; }
+```
+
+可用的 part：`candidates`（整个候选栏）、`card`（候选框）、`preedit`（拼音或编码行）、`caret`、`paging`（翻页标记）、`candidate`（每个候选）、`highlight`（高亮的候选，同时带 `candidate`）、`number`、`text`、`code`（编码提示，只在 `createCandidateBar({ helpcode: true })` 时出现）、`decoration`、`background`。Shadow DOM 里的类名不是公开接口。
+
+从 0.1.x 升级：旧版候选栏画在页面 DOM 里，用 CSS 类 `msime-candidates`、`msime-preedit`、`msime-candidate`、`msime-highlight` 改样式；这些类现在匹配不到任何元素，页面上针对它们写的样式不再生效，请分别改成 `msime-candidates::part(candidates)`、`msime-candidates::part(preedit)`、`msime-candidates::part(candidate)`、`msime-candidates::part(highlight)`。
 
 ### 自己处理按键
 

@@ -2,7 +2,7 @@
 //!
 //! Windows 的皮肤包把 `base` 写成它自己的内置外观（`fluent`、`wechat`、`graphite`、`willow_green`、`autumn_osmanthus`、`microsoft`），跨平台的包写全局主题；两边接受同一套清单，同一个包在哪个平台都能加载。全局主题之外的外观在这里画在 `system` 之上：包没写的候选框和工具栏颜色、两处圆角，按该外观在 Windows 上的样子补齐，深浅两套各补各的。`fluent` 就是 Windows 的原生配色，与 `system` 相同，不补任何东西。
 //!
-//! 颜色抄自 msime-windows 的 D2D 渲染端（`server/src/window/candidate_presenter.cpp` 的 `CandSkinTokens`、`candidate_skin_palette.cpp`、`floating_toolbar_skin.cpp`），它们本身对齐 `ui-html/webview2/candwnd/skins/<外观>/` 的 CSS；带透明度的值已换算成 `#RRGGBBAA`。Windows 改了这些外观的配色，这里要一起改。
+//! 颜色抄自 msime-windows 的 D2D 渲染端（`server/src/window/candidate_presenter.cpp` 的 `CandSkinTokens`、`candidate_skin_palette.cpp`、`floating_toolbar_skin.cpp`），它们本身对齐 `ui-html/webview2/candwnd/skins/<外观>/` 的 CSS；带透明度的值已换算成 `#RRGGBBAA`。`selected_text` 取自仓库里那份 CSS 的副本 `packages/ui/src/upstream/candidate-themes/skins/<外观>/`（`autumn_osmanthus`、`microsoft` 没有副本，留空）。Windows 改了这些外观的配色，这里要一起改。
 
 use super::{CandidatePalette, SkinToolbar, ToolbarPalette};
 
@@ -16,6 +16,9 @@ struct LookCandidate {
     selected: &'static str,
     hover: &'static str,
     show_selected_bar: bool,
+    /// 高亮候选的文字和序号色（Windows 样式表的 `.first .text, .first .num`），外观没有专门给时为 `None`，画普通的文字和序号色。[`CandidatePalette`] 没有这个槽位，桌面端不画它；网页 SDK 的 `packages/web-engine/tools/theme-catalog.mjs` 从这张表读出它，所以这里只有那边读。
+    #[allow(dead_code)]
+    selected_text: Option<&'static str>,
 }
 
 /// 一种明暗下的悬浮工具栏配色，槽位与 [`ToolbarPalette`] 相同。
@@ -70,6 +73,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#07C160",
             hover: "#07C16052",
             show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
         },
         light: LookCandidate {
             surface: "#F7F7F7",
@@ -80,6 +84,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#07C160",
             hover: "#07C16024",
             show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
         },
         toolbar_dark: LookToolbar {
             background: "#151515",
@@ -109,6 +114,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#00000000",
             hover: "#FFFFFF0E",
             show_selected_bar: false,
+            selected_text: Some("#F1F3F5"),
         },
         light: LookCandidate {
             surface: "#FBFBFC",
@@ -119,6 +125,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#00000000",
             hover: "#1F29370E",
             show_selected_bar: false,
+            selected_text: Some("#111827"),
         },
         toolbar_dark: LookToolbar {
             background: "#1C1F23",
@@ -150,6 +157,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#65C98D",
             hover: "#65C98D38",
             show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
         },
         light: LookCandidate {
             surface: "#F4F5F3",
@@ -160,6 +168,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#58B980",
             hover: "#58B98029",
             show_selected_bar: false,
+            selected_text: Some("#FFFFFF"),
         },
         toolbar_dark: LookToolbar {
             background: "#2D2F2E",
@@ -189,6 +198,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#F97D0A",
             hover: "#F97D0A4D",
             show_selected_bar: false,
+            selected_text: None,
         },
         light: LookCandidate {
             surface: "#D6ECF0",
@@ -199,6 +209,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#FFE399",
             hover: "#FFE3998C",
             show_selected_bar: false,
+            selected_text: None,
         },
         toolbar_dark: LookToolbar {
             background: "#7D929F",
@@ -228,6 +239,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#383838",
             hover: "#353535",
             show_selected_bar: true,
+            selected_text: None,
         },
         light: LookCandidate {
             surface: "#F9F9F9",
@@ -238,6 +250,7 @@ const WINDOWS_LOOKS: [WindowsLook; 5] = [
             selected: "#EAEAEA",
             hover: "#F0F0F0",
             show_selected_bar: true,
+            selected_text: None,
         },
         toolbar_dark: LookToolbar {
             handle: "#E183D9",

@@ -9,7 +9,7 @@
 #
 # --pinyin 和 --wubi 是词库 release 的 msime-pinyin.db 和 msime-wubi.db，与 --keep-multi 一起透传给 `msime-dict-build web`；--keep-multi 是拼音库保留的多字词条数，默认 200000。--version 写进清单，默认取 msime-engine-wasm 的 crate 版本；release-web-engine.yml 传入要发布的版本号。
 #
-# 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip，以及打 npm 包用的 npm。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
+# 需要：Rust 的 wasm32-unknown-unknown 目标、能编译 wasm 的 LLVM clang 和 llvm-ar（Apple 的 ar 会产出空的 libwsqlite3.a）、wasm-bindgen 0.2.128（必须与 crates/engine-wasm 钉住的 wasm-bindgen crate 同版本）、binaryen 133 的 wasm-opt、jq、gzip，以及打 npm 包用的 Node.js 和 npm（生成内置皮肤表也用 Node.js）。并行度由 cargo 自己的 CARGO_BUILD_JOBS 控制。
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -58,7 +58,7 @@ else
   [[ "$keep_multi" =~ ^[0-9]+$ ]] || die "--keep-multi must be a number, got '$keep_multi'"
 fi
 
-for tool in cargo jq gzip git npm; do
+for tool in cargo jq gzip git node npm; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool not found"
 done
 if command -v sha256sum >/dev/null 2>&1; then
@@ -212,7 +212,9 @@ npm_pkg="$npm_dir/package"
 rm -rf "$npm_dir"
 mkdir -p "$npm_pkg/assets" "$npm_pkg/bin"
 sdk="packages/web-engine"
-cp "$sdk/src/index.js" "$sdk/src/index.d.ts" "$sdk/src/keys.js" "$sdk/src/input.js" "$sdk/src/worker.js" "$sdk/README.md" "$npm_pkg/"
+cp "$sdk/src/index.js" "$sdk/src/index.d.ts" "$sdk/src/keys.js" "$sdk/src/input.js" "$sdk/src/skin.js" "$sdk/src/candidates.js" "$sdk/src/worker.js" "$sdk/README.md" "$npm_pkg/"
+# skin.js 导入的内置皮肤表从 packages/ui/src/theme/theme-catalog.json 和 crates/client-core/src/skin/catalog/windows_looks.rs 生成，SDK 里没有手写的配色副本；来源的格式变了生成器会报错，构建随之失败。
+node "$sdk/tools/theme-catalog.mjs" "$npm_pkg/theme-catalog.js"
 cp "$sdk/bin/msime-web-engine.mjs" "$npm_pkg/bin/"
 cp LICENSE "$npm_pkg/LICENSE"
 cp "$dist/msime_engine.js" "$npm_pkg/"

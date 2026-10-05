@@ -5,6 +5,8 @@ import { files, version } from "./assets.js";
 
 export { KeyKind, packKey, keyFromEvent, osImeIntercepting, createShiftTap } from "./keys.js";
 export { attachInput } from "./input.js";
+export { DEFAULT_SKIN, SKINS, resolveSkin } from "./skin.js";
+export { CANDIDATE_BAR_TAG, PARTS, createCandidateBar } from "./candidates.js";
 export { version };
 
 export const SCHEMES = Object.freeze(["quanpin", "xiaohe", "ziranma", "wubi86"]);

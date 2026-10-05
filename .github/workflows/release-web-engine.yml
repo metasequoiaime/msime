@@ -106,8 +106,9 @@ jobs:
           node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
       - name: Test the web engine SDK
         run: |
-          node --test packages/web-engine/test/keys.test.mjs
+          node --test 'packages/web-engine/test/*.test.mjs'
           node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
+          node packages/web-engine/test/candidates.browser.mjs
       - name: Keystroke latency
         env: {MAX_P95: "${{ inputs.max_p95_ms }}"}
         run: node crates/engine-wasm/bench/latency.mjs --max-p95 "$MAX_P95"

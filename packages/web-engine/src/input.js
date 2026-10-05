@@ -1,4 +1,5 @@
-// 把引擎接到一个 <textarea> 或 <input> 上：拦截 keydown 交给引擎，把帧里的输出写回文本框，并画一个默认的候选栏（可以关掉，自己用 onFrame 画）。
+// 把引擎接到一个 <textarea> 或 <input> 上：拦截 keydown 交给引擎，把帧里的输出写回文本框，并用 candidates.js 画一个按水杉候选框皮肤绘制的候选栏（可以关掉，自己用 onFrame 画）。
+import { createCandidateBar } from "./candidates.js";
 import { KeyKind, createShiftTap, keyFromEvent, osImeIntercepting, packKey } from "./keys.js";
 
 // 空闲时交给浏览器原生处理的键：引擎为跟打页面设计，空闲回车什么也不输出，空闲的退格、方向键、Esc 也不该由引擎代劳。
@@ -10,52 +11,6 @@ const NATIVE_WHEN_IDLE = new Set([
   packKey(KeyKind.PagePrev),
   packKey(KeyKind.PageNext),
 ]);
-
-const BAR_STYLE =
-  "position:fixed;z-index:2147483647;display:none;padding:4px 8px;border:1px solid #c8c8c8;border-radius:6px;background:#fff;color:#222;box-shadow:0 2px 8px rgba(0,0,0,.15);font:15px/1.6 system-ui,sans-serif;white-space:nowrap";
-
-function createBar() {
-  const bar = document.createElement("div");
-  bar.className = "msime-candidates";
-  bar.setAttribute("style", BAR_STYLE);
-  // 点候选时不要让文本框失焦。
-  bar.addEventListener("mousedown", (e) => e.preventDefault());
-  document.body.append(bar);
-  return bar;
-}
-
-function renderBar(bar, el, frame, pick) {
-  if (!frame.composing) {
-    bar.style.display = "none";
-    return;
-  }
-  bar.replaceChildren();
-  const preedit = document.createElement("div");
-  preedit.className = "msime-preedit";
-  preedit.style.color = "#666";
-  preedit.textContent = frame.preedit;
-  bar.append(preedit);
-  const row = document.createElement("div");
-  frame.page.forEach((c, i) => {
-    const item = document.createElement("span");
-    item.className = i === frame.highlight ? "msime-candidate msime-highlight" : "msime-candidate";
-    item.style.cssText = `margin-right:10px;cursor:pointer;${i === frame.highlight ? "color:#1a5fd0;font-weight:600" : ""}`;
-    item.textContent = `${i + 1}.${c.text}`;
-    item.addEventListener("click", () => pick(i));
-    row.append(item);
-  });
-  if (frame.hasPrev || frame.hasNext) {
-    const arrows = document.createElement("span");
-    arrows.style.color = "#999";
-    arrows.textContent = `${frame.hasPrev ? "‹" : " "}${frame.hasNext ? "›" : " "}`;
-    row.append(arrows);
-  }
-  bar.append(row);
-  const rect = el.getBoundingClientRect();
-  bar.style.left = `${Math.max(0, rect.left)}px`;
-  bar.style.top = `${rect.bottom + 4}px`;
-  bar.style.display = "block";
-}
 
 // 删除光标前的一个字符（按码点）或一个词（连续的非空白字符，以及它前面的空白）。
 function deleteBack(el, word) {
@@ -79,12 +34,28 @@ function insert(el, text) {
   el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
 }
 
+// 文本框在模态对话框、popover 或全屏元素里时，候选栏要挂进同一个顶层元素：顶层元素总画在页面其他内容之上，z-index 再大也盖不过它，模态对话框之外的内容还点不到。候选栏用视口坐标定位，挂在哪里位置都一样。
+function topLayerContainer(el) {
+  const doc = el.ownerDocument;
+  const fullscreen = doc.fullscreenElement;
+  return el.closest("dialog[open], [popover]") ?? (fullscreen?.contains(el) ? fullscreen : doc.body);
+}
+
 /**
- * 把 engine 接到 el 上，返回解除绑定的函数。options.candidates 为 false 时不画默认候选栏；options.onFrame 收到每一帧。
+ * 把 engine 接到 el 上，返回解除绑定的函数。options.candidates 为 false 时不画默认候选栏；options.skin、options.layout（"horizontal" 或 "vertical"）和 options.dark（true、false 或 "auto"）交给 createCandidateBar，皮肤 ID 未知时抛 TypeError；options.container 是候选栏挂在哪个元素里，不传时挂在 el 所在的顶层元素（模态对话框、popover 或全屏元素）里，都不是时挂在 body 上，每次显示前按当时的状态重新选；options.onFrame 收到每一帧。解除绑定后，还在路上的帧直接丢弃，正在组的字也一并放弃。
  */
 export function attachInput(el, engine, options = {}) {
   const shift = createShiftTap();
-  const bar = options.candidates === false ? null : createBar();
+  const bar =
+    options.candidates === false
+      ? null
+      : createCandidateBar({
+          skin: options.skin,
+          layout: options.layout ?? "horizontal",
+          dark: options.dark ?? "auto",
+          onPick: (slot) => pick(slot),
+          container: options.container ?? topLayerContainer(el),
+        });
   let composing = false;
   let pending = 0;
   let generation = 0;
@@ -96,7 +67,12 @@ export function attachInput(el, engine, options = {}) {
       else if (item.t === "back") deleteBack(el, item.word);
     }
     composing = frame.composing;
-    if (bar) renderBar(bar, el, frame, pick);
+    if (bar && composing && !options.container) {
+      // 对话框可能在绑定之后才打开，页面也可能后来才进全屏，所以每次显示前重新选挂载点；移动宿主元素不影响它的 Shadow DOM 和样式表。
+      const target = topLayerContainer(el);
+      if (bar.element.parentNode !== target) target.append(bar.element);
+    }
+    bar?.render(frame, el.getBoundingClientRect());
     options.onFrame?.(frame);
   };
 
@@ -118,7 +94,7 @@ export function attachInput(el, engine, options = {}) {
     if (!composing && pending === 0) return;
     generation += 1;
     composing = false;
-    if (bar) bar.style.display = "none";
+    bar?.hide();
     engine.reset().catch(() => {});
   };
 
@@ -145,10 +121,14 @@ export function attachInput(el, engine, options = {}) {
   el.addEventListener("mousedown", abandon);
 
   return () => {
+    // 同 abandon 放弃正在组的字；换代让还在路上的帧过不了 apply 的检查，不再写进已经不归 SDK 管的文本框，也不再调 onFrame。
+    if (composing || pending > 0) engine.reset().catch(() => {});
+    generation += 1;
+    composing = false;
     el.removeEventListener("keydown", onKeyDown);
     el.removeEventListener("keyup", onKeyUp);
     el.removeEventListener("blur", abandon);
     el.removeEventListener("mousedown", abandon);
-    bar?.remove();
+    bar?.destroy();
   };
 }

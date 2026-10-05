@@ -133,12 +133,16 @@ try {
   tmp = mkdtempSync(join(tmpdir(), "msime-web-engine-"));
   const out = join(tmp, "site/msime");
   execFileSync(process.execPath, [join(pkgDir, "bin/msime-web-engine.mjs"), "copy", out, "--no-model"], { stdio: "pipe" });
-  for (const f of ["index.js", "input.js", "keys.js", "worker.js", "assets.js", "msime_engine.js", "assets/msime_engine_bg.wasm", "assets/NOTICE.md", "assets/web-engine-manifest.json"]) {
+  for (const f of ["index.js", "input.js", "keys.js", "skin.js", "candidates.js", "theme-catalog.js", "worker.js", "assets.js", "msime_engine.js", "assets/msime_engine_bg.wasm", "assets/NOTICE.md", "assets/web-engine-manifest.json"]) {
     assert.ok(existsSync(join(out, f)), `copy did not write ${f}`);
   }
   assert.ok(!existsSync(join(out, "assets/sentence-model.safetensors.gz")), "--no-model still copied the model");
   const copied = await import(pathToFileURL(join(out, "index.js")).href);
   assert.equal(copied.version, sdk.version);
+  // 皮肤表是构建时生成进包里的：复制出的目录也能解析每个内置皮肤。
+  assert.ok(copied.SKINS.includes("wechat") && copied.SKINS.includes(copied.DEFAULT_SKIN));
+  for (const id of copied.SKINS) assert.match(copied.resolveSkin(id).variables["--cand-bg"], /^#[0-9A-F]{6}([0-9A-F]{2})?$/);
+  assert.equal(typeof copied.createCandidateBar, "function");
   console.log("smoke: ok");
 } finally {
   server.close();

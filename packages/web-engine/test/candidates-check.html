@@ -1,0 +1,230 @@
+<!doctype html>
+<!--
+候选栏和 attachInput 的浏览器自动检查页，由 test/candidates.browser.mjs 在无头 Chrome 里打开，不需要引擎：attachInput 接的是一个按脚本回帧的假引擎。检查全部在页面里跑，跑完把 document.body 的 data-result 设成 ok，失败时设成 fail，并把每条失败写进 #log。也可以手动打开（以 packages/web-engine 为根的静态服务器，先跑一次 `node packages/web-engine/tools/theme-catalog.mjs`），在页面上看结果。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'none'; img-src 'self' data:" />
+    <title>@msime/web-engine 候选栏检查</title>
+  </head>
+  <body>
+    <pre id="log"></pre>
+    <textarea id="field"></textarea>
+    <dialog id="modal"><textarea id="inside"></textarea></dialog>
+    <script type="module">
+      import { CANDIDATE_BAR_TAG, createCandidateBar } from "../src/candidates.js";
+      import { attachInput } from "../src/input.js";
+      import { KeyKind, packKey } from "../src/keys.js";
+      import { resolveSkin } from "../src/skin.js";
+
+      const log = document.getElementById("log");
+      const failures = [];
+      let current = "";
+      const check = (ok, message) => {
+        if (!ok) failures.push(`${current}: ${message}`);
+      };
+      const equal = (actual, expected, message) => check(Object.is(actual, expected), `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+      const frame = (fields) => ({ out: [], composing: false, preedit: "", caret: 0, page: [], pageIndex: 0, hasPrev: false, hasNext: false, highlight: 0, emptyCode: false, english: false, modelOn: false, rerankMs: 0, ...fields });
+      const composingFrame = (preedit, words, highlight = 0) => frame({ composing: true, preedit, caret: preedit.length, page: words.map((text) => ({ text, code: "" })), highlight, hasNext: true });
+      const commitFrame = (text) => frame({ out: [{ t: "commit", text }] });
+
+      // 候选栏的内部结构：宿主元素、Shadow DOM 里的根元素和候选。
+      const parts = (host) => {
+        const root = host.shadowRoot.querySelector(".candidate");
+        return { root, cands: [...root.querySelectorAll("[data-index]")], first: root.querySelector(".first") };
+      };
+      const visible = (host) => host.isConnected && !parts(host).root.hidden && getComputedStyle(parts(host).root).display !== "none";
+      const rgb = (hex) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+
+      // 按脚本回帧的假引擎：keys 收到的键依次记下，回 replies 里排着的下一帧；replies 里放的是函数时由它决定回什么（可以返回一个手动 resolve 的 Promise）。
+      function fakeEngine() {
+        const engine = {
+          sent: [],
+          picks: [],
+          resets: 0,
+          replies: [],
+          keys(key) {
+            engine.sent.push(key);
+            const next = engine.replies.shift() ?? frame({});
+            return typeof next === "function" ? next() : Promise.resolve(next);
+          },
+          pick(slot) {
+            engine.picks.push(slot);
+            const next = engine.replies.shift() ?? frame({});
+            return Promise.resolve(next);
+          },
+          reset() {
+            engine.resets += 1;
+            return Promise.resolve();
+          },
+        };
+        return engine;
+      }
+      const press = (el, key, code) => el.dispatchEvent(new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }));
+      const barHost = () => document.querySelector(CANDIDATE_BAR_TAG) ?? document.getElementById("modal").querySelector(CANDIDATE_BAR_TAG);
+
+      async function candidateBar() {
+        current = "createCandidateBar";
+        const picks = [];
+        const bar = createCandidateBar({ skin: "wechat", dark: false, onPick: (i) => picks.push(i) });
+        const host = bar.element;
+        equal(host.parentNode, document.body, "mounted in body");
+        check(!visible(host), "hidden before the first frame");
+        bar.render(composingFrame("ni", ["你", "呢", "尼", "妮", "泥", "逆"], 2), { left: 20, top: 20, bottom: 40 });
+        check(visible(host), "visible while composing");
+        const { cands, first } = parts(host);
+        equal(cands.length, 6, "candidate count");
+        equal(first?.dataset.index, "2", "highlighted candidate");
+        check(first?.getAttribute("part")?.split(" ").includes("highlight"), "highlight part");
+        // wechat 的高亮候选是绿底白字（Windows 版样式表），皮肤的取值确实写进了样式。
+        equal(getComputedStyle(first).backgroundColor, rgb("#07C160"), "wechat selected fill");
+        equal(getComputedStyle(first.querySelector(".cand-content")).color, rgb("#FFFFFF"), "wechat selected text");
+        equal(getComputedStyle(cands[0].querySelector(".cand-content")).color, rgb("#333333"), "wechat plain text");
+
+        // 按下鼠标被拦住（不让文本框失焦），点击把下标交给 onPick。
+        const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true });
+        equal(cands[4].dispatchEvent(down), false, "mousedown is prevented");
+        cands[4].querySelector(".cand-content").dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+        equal(picks.join(), "4", "click picks the candidate");
+
+        bar.render(frame({}), null);
+        check(!visible(host), "a non-composing frame hides the bar");
+        bar.render(composingFrame("ni", ["你", "呢"]), { left: 20, top: 20, bottom: 40 });
+        bar.hide();
+        check(!visible(host), "hide() hides the bar");
+
+        // 换皮肤、排布和明暗：graphite 深色竖排，选中只靠字色。
+        bar.setSkin("graphite");
+        bar.setLayout("vertical");
+        bar.setDark(true);
+        bar.render(composingFrame("ni", ["你", "呢"]), { left: 20, top: 20, bottom: 40 });
+        const after = parts(host);
+        check(after.root.classList.contains("wnd-v"), "vertical layout class");
+        equal(after.root.dataset.theme, "dark", "dark theme");
+        equal(after.root.style.getPropertyValue("--cand-bg"), resolveSkin("graphite", { dark: true }).palette.surface, "graphite surface");
+        equal(getComputedStyle(after.first.querySelector(".cand-content")).color, rgb("#F1F3F5"), "graphite selected text");
+        let threw = null;
+        try {
+          bar.setSkin("nope");
+        } catch (error) {
+          threw = error;
+        }
+        check(threw instanceof TypeError, "unknown skin throws TypeError");
+        equal(after.root.style.getPropertyValue("--cand-bg"), resolveSkin("graphite", { dark: true }).palette.surface, "a failed setSkin keeps the skin");
+
+        // system 画平台默认配色：浅色的选中底是灰色，字是普通文字色。
+        bar.setSkin("system");
+        bar.setDark(false);
+        bar.render(composingFrame("ni", ["你", "呢"]), { left: 20, top: 20, bottom: 40 });
+        equal(getComputedStyle(parts(host).first).backgroundColor, rgb("#E8E8E8"), "system selected fill");
+        equal(getComputedStyle(parts(host).first.querySelector(".cand-content")).color, rgb("#1A1A1A"), "system selected text");
+
+        bar.destroy();
+        check(!host.isConnected, "destroy() removes the host");
+        bar.render(composingFrame("ni", ["你"]), null);
+        check(!host.isConnected, "render after destroy does nothing");
+      }
+
+      async function attached() {
+        current = "attachInput";
+        const field = document.getElementById("field");
+        const engine = fakeEngine();
+        const frames = [];
+        const detach = attachInput(field, engine, { skin: "light", onFrame: (f) => frames.push(f) });
+        field.focus();
+
+        engine.replies.push(composingFrame("n", ["你", "呢", "尼"]));
+        press(field, "n", "KeyN");
+        await tick();
+        equal(engine.sent[0], packKey(KeyKind.Letter, "n".charCodeAt(0)), "the key reaches the engine");
+        const host = barHost();
+        check(host && visible(host), "the bar shows while composing");
+        equal(frames.length, 1, "onFrame sees the frame");
+
+        // 点第二个候选：交给 engine.pick，上屏后候选栏隐藏，文本框不失焦。
+        engine.replies.push(commitFrame("呢"));
+        const target = parts(host).cands[1];
+        equal(target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, composed: true })), false, "mousedown on a candidate is prevented");
+        target.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+        await tick();
+        equal(engine.picks.join(), "1", "a click picks through the engine");
+        equal(field.value, "呢", "the pick is committed");
+        check(!visible(host), "the bar hides after the commit");
+        equal(document.activeElement, field, "the text box keeps focus");
+
+        // 失焦放弃组字：候选栏隐藏，引擎被重置。
+        engine.replies.push(composingFrame("n", ["你"]));
+        press(field, "n", "KeyN");
+        await tick();
+        check(visible(host), "composing again shows the bar");
+        field.dispatchEvent(new FocusEvent("blur"));
+        check(!visible(host), "blur hides the bar");
+        equal(engine.resets, 1, "blur resets the engine");
+
+        // 解除绑定时还在路上的帧被丢弃：不写进文本框，不调 onFrame。
+        let release;
+        engine.replies.push(() => new Promise((resolve) => (release = resolve)));
+        press(field, " ", "Space");
+        const before = frames.length;
+        detach();
+        check(!host.isConnected, "detach removes the bar");
+        equal(engine.resets, 2, "detach with a key in flight resets the engine");
+        release(commitFrame("你好"));
+        await tick();
+        equal(field.value, "呢", "a late frame is not written after detach");
+        equal(frames.length, before, "a late frame does not reach onFrame after detach");
+      }
+
+      async function insideModal() {
+        current = "attachInput in a modal dialog";
+        const dialog = document.getElementById("modal");
+        const inside = document.getElementById("inside");
+        // 绑定在打开对话框之前：显示时才按当时的状态选挂载点。
+        const engine = fakeEngine();
+        const detach = attachInput(inside, engine, { skin: "light" });
+        dialog.showModal();
+        inside.focus();
+        engine.replies.push(composingFrame("n", ["你", "呢"]));
+        press(inside, "n", "KeyN");
+        await tick();
+        const host = dialog.querySelector(CANDIDATE_BAR_TAG);
+        check(host !== null, "the bar is mounted inside the modal dialog");
+        if (host) {
+          check(visible(host), "the bar is visible");
+          const box = parts(host).cands[0].getBoundingClientRect();
+          // 顶层元素之外的东西点不到；挂进对话框后，候选位置上命中的是候选栏本身。
+          equal(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2), host, "the candidate is hit-testable above the modal");
+        }
+        detach();
+        dialog.close();
+
+        current = "attachInput with options.container";
+        const holder = document.createElement("div");
+        document.body.append(holder);
+        const field = document.getElementById("field");
+        const other = fakeEngine();
+        const undo = attachInput(field, other, { container: holder });
+        equal(holder.querySelector(CANDIDATE_BAR_TAG)?.localName, CANDIDATE_BAR_TAG, "the bar goes into options.container");
+        other.replies.push(composingFrame("n", ["你"]));
+        press(field, "n", "KeyN");
+        await tick();
+        check(holder.querySelector(CANDIDATE_BAR_TAG) !== null, "an explicit container is kept while composing");
+        undo();
+        holder.remove();
+      }
+
+      try {
+        await candidateBar();
+        await attached();
+        await insideModal();
+      } catch (error) {
+        failures.push(`${current}: threw ${error?.stack ?? error}`);
+      }
+      log.textContent = failures.length === 0 ? "ok" : failures.join("\n");
+      document.body.dataset.result = failures.length === 0 ? "ok" : "fail";
+    </script>
+  </body>
+</html>

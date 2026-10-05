@@ -1,0 +1,2 @@
+# tools/theme-catalog.mjs 生成的内置皮肤表；构建脚本给 npm 包另外生成一份，不入库。
+/src/theme-catalog.js

@@ -285,12 +285,13 @@ jobs:
         run: |
           cargo run --locked -p msime-engine-wasm --example make_fixture -- target/web-engine/fixture/msime.db
           node crates/engine-wasm/tests/smoke.mjs target/web-engine/fixture/msime.db
-      # SDK（@msime/web-engine）：按键映射的单元测试，以及对构建脚本组装出的 npm 包做的端到端冒烟。
+      # SDK（@msime/web-engine）：test/ 下全部 *.test.mjs 单元测试（按键映射、皮肤解析等，glob 由 Node 自己展开），对构建脚本组装出的 npm 包做的端到端冒烟，以及在 runner 自带的 google-chrome 里跑的候选栏和 attachInput 接线检查（candidates.browser.mjs）。
       - name: Test the web engine SDK
         if: ${{ needs.changes.outputs.web == 'true' }}
         run: |
-          node --test packages/web-engine/test/keys.test.mjs
+          node --test 'packages/web-engine/test/*.test.mjs'
           node packages/web-engine/test/smoke.mjs target/web-engine/fixture/msime.db
+          node packages/web-engine/test/candidates.browser.mjs
       # 包括 routing.rs 和 notice.rs；parity.rs 与 rerank_routing.rs 需要真实词库，没有 MSIME_EVAL_RESOURCES 时跳过。
       - name: Test msime-engine-wasm
         if: ${{ needs.changes.outputs.web == 'true' }}

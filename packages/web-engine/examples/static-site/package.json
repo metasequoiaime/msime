@@ -7,6 +7,6 @@
     "preview": "npm run build && npx --yes serve site"
   },
   "dependencies": {
-    "@msime/web-engine": "^0.1.2"
+    "@msime/web-engine": "^0.2.0"
   }
 }

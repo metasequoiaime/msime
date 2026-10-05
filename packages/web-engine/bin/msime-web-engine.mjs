@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-const RUNTIME = ["index.js", "index.d.ts", "keys.js", "input.js", "worker.js", "assets.js", "msime_engine.js"];
+const RUNTIME = ["index.js", "index.d.ts", "keys.js", "input.js", "skin.js", "candidates.js", "theme-catalog.js", "worker.js", "assets.js", "msime_engine.js"];
 
 function usage(code) {
   const text = `msime-web-engine ${pkg.version}
