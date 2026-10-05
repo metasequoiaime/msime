@@ -24,7 +24,7 @@ public final class DevicesPage extends DetailPage {
     @Override protected void onBecameVisible() { reload(); }
 
     private void reload() {
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             try {
                 return (Object) new DeviceDataApi(context).sessions();
             } catch (CloudApi.Failure failure) {
@@ -70,7 +70,7 @@ public final class DevicesPage extends DetailPage {
     }
 
     private void remove(DeviceDataApi.Session session) {
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             try {
                 new DeviceDataApi(context).revokeSession(session.id());
                 if (session.current()) SignIn.signOut(context);

@@ -17,6 +17,8 @@ import app.msime.android.KeyboardGeometry;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.SchemePreferences;
+import app.msime.android.SyncSignals;
+import app.msime.android.SyncSwitch;
 import org.json.JSONObject;
 
 /**
@@ -80,9 +82,12 @@ public final class KeyboardOptionsPage extends DetailPage {
 
         GroupCard layout = GroupCard.add(target, "布局");
         boolean nineKey = "nine_key".equals(current.touchKeyboardLayout());
-        boolean quanpinOffered = KeyboardScheme.QUANPIN.offeredBy(edition) && KeyboardScheme.QUANPIN_NINE_KEY.offeredBy(edition);
-        layout.nav("中文键盘", quanpinOffered ? null : "本版本只有一种键盘", nineKey ? "9 键" : "26 键",
-            quanpinOffered ? () -> pickLayout(nineKey) : null);
+        KeyboardScheme[] pair = layoutPair(current);
+        boolean pairOffered = pair != null && pair[0].offeredBy(edition) && pair[1].offeredBy(edition);
+        String note = pairOffered ? null
+            : pair == null ? "当前方案只有一种键盘，在「输入」里换方案" : "本版本只有一种键盘";
+        layout.nav("中文键盘", note, nineKey ? "9 键" : "26 键",
+            pairOffered ? () -> pickLayout(current, pair, nineKey) : null);
         int height = KeyboardGeometry.heightAdjustmentToPercent(
             settings.has(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
                 ? settings.integer(AndroidLocalSettings.KEYBOARD_HEIGHT_ADJUSTMENT)
@@ -191,14 +196,27 @@ public final class KeyboardOptionsPage extends DetailPage {
         }
     }
 
-    private void pickLayout(boolean nineKey) {
+    /**
+     * 当前方案的 26 键与 9 键那一对：全拼是全拼 26 键和全拼 9 键，日语是日语 26 键和日语 9 键。双拼、五笔、手写这类只有一种排法的方案没有这一对，返回 null：原来一律给全拼的那一对，小鹤双拼用户在这里点哪一项都会被改成全拼，日语 9 键用户点「9 键」会变成全拼 9 键。
+     */
+    @Nullable
+    private static KeyboardScheme[] layoutPair(KeyboardScheme current) {
+        return switch (current) {
+            case QUANPIN, QUANPIN_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY};
+            case JAPANESE, JAPANESE_NINE_KEY -> new KeyboardScheme[] {KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY};
+            default -> null;
+        };
+    }
+
+    private void pickLayout(KeyboardScheme current, KeyboardScheme[] pair, boolean nineKey) {
         OptionSheet sheet = new OptionSheet(requireContext(), "中文键盘", null);
-        sheet.option("26 键", !nineKey, () -> applyScheme(KeyboardScheme.QUANPIN));
-        sheet.option("9 键", nineKey, () -> applyScheme(KeyboardScheme.QUANPIN_NINE_KEY));
+        // 点已选中的那一项什么也不做：OptionSheet 对选中项也会执行动作，重写一遍方案没有意义。
+        sheet.option("26 键", !nineKey, () -> { if (pair[0] != current) applyScheme(pair[0]); });
+        sheet.option("9 键", nineKey, () -> { if (pair[1] != current) applyScheme(pair[1]); });
         sheet.show();
     }
 
-    /** 26 / 9 键就是全拼的两个触屏方案；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
+    /** 26 / 9 键是当前方案那一对触屏方案（{@link #layoutPair}）；与输入页、引导页一样经 {@link SchemePreferences#withScheme} 一起写那几个键。 */
     private void applyScheme(KeyboardScheme scheme) {
         HostTask.run(this, context -> {
             JSONObject snapshot = HostStore.loadPreferences(context);
@@ -264,6 +282,8 @@ public final class KeyboardOptionsPage extends DetailPage {
                 KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(
                     sound == null ? current.soundEnabled() : sound,
                     haptics == null ? current.hapticsEnabled() : haptics, strength));
+                // 按键音和振动随「设置」同步；不标记的话这次改动传不上去，别的设备一改设置，下载时还会把它盖回去。
+                SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
                 return Boolean.TRUE;
             } catch (java.io.IOException error) {
                 return null;

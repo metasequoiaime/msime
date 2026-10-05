@@ -163,7 +163,7 @@ final class SignIn {
     /**
      * 处理一次形状已经检查过的 Apple 回调（{@link AuthRedirectActivity}）。阻塞，不要在主线程调用；结果交给等待中的界面。
      *
-     * <p>在锁里读出等待中的流程再兑换，成功、网络错误、5xx 或 `error=` 回调都按 verifier 删掉它并报告结果；服务端以 400 / 401 / 404 拒绝（grant 不认识、已用过或属于别的 challenge，例如伪造的或旧标签页的回调）时保留它、也不报告失败，真正的回调随后仍能完成。
+     * <p>在锁里读出等待中的流程再兑换，成功、网络错误或 5xx 都按 verifier 删掉它并报告结果；服务端以 400 / 401 / 404 拒绝（grant 不认识、已用过或属于别的 challenge，例如伪造的或旧标签页的回调）时保留它、也不报告失败，真正的回调随后仍能完成。`error=` 回调同样保留、不报告：回调 Activity 是导出的，任何应用或网页都能发一个带 error 的 VIEW，原先它会删掉流程、让正在进行的登录失败；现在流程留到过期，用户也可以自己关掉登录面板。
      *
      * @param error 回调里的 `error`，没有时为 null
      */
@@ -172,17 +172,14 @@ final class SignIn {
         synchronized (APPLE_EXCHANGE) {
             AppleWebSignIn.Pending pending = AppleWebSignIn.peekPending(context);
             if (pending == null) return;
-            if (error != null && !error.isEmpty()) {
-                failure = "Apple 登录没有完成";
-            } else {
-                try {
-                    AppleWebSignIn.complete(context, pending, grant, userAgent(context));
-                    if (!pending.link()) bind(context, "apple");
-                    failure = "";
-                } catch (Exception | LinkageError rejected) {
-                    if (AppleWebSignIn.keepPendingAfter(BackendAccount.failureStatus(rejected))) return;
-                    failure = "Apple 登录没有完成：" + explain(rejected);
-                }
+            if (error != null && !error.isEmpty()) return;
+            try {
+                AppleWebSignIn.complete(context, pending, grant, userAgent(context));
+                if (!pending.link()) bind(context, "apple");
+                failure = "";
+            } catch (Exception | LinkageError rejected) {
+                if (AppleWebSignIn.keepPendingAfter(BackendAccount.failureStatus(rejected))) return;
+                failure = "Apple 登录没有完成：" + explain(rejected);
             }
             AppleWebSignIn.clearPending(context, pending.verifier());
         }

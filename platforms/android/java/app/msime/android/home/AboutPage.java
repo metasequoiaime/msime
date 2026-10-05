@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
 /**
@@ -49,7 +50,8 @@ public final class AboutPage extends DetailPage {
     private static final String PRIVACY = "https://msime.app/privacy/";
     private static final String REPOSITORY = "https://github.com/metasequoiaime/msime";
     private static final int MAX_NOTICE_CHARS = 200_000;
-    private static final ExecutorService NETWORK = Executors.newSingleThreadExecutor(runnable -> {
+    /** 按需开线程：几十兆的更新下载不能让云剪贴板、反馈这些短请求排在它后面。 */
+    private static final ExecutorService NETWORK = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "msime-home-network");
         thread.setDaemon(true);
         return thread;
@@ -66,6 +68,8 @@ public final class AboutPage extends DetailPage {
     @Nullable private TextView pill;
     @Nullable private GroupCard.Row channelRow;
     @Nullable private List<String> notices;
+    /** 正在进行的下载；离开页面时取消，不在后台继续下完再把结果丢掉。 */
+    @Nullable private Future<?> downloadTask;
 
     private final ActivityResultLauncher<String> notificationPermission =
         registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {});
@@ -76,12 +80,13 @@ public final class AboutPage extends DetailPage {
     /**
      * 在宿主共用的网络线程上跑一次阻塞调用，回到主线程交结果；页面已经离开时丢掉结果。
      *
-     * <p>不用 {@link HostTask}：那条线程还要处理共享存储的读写，一次几十兆的下载不能把它们都堵住。
+     * <p>不用 {@link HostTask}：那条线程还要处理共享存储的读写，一次几十兆的下载不能把它们都堵住。返回的 Future 可以用来在离开页面时取消；页面没有视图时不提交，返回 null。
      */
-    static <T> void network(Fragment fragment, Callable<T> work, Consumer<Outcome<T>> done) {
+    @Nullable
+    static <T> Future<?> network(Fragment fragment, Callable<T> work, Consumer<Outcome<T>> done) {
         View owner = fragment.getView();
-        if (owner == null) return;
-        NETWORK.execute(() -> {
+        if (owner == null) return null;
+        return NETWORK.submit(() -> {
             Outcome<T> outcome;
             try {
                 outcome = new Outcome<>(work.call(), null);
@@ -150,6 +155,10 @@ public final class AboutPage extends DetailPage {
     }
 
     @Override public void onDestroyView() {
+        if (downloadTask != null) {
+            downloadTask.cancel(true);
+            downloadTask = null;
+        }
         pill = null;
         channelRow = null;
         super.onDestroyView();
@@ -274,8 +283,11 @@ public final class AboutPage extends DetailPage {
         state = State.DOWNLOADING;
         percent = 0;
         renderPill();
-        network(this, () -> {
+        downloadTask = network(this, () -> {
             File apk = new UpdateApi().download(target, context.getCacheDir(), (done, total) -> {
+                // 离开页面时 onDestroyView 中断了这条线程：停在这一块，不再下完。
+                if (Thread.currentThread().isInterrupted())
+                    throw new java.util.concurrent.CancellationException("update download cancelled");
                 if (total <= 0) return;
                 int value = (int) Math.min(100, done * 100 / total);
                 MAIN.post(() -> {
@@ -292,6 +304,7 @@ public final class AboutPage extends DetailPage {
             }
             return apk;
         }, outcome -> {
+            downloadTask = null;
             if (outcome.error() != null) {
                 state = State.AVAILABLE;
                 renderPill();

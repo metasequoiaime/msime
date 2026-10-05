@@ -79,7 +79,7 @@ public final class AccountFragment extends HomeTabFragment {
     }
 
     private void reloadRemote() {
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             DeviceDataApi api = new DeviceDataApi(context);
             DeviceDataApi.Profile profile;
             try {

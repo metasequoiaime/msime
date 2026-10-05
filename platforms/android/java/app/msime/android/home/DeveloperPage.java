@@ -224,7 +224,7 @@ public final class DeveloperPage extends DetailPage {
         if (!include.any()) return;
         busy = true;
         render();
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             File zip = new File(diagnosticsCache(context), UPLOAD_BUNDLE);
             try {
                 String path = writeBundle(context, include, zip);
@@ -278,7 +278,7 @@ public final class DeveloperPage extends DetailPage {
             .setPositiveButton("删除", (dialog, which) -> {
                 busy = true;
                 render();
-                HostTask.run(this, context -> {
+                HostTask.runNetwork(this, context -> {
                     try {
                         new DiagnosticsApi(new CloudApi(context)).delete();
                         return "";
@@ -314,7 +314,7 @@ public final class DeveloperPage extends DetailPage {
     private void regenerate(Consumer<String> then) {
         busy = true;
         render();
-        HostTask.run(this, context -> {
+        HostTask.runNetwork(this, context -> {
             try {
                 String token = new DiagnosticsApi(new CloudApi(context)).regenerateToken();
                 return new String[] {token, null};

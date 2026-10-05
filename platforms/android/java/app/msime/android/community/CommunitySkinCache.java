@@ -46,10 +46,15 @@ public final class CommunitySkinCache {
         byte[] bytes = array.toString().getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_BYTES) return;
         Files.createDirectories(preferencesDirectory);
-        Path pending = preferencesDirectory.resolve(FILE + ".pending");
-        Files.write(pending, bytes);
-        Files.move(pending, preferencesDirectory.resolve(FILE),
-            StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        // 每次写各用一个临时文件：社区页可能同时跑两次缓存（重建页面时），共用一个固定的 .pending 会互相截断，:ime 读到半截 JSON 就当作没有缓存。
+        Path pending = Files.createTempFile(preferencesDirectory, FILE + ".", ".pending");
+        try {
+            Files.write(pending, bytes);
+            Files.move(pending, preferencesDirectory.resolve(FILE),
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(pending);
+        }
     }
 
     /** 读缓存；文件缺失、过大或损坏时当作没有缓存。这是跨进程的文件边界，不能让一份坏文件把皮肤面板拖垮。 */

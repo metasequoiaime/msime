@@ -69,7 +69,7 @@ public final class ProfilePage extends DetailPage {
     @Override protected void onBecameVisible() { reload(null); }
 
     private void reload(@Nullable Consumer<Loaded> then) {
-        HostTask.run(this, ProfilePage::load, result -> {
+        HostTask.runNetwork(this, ProfilePage::load, result -> {
             if (result == null) return;
             loaded = result;
             render();
@@ -531,7 +531,7 @@ public final class ProfilePage extends DetailPage {
                 return explain(failure);
             }
         };
-        HostTask.run(this, task, outcome -> {
+        HostTask.runNetwork(this, task, outcome -> {
             busy = false;
             if (outcome == null) {
                 MsToast.show(requireContext(), "没有完成，请稍后再试");

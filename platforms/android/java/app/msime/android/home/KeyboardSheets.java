@@ -141,6 +141,7 @@ final class KeyboardSheets {
         try {
             KeyboardFeedbackStore.save(context, new KeyboardFeedbackStore.Settings(sound,
                 settings.hapticsEnabled(), settings.hapticStrength()));
+            SyncSignals.markDirty(context, SyncSwitch.SETTINGS);
         } catch (java.io.IOException error) {
             android.util.Log.w("MSIMESettings", "Key sound switch was not saved", error);
         }

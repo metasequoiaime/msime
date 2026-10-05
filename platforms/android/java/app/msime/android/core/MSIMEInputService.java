@@ -3645,6 +3645,8 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             KeyboardFeedbackStore.save(this, new KeyboardFeedbackStore.Settings(
                 soundEnabled, hapticsEnabled, hapticStrength));
+            // 按键音和振动随「设置」同步，键盘里改的也要标记，否则传不上去，下次下载还会被盖回。
+            SyncSignals.markDirty(this, SyncSwitch.SETTINGS);
         } catch (Exception ignored) {
             // Keep the current in-memory feedback state; the next save retries the file.
         }

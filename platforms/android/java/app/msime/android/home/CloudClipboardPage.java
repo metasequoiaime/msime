@@ -81,7 +81,12 @@ public final class CloudClipboardPage extends DetailPage {
 
     /** 先做一次写入，成功后重新读一遍；失败只提示，界面保持上一次读到的状态。 */
     private void mutate(Callable<Void> work, @Nullable String done) {
-        if (busy) return;
+        if (busy) {
+            // 上一次读写还没回来：这次不发，但开关和分段已经被拨过去了，重画一遍让界面回到真实状态，并说一声。
+            MsToast.show(requireContext(), "正在同步，稍后再试");
+            render();
+            return;
+        }
         busy = true;
         AboutPage.network(this, work, outcome -> {
             busy = false;
@@ -127,7 +132,12 @@ public final class CloudClipboardPage extends DetailPage {
         int selected = current == null ? -1 : CloudClipboardApi.RETENTION_DAYS.indexOf(current.retentionDays());
         segments.setOptions(RETENTION_LABELS, selected);
         segments.setContentDescription("保留时长");
-        segments.setOnSelect(index -> setRetention(CloudClipboardApi.RETENTION_DAYS.get(index)));
+        // 云剪贴板关着时只改外观不够，分段照样能点、照样发请求；关着就不响应。
+        boolean retentionEditable = current != null && current.enabled();
+        segments.setOnSelect(index -> {
+            if (retentionEditable) setRetention(CloudClipboardApi.RETENTION_DAYS.get(index));
+            else render();
+        });
         retention.addView(segments);
         Ui.setEnabledLook(retention, current != null && current.enabled());
         settings.addView(retention);

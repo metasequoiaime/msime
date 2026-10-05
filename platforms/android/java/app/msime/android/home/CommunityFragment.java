@@ -383,7 +383,7 @@ public final class CommunityFragment extends Fragment {
             adapter.setAction(item.id(), saved ? CommunityAdapter.Action.DONE : CommunityAdapter.Action.AVAILABLE);
             MsToast.show(requireContext(), saved ? "已获取「" + item.name() + "」，点「使用」换上"
                 : failure == null ? "保存失败，请稍后重试。" : failure);
-            if (saved) HostTask.run(this, context -> new CommunityCatalog(context).recordDownload(item), ignored -> { });
+            if (saved) HostTask.runNetwork(this, context -> new CommunityCatalog(context).recordDownload(item), ignored -> { });
         });
     }
 
@@ -474,7 +474,7 @@ public final class CommunityFragment extends Fragment {
                     return;
                 }
                 dialog.dismiss();
-                HostTask.run(this, worker -> new CommunityCatalog(worker).report(item, reason, text),
+                HostTask.runNetwork(this, worker -> new CommunityCatalog(worker).report(item, reason, text),
                     failure -> {
                         if (getView() == null) return;
                         MsToast.show(requireContext(), failure == null || failure.isEmpty()
@@ -486,7 +486,7 @@ public final class CommunityFragment extends Fragment {
     }
 
     private void changeCategory(CommunityCatalog.Item item, CommunityRequest.Category next) {
-        HostTask.run(this, context -> new CommunityCatalog(context).setCategory(item, next),
+        HostTask.runNetwork(this, context -> new CommunityCatalog(context).setCategory(item, next),
             update -> {
                 if (getView() == null) return;
                 if (update == null || update.failed()) {
