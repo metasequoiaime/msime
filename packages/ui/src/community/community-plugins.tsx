@@ -17,7 +17,6 @@ import {
   communityNeedsSignIn,
   communityPluginMessage,
   communityPublishLoginAction,
-  runCommunityPublishAction,
 } from "./community-helpers";
 import { useCommunityGallery, type CommunityGalleryClient } from "./community-gallery";
 import { CommunityDialogActions, CommunityDialogFrame } from "./community-dialog";
@@ -46,8 +45,8 @@ import { CommunityGalleryLoadMore } from "./community-gallery-load-more";
 import { CommunityGalleryFeedback } from "./community-gallery-feedback";
 import { CommunityDetailFrame } from "./community-detail-frame";
 import { ActionButton } from "../core/action-button";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import { useCommunityPublicationDraft } from "./use-community-publication-draft";
-import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 import { useAsyncGeneration } from "../settings/use-async-generation";
 import { CommunityActionNotice } from "./community-action-notice";
 import { CommunityGalleryHeading } from "./community-gallery-heading";
@@ -520,14 +519,17 @@ export function CommunityPluginPublishDialog({
     onAgreedChange,
     resetPublication,
   } = useCommunityPublicationDraft();
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [signInRequired, setSignInRequired] = useState(false);
-  const { clientGeneration, actionRunning } = useCommunityClientLifecycle(client, localPlugins);
+  const {
+    busy,
+    generation: clientGeneration,
+    running: actionRunning,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, undefined, client, localPlugins);
 
   useEffect(() => {
     const generation = clientGeneration.current;
-    setBusy(false);
     setOptionsLoading(true);
     void localPlugins()
       .then((catalog) => {
@@ -596,17 +598,9 @@ export function CommunityPluginPublishDialog({
 
   const submit = async () => {
     if (busy || actionRunning.current || !ready || !chosen) return;
-    const generation = clientGeneration.current;
-    await runCommunityPublishAction({
-      busy,
-      generation,
-      clientGeneration,
-      actionRunning,
-      setBusy,
-      setError,
-      setSignInRequired,
-      formatError: (publishError) => communityPluginMessage(publishError, true),
-      operation: async (isCurrent) => {
+    setSignInRequired(false);
+    await runAsyncAction(
+      async (isCurrent) => {
         const published = await client.publish(
           chosen.kind,
           chosen.id,
@@ -617,7 +611,11 @@ export function CommunityPluginPublishDialog({
         if (!isCurrent()) return;
         await onPublished(published);
       },
-    });
+      {
+        formatError: (publishError) => communityPluginMessage(publishError, true),
+        onError: (publishError) => setSignInRequired(communityNeedsSignIn(publishError)),
+      },
+    );
   };
 
   return (
