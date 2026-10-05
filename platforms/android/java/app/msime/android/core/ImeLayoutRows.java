@@ -17,7 +17,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** 26 键以外的键区：手写、九键、笔画、日语九键（含 flick 与长按选项）、侧栏与九键拼音选择；从 MSIMEInputService 原样搬出。 */
+/** 26 键以外的键区：手写、九键、笔画、注音 9 键、日语九键（含 flick 与长按选项）、侧栏与九键拼音 / 注音读音选择；从 MSIMEInputService 原样搬出。 */
 final class ImeLayoutRows {
     private final MSIMEInputService s;
 
@@ -484,6 +484,128 @@ final class ImeLayoutRows {
         updateStrokeWildcardKey();
     }
 
+    /**
+     * 注音 9 键：与拼音九键、笔画同一个三行高的外框，左列五个声调键，中间 1-9 三行音键加最后一行 @#、0、，。（四行挤进三行高，和大千的四行一样），右列 ⌫（两格高）、？、！。底行照常是 {@link KeyboardActionRow#designEntries}，逗号句号已在网格里，底行不再放。
+     *
+     * <p>音键和声调键直接走 character()，不走 type()：type() 会套用 Shift 大小写。音键发送数字，声调键发送 z x c v b，Engine 的注音九键编辑器把它们读作 ˉ ˊ ˇ ˋ ˙；底行空格同样是一声。读音选择条不放进左列（声调键在组字时要一直可按），而是叠在候选行上：注音的候选只在打开列表后才出现，列表关着时那一行是空的，render 在选择条显示时把候选滚动区让成不可见。
+     */
+    void rebuildZhuyinNineKeyRows() {
+        dismissNineKeyHoldOptions();
+        LinearLayout container = new LinearLayout(s);
+        container.setOrientation(LinearLayout.HORIZONTAL);
+        s.imeStyler.adjustThreeRowBlockHeight(container);
+        s.keyRows.addView(container, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
+
+        LinearLayout tones = new LinearLayout(s);
+        tones.setOrientation(LinearLayout.VERTICAL);
+        for (ZhuyinNineKeyLayout.Tone tone : ZhuyinNineKeyLayout.tones()) {
+            String label = ZhuyinNineKeyLayout.accessibilityLabel(tone);
+            Button key = s.keyId(s.keyboardKey(tone.face(), label, () -> {
+                if (s.connection != null) s.character(tone.input(), false);
+            }), tone.keyId());
+            key.setContentDescription(label);
+            // 声调符号本身只是一道短笔画，按默认字号画在矮键上几乎看不见。
+            key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            CenteredGlyphSpan.apply(key, tone.face(), 1f);
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+            addNineKey(tones, key);
+        }
+        container.addView(tones, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.7f));
+
+        LinearLayout grid = new LinearLayout(s);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        for (java.util.List<ZhuyinNineKeyLayout.Key> keys : ZhuyinNineKeyLayout.rows()) {
+            LinearLayout row = new LinearLayout(s);
+            for (ZhuyinNineKeyLayout.Key key : keys) addNineKey(row, zhuyinNineKeySoundKey(key));
+            grid.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        }
+        // 最后一行：@# 符号面板、0（仍在 8 的正下方）、逗号和句号各占半格。
+        LinearLayout lastRow = new LinearLayout(s);
+        Button symbolsKey = s.keyId(s.keyboardKey("@#", "符号面板", s.imePanels::showSymbolPanel), "SoftSymbol");
+        if (symbolsKey instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        addNineKey(lastRow, symbolsKey);
+        addNineKey(lastRow, zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.zero()));
+        LinearLayout marks = new LinearLayout(s);
+        marks.setOrientation(LinearLayout.HORIZONTAL);
+        boolean chinese = s.sendsChinesePunctuation();
+        String commaFace = ChineseSymbolFaces.face(",", chinese);
+        Button comma = s.keyId(s.keyboardKey(commaFace, "逗号", () -> {
+            if (s.dedicatedEnglish || !s.punctuation(',')) commitNineKeyLiteral(",");
+        }), KeyPressIds.forCharacter(','));
+        String periodFace = ChineseSymbolFaces.face(".", chinese);
+        Button period = s.keyId(s.keyboardKey(periodFace, "句点", this::commitNineKeyPeriod), "Period");
+        for (Button key : java.util.List.of(comma, period)) {
+            String face = key == comma ? commaFace : periodFace;
+            // 全角「，」「。」的墨迹只占字身左下角，直接当键面文字会缩成贴底的小点。
+            if ("，".equals(face) || "。".equals(face)) CenteredGlyphSpan.apply(key, face, 1.3f);
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+            addNineKey(marks, key);
+        }
+        lastRow.addView(marks, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 1));
+        grid.addView(lastRow, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        container.addView(grid, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 3));
+
+        // 右列 ⌫ 占两格高，？ ！ 各一格，与网格的四行对齐。
+        LinearLayout actions = new LinearLayout(s);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        Runnable deleteAction = () -> {
+            if (s.connection != null && !s.command(0)) s.deleteCodePointBeforeCursor();
+        };
+        Button delete = s.keyId(s.keyboardKey("⌫", "删除", deleteAction), "Backspace");
+        s.imeLetterRows.bindBackspaceRepeat(delete, deleteAction);
+        if (delete instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        actions.addView(delete, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 2));
+        for (char mark : new char[] {'?', '!'}) {
+            String literal = String.valueOf(mark);
+            // `?` 是注音的 Shift 标点：Engine 不看中文标点开关，总是先提交转换文字再写全宽 ？，键面照它写的印；`!` 走普通标点，跟着开关。
+            boolean chineseFace = (mark == '?' && !s.dedicatedEnglish) || chinese;
+            Button key = s.keyId(s.keyboardKey(ChineseSymbolFaces.face(literal, chineseFace),
+                mark == '?' ? "问号" : "叹号", () -> {
+                    if (s.dedicatedEnglish || !s.punctuation(mark)) commitNineKeyLiteral(literal);
+                }), "SoftPunctuation");
+            if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+            addNineKey(actions, key);
+        }
+        container.addView(actions, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
+
+        if (s.nineKeySpellingScroll != null && s.candidateViewport != null) {
+            // 选择条只在创建键盘视图时建一次，拼音九键会把它挂进自己的侧栏；先从原来的父视图摘下再挂到候选行，否则 addView 会抛 IllegalStateException。挂在最后，盖在候选滚动区上面。
+            if (s.nineKeySpellingScroll.getParent() instanceof android.view.ViewGroup previous)
+                previous.removeView(s.nineKeySpellingScroll);
+            s.candidateViewport.addView(s.nineKeySpellingScroll, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        }
+    }
+
+    /**
+     * 注音 9 键的一个音键：注音分组在上、数字在下，发送数字。
+     *
+     * <p>四个全宽注音在默认字号下比一个音键扣掉键距和内边距后的宽度还宽，第一行会折成两行、整个键面变成三行被裁。所以左右内边距收到 2dp，限定两行，并让整个键面在 7–14sp 之间等比缩到放得下（第二行一直是第一行的一半）。
+     */
+    private Button zhuyinNineKeySoundKey(ZhuyinNineKeyLayout.Key key) {
+        String label = ZhuyinNineKeyLayout.accessibilityLabel(key);
+        String face = ZhuyinNineKeyLayout.face(key);
+        Button button = s.keyId(s.keyboardKey(face, label, () -> {
+            if (s.connection != null) s.character(key.input(), false);
+        }), ZhuyinNineKeyLayout.keyId(key));
+        twoLineFace(button, face);
+        int horizontal = s.pixels(2);
+        button.setPadding(horizontal, 0, horizontal, 0);
+        button.setMaxLines(2);
+        button.setAutoSizeTextTypeUniformWithConfiguration(7, 14, 1, TypedValue.COMPLEX_UNIT_SP);
+        button.setContentDescription(label);
+        if (button instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+        return button;
+    }
+
     /** 笔画键送出它的字母；Engine 不收的键（空组合时的通配）什么也不写，免得往输入框里漏一个 x。 */
     void strokeKey(StrokeKeyboardLayout.Key key) {
         if (s.connection == null) return;
@@ -784,9 +906,13 @@ final class ImeLayoutRows {
     void renderNineKeySpellings() {
         if (s.nineKeySpellings == null || s.nineKeySpellingScroll == null) return;
         JSONArray spellings = s.view == null ? null : s.view.optJSONArray("nine_key_spellings");
-        boolean visible = s.displayedTouchLayout(s.view) == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT
+        int layout = s.displayedTouchLayout(s.view);
+        // 注音 9 键的选择条列出当前要钉住的那个音节的各个读音（ㄋㄧˇ、ㄌㄧˇ），拼音九键的列出拼音。
+        boolean zhuyin = layout == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT;
+        boolean visible = (layout == MSIMEInputService.QUANPIN_NINE_KEY_LAYOUT || zhuyin)
             && spellings != null && spellings.length() > 0;
         s.nineKeySpellingScroll.setVisibility(visible ? View.VISIBLE : View.GONE);
+        s.nineKeySpellingScroll.setContentDescription(zhuyin ? "注音读音选择" : "九键拼音选择");
         if (!visible) {
             s.nineKeySpellingIndices = java.util.List.of();
             s.nineKeySpellingGeneration = -1;
@@ -826,7 +952,7 @@ final class ImeLayoutRows {
             if (slotVisible) {
                 String spelling = values.get(slot);
                 key.setText(spelling);
-                key.setContentDescription("选择拼音 " + spelling);
+                key.setContentDescription((zhuyin ? "选择读音 " : "选择拼音 ") + spelling);
             }
         }
     }

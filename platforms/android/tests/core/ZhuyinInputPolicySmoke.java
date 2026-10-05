@@ -48,6 +48,17 @@ public final class ZhuyinInputPolicySmoke {
         check(!ZhuyinInputPolicy.spaceIsEngineKey(true, "125890,./;-") && !ZhuyinInputPolicy.spaceIsEngineKey(true, "0,./;-"),
             "idle or with the list open, touch Space keeps the plain space and the first-row pick");
         check(!ZhuyinInputPolicy.spaceIsEngineKey(false, composing), "outside Zhuyin touch Space is unchanged");
+        // 注音 9 键：组字中且列表关着时空格是一声（spelling_symbols 带空格），空闲或列表打开时不带。
+        check(ZhuyinInputPolicy.spaceIsEngineKey(true, "1234567890 ")
+            && !ZhuyinInputPolicy.spaceIsEngineKey(true, "1234567890"),
+            "the nine-key editor lists Space only while composing with its list closed");
+        check(ZhuyinInputPolicy.engineKey(true, '2', "1234567890"),
+            "every digit is a nine-key sound key in the editor's hands");
+        check(ZhuyinInputPolicy.hidesNineKeyComposing(true, false)
+            && !ZhuyinInputPolicy.hidesNineKeyComposing(true, true)
+            && !ZhuyinInputPolicy.hidesNineKeyComposing(false, false)
+            && !ZhuyinInputPolicy.hidesNineKeyComposing(false, true),
+            "only the quanpin nine-key keeps its digits out of the field; Zhuyin nine-key marks its reading");
 
         check(VietnameseInputPolicy.VIETNAMESE_SCHEME == 7, "the shared Engine ordinal for Vietnamese is 7");
         check(VietnameseInputPolicy.active(7, false) && !VietnameseInputPolicy.active(7, true)

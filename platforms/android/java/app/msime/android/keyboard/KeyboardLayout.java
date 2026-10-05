@@ -16,6 +16,8 @@ public final class KeyboardLayout {
     public static final int ZHUYIN_LAYOUT = 5;
     /** 笔画方案的九键外框：标点侧栏、{@link StrokeKeyboardLayout} 的 2×3 笔画网格和 ⌫ 列；笔画键发送字母 h s p n z x。 */
     public static final int STROKE_LAYOUT = 6;
+    /** 注音 9 键：声调列、{@link ZhuyinNineKeyLayout} 的 1-9/0 音键网格和 ⌫ 列；音键发送数字，声调键发送 z x c v b。 */
+    public static final int ZHUYIN_NINE_KEY_LAYOUT = 7;
 
     private static final List<List<String>> LETTER_ROWS = List.of(
         List.of("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
@@ -35,7 +37,8 @@ public final class KeyboardLayout {
                                          String touchLayout) {
         // Korean has only the 26-key Dubeolsik keyboard, whatever layout the document carries.
         if (scheme == KoreanInputPolicy.KOREAN_SCHEME) return KOREAN_LAYOUT;
-        // Zhuyin is Dachen only, so it has no nine-key or handwriting surface either.
+        // Zhuyin draws the nine-key bopomofo grid when the document stores the nine-key layout, the Dachen rows otherwise; it has no handwriting surface. The stored layout decides, as for Japanese, rather than the view's nine_key flag.
+        if (scheme == InputSchemeTraits.ZHUYIN && "nine_key".equals(touchLayout)) return ZHUYIN_NINE_KEY_LAYOUT;
         if (scheme == InputSchemeTraits.ZHUYIN) return ZHUYIN_LAYOUT;
         if (handwriting || "handwriting".equals(touchLayout)) return HANDWRITING_LAYOUT;
         // 笔画方案画自己的笔画键盘：偏好是 26 键还是 9 键都一样，只有手写让给手写面板。

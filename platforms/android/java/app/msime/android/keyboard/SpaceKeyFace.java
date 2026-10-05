@@ -83,7 +83,7 @@ public final class SpaceKeyFace extends KeyboardPressButton {
             case JAPANESE, JAPANESE_NINE_KEY -> "日语";
             case KOREAN -> "韩语";
             case CANTONESE -> "粤拼";
-            case ZHUYIN -> "注音";
+            case ZHUYIN, ZHUYIN_NINE_KEY -> "注音";
             case VIETNAMESE -> "越南语";
             case TIBETAN -> "藏文";
             case STROKE -> "笔画";

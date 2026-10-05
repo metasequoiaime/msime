@@ -94,6 +94,17 @@ public final class KeyboardLayoutSmoke {
             == KeyboardLayout.ZHUYIN_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(true, true, 6, "handwriting")
             == KeyboardLayout.ZHUYIN_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(true, false, 6, "handwriting")
+            == KeyboardLayout.ZHUYIN_LAYOUT);
+        // 注音 9 键按存下的布局字符串判断（与日语九键相同），不看 view 的 nine_key 标志。
+        check(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT == 7);
+        check(KeyboardLayout.resolveTouchLayout(false, true, 6, "nine_key")
+            == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 6, "nine_key")
+            == KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT);
+        check(!KeyboardLayout.carriesLetterCase(KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT));
+        check(KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS, KeyboardLayout.ZHUYIN_NINE_KEY_LAYOUT)
+            == KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS));
         check(KeyboardLayout.resolveTouchLayout(false, false, 5, "twenty_six_key")
             == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
         check(KeyboardLayout.resolveTouchLayout(false, false, 7, "twenty_six_key")

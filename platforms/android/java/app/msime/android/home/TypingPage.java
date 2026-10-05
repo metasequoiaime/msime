@@ -43,7 +43,7 @@ public final class TypingPage extends DetailPage {
     private enum Language {
         MANDARIN("汉", "普通话", KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.XIAOHE,
             KeyboardScheme.ZIRANMA, KeyboardScheme.MICROSOFT, KeyboardScheme.SHOUDAO, KeyboardScheme.WUBI,
-            KeyboardScheme.ZHUYIN, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
+            KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING),
         CANTONESE("粤", "粤语", KeyboardScheme.CANTONESE),
         JAPANESE("あ", "日语", KeyboardScheme.JAPANESE, KeyboardScheme.JAPANESE_NINE_KEY),
         KOREAN("한", "韩语", KeyboardScheme.KOREAN),
@@ -292,7 +292,8 @@ public final class TypingPage extends DetailPage {
                     return next;
                 });
             }
-            for (KeyboardScheme scheme : List.of(KeyboardScheme.ZHUYIN, KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING)) {
+            for (KeyboardScheme scheme : List.of(KeyboardScheme.ZHUYIN, KeyboardScheme.ZHUYIN_NINE_KEY,
+                    KeyboardScheme.STROKE, KeyboardScheme.HANDWRITING)) {
                 if (offered.contains(scheme))
                     sheet.option(mandarinName(scheme), scheme == applied, () -> applyScheme(scheme, null));
             }
@@ -323,6 +324,7 @@ public final class TypingPage extends DetailPage {
     private static String mandarinName(KeyboardScheme scheme) {
         return switch (scheme) {
             case ZHUYIN -> "注音";
+            case ZHUYIN_NINE_KEY -> "注音 9 键";
             case STROKE -> "笔画";
             default -> "手写";
         };

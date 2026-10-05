@@ -24,7 +24,9 @@ public enum KeyboardScheme {
     VIETNAMESE("vietnamese", "vietnamese", null, "twenty_six_key", "越南语 26 键", "越", "26"),
     TIBETAN("tibetan", "tibetan", null, "twenty_six_key", "藏文 26 键", "藏", "26"),
     // 笔画方案自己画五笔画键盘，偏好里的 26 键/9 键都显示它；与注音一样存 `twenty_six_key`，由宿主按方案号换面。
-    STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5");
+    STROKE("stroke", "stroke", null, "twenty_six_key", "笔画", "笔", "5"),
+    // 注音 9 键与大千注音是同一个 Engine 方案，只是触屏布局存 `nine_key`；追加在末尾，与共享 `TouchKeyboardScheme::ALL` 的顺序一致。
+    ZHUYIN_NINE_KEY("zhuyin_nine_key", "zhuyin", null, "nine_key", "注音 9 键", "注", "9");
 
     /** Complete preference values needed for one compare-and-swap update. */
     public record PreferenceMapping(
@@ -111,15 +113,16 @@ public enum KeyboardScheme {
         return badge;
     }
 
-    /** 粤拼、注音、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
+    /** 粤拼、注音（大千和 9 键）、越南语、藏文和笔画默认隐藏，用户打开后才出现；共享的 `TouchKeyboardScheme::DEFAULT_ENABLED` 同样不把它们放进从未存过列表的文档。 */
     public boolean optIn() {
-        return this == CANTONESE || this == ZHUYIN || this == VIETNAMESE || this == TIBETAN || this == STROKE;
+        return this == CANTONESE || this == ZHUYIN || this == ZHUYIN_NINE_KEY || this == VIETNAMESE
+            || this == TIBETAN || this == STROKE;
     }
 
     /** The file this scheme reads from the HostOptions `language_dictionaries` directory, or null for a scheme that needs only the shared resources. */
     public String languageDictionary() {
         if (this == CANTONESE) return "msime-cantonese.db";
-        if (this == ZHUYIN) return "msime-zhuyin.db";
+        if (this == ZHUYIN || this == ZHUYIN_NINE_KEY) return "msime-zhuyin.db";
         if (this == STROKE) return "msime-stroke.db";
         return null;
     }
@@ -202,6 +205,7 @@ public enum KeyboardScheme {
         if (handwritingScheme.equals(scheme) && "handwriting".equals(touchLayout)) return HANDWRITING;
         if ("quanpin".equals(scheme) && "nine_key".equals(touchLayout)) return QUANPIN_NINE_KEY;
         if ("japanese".equals(scheme) && "nine_key".equals(touchLayout)) return JAPANESE_NINE_KEY;
+        if ("zhuyin".equals(scheme) && "nine_key".equals(touchLayout)) return ZHUYIN_NINE_KEY;
         if ("shuangpin".equals(scheme)) {
             for (KeyboardScheme candidate : values()) {
                 if (profile != null && profile.equals(candidate.shuangpinProfile)) return candidate;
