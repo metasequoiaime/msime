@@ -2,10 +2,12 @@ package app.msime.android;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * 云同步的本机开关与进度：开关、当前绑定的账号与登录方式、各分类的游标与待上传标记、上次同步时间。
+ * 云同步的本机开关与进度：开关、当前绑定的账号与登录方式、各分类的游标与待上传标记（改动代数）、本机收不下的云端常用语、上次同步时间。
  *
  * <p>只存在宿主本地的 `SharedPreferences("msime_sync_v1")`，不进共享偏好，也不随设置同步。开关默认关闭，登录本身不打开它；退出登录和换账号时由登录流程（home/SignIn）调用 {@link #clear}，开关随之关闭、游标清空。只在主进程读写；`:ime` 进程经 {@link AccountSessionProvider} 的 `sync_state` / `sync_dirty` 间接访问。
  */
@@ -24,6 +26,10 @@ public final class SyncSwitch {
     static final String KEY_ACCOUNT_ID = "account_id";
     static final String KEY_LOGIN_KIND = "login_kind";
     static final String KEY_LAST_SYNCED_AT = "last_synced_at";
+    static final String KEY_PHRASES_UNHELD = "phrases_unheld";
+
+    /** 待上传标记的读改写都在这把锁里：provider 的 binder 线程与 CloudSync 的工作线程同在主进程里并发调用。 */
+    private static final Object DIRTY_LOCK = new Object();
 
     private SyncSwitch() {}
 
@@ -41,9 +47,14 @@ public final class SyncSwitch {
         return "cursor_" + requireSection(section);
     }
 
-    /** 一个分类「本机有改动尚未上传」标记的键名。 */
-    static String dirtyKey(String section) {
-        return "dirty_" + requireSection(section);
+    /** 一个分类本机改动代数的键名：每次 {@link #markDirty} 加一。 */
+    static String generationKey(String section) {
+        return "gen_" + requireSection(section);
+    }
+
+    /** 一个分类上次清掉待上传标记时的代数；与 {@link #generationKey} 不同即「本机有改动尚未上传」。 */
+    static String cleanKey(String section) {
+        return "clean_" + requireSection(section);
     }
 
     private static String requireSection(String section) {
@@ -97,18 +108,88 @@ public final class SyncSwitch {
     }
 
     public static boolean dirty(Context context, String section) {
-        return store(context).getBoolean(dirtyKey(section), false);
+        return dirty(store(context), section);
     }
 
-    /** 标记一个分类本机有改动；同步关闭时不记，打开同步时本来就会整份比对。 */
+    /** 标记一个分类本机有改动（代数加一）；同步关闭时不记，打开同步时本来就会整份比对。 */
     public static void markDirty(Context context, String section) {
-        String key = dirtyKey(section);
-        if (!enabled(context)) return;
-        store(context).edit().putBoolean(key, true).apply();
+        markDirty(store(context), section);
     }
 
+    /**
+     * 一个分类当前的改动代数。同步在读本机快照之前记下它，上传完用 {@link #clearDirtyIf} 只在期间没有新改动时清标记。
+     */
+    public static long generation(Context context, String section) {
+        return generation(store(context), section);
+    }
+
+    /**
+     * 代数仍是 `expected` 时清掉待上传标记并返回 true；期间又有改动（代数更大）时保留标记并返回 false，下一轮会把那次改动传上去。
+     *
+     * @param expected 读快照前的代数，加上这一轮自己写本机引起的标记次数
+     */
+    public static boolean clearDirtyIf(Context context, String section, long expected) {
+        return clearDirtyIf(store(context), section, expected);
+    }
+
+    /** 无条件清掉待上传标记；只给确实要丢弃本机改动的路径用（例如整份用云端替换）。 */
     public static void clearDirty(Context context, String section) {
-        store(context).edit().remove(dirtyKey(section)).apply();
+        clearDirty(store(context), section);
+    }
+
+    static boolean dirty(SharedPreferences store, String section) {
+        synchronized (DIRTY_LOCK) {
+            return store.getLong(generationKey(section), 0L) != store.getLong(cleanKey(section), 0L);
+        }
+    }
+
+    static void markDirty(SharedPreferences store, String section) {
+        String key = generationKey(section);
+        synchronized (DIRTY_LOCK) {
+            if (!store.getBoolean(KEY_ENABLED, false)) return;
+            store.edit().putLong(key, store.getLong(key, 0L) + 1L).apply();
+        }
+    }
+
+    static long generation(SharedPreferences store, String section) {
+        String key = generationKey(section);
+        synchronized (DIRTY_LOCK) {
+            return store.getLong(key, 0L);
+        }
+    }
+
+    static boolean clearDirtyIf(SharedPreferences store, String section, long expected) {
+        String key = generationKey(section);
+        String clean = cleanKey(section);
+        synchronized (DIRTY_LOCK) {
+            if (store.getLong(key, 0L) != expected) return false;
+            store.edit().putLong(clean, expected).apply();
+            return true;
+        }
+    }
+
+    static void clearDirty(SharedPreferences store, String section) {
+        String key = generationKey(section);
+        String clean = cleanKey(section);
+        synchronized (DIRTY_LOCK) {
+            store.edit().putLong(clean, store.getLong(key, 0L)).apply();
+        }
+    }
+
+    /**
+     * 上次应用云端常用语时本机收不下的那些正文（超出本机条数或长度上限、或写入失败）。上传时把云端里这些正文原样带上，免得只因为本机放不下就从云端删掉别的设备的常用语。
+     */
+    public static Set<String> unheldPhrases(Context context) {
+        Set<String> stored = store(context).getStringSet(KEY_PHRASES_UNHELD, null);
+        return stored == null ? Set.of() : Set.copyOf(stored);
+    }
+
+    /** 每次成功应用云端常用语后整份替换。 */
+    public static void setUnheldPhrases(Context context, Set<String> texts) {
+        SharedPreferences.Editor editor = store(context).edit();
+        if (texts == null || texts.isEmpty()) editor.remove(KEY_PHRASES_UNHELD);
+        else editor.putStringSet(KEY_PHRASES_UNHELD, new HashSet<>(texts));
+        editor.apply();
     }
 
     /** 上次成功同步的 Unix 毫秒时间，从未同步过为 0。 */
@@ -122,6 +203,8 @@ public final class SyncSwitch {
 
     /** 退出登录与换账号时调用：关闭开关，清空账号、游标、标记与同步时间。同步写盘，返回时已经生效。 */
     public static void clear(Context context) {
-        store(context).edit().clear().commit();
+        synchronized (DIRTY_LOCK) {
+            store(context).edit().clear().commit();
+        }
     }
 }

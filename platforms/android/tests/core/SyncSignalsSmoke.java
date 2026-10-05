@@ -14,12 +14,15 @@ public final class SyncSignalsSmoke {
 
         Method cursorKey = SyncSwitch.class.getDeclaredMethod("cursorKey", String.class);
         cursorKey.setAccessible(true);
-        Method dirtyKey = SyncSwitch.class.getDeclaredMethod("dirtyKey", String.class);
-        dirtyKey.setAccessible(true);
+        Method generationKey = SyncSwitch.class.getDeclaredMethod("generationKey", String.class);
+        generationKey.setAccessible(true);
+        Method cleanKey = SyncSwitch.class.getDeclaredMethod("cleanKey", String.class);
+        cleanKey.setAccessible(true);
         check("cursor_phrases".equals(cursorKey.invoke(null, "phrases")), "cursor key per section");
-        check("dirty_skins".equals(dirtyKey.invoke(null, "skins")), "dirty key per section");
+        check("gen_skins".equals(generationKey.invoke(null, "skins")), "generation key per section");
+        check("clean_skins".equals(cleanKey.invoke(null, "skins")), "cleared-at key per section");
         try {
-            dirtyKey.invoke(null, "../escape");
+            generationKey.invoke(null, "../escape");
             throw new AssertionError("an unknown section must not produce a key");
         } catch (java.lang.reflect.InvocationTargetException expected) {
             check(expected.getCause() instanceof IllegalArgumentException, "unknown section is an argument error");

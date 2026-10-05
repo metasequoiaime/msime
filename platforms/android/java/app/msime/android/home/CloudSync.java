@@ -28,10 +28,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -75,12 +77,14 @@ public final class CloudSync {
         request(activity, null, true);
     }
 
-    /** 「我的」页同步行副标题用的一行状态：最近一次失败的原因，或皮肤库被裁剪的提示；都没有时为空串。 */
+    /** 「我的」页同步行副标题用的一行状态：最近一次失败的原因、皮肤库被裁剪的提示，或云端常用语本机收不下的提示；都没有时为空串。 */
     public static String statusLine(Context context) {
         SharedPreferences status = status(context);
         String error = status.getString(KEY_ERROR, "");
         if (!error.isEmpty()) return error;
-        return status.getBoolean(KEY_SKINS_TRIMMED, false) ? "自定义皮肤太多，只同步了最近的设计" : "";
+        if (status.getBoolean(KEY_SKINS_TRIMMED, false)) return "自定义皮肤太多，只同步了最近的设计";
+        int unheld = SyncSwitch.unheldPhrases(context).size();
+        return unheld > 0 ? "云端有 " + unheld + " 条常用语超出本机上限，未下载但已保留" : "";
     }
 
     private static void request(Activity activity, SyncMergePolicy.Choice choice, boolean force) {
@@ -160,6 +164,9 @@ public final class CloudSync {
         if (failure.unavailable()) return "云同步暂时不可用";
         return "同步失败，稍后自动重试";
     }
+
+    /** 应用一次云端常用语的结果：成功写入本机的次数（每次都会把代数加一），以及本机收不下的正文。 */
+    private record PhraseApply(int writes, Set<String> unheld) {}
 
     private static SharedPreferences status(Context context) {
         return context.getApplicationContext().getSharedPreferences(STATUS, Context.MODE_PRIVATE);
@@ -253,6 +260,9 @@ public final class CloudSync {
         // ---- 设置与皮肤库 ----
 
         private void settings() throws CloudApi.Failure, IOException, JSONException {
+            // 先记下改动代数再读本机：上传期间用户又改了设置，代数会变大，标记留着，下一轮再传。
+            long settingsGeneration = SyncSwitch.generation(context, SyncSwitch.SETTINGS);
+            long skinsGeneration = SyncSwitch.generation(context, SyncSwitch.SKINS);
             String cursor = SyncSwitch.cursor(context, SyncSwitch.SETTINGS);
             boolean dirty = SyncSwitch.dirty(context, SyncSwitch.SETTINGS) || SyncSwitch.dirty(context, SyncSwitch.SKINS);
             SyncApi.Preferences cloud = preferences;
@@ -286,8 +296,8 @@ public final class CloudSync {
             }
             SyncSwitch.setCursor(context, SyncSwitch.SETTINGS, Long.toString(result.revision()));
             SyncSwitch.setCursor(context, SyncSwitch.SKINS, Long.toString(result.revision()));
-            SyncSwitch.clearDirty(context, SyncSwitch.SETTINGS);
-            SyncSwitch.clearDirty(context, SyncSwitch.SKINS);
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.SETTINGS, settingsGeneration);
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.SKINS, skinsGeneration);
         }
 
         /** 本机设置叠加到云端文档上的整份结果；皮肤库按剩下的字节预算从最近的设计装起。 */
@@ -349,6 +359,7 @@ public final class CloudSync {
         // ---- 常用语 ----
 
         private void phrases() throws CloudApi.Failure {
+            long generation = SyncSwitch.generation(context, SyncSwitch.PHRASES);
             Map<String, String> local = ownPhrases();
             SyncApi.Phrases cloud = phrases;
             String cursor = SyncSwitch.cursor(context, SyncSwitch.PHRASES);
@@ -364,7 +375,8 @@ public final class CloudSync {
                 }
                 List<SyncMergePolicy.Phrase> upload = mode == SyncMergePolicy.Mode.MERGE
                     ? SyncMergePolicy.mergePhrases(asPhrases(local, cloud.phrases()), cloud.phrases())
-                    : SyncMergePolicy.normalized(asPhrases(local, cloud.phrases()));
+                    : SyncMergePolicy.uploadPhrases(asPhrases(local, cloud.phrases()), cloud.phrases(),
+                        SyncSwitch.unheldPhrases(context));
                 try {
                     SyncApi.Phrases saved = api.putPhrases(cloud.revision(), upload);
                     revision = saved.revision();
@@ -377,10 +389,15 @@ public final class CloudSync {
                 }
                 break;
             }
-            if (target != null) applyPhrases(local, target);
+            int ownWrites = 0;
+            if (target != null) {
+                PhraseApply applied = applyPhrases(local, target);
+                ownWrites = applied.writes();
+                SyncSwitch.setUnheldPhrases(context, applied.unheld());
+            }
             SyncSwitch.setCursor(context, SyncSwitch.PHRASES, Long.toString(revision));
-            // 本机写入也会经 CommonPhrasesStore 打上待上传标记，写完再清掉，免得下一轮把刚下载的又传回去。
-            SyncSwitch.clearDirty(context, SyncSwitch.PHRASES);
+            // 本机写入也会经 CommonPhrasesStore 把代数加一，每次成功写入一次；只在代数恰好是「读快照前 + 自己的写入」时清标记，期间用户的改动留到下一轮上传。
+            SyncSwitch.clearDirtyIf(context, SyncSwitch.PHRASES, generation + ownWrites);
         }
 
         /** 用户自己添加的常用语（id → 正文），按本机顺序；社区短语包里的不同步，装包的设备各自管理。 */
@@ -406,17 +423,32 @@ public final class CloudSync {
             return result;
         }
 
-        private void applyPhrases(Map<String, String> local, List<SyncMergePolicy.Phrase> target) {
+        /** 把本机改成 `target`，返回成功写入的次数和本机收不下的正文（过长、超出条数上限或写入失败；已经有的不算）。 */
+        private PhraseApply applyPhrases(Map<String, String> local, List<SyncMergePolicy.Phrase> target) {
             SyncMergePolicy.LocalPlan plan = SyncMergePolicy.localPlan(local, target);
+            int writes = 0;
             for (String id : plan.remove()) {
                 CommonPhrasesStore.Result removed = CommonPhrasesStore.remove(context, id);
-                if (!removed.ok()) Log.w(TAG, "phrase remove skipped: " + removed.failure());
+                if (removed.ok()) writes++;
+                else Log.w(TAG, "phrase remove skipped: " + removed.failure());
             }
+            String duplicate = CommonPhrasesStore.failureMessage("common_phrases_duplicate");
+            Set<String> unheld = new HashSet<>();
             for (String text : plan.add()) {
-                if (!CommonPhrasesStore.validText(text)) continue;
+                if (!CommonPhrasesStore.validText(text)) {
+                    unheld.add(text);
+                    continue;
+                }
                 CommonPhrasesStore.Result added = CommonPhrasesStore.add(context, text);
-                if (!added.ok()) Log.w(TAG, "phrase add skipped: " + added.failure());
+                if (added.ok()) {
+                    writes++;
+                } else if (!duplicate.equals(added.failure())) {
+                    unheld.add(text);
+                    Log.w(TAG, "phrase add skipped: " + added.failure());
+                }
             }
+            if (!unheld.isEmpty()) Log.i(TAG, unheld.size() + " cloud phrases kept in the cloud but not on this device");
+            return new PhraseApply(writes, unheld);
         }
 
         // ---- 个人词库 ----
@@ -439,12 +471,14 @@ public final class CloudSync {
                     return;
                 }
                 Path file = work.resolve("upload.ndjson");
+                long generation = SyncSwitch.generation(context, SyncSwitch.DICTIONARY);
                 try {
                     exportSnapshot(file);
                     try {
                         long revision = api.uploadSnapshot(file, dictionary.revision());
                         SyncSwitch.setCursor(context, SyncSwitch.DICTIONARY, Long.toString(revision));
-                        SyncSwitch.clearDirty(context, SyncSwitch.DICTIONARY);
+                        // 导出之后又有词库改动时代数已经变大，标记留着，下一轮再整份上传。
+                        SyncSwitch.clearDirtyIf(context, SyncSwitch.DICTIONARY, generation);
                         return;
                     } catch (CloudApi.Failure failure) {
                         if (!SyncApi.conflict(failure)) throw failure;

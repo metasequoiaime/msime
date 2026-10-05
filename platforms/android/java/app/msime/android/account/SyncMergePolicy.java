@@ -91,6 +91,23 @@ public final class SyncMergePolicy {
         return Collections.unmodifiableList(result);
     }
 
+    /**
+     * 只有本机改动时要上传的整份常用语：本机列表在前，再接上云端里正文属于 `unheld` 的那些。
+     *
+     * <p>`unheld` 是上次应用云端结果时本机收不下的正文（本机自己添加的上限比服务端小）。它们从没进过本机列表，所以不会被当成本机删除而从云端抹掉；本机真正删掉的常用语从来不在 `unheld` 里，照常随这次上传从云端消失。
+     *
+     * @param local 本机列表（已换成云端格式）
+     * @param cloud 这一轮读到的云端列表
+     * @param unheld 上次应用时本机收不下的正文
+     */
+    public static List<Phrase> uploadPhrases(List<Phrase> local, List<Phrase> cloud, Set<String> unheld) {
+        List<Phrase> combined = new ArrayList<>(local);
+        if (unheld != null && !unheld.isEmpty()) {
+            for (Phrase phrase : cloud) if (phrase != null && unheld.contains(phrase.text())) combined.add(phrase);
+        }
+        return normalized(combined);
+    }
+
     private static boolean usable(Phrase phrase) {
         return phrase != null && phrase.id() != null && !phrase.id().isEmpty() && phrase.text() != null
             && !phrase.text().isBlank() && phrase.text().length() <= MAX_PHRASE_UNITS

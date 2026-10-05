@@ -1,9 +1,11 @@
 package app.msime.android;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class SyncMergePolicySmoke {
     public static void main(String[] arguments) {
@@ -56,6 +58,27 @@ public final class SyncMergePolicySmoke {
         SyncMergePolicy.LocalPlan plan = SyncMergePolicy.localPlan(present, merged);
         check(plan.add().equals(List.of("好的", "马上到")), "plan adds missing texts: " + plan.add());
         check(plan.remove().equals(List.of("l2")), "plan removes texts the target lacks");
+
+        // 只有本机改动时的上传：本机收不下的云端常用语原样带上，本机删掉的照常从云端消失。
+        List<SyncMergePolicy.Phrase> ownList = new ArrayList<>();
+        for (int index = 0; index < 150; index++) ownList.add(new SyncMergePolicy.Phrase("l" + index, "本机" + index, "", index));
+        List<SyncMergePolicy.Phrase> cloudList = new ArrayList<>();
+        Set<String> unheld = new HashSet<>();
+        for (int index = 0; index < 150; index++) {
+            cloudList.add(new SyncMergePolicy.Phrase("c" + index, "云端" + index, "组", index));
+            if (index < 100) unheld.add("云端" + index);
+        }
+        List<SyncMergePolicy.Phrase> upload = SyncMergePolicy.uploadPhrases(ownList, cloudList, unheld);
+        check(upload.size() == 250, "local plus unheld cloud phrases: " + upload.size());
+        check("本机0".equals(upload.get(0).text()) && "云端0".equals(upload.get(150).text()), "local first, then unheld");
+        boolean droppedDeleted = true;
+        for (SyncMergePolicy.Phrase phrase : upload) {
+            if ("云端120".equals(phrase.text())) droppedDeleted = false;
+        }
+        check(droppedDeleted, "a cloud phrase this device once held and deleted is not re-uploaded");
+        for (int index = 0; index < upload.size(); index++) check(upload.get(index).position() == index, "upload positions");
+        check(SyncMergePolicy.uploadPhrases(ownList, cloudList, Set.of()).size() == 150,
+            "without unheld phrases the upload is the local list");
 
         // 设置：本机覆盖云端，本地专属键永远不上传。
         Map<String, Object> base = new LinkedHashMap<>();
