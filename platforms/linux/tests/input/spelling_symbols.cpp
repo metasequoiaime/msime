@@ -26,6 +26,14 @@ int main() {
   assert(spelling_digits(unicode));
   assert(local_mode_spelling(unicode, U'7'));
   assert(!local_mode_spelling(unicode, U'+'));
+  // Shift and the number row pick a Unicode candidate even where the chord types the digit (AZERTY), and only then: a bare digit, a key off the row, a symbol or no list to pick from leaves the digit input.
+  using msime::linux_host::shifted_number_row_picks;
+  assert(shifted_number_row_picks(unicode, U'1', true, true, true));
+  assert(!shifted_number_row_picks(unicode, U'1', false, true, true));
+  assert(!shifted_number_row_picks(unicode, U'1', true, false, true));
+  assert(!shifted_number_row_picks(unicode, U'1', true, true, false));
+  assert(!shifted_number_row_picks(unicode, U'!', true, true, true));
+  assert(!shifted_number_row_picks(expression, U'%', true, true, true));
 
   // Idle, the mode-entry keys are listed but left to the punctuation route, and digits stay candidate shortcuts.
   const Json idle = {{"local_mode", "none"}, {"spelling_symbols", "/@"}};

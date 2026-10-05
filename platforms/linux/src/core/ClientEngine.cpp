@@ -6475,7 +6475,13 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     // A key the active local mode or scheme spells with is input before any binding below can claim it: a page key, a paired bracket, smart punctuation or a candidate digit (SpellingSymbols.h). Space is one of them only while a Zhuyin syllable composes, where it is the first tone.
     if ((modifiers & ~IBUS_SHIFT_MASK) == 0) {
       const gunichar spelled = ibus_keyval_to_unicode(key);
-      if (msime::linux_host::engine_spelling(s.view, spelled) ||
+      // IBus clients send evdev codes, where the number row is 2..11.
+      const bool picks = msime::linux_host::shifted_number_row_picks(
+          s.view, spelled, (flags & IBUS_SHIFT_MASK) != 0, keycode >= 2 && keycode <= 11,
+          s.number_row_selection && !s.view.value("nine_key", false) &&
+              s.rendered_session == s.session && s.rendered_candidates.is_array() &&
+              !s.rendered_candidates.empty());
+      if ((!picks && msime::linux_host::engine_spelling(s.view, spelled)) ||
           (modifiers == 0 && spelled == U' ' && msime::linux_host::spelling_space(s.view))) {
         handled = apply(engine, msime_client_character(
                                     s.session, static_cast<uint8_t>(spelled),

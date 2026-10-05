@@ -55,4 +55,11 @@ inline bool spelling_digits(const nlohmann::json &view) {
   return spelling_symbol(view, U'1');
 }
 
+// Shift and a number-row key pick a candidate in the modes that spell with digits even where the chord types the digit itself, as it does on AZERTY: Windows decides by the physical key. The host leaves such a key to its candidate keys instead of sending the digit to the Engine as spelling. `picking` is whether a candidate can be picked from the row now (number-row selection on, not nine-key, a list on screen); without that the digit stays input.
+inline bool shifted_number_row_picks(const nlohmann::json &view, char32_t character, bool shift,
+                                     bool number_row_key, bool picking) {
+  return picking && shift && number_row_key && character >= U'0' && character <= U'9' &&
+         spelling_digits(view);
+}
+
 } // namespace msime::linux_host
