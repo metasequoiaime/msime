@@ -388,8 +388,8 @@ attachInput(document.querySelector("textarea"), engine${barOptions() ? `, ${barO
     code: `import { createMsimeEngine, createCandidateBar, keyFromEvent } from "@msime/web-engine";
 
 const engine = await ${call()};${modelLine()}
-// 看不见的密码框接收按键：浏览器在密码框里停用系统输入法
-// <input type="password" id="keys" autocomplete="new-password" data-1p-ignore data-lpignore="true">
+// 看不见的密码框接收按键：浏览器在密码框里停用系统输入法。name="captcha" 让 Bitwarden 不弹菜单，autocomplete 别写 new-password
+// <input type="password" id="keys" name="captcha" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore>
 const keys = document.querySelector("#keys");
 const bar = createCandidateBar(${barOptions(["onPick: async (i) => render(await engine.pick(i))"])});
 let composing = false;
