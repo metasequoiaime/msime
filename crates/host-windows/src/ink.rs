@@ -11,7 +11,8 @@
 
 use windows::Foundation::Point;
 use windows::UI::Input::Inking::{
-    InkPoint, InkRecognitionTarget, InkRecognizerContainer, InkStrokeBuilder, InkStrokeContainer,
+    InkPoint, InkRecognitionTarget, InkRecognizer, InkRecognizerContainer, InkStrokeBuilder,
+    InkStrokeContainer,
 };
 
 /// One handwritten stroke: the points the pointer passed through, in order.
@@ -112,8 +113,10 @@ pub fn recognize(strokes: &[Stroke]) -> Result<Vec<String>, InkError> {
     recognize_inner(strokes).unwrap_or_else(Err)
 }
 
-fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {
-    let container = InkRecognizerContainer::new().map_err(|_| InkError::Unavailable)?;
+/// 本机装着的最合适的中文识别器（简体优先，其次繁体），没有时为 `None`。
+fn best_chinese_recognizer(
+    container: &InkRecognizerContainer,
+) -> Result<Option<InkRecognizer>, InkError> {
     let recognizers = container
         .GetRecognizers()
         .map_err(|_| InkError::Unavailable)?;
@@ -135,7 +138,20 @@ fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, 
             }
         }
     }
-    let Some(recognizer) = best else {
+    Ok(best)
+}
+
+/// Windows 是否装有中文手写识别器（简体或繁体）。设置应用据此决定要不要提供手写模型的下载：有识别器时手写面板先用它，不需要模型。Ink API 本身出错时按没有处理，让用户仍能下载模型兜底。
+pub fn has_chinese_recognizer() -> bool {
+    InkRecognizerContainer::new()
+        .map_err(|_| InkError::Unavailable)
+        .and_then(|container| best_chinese_recognizer(&container))
+        .is_ok_and(|recognizer| recognizer.is_some())
+}
+
+fn recognize_inner(strokes: &[Stroke]) -> Result<Result<Vec<String>, InkError>, InkError> {
+    let container = InkRecognizerContainer::new().map_err(|_| InkError::Unavailable)?;
+    let Some(recognizer) = best_chinese_recognizer(&container)? else {
         // Not a failure we can retry around: the user has to install the
         // handwriting feature for Chinese.
         return Ok(Err(InkError::NoChineseRecognizer));

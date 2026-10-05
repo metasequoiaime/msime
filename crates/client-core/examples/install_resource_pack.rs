@@ -1,9 +1,9 @@
-//! 开发和打包用：把按需下载的资源包装到指定的 state_root 下（`<state_root>/resource-packs/<id>/`），与 App 运行时下载的位置和格式一致。不带资源包 id 时安装全部。
+//! 开发和打包用：把按需下载的资源包装到指定的 state_root 下（`<state_root>/resource-packs/<id>/`），与 App 运行时下载的位置和格式一致。资源包 id 是 `japanese`、`language-dictionaries`、`handwriting` 和 `settled-model`；不带 id 时安装全部，打包前据此确认每个资源包的固定地址都还能下载。
 use msime_client_core::resource_packs::{self, ResourcePack};
 use std::sync::atomic::AtomicBool;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: install_resource_pack <absolute-state-root> [pack-id ...]";
+    let usage = "usage: install_resource_pack <absolute-state-root> [japanese|language-dictionaries|handwriting|settled-model ...]";
     let mut arguments = std::env::args().skip(1);
     let state_root = std::path::PathBuf::from(arguments.next().ok_or(usage)?);
     let mut packs = Vec::new();
