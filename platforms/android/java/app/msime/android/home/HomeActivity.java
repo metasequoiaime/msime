@@ -172,6 +172,7 @@ public final class HomeActivity extends AppCompatActivity {
             AppThemeController.follow(this, preferences);
             runOnUiThread(this::recreateIfSeasonChanged);
         });
+        CloudSync.onResume(this);
     }
 
     /**
