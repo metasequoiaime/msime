@@ -141,6 +141,7 @@ mod tests {
             content: CommunityResourceContent {
                 entries: Vec::new(),
                 prompt: Some("请礼貌回复。".into()),
+                phrases: Vec::new(),
             },
             revision: 1,
             saves: 0,
@@ -176,6 +177,7 @@ mod tests {
                         weight: 1
                     }],
                     prompt: None,
+                    phrases: Vec::new(),
                 },
                 ..reply()
             })

@@ -23,6 +23,7 @@ pub mod candidate_document;
 pub mod chinese_conversion;
 pub mod clipboard;
 pub mod cloud;
+pub mod common_phrases;
 pub mod community;
 pub mod credential;
 pub mod dictionary;
