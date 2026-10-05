@@ -30,6 +30,7 @@ import app.msime.android.clipboard.CloudClipboardTextPolicy;
 public final class BackendAccount {
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_account_session_v2";
+    private static final String DEFAULT_USER_AGENT = "MSIME/Android";
     /** Matches client-core's account JSON response ceiling; a full cloud clipboard page can exceed 64 KiB. */
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     private static final long MAX_SESSION_MILLISECONDS = AccountTokenPolicy.MAX_SESSION_SECONDS * 1000L;
@@ -39,6 +40,8 @@ public final class BackendAccount {
 
     /** One challenge, waiting for the provider's token. */
     public record Challenge(String id, String nonce) {}
+    /** 一次邮箱验证码挑战：服务端的 id、用途（login / link）与有效秒数。 */
+    public record EmailChallenge(String id, String purpose, long expiresIn) {}
     public record ChatModel(String id) {}
     public record ChatMessage(String role, String content) {}
     public record ClipboardItem(String id, String text, String updatedAt) {}
@@ -52,6 +55,25 @@ public final class BackendAccount {
 
     interface Requester {
         JSONObject request(String method, String path, JSONObject body, String token) throws Exception;
+
+        /** 真实账号登录请求带详细 User-Agent；不关心它的实现（测试里的内存实现）照常走四参数版本。 */
+        default JSONObject request(String method, String path, JSONObject body, String token, String userAgent)
+                throws Exception {
+            return request(method, path, body, token);
+        }
+    }
+
+    /** 走 HTTPS 的默认实现；只有登录请求会传入详细 User-Agent。 */
+    private static final class HttpRequester implements Requester {
+        @Override public JSONObject request(String method, String path, JSONObject body, String token)
+                throws Exception {
+            return httpRequest(method, path, body, token, DEFAULT_USER_AGENT);
+        }
+
+        @Override public JSONObject request(String method, String path, JSONObject body, String token,
+                String userAgent) throws Exception {
+            return httpRequest(method, path, body, token, userAgent);
+        }
     }
 
     /** Where a process that does not own the session gets its access token (see {@link AccountSessionRoutingPolicy}). */
@@ -83,7 +105,7 @@ public final class BackendAccount {
      * <p>In the main process this reads and refreshes the session itself. In any other process - the `:ime` keyboard - the access token comes from the main process through {@link AccountSessionProvider}, so only one process ever spends a refresh token. Sign-in and sign-out belong to the main process.
      */
     public BackendAccount(Context context) {
-        this(new AndroidAccountSessionStorage(context, SESSION_STORE), BackendAccount::httpRequest,
+        this(new AndroidAccountSessionStorage(context, SESSION_STORE), new HttpRequester(),
             AccountSessionRoutingPolicy.ownsSession(Application.getProcessName(), context.getPackageName())
                 ? null : sessionOwner(context));
     }
@@ -91,7 +113,7 @@ public final class BackendAccount {
     /** The account read and refreshed in this process, whatever process it is; only {@link AccountSessionProvider} uses this, in the main process. */
     static BackendAccount owningSession(Context context) {
         return new BackendAccount(new AndroidAccountSessionStorage(context, SESSION_STORE),
-            BackendAccount::httpRequest, null);
+            new HttpRequester(), null);
     }
 
     BackendAccount(SessionStore sessions, Requester requester) {
@@ -156,9 +178,137 @@ public final class BackendAccount {
 
     /** Finish it with the provider's ID token, and keep the session this device is now signed in on. */
     public void login(Challenge challenge, String idToken) throws Exception {
+        login(challenge, idToken, DEFAULT_USER_AGENT);
+    }
+
+    /** 同上，登录请求带 {@link #loginUserAgent} 生成的详细 User-Agent；后端只在登录时记下它，用来在「我的设备」里显示这台设备。 */
+    public void login(Challenge challenge, String idToken, String userAgent) throws Exception {
         if (ownerProcess != null) throw new IllegalStateException("account session owner");
-        JSONObject tokens = request("POST", "/v1/auth/login",
-            new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken), null);
+        keepSession(request("POST", "/v1/auth/login",
+            new JSONObject().put("challenge_id", challenge.id()).put("credential", idToken), null,
+            userAgent(userAgent)));
+    }
+
+    /**
+     * 请服务端给这个邮箱发一封 6 位验证码。
+     *
+     * <p>邮箱挑战没有 nonce，所以不走 {@link #challenge}。`purpose=link` 是把邮箱绑到已登录的账号上，服务端要求最近登录过的会话，所以带上当前令牌。
+     *
+     * @param purpose `login` 或 `link`
+     */
+    public EmailChallenge requestEmailCode(String email, String purpose) throws Exception {
+        String target = email == null ? "" : email.trim();
+        if (!validEmail(target)) throw new IllegalArgumentException("invalid email");
+        String token = linkToken(purpose);
+        JSONObject response = request("POST", "/v1/auth/challenges", new JSONObject()
+            .put("provider", "email").put("target", target).put("purpose", purpose), token);
+        String id = optionalStringField(response.opt("challenge_id"), "");
+        long expires = AccountTokenPolicy.strictLong(response.opt("expires_in"), 0);
+        if (id.length() != 64 || expires <= 0) throw new IllegalStateException("challenge unavailable");
+        return new EmailChallenge(id, purpose, expires);
+    }
+
+    /** 提交邮件里的验证码完成登录（或绑定），保存得到的会话。 */
+    public void verifyEmailCode(EmailChallenge challenge, String code, String userAgent) throws Exception {
+        if (ownerProcess != null) throw new IllegalStateException("account session owner");
+        String credential = code == null ? "" : code.trim();
+        if (challenge == null || !validEmailCode(credential)) throw new IllegalArgumentException("invalid code");
+        String token = linkToken(challenge.purpose());
+        keepSession(request("POST", "/v1/auth/login",
+            new JSONObject().put("challenge_id", challenge.id()).put("credential", credential), token,
+            userAgent(userAgent)));
+    }
+
+    /**
+     * 用 Apple 网页授权回调里的一次性授权码和本机保存的 verifier 换会话（`POST /v1/auth/apple/web/login`）。
+     *
+     * @param link 这次流程是不是绑定到已登录账号；是的话带上当前令牌
+     */
+    public void loginWithAppleGrant(String grant, String verifier, boolean link, String userAgent)
+            throws Exception {
+        if (ownerProcess != null) throw new IllegalStateException("account session owner");
+        if (grant == null || grant.isEmpty() || grant.length() > 128 || verifier == null || verifier.isEmpty()) {
+            throw new IllegalArgumentException("invalid grant");
+        }
+        String token = link ? linkToken("link") : null;
+        keepSession(request("POST", "/v1/auth/apple/web/login",
+            new JSONObject().put("grant", grant).put("code_verifier", verifier), token, userAgent(userAgent)));
+    }
+
+    /** 当前登录会话的令牌，供需要「最近登录」的请求（`purpose=link`）使用；`login` 用途不带令牌。 */
+    private String linkToken(String purpose) throws Exception {
+        if ("login".equals(purpose)) return null;
+        if (!"link".equals(purpose)) throw new IllegalArgumentException("invalid purpose");
+        String token = currentAccessToken();
+        if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
+        return token;
+    }
+
+    /** 粗查邮箱形状：去掉首尾空白后 3–254 个字符、恰好一个 @、两边都不为空、没有空白和控制字符。真正的校验在服务端。 */
+    public static boolean validEmail(String email) {
+        if (email == null || email.length() < 3 || email.length() > 254) return false;
+        int at = email.indexOf('@');
+        if (at <= 0 || at != email.lastIndexOf('@') || at == email.length() - 1) return false;
+        for (int index = 0; index < email.length(); index++) {
+            char c = email.charAt(index);
+            if (c <= ' ' || c == 0x7F) return false;
+        }
+        return true;
+    }
+
+    /** 邮箱验证码是 6 位 ASCII 数字。 */
+    public static boolean validEmailCode(String code) {
+        if (code == null || code.length() != 6) return false;
+        for (int index = 0; index < code.length(); index++) {
+            if (code.charAt(index) < '0' || code.charAt(index) > '9') return false;
+        }
+        return true;
+    }
+
+    /**
+     * 真实账号登录请求的 User-Agent：`msime-android/<versionName> (<Build.MODEL>; Android <Build.VERSION.RELEASE>; edition=<id>)`。
+     *
+     * <p>只给登录请求用：后端只在登录时把它记进会话，刷新和其他请求都发 `MSIME/Android`。
+     */
+    public static String loginUserAgent(Context context, String editionId) {
+        String version;
+        try {
+            version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException absent) {
+            version = "";
+        }
+        return loginUserAgent(version, android.os.Build.MODEL, android.os.Build.VERSION.RELEASE, editionId);
+    }
+
+    /** 同上，各段由调用方给出；每段去掉控制字符和会破坏括号结构的字符，过长截断。 */
+    public static String loginUserAgent(String versionName, String model, String release, String editionId) {
+        return "msime-android/" + agentPart(versionName, "0") + " (" + agentPart(model, "unknown")
+            + "; Android " + agentPart(release, "unknown") + "; edition=" + agentPart(editionId, "full") + ")";
+    }
+
+    private static String agentPart(String value, String fallback) {
+        StringBuilder result = new StringBuilder();
+        String raw = value == null ? "" : value.trim();
+        for (int index = 0; index < raw.length() && result.length() < 64; index++) {
+            char c = raw.charAt(index);
+            if (c < 0x20 || c > 0x7E || c == '(' || c == ')' || c == ';') continue;
+            result.append(c);
+        }
+        String cleaned = result.toString().trim();
+        return cleaned.isEmpty() ? fallback : cleaned;
+    }
+
+    /** 一次登录请求失败时的 HTTP 状态；不是服务端拒绝（网络断了、响应读不出）时为 0。给登录界面分辨「验证码不对」「太频繁」「没开这种登录」。 */
+    public static int failureStatus(Throwable error) {
+        return error instanceof RequestException rejected ? rejected.status : 0;
+    }
+
+    private static String userAgent(String value) {
+        return value == null || value.isEmpty() ? DEFAULT_USER_AGENT : value;
+    }
+
+    /** 校验并保存一次登录得到的会话。 */
+    private void keepSession(JSONObject tokens) throws Exception {
         String access = optionalStringField(tokens.opt("access_token"), "");
         long expires = AccountTokenPolicy.strictSeconds(tokens.opt("expires_in"));
         if (!AccountTokenPolicy.validSession(optionalStringField(tokens.opt("token_type"), ""), access,
@@ -388,6 +538,11 @@ public final class BackendAccount {
         return requester.request(method, path, body, token);
     }
 
+    private JSONObject request(String method, String path, JSONObject body, String token, String userAgent)
+            throws Exception {
+        return requester.request(method, path, body, token, userAgent);
+    }
+
     /** Retry one request after the server rejects an otherwise unexpired access token. */
     private JSONObject authorizedRequest(String method, String path, JSONObject body, String token)
             throws Exception {
@@ -437,8 +592,8 @@ public final class BackendAccount {
         return Math.addExact(System.currentTimeMillis(), Math.multiplyExact(expiresInSeconds, 1000L));
     }
 
-    private static JSONObject httpRequest(String method, String path, JSONObject body, String token)
-            throws Exception {
+    private static JSONObject httpRequest(String method, String path, JSONObject body, String token,
+            String userAgent) throws Exception {
         byte[] payload = body == null ? null : body.toString().getBytes(StandardCharsets.UTF_8);
         HttpsURLConnection connection = null;
         try {
@@ -448,7 +603,7 @@ public final class BackendAccount {
             connection.setConnectTimeout(30_000);
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "MSIME/Android");
+            connection.setRequestProperty("User-Agent", userAgent);
             if (token != null) connection.setRequestProperty("Authorization", "Bearer " + token);
             if (payload != null) {
                 connection.setDoOutput(true);
