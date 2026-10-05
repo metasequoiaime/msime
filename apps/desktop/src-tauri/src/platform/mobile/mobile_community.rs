@@ -27,11 +27,10 @@ use msime_client_core::skin::keyboard_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use serde::Serialize;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{Emitter, State, Wry};
 
+use super::mobile_ai_skin_requests::AiSkinRequests;
 use super::MobileStorage;
 
 type Session = BackendAccountSession<BackendAccountClient, MobileStorage>;
@@ -46,7 +45,7 @@ pub(crate) struct MobileCommunityState {
     resources: Arc<CommunityResourceService>,
     ai_skin: Arc<AiSkinService>,
     reports: Arc<CommunityReportService>,
-    ai_skin_requests: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    ai_skin_requests: AiSkinRequests,
 }
 
 impl MobileCommunityState {
@@ -76,7 +75,7 @@ impl MobileCommunityState {
             resources,
             ai_skin,
             reports,
-            ai_skin_requests: Arc::new(Mutex::new(HashMap::new())),
+            ai_skin_requests: AiSkinRequests::default(),
         })
     }
 }
@@ -138,23 +137,10 @@ pub async fn ai_skin_generate(
             code: "ai_skin_invalid",
         });
     }
-    let cancelled = Arc::new(AtomicBool::new(false));
-    {
-        let mut requests = state
-            .ai_skin_requests
-            .lock()
-            .map_err(|_| crate::CommandError {
-                code: "ai_skin_unavailable",
-            })?;
-        if requests
-            .insert(request_id.clone(), Arc::clone(&cancelled))
-            .is_some()
-        {
-            return Err(crate::CommandError {
-                code: "ai_skin_busy",
-            });
-        }
-    }
+    let cancelled = state
+        .ai_skin_requests
+        .begin(&request_id)
+        .map_err(|code| crate::CommandError { code })?;
     let service = Arc::clone(&state.ai_skin);
     let progress_app = app.clone();
     let progress_request_id = request_id.clone();
@@ -174,9 +160,7 @@ pub async fn ai_skin_generate(
         code: "ai_skin_unavailable",
     })?
     .map_err(ai_skin_error);
-    if let Ok(mut requests) = state.ai_skin_requests.lock() {
-        requests.remove(&request_id);
-    }
+    state.ai_skin_requests.finish(&request_id);
     result
 }
 
@@ -190,16 +174,10 @@ pub async fn ai_skin_cancel(
             code: "ai_skin_invalid",
         });
     }
-    let requests = state
+    state
         .ai_skin_requests
-        .lock()
-        .map_err(|_| crate::CommandError {
-            code: "ai_skin_unavailable",
-        })?;
-    if let Some(cancelled) = requests.get(&request_id) {
-        cancelled.store(true, Ordering::Release);
-    }
-    Ok(())
+        .cancel(&request_id)
+        .map_err(|code| crate::CommandError { code })
 }
 
 async fn service_call<T, S, F>(service: Arc<S>, operation: F) -> Result<T, crate::CommandError>
