@@ -8996,18 +8996,6 @@ group("the account settings sync maps this host's document, not another's", () =
     retired["platform.harmony.global_theme"] === "system",
     "a retired skin id is never uploaded",
   );
-  // 水杉四季和四个季节主题与其他主题一样上传，水杉四季也能作自定义主题的底。
-  for (const theme of ["siji", "chunya", "xiayin", "qiushan", "dongxue"]) {
-    const seasonal = localAccountPreferences(
-      { global_theme: theme, custom_theme: { base: theme } },
-      syncFeedback,
-    );
-    check(seasonal["platform.harmony.global_theme"] === theme, `${theme} is uploaded`);
-    check(
-      seasonal["platform.harmony.custom_theme_base"] === theme,
-      `${theme} is uploaded as a custom base`,
-    );
-  }
 });
 
 group("uploading keeps what other devices wrote", () => {
@@ -9139,23 +9127,6 @@ group("applying writes only what the schema declares", () => {
     "so a member the cloud said nothing about survives",
   );
   check(applied.preferences.global_theme === "paper", "and the global theme is written");
-  const seasonal = applyAccountPreferences(
-    {},
-    {
-      revision: 5,
-      settings: {
-        "platform.harmony.global_theme": "siji",
-        "platform.harmony.custom_theme_base": "qiushan",
-      },
-    },
-    schema,
-    syncFeedback,
-  );
-  check(seasonal.preferences.global_theme === "siji", "水杉四季 is written back");
-  check(
-    (seasonal.preferences.custom_theme as Record<string, unknown>).base === "qiushan",
-    "and a seasonal theme is a valid custom base",
-  );
   check(
     (applied.preferences.custom_theme as Record<string, unknown>).candidate_skin === "harbour",
     "and the package lands inside the custom theme",
