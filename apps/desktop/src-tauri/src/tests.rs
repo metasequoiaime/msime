@@ -238,6 +238,31 @@ fn runtime_options_reader_rejects_oversized_documents_without_allocating_them() 
 }
 
 #[test]
+fn linux_runtime_state_directory_treats_a_missing_locator_as_first_run() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("runtime-options.json");
+    assert_eq!(super::linux_runtime_state_directory_at(&path), Ok(None));
+
+    let preferences = directory.path().join("preferences");
+    std::fs::write(
+        &path,
+        serde_json::json!({ "preferences_directory": preferences }).to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        super::linux_runtime_state_directory_at(&path),
+        Ok(Some(preferences))
+    );
+
+    std::fs::write(&path, "{").unwrap();
+    assert!(super::linux_runtime_state_directory_at(&path).is_err());
+    assert!(
+        super::linux_runtime_state_directory_at(std::path::Path::new("runtime-options.json"))
+            .is_err()
+    );
+}
+
+#[test]
 fn cantonese_zhuyin_and_stroke_are_offered_only_with_their_installed_dictionary() {
     use msime_client_core::host_surface::{HostCapabilities, HostPlatform};
     use msime_client_core::preferences::InputScheme;

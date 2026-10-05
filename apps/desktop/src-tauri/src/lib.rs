@@ -4537,12 +4537,20 @@ fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     else {
         return Ok(None);
     };
-    let options_path = PathBuf::from(options_path);
+    linux_runtime_state_directory_at(Path::new(&options_path))
+}
+
+// msime-linux-settings always exports the locator, prepared or not. A missing file is the normal first run: it names no directory, so the window opens on the first-run page with the same default state directory a prepared file without `preferences_directory` would give.
+#[cfg(any(target_os = "linux", test))]
+fn linux_runtime_state_directory_at(options_path: &Path) -> Result<Option<PathBuf>, String> {
     if !options_path.is_absolute() {
         return Err("Runtime options path must be absolute".into());
     }
-    let options = read_runtime_options_bytes(&options_path)
-        .map_err(|_| "Cannot read runtime options for shared state".to_owned())?;
+    let options = match read_runtime_options_bytes(options_path) {
+        Ok(options) => options,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("Cannot read runtime options for shared state".into()),
+    };
     let options: Value = serde_json::from_slice(&options)
         .map_err(|_| "Cannot parse runtime options for shared state".to_owned())?;
     match options.get("preferences_directory") {
