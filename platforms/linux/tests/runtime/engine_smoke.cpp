@@ -61,6 +61,8 @@ struct Observation {
   std::string first_candidate_clear_name;
   // Page positions of the rows the host offers candidate actions for, which it does only for dictionary rows (see candidate_actions in ClientEngine.cpp). Generated sentences are absent.
   std::vector<guint> dictionary_slots;
+  // How many candidate menus have arrived. The host publishes one on a timer after the page changes, so this is what says the slots above belong to the page on screen.
+  unsigned candidate_menus = 0;
   std::string clipboard_clear_name;
   bool desktop_help = false;
   bool desktop_feedback = false;
@@ -157,6 +159,7 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   auto observe_property = [&](auto &&self, IBusProperty *property) -> void {
     const std::string key = ibus_property_get_key(property);
     if (key == "CandidateActions") {
+      ++seen.candidate_menus;
       seen.first_candidate_fix_name.clear();
       seen.first_candidate_clear_name.clear();
       seen.dictionary_slots.clear();
@@ -3448,12 +3451,16 @@ int main(int argc, char **argv) {
             "Settings did not recover after writer unlock");
     // Only a dictionary row has a weight for the configured frequency mode to move. The lattice puts its generated sentences for nihao (倪好, 你号, ...) straight after the exact dictionary hits at the top, so the first two-character rows after 你好 are usually generated. Selecting one of those stores it as a user phrase instead (the Engine's standalone sentence learning, ported from MSIME-Windows 01c5bca3), which ignores the frequency mode and gives the row a fixed starting weight; it is not expected to come first. Learn a two-character dictionary row - one that shares nihao's two segments - wherever it is paged to. Returns its page position, or -1 if none shows up.
     auto dictionary_two_segment_index = [&] {
+      auto menus = seen.candidate_menus;
       for (int page = 0; page < 24; ++page) {
+        // The slots come with the candidate menu, which the host publishes 400ms after the page changes; reading them sooner reads the previous page's, or none.
+        wait_until([&] { return seen.candidate_menus != menus; });
         for (const auto slot : seen.dictionary_slots)
           if ((page > 0 || slot > 0) && slot < seen.candidates.size() &&
               g_utf8_strlen(seen.candidates[slot].c_str(), -1) == 2)
             return static_cast<int>(slot);
         const auto before = seen.candidates;
+        menus = seen.candidate_menus;
         if (!key(IBUS_Page_Down) || seen.candidates == before)
           break;
       }
