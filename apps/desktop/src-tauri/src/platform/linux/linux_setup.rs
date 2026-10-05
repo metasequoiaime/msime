@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -101,9 +102,14 @@ fn setup_program() -> Option<PathBuf> {
     )
 }
 
-/// 与 `msime-linux-setup` 的 `anonymous_account_state` 同一判定：不是符号链接的非空目录，其中每一项都是匿名账号的普通文件。
+/// 与 `msime-linux-prepare` 的 `installer_account_state` 同一判定（它比脚本的 `anonymous_account_state` 多查属主和权限，以更严的为准）：属于当前用户、不对组和其他用户开放的非空目录，不是符号链接，其中每一项都是同样属主和权限的匿名账号普通文件。
 fn only_anonymous_account(directory: &Path) -> bool {
-    if !fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
+    let private = |metadata: &fs::Metadata| {
+        metadata.uid() == rustix::process::geteuid().as_raw() && metadata.mode() & 0o077 == 0
+    };
+    if !fs::symlink_metadata(directory)
+        .is_ok_and(|metadata| metadata.is_dir() && private(&metadata))
+    {
         return false;
     }
     let Ok(entries) =
@@ -113,11 +119,12 @@ fn only_anonymous_account(directory: &Path) -> bool {
     };
     !entries.is_empty()
         && entries.iter().all(|entry| {
-            entry.file_type().is_ok_and(|kind| kind.is_file())
-                && entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| ANONYMOUS_ACCOUNT_FILES.contains(&name))
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| ANONYMOUS_ACCOUNT_FILES.contains(&name))
+                && fs::symlink_metadata(entry.path())
+                    .is_ok_and(|metadata| metadata.is_file() && private(&metadata))
         })
 }
 
@@ -365,11 +372,25 @@ mod tests {
         let directory = root.join("msime-client");
         let options = directory.join("runtime-options.json");
         let program = Path::new("/usr/bin/msime-linux-setup");
+        let mode = |path: &Path, mode| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap()
+        };
         std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("anonymous-account.json"), "{}").unwrap();
-        std::fs::write(directory.join("anonymous-session.json"), "{}").unwrap();
+        mode(&directory, 0o700);
+        for name in ANONYMOUS_ACCOUNT_FILES {
+            std::fs::write(directory.join(name), "{}").unwrap();
+            mode(&directory.join(name), 0o600);
+        }
         let status = status_for(Some(&options), Some(program));
         assert!(!status.prepared && !status.directory_occupied);
+
+        // `msime-linux-prepare` 拒绝其他用户可读的状态，页面也不能在这种目录上提供配置。
+        mode(&directory.join("anonymous-session.json"), 0o644);
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        mode(&directory.join("anonymous-session.json"), 0o600);
+        mode(&directory, 0o755);
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        mode(&directory, 0o700);
 
         std::fs::write(directory.join("preferences.json"), "{}").unwrap();
         assert!(status_for(Some(&options), Some(program)).directory_occupied);
