@@ -24,10 +24,18 @@ stdenv.mkDerivation {
   # 保留上游的 $ORIGIN（C API 靠它找到旁边的 libonnxruntime.so），只在后面追加编译器运行库：NixOS 上
   # 没有全局的 libstdc++。不用 autoPatchelfHook：它把 $ORIGIN 换成本包的绝对路径，装进插件包的那份就会
   # 转去加载这里的 libonnxruntime.so。
+  #
+  # 上游归档只有库，不带许可证。本包也会被单独分发，所以装上仓库里固定的那几份，与插件包里 CMake 装的
+  # 同源同名（见 platforms/linux/CMakeLists.txt 的 MSIME_NOTICE_SOURCES）；放在子目录里，CMake 只按库名
+  # 从顶层取库，不受影响。
   installPhase = ''
     runHook preInstall
     install -Dm755 -t $out ${lib.escapeShellArgs artifact.libraries}
     patchelf --add-rpath ${lib.getLib stdenv.cc.cc}/lib $out/*.so
+    doc=$out/share/doc/msime-voice-runtime
+    install -Dm644 ${../../../shared/voice/third_party/sherpa-onnx/LICENSE} $doc/sherpa-onnx-Apache-2.0.txt
+    install -Dm644 ${../data/licenses/onnxruntime-MIT.txt} $doc/onnxruntime-MIT.txt
+    install -Dm644 ${../data/licenses/onnxruntime-ThirdPartyNotices.txt} $doc/onnxruntime-ThirdPartyNotices.txt
     runHook postInstall
   '';
 
