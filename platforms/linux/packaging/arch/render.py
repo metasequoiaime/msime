@@ -25,6 +25,8 @@ HERE = Path(__file__).resolve().parent
 REPO = "metasequoiaime/msime"
 # CPack 生成的 .rpm 的 Release 字段，packaging.cmake 没有设置 CPACK_RPM_PACKAGE_RELEASE，默认是 1。
 RPM_RELEASE = "1"
+# msime.install 在安装后运行 `msime-linux-setup --register`，这个选项从 0.10.0 才有；更早的发布还按已失效的地址取方言词库（langdict-v1.0.0 已删除），源码包在 prepare() 就会失败。仓库里提交的 PKGBUILD 在第一次渲染之前停在 0.9.1，只是占位，不能推到 AUR。
+FIRST_SUPPORTED = (0, 10, 0)
 
 
 def fetch(url: str) -> bytes:
@@ -75,6 +77,8 @@ def main() -> None:
     version = arguments.version
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         sys.exit(f"version must be MAJOR.MINOR.PATCH: {version}")
+    if tuple(int(part) for part in version.split(".")) < FIRST_SUPPORTED:
+        sys.exit(f"{version} predates msime-linux-setup --register, which msime.install runs; the AUR packages need {'.'.join(map(str, FIRST_SUPPORTED))} or later")
     if not arguments.no_srcinfo and shutil.which("makepkg") is None:
         sys.exit("makepkg is required to generate .SRCINFO; pass --no-srcinfo only to inspect the PKGBUILDs")
 
