@@ -17,6 +17,9 @@ try {
     # Prepare-PackageFiles.ps1 从版本表取本次打包的版本，fixture 用仓库里的那一份。
     New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'shared/contracts') | Out-Null
     Copy-Item (Join-Path $PSScriptRoot '../../../../shared/contracts/editions.json') (Join-Path $fixture 'shared/contracts/editions.json')
+    # Chinese editions read the settled-model lock even when no model was fetched.
+    New-Item -ItemType Directory -Force -Path (Join-Path $fixture 'resources') | Out-Null
+    Copy-Item (Join-Path $PSScriptRoot '../../../../resources/settled-model.lock.json') (Join-Path $fixture 'resources/settled-model.lock.json')
     foreach ($file in @(
         'server/build-release/bin/Release/MetasequoiaImeServer.exe',
         'server/build-release/bin/Release/MetasequoiaImeServer.pdb',
@@ -155,6 +158,51 @@ try {
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'PDB' }
     if (-not $rejected) { throw 'Missing production PDB was accepted' }
     [IO.File]::WriteAllText($serverPdbFixture, 'fixture')
+    # The release passes the Server output as the x64 TIP directory too, so the self-contained Windows App SDK and the voice runtime sit beside the 64-bit TIP. tsf_dll\64 takes only the TIP, its host DLL and the dependencies the 32-bit TIP has; the Server staging drops the TIP and the files msime_setup.iss installs into the Server folder from tsf_dll\64.
+    $sharedOutput = 'server/build-release/bin/Release'
+    $sharedTipFiles = @('MetasequoiaImeTsf.dll', 'MetasequoiaImeTsf.pdb', 'msime_host_api.dll', 'synthetic-runtime.dll')
+    foreach ($name in $sharedTipFiles) {
+        Copy-Item (Join-Path $fixture "windows/build64-release/Release/$name") (Join-Path $fixture $sharedOutput)
+    }
+    $serverOnlyFiles = @('Microsoft.UI.Xaml.dll', 'Microsoft.WindowsAppRuntime.dll', 'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')
+    foreach ($name in $serverOnlyFiles) { Write-Fixture "$sharedOutput/$name" "server-only $name" }
+    # Build-Client.ps1 leaves the host DLL's PDB in this directory for the release's symbols archive; it is never staged.
+    Write-Fixture "$sharedOutput/msime_host_api.pdb" 'synthetic x64 host symbols'
+    $rootNotices = Join-Path $fixture 'THIRD_PARTY_NOTICES.txt'
+    [IO.File]::WriteAllText($rootNotices, 'fixture sherpa-onnx ONNX Runtime')
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Tsf64ReleaseDirectory $sharedOutput
+    $tsf64Staged = @(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/64') -File | ForEach-Object Name | Sort-Object)
+    if (($tsf64Staged -join ',') -ne (($sharedTipFiles | Sort-Object) -join ',')) {
+        throw "tsf_dll/64 is not limited to the TIP, its host DLL and its dependencies: $($tsf64Staged -join ', ')"
+    }
+    foreach ($pattern in @('Microsoft.*', 'onnxruntime*', 'sherpa*')) {
+        if (@(Get-ChildItem -LiteralPath (Join-Path $installer 'tsf_dll/64') -File -Filter $pattern).Count -ne 0) {
+            throw "tsf_dll/64 carries Server-only files: $pattern"
+        }
+    }
+    foreach ($name in $sharedTipFiles) {
+        if (Test-Path (Join-Path $installer "server_exe/$name")) { throw "server_exe duplicates tsf_dll/64: $name" }
+    }
+    if (Test-Path (Join-Path $installer 'server_exe/msime_host_api.pdb')) { throw 'server_exe stages the host DLL PDB' }
+    foreach ($name in $serverOnlyFiles) {
+        if (-not (Test-Path (Join-Path $installer "server_exe/$name"))) { throw "server_exe lost a Server file: $name" }
+    }
+    # A Server output whose copy of a shared file differs from the one beside the 64-bit TIP would be replaced by it on install, so it is refused before staging changes.
+    [IO.File]::WriteAllText((Join-Path $fixture "$sharedOutput/synthetic-runtime.dll"), 'different x64 dependency')
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'synthetic-runtime\.dll' }
+    if (-not $rejected) { throw 'Conflicting Server and TSF copies of a shared DLL were accepted' }
+    if (-not (Test-Path (Join-Path $installer 'server_exe/Microsoft.UI.Xaml.dll'))) { throw 'Shared DLL conflict damaged previous staging' }
+    foreach ($name in $sharedTipFiles + $serverOnlyFiles + @('msime_host_api.pdb')) { Remove-Item -LiteralPath (Join-Path $fixture "$sharedOutput/$name") }
+    [IO.File]::WriteAllText($rootNotices, 'fixture')
+    # Every DLL beside the 32-bit TIP must have its x64 counterpart beside the 64-bit one.
+    $x64Dependency = Join-Path $fixture 'windows/build64-release/Release/synthetic-runtime.dll'
+    Remove-Item -LiteralPath $x64Dependency
+    $rejected = $false
+    try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture } catch { $rejected = $_.Exception.Message -match 'synthetic-runtime\.dll' }
+    if (-not $rejected) { throw 'Missing x64 TIP dependency was accepted' }
+    [IO.File]::WriteAllText($x64Dependency, 'synthetic x64 dependency')
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
     $database = Join-Path $installer 'app_data/previous-staging.txt'
     [IO.File]::WriteAllText($database, 'preserved user data')
     foreach ($arch in @('32', '64')) {
@@ -412,7 +460,7 @@ try {
     try { & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -Edition klingon }
     catch { $rejected = $_.Exception.Message -match 'klingon' }
     if (-not $rejected) { throw 'Unknown edition accepted' }
-    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture
+    & (Join-Path $installer 'Prepare-PackageFiles.ps1') -RepoRoot $fixture -ServerReleaseDirectory $serverOutput
     if (Test-Path (Join-Path $installer 'server_exe/edition.json')) { throw 'Full package carries an edition declaration' }
     Write-Host 'Full/light package contracts, provenance, exclusions and failure staging and the per-edition packages passed'
 } finally {

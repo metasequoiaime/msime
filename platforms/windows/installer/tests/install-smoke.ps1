@@ -67,6 +67,15 @@ $tip64 = Join-Path $pf64 "$versionDir\MetasequoiaImeTsf.dll"
 $tip32 = Join-Path $pf32 "$versionDir\MetasequoiaImeTsf.dll"
 Check (Test-Path -LiteralPath (Join-Path $pf64 "$versionDir\$($identity.host_dll)") -PathType Leaf) "64-bit $($identity.host_dll) installed beside the TSF DLL"
 Check (Test-Path -LiteralPath (Join-Path $pf32 "$versionDir\$($identity.host_dll)") -PathType Leaf) "32-bit $($identity.host_dll) installed beside the TSF DLL"
+# The Server folder takes the x64 host DLL from the same staged copy as the 64-bit TIP; the package no longer carries a second one under server_exe.
+Check (Test-Path -LiteralPath (Join-Path $pf64 "server\$($identity.host_dll)") -PathType Leaf) "server\$($identity.host_dll) installed"
+Check (-not (Test-Path -LiteralPath (Join-Path $pf64 'server\MetasequoiaImeTsf.dll'))) 'no stray TSF DLL in the Server folder'
+# The TIP is loaded into every process; only its host DLL and runtime dependencies belong beside it, not the settings app's Windows App SDK or the Server's voice runtime.
+$tipNeighbours = @(Get-ChildItem -LiteralPath (Join-Path $pf64 $versionDir) -File -Include 'Microsoft.*', 'onnxruntime*', 'sherpa*' -Recurse -ErrorAction SilentlyContinue | ForEach-Object Name)
+Check ($tipNeighbours.Count -eq 0) "64-bit TSF folder carries no Server-only DLLs ($($tipNeighbours -join ', '))"
+# Symbols are a separate release asset.
+$installedSymbols = @(Get-ChildItem -LiteralPath $pf64, $pf32 -Recurse -File -Include '*.pdb', '*.ilk' -ErrorAction SilentlyContinue | ForEach-Object FullName)
+Check ($installedSymbols.Count -eq 0) "no PDB or .ilk installed ($($installedSymbols -join ', '))"
 Check (Test-Path -LiteralPath $tip64 -PathType Leaf) '64-bit TSF DLL installed'
 Check (Test-Path -LiteralPath $tip32 -PathType Leaf) '32-bit TSF DLL installed'
 Check ((InprocServer 'HKLM:\SOFTWARE\Classes') -eq $tip64) '64-bit COM server registered to the installed DLL'

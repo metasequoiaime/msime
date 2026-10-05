@@ -49,6 +49,10 @@
     <!-- 本次构建的产品版本（shared/contracts/editions.json 的 id），选出 shared/contracts/msime_edition.h 里该版本的 CLSID、状态目录和方案；Build-Client.ps1 按 -Edition 传入，缺省是 full。 -->
     <MsimeEdition Condition="'$(MsimeEdition)' == ''">full</MsimeEdition>
   </PropertyGroup>
+  <!-- Optimized builds link once, without an incremental-link .ilk, and drop unreferenced and identical COMDATs; /DEBUG alone would otherwise switch both off. The PDB is still produced for the symbols release asset. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
@@ -62,6 +66,12 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <AdditionalDependencies>$(HostApiLibrary);windowsapp.lib;shell32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'RelWithDebInfo' or '$(Configuration)' == 'Release'">
+    <Link>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

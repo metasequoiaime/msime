@@ -90,6 +90,8 @@ try {
         } else { @('msime-tsf') }
         Invoke-ClientBuild cmake (@('--build', $output, '--config', 'RelWithDebInfo', '--parallel', '4', '--target') + $targets)
         Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.dll'), (Join-Path $bin $hostDll))
+        # Taken now, beside the DLL it belongs to: the later MCP and desktop builds share this target directory and can rebuild host-api, which rewrites the PDB under the same name. It keeps the name embedded in the DLL; the release workflow publishes it in the symbols archive.
+        Invoke-ClientBuild cmake @('-E', 'copy_if_different', (Join-Path $release 'msime_host_api.pdb'), (Join-Path $bin 'msime_host_api.pdb'))
         if ($arch -eq 'x64') {
             Invoke-ClientBuild cargo @('build', '--locked', '--release', '--target', $triple,
                 '-p', 'msime-mcp-server', '--bin', 'msime-mcp')

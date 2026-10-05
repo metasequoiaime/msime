@@ -236,7 +236,7 @@
 
 **TSF DLL 的 COM 边界。** 类工厂契约由 `msime-tsf-class-factory` 钉住：从同目录加载出货 DLL，解析 `DllGetClassObject`，用固定 CLSID 取得 `IClassFactory`，实例化的对象实现 `ITfTextInputProcessor`；未知 CLSID 返回 `CLASS_E_CLASSNOTAVAILABLE`，已知 CLSID 但请求不支持的类工厂接口返回 `E_NOINTERFACE`，空输出指针在 `QueryInterface` 返回 `E_POINTER`、在 `CreateInstance` 返回 `E_INVALIDARG`；类工厂拒绝聚合；`DllCanUnloadNow` 钉住「类工厂或 TIP 仍被引用时不可卸载、全部释放后可卸载」，并覆盖 `LockServer(TRUE/FALSE)`。生产的 `DllGetClassObject` 先清空输出，再按 CLSID、然后按接口判定，不把这两类错误混为一谈。
 
-**安装布局与注册。** 32 位与 64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 标志注册 TIP，PDB 同目录；Server 装在 `{commonpf64}\metasequoiaime\server`；应用数据装到用户选定的 `DataDir`；HKLM `Software\Metasequoia\MetasequoiaIME` 写 `VersionDir` / `ServerPath` / `DataDir`；`THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt` 随包分发（GPLv3 第 4、6 条）。`ISCC /DLightPackage=1` 出不含词库的轻量包。
+**安装布局与注册。** 32 位与 64 位 TSF DLL 分别装到 `{commonpf32|64}\metasequoiaime\msime_v<ver>\` 并带 `regserver` 标志注册 TIP；PDB 与 `.ilk` 不装到用户机器上，发布流程（`release-windows.yml`）把它们打成单独的 `msime-windows-<edition>-<version>-symbols.zip` 随安装包发布；Server 装在 `{commonpf64}\metasequoiaime\server`；应用数据装到用户选定的 `DataDir`；HKLM `Software\Metasequoia\MetasequoiaIME` 写 `VersionDir` / `ServerPath` / `DataDir`；`THIRD_PARTY_NOTICES.txt` 与 `LICENSE.txt` 随包分发（GPLv3 第 4、6 条）。`ISCC /DLightPackage=1` 出不含词库的轻量包。
 
 ### Windows 发布流水线产出真实安装包（2026-09-23）
 
