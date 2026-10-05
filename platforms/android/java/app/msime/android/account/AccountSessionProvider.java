@@ -30,7 +30,7 @@ public final class AccountSessionProvider extends ContentProvider {
         try {
             if (context == null) throw new IllegalStateException("account session");
             token = AccountSessionRoutingPolicy.METHOD_ANONYMOUS_ACCESS_TOKEN.equals(method)
-                ? currentAnonymousToken(context) : currentToken(context);
+                ? currentAnonymousToken(context) : currentToken(context, arg);
             state = AccountSessionRoutingPolicy.stateFor(token);
         } catch (Exception | LinkageError error) {
             token = "";
@@ -41,18 +41,20 @@ public final class AccountSessionProvider extends ContentProvider {
         return reply;
     }
 
-    private static String currentToken(Context context) throws Exception {
+    private static String currentToken(Context context, String rejectedToken) throws Exception {
         BackendAccount own = BackendAccount.owningSession(context);
         boolean ownSession = own.hasSession();
         JSONObject legacy = ownSession ? null : legacySession(context);
         return switch (AccountSessionRoutingPolicy.source(ownSession, legacy != null)) {
-            case OWN -> own.currentAccessToken();
+            case OWN -> own.currentAccessToken(rejectedToken);
             case LEGACY_READ_ONLY -> {
                 String token = AccountSessionRoutingPolicy.legacyToken(
                     legacyAccessToken(legacy.getJSONObject("tokens").opt("access_token")),
                     AccountTokenPolicy.strictLong(legacy.opt("expires_at_unix_ms"), 0), System.currentTimeMillis());
                 // Still signed in, but only the Rust client may refresh this session, and it does so when the app runs; say "not now" rather than "signed out".
-                if (token.isEmpty()) throw new IllegalStateException("account session needs the app");
+                if (token.isEmpty() || token.equals(rejectedToken)) {
+                    throw new IllegalStateException("account session needs the app");
+                }
                 yield token;
             }
             case NONE -> "";

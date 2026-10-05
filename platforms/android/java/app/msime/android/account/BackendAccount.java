@@ -57,6 +57,10 @@ public final class BackendAccount {
     /** Where a process that does not own the session gets its access token (see {@link AccountSessionRoutingPolicy}). */
     interface TokenSource {
         String accessToken() throws Exception;
+
+        default String accessToken(String rejectedToken) throws Exception {
+            return accessToken();
+        }
     }
 
     static final class RequestException extends IllegalStateException {
@@ -103,13 +107,19 @@ public final class BackendAccount {
     private static TokenSource sessionOwner(Context context) {
         Context application = context.getApplicationContext();
         Uri uri = Uri.parse("content://" + AccountSessionRoutingPolicy.authority(application.getPackageName()));
-        return () -> {
-            Bundle reply = application.getContentResolver().call(
-                uri, AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN, null, null);
-            if (reply == null) throw new IllegalStateException("account session unavailable");
-            return AccountSessionRoutingPolicy.tokenFromReply(
-                reply.getString(AccountSessionRoutingPolicy.KEY_STATE),
-                reply.getString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN));
+        return new TokenSource() {
+            @Override public String accessToken() throws Exception {
+                return accessToken(null);
+            }
+
+            @Override public String accessToken(String rejectedToken) throws Exception {
+                Bundle reply = application.getContentResolver().call(
+                    uri, AccountSessionRoutingPolicy.METHOD_ACCESS_TOKEN, rejectedToken, null);
+                if (reply == null) throw new IllegalStateException("account session unavailable");
+                return AccountSessionRoutingPolicy.tokenFromReply(
+                    reply.getString(AccountSessionRoutingPolicy.KEY_STATE),
+                    reply.getString(AccountSessionRoutingPolicy.KEY_ACCESS_TOKEN));
+            }
         };
     }
 
@@ -184,7 +194,7 @@ public final class BackendAccount {
     /** 被服务端拒绝的令牌不能走未过期快路径，必须加入当前刷新单飞。 */
     String currentAccessToken(String rejectedToken) throws Exception {
         if (ownerProcess != null) {
-            String token = ownerProcess.accessToken();
+            String token = ownerProcess.accessToken(rejectedToken);
             return AccountTokenPolicy.validToken(token) ? token : "";
         }
         FutureTask<String> flight;
@@ -246,7 +256,7 @@ public final class BackendAccount {
     public List<ChatModel> chatModels() throws Exception {
         String token = accessToken();
         if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
-        JSONObject response = request("GET", "/v1/models", null, token);
+        JSONObject response = authorizedRequest("GET", "/v1/models", null, token);
         org.json.JSONArray data = response.optJSONArray("data");
         if (data == null || data.length() == 0 || data.length() > 64)
             throw new IllegalStateException("invalid model catalogue");
@@ -279,7 +289,7 @@ public final class BackendAccount {
         }
         JSONObject body = new JSONObject().put("messages", payloadMessages)
             .put("model", model).put("max_tokens", 2048).put("stream", false);
-        JSONObject response = request("POST", "/v1/chat/completions", body, token);
+        JSONObject response = authorizedRequest("POST", "/v1/chat/completions", body, token);
         org.json.JSONArray choices = response.optJSONArray("choices");
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
@@ -293,7 +303,7 @@ public final class BackendAccount {
         if (token.isEmpty() || search == null || search.length() > 1024 || TextPolicy.hasControl(search))
             throw new IllegalStateException("invalid clipboard request");
         String encoded = java.net.URLEncoder.encode(search, StandardCharsets.UTF_8.name()).replace("+", "%20");
-        JSONObject response = request("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
+        JSONObject response = authorizedRequest("GET", "/v1/users/me/clipboard?q=" + encoded, null, token);
         org.json.JSONArray values = response.optJSONArray("items");
         if (values == null || values.length() > 50) throw new IllegalStateException("invalid clipboard response");
         List<ClipboardItem> items = new ArrayList<>();
@@ -327,14 +337,14 @@ public final class BackendAccount {
     public void setClipboardEnabled(boolean enabled) throws Exception {
         String token = accessToken();
         if (token.isEmpty()) throw new IllegalStateException("HTTP 401");
-        request("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), token);
+        authorizedRequest("PUT", "/v1/users/me/clipboard/settings", new JSONObject().put("enabled", enabled), token);
     }
 
     public ClipboardItem addClipboard(String text) throws Exception {
         String token = accessToken();
         if (token.isEmpty() || !CloudClipboardTextPolicy.valid(text))
             throw new IllegalStateException("invalid clipboard request");
-        JSONObject item = request("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
+        JSONObject item = authorizedRequest("POST", "/v1/users/me/clipboard", new JSONObject().put("text", text), token);
         String id = optionalStringField(item.opt("id"), "");
         String returnedText = optionalStringField(item.opt("text"), text);
         String updated = optionalStringField(item.opt("updated_at"), "");
@@ -355,7 +365,7 @@ public final class BackendAccount {
         String token = accessToken();
         if (token.isEmpty() || (id != null && !id.matches("[0-9a-f]{64}")))
             throw new IllegalStateException("invalid clipboard request");
-        request("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
+        authorizedRequest("DELETE", id == null ? "/v1/users/me/clipboard" : "/v1/users/me/clipboard/" + id,
             null, token);
     }
 
@@ -376,6 +386,19 @@ public final class BackendAccount {
     private JSONObject request(String method, String path, JSONObject body, String token)
             throws Exception {
         return requester.request(method, path, body, token);
+    }
+
+    /** Retry one request after the server rejects an otherwise unexpired access token. */
+    private JSONObject authorizedRequest(String method, String path, JSONObject body, String token)
+            throws Exception {
+        try {
+            return request(method, path, body, token);
+        } catch (RequestException error) {
+            if (error.status != 401) throw error;
+            String fresh = currentAccessToken(token);
+            if (fresh.isEmpty() || fresh.equals(token)) throw error;
+            return request(method, path, body, fresh);
+        }
     }
 
     private String refresh(String refreshToken, long generation) throws Exception {

@@ -106,6 +106,23 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
         check(calls.get() == 1, "a rejected token triggers one refresh");
     }
 
+    private static void retriesAccountRequestsAfter401() throws Exception {
+        MemoryStore store = new MemoryStore(activeSession());
+        AtomicInteger calls = new AtomicInteger();
+        BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
+            int call = calls.incrementAndGet();
+            if ("/v1/auth/refresh".equals(path)) return tokens(NEXT_ACCESS, NEXT_REFRESH);
+            check("/v1/models".equals(path), "account retry keeps the original endpoint");
+            if (call == 1) throw new BackendAccount.RequestException(401);
+            check(NEXT_ACCESS.equals(token), "account retry uses the refreshed access token");
+            return new JSONObject().put("data", new org.json.JSONArray()
+                .put(new JSONObject().put("id", "synthetic-model")));
+        });
+
+        check(account.chatModels().size() == 1, "an account 401 retries after refresh");
+        check(calls.get() == 3, "account request, refresh and retry are each issued once");
+    }
+
     private static void unauthorizedRefreshClearsSession() throws Exception {
         MemoryStore store = new MemoryStore(expiredSession());
         BackendAccount account = new BackendAccount(store, (method, path, body, token) -> {
@@ -138,6 +155,7 @@ public final class BackendAccountRefreshDeviceSmoke extends Instrumentation {
             refreshesExpiredSessionAndRotatesCredentials();
             concurrentCallersShareOneRefresh();
             refreshesAnUnexpiredRejectedToken();
+            retriesAccountRequestsAfter401();
             unauthorizedRefreshClearsSession();
             unboundedPersistedExpiryIsRejected();
             result.putString("stream", "MSIME_DEVICE_SMOKE_PASSED: account refresh rotation, single-flight and unauthorized clearing\n");

@@ -151,6 +151,17 @@ public final class AccountSessionRoutingSmoke {
         check(storeTouches.get() == 0, "a non-owning process never touches the session store");
         check(requests.get() == 0, "a non-owning process never refreshes");
 
+        BackendAccount.TokenSource rotatingOwner = new BackendAccount.TokenSource() {
+            @Override public String accessToken() { return TOKEN; }
+            @Override public String accessToken(String rejectedToken) {
+                check(TOKEN.equals(rejectedToken), "the rejected token reaches the owner process");
+                return "f".repeat(64);
+            }
+        };
+        check("f".repeat(64).equals(
+            new BackendAccount(store, requester, rotatingOwner).currentAccessToken(TOKEN)),
+            "a secondary process can request one owner refresh after a 401");
+
         AtomicInteger loginRequests = new AtomicInteger();
         BackendAccount.SessionStore loginStore = new BackendAccount.SessionStore() {
             @Override public String load() { return null; }
