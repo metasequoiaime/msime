@@ -169,7 +169,7 @@ crates_section="$work/crates.md"
   while IFS="$(printf '\t')" read -r digest id file; do
     users="$(awk -F '\t' -v d="$digest" '$4 == d { key = "`" $1 "` " $2; if (!(key in seen)) { seen[key] = 1; out = out (out == "" ? "" : "、") key } } END { print out }' "$work/files.tsv")"
     echo
-    echo "### $id（$file）"
+    echo "### ${id}（${file}）"
     echo
     echo "用于：$users"
     echo
