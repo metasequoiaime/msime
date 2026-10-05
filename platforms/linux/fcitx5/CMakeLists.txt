@@ -16,8 +16,8 @@ find_package(Fcitx5Core 5.0.20 REQUIRED)
 if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.11)
   set(MSIME_FCITX5_CUSTOM_IM_INFORMATION ON)
 endif()
-# Fcitx5 5.1.18 起公开头文件用到 std::span 与 string_view::starts_with 等 C++20 特性，它的 CMake 配置却没有把 C++20 作为接口要求导出（Ubuntu 26.04 的 5.1.19 就是这样，Tumbleweed 的 5.1.17 还不需要），按 17 编译会在 Fcitx5 自己的头文件里报错。从这个版本起插件与它的测试按 C++20 编译，更早的版本保持 17。
-if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.18)
+# Fcitx5 5.1.13 起公开头文件 fcitx-utils/log.h 用到 std::span（更新的版本还用到 string_view::starts_with 等 C++20 特性），它的 CMake 配置却没有把 C++20 作为接口要求导出，按 17 编译会在 Fcitx5 自己的头文件里报错（Fedora 43 的 5.1.13 配 GCC 15、Ubuntu 26.04 的 5.1.19 都是这样；Tumbleweed 的 GCC 16 默认就是 C++20，所以没暴露）。从这个版本起插件与它的测试按 C++20 编译，更早的版本保持 17。
+if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL 5.1.13)
   set(MSIME_FCITX5_CXX_STANDARD cxx_std_20)
 else()
   set(MSIME_FCITX5_CXX_STANDARD cxx_std_17)
