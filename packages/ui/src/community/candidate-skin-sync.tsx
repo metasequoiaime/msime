@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 import type {
   CandidateSkinCommunityClient,
   CandidateSkinSyncReport,
 } from "./community-candidate-skins";
-import { useCommunityClientLifecycle } from "./use-community-client-lifecycle";
 
 export type CandidateSkinSyncState = {
   busy: boolean;
@@ -20,51 +20,52 @@ export function useCandidateSkinSync(
   client: CandidateSkinCommunityClient | undefined,
   onChanged: () => void,
 ): CandidateSkinSyncState {
-  const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<CandidateSkinSyncReport | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const running = useRef(false);
   const queued = useRef(false);
   const changed = useRef(onChanged);
   changed.current = onChanged;
-  const { clientGeneration, isCurrent } = useCommunityClientLifecycle(client);
+  const {
+    busy,
+    mounted,
+    running,
+    generation: clientGeneration,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(() => {}, undefined, client);
 
-  const start = async (current: number) => {
+  const start = async () => {
     if (!client) return;
-    running.current = true;
     queued.current = false;
-    setBusy(true);
-    try {
-      const result = await client.sync();
-      if (!isCurrent(current)) return;
-      setReport(result);
-      setError(null);
-      if (result.downloaded.length || result.deleted_local.length) changed.current();
-    } catch (failure) {
-      if (!isCurrent(current)) return;
-      setError(failure);
-    } finally {
-      if (isCurrent(current)) {
-        running.current = false;
-        if (queued.current) void start(current);
-        else setBusy(false);
-      }
-    }
+    const current = clientGeneration.current;
+    const action = runAsyncAction(
+      async (isCurrent) => {
+        try {
+          const result = await client.sync();
+          if (!isCurrent()) return;
+          setReport(result);
+          setError(null);
+          if (result.downloaded.length || result.deleted_local.length) changed.current();
+        } catch (failure) {
+          if (mounted.current && current === clientGeneration.current) setError(failure);
+        }
+      },
+      { formatError: () => "" },
+    );
+    if (!action) return;
+    await action;
+    if (mounted.current && current === clientGeneration.current && queued.current) void start();
   };
 
   useEffect(() => {
-    const current = clientGeneration.current;
-    running.current = false;
     queued.current = false;
     setReport(null);
     setError(null);
-    setBusy(false);
-    void start(current);
-  }, [client]);
+    void start();
+  }, [client, clientGeneration]);
 
   const run = () => {
     if (running.current) queued.current = true;
-    else void start(clientGeneration.current);
+    else void start();
   };
 
   return { busy, report, error, run };

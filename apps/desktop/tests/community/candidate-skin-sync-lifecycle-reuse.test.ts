@@ -9,6 +9,7 @@ test("candidate skin sync reuses the shared client lifecycle hook", () => {
     }),
   )[0];
 
-  expect(source).toContain("useCommunityClientLifecycle(");
+  expect(source).toContain("useAsyncActionRunner(");
+  expect(source).not.toContain("useCommunityClientLifecycle(");
   expect(source).not.toContain("const generation = useRef(0)");
 });
