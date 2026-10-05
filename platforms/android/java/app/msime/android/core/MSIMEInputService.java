@@ -1398,8 +1398,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
-        candidateAppearance = CandidateAppearance.from(preferences,
-            surfaceSkin(preferences, "candidate_theme"));
+        candidateAppearance = candidateAppearanceFor(preferences);
         if (preferences == null) {
             candidateHorizontal = true;
             candidateFontSize = 16;
@@ -1682,8 +1681,7 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardSkin nextSkin = keyboardSkin(preferences);
         JSONObject nextLocalModes = preferences.optJSONObject("local_modes");
         if (nextLocalModes == null) nextLocalModes = new JSONObject();
-        CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
-            preferences, surfaceSkin(preferences, "candidate_theme"));
+        CandidateAppearance.Palette nextCandidateAppearance = candidateAppearanceFor(preferences);
         boolean nextHorizontal = true;
         int nextFontSize = CandidateAppearance.fontSize(
             KeyboardGeometry.strictInt(preferences, "candidate_font_size", 16));
@@ -3511,6 +3509,14 @@ public final class MSIMEInputService extends InputMethodService {
      *
      * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the app mode (`theme`), and a `system` app mode follows the Android night mode. A missing or unknown value is `follow`, so an older snapshot keeps the keyboard's appearance rather than jumping to light. A theme with a fixed appearance then overrides that mode, which is what the shared resolver's `appearance` says.
      */
+    /**
+     * 候选条的配色。皮肤和键盘、表情、手写一样要经 {@link ImeStyler#themed} 按应用主题着色：「跟随系统」不着色时取的是经典绿种子，暖色主题下候选条铺一层淡绿底、页码也是绿的。键盘里换皮肤时也要跟着重算，否则候选条停在旧皮肤上。
+     */
+    CandidateAppearance.Palette candidateAppearanceFor(JSONObject preferences) {
+        KeyboardSkin strip = surfaceSkin(preferences, "candidate_theme");
+        return CandidateAppearance.from(preferences, imeStyler == null ? strip : imeStyler.themed(strip));
+    }
+
     private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
         String surfaceMode = preferences == null ? "follow" : preferences.optString(key, "follow");
         String appMode = preferences == null ? "system"
@@ -4026,6 +4032,7 @@ public final class MSIMEInputService extends InputMethodService {
         skin = keyboardSkin(preferences);
         emojiSkin = surfaceSkin(preferences, "emoji_theme");
         handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
+        candidateAppearance = candidateAppearanceFor(preferences);
         rememberSkinHint(preferences);
         skinSaving = true;
         final long operation = ++preferenceSaveGeneration;
@@ -4106,6 +4113,7 @@ public final class MSIMEInputService extends InputMethodService {
             skin = keyboardSkin(accepted);
             emojiSkin = surfaceSkin(accepted, "emoji_theme");
             handwritingSkin = surfaceSkin(accepted, "handwriting_theme");
+            candidateAppearance = candidateAppearanceFor(accepted);
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         imeStyler.applySkin();
