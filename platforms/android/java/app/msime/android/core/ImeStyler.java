@@ -332,7 +332,9 @@ final class ImeStyler {
         CharSequence description = node.getContentDescription();
         boolean candidate = candidateContext || node == s.candidateViewport || node == s.expandedCandidates
             || (description != null && description.toString().startsWith("候选 "));
-        if (node instanceof Button) {
+        if (node instanceof KeyboardSkinCard) {
+            // 皮肤面板的瓷砖自己画缩略图、描边和名字，配色由 ImePanels.styleSkinPicker 经 setTileColors 传入。当普通按钮上色会给每格铺一层卡片底，选中格更被整块填成强调色，盖住名字和缩略图。
+        } else if (node instanceof Button) {
             boolean key = description != null && (description.toString().startsWith("按键 ")
                 || description.toString().startsWith("候选 ")
                 || description.toString().startsWith("输入方案卡片 "));

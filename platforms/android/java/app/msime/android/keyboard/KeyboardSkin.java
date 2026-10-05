@@ -440,10 +440,19 @@ public final class KeyboardSkin {
     public String hairline() { return hairline; }
     /** 工具栏图标（表情、常用语、剪贴板、皮肤、输入方式）的颜色，即设计的 kbSub。 */
     public String toolbarIcon() { return toolbarIcon; }
-    /** 工具栏按钮激活（对应面板打开）时的圆底：accentSoft。 */
-    public String toolbarActiveBackground() { return accentSoft(); }
-    /** 工具栏按钮激活时的图标色：强调色。 */
-    public String toolbarActiveIcon() { return accentText(); }
+    /**
+     * 工具栏按钮激活（对应面板打开）时的圆底。
+     *
+     * 跟随系统和设计皮肤用 accentSoft。内置的命名皮肤（水杉、浅色、纸白、夜青、墨）的 accentSoft 来自平台的绿色令牌，与皮肤无关；原型在这里漏出一块固定的绿，夜青、墨上尤其扎眼。改为取皮肤自己的强调色，按设计的色调容器比例（浅色 13%、深色 25%）叠底。
+     */
+    public String toolbarActiveBackground() {
+        return namedTheme() ? alpha(accent, dark ? .25 : .13) : accentSoft();
+    }
+    /** 工具栏按钮激活时的图标色：强调色；命名皮肤用皮肤自己的强调色，理由同上。 */
+    public String toolbarActiveIcon() { return namedTheme() ? accent : accentText(); }
+
+    /** 内置的命名皮肤：既不是跟随系统，也不是用户的设计。 */
+    private boolean namedTheme() { return !designed && !"system".equals(id); }
     /** 首选候选 chip 的底：字母键的颜色（kb.key）。 */
     public String candidateSelectedBackground() { return keyBackground; }
     /** 首选候选 chip 的字：皮肤的强调色，600 字重。 */
