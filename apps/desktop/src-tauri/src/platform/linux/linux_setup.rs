@@ -23,6 +23,8 @@ fn setup_program_name() -> String {
 const SETUP_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MAX_LINE_BYTES: usize = 2048;
 const MAX_LINES: usize = 2000;
+/// 安装包的 postinst 会在首次配置之前为每个登录用户注册匿名账号，所以状态目录在首次配置时通常已经存在、里面只有这两份文件。`msime-linux-setup` 接受只含这些文件的目录（脚本里的 `ANONYMOUS_ACCOUNT_FILES`），这里的清单必须与它一致。
+const ANONYMOUS_ACCOUNT_FILES: [&str; 2] = ["anonymous-account.json", "anonymous-session.json"];
 pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -30,7 +32,7 @@ pub const SETUP_OUTPUT_EVENT: &str = "linux-setup-output";
 pub struct LinuxSetupStatus {
     prepared: bool,
     state_directory: Option<String>,
-    /// The directory exists without runtime options; the script refuses to overwrite it.
+    /// 目录已存在、没有 runtime options，且不只有安装流程创建的匿名账号文件；脚本拒绝覆盖这样的目录。
     directory_occupied: bool,
     setup_available: bool,
 }
@@ -99,6 +101,26 @@ fn setup_program() -> Option<PathBuf> {
     )
 }
 
+/// 与 `msime-linux-setup` 的 `anonymous_account_state` 同一判定：不是符号链接的非空目录，其中每一项都是匿名账号的普通文件。
+fn only_anonymous_account(directory: &Path) -> bool {
+    if !fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir()) {
+        return false;
+    }
+    let Ok(entries) =
+        fs::read_dir(directory).and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
+    else {
+        return false;
+    };
+    !entries.is_empty()
+        && entries.iter().all(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_file())
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| ANONYMOUS_ACCOUNT_FILES.contains(&name))
+        })
+}
+
 fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatus {
     let prepared = options.is_some_and(|path| {
         crate::shared::atomic_file::check_directory_ancestors(
@@ -113,7 +135,8 @@ fn status_for(options: Option<&Path>, program: Option<&Path>) -> LinuxSetupStatu
     LinuxSetupStatus {
         prepared,
         state_directory: directory.map(|path| path.to_string_lossy().into_owned()),
-        directory_occupied: !prepared && directory.is_some_and(|path| path.exists()),
+        directory_occupied: !prepared
+            && directory.is_some_and(|path| path.exists() && !only_anonymous_account(path)),
         setup_available: program.is_some(),
     }
 }
@@ -333,6 +356,27 @@ mod tests {
             prepared.state_directory.as_deref(),
             Some(root.join("msime-client").to_str().unwrap())
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn status_lets_setup_continue_over_the_installer_anonymous_account() {
+        let root = scratch("anonymous");
+        let directory = root.join("msime-client");
+        let options = directory.join("runtime-options.json");
+        let program = Path::new("/usr/bin/msime-linux-setup");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("anonymous-account.json"), "{}").unwrap();
+        std::fs::write(directory.join("anonymous-session.json"), "{}").unwrap();
+        let status = status_for(Some(&options), Some(program));
+        assert!(!status.prepared && !status.directory_occupied);
+
+        std::fs::write(directory.join("preferences.json"), "{}").unwrap();
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
+        std::fs::remove_file(directory.join("preferences.json")).unwrap();
+
+        std::fs::create_dir(directory.join("anonymous-session.json.d")).unwrap();
+        assert!(status_for(Some(&options), Some(program)).directory_occupied);
         std::fs::remove_dir_all(root).unwrap();
     }
 
