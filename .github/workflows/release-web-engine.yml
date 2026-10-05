@@ -11,7 +11,8 @@ on:
       version: {description: "Semantic version of the web engine release (web-engine-vX.Y.Z); empty takes the highest existing web-engine-v release plus one patch, or 0.1.0 for the first", required: false, default: "", type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
       publish: {description: Publish the build as a web-engine-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
-      max_p95_ms: {description: "Gate on the p95 of one keys() call in latency.mjs, in milliseconds", required: false, default: '60', type: string}
+      # 门槛按 GitHub 的 ubuntu-24.04 runner 校准：同一份 wasm 在 Apple Silicon 开发机上 p95 约 27-30 ms，在这个 runner 上约 64 ms。100 ms 给共享 runner 的抖动留约 1.5 倍余量，仍能拦下明显的变慢，并低于慢帧熔断的 120 ms（过了那条线模型会被关掉）。
+      max_p95_ms: {description: "Gate on the p95 of one keys() call in latency.mjs, in milliseconds", required: false, default: '100', type: string}
 permissions: {contents: read}
 concurrency: {group: release-web-engine, cancel-in-progress: false}
 jobs:

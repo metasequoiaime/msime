@@ -1,6 +1,6 @@
 // 网页引擎的按键延迟基准：在 Node 里加载发布用的 wasm、拼音库和整句模型，把 resources/eval/sentences-v1.tsv 的每条输入逐键送进 `WebEngine.keys()`，统计每次调用的耗时。
 //
-// 它量的是 Worker 里一次 keys() 的成本（按键路由、引擎查询、模型重排、把帧转成 JS 对象），不含 postMessage 往返和页面绘制。网页端每帧只处理一批按键，这里一键一批，是最坏的情况。release-web-engine.yml 用 `--max-p95 60` 卡门槛。
+// 它量的是 Worker 里一次 keys() 的成本（按键路由、引擎查询、模型重排、把帧转成 JS 对象），不含 postMessage 往返和页面绘制。网页端每帧只处理一批按键，这里一键一批，是最坏的情况。release-web-engine.yml 默认用 `--max-p95 100` 卡门槛，这个数是按 GitHub 的 ubuntu-24.04 runner 定的（约为 Apple Silicon 开发机的 2.2 倍慢），本机跑出来的数字要低得多。
 //
 // 模型开着测：每条输入开始前 `set_model_enabled(true)`，它同时清掉慢帧熔断（连续三次重排超过 120 ms 就关模型），否则机器一慢模型被熔断，量出来的反而是不带模型的数字。熔断被触发的条数会单独报告。
 //
