@@ -240,6 +240,9 @@ fi
 %{_datadir}/ibus/component/msime-linux.xml
 %{_datadir}/applications/msime-linux.desktop
 %{_datadir}/icons/hicolor/*/apps/msime-linux.*
+# openSUSE 的 systemd 不拥有 /usr/share/systemd/user（它的用户单元在 /usr/lib/systemd/user），构建检查要求包里用到的目录都有归属；多个包共同拥有目录是允许的，Fedora 上也无害。
+%dir %{_datadir}/systemd
+%dir %{_datadir}/systemd/user
 %{_datadir}/systemd/user/msime-linux-*
 %config(noreplace) %{_sysconfdir}/xdg/autostart/msime-linux-clipboard.desktop
 
