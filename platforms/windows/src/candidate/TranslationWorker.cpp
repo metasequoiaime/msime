@@ -119,8 +119,10 @@ std::optional<std::string> http_request(const nlohmann::json &descriptor,
     std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> request_headers(
         nullptr, curl_slist_free_all);
     for (auto it = headers.begin(); it != headers.end(); ++it) {
-      if (!it.value().is_string() || it.key().size() > 128 ||
-          it.value().get<std::string>().size() > 8192)
+      if (!valid_candidate_header_name(it.key()) || !it.value().is_string() ||
+          it.key().size() > 128 ||
+          it.value().get<std::string>().size() > 8192 ||
+          !valid_candidate_header_value(it.value().get<std::string>()))
         return std::nullopt;
       const auto line = it.key() + ": " + it.value().get<std::string>();
       raw_headers = curl_slist_append(raw_headers, line.c_str());

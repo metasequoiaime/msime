@@ -116,6 +116,16 @@ int main() {
             "remote HTTP is refused");
     require(!valid_candidate_url("http://localhost.example/api", true),
             "lookalike loopback host is refused");
+    require(valid_candidate_header_name("Authorization"),
+            "a token header name is accepted");
+    require(valid_candidate_header_value("Bearer synthetic"),
+            "a visible header value is accepted");
+    require(!valid_candidate_header_name("X-Bad\r\nInjected"),
+            "header names cannot contain line breaks");
+    require(!valid_candidate_header_value("secret\r\nX-Injected: yes"),
+            "header values cannot contain line breaks");
+    require(!valid_candidate_header_value("secret\x7f"),
+            "header values cannot contain DEL");
     // A completed request reaches the owner with its own lease, generation and
     // rows.
     {
