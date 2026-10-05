@@ -1,0 +1,15 @@
+#!/bin/sh
+# 本包安装（而不是升级）时留下标记，postinst 的 debian/postinst-register 据此替每个用户恢复用户单元与输入法列表，随后删掉标记。
+#
+# dpkg 以 `preinst install` 调用全新安装，也调用从 config-files（rc）状态重新安装，后者带上次配置的版本作参数；升级时是 `preinst upgrade <旧版本>`。postinst 那一侧这三种情况都是 `configure <版本或空>`，分不出 rc 重装与升级，所以只能在这里判断。rc 重装的典型来源：`apt remove msime`（本包带 /etc/xdg/autostart 下的 conffile，不 purge 就停在 rc），或换成发布页的 msime-linux 再换回来；这两种情况本包或 msime-linux 的 prerm 都已对每个用户停用单元并运行 msime-linux-setup --unregister。
+#
+# 标记放在 /var/lib 而不是 /run：dpkg --unpack 与 --configure 之间可能隔着一次重启。
+set -e
+
+if [ "$1" = install ]; then
+  mkdir -p /var/lib/msime
+  : > /var/lib/msime/register-users
+fi
+
+#DEBHELPER#
+exit 0

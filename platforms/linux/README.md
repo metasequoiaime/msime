@@ -164,7 +164,7 @@ sudo add-apt-repository ppa:<owner>/msime && sudo apt install msime
 sudo eselect repository add msime git https://github.com/metasequoiaime/gentoo-overlay.git && sudo emaint sync -r msime && sudo emerge app-i18n/msime
 ```
 
-发行版仓库里的包名是 `msime`；它与发布页的 `msime-linux` 文件完全重合，RPM 以 `Provides`/`Obsoletes`、Debian 以 `Conflicts`/`Replaces` 替换掉后者，AUR 的 `msime` 与 `msime-bin` 也互相冲突。被替换的包按卸载处理：它的卸载脚本对每个已登录用户停用 MSIME 的用户单元并运行 `msime-linux-setup --unregister`，输入法从 IBus 与 Fcitx5 的列表里消失。所以新包在替换完成后替每个已登录用户以临时单元运行 `msime-linux-setup --register` 恢复两者：RPM 在 `%triggerpostun -- msime-linux`（msime-linux 移除之后），Debian 在本包第一次配置的 postinst（`debian/postinst-register`），AUR 在 `post_install`。Debian 与 AUR 分不出这次安装替换了谁，所以卸载时保留了配置、之后重新安装的用户同样被恢复；没配置过的用户什么也不会发生。替换时没有登录的用户不受影响，被替换的包的卸载脚本也够不到他们；systemd 用户实例连不上的用户会在包管理器的输出里看到提示，登录后自己运行一次 `msime-linux-setup --register`。其他版本（`msime-linux-<id>`）装在 `/opt` 下，与它不冲突。
+发行版仓库里的包名是 `msime`；它与发布页的 `msime-linux` 文件完全重合，RPM 以 `Provides`/`Obsoletes`、Debian 以 `Conflicts`/`Replaces` 替换掉后者，AUR 的 `msime` 与 `msime-bin` 也互相冲突。被替换的包按卸载处理：它的卸载脚本对每个已登录用户停用 MSIME 的用户单元并运行 `msime-linux-setup --unregister`，输入法从 IBus 与 Fcitx5 的列表里消失。所以新包在替换完成后替每个已登录用户以临时单元运行 `msime-linux-setup --register` 恢复两者：RPM 在 `%triggerpostun -- msime-linux`（msime-linux 移除之后），Debian 在本包每次安装（不含升级）后的 postinst（`debian/postinst-register`，由 `debian/msime.preinst` 留下的标记区分安装与升级：从 config-files 状态重装时 postinst 拿到的参数和升级一样），AUR 在 `post_install`。Debian 与 AUR 分不出这次安装替换了谁，所以卸载时保留了配置、之后重新安装的用户同样被恢复（包括 `apt remove msime` 后停在 config-files 状态再装回来）；没配置过的用户什么也不会发生。替换时没有登录的用户不受影响，被替换的包的卸载脚本也够不到他们；systemd 用户实例连不上的用户会在包管理器的输出里看到提示，登录后自己运行一次 `msime-linux-setup --register`。其他版本（`msime-linux-<id>`）装在 `/opt` 下，与它不冲突。
 
 #### 发布到各仓库
 

@@ -25,6 +25,8 @@ RULES = ROOT / "platforms/linux/packaging/debian/rules"
 RENDER = ROOT / "platforms/linux/packaging/render-sources.py"
 PKGBUILD = ROOT / "platforms/linux/packaging/arch/msime/PKGBUILD"
 DEBIAN_REGISTER = ROOT / "platforms/linux/packaging/debian/postinst-register"
+DEBIAN_PREINST = ROOT / "platforms/linux/packaging/debian/msime.preinst"
+DEBIAN_POSTRM = ROOT / "platforms/linux/packaging/debian/msime.postrm"
 CONTROL = ROOT / "platforms/linux/packaging/debian/control"
 ARCH_INSTALL = ROOT / "platforms/linux/packaging/arch/msime/msime.install"
 SETUP = ROOT / "platforms/linux/scripts/msime-linux-setup"
@@ -82,8 +84,15 @@ def main() -> int:
     if "\nReplaces: msime-linux," in CONTROL.read_text(encoding="utf-8"):
         rules = RULES.read_text(encoding="utf-8")
         fragment = DEBIAN_REGISTER.read_text(encoding="utf-8")
-        if "cat debian/postinst-register" not in rules or register not in fragment or '[ -z "$2" ]' not in fragment:
-            failures.append("debian/ replaces msime-linux but its postinst does not run msime-linux-setup --register on first configuration")
+        marker = "/var/lib/msime/register-users"
+        preinst = DEBIAN_PREINST.read_text(encoding="utf-8") if DEBIAN_PREINST.is_file() else ""
+        if "cat debian/postinst-register" not in rules or register not in fragment or f'[ -e {marker} ]' not in fragment:
+            failures.append("debian/ replaces msime-linux but its postinst does not run msime-linux-setup --register after an install")
+        # 从 config-files 状态重装时 postinst 的 $2 不为空，和升级一样；只有 preinst 的 `install` 分得出来，所以靠它留下的标记。
+        if '[ "$1" = install ]' not in preinst or marker not in preinst or '[ -z "$2" ]' in fragment:
+            failures.append(f"debian/msime.preinst must leave {marker} on every install (including reinstalls from config-files) and postinst-register must key on it, not on an empty $2")
+        if not DEBIAN_POSTRM.is_file() or marker not in DEBIAN_POSTRM.read_text(encoding="utf-8"):
+            failures.append(f"debian/msime.postrm does not remove {marker} on purge or abort-install")
     if "\nconflicts=('msime-bin')\n" in PKGBUILD.read_text(encoding="utf-8"):
         install = ARCH_INSTALL.read_text(encoding="utf-8")
         post_install = install.split("\npost_install() {\n", 1)[-1].split("\n}\n", 1)[0]

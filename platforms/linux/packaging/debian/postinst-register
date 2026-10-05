@@ -1,16 +1,21 @@
 # 由 debian/rules 接在 CMake 配置出的 postinst 之后、#DEBHELPER# 之前。
 #
-# 本包以 Conflicts/Replaces 替换发布页的 msime-linux 时，dpkg 以 `prerm remove in-favour msime …` 调用后者的 prerm：它对每个已登录用户停用 MSIME 的用户单元并运行 msime-linux-setup --unregister，输入法从 IBus 与 Fcitx5 的列表里消失。上面那部分只重启仍在运行的服务，恢复不了这些，所以本包第一次配置时（$2 为空）替每个用户以临时单元运行 msime-linux-setup --register；没配置过的用户它什么也不做。dpkg 不告诉 postinst 这次安装是否替换了别的包，所以先卸掉 msime-linux（配置留在各自家目录里）、之后才第一次装上本包的用户同样会被恢复，这与重新装上输入法的意图一致。任何失败都不能让事务失败。
-if [ "$1" = configure ] && [ -z "$2" ] && command -v loginctl >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1; then
-  register_users=$(loginctl list-users --no-legend 2>/dev/null) || register_users=
-  while read -r uid name _; do
-    case "$uid" in
-      ''|*[!0-9]*) continue ;;
-    esac
-    systemd-run --user -M "$uid@" --wait --collect --quiet /usr/bin/msime-linux-setup --register </dev/null >/dev/null 2>&1 ||
-      echo "msime: could not restore MSIME for ${name:-uid $uid}; that user should run: msime-linux-setup --register" >&2
-  done <<REGISTER_EOF
+# 本包以 Conflicts/Replaces 替换发布页的 msime-linux 时，dpkg 以 `prerm remove in-favour msime …` 调用后者的 prerm：它对每个已登录用户停用 MSIME 的用户单元并运行 msime-linux-setup --unregister，输入法从 IBus 与 Fcitx5 的列表里消失。`apt remove msime` 时本包自己的 prerm 做同样的事。上面那部分只重启仍在运行的服务，恢复不了这些，所以本包每次被安装（全新安装，或从 config-files 状态重新安装）后的第一次配置替每个用户以临时单元运行 msime-linux-setup --register；没配置过的用户它什么也不做。升级不在此列：升级时 prerm 不撤任何东西，用户自己停用的单元和移出列表的输入法应当保持原样。
+#
+# 「这次是安装」由 debian/msime.preinst 写下的标记 /var/lib/msime/register-users 传过来：从 config-files 状态重装时 postinst 的 $2 是上次配置的版本，和升级一样不为空，单看参数分不出来。dpkg 不告诉 postinst 这次安装是否替换了别的包，所以先卸掉 msime-linux（配置留在各自家目录里）、之后才装上本包的用户同样会被恢复，这与重新装上输入法的意图一致。任何失败都不能让事务失败。
+if [ "$1" = configure ] && [ -e /var/lib/msime/register-users ]; then
+  rm -f /var/lib/msime/register-users
+  rmdir /var/lib/msime 2>/dev/null || true
+  if command -v loginctl >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1; then
+    register_users=$(loginctl list-users --no-legend 2>/dev/null) || register_users=
+    while read -r uid name _; do
+      case "$uid" in
+        ''|*[!0-9]*) continue ;;
+      esac
+      systemd-run --user -M "$uid@" --wait --collect --quiet /usr/bin/msime-linux-setup --register </dev/null >/dev/null 2>&1 ||
+        echo "msime: could not restore MSIME for ${name:-uid $uid}; that user should run: msime-linux-setup --register" >&2
+    done <<REGISTER_EOF
 $register_users
 REGISTER_EOF
+  fi
 fi
-
