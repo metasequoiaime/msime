@@ -1,11 +1,11 @@
 # OBS 上要构建的发行版，一行一个 OBS 发行版列表（/distributions）里的 reponame。publish.sh 运行时按名字查出它对应的 OBS 项目、仓库和架构写进项目配置，OBS 改了底层路径也不用改这里；列表里查不到的名字打印出来跳过。
-# 可选的第二列是逗号分隔的 PROJECT/REPOSITORY，替换发行版列表给的那条路径：Ubuntu 的 universe 只有发行时的包，Ubuntu 24.04 要的 cargo-1.91、rustc-1.91 在 universe 的更新（universe-update）里；更新过的 universe 开发包又要求 main 的更新（update）里同版本的运行库，所以两条都要挂。
+# 可选的第二列是逗号分隔的 PROJECT/REPOSITORY，替换发行版列表给的那条路径：Ubuntu 的 universe 只有发行时的包，Ubuntu 24.04 要的 cargo-1.91、rustc-1.91 在 universe 的更新（universe-update）里；更新过的 universe 开发包又要求 main 的更新（update）里同版本的运行库。OBS 不会顺着这两个更新仓库的路径把 universe 与基础源带进来（libfcitx5core-dev 只在 universe 里），所以四条按先更新、后发行时的顺序全部列出。
 #
 # 没有列出的：Debian 12 与 13 的 rustc（1.63、1.85）低于锁定依赖要求的 1.90，源码构建不了，Debian 12 用发布页的 .deb；Ubuntu 22.04 的 Fcitx5 是 5.0.14，低于要求的 5.0.20；openSUSE Leap 不在 OBS 的发行版列表里。
 openSUSE_Tumbleweed
 Fedora_43
 Fedora_44
-xUbuntu_24.04 Ubuntu:24.04/universe-update,Ubuntu:24.04/update
-xUbuntu_26.04 Ubuntu:26.04/universe-update,Ubuntu:26.04/update
+xUbuntu_24.04 Ubuntu:24.04/universe-update,Ubuntu:24.04/update,Ubuntu:24.04/universe,Ubuntu:24.04/standard
+xUbuntu_26.04 Ubuntu:26.04/universe-update,Ubuntu:26.04/update,Ubuntu:26.04/universe,Ubuntu:26.04/standard
 Debian_Testing
 Debian_Unstable
