@@ -41,7 +41,7 @@ check(androidEditions.firstOrNull()?.let { it.id == "full" && it.applicationId =
     "shared/contracts/editions.json must list full first, with application_id $baseApplicationId"
 }
 
-// The ABIs the APK carries: arm64-v8a, or the comma-separated -PmsimeAbis that build-apk.sh passes from MSIME_ANDROID_ABIS (x86_64 for an x86_64 emulator). abiFilters is what keeps the third-party native libraries (ML Kit ships x86, x86_64 and armeabi-v7a too) to the ABIs whose msime libraries were built; without it the APK installs on those devices and crashes for want of the host library.
+// APK 携带的 ABI：默认 arm64-v8a，或者 build-apk.sh 从 MSIME_ANDROID_ABIS 转交的逗号分隔的 -PmsimeAbis（x86_64 模拟器用 x86_64）。abiFilters 负责把第三方原生库（ML Kit 还带 x86、x86_64 和 armeabi-v7a）限制在已构建 msime 库的那些 ABI 上；没有它，APK 会装到这些设备上，然后因为缺少宿主库而崩溃。
 val nativeAbis = (findProperty("msimeAbis") as String?)
     ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() }
     ?: listOf("arm64-v8a")
@@ -52,7 +52,7 @@ check(nativeAbis.all { it == "arm64-v8a" || it == "x86_64" }) {
 android {
     namespace = "app.msime.android"
     compileSdk = 36
-    // The NDK build-native.sh pins. AGP strips the packaged .so files with this NDK's llvm-strip; without a configured NDK it packages them unstripped.
+    // 与 build-native.sh 固定的 NDK 相同。AGP 用这个 NDK 的 llvm-strip 处理打包进去的 .so；不配置 NDK 时它会把未 strip 的 .so 原样打包。
     ndkVersion = "28.2.13676358"
 
     defaultConfig {

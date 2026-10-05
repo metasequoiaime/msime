@@ -88,7 +88,7 @@ docker run --rm --init \
   ${CARGO_BUILD_JOBS:+-e CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS"} \
   ${CMAKE_BUILD_PARALLEL_LEVEL:+-e CMAKE_BUILD_PARALLEL_LEVEL="$CMAKE_BUILD_PARALLEL_LEVEL"} \
   "$package_image" bash -euo pipefail -c '
-    # Strip the symbol tables of the Rust binaries here rather than in the workspace [profile.release]: CMake installs them with install(FILES/PROGRAMS), which CPACK_STRIP_FILES does not reach, while debian/rules and rpm/msime.spec build the same crates with line-tables-only debug info that dh_strip and find-debuginfo split into dbgsym and debuginfo packages.
+    # 在这里去掉 Rust 二进制的符号表，而不是写进 workspace 的 [profile.release]：CMake 用 install(FILES/PROGRAMS) 安装它们，CPACK_STRIP_FILES 管不到；而 debian/rules 和 rpm/msime.spec 构建同样的 crate 时带 line-tables-only 调试信息，由 dh_strip 和 find-debuginfo 拆分成 dbgsym 和 debuginfo 包。
     export CARGO_PROFILE_RELEASE_STRIP=symbols
     cargo build --release --locked -p msime-host-api
     cargo build --release --locked -p msime-mcp-server --bin msime-mcp
@@ -164,7 +164,7 @@ docker run --rm --init \
     if [ "$MSIME_PACKAGE_FORMAT" = rpm ]; then
       sha256sum -- *.rpm > SHA256SUMS
     else
-      # CPack in this bookworm image (CMake 3.25) compresses data.tar.xz only at xz preset 6 and has no CPACK_DEBIAN_COMPRESSION_LEVEL, so each .deb is repacked at -9, which saves about a further fifth. One compressor thread keeps memory at the 674 MiB xz -9 needs per thread, and a single block compresses best. The repack also turns control.tar.gz into control.tar.xz, which release-linux.yml checks to know it ran.
+      # 这个 bookworm 镜像里的 CPack（CMake 3.25）只用 xz 预设 6 压缩 data.tar.xz，也没有 CPACK_DEBIAN_COMPRESSION_LEVEL，所以每个 .deb 都以 -9 重新打包，大约还能再省五分之一。单个压缩线程把内存控制在 xz -9 每线程所需的 674 MiB，单个块的压缩率也最好。重新打包还会把 control.tar.gz 变成 control.tar.xz，release-linux.yml 据此确认这一步执行过。
       for deb in *.deb; do
         repack=$(mktemp -d)
         dpkg-deb --raw-extract "$deb" "$repack/root"

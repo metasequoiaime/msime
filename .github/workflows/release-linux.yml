@@ -70,10 +70,10 @@ jobs:
             [[ ${#deb[@]} -eq 1 && ${#tarball[@]} -eq 1 ]] || { echo "edition $edition: expected ${package}_${VERSION}_*.deb and ${package}-${VERSION}-linux-*.tar.gz in $dist" >&2; exit 1; }
             [[ $(dpkg-deb -f "${deb[0]}" Package) == "$package" && $(dpkg-deb -f "${deb[0]}" Version) == "$VERSION" ]] || { echo "edition $edition: ${deb[0]} is not $package $VERSION" >&2; exit 1; }
             bash platforms/linux/tests/tools/check-deb-maintainer-scripts.sh "${deb[0]}"
-            # CPack writes data.tar.xz with control.tar.gz; control.tar.xz shows package-container.sh repacked the .deb at xz -9.
+            # CPack 写出的是 data.tar.xz 加 control.tar.gz；出现 control.tar.xz 说明 package-container.sh 已经用 xz -9 重新打包了这个 .deb。
             members=$(ar t "${deb[0]}" | tr '\n' ' ')
             [[ $members == "debian-binary control.tar.xz data.tar.xz " ]] || { echo "edition $edition: ${deb[0]} has members $members, not the xz -9 repack" >&2; exit 1; }
-            # Every ELF file is stripped (CPACK_STRIP_FILES for the CMake targets, CARGO_PROFILE_RELEASE_STRIP for the Rust ones) except the prebuilt sherpa-onnx and ONNX Runtime libraries, which ship as upstream builds them.
+            # 除了预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布外，每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP）。
             unpacked=$(mktemp -d)
             dpkg-deb -x "${deb[0]}" "$unpacked"
             unstripped=$(find "$unpacked" -type f ! -name 'libonnxruntime.so*' ! -name 'libsherpa-onnx-c-api.so*' -exec file {} + | grep ': *ELF' | grep -v ', stripped' || true)

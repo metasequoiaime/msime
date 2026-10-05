@@ -20,7 +20,7 @@ tools_dir="$android_sdk/build-tools/35.0.0"
 android_jar="$android_sdk/platforms/android-36/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android API 36 platform and build-tools 35 required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
-# Only arm64-v8a by default: every phone the package targets is arm64, and an x86_64 copy of the native libraries roughly doubled the APK. MSIME_ANDROID_ABIS (space- or comma-separated, e.g. "arm64-v8a x86_64") adds x86_64 for an x86_64 emulator; Gradle's abiFilters receives the same list through -PmsimeAbis, so the third-party libraries (ML Kit) are filtered to it as well.
+# 默认只构建 arm64-v8a：这个包面向的手机都是 arm64，多带一份 x86_64 原生库会让 APK 大约翻倍。MSIME_ANDROID_ABIS（空格或逗号分隔，例如 "arm64-v8a x86_64"）可以为 x86_64 模拟器加上 x86_64；Gradle 的 abiFilters 经 -PmsimeAbis 收到同一份列表，第三方库（ML Kit）也按它过滤。
 read -r -a abis <<< "$(tr ',' ' ' <<< "${MSIME_ANDROID_ABIS:-arm64-v8a}")"
 [ "${#abis[@]}" -gt 0 ] || { echo "MSIME_ANDROID_ABIS names no ABI" >&2; exit 1; }
 for abi in "${abis[@]}"; do
@@ -150,7 +150,7 @@ for pair in $language_pairs; do
     grep -qxF "assets/language-dictionaries/$entry" <<< "$apk_entries" || { echo "$output has no assets/language-dictionaries/$entry although it was staged" >&2; exit 1; }
   done
 done
-# The APK carries native libraries for exactly the ABIs built above: a missing one installs and crashes at the first JNI call, and an extra one (a dependency's x86 or armeabi-v7a copy slipping past abiFilters) is dead weight that also lets the package install on a device it cannot run on.
+# APK 带的原生库必须恰好是上面构建的这些 ABI：少一个的话能装上，但第一次 JNI 调用就崩溃；多一个（某个依赖的 x86 或 armeabi-v7a 副本漏过了 abiFilters）则是白占体积，还会让包装到它根本跑不了的设备上。
 packaged_abis=$(sed -n 's|^lib/\([^/]*\)/.*|\1|p' <<< "$apk_entries" | sort -u)
 expected_abis=$(printf '%s\n' "${abis[@]}" | sort -u)
 if [ "$packaged_abis" != "$expected_abis" ]; then

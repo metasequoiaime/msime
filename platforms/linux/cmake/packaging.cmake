@@ -26,11 +26,11 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE")
 set(CPACK_GENERATOR "TGZ")
 set(CPACK_SET_DESTDIR ON)
 set(CPACK_PACKAGE_RELOCATABLE FALSE)
-# Strip what CMake builds and installs with install(TARGETS): the native hosts, the Fcitx5 addon and msime-voice-local. The Rust binaries come in through install(FILES/PROGRAMS), which this does not reach, so package-container.sh builds them stripped; the sherpa-onnx and ONNX Runtime libraries are upstream's prebuilt files and stay as they come, as debian/rules keeps them. Only CPack reads this: debian/rules, rpm/msime.spec and the PKGBUILD install with cmake --install, so dh_strip and find-debuginfo still get the debug info they split out.
+# strip CMake 构建并通过 install(TARGETS) 安装的产物：原生宿主、Fcitx5 插件和 msime-voice-local。Rust 二进制经 install(FILES/PROGRAMS) 安装，这个开关管不到，所以由 package-container.sh 直接构建出 strip 过的版本；sherpa-onnx 和 ONNX Runtime 库是上游的预编译文件，保持原样，与 debian/rules 的处理一致。只有 CPack 读取这个设置：debian/rules、rpm/msime.spec 和 PKGBUILD 用 cmake --install 安装，dh_strip 和 find-debuginfo 仍能拿到它们要拆分出去的调试信息。
 set(CPACK_STRIP_FILES TRUE)
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-# xz rather than gzip for data.tar. The CMake 3.25 in Dockerfile.package has no CPACK_DEBIAN_COMPRESSION_LEVEL and uses xz preset 6, so package-container.sh repacks each .deb at -9 with dpkg-deb. Every dpkg the package supports reads xz members. The .tar.gz stays gzip: the in-app update check falls back to it by name.
+# data.tar 用 xz 而不是 gzip。Dockerfile.package 里的 CMake 3.25 没有 CPACK_DEBIAN_COMPRESSION_LEVEL，只用 xz 预设 6，所以 package-container.sh 再用 dpkg-deb 以 -9 重新打包每个 .deb。本包支持的所有 dpkg 版本都能读 xz 成员。.tar.gz 仍用 gzip：应用内更新检查会按文件名回退到它。
 set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
@@ -64,7 +64,7 @@ endif()
 # The same voice runtime as the .deb Recommends, in Fedora's package names; a rich dependency expresses the alternatives.
 set(CPACK_RPM_PACKAGE_RECOMMENDS "python3-websockets >= 15, (pulseaudio-utils or pipewire-utils or alsa-utils)")
 # The host library and the sherpa-onnx runtime ship in the package's private directory, as CPACK_DEBIAN_PACKAGE_SHLIBDEPS_PRIVATE_DIRS says for the .deb: nothing may require them from the system, and the package must not advertise them as system libraries either.
-# The payload is xz at level 9, as for the .deb, instead of rpmbuild's default zstd; CPACK_RPM_COMPRESSION_TYPE xz would only give level 7. Without a T in the payload string rpm compresses on one thread, so the 674 MiB xz -9 needs is not multiplied by the core count.
+# payload 与 .deb 一样用 xz 9 级，而不是 rpmbuild 默认的 zstd；CPACK_RPM_COMPRESSION_TYPE 设为 xz 只能得到 7 级。payload 字符串里不带 T 时 rpm 单线程压缩，xz -9 所需的 674 MiB 内存就不会再乘以核数。
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __requires_exclude ^lib(${MSIME_HOST_LIBRARY_STEM}|sherpa-onnx-c-api|onnxruntime)\\\\.so.*$
 %global __provides_exclude_from ^${CMAKE_INSTALL_FULL_LIBDIR}/${MSIME_CLIENT_DIRECTORY}/.*$
 %define _binary_payload w9.xzdio")

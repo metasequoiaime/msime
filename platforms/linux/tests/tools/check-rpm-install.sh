@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install a built RPM into a clean Fedora container and remove it again: the check #2095 needed. An RPM whose Requires name libraries or symbol versions Fedora does not provide (Debian's libcurl CURL_OPENSSL_4, boost 1.83) builds and lints fine and fails only here, at dnf's dependency resolution.
 #
-# It also asserts that the package requires none of the libraries it carries in its private directory, which rpmbuild would otherwise turn into unsatisfiable Requires, that its payload is xz at level 9 as packaging.cmake asks, that every installed ELF file is stripped (CPACK_STRIP_FILES for the CMake targets, CARGO_PROFILE_RELEASE_STRIP for the Rust ones; the prebuilt sherpa-onnx and ONNX Runtime libraries ship as upstream builds them and are exempt), the same check release-linux.yml runs on the .deb, and runs the maintainer scripts through a real install and erase.
+# 它还断言：包不依赖它在私有目录里自带的任何库（否则 rpmbuild 会把它们变成无法满足的 Requires）；payload 是 packaging.cmake 要求的 xz 9 级；安装的每个 ELF 文件都已 strip（CMake 目标靠 CPACK_STRIP_FILES，Rust 目标靠 CARGO_PROFILE_RELEASE_STRIP；预编译的 sherpa-onnx 和 ONNX Runtime 库按上游构建原样发布，不在检查之列），与 release-linux.yml 对 .deb 做的检查相同；并通过一次真实的安装和卸载运行维护脚本。
 #
 # Usage: platforms/linux/tests/tools/check-rpm-install.sh <package.rpm>...
 #
@@ -43,7 +43,7 @@ docker run --rm -v "$dir":/dist:ro "$image" bash -euo pipefail -c '
     rpm -q "$package"
     test -x "/usr/bin/$package-setup"
   done
-  # Installed after the packages so it cannot satisfy a dependency they fail to declare.
+  # 在装完这些包之后才装它，免得它替包满足了包自己漏声明的依赖。
   dnf install -y --setopt=install_weak_deps=False file
   for package in "${packages[@]}"; do
     unstripped=$(rpm -ql "$package" | while IFS= read -r path; do
