@@ -457,225 +457,41 @@ if [[ ${#client_sources[@]} -eq 0 ]]; then
   echo "No Android client sources selected for compilation; the source filter is wrong" >&2
   exit 1
 fi
+# 冒烟测试按文件自动发现：`tests/` 下除设备套件外的每个 `.java` 都参与编译，每个以 `Smoke.java` 结尾且带 `static void main(` 的类都会运行，新加冒烟不必再登记到这里。排除的三处各有原因：`tests/device/**` 是要装进模拟器的设备套件，`core/NativeSmoke.java` 要加载 `libmsime_android.so`，`settings/KeyboardGeometryStrictIntSmoke.java` 要真实的 `org.json`，而这里只有 android.jar 里抛 `Stub!` 的桩。路径同样按仓库内的相对路径匹配，理由见上面那段关于 /home/runner 的说明。
+test_sources=()
+smoke_classes=()
+while IFS= read -r source; do
+  relative=${source#"$repo_root/platforms/android/tests/"}
+  case "$relative" in
+    device/*|core/NativeSmoke.java|settings/KeyboardGeometryStrictIntSmoke.java) continue ;;
+  esac
+  test_sources+=("$source")
+  case "$relative" in
+    *Smoke.java) ;;
+    *) continue ;;
+  esac
+  if ! rg -q 'static void main\(' "$source"; then continue; fi
+  package=$(sed -n 's/^package \([A-Za-z0-9_.]*\);.*/\1/p' "$source" | head -n 1)
+  class=$(basename "$source" .java)
+  smoke_classes+=("${package:+$package.}$class")
+done < <(find "$repo_root/platforms/android/tests" -name "*.java" -print | LC_ALL=C sort)
+# 改成自动发现时现有的冒烟是 108 个；少于这个数说明上面的筛选或 package 解析坏了，而不是冒烟真的变少了。
+if [[ ${#smoke_classes[@]} -lt 108 ]]; then
+  echo "Only ${#smoke_classes[@]} Android JVM smokes discovered; expected at least 108" >&2
+  exit 1
+fi
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/java/app/msime/android/home/SignInAttemptPolicy.java" \
-  "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
-  "$repo_root/platforms/android/tests/core/BootstrapMarkerSmoke.java" \
-  "$repo_root/platforms/android/tests/core/TelemetryHandlerSmoke.java" \
-  "$repo_root/platforms/android/tests/core/PhrasePreeditSmoke.java" \
-  "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/InputViewValuePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
-  "$repo_root/platforms/android/tests/core/SelectionEchoTrackerSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/PreferencesSavePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/InputModeStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/LetterKeyFacePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ReturnKeyActionSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/SpaceCursorMovementSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/EnglishCapitalizationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/EnglishLetterCaseStateSmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ChineseHelpcodePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/MicrosoftShuangpinKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ChineseOutputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/FullWidthInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/CharacterWidthPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/DeclinedKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFormFactorPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishHttpTransportSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/AiPolishModelCatalogSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/HttpAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/WebSocketFramesSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/DoubaoAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoicePolishPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/VoicePolisherSmoke.java" \
-  "$repo_root/platforms/android/tests/voice/LocalAsrPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardShortcutIconPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/TypingSourceSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EmojiCatalogModelSmoke.java" \
-  "$repo_root/platforms/android/tests/core/MoreToolsLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/LocalInputModeSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardSchemeSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/NineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KeyboardActionRowSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
-  "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/JapaneseSpacePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/KoreanKeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/core/KoreanInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/core/InputSchemeTraitsSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ZhuyinKeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/core/ZhuyinInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/StrokeKeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/core/StrokeInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/QuickPunctuationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTranslationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTranslationStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTranslationResponseSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/OnlineCandidatePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/WubiCodeHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/ShuangpinKeyHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionModelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidatePanelSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateManagementSmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateScrollPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
-  "$repo_root/platforms/android/tests/dictionary/CustomSkinLibrarySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/FeedbackBodyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HostOptionsPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/PreferencesRevisionPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AccountTokenPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/TypingStatisticsLifecycleSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/KeyPressCountingSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/VocabularyReviewModelSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
-  "$repo_root/platforms/android/tests/community/CommunityRequestSmoke.java" \
-  "$repo_root/platforms/android/tests/community/CommunityCatalogSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/CloudClipboardTextPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/CloudClipboardPanelPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/AccountSessionRoutingSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/BackendAccountResponseSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/BackendAnonymousAccountSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/SignInAttemptPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/HardwareMaintenancePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/settings/NumberRowSelectionPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/CandidateNavigationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidateTextPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/candidate/CandidatePreeditStylePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
-java -cp "$output_dir" EditorSmoke
-java -cp "$output_dir" FeedbackBodyPolicySmoke
-java -cp "$output_dir:$android_jar" app.msime.android.BootstrapMarkerSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.core.TelemetryHandlerSmoke
-java -cp "$output_dir" PhrasePreeditSmoke
-java -cp "$output_dir" InputViewRefreshPolicySmoke
-java -cp "$output_dir:$android_jar" InputViewValuePolicySmoke
-java -cp "$output_dir" EditorContextSnapshotSmoke
-java -cp "$output_dir" SelectionEchoTrackerSmoke
-java -cp "$output_dir" PreferencesSmoke
-java -cp "$output_dir" PreferencesSavePolicySmoke
-java -cp "$output_dir" app.msime.android.InputModeStoreSmoke
-java -cp "$output_dir" KeyboardLayoutSmoke
-java -cp "$output_dir" LetterKeyFacePolicySmoke
-java -cp "$output_dir" ReturnKeyActionSmoke
-java -cp "$output_dir" SpaceCursorMovementSmoke
-java -cp "$output_dir" EnglishCapitalizationPolicySmoke
-java -cp "$output_dir" EnglishLetterCaseStateSmoke
-java -cp "$output_dir" app.msime.android.test.ChineseHelpcodePolicySmoke
-java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
-java -cp "$output_dir" ChineseOutputPolicySmoke
-java -cp "$output_dir" FullWidthInputPolicySmoke
-java -cp "$output_dir" CharacterWidthPolicySmoke
-java -cp "$output_dir" DeclinedKeyPolicySmoke
-java -cp "$output_dir" KeyboardInputContextSmoke
-java -cp "$output_dir" KeyboardGeometrySmoke
-java -cp "$output_dir" KeyboardFormFactorPolicySmoke
-java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
-java -cp "$output_dir" VoiceResultStoreSmoke
-java -cp "$output_dir" AiPolishClientSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AiPolishHttpTransportSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AiPolishModelCatalogSmoke
-java -cp "$output_dir" HttpAsrPolicySmoke
-java -cp "$output_dir" WebSocketFramesSmoke
-java -cp "$output_dir" DoubaoAsrPolicySmoke
-java -cp "$output_dir" VoicePolishPolicySmoke
-java -cp "$output_dir:$android_jar" VoicePolisherSmoke
-java -cp "$output_dir" LocalAsrPolicySmoke
-java -cp "$output_dir" ReplyKeyboardSmoke
-java -cp "$output_dir" app.msime.android.KeyboardSkinSmoke
-java -cp "$output_dir" CloudClipboardTextPolicySmoke
-java -cp "$output_dir:$android_jar" CloudClipboardPanelPolicySmoke
-java -cp "$output_dir:$android_jar" app.msime.android.AccountSessionRoutingSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.BackendAccountResponseSmoke
-java -cp "$output_dir" BackendAnonymousAccountSmoke
-java -cp "$output_dir" KeyboardFeedbackSmoke
-java -cp "$output_dir:$android_jar" app.msime.android.KeyboardFeedbackStoreSmoke
-java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
-java -cp "$output_dir" TypingSourceSmoke
-java -cp "$output_dir" EmojiCatalogModelSmoke
-java -cp "$output_dir" MoreToolsLayoutSmoke
-java -cp "$output_dir" LocalInputModeSmoke
-java -cp "$output_dir" KeyboardSchemeSmoke
-java -cp "$output_dir" NineKeyLayoutSmoke
-java -cp "$output_dir" KeyboardActionRowSmoke
-java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
-java -cp "$output_dir" JapaneseNineKeyActionsSmoke
-java -cp "$output_dir" JapaneseVariantPolicySmoke
-java -cp "$output_dir" JapaneseSpacePolicySmoke
-java -cp "$output_dir" KoreanKeyboardLayoutSmoke
-java -cp "$output_dir" KoreanInputPolicySmoke
-java -cp "$output_dir" InputSchemeTraitsSmoke
-java -cp "$output_dir" ZhuyinKeyboardLayoutSmoke
-java -cp "$output_dir" ZhuyinInputPolicySmoke
-java -cp "$output_dir" StrokeKeyboardLayoutSmoke
-java -cp "$output_dir" StrokeInputPolicySmoke
-java -cp "$output_dir" QuickPunctuationPolicySmoke
-java -cp "$output_dir" HandwritingContractSmoke
-java -cp "$output_dir" CandidateAppearanceSmoke
-java -cp "$output_dir" CandidateGlossModelSmoke
-java -cp "$output_dir" CandidateTranslationPolicySmoke
-java -cp "$output_dir" app.msime.android.CandidateTranslationStoreSmoke
-java -cp "$output_dir" app.msime.android.CandidateTranslationResponseSmoke
-java -cp "$output_dir" OnlineCandidatePolicySmoke
-java -cp "$output_dir" WubiCodeHintPolicySmoke
-java -cp "$output_dir" ChineseSymbolFacesSmoke
-java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
-java -cp "$output_dir" EnglishSuggestionPolicySmoke
-java -cp "$output_dir" EnglishSuggestionModelSmoke
-java -cp "$output_dir" CandidatePanelSmoke
-java -cp "$output_dir" CandidateManagementSmoke
-java -cp "$output_dir" CandidateScrollPolicySmoke
-java -cp "$output_dir" ClipboardHistoryPolicySmoke
-java -cp "$output_dir" DictionarySnapshotQueueSmoke
-java -cp "$output_dir:$android_jar" CustomSkinLibrarySmoke
-java -cp "$output_dir" DiagnosticPolicySmoke
-java -cp "$output_dir" HostOptionsPolicySmoke
-java -cp "$output_dir" PreferencesRevisionPolicySmoke
-java -cp "$output_dir" AccountTokenPolicySmoke
-java -cp "$output_dir" SignInAttemptPolicySmoke
-java -cp "$output_dir" TypingStatisticsModelSmoke
-java -cp "$output_dir" TypingStatisticsLifecycleSmoke
-java -cp "$output_dir" KeyPressCountingSmoke
-java -cp "$output_dir" VocabularyReviewModelSmoke
-java -cp "$output_dir" InputFeatureToggleSmoke
-java -cp "$output_dir" CommunityRequestSmoke
-java -cp "$output_dir:$android_jar" CommunityCatalogSmoke
-java -cp "$output_dir" AppIconStyleSmoke
-java -cp "$output_dir" SmartPunctuationContextSmoke
-java -cp "$output_dir" HardwareKeyPolicySmoke
-java -cp "$output_dir" app.msime.android.HardwareShortcutPolicySmoke
-java -cp "$output_dir" HardwareMaintenancePolicySmoke
-java -cp "$output_dir" NumberRowSelectionPolicySmoke
-java -cp "$output_dir" WordCharacterPolicySmoke
-java -cp "$output_dir" CandidateNavigationPolicySmoke
-java -cp "$output_dir" CandidateTextPolicySmoke
-java -cp "$output_dir" CandidatePreeditStylePolicySmoke
-java -cp "$output_dir" SymbolPanelModelSmoke
+  "${test_sources[@]}"
+# 统一用 `$output_dir:$android_jar` 运行：改成自动发现前逐个核对过，原先按类分别给的 classpath（有的不带 android.jar）与统一 classpath 下 108 个冒烟的输出和退出码完全相同。
+for smoke in "${smoke_classes[@]}"; do
+  if ! java -cp "$output_dir:$android_jar" "$smoke"; then
+    echo "Android JVM smoke failed: $smoke" >&2
+    exit 1
+  fi
+done
+echo "Ran ${#smoke_classes[@]} Android JVM smokes"
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
 # those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
 # drawable, layout or values file, which is what this step was for.

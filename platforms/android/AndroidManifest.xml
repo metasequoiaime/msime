@@ -2,10 +2,13 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 关于页「检查更新」下载安装包后交给系统安装器。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
     <queries><intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent></queries>
     <application android:theme="@style/Theme.MSIME" android:label="@string/app_name" android:icon="@drawable/app_icon_classic" android:allowBackup="false" android:supportsRtl="true">
-        <activity android:name="app.msime.android.home.HomeActivity" android:exported="true">
+        <!-- 返回手势走 OnBackPressedDispatcher 的预测式返回，只在宿主的 HomeActivity 上打开；不加在 application 上，因为 :ime 进程里的输入法服务靠 KEYCODE_BACK 收起面板。 -->
+        <activity android:name="app.msime.android.home.HomeActivity" android:exported="true" android:enableOnBackInvokedCallback="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name="app.msime.android.home.HelpActivity" android:exported="false" />
@@ -15,6 +18,15 @@
         <activity android:name="app.msime.android.home.DesktopDownloadActivity" android:exported="false" />
         <activity android:name="app.msime.android.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
         <activity android:name="app.msime.android.home.CloudClipboardActivity" android:exported="false" />
+        <!-- Apple 网页登录的回调：浏览器授权后跳回 `${applicationId}://auth/apple`。它不显示界面，只接受本应用刚发起、尚未完成、未过期的那次登录。 -->
+        <activity android:name="app.msime.android.home.AuthRedirectActivity" android:exported="true" android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${applicationId}" android:host="auth" android:path="/apple" />
+            </intent-filter>
+        </activity>
         <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.android.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
@@ -33,5 +45,13 @@
             android:authorities="${applicationId}.mlkit-ime-init"
             android:exported="false"
             android:process=":ime" />
+        <!-- 把缓存里的诊断包、更新安装包、导出文件和反馈附件以 content:// 交给别的应用，可分享的目录见 res/xml/msime_file_paths.xml。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/msime_file_paths" />
+        </provider>
     </application>
 </manifest>

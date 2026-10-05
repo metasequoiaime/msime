@@ -22,6 +22,7 @@ import app.msime.android.PreferencesRevisionPolicy;
 import app.msime.android.KeyboardScheme;
 import app.msime.android.KeyboardSkin;
 import app.msime.android.R;
+import app.msime.android.SchemePreferences;
 import app.msime.android.TextPolicy;
 import app.msime.android.core.Telemetry;
 import com.google.android.material.button.MaterialButton;
@@ -466,12 +467,12 @@ public final class KeyboardSheets {
     }
 
     /**
-     * A copy of the preference snapshot switched to one scheme: the four keys a scheme change writes together, computed by the shared mapping rather than assembled by each caller, plus the keyboard picker's `selected` when that list exists. Also used by onboarding's scheme step, so both write the same thing.
+     * 偏好快照切到一个方案后的副本，见 {@link SchemePreferences#withScheme}；引导页的方案一步也用它，所以两处写的东西相同。
      *
-     * @return the edited copy, or null when the snapshot has no preferences object
+     * @return 改好的副本；快照里没有 preferences 对象时为 null
      */
     @Nullable static JSONObject withScheme(JSONObject snapshot, KeyboardScheme scheme) {
-        return withScheme(snapshot, scheme, null);
+        return SchemePreferences.withScheme(snapshot, scheme, null);
     }
 
     /**
@@ -481,44 +482,7 @@ public final class KeyboardSheets {
      */
     @Nullable static JSONObject withScheme(JSONObject snapshot, KeyboardScheme scheme,
             @Nullable String wubiProfile) {
-        JSONObject preferences = preferences(snapshot);
-        if (preferences == null) return null;
-        AppEdition edition = AppEdition.current();
-        KeyboardScheme.PreferenceMapping mapping = scheme.mapping(
-            preferences.optString("last_chinese_scheme", edition.defaultScheme()),
-            preferences.optString("shuangpin_profile", "xiaohe"), edition);
-        try {
-            JSONObject pending = new JSONObject(snapshot.toString());
-            JSONObject values = pending.getJSONObject("preferences");
-            values.put("scheme", mapping.scheme());
-            values.put("last_chinese_scheme", mapping.lastChineseScheme());
-            values.put("shuangpin_profile", mapping.shuangpinProfile());
-            values.put("touch_keyboard_layout", mapping.touchKeyboardLayout());
-            if (wubiProfile != null) {
-                values.put("wubi_profile", KeyboardScheme.normalizedWubiProfile(wubiProfile));
-            }
-            // Once the keyboard's own picker has written its scheme list, its `selected` outranks `scheme` when the keyboard resolves what to show (KeyboardScheme.resolveEnabledSelection), so a switch made here has to move it too, and enable the scheme if the list left it out. Without the list the keyboard follows `scheme` alone; do not create one.
-            JSONObject schemes = values.optJSONObject("touch_keyboard_schemes");
-            if (schemes != null) {
-                JSONArray enabled = schemes.optJSONArray("enabled");
-                if (enabled == null) {
-                    enabled = new JSONArray();
-                    schemes.put("enabled", enabled);
-                }
-                boolean listed = false;
-                for (int index = 0; index < enabled.length(); index++) {
-                    if (scheme.preferenceId().equals(enabled.isNull(index) ? null : enabled.optString(index, null))) {
-                        listed = true;
-                        break;
-                    }
-                }
-                if (!listed) enabled.put(scheme.preferenceId());
-                schemes.put("selected", scheme.preferenceId());
-            }
-            return pending;
-        } catch (JSONException error) {
-            return null;
-        }
+        return SchemePreferences.withScheme(snapshot, scheme, wubiProfile);
     }
 
     private static void applyScheme(Fragment fragment, JSONObject snapshot, KeyboardScheme scheme,

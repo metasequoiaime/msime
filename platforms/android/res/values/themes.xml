@@ -1,33 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material 3 rather than the framework's Theme.Material: the host uses MaterialCardView, MaterialButton and BottomNavigationView, and those resolve their own theme attributes. -->
-    <!-- Theme.MSIME is the name the manifest uses and Theme.MSIME.Base holds the attributes. There is no per-API overlay: the first-launch splash is the host's own home_intro view in HomeActivity, not the system splash screen, and night colours come from values-night. -->
+    <!-- 用 Material 3 而不是框架的 Theme.Material：宿主用 MaterialCardView、MaterialButton、BottomNavigationView，它们解析各自的主题属性。 -->
+    <!-- 清单里用的是 Theme.MSIME，属性都在 Theme.MSIME.Base。首次启动的开屏是 HomeActivity 自己的 home_intro 视图而不是系统 splash screen，所以没有按 API 分的叠加层；深色值来自 values-night 的同名颜色。 -->
     <style name="Theme.MSIME" parent="Theme.MSIME.Base" />
 
+    <!-- 宿主颜色契约：页面和组件只读这里的 M3 角色和 ?attr/ms*，不写死颜色。基础值是秋杉；其他季节由 home/AppMode 在 activity 创建前叠加 ThemeOverlay.MSIME.Season.*，它们覆盖的正是下面标了「随季节」的那些角色。主题里没给的角色会落回 Material 3 自带的紫色基线，所以 surface container 这一串全部给出。 -->
     <style name="Theme.MSIME.Base" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/forest</item>
-        <item name="colorOnPrimary">@color/on_accent</item>
-        <item name="colorSecondary">@color/needle</item>
-        <item name="colorTertiary">@color/cone</item>
-        <item name="android:colorBackground">@color/mist</item>
-        <item name="colorOnBackground">@color/ink</item>
-        <item name="colorSurface">@color/mist</item>
-        <item name="colorOnSurface">@color/ink</item>
-
-        <!-- Every role the theme leaves out is resolved from Material 3's own baseline, and that baseline is violet: the bottom bar took its background from colorSurfaceContainer and its active indicator from colorSecondaryContainer, so both rendered lilac next to the forest palette. The container and outline roles below are the ones these pages actually resolve; the surface container ramp is given in full because a role omitted here reappears as violet the moment a component reaches for it. Each colour has a values-night twin, which is what makes the DayNight parent actually switch. -->
-        <item name="colorPrimaryContainer">@color/surface_variant</item>
-        <item name="colorOnPrimaryContainer">@color/ink</item>
-        <item name="colorSecondaryContainer">@color/surface_variant</item>
-        <item name="colorOnSecondaryContainer">@color/ink</item>
-        <item name="colorSurfaceVariant">@color/search_field</item>
-        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
-        <item name="colorSurfaceContainerLowest">@color/mist</item>
-        <item name="colorSurfaceContainerLow">@color/surface</item>
-        <item name="colorSurfaceContainer">@color/surface</item>
-        <item name="colorSurfaceContainerHigh">@color/surface</item>
-        <item name="colorSurfaceContainerHighest">@color/search_field</item>
-        <item name="colorOutline">@color/outline</item>
-        <item name="colorOutlineVariant">@color/hairline</item>
+        <!-- 随季节：accent、onAccent、accentSoft。 -->
+        <item name="colorPrimary">@color/ms_accent</item>
+        <item name="colorOnPrimary">@color/ms_on_accent</item>
+        <item name="colorSecondary">@color/ms_accent</item>
+        <item name="colorOnSecondary">@color/ms_on_accent</item>
+        <item name="colorPrimaryContainer">@color/ms_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/ms_accent</item>
+        <item name="colorSecondaryContainer">@color/ms_accent_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ms_accent</item>
+        <!-- 随季节：logo 标记的填充与工具栏 logo 圆盘；标记上的描边在设计里深浅都是白色。 -->
+        <item name="colorTertiary">@color/ms_logo_bg</item>
+        <item name="colorOnTertiary">@android:color/white</item>
+        <item name="colorTertiaryContainer">@color/ms_logo_disc</item>
+        <item name="colorOnTertiaryContainer">@color/ms_accent</item>
+        <!-- 随季节：页面底色 bg、分组卡 andCard、详情页行底 rowBg、浅色的分隔线。 -->
+        <item name="android:colorBackground">@color/ms_bg</item>
+        <item name="colorSurface">@color/ms_bg</item>
+        <item name="colorSurfaceVariant">@color/ms_card</item>
+        <item name="colorSurfaceContainerLowest">@color/ms_row_bg</item>
+        <item name="colorSurfaceContainerLow">@color/ms_card</item>
+        <item name="colorSurfaceContainer">@color/ms_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ms_card</item>
+        <item name="colorOutlineVariant">@color/ms_hair</item>
+        <!-- 不随季节。 -->
+        <item name="colorOnBackground">@color/ms_text</item>
+        <item name="colorOnSurface">@color/ms_text</item>
+        <item name="colorOnSurfaceVariant">@color/ms_sub</item>
+        <item name="colorSurfaceContainerHighest">@color/ms_switch_off</item>
+        <item name="colorOutline">@color/ms_outline</item>
+        <item name="colorError">@color/ms_danger</item>
+        <item name="colorOnError">@android:color/white</item>
+        <item name="colorSurfaceInverse">@color/ms_toast_bg</item>
+        <item name="colorOnSurfaceInverse">@color/ms_toast_fg</item>
+        <!-- 自定义属性：开屏与统计随季节，其余不随。 -->
+        <item name="msSplashBg">@color/ms_splash_bg</item>
+        <item name="msSplashDisc">@color/ms_splash_disc</item>
+        <item name="msSplashBar">@color/ms_splash_bar</item>
+        <item name="msSplashGlow">@color/ms_splash_glow</item>
+        <item name="msStatBar">@color/ms_stat_bar</item>
+        <item name="msHeat0">@color/ms_heat_0</item>
+        <item name="msHeat1">@color/ms_heat_1</item>
+        <item name="msHeat2">@color/ms_heat_2</item>
+        <item name="msHeat3">@color/ms_heat_3</item>
+        <item name="msHeat4">@color/ms_heat_4</item>
+        <item name="msPressBg">@color/ms_press</item>
+        <item name="msHover">@color/ms_hover</item>
+        <item name="msWarn">@color/ms_warn</item>
+        <item name="msScrim">@color/ms_scrim</item>
 
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
@@ -36,7 +62,155 @@
         <item name="android:windowLightNavigationBar">@bool/light_bars</item>
         <!-- Fade-through between activities instead of the platform slide, the same motion the tabs use. -->
         <item name="android:windowAnimationStyle">@style/Animation.MSIME.FadeThrough</item>
+        <!-- 组件的默认样式，见 styles.xml。 -->
         <item name="bottomNavigationStyle">@style/Widget.MSIME.BottomNavigation</item>
+        <item name="materialSwitchStyle">@style/Widget.MSIME.Switch</item>
+        <item name="sliderStyle">@style/Widget.MSIME.Slider</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.MSIME.BottomSheetDialog</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.MSIME.MaterialAlertDialog</item>
+    </style>
+
+    <!-- ==== 四季叠加层：只覆盖随季节的角色。深色不另起一套样式，引用的 ms_<季节>_* 颜色在 values-night 里有深色同名值，叠加层随模式自动取到深色那组。 ==== -->
+    <!-- 春芽。 -->
+    <style name="ThemeOverlay.MSIME.Season.Spring" parent="">
+        <item name="colorPrimary">@color/ms_spring_accent</item>
+        <item name="colorOnPrimary">@color/ms_spring_on_accent</item>
+        <item name="colorSecondary">@color/ms_spring_accent</item>
+        <item name="colorOnSecondary">@color/ms_spring_on_accent</item>
+        <item name="colorPrimaryContainer">@color/ms_spring_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/ms_spring_accent</item>
+        <item name="colorSecondaryContainer">@color/ms_spring_accent_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ms_spring_accent</item>
+        <item name="colorTertiary">@color/ms_spring_logo_bg</item>
+        <item name="colorTertiaryContainer">@color/ms_spring_logo_disc</item>
+        <item name="colorOnTertiaryContainer">@color/ms_spring_accent</item>
+        <item name="android:colorBackground">@color/ms_spring_bg</item>
+        <item name="colorSurface">@color/ms_spring_bg</item>
+        <item name="colorSurfaceVariant">@color/ms_spring_card</item>
+        <item name="colorSurfaceContainerLowest">@color/ms_spring_row_bg</item>
+        <item name="colorSurfaceContainerLow">@color/ms_spring_card</item>
+        <item name="colorSurfaceContainer">@color/ms_spring_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ms_spring_card</item>
+        <item name="colorOutlineVariant">@color/ms_spring_hair</item>
+        <item name="msSplashBg">@color/ms_spring_splash_bg</item>
+        <item name="msSplashDisc">@color/ms_spring_splash_disc</item>
+        <item name="msSplashBar">@color/ms_spring_splash_bar</item>
+        <item name="msSplashGlow">@color/ms_spring_splash_glow</item>
+        <item name="msStatBar">@color/ms_spring_stat_bar</item>
+        <item name="msHeat0">@color/ms_spring_heat_0</item>
+        <item name="msHeat1">@color/ms_spring_heat_1</item>
+        <item name="msHeat2">@color/ms_spring_heat_2</item>
+        <item name="msHeat3">@color/ms_spring_heat_3</item>
+        <item name="msHeat4">@color/ms_spring_heat_4</item>
+    </style>
+
+    <!-- 夏荫。 -->
+    <style name="ThemeOverlay.MSIME.Season.Summer" parent="">
+        <item name="colorPrimary">@color/ms_summer_accent</item>
+        <item name="colorOnPrimary">@color/ms_summer_on_accent</item>
+        <item name="colorSecondary">@color/ms_summer_accent</item>
+        <item name="colorOnSecondary">@color/ms_summer_on_accent</item>
+        <item name="colorPrimaryContainer">@color/ms_summer_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/ms_summer_accent</item>
+        <item name="colorSecondaryContainer">@color/ms_summer_accent_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ms_summer_accent</item>
+        <item name="colorTertiary">@color/ms_summer_logo_bg</item>
+        <item name="colorTertiaryContainer">@color/ms_summer_logo_disc</item>
+        <item name="colorOnTertiaryContainer">@color/ms_summer_accent</item>
+        <item name="android:colorBackground">@color/ms_summer_bg</item>
+        <item name="colorSurface">@color/ms_summer_bg</item>
+        <item name="colorSurfaceVariant">@color/ms_summer_card</item>
+        <item name="colorSurfaceContainerLowest">@color/ms_summer_row_bg</item>
+        <item name="colorSurfaceContainerLow">@color/ms_summer_card</item>
+        <item name="colorSurfaceContainer">@color/ms_summer_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ms_summer_card</item>
+        <item name="colorOutlineVariant">@color/ms_summer_hair</item>
+        <item name="msSplashBg">@color/ms_summer_splash_bg</item>
+        <item name="msSplashDisc">@color/ms_summer_splash_disc</item>
+        <item name="msSplashBar">@color/ms_summer_splash_bar</item>
+        <item name="msSplashGlow">@color/ms_summer_splash_glow</item>
+        <item name="msStatBar">@color/ms_summer_stat_bar</item>
+        <item name="msHeat0">@color/ms_summer_heat_0</item>
+        <item name="msHeat1">@color/ms_summer_heat_1</item>
+        <item name="msHeat2">@color/ms_summer_heat_2</item>
+        <item name="msHeat3">@color/ms_summer_heat_3</item>
+        <item name="msHeat4">@color/ms_summer_heat_4</item>
+    </style>
+
+    <!-- 秋杉。 -->
+    <style name="ThemeOverlay.MSIME.Season.Autumn" parent="">
+        <item name="colorPrimary">@color/ms_autumn_accent</item>
+        <item name="colorOnPrimary">@color/ms_autumn_on_accent</item>
+        <item name="colorSecondary">@color/ms_autumn_accent</item>
+        <item name="colorOnSecondary">@color/ms_autumn_on_accent</item>
+        <item name="colorPrimaryContainer">@color/ms_autumn_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/ms_autumn_accent</item>
+        <item name="colorSecondaryContainer">@color/ms_autumn_accent_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ms_autumn_accent</item>
+        <item name="colorTertiary">@color/ms_autumn_logo_bg</item>
+        <item name="colorTertiaryContainer">@color/ms_autumn_logo_disc</item>
+        <item name="colorOnTertiaryContainer">@color/ms_autumn_accent</item>
+        <item name="android:colorBackground">@color/ms_autumn_bg</item>
+        <item name="colorSurface">@color/ms_autumn_bg</item>
+        <item name="colorSurfaceVariant">@color/ms_autumn_card</item>
+        <item name="colorSurfaceContainerLowest">@color/ms_autumn_row_bg</item>
+        <item name="colorSurfaceContainerLow">@color/ms_autumn_card</item>
+        <item name="colorSurfaceContainer">@color/ms_autumn_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ms_autumn_card</item>
+        <item name="colorOutlineVariant">@color/ms_autumn_hair</item>
+        <item name="msSplashBg">@color/ms_autumn_splash_bg</item>
+        <item name="msSplashDisc">@color/ms_autumn_splash_disc</item>
+        <item name="msSplashBar">@color/ms_autumn_splash_bar</item>
+        <item name="msSplashGlow">@color/ms_autumn_splash_glow</item>
+        <item name="msStatBar">@color/ms_autumn_stat_bar</item>
+        <item name="msHeat0">@color/ms_autumn_heat_0</item>
+        <item name="msHeat1">@color/ms_autumn_heat_1</item>
+        <item name="msHeat2">@color/ms_autumn_heat_2</item>
+        <item name="msHeat3">@color/ms_autumn_heat_3</item>
+        <item name="msHeat4">@color/ms_autumn_heat_4</item>
+    </style>
+
+    <!-- 冬雪。 -->
+    <style name="ThemeOverlay.MSIME.Season.Winter" parent="">
+        <item name="colorPrimary">@color/ms_winter_accent</item>
+        <item name="colorOnPrimary">@color/ms_winter_on_accent</item>
+        <item name="colorSecondary">@color/ms_winter_accent</item>
+        <item name="colorOnSecondary">@color/ms_winter_on_accent</item>
+        <item name="colorPrimaryContainer">@color/ms_winter_accent_soft</item>
+        <item name="colorOnPrimaryContainer">@color/ms_winter_accent</item>
+        <item name="colorSecondaryContainer">@color/ms_winter_accent_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ms_winter_accent</item>
+        <item name="colorTertiary">@color/ms_winter_logo_bg</item>
+        <item name="colorTertiaryContainer">@color/ms_winter_logo_disc</item>
+        <item name="colorOnTertiaryContainer">@color/ms_winter_accent</item>
+        <item name="android:colorBackground">@color/ms_winter_bg</item>
+        <item name="colorSurface">@color/ms_winter_bg</item>
+        <item name="colorSurfaceVariant">@color/ms_winter_card</item>
+        <item name="colorSurfaceContainerLowest">@color/ms_winter_row_bg</item>
+        <item name="colorSurfaceContainerLow">@color/ms_winter_card</item>
+        <item name="colorSurfaceContainer">@color/ms_winter_card</item>
+        <item name="colorSurfaceContainerHigh">@color/ms_winter_card</item>
+        <item name="colorOutlineVariant">@color/ms_winter_hair</item>
+        <item name="msSplashBg">@color/ms_winter_splash_bg</item>
+        <item name="msSplashDisc">@color/ms_winter_splash_disc</item>
+        <item name="msSplashBar">@color/ms_winter_splash_bar</item>
+        <item name="msSplashGlow">@color/ms_winter_splash_glow</item>
+        <item name="msStatBar">@color/ms_winter_stat_bar</item>
+        <item name="msHeat0">@color/ms_winter_heat_0</item>
+        <item name="msHeat1">@color/ms_winter_heat_1</item>
+        <item name="msHeat2">@color/ms_winter_heat_2</item>
+        <item name="msHeat3">@color/ms_winter_heat_3</item>
+        <item name="msHeat4">@color/ms_winter_heat_4</item>
+    </style>
+
+    <!-- M3 modal bottom sheet：顶角 28，底色 andCard（M3 的 colorSurfaceContainerLow）。 -->
+    <style name="ThemeOverlay.MSIME.BottomSheetDialog" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.MSIME.BottomSheet</item>
+    </style>
+
+    <!-- 居中对话框：圆角 28，底色 rowBg。 -->
+    <style name="ThemeOverlay.MSIME.MaterialAlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="alertDialogStyle">@style/MaterialAlertDialog.MSIME</item>
     </style>
 
     <!-- M3 fade-through: the incoming screen fades in while growing from 94 %, the outgoing one only fades. -->
@@ -45,36 +219,6 @@
         <item name="android:activityOpenExitAnimation">@anim/fade_through_out</item>
         <item name="android:activityCloseEnterAnimation">@anim/fade_through_in</item>
         <item name="android:activityCloseExitAnimation">@anim/fade_through_out</item>
-    </style>
-
-    <!-- The design's navigation bar: 80dp, the container tone, a 64x32 accentSoft pill behind the selected icon, 12sp labels with the selected one in the primary text colour and heavier. -->
-    <style name="Widget.MSIME.BottomNavigation" parent="Widget.Material3.BottomNavigationView">
-        <item name="android:background">@color/nav_bar</item>
-        <item name="itemActiveIndicatorStyle">@style/Widget.MSIME.BottomNavigation.Indicator</item>
-        <item name="itemIconSize">22dp</item>
-        <item name="itemIconTint">@color/nav_item</item>
-        <item name="itemTextColor">@color/nav_item</item>
-        <item name="itemTextAppearanceActive">@style/TextAppearance.MSIME.NavLabel.Active</item>
-        <item name="itemTextAppearanceInactive">@style/TextAppearance.MSIME.NavLabel</item>
-        <item name="itemPaddingTop">12dp</item>
-        <item name="labelVisibilityMode">labeled</item>
-    </style>
-
-    <style name="Widget.MSIME.BottomNavigation.Indicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
-        <item name="android:color">@color/surface_variant</item>
-        <item name="android:width">64dp</item>
-        <item name="android:height">32dp</item>
-    </style>
-
-    <style name="TextAppearance.MSIME.NavLabel" parent="TextAppearance.Material3.LabelMedium">
-        <item name="android:textSize">12sp</item>
-        <item name="android:textStyle">normal</item>
-        <item name="android:textFontWeight">500</item>
-    </style>
-
-    <style name="TextAppearance.MSIME.NavLabel.Active">
-        <item name="android:textStyle">bold</item>
-        <item name="android:textFontWeight">600</item>
     </style>
 
     <!-- The rounded badge behind each feature tile's glyph. -->
@@ -90,7 +234,7 @@
         <item name="android:paddingStart">12dp</item>
         <item name="android:paddingEnd">12dp</item>
         <item name="android:textSize">14sp</item>
-        <item name="android:textColor">@color/forest</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
         <item name="cornerRadius">20dp</item>
     </style>
 
@@ -106,10 +250,10 @@
         <item name="android:maxLines">1</item>
         <item name="android:textColor">@color/segment_text</item>
         <item name="backgroundTint">@color/segment_fill</item>
-        <item name="strokeColor">@color/outline</item>
+        <item name="strokeColor">?attr/colorOutline</item>
         <item name="strokeWidth">1dp</item>
         <item name="cornerRadius">18dp</item>
-        <item name="rippleColor">@color/surface_variant</item>
+        <item name="rippleColor">?attr/colorPrimaryContainer</item>
     </style>
 
     <!-- An M3 group title over a card: accent, 14sp medium, aligned with the glyphs of the rows inside the card. -->
@@ -118,7 +262,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">20dp</item>
         <item name="android:layout_marginStart">16dp</item>
-        <item name="android:textColor">@color/forest</item>
+        <item name="android:textColor">?attr/colorPrimary</item>
         <item name="android:textSize">14sp</item>
         <item name="android:textFontWeight">500</item>
         <item name="android:accessibilityHeading">true</item>
@@ -130,7 +274,7 @@
         <item name="android:layout_marginTop">10dp</item>
         <item name="android:layout_marginStart">4dp</item>
         <item name="android:layout_marginEnd">4dp</item>
-        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
         <item name="android:textSize">12sp</item>
     </style>
 
@@ -141,7 +285,7 @@
         <item name="cardCornerRadius">20dp</item>
         <item name="cardElevation">0dp</item>
         <item name="strokeWidth">0dp</item>
-        <item name="cardBackgroundColor">@color/surface</item>
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainer</item>
     </style>
 
     <style name="Shape.Badge" parent="">
