@@ -1,0 +1,44 @@
+{
+  "name": "@msime/web-engine",
+  "version": "0.0.0",
+  "description": "水杉输入法的网页引擎：在浏览器的 Web Worker 里运行的拼音、双拼和五笔输入法，可部署到任意静态站点。",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metasequoiaime/msime.git",
+    "directory": "packages/web-engine"
+  },
+  "homepage": "https://github.com/metasequoiaime/msime/tree/develop/packages/web-engine#readme",
+  "keywords": ["input-method", "ime", "pinyin", "wubi", "chinese", "wasm", "webassembly"],
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./worker.js": "./worker.js",
+    "./assets/*": "./assets/*",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": ["./worker.js"],
+  "bin": {
+    "msime-web-engine": "./bin/msime-web-engine.mjs"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "keys.js",
+    "input.js",
+    "worker.js",
+    "assets.js",
+    "msime_engine.js",
+    "bin/",
+    "assets/",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

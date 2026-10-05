@@ -1,0 +1,3 @@
+# Cloudflare Pages 和 Workers Static Assets 都读取输出目录根上的 _headers。资源文件名不带版本号，缓存一天；把 msime/ 换成带版本号的目录后可以改成 immutable。
+/msime/*
+  Cache-Control: public, max-age=86400

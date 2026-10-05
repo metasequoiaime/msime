@@ -1,0 +1,12 @@
+{
+  "name": "msime-web-engine-static-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "msime-web-engine copy site/msime --clean",
+    "preview": "npm run build && npx --yes serve site"
+  },
+  "dependencies": {
+    "@msime/web-engine": "^0.1.2"
+  }
+}
