@@ -103,7 +103,7 @@ enum SnapshotQueueAction {
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-struct SnapshotMetadata {
+pub(crate) struct SnapshotMetadata {
     cloud_revision: i64,
     sha256: String,
     file_sha256: String,
@@ -285,7 +285,7 @@ fn reject_symlinked_snapshot_path(path: &Path) -> Result<(), &'static str> {
 /// Validate the complete NDJSON envelope before a host calls the expensive Engine staging path.
 /// Header/footer order, exact body checksum, category order and record bounds are all part of the
 /// cloud format. Engine records receive their deeper scheme-specific validation during prepare.
-fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
+pub(crate) fn inspect_snapshot(path: &Path) -> Result<SnapshotMetadata, &'static str> {
     reject_symlinked_snapshot_path(path)?;
     let metadata = std::fs::symlink_metadata(path).map_err(|_| "snapshot file unavailable")?;
     if !metadata.file_type().is_file() || metadata.len() == 0 || metadata.len() > MAX_SNAPSHOT_BYTES
@@ -480,6 +480,8 @@ pub(crate) fn export_local_snapshot(
     );
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
+    // Rows the cloud snapshot format cannot carry: a quick phrase may hold a line break or a tab, which `required_text` refuses. They are left out and counted so the host can tell the user, instead of the whole export failing.
+    let mut skipped = 0usize;
     let mut offset = 0usize;
     loop {
         let page = msime_engine::host::dictionary_entries(options, offset, CHUNK)
@@ -494,6 +496,10 @@ pub(crate) fn export_local_snapshot(
                 DictionaryKind::English => "english",
                 _ => continue,
             };
+            if !snapshot_safe(&entry.key) || !snapshot_safe(&entry.value) {
+                skipped += 1;
+                continue;
+            }
             if entry.key.is_empty()
                 || entry.key.len() > 512
                 || entry.value.is_empty()
@@ -578,7 +584,15 @@ pub(crate) fn export_local_snapshot(
         .map_err(|_| "snapshot file unavailable")?;
     let mut value = serde_json::to_value(metadata).map_err(|_| "snapshot file unavailable")?;
     value["path"] = json!(destination.to_string_lossy());
+    value["skipped"] = json!(skipped);
     Ok(value)
+}
+
+/// The same byte test `snapshot_validation::required_text` applies to a code or word, so an exported row is never one `inspect_snapshot` refuses.
+fn snapshot_safe(text: &str) -> bool {
+    !text
+        .bytes()
+        .any(|byte| matches!(byte, 0 | b'\t' | b'\n' | b'\r'))
 }
 
 fn restore_snapshot_with(

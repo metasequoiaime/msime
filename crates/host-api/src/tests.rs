@@ -3158,6 +3158,34 @@ fn a_committed_selection_counts_its_efficiency_and_a_private_session_counts_noth
     read(msime_client_destroy(handle));
 }
 
+/// 双拼的「少按键」也以全拼为基准：小鹤双拼 nihc 四个键打出的词，按全拼要 nihao 五个键。
+#[test]
+fn a_shuangpin_commit_counts_its_keys_against_quanpin() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = TypingStatisticsStore::new(dir.path().join("user"));
+    store.set_enabled(true).unwrap();
+    let preferences = Preferences {
+        scheme: InputScheme::Shuangpin,
+        shuangpin_profile: ShuangpinProfile::Xiaohe,
+        ..chinese_preferences()
+    };
+    let handle = test_host_with_pinyin_fixture(dir.path(), preferences);
+    assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
+    let mut view = Value::Null;
+    for byte in b"nihc" {
+        view = read(msime_client_character(handle, *byte, false))["value"]["view"].clone();
+    }
+    let generation = view["generation"].as_u64().unwrap();
+    let selected = read(msime_client_select(handle, generation, 0));
+    assert!(selected["value"]["commit"].is_string(), "{selected}");
+    assert_eq!(read(msime_client_focus(handle, false))["ok"], true);
+    let efficiency = store.load().unwrap().efficiency;
+    assert_eq!(efficiency.commits, 1);
+    assert_eq!(efficiency.typed_keys, 4);
+    assert_eq!(efficiency.spelled_keys, 5);
+    read(msime_client_destroy(handle));
+}
+
 /// 统计关闭时效率一项都不计。
 #[test]
 fn efficiency_is_not_counted_while_statistics_are_off() {
@@ -10540,6 +10568,105 @@ fn dictionary_count_and_snapshot_export_answer_for_an_empty_store() {
         json!({"options": options, "action": {"operation": "export_snapshot", "destination": "snapshot.ndjson"}}),
     );
     assert_eq!(relative["ok"], false);
+}
+
+/// `empty_host_options` with an empty main dictionary, which the Engine needs before it stores a pinyin word (`ni'…` lands in `tbl_2_n`) or a quick phrase.
+fn host_options_with_main_dictionary(root: &Path) -> Value {
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        std::fs::create_dir_all(root.join(name)).unwrap();
+    }
+    for name in ["resources", "dictionaries"] {
+        rusqlite::Connection::open(root.join(name).join("msime-pinyin.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);
+                 CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);
+                 CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);
+                 CREATE INDEX idx_quick_parases_key_weight ON quick_parases(key,weight DESC);",
+            )
+            .unwrap();
+    }
+    empty_host_options(root)
+}
+
+#[test]
+fn snapshot_export_leaves_out_a_multi_line_quick_phrase_and_counts_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    for (index, entry) in [
+        json!({"kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 100}),
+        json!({"kind": "quick_phrase", "key": "zj", "value": "此致\n敬礼", "weight": 100}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let edited = call_android_data(
+            msime_client_dictionary,
+            json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": entry, "request_id": format!("seed-{index}")}}),
+        );
+        assert_eq!(edited["ok"], true, "{edited}");
+    }
+    let destination = directory.path().join("snapshot.ndjson");
+    let exported = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "export_snapshot", "destination": destination}}),
+    );
+    assert_eq!(exported["ok"], true, "{exported}");
+    assert_eq!(exported["value"]["entries"], 1, "{exported}");
+    assert_eq!(exported["value"]["overlays"], 1, "{exported}");
+    assert_eq!(exported["value"]["skipped"], 1, "{exported}");
+    assert!(destination.is_file());
+    assert!(crate::dictionary_snapshot::inspect_snapshot(&destination).is_ok());
+}
+
+/// A dictionary collection adding a word the user already has must leave the user's row alone and say so, so that turning the collection off later does not delete it.
+#[test]
+fn a_collection_addition_of_an_existing_user_word_is_left_alone_and_reported() {
+    use msime_client_core::dictionary::personal::{
+        PersonalDictionaryStore, PersonalWord, PersonalWordKind,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let options = host_options_with_main_dictionary(directory.path());
+    let own = json!({"kind": "pinyin", "key": "ni'hao", "value": "你好", "weight": 4321});
+    let edited = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "edit", "previous": null, "replacement": own, "request_id": "seed-own"}}),
+    );
+    assert_eq!(edited["ok"], true, "{edited}");
+    let store = PersonalDictionaryStore::new(directory.path().join("PersonalDictionary"));
+    let word = |key: &str, value: &str| PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: key.into(),
+        value: value.into(),
+        weight: 10_000,
+    };
+    store
+        .enqueue_import(
+            vec![word("ni'hao", "你好"), word("ni'men", "你们")],
+            "collections-test".into(),
+        )
+        .unwrap();
+    let synced = call_android_data(msime_client_personal_dictionary_sync, options.clone());
+    assert_eq!(synced["ok"], true, "{synced}");
+    assert_eq!(synced["value"]["pending_count"], 0);
+    let state = store.read().unwrap();
+    assert_eq!(
+        state.already_present,
+        vec![word("ni'hao", "你好").identity()]
+    );
+    let listed = call_android_data(
+        msime_client_dictionary,
+        json!({"options": options, "action": {"operation": "list", "offset": 0, "limit": 10}}),
+    );
+    let entries = listed["value"]["entries"].as_array().unwrap();
+    let weight_of = |value: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["value"] == value)
+            .map(|entry| entry["weight"].clone())
+    };
+    assert_eq!(weight_of("你好"), Some(json!(4321)), "{listed}");
+    assert_eq!(weight_of("你们"), Some(json!(10_000)), "{listed}");
 }
 
 #[test]

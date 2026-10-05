@@ -1921,7 +1921,7 @@ const PRIVATE_SESSIONS_SKIP_STATISTICS: bool = cfg!(any(target_os = "android", t
 /// 一个会话在两次写统计之间最多记下多少次上屏。正常情况下 `SELECTION_BATCH` 次选词就会写一次，这只是兜底。
 const EFFICIENCY_BATCH_LIMIT: usize = 256;
 
-/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（全拼数读音字母，双拼每个音节 2 码）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
+/// 把一批上屏算成效率计数写进统计：`typed_keys` 是候选输入码里的字母和数字，`spelled_keys` 是用拼音逐字打出这段文字要按的键数（按全拼数读音字母，双拼也以全拼为基准）；查不到读音（英文、表情、非拼音方案）时按打了多少算多少，不算少按也不算多按。尽力而为：写不进就丢掉。
 fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
     let directory = std::path::Path::new(&options.user_data);
     if !directory.is_absolute() {
@@ -1940,13 +1940,12 @@ fn record_efficiency(options: &EngineOptions, commits: &[EfficiencyCandidate]) {
     let _ = TypingStatisticsStore::new(directory).record_efficiency(&efficiency);
 }
 
-/// 用会话方案的拼音打出 `text` 要按的键数：只有全拼（含九键）和双拼有答案。读音来自 Engine 的 `hanzi_to_pinyin`，它先查整词、再逐字回退。
+/// 用全拼打出 `text` 要按的键数，作为「少按键」的基准：只有拼音系方案（全拼含九键、双拼）有答案，双拼也按全拼计，这样统计页的「比全拼少按」对双拼用户才有意义。读音来自 Engine 的 `hanzi_to_pinyin`，它先查整词、再逐字回退。
 fn spelling_keys(options: &EngineOptions, text: &str) -> Option<u64> {
-    let double_pinyin = match SchemeType::from_u8(options.scheme)? {
-        SchemeType::Quanpin => false,
-        SchemeType::Shuangpin => true,
+    match SchemeType::from_u8(options.scheme)? {
+        SchemeType::Quanpin | SchemeType::Shuangpin => {}
         _ => return None,
-    };
+    }
     let reading = msime_engine::host::hanzi_to_pinyin(options, text);
     if reading.is_empty() {
         return None;
@@ -1954,13 +1953,7 @@ fn spelling_keys(options: &EngineOptions, text: &str) -> Option<u64> {
     Some(
         reading
             .split('\'')
-            .map(|syllable| {
-                if double_pinyin {
-                    2
-                } else {
-                    syllable.bytes().filter(u8::is_ascii_alphabetic).count() as u64
-                }
-            })
+            .map(|syllable| syllable.bytes().filter(u8::is_ascii_alphabetic).count() as u64)
             .sum(),
     )
 }

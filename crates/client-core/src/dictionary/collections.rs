@@ -5,6 +5,8 @@
 //! 存储在 `<preferences_directory>/DictionaryCollections/` 下：`index.json` 是集合列表，`index.json.lock` 是整个目录的文件锁，每个集合的词条在 `<uuid>.json`（所以停用以后还能重新启用），`outbox.json` 是还没交给个人词库队列的增删。个人词库队列同时最多只接受 128 个未完成的请求，一个两万条的集合要分很多批送进去，所以启用和停用先记进待发送队列，再由 [`DictionaryCollectionsStore::flush`] 在队列有空位时一批批送出；每次修改之后也会顺手送一批。
 //!
 //! 待发送队列按词条身份（[`PersonalWord::identity`]）合并：同一个词先排了「加入」又排「删除」（或反过来）时，两者都还没送出，直接互相抵消。停用或删除一个集合时，只删除不属于任何其他已启用集合的词，Engine 自己学来的词不属于任何集合，不会被删掉。内置主词库不是集合，常开、不能停用。
+//!
+//! 集合加入的词用户词库里本来就有（用户自己加过同一个词）时，键盘不改它，并在个人词库队列里留下回执（[`PersonalDictionaryState::already_present`](crate::dictionary::personal::PersonalDictionaryState::already_present)）。这里把回执记进 `preexisting.json`，停用、删除集合或从集合里删词时都不删这些词：它们是用户自己的。之后又有一次「加入」真正写进了词库（用户中途手动删过这个词），这个词就不再算用户原有的。
 
 use crate::community::resource::{validate_resource, CommunityResource, CommunityResourceKind};
 use crate::dictionary::import::{self, ImportError, ImportFailure, ImportFormat, ImportKind};
@@ -44,6 +46,7 @@ const MAX_COLLECTION_BYTES: u64 = 48 * 1024 * 1024;
 const MAX_OUTBOX_BYTES: u64 = 96 * 1024 * 1024;
 const INDEX_FILE: &str = "index.json";
 const OUTBOX_FILE: &str = "outbox.json";
+const PREEXISTING_FILE: &str = "preexisting.json";
 
 /// 集合的来源。
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -100,6 +103,13 @@ struct OutboxOperation {
 #[serde(deny_unknown_fields)]
 struct OutboxFile {
     operations: Vec<OutboxOperation>,
+}
+
+/// `preexisting.json`：集合加入之前用户词库里就有的词的身份，这些词不随集合删掉。
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PreexistingFile {
+    identities: Vec<String>,
 }
 
 /// 界面上的一个集合：元数据，加上还没交给个人词库队列的增删条数。
@@ -529,7 +539,7 @@ impl DictionaryCollectionsStore {
         let mut state = self.read_state()?;
         let (sent, failure) = self.flush_locked(&mut state);
         // 已经送出的部分先落盘，再报告送后面那部分时遇到的错误，免得下次重复送。
-        if sent > 0 {
+        if sent > 0 || state.outbox_dirty {
             self.write_outbox(&state.outbox)?;
         }
         if let Some(error) = failure {
@@ -582,14 +592,16 @@ impl DictionaryCollectionsStore {
                 Err(error) => return Err(error.into()),
             }
         }
+        state.prune_preexisting();
+        self.write_preexisting(state)?;
         let (sent, _) = self.flush_locked(state);
-        if sent > 0 {
+        if sent > 0 || state.outbox_dirty {
             self.write_outbox(&state.outbox)?;
         }
         Ok(())
     }
 
-    /// 送一批，返回送出的条数和送后面那部分时遇到的错误（个人词库正忙或队列已满不算错误）。送出的条目已经从内存里的待发送队列拿掉，调用方负责把它写回。
+    /// 收回执、送一批，返回送出的条数和送后面那部分时遇到的错误（个人词库正忙或队列已满不算错误）。送出的条目和不再送的「删除」已经从内存里的待发送队列拿掉，调用方负责把它写回；`preexisting.json` 在这里写好。
     fn flush_locked(&self, state: &mut State) -> (usize, Option<DictionaryCollectionsError>) {
         if state.outbox.is_empty() {
             return (0, None);
@@ -598,6 +610,51 @@ impl DictionaryCollectionsStore {
             Ok(queue) => queue,
             Err(error) => return (0, Some(error.into())),
         };
+        // 先收回执：键盘没写、因为用户词库里本来就有的词。落盘以后再确认，确认失败也只是下次再收一遍。
+        if !queue.already_present.is_empty() {
+            let receipts: HashSet<String> = queue.already_present.iter().cloned().collect();
+            for identity in &receipts {
+                if state.preexisting.insert(identity.clone()) {
+                    state.preexisting_dirty = true;
+                }
+            }
+            if let Err(error) = self.write_preexisting(state) {
+                return (0, Some(error));
+            }
+            match self.personal.acknowledge_already_present(&receipts) {
+                Ok(()) => {}
+                Err(error) if transient(&error) => {}
+                Err(error) => return (0, Some(error.into())),
+            }
+        }
+        // 已经排好的「删除」若是用户原有的词，不再送出。
+        let dropped: Vec<String> = state
+            .outbox
+            .operations()
+            .filter(|operation| {
+                operation.op == OutboxKind::Remove
+                    && state.preexisting.contains(&operation.word.identity())
+            })
+            .map(|operation| operation.word.identity())
+            .collect();
+        for identity in dropped {
+            state.outbox.take(&identity);
+            state.outbox_dirty = true;
+        }
+        let failure = self.send_locked(state, &queue);
+        state.prune_preexisting();
+        match self.write_preexisting(state) {
+            Ok(()) => failure,
+            Err(error) => (failure.0, failure.1.or(Some(error))),
+        }
+    }
+
+    /// [`Self::flush_locked`] 送出的那部分：先送「加入」，再送「删除」。
+    fn send_locked(
+        &self,
+        state: &mut State,
+        queue: &crate::dictionary::personal::PersonalDictionaryState,
+    ) -> (usize, Option<DictionaryCollectionsError>) {
         let active = queue
             .requests
             .iter()
@@ -643,6 +700,10 @@ impl DictionaryCollectionsStore {
                 Ok(()) => {
                     for identity in &additions {
                         state.outbox.take(identity);
+                        // 键盘应用时会重新判断这个词是不是本来就有：有就再给回执，没有（用户中途手动删过）就不再算用户原有的。
+                        if state.preexisting.remove(identity) {
+                            state.preexisting_dirty = true;
+                        }
                     }
                     sent += additions.len();
                     capacity -= additions.len();
@@ -712,12 +773,21 @@ impl DictionaryCollectionsStore {
             .read_json(&self.directory.join(OUTBOX_FILE), MAX_OUTBOX_BYTES)?
             .unwrap_or_default();
         let outbox = Outbox::from_file(outbox)?;
+        let preexisting: PreexistingFile = self
+            .read_json(&self.directory.join(PREEXISTING_FILE), MAX_OUTBOX_BYTES)?
+            .unwrap_or_default();
+        if preexisting.identities.iter().any(String::is_empty) {
+            return Err(DictionaryCollectionsError::Corrupt);
+        }
         Ok(State {
             index,
             entries,
             outbox,
+            preexisting: preexisting.identities.into_iter().collect(),
             dirty: HashSet::new(),
             deleted: Vec::new(),
+            outbox_dirty: false,
+            preexisting_dirty: false,
         })
     }
 
@@ -740,6 +810,21 @@ impl DictionaryCollectionsStore {
         serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|_| DictionaryCollectionsError::Corrupt)
+    }
+
+    fn write_preexisting(&self, state: &mut State) -> Result<()> {
+        if !state.preexisting_dirty {
+            return Ok(());
+        }
+        let mut identities: Vec<String> = state.preexisting.iter().cloned().collect();
+        identities.sort_unstable();
+        self.write_json(
+            &self.directory.join(PREEXISTING_FILE),
+            &PreexistingFile { identities },
+            MAX_OUTBOX_BYTES,
+        )?;
+        state.preexisting_dirty = false;
+        Ok(())
     }
 
     fn write_outbox(&self, outbox: &Outbox) -> Result<()> {
@@ -950,6 +1035,16 @@ impl Outbox {
         }));
     }
 
+    /// 撤回一个还没送出的「加入」。用户原有的词不排「删除」，但同一个词之前排下的「加入」也不该再送。
+    fn withdraw_addition(&mut self, identity: &str) {
+        if self
+            .get(identity)
+            .is_some_and(|operation| operation.op == OutboxKind::Add)
+        {
+            self.take(identity);
+        }
+    }
+
     fn pending(&self) -> BTreeMap<Uuid, usize> {
         let mut counts = BTreeMap::new();
         for operation in self.operations() {
@@ -964,8 +1059,13 @@ struct State {
     index: CollectionIndex,
     entries: HashMap<Uuid, Vec<PersonalWord>>,
     outbox: Outbox,
+    /// 用户词库里本来就有的词，停用和删除都不删它们。
+    preexisting: HashSet<String>,
     dirty: HashSet<Uuid>,
     deleted: Vec<Uuid>,
+    /// 待发送队列有了不是「送出」造成的变化（丢掉了用户原有词的「删除」），需要写回。
+    outbox_dirty: bool,
+    preexisting_dirty: bool,
 }
 
 impl State {
@@ -1012,6 +1112,24 @@ impl State {
 
     fn entries(&self, id: Uuid) -> &[PersonalWord] {
         self.entries.get(&id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// 只留下还在某个集合里的词：哪个集合都没有的词不会再被删，不用记着。
+    fn prune_preexisting(&mut self) {
+        if self.preexisting.is_empty() {
+            return;
+        }
+        let held: HashSet<String> = self
+            .entries
+            .values()
+            .flatten()
+            .map(PersonalWord::identity)
+            .collect();
+        let before = self.preexisting.len();
+        self.preexisting.retain(|identity| held.contains(identity));
+        if self.preexisting.len() != before {
+            self.preexisting_dirty = true;
+        }
     }
 
     /// 除 `id` 以外所有已启用集合里的词条身份。
@@ -1098,7 +1216,13 @@ impl State {
         let count = entries.len();
         if enabled {
             for word in removed {
-                if !elsewhere.contains(&word.identity()) {
+                let identity = word.identity();
+                if elsewhere.contains(&identity) {
+                    continue;
+                }
+                if self.preexisting.contains(&identity) {
+                    self.outbox.withdraw_addition(&identity);
+                } else {
                     self.outbox.queue(OutboxKind::Remove, id, word);
                 }
             }
@@ -1120,12 +1244,18 @@ impl State {
         Ok(())
     }
 
-    /// 停用：只删不属于其他已启用集合的词，还没送出的「加入」随之抵消。
+    /// 停用：只删不属于其他已启用集合、也不是用户原有的词，还没送出的「加入」随之抵消。
     fn disable(&mut self, id: Uuid) -> Result<()> {
         let elsewhere = self.identities_elsewhere(id);
         let words: Vec<PersonalWord> = self.entries(id).to_vec();
         for word in words {
-            if !elsewhere.contains(&word.identity()) {
+            let identity = word.identity();
+            if elsewhere.contains(&identity) {
+                continue;
+            }
+            if self.preexisting.contains(&identity) {
+                self.outbox.withdraw_addition(&identity);
+            } else {
                 self.outbox.queue(OutboxKind::Remove, id, word);
             }
         }

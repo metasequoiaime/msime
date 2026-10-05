@@ -1,14 +1,14 @@
 use super::*;
 use crate::community::resource::{CommunityResourceContent, SharedWord};
-use crate::dictionary::personal::{PersonalWordPage, PersonalWordRequest};
-use std::collections::BTreeSet;
+use crate::dictionary::personal::{PersonalWordApplied, PersonalWordPage, PersonalWordRequest};
+use std::collections::BTreeMap;
 
 struct Fixture {
     _root: tempfile::TempDir,
     personal_directory: PathBuf,
     store: DictionaryCollectionsStore,
-    /// 模拟 Engine 的用户词库：键盘应用过的请求在这里生效。
-    dictionary: BTreeSet<String>,
+    /// 模拟 Engine 的用户词库（身份到权重）：键盘应用过的请求在这里生效。
+    dictionary: BTreeMap<String, i64>,
 }
 
 impl Fixture {
@@ -23,7 +23,7 @@ impl Fixture {
             _root: root,
             personal_directory,
             store,
-            dictionary: BTreeSet::new(),
+            dictionary: BTreeMap::new(),
         }
     }
 
@@ -35,22 +35,31 @@ impl Fixture {
         self.personal().read().unwrap().requests
     }
 
-    /// 像键盘那样把个人词库队列里等待中的请求全部应用，再让集合把待发送的送完，直到两边都空。
+    /// 像键盘那样把个人词库队列里等待中的请求全部应用，再让集合把待发送的送完，直到两边都空。集合加入的词用户词库里已经有时，像 host-api 那样不改它，只给回执。
     fn drain(&mut self) -> DictionaryCollectionsView {
         loop {
             let personal = self.personal();
             while personal.read().unwrap().pending_count() > 0 {
                 let dictionary = &mut self.dictionary;
                 personal
-                    .synchronize(
+                    .synchronize_reporting_present(
                         |request| {
+                            if let (None, Some(replacement)) =
+                                (&request.previous, &request.replacement)
+                            {
+                                if request.id.starts_with("collections-")
+                                    && dictionary.contains_key(&replacement.identity())
+                                {
+                                    return Ok(PersonalWordApplied::AlreadyPresent);
+                                }
+                            }
                             if let Some(previous) = &request.previous {
                                 dictionary.remove(&previous.identity());
                             }
                             if let Some(replacement) = &request.replacement {
-                                dictionary.insert(replacement.identity());
+                                dictionary.insert(replacement.identity(), replacement.weight);
                             }
-                            Ok(())
+                            Ok(PersonalWordApplied::Written)
                         },
                         |_| {
                             Ok(PersonalWordPage {
@@ -70,7 +79,7 @@ impl Fixture {
     }
 
     fn has(&self, word: &PersonalWord) -> bool {
-        self.dictionary.contains(&word.identity())
+        self.dictionary.contains_key(&word.identity())
     }
 }
 
@@ -203,7 +212,9 @@ fn collections_disabling_one_keeps_words_another_enabled_collection_holds() {
 fn collections_words_learned_outside_any_collection_are_never_removed() {
     let mut fixture = Fixture::new();
     let learned = english("learned");
-    fixture.dictionary.insert(learned.identity());
+    fixture
+        .dictionary
+        .insert(learned.identity(), learned.weight);
     let id = create_with(&fixture, "英文", &[english("alpha")]);
     fixture.drain();
     fixture.store.delete(&id).unwrap();
@@ -638,4 +649,133 @@ fn collections_actions_use_the_operation_tag() {
         }))
         .is_err()
     );
+}
+
+fn shuishan(weight: i64) -> PersonalWord {
+    PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "shui'shan".into(),
+        value: "水杉".into(),
+        weight,
+    }
+}
+
+#[test]
+fn collections_never_overwrite_or_remove_a_word_the_user_already_had() {
+    const OWN_WEIGHT: i64 = 4_321;
+    const COLLECTION_WEIGHT: i64 = 10_000;
+    let other = PersonalWord {
+        kind: PersonalWordKind::Pinyin,
+        key: "ni'hao".into(),
+        value: "你好".into(),
+        weight: COLLECTION_WEIGHT,
+    };
+    for ending in ["disable", "delete", "remove_words"] {
+        let mut fixture = Fixture::new();
+        let own = shuishan(OWN_WEIGHT);
+        fixture.dictionary.insert(own.identity(), OWN_WEIGHT);
+        let view = fixture
+            .store
+            .create("拼音", PersonalWordKind::Pinyin)
+            .unwrap();
+        let id = id_of(&view, "拼音");
+        fixture
+            .store
+            .add_words(&id, vec![shuishan(COLLECTION_WEIGHT), other.clone()])
+            .unwrap();
+        fixture.drain();
+        assert_eq!(
+            fixture.dictionary.get(&own.identity()),
+            Some(&OWN_WEIGHT),
+            "{ending}: 用户自己的权重不能被集合改掉"
+        );
+        assert!(fixture.has(&other));
+
+        match ending {
+            "disable" => {
+                fixture.store.set_enabled(&id, false).unwrap();
+            }
+            "delete" => {
+                fixture.store.delete(&id).unwrap();
+            }
+            _ => {
+                fixture
+                    .store
+                    .remove_words(&id, &[shuishan(COLLECTION_WEIGHT), other.clone()])
+                    .unwrap();
+            }
+        }
+        fixture.drain();
+        assert_eq!(
+            fixture.dictionary.get(&own.identity()),
+            Some(&OWN_WEIGHT),
+            "{ending}: 用户原有的词不能随集合删掉"
+        );
+        assert!(!fixture.has(&other), "{ending}: 集合自己加的词照常删掉");
+        assert!(
+            fixture.requests().iter().all(|request| request
+                .previous
+                .as_ref()
+                .is_none_or(|word| word.identity() != own.identity())),
+            "{ending}: 不应有删除用户原有词的请求"
+        );
+    }
+}
+
+#[test]
+fn collections_a_removal_queued_before_the_receipt_is_not_sent() {
+    let mut fixture = Fixture::new();
+    let own = shuishan(4_321);
+    fixture.dictionary.insert(own.identity(), own.weight);
+    let view = fixture
+        .store
+        .create("拼音", PersonalWordKind::Pinyin)
+        .unwrap();
+    let id = id_of(&view, "拼音");
+    // 加入已经送进个人词库队列，键盘还没应用就停用了集合：「删除」只能排着，等回执到了再丢掉。
+    fixture
+        .store
+        .add_words(&id, vec![shuishan(10_000)])
+        .unwrap();
+    assert_eq!(fixture.requests().len(), 1);
+    fixture.store.set_enabled(&id, false).unwrap();
+    fixture.drain();
+    assert_eq!(fixture.dictionary.get(&own.identity()), Some(&own.weight));
+    assert!(fixture
+        .requests()
+        .iter()
+        .all(|request| request.previous.is_none()));
+    assert!(fixture
+        .personal()
+        .read()
+        .unwrap()
+        .already_present
+        .is_empty());
+}
+
+#[test]
+fn collections_a_word_the_user_deleted_by_hand_is_the_collection_s_again() {
+    let mut fixture = Fixture::new();
+    let own = shuishan(4_321);
+    fixture.dictionary.insert(own.identity(), own.weight);
+    let view = fixture
+        .store
+        .create("拼音", PersonalWordKind::Pinyin)
+        .unwrap();
+    let id = id_of(&view, "拼音");
+    fixture
+        .store
+        .add_words(&id, vec![shuishan(10_000)])
+        .unwrap();
+    fixture.drain();
+    fixture.store.set_enabled(&id, false).unwrap();
+    fixture.drain();
+    // 用户在个人词库页手动删掉了它；再启用时集合真正写进了这个词，之后停用就照常删掉。
+    fixture.dictionary.remove(&own.identity());
+    fixture.store.set_enabled(&id, true).unwrap();
+    fixture.drain();
+    assert_eq!(fixture.dictionary.get(&own.identity()), Some(&10_000));
+    fixture.store.set_enabled(&id, false).unwrap();
+    fixture.drain();
+    assert!(!fixture.has(&own));
 }
