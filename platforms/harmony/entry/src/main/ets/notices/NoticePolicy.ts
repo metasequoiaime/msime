@@ -32,6 +32,16 @@ function validText(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && [...value].length <= maximum;
 }
 
+/** Keep the host-side id contract identical to client-core so dismissals can be persisted. */
+function validId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= 64 &&
+    value.length > 0 &&
+    [...value].every((character: string): boolean => /^[A-Za-z0-9_-]$/.test(character))
+  );
+}
+
 export class NoticePolicy {
   /** The notices in a `notices` reply, newest first, or an empty list when the reply is a refusal or malformed. */
   static items(reply: string): NoticeItem[] {
@@ -50,7 +60,7 @@ export class NoticePolicy {
     for (const item of items as unknown[]) {
       if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
       const fields = item as Record<string, unknown>;
-      if (!validText(fields.id, 128) || !validText(fields.title, MAX_TITLE_CHARACTERS)) continue;
+      if (!validId(fields.id) || !validText(fields.title, MAX_TITLE_CHARACTERS)) continue;
       if (typeof fields.html !== 'string') continue;
       notices.push({ id: fields.id, title: fields.title, html: fields.html });
     }

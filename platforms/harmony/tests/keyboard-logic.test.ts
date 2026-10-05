@@ -15240,6 +15240,8 @@ group("notices are shown from client-core's answer and their links leave the app
         items: [
           { id: "n2", title: "新版本", body: "**粗体**", html: "<p><strong>粗体</strong></p>" },
           { id: "", title: "no id", html: "" },
+          { id: "bad id", title: "bad id", html: "" },
+          { id: "x".repeat(65), title: "long id", html: "" },
           { id: "n1", title: "维护", html: "<p>今晚维护</p>" },
         ],
       },
