@@ -19,6 +19,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private Kind kind;
     private boolean drawsText;
+    private java.util.Set<String> textFaces = java.util.Set.of();
 
     public KeyboardIconKey(Context context, Kind kind) {
         super(context);
@@ -44,6 +45,18 @@ public final class KeyboardIconKey extends KeyboardPressButton {
 
     public boolean drawsText() { return drawsText; }
 
+    /** 节点 text 落在这组文字里时按文字画（回车组词时的「确认」「確定」），其余时候画图标；调用方只管 setText，不必再切 {@link #setDrawsText}。 */
+    public void setTextFaces(java.util.Set<String> faces) {
+        textFaces = faces == null ? java.util.Set.of() : java.util.Set.copyOf(faces);
+        invalidate();
+    }
+
+    /** 现在是否按文字画。 */
+    public boolean showsText() {
+        CharSequence text = getText();
+        return drawsText || (text != null && textFaces.contains(text.toString()));
+    }
+
     /** {@link Kind} 对应的生成图标。 */
     public static KeyboardIconPaths.Icon iconFor(Kind kind) {
         return switch (kind) {
@@ -56,7 +69,7 @@ public final class KeyboardIconKey extends KeyboardPressButton {
     }
 
     @Override protected void onDraw(Canvas canvas) {
-        if (drawsText) {
+        if (showsText()) {
             super.onDraw(canvas);
             return;
         }

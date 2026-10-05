@@ -52,6 +52,35 @@ public final class SpaceKeyFace extends KeyboardPressButton {
         invalidate();
     }
 
+    /**
+     * 空格键上的方案短名（设计的「全拼」「双拼 · 小鹤」「五笔 86」），英文模式是「space」。
+     *
+     * @param scheme 当前方案；null 按全拼
+     * @param wubiProfile 五笔的码表版本（{@link KeyboardScheme#WUBI_86} / {@link KeyboardScheme#WUBI_98}）
+     * @param english 是否处于英文输入
+     */
+    public static String schemeLabel(KeyboardScheme scheme, String wubiProfile, boolean english) {
+        if (english) return "space";
+        if (scheme == null) return "全拼";
+        return switch (scheme) {
+            case QUANPIN, QUANPIN_NINE_KEY -> "全拼";
+            case HANDWRITING -> "手写";
+            case XIAOHE -> "双拼 · 小鹤";
+            case ZIRANMA -> "双拼 · 自然码";
+            case MICROSOFT -> "双拼 · 微软";
+            case SHOUDAO -> "双拼 · 首道";
+            case WUBI -> KeyboardScheme.WUBI_98.equals(KeyboardScheme.normalizedWubiProfile(wubiProfile))
+                ? "五笔 98" : "五笔 86";
+            case JAPANESE, JAPANESE_NINE_KEY -> "日语";
+            case KOREAN -> "韩语";
+            case CANTONESE -> "粤拼";
+            case ZHUYIN -> "注音";
+            case VIETNAMESE -> "越南语";
+            case TIBETAN -> "藏文";
+            case STROKE -> "笔画";
+        };
+    }
+
     /** 键面内容总宽：麦克风、间距与短名，供居中计算；纯算术，冒烟可测。 */
     public static float contentWidth(float micPx, float gapPx, float labelPx) {
         if (labelPx <= 0) return micPx;

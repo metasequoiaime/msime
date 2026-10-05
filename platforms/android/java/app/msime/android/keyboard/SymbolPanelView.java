@@ -53,7 +53,7 @@ public final class SymbolPanelView extends LinearLayout {
 
         LinearLayout title = new LinearLayout(context);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        Button back = buttons.create("‹", "返回键盘", listener::close, true);
+        Button back = buttons.create("‹", "切换字母键盘", listener::close, true);
         back.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(42)));
         title.addView(back);
         TextView heading = new TextView(context);

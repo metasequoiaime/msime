@@ -11,6 +11,10 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /** 键盘的着色与几何：按键样式、皮肤套用、键距行距与键盘高度；从 MSIMEInputService 原样搬出。 */
 final class ImeStyler {
@@ -18,6 +22,78 @@ final class ImeStyler {
 
     ImeStyler(MSIMEInputService s) {
         this.s = s;
+    }
+
+    /** 偏好里没有 `app_theme` 时的默认值，与 Rust 的 `AppTheme::default()` 一致。 */
+    private static final String DEFAULT_APP_THEME = "siji";
+    /** 换季检查的最短间隔：每次渲染都会问一次，但月份一分钟内不会变。 */
+    private static final long SEASON_CHECK_INTERVAL_MS = 60_000;
+    private String seedTheme;
+    private int seedMonth;
+    private long seedCheckedAt = Long.MIN_VALUE;
+    private AppThemePalette.Seed seed;
+    private KeyboardSkin seededLight;
+    private KeyboardSkin seededDark;
+
+    /**
+     * 跟随系统皮肤按应用主题取色：`system` 皮肤换成 {@link KeyboardSkin#system(boolean, AppThemePalette.Seed)}，其他皮肤原样返回。SVC 每次按偏好重建 `skin` 时拿到的是 classic 基础色，这里在着色时统一换掉，所以不必改 SVC 的每个赋值点。
+     */
+    KeyboardSkin themed(KeyboardSkin target) {
+        if (target == null || target.designed() || !"system".equals(target.id())) return target;
+        if (target == seededLight || target == seededDark) return target;
+        if (seed == null) refreshAppTheme(true);
+        if (target.dark()) {
+            if (seededDark == null) seededDark = KeyboardSkin.system(true, seed);
+            return seededDark;
+        }
+        if (seededLight == null) seededLight = KeyboardSkin.system(false, seed);
+        return seededLight;
+    }
+
+    /**
+     * 重新解析应用主题（`app_theme` + 本地月份），种子变了时丢掉已推导的键盘色。
+     *
+     * @param force 为假时一分钟内只检查一次
+     * @return 种子是否因此变了
+     */
+    boolean refreshAppTheme(boolean force) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!force && seedCheckedAt != Long.MIN_VALUE && now - seedCheckedAt < SEASON_CHECK_INTERVAL_MS)
+            return false;
+        seedCheckedAt = now;
+        JSONObject preferences = s.preferencesSnapshot == null ? null
+            : s.preferencesSnapshot.optJSONObject("preferences");
+        String theme = preferences == null ? DEFAULT_APP_THEME
+            : preferences.optString("app_theme", DEFAULT_APP_THEME);
+        if (theme.isEmpty()) theme = DEFAULT_APP_THEME;
+        int month = LocalDate.now(ZoneId.systemDefault()).getMonthValue();
+        if (seed != null && theme.equals(seedTheme) && month == seedMonth) return false;
+        AppThemePalette.Seed next = AppThemePalette.Seed.fromResolved(
+            resolveAppTheme(theme, month, false), resolveAppTheme(theme, month, true));
+        if (next == null) next = AppThemePalette.Seed.AUTUMN;
+        boolean changed = seed == null || !seed.id.equals(next.id) || !seed.season.equals(next.season);
+        seedTheme = theme;
+        seedMonth = month;
+        seed = next;
+        if (changed) {
+            seededLight = null;
+            seededDark = null;
+        }
+        return changed;
+    }
+
+    /** 渲染时调用：换季或换了应用主题就重新套一遍皮肤。 */
+    void refreshSeasonIfNeeded() {
+        if (refreshAppTheme(false)) applySkin();
+    }
+
+    private static JSONObject resolveAppTheme(String theme, int month, boolean dark) {
+        try {
+            JSONObject root = new JSONObject(NativeClient.resolveAppTheme(theme, month, dark));
+            return root.optBoolean("ok", false) ? root.optJSONObject("value") : null;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return null;
+        }
     }
 
     void applyKeyboardGeometry(View node) {
@@ -48,6 +124,13 @@ final class ImeStyler {
             applyKeyboardGeometry(s.actionRow);
             s.actionRow.requestLayout();
         }
+        // 设计的键区左右外边距 6 dp 量到键的边缘；键自己带半个键距的外边距，所以容器只补差值。
+        int edge = Math.max(0, s.pixels(KeyboardGeometry.DESIGN_PADDING_HORIZONTAL_DP)
+            - s.halfSpacingPixels(s.touchKeySpacingTenths));
+        s.keyRows.setPadding(edge, s.keyRows.getPaddingTop(), edge, s.keyRows.getPaddingBottom());
+        if (s.actionRow != null)
+            s.actionRow.setPadding(edge, s.actionRow.getPaddingTop(), edge,
+                s.actionRow.getPaddingBottom());
         s.keyRows.requestLayout();
         if (s.keyboardRoot != null) {
             s.keyboardRoot.requestLayout();
@@ -88,6 +171,11 @@ final class ImeStyler {
 
     /** `target` is the surface's own skin: the emoji and handwriting panels carry their own theme. */
     void styleButton(Button button, KeyboardKeyRole role, KeyboardSkin target) {
+        target = themed(target);
+        if (button instanceof KeyboardIconKey icon && button == s.shiftButton) {
+            styleShiftKey(icon, target);
+            return;
+        }
         boolean selected = button.isSelected();
         // 选中的控件一律换成实心强调色，大小写键和简繁开关就是这样表示「开着」的。确认键和功能面板磁贴自己画开启状态，保留原角色；工具栏图标按钮（如打开回复面板时的「回复」）也不铺实心块，而是在图标后垫一块柔和的强调色底，和磁贴的开启状态是同一种表达。
         boolean toolbarGlyph = button instanceof KeyboardShortcutButton;
@@ -147,8 +235,12 @@ final class ImeStyler {
             if (press != null) press.rememberFace(target, role, selected, density);
         }
         button.setTextColor(Color.parseColor(foreground));
-        if (button instanceof ShuangpinHintButton hintButton)
+        if (button instanceof KeyHintButton hintButton) {
             hintButton.setHintColor(Color.parseColor(target.accent()));
+            hintButton.setCornerHintColor(Color.parseColor(target.hint()));
+        }
+        if (button instanceof SpaceKeyFace space)
+            space.setFaceColor(Color.parseColor(target.toolbarIcon()));
         if (button instanceof NineKeyDigitButton digitButton)
             digitButton.setDigitColor(Color.parseColor(target.accent()));
         button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
@@ -157,6 +249,42 @@ final class ImeStyler {
         button.setOutlineAmbientShadowColor(shadowColor);
         button.setOutlineSpotShadowColor(shadowColor);
         button.setElevation(target.shadowOpacity() > 0
+            ? s.pixels(Math.max(1, target.shadowRadius() + target.shadowOffset())) : 0);
+    }
+
+    /**
+     * 新设计的 Shift：键帽始终是功能键底色；开启（一次性或锁定）时换成字母键底色、图标 accent，不再铺实心 accent。锁定时图标换成带下划线的大写锁定形。
+     */
+    private void styleShiftKey(KeyboardIconKey key, KeyboardSkin target) {
+        boolean on = key.isSelected();
+        key.setKind(s.letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK
+            ? KeyboardIconKey.Kind.CAPS_LOCK : KeyboardIconKey.Kind.SHIFT);
+        String background = on ? target.keyBackground() : target.functionBackground();
+        String foreground = on ? target.accent() : target.actionForeground();
+        float density = s.getResources().getDisplayMetrics().density;
+        // 记忆键帽时按「开着」当作 KEY 角色，免得开关切换后沿用旧的那块底图。
+        KeyboardKeyRole remembered = on ? KeyboardKeyRole.KEY : KeyboardKeyRole.ACCENT;
+        if (!key.keepsFace(target, remembered, false, density)) {
+            if (target.designed()) {
+                key.setBackground(new KeyboardSkinKeyDrawable(target,
+                    Color.parseColor(background), !on, density));
+            } else {
+                GradientDrawable drawable = new GradientDrawable();
+                drawable.setColor(Color.parseColor(background));
+                drawable.setCornerRadius(s.pixels(target.cornerRadius()));
+                int borderWidth = s.pixels(target.borderWidth());
+                if (borderWidth > 0)
+                    drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
+                key.setBackground(drawable);
+            }
+            key.rememberFace(target, remembered, false, density);
+        }
+        key.setTextColor(Color.parseColor(foreground));
+        int shadowAlpha = (int) Math.round(255 * target.shadowOpacity());
+        int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
+        key.setOutlineAmbientShadowColor(shadowColor);
+        key.setOutlineSpotShadowColor(shadowColor);
+        key.setElevation(target.shadowOpacity() > 0
             ? s.pixels(Math.max(1, target.shadowRadius() + target.shadowOffset())) : 0);
     }
 
@@ -203,6 +331,7 @@ final class ImeStyler {
     }
 
     void applySkinToView(View node, boolean candidateContext, KeyboardSkin target) {
+        target = themed(target);
         CharSequence description = node.getContentDescription();
         boolean candidate = candidateContext || node == s.candidateViewport || node == s.expandedCandidates
             || (description != null && description.toString().startsWith("候选 "));
@@ -232,7 +361,12 @@ final class ImeStyler {
 
     void applySkin() {
         if (s.keyboardRoot == null) return;
+        refreshAppTheme(false);
+        s.skin = themed(s.skin);
+        s.emojiSkin = themed(s.emojiSkin);
+        s.handwritingSkin = themed(s.handwritingSkin);
         s.keyboardRoot.setBackgroundColor(Color.parseColor(s.skin.background()));
+        s.imeFrame.applyNavigationBar(Color.parseColor(s.skin.background()), s.skin.dark());
         if (s.keyboardSurface != null) applySkinBackground(s.keyboardSurface);
         if (s.candidateViewport != null)
             s.candidateViewport.setBackgroundColor(s.candidateAppearance.surface());
@@ -293,6 +427,7 @@ final class ImeStyler {
     void applySkinBackground(View node) { applySkinBackground(node, s.skin); }
 
     void applySkinBackground(View node, KeyboardSkin target) {
+        target = themed(target);
         float density = s.getResources().getDisplayMetrics().density;
         // 同一个皮肤对象画出的底图完全一样；已经是它就不再换新的，免得每按一个键都让整块键盘底图重画（照片皮肤还要重新上传位图）。
         if (node.getBackground() instanceof KeyboardSkinBackgroundDrawable current

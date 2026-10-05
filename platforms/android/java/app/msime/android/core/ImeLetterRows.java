@@ -1,12 +1,18 @@
 package app.msime.android;
 
+import android.graphics.Color;
+import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-/** 字母键区（26 键与符号层）的行、删除键连删，以及给按键气泡预留的覆盖层；从 MSIMEInputService 原样搬出。 */
+/**
+ * 字母键区（26 键、新设计的 123 层与 #+= 层）的行、删除键连删、按键气泡与下滑输入提示符。
+ *
+ * <p>⇧ 与 ⌫ 换成画描边图标的 {@link KeyboardIconKey}（节点 text 仍是 ⇧ / ⌫）：SVC 建的原按钮留作点击的执行者，新键点一下就让它 performClick，所以 Shift 的切换逻辑和删除动作留在 SVC 原处。
+ */
 final class ImeLetterRows {
     private final MSIMEInputService s;
 
@@ -16,6 +22,143 @@ final class ImeLetterRows {
 
     /** 按键气泡的覆盖层：onCreateInputView 建好后盖在整个键盘上，初始为空。 */
     FrameLayout keyPreviewLayer;
+    private KeyboardKeyPreview keyPreview;
+    /** 符号层里正在显示 #+= 页（否则是 123 页）。 */
+    private boolean moreSymbols;
+    /** 第二行（a–l）两侧各 5% 的缩进占位；微软双拼的第十个键出现时收起。 */
+    private View secondRowLeadingIndent;
+    private View secondRowTrailingIndent;
+
+    /** 新设计的 123 / #+= 层画在哪些界面上：26 键（含韩文键面）以及把符号页交给 26 键行的手写和笔画；注音的数字键另有用途，保留原符号行。 */
+    static boolean drawsDesignLayer(int touchLayout) {
+        return touchLayout == KeyboardLayout.STANDARD_TOUCH_LAYOUT
+            || touchLayout == KeyboardLayout.KOREAN_LAYOUT
+            || touchLayout == KeyboardLayout.HANDWRITING_LAYOUT
+            || touchLayout == KeyboardLayout.STROKE_LAYOUT;
+    }
+
+    /** 偏好里的一个布尔触控开关。 */
+    private boolean touchPreference(String key) {
+        return s.imeBottomRow.touchPreference(key, true);
+    }
+
+    /** 把 SVC 建的 ⇧ ⌫ 换成画图标的键（每次 onCreateInputView 新建控件后各换一次）。 */
+    void ensureIconKeys() {
+        if (s.shiftButton != null && !(s.shiftButton instanceof KeyboardIconKey)) {
+            Button original = s.shiftButton;
+            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.SHIFT);
+            key.setText(original.getText());
+            key.setContentDescription(original.getContentDescription());
+            key.setOnClickListener(ignored -> original.performClick());
+            s.keyId(key, "ShiftLeft");
+            s.shiftButton = key;
+        }
+        if (s.deleteButton != null && !(s.deleteButton instanceof KeyboardIconKey)) {
+            Button original = s.deleteButton;
+            KeyboardIconKey key = new KeyboardIconKey(s, KeyboardIconKey.Kind.BACKSPACE);
+            key.setText("⌫");
+            key.setContentDescription("删除");
+            key.setOnClickListener(ignored -> original.performClick());
+            s.keyId(key, "Backspace");
+            bindBackspaceRepeat(key, s::deleteFromHandwriting);
+            s.deleteButton = key;
+        }
+    }
+
+    /** 按键气泡；第一次用时加进覆盖层。 */
+    private KeyboardKeyPreview keyPreview() {
+        if (keyPreviewLayer == null) return null;
+        if (keyPreview == null || keyPreview.getParent() != keyPreviewLayer) {
+            keyPreview = new KeyboardKeyPreview(s);
+            keyPreviewLayer.addView(keyPreview, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        }
+        return keyPreview;
+    }
+
+    private void showKeyPreview(Button key, String label) {
+        KeyboardKeyPreview preview = keyPreview();
+        if (preview == null || !key.isAttachedToWindow()) return;
+        KeyboardSkin skin = s.imeStyler.themed(s.skin);
+        preview.setColors(Color.parseColor(skin.keyBackground()),
+            Color.parseColor(skin.keyForeground()), Color.argb(20, 0, 0, 0));
+        int[] keyAt = new int[2];
+        int[] layerAt = new int[2];
+        key.getLocationInWindow(keyAt);
+        keyPreviewLayer.getLocationInWindow(layerAt);
+        float weight = key.getLayoutParams() instanceof LinearLayout.LayoutParams params
+            ? params.weight : 1f;
+        preview.show(label, keyAt[0] - layerAt[0], keyAt[1] - layerAt[1], key.getWidth(), weight,
+            keyPreviewLayer.getWidth());
+    }
+
+    void hideKeyPreview() {
+        if (keyPreview != null) keyPreview.hide();
+    }
+
+    /**
+     * 字母键的按压：开着「按键弹出」（`touch_key_popup`）时浮出气泡；开着「下滑输入符号」（`touch_swipe_down_symbols`）时，下滑超过 14 dp 松手输入右上角的提示字符，气泡同时改显示它。没有下滑时照常交给按钮自己的点击。
+     */
+    private void bindLetterGestures(Button key, String face, String hint) {
+        final float[] downY = new float[1];
+        final boolean[] swiped = new boolean[1];
+        final float density = s.getResources().getDisplayMetrics().density;
+        key.setOnTouchListener((view, event) -> {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    downY[0] = event.getY() / density;
+                    swiped[0] = false;
+                    if (touchPreference("touch_key_popup")) showKeyPreview(key, face);
+                    return false;
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (hint != null && !swiped[0] && touchPreference("touch_swipe_down_symbols")
+                            && SwipeDownHintPolicy.swiped(downY[0], event.getY() / density)) {
+                        swiped[0] = true;
+                        if (keyPreview != null) keyPreview.setLabel(hint);
+                    }
+                    return swiped[0];
+                }
+                case MotionEvent.ACTION_UP -> {
+                    hideKeyPreview();
+                    if (!swiped[0]) return false;
+                    MotionEvent cancel = MotionEvent.obtain(event);
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    key.onTouchEvent(cancel);
+                    cancel.recycle();
+                    key.setPressed(false);
+                    s.imeKeyFeedback.playFeedback(key);
+                    s.countKey(key);
+                    s.imeLayoutRows.commitNineKeyLiteral(hint);
+                    return true;
+                }
+                case MotionEvent.ACTION_CANCEL -> {
+                    hideKeyPreview();
+                    return false;
+                }
+                default -> { return false; }
+            }
+        });
+    }
+
+    /** 第二行的 5% 缩进只在 9 键行出现；微软双拼的第十个键可见时收起（每次渲染校正一次）。 */
+    void updateSecondRowIndent() {
+        if (secondRowLeadingIndent == null) return;
+        String localMode = s.view == null ? "none" : s.view.optString("local_mode", "none");
+        boolean tenKeys = s.microsoftFinalKey != null && MicrosoftShuangpinKeyPolicy.visible(
+            s.dedicatedEnglish, s.selectedScheme, localMode);
+        int visibility = tenKeys ? View.GONE : View.VISIBLE;
+        if (secondRowLeadingIndent.getVisibility() != visibility) {
+            secondRowLeadingIndent.setVisibility(visibility);
+            secondRowTrailingIndent.setVisibility(visibility);
+        }
+    }
+
+    private View indent() {
+        View spacer = new View(s);
+        spacer.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return spacer;
+    }
 
     /** Matches the Apple delete key: a short tap deletes once, a held press repeats. */
     void bindBackspaceRepeat(Button button, Runnable action) {
@@ -44,10 +187,10 @@ final class ImeLetterRows {
                             }
                             s.imeKeyFeedback.playFeedback(button);
                             action.run();
-                            s.main.postDelayed(this, MSIMEInputService.BACKSPACE_REPEAT_INTERVAL_MILLIS);
+                            s.main.postDelayed(this, BackspaceRepeatPolicy.REPEAT_INTERVAL_MS);
                         }
                     };
-                    s.main.postDelayed(s.backspaceRepeatTask, MSIMEInputService.BACKSPACE_REPEAT_DELAY_MILLIS);
+                    s.main.postDelayed(s.backspaceRepeatTask, BackspaceRepeatPolicy.INITIAL_DELAY_MS);
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
@@ -88,6 +231,12 @@ final class ImeLetterRows {
 
     void rebuildKeyRows() {
         if (s.keyRows == null) return;
+        ensureIconKeys();
+        s.imeBottomRow.ensureFaces();
+        hideKeyPreview();
+        secondRowLeadingIndent = null;
+        secondRowTrailingIndent = null;
+        if (s.keyboardLayer == KeyboardLayout.Layer.LETTERS) moreSymbols = false;
         s.imeLayoutRows.hideJapaneseFlickPreview();
         s.deactivateHandwriting();
         s.symbolKeyButtons.clear();
@@ -127,6 +276,13 @@ final class ImeLetterRows {
             s.imeStyler.applyKeyboardGeometry();
             return;
         }
+        if (s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+                && drawsDesignLayer(s.displayedTouchLayout(s.view))) {
+            rebuildDesignLayer();
+            s.imeBottomRow.updateActionRow();
+            s.imeStyler.applyKeyboardGeometry();
+            return;
+        }
         // 越南语字母和藏文的威利转写字母按敲下的大小写写入，所以键面像英文键一样显示大小写，而不是中文键盘的大写键面。
         boolean chineseMode = !s.dedicatedEnglish && !s.letterCaseSchemeActive();
         boolean localMode = s.view != null
@@ -136,6 +292,10 @@ final class ImeLetterRows {
             && s.displayedTouchLayout(s.view) == KeyboardLayout.KOREAN_LAYOUT;
         boolean zhuyinLayout = s.displayedTouchLayout(s.view) == KeyboardLayout.ZHUYIN_LAYOUT;
         boolean zhuyinKeycaps = zhuyinLayout && s.keyboardLayer == KeyboardLayout.Layer.LETTERS;
+        // 新设计的字母键：22 sp 键面，26 键（不含韩文与注音键面）右上角画下滑提示符。
+        boolean standardLetters = s.keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && !koreanKeycaps && !zhuyinKeycaps;
+        boolean cornerHints = standardLetters && touchPreference("touch_swipe_down_symbols");
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));
@@ -148,6 +308,12 @@ final class ImeLetterRows {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 && s.tibetanSchemeActive();
+            // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
+            if (standardLetters && rowIndex == 1) {
+                secondRowLeadingIndent = indent();
+                row.addView(secondRowLeadingIndent, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.MATCH_PARENT, .5f));
+            }
             for (String rowKey : keys) {
                 // 藏文的符号页把 `=` 换成叠写用的 `+`。
                 final String key = KeyboardLayout.symbolRowKey(rowKey, tibetanSymbols);
@@ -181,6 +347,10 @@ final class ImeLetterRows {
                     keyButton = hintButton;
                     s.shuangpinKeyButtons.add(hintButton);
                     s.shuangpinKeyInputs.add(input);
+                    String hint = cornerHints ? LetterHintTable.hint(input) : null;
+                    hintButton.setCornerHint(hint);
+                    hintButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+                    bindLetterGestures(hintButton, face, hint);
                 } else {
                     keyButton = s.keyboardKey(face, face, () -> s.type(input.charAt(0)));
                 }
@@ -206,15 +376,23 @@ final class ImeLetterRows {
                     "Semicolon");
                 s.shuangpinKeyButtons.add((ShuangpinHintButton) s.microsoftFinalKey);
                 s.shuangpinKeyInputs.add(";");
+                s.microsoftFinalKey.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
                 row.addView(s.microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
+            }
+            if (standardLetters && rowIndex == 1) {
+                secondRowTrailingIndent = indent();
+                row.addView(secondRowTrailingIndent, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.MATCH_PARENT, .5f));
+                updateSecondRowIndent();
             }
             // 大小写和删除属于最后一行的两端，不属于底部功能行。Leaving them in a strip below the keys
             // is what pushed every other control out of reach of a thumb.
             if (rowIndex == rows.size() - 1) {
                 int layout = s.displayedTouchLayout(s.view);
                 boolean symbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
-                float edge = KeyboardActionRow.letterRowEdgeWeight(symbols);
+                float edge = symbols ? KeyboardActionRow.letterRowEdgeWeight(true)
+                    : KeyboardActionRow.DESIGN_LETTER_EDGE_WEIGHT;
                 if (KeyboardActionRow.rowsCarryCase(layout, symbols))
                     addLetterRowEdgeKey(row, s.shiftButton, 0, edge);
                 if (KeyboardActionRow.rowsCarryDelete(layout, symbols))
@@ -231,8 +409,103 @@ final class ImeLetterRows {
         // ⇧ and ⌫ are function keys: the design tints them like 123 and 中.
         if (key instanceof KeyboardPressButton press)
             press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         key.setVisibility(View.VISIBLE);
         row.addView(key, index, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, weight));
+    }
+
+    /**
+     * 新设计的 123 层（moreSymbols 为假）或 #+= 层：四行键自带底行（拼音 / ABC | 表情或符号 | 空格 | ↵），功能行这时整行不显示。字符键原样上屏（中文模式的全角符号也是），⌫ / 空格 / 回车用常驻的那几个键。
+     */
+    private void rebuildDesignLayer() {
+        boolean chinese = !s.dedicatedEnglish;
+        java.util.List<java.util.List<KeyboardLayout.LayerKey>> rows = moreSymbols
+            ? KeyboardLayout.moreSymbolLayer(chinese) : KeyboardLayout.numberLayer(chinese);
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+            LinearLayout row = new LinearLayout(s);
+            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                rows.size(), rowIndex, true));
+            s.keyRows.addView(row, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            for (KeyboardLayout.LayerKey layerKey : rows.get(rowIndex)) {
+                Button key = designLayerKey(layerKey, rowIndex == 0);
+                if (key == null) continue;
+                if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
+                key.setVisibility(View.VISIBLE);
+                row.addView(key, new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.MATCH_PARENT, layerKey.weight()));
+            }
+        }
+    }
+
+    private Button designLayerKey(KeyboardLayout.LayerKey layerKey, boolean firstRow) {
+        String text = layerKey.text();
+        Button key;
+        switch (layerKey.kind()) {
+            case CHARACTER -> {
+                key = s.keyboardKey(text, text, () -> s.imeLayoutRows.commitNineKeyLiteral(text));
+                key.setTextSize(TypedValue.COMPLEX_UNIT_SP, firstRow ? 20 : 18);
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                if (text.length() == 1) s.keyId(key, KeyPressIds.forCharacter(text.charAt(0)));
+                return key;
+            }
+            case LAYER_TOGGLE -> {
+                key = s.keyboardKey(text, layerKey.description(), () -> {
+                    moreSymbols = !moreSymbols;
+                    rebuildKeyRows();
+                    s.render();
+                });
+                s.keyId(key, "SoftLayer");
+            }
+            case LETTERS -> {
+                key = s.keyboardKey(text, layerKey.description(), () -> {
+                    moreSymbols = false;
+                    s.keyboardLayer = KeyboardLayout.Layer.LETTERS;
+                    rebuildKeyRows();
+                    s.render();
+                });
+                s.keyId(key, "SoftLayer");
+            }
+            case EMOJI -> {
+                KeyboardIconKey icon = new KeyboardIconKey(s, KeyboardIconKey.Kind.EMOJI);
+                icon.setText(text);
+                icon.setOnClickListener(ignored -> {
+                    s.imeKeyFeedback.playFeedback(icon);
+                    s.countKey(icon);
+                    s.imePanels.showEmojiPicker();
+                });
+                key = icon;
+            }
+            case SYMBOL_PANEL -> {
+                key = s.keyboardKey(text, layerKey.description(), s.imePanels::showSymbolPanel);
+                s.keyId(key, "SoftSymbol");
+            }
+            case DELETE -> {
+                key = s.deleteButton;
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+                if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
+                return key;
+            }
+            case SPACE -> {
+                key = s.spaceButton;
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.KEY);
+                if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.KEY, s.skin);
+                return key;
+            }
+            case RETURN -> {
+                key = s.enterButton;
+                if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.RETURN);
+                if (key != null) s.imeStyler.styleButton(key, KeyboardKeyRole.RETURN, s.skin);
+                return key;
+            }
+            default -> { return null; }
+        }
+        // 功能键（层切换、返回字母、表情、符号）：功能键底色、15 sp，描述按 §2.8。
+        key.setContentDescription(layerKey.description());
+        key.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        if (key instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
+        s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
+        return key;
     }
 }
