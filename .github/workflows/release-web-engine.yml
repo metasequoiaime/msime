@@ -10,7 +10,7 @@ on:
     inputs:
       version: {description: "Semantic version of the web engine release (web-engine-vX.Y.Z); empty takes the highest existing web-engine-v release plus one patch, or 0.1.0 for the first", required: false, default: "", type: string}
       prerelease: {description: Mark as prerelease, required: false, default: false, type: boolean}
-      publish: {description: Publish the build as a web-engine-v release (otherwise it is only uploaded as a workflow artifact), required: false, default: false, type: boolean}
+      publish: {description: "Publish the build as a web-engine-v release and to npm (only from main; otherwise it is only uploaded as a workflow artifact)", required: false, default: false, type: boolean}
       # 门槛按 GitHub 的 ubuntu-24.04 runner 校准：同一份 wasm 在 Apple Silicon 开发机上 p95 约 27-30 ms，在这个 runner 上约 64 ms。100 ms 给共享 runner 的抖动留约 1.5 倍余量，仍能拦下明显的变慢，并低于慢帧熔断的 120 ms（过了那条线模型会被关掉）。
       max_p95_ms: {description: "Gate on the p95 of one keys() call in latency.mjs, in milliseconds", required: false, default: '100', type: string}
 permissions: {contents: read}
@@ -20,6 +20,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      # 发布只能从 main：npm 的 latest 会被 ^ 版本范围和不带版本号的 CDN 地址自动取走，从哪个分支发就决定了所有接入方拿到什么，所以必须是走过发版 PR 的 main（AGENTS.md「发版」）。只构建不发布时任何分支都可以。放在第一步，选错分支几秒内就失败，不用等构建跑完。
+      - name: Publishing builds from main only
+        if: ${{ inputs.publish }}
+        env: {REF: "${{ github.ref }}"}
+        run: |
+          if [[ "$REF" != refs/heads/main ]]; then
+            echo "::error::publish 只能在 main 上运行，这次是 $REF。先用 scripts/release-pr.sh 把 develop 发版到 main，再从 main 触发；只想验证构建就不要勾选 publish。"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {ref: "${{ github.sha }}", persist-credentials: false}
       # 构建触发时的那个提交；清单里的 source_commit 和 release 的 tag 都以它为准。
