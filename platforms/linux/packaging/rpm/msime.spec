@@ -229,6 +229,7 @@ fi
 # CMake 把许可证（copyright）与全部第三方声明装在 doc/msime-client，与 .deb 相同；%%license 另放一份项目许可证到发行版的标准位置。
 %license LICENSE
 %{_datadir}/doc/msime-client/
+%{_bindir}/msime
 %{_bindir}/msime-*
 %{_bindir}/msime_*.py
 %{_libdir}/msime-client/

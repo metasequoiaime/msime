@@ -837,6 +837,12 @@ if(MSIME_MCP_BINARY)
     message(FATAL_ERROR "MSIME_MCP_BINARY does not exist: ${MSIME_MCP_BINARY}")
   endif()
   install(PROGRAMS "${MSIME_MCP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  # full 再以 msime 的名字放一个指向它的相对链接，供在终端里手动敲 msime expand、msime config，与 macOS 的 Homebrew cask 相同。其他版本装在自己的前缀下，那里的 bin 不在 PATH 上，同名的命令也只能有一个，留给 full。
+  if(MSIME_EDITION_IS_FULL)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp")
+    file(CREATE_LINK msime-mcp "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" SYMBOLIC)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/mcp/msime" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  endif()
 endif()
 # The built-in sound packs, synthesized by scripts/generate_sound_packs.py and dedicated to the public domain, beside the resource directory rather than in it: that directory has to hold exactly what the dictionary lock pins. The hosts and the settings window name this directory to client-core as the built-in pack root.
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/sound-packs/"
