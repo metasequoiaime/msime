@@ -25,6 +25,9 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.button.MaterialButton;
 import app.msime.android.R;
 import app.msime.android.BackendAccount;
+import io.noties.markwon.AbstractMarkwonPlugin;
+import io.noties.markwon.Markwon;
+import io.noties.markwon.MarkwonConfiguration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -322,7 +325,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
             if (bubble == null) {
                 bubble = appendBubble(text, false);
             } else {
-                setBubbleText(bubble, text);
+                setBubbleText(bubble, text, true);
                 scrollToEnd();
             }
         }
@@ -343,7 +346,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         LinearLayout chat = findViewById(R.id.tryout_chat);
         while (chat.getChildCount() >= BUBBLE_LIMIT) chat.removeViewAt(0);
         TextView bubble = new TextView(this);
-        setBubbleText(bubble, text);
+        setBubbleText(bubble, text, !mine);
         bubble.setTextIsSelectable(true);
         Ui.style(bubble, 15, 400, mine ? Ui.onAccent(this) : Ui.text(this));
         bubble.setLineSpacing(Ui.dp(this, 3), 1f);
@@ -359,8 +362,38 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         return bubble;
     }
 
-    private static void setBubbleText(TextView bubble, String text) {
-        bubble.setText(text.length() > 8_000 ? text.substring(0, 8_000) : text);
+    /** AI 与水杉的气泡按 Markdown 渲染（加粗、列表、标题、引用、代码、链接）；自己发的那句原样显示。 */
+    private void setBubbleText(TextView bubble, String text, boolean markdown) {
+        String shown = text.length() > 8_000 ? text.substring(0, 8_000) : text;
+        if (markdown) markwon().setMarkdown(bubble, shown);
+        else bubble.setText(shown);
+    }
+
+    private Markwon markwon;
+
+    /** 只用 Markwon 的核心：不解释 HTML、不加载图片；链接与公告页一样只打开 http、https 和 mailto。 */
+    private Markwon markwon() {
+        if (markwon == null) {
+            markwon = Markwon.builder(this)
+                .usePlugin(new AbstractMarkwonPlugin() {
+                    @Override public void configureConfiguration(@NonNull MarkwonConfiguration.Builder builder) {
+                        builder.linkResolver((view, link) -> openLink(link));
+                    }
+                })
+                .build();
+        }
+        return markwon;
+    }
+
+    private void openLink(String link) {
+        android.net.Uri uri = android.net.Uri.parse(link);
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
+        if (!scheme.equals("https") && !scheme.equals("http") && !scheme.equals("mailto")) return;
+        try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, uri));
+        } catch (RuntimeException error) {
+            // 没有浏览器时链接只是文字。
+        }
     }
 
     private void scrollToEnd() {
