@@ -354,6 +354,7 @@ impl Session {
             editing_text: input.editing_text(),
             caret_position: input.caret_position(),
             nine_key_spellings: Vec::new(),
+            nine_key_reading: String::new(),
             answered_by_pinyin_fallback: input.answered_by_pinyin_fallback(),
             wubi_unique_four_code: input.wubi_unique_four_code(),
             shuangpin_profile: input.profile.name().to_owned(),

@@ -60,6 +60,8 @@ pub struct EngineSnapshot {
     /// Mirrors `set_nine_key_enabled`; the engine snapshot has no such flag.
     pub nine_key: bool,
     pub nine_key_spellings: Vec<String>,
+    /// `SessionSnapshot::nine_key_reading`.
+    pub nine_key_reading: String,
     pub microsoft_shuangpin: bool,
     pub shuangpin_profile: String,
     pub preedit: String,
@@ -170,6 +172,7 @@ impl Session {
             dedicated_english: value.dedicated_english,
             nine_key: self.nine_key,
             nine_key_spellings: value.nine_key_spellings,
+            nine_key_reading: value.nine_key_reading,
             microsoft_shuangpin: self.microsoft_shuangpin,
             shuangpin_profile: self.shuangpin_profile.clone(),
             preedit: value.preedit,

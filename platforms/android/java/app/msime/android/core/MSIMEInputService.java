@@ -6353,10 +6353,13 @@ public final class MSIMEInputService extends InputMethodService {
             boolean offersLocalModes = idle && supportsLocalTools();
             String localModeKey = view == null ? "none" : view.optString("local_mode", "none");
             String reading = view == null ? "" : view.optString("reading", "");
-            // 九键的 editing_text 只是按下的数字；preedit 才带着拆分的分界和选过的拼音（94'26、ni'426），读音行显示它，用户才看得出拆分生效了。
-            String nineKeyPreedit = view != null && "none".equals(localModeKey)
-                && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT
-                ? view.optString("preedit", "") : "";
+            // 九键的 editing_text 只是按下的数字。读音行显示引擎给的首选读法拼音（94'26 显示 xi'an），首行是英文词时退回 preedit（带拆分分界和选过的拼音，如 ni'426）。
+            String nineKeyPreedit = "";
+            if (view != null && "none".equals(localModeKey)
+                    && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
+                nineKeyPreedit = view.optString("nine_key_reading", "");
+                if (nineKeyPreedit.isEmpty()) nineKeyPreedit = view.optString("preedit", "");
+            }
             String localModeTitle = "none".equals(localModeKey)
                 ? (!nineKeyPreedit.isEmpty() ? nineKeyPreedit : reading.isEmpty() ? editingText : reading)
                 : editingText;

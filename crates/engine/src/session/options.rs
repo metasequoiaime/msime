@@ -122,6 +122,8 @@ pub struct SessionSnapshot {
     pub editing_text: String,
     pub caret_position: usize,
     pub nine_key_spellings: Vec<String>,
+    /// While nine-key composes: the leading candidate's pinyin over the digits it covers, then the rest of the digits as `preedit` shows them (`xi'an`, `yi'c`, `ni'hao'9`); empty when no pinyin row leads. A display line only: `preedit` stays the digits.
+    pub nine_key_reading: String,
     /// The candidates came from the wubi mixed-pinyin fallback, not the wubi table.
     pub answered_by_pinyin_fallback: bool,
     pub wubi_unique_four_code: bool,

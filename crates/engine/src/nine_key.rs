@@ -49,6 +49,8 @@ pub struct NineKeySession {
     /// Digit offsets where the user split syllables with `'`, ascending and past the locked span. Unlike a locked spelling, a split fixes only where a syllable ends, so every reading of the digits on either side stays open: `94'26` is xi'an as well as yi'an, never xian.
     splits: Vec<usize>,
     spellings: Vec<String>,
+    /// `SessionSnapshot::nine_key_reading`, rebuilt with the candidates.
+    reading: String,
     candidates: Vec<WordItem>,
     english_only: bool,
     /// 会话允许全拼时为真。为假时九宫格只拼英文，拼音词库永远不打开。
@@ -78,6 +80,7 @@ impl NineKeySession {
             locked: Vec::new(),
             splits: Vec::new(),
             spellings: Vec::new(),
+            reading: String::new(),
             candidates: Vec::new(),
             english_only: false,
             pinyin,
@@ -311,6 +314,7 @@ impl NineKeySession {
             editing_text: self.digits.clone(),
             caret_position: self.digits.len(),
             nine_key_spellings: self.spellings.clone(),
+            nine_key_reading: self.reading.clone(),
             candidate_sources: self.candidates.iter().map(|item| item.source).collect(),
             candidate_annotations: self
                 .candidates
@@ -330,6 +334,7 @@ impl NineKeySession {
     fn refresh(&mut self) {
         self.candidates.clear();
         self.spellings.clear();
+        self.reading.clear();
         if !self.active() {
             return;
         }
@@ -444,7 +449,48 @@ impl NineKeySession {
                 }
             }
         }
+        self.reading = self.reading_for(candidates.first());
         self.candidates = candidates;
+    }
+
+    /// The leading row's pinyin cut to the digits it covers, then the uncovered digits with their splits: `xi'an` for 西安 over `94'26`, `yi'c` for 遗产 over `942`. Empty when an English word or nothing leads.
+    fn reading_for(&self, front: Option<&WordItem>) -> String {
+        let Some(front) = front else {
+            return String::new();
+        };
+        if front.pinyin.is_empty() || !front.pinyin.bytes().all(|byte| byte.is_ascii_digit()) {
+            return String::new();
+        }
+        let covered = front.pinyin.len();
+        let mut reading = String::new();
+        let mut letters = 0;
+        for character in front.canonical_pinyin.chars() {
+            if letters == covered {
+                break;
+            }
+            if character.is_ascii_lowercase() {
+                letters += 1;
+            }
+            reading.push(character);
+        }
+        let reading = reading.trim_end_matches('\'').to_string();
+        if reading.is_empty() {
+            return String::new();
+        }
+        let mut reading = reading;
+        let mut start = covered.min(self.digits.len());
+        if start < self.digits.len() {
+            reading.push('\'');
+            for &split in &self.splits {
+                if split > start && split < self.digits.len() {
+                    reading.push_str(&self.digits[start..split]);
+                    reading.push('\'');
+                    start = split;
+                }
+            }
+            reading.push_str(&self.digits[start..]);
+        }
+        reading
     }
 
     fn english_candidates(&mut self) -> Vec<WordItem> {
@@ -595,12 +641,19 @@ fn is_unseen_query_key(queried: &HashSet<String>, key: &str) -> bool {
 }
 
 /// `rank_candidates` 的排序键，小的在前。
-type RankKey = (Reverse<usize>, bool, bool, Reverse<i64>);
+type RankKey = (Reverse<usize>, bool, bool, bool, Reverse<i64>);
 
 /// More digits covered first. Synthesised rows (whole-sentence Generated, Fallback) score on a different scale from dictionary weights, so within one coverage bucket dictionary rows lead; then exact before fuzzy, then weight.
+/// After the digits covered, a row the typed digits spell to its end leads one that has to be completed past them: over `94'26` 西安 (xi'an) comes before 自从 (zi'cong), however common the longer word.
 fn rank_key(item: &WordItem) -> RankKey {
+    let letters = item
+        .canonical_pinyin
+        .bytes()
+        .filter(u8::is_ascii_lowercase)
+        .count();
     (
         Reverse(item.pinyin.len()),
+        letters > item.pinyin.len(),
         item.source.is_generated_or_fallback(),
         item.fuzzy,
         Reverse(item.weight),
@@ -1273,6 +1326,7 @@ mod tests {
         type_digits(&mut session, "426");
         assert_eq!(session.snapshot().preedit, "64'426");
         assert_eq!(words(&session).first().map(String::as_str), Some("你好"));
+        assert_eq!(session.snapshot().nine_key_reading, "ni'hao");
         assert!(session.command(Command::Backspace).handled);
         assert_eq!(session.snapshot().preedit, "64'42");
         type_digits(&mut session, "6");
