@@ -21,7 +21,8 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="80dp"
+            android:layout_height="wrap_content"
+            android:minHeight="80dp"
             android:background="@drawable/bg_community_preview"
             android:padding="1dp">
 
@@ -39,7 +40,7 @@
             <app.msime.android.home.KeyboardPreview
                 android:id="@+id/community_item_preview"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
+                android:layout_height="wrap_content"
                 android:importantForAccessibility="no"
                 android:visibility="gone" />
         </FrameLayout>

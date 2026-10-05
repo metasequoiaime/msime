@@ -150,13 +150,31 @@ public final class KeyboardPreview extends View {
 
     /** 参考键盘的宽度：6 dp 边距 ×2、10 列 32 dp 键宽、9 个 5 dp 键距。 */
     private static final float REFERENCE_WIDTH_DP = 6f * 2 + 32f * 10 + 5f * 9;
-    /** 参考键盘的高度：6 dp 边距 ×2、24 dp 候选条、4 行 40 dp、3 个 5 dp 行距。 */
-    private static final float REFERENCE_HEIGHT_DP = 6f * 2 + 24f + 40f * 4 + 5f * 3;
+    /** 参考键盘的高度：6 dp 边距 ×2、24 dp 候选条、4 行 46 dp（设计的键高）、3 个 5 dp 行距。 */
+    private static final float REFERENCE_HEIGHT_DP = 6f * 2 + 24f + 46f * 4 + 5f * 3;
+
+    /**
+     * 布局没有给定高度时（wrap_content），按参考键盘的宽高比由宽度推出高度。
+     *
+     * 社区皮肤卡原先把预览框写死为 80 dp 高，手机上约 170 dp 宽，比键盘本身扁得多，键面被横向拉宽压扁。由宽度推高度后，缩略图与真实键盘同一比例。
+     */
+    @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+            return;
+        }
+        int width = MeasureSpec.getSize(widthMeasureSpec);
+        int height = Math.round(width * REFERENCE_HEIGHT_DP / REFERENCE_WIDTH_DP);
+        if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.AT_MOST) {
+            height = Math.min(height, MeasureSpec.getSize(heightMeasureSpec));
+        }
+        setMeasuredDimension(width, height);
+    }
 
     /**
      * 按视图实际尺寸等比缩放的系数，上限 1。
      *
-     * 边距、键距、候选条和字号是按设置首页那张整宽预览定的；社区皮肤卡上的缩略图只有约 150×75 dp，原样套用这些固定值时每行只剩几 dp 高，键面缩成细条而 13 dp 的字溢出到键外。以参考键盘为基准整体缩小；整宽预览不小于参考尺寸，系数为 1，外观不变。
+     * 边距、键距、候选条和字号是按设置首页那张整宽预览定的；社区皮肤卡上的缩略图只有约 170×106 dp，原样套用这些固定值时每行只剩几 dp 高，键面缩成细条而 13 dp 的字溢出到键外。以参考键盘为基准整体缩小；整宽预览不小于参考尺寸，系数为 1，外观不变。
      */
     private float scale() {
         return Math.min(1f, Math.min(getWidth() / dp(REFERENCE_WIDTH_DP), getHeight() / dp(REFERENCE_HEIGHT_DP)));
@@ -174,6 +192,11 @@ public final class KeyboardPreview extends View {
     @Override protected void onDraw(Canvas canvas) {
         if (getWidth() <= 0 || getHeight() <= 0) return;
         float s = scale();
+        // 缩小时按参考键盘的宽高比等比画，居中放进视图，空出的边露出皮肤底色；只缩不拉，键面不会被卡片的扁长比例压扁。整宽预览（s 为 1）仍铺满视图。
+        float w = s < 1f ? dp(REFERENCE_WIDTH_DP) * s : getWidth();
+        float h = s < 1f ? dp(REFERENCE_HEIGHT_DP) * s : getHeight();
+        int saved = canvas.save();
+        canvas.translate((getWidth() - w) / 2f, (getHeight() - h) / 2f);
         float pad = dp(6) * s;
         float gap = dp(5) * s;
         float stripHeight = dp(24) * s;
@@ -192,9 +215,9 @@ public final class KeyboardPreview extends View {
         canvas.drawText("拟好", pad + dp(90) * s, baseline, paint);
 
         float top = pad + stripHeight;
-        float available = getHeight() - top - pad;
+        float available = h - top - pad;
         float rowHeight = (available - gap * (rows.length - 1)) / rows.length;
-        float unit = (getWidth() - pad * 2 - gap * 9) / 10f;
+        float unit = (w - pad * 2 - gap * 9) / 10f;
         paint.setTextAlign(Paint.Align.CENTER);
         for (int r = 0; r < rows.length; r++) {
             String[] row = rows[r];
@@ -208,10 +231,10 @@ public final class KeyboardPreview extends View {
                 widths[c] = weight;
                 total += weight;
             }
-            float rowWidth = getWidth() - pad * 2 - gap * (row.length - 1);
+            float rowWidth = w - pad * 2 - gap * (row.length - 1);
             // 全键盘第二行比第一行少一键，按设计居中缩进半个键位。
             float x = pad;
-            if (rows == FULL_ROWS && r == 1) x = (getWidth() - (unit * 9 + gap * 8)) / 2f;
+            if (rows == FULL_ROWS && r == 1) x = (w - (unit * 9 + gap * 8)) / 2f;
             for (int c = 0; c < row.length; c++) {
                 float width = rows == FULL_ROWS && r == 1 ? unit : rowWidth * widths[c] / total;
                 key.set(x, y, x + width, y + rowHeight);
@@ -230,5 +253,6 @@ public final class KeyboardPreview extends View {
                 x += width + gap;
             }
         }
+        canvas.restoreToCount(saved);
     }
 }
