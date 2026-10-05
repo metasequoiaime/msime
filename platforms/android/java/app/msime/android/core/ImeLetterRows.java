@@ -311,13 +311,28 @@ final class ImeLetterRows {
         // The face is the policy's job; the key itself always sends its canonical lowercase form.
         java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(s.keyboardLayer,
             s.displayedTouchLayout(s.view));
+        // 键盘在各布局间切换时总高度不变：字母行多于三行（大千注音四行）时，整组挤进三行的高度里，而不是每行照标准键高再多出一行。
+        LinearLayout block = null;
+        if (rows.size() > 3) {
+            block = new LinearLayout(s);
+            block.setOrientation(LinearLayout.VERTICAL);
+            s.imeStyler.adjustThreeRowBlockHeight(block);
+            s.keyRows.addView(block, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 3)));
+        }
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(s);
-            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
-                rows.size(), rowIndex, true));
-            s.keyRows.addView(row, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            if (block != null) {
+                block.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            } else {
+                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                    rows.size(), rowIndex, true));
+                s.keyRows.addView(row, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            }
             boolean tibetanSymbols = s.keyboardLayer == KeyboardLayout.Layer.SYMBOLS
                 && s.tibetanSchemeActive();
             // 第二行（a–l）两侧各缩进 5%：9 个键加两侧各 0.5 的占位正好是第一行 10 个键的宽度。
@@ -436,8 +451,13 @@ final class ImeLetterRows {
             ? KeyboardLayout.moreSymbolLayer(chinese) : KeyboardLayout.numberLayer(chinese);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             LinearLayout row = new LinearLayout(s);
-            row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
-                rows.size(), rowIndex, true));
+            // 最后一行是这一层自带的底栏，和功能行一样固定 46 dp、不加行距；前三行和字母键一样分摊高度调整。否则整层比其他布局高出一份行距。
+            if (rowIndex == rows.size() - 1) {
+                s.imeStyler.adjustFixedHeight(row, KeyboardGeometry.STANDARD_ROW_HEIGHT_DP);
+            } else {
+                row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP,
+                    rows.size() - 1, rowIndex, true));
+            }
             s.keyRows.addView(row, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             for (KeyboardLayout.LayerKey layerKey : rows.get(rowIndex)) {

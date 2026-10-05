@@ -119,11 +119,11 @@ public final class CandidateTranslationPolicy {
     /**
      * 候选条在基础高度之上为 {@code glossLines} 行释义预留的行数。
      *
-     * <p>每行释义都在候选下面另起一行，所以有几行释义就预留几行。韩语汉字行的 훈음 也独占一行、排在释义之前，因此该方案再多预留一行；不论汉字列表是否展开都一样，列表展开时候选条不会变高。
+     * <p>每行释义都在候选下面另起一行，所以有几行释义就预留几行。韩语汉字行的 훈음 和第一行释义同在一行（{@link CandidateGlossPolicy#hanjaAnnotation}），所以只保证至少一行，不再多占一行：多占时韩语的候选条和空闲工具栏都比其他方案高，切换布局键盘高度就跳。不论汉字列表是否展开都一样，列表展开时候选条不会变高。
      */
     public static int reservedGlossRows(int glossLines, boolean hanjaRows) {
         int lines = Math.max(0, glossLines);
-        return hanjaRows ? lines + 1 : lines;
+        return hanjaRows ? Math.max(1, lines) : lines;
     }
 
     private static String normalize(String value) {

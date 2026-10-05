@@ -131,7 +131,8 @@ final class ImeLayoutRows {
         if (rewrite instanceof KeyboardPressButton press) press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         addNineKey(tools, rewrite);
         row.addView(tools, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
-        s.imeStyler.adjustFixedHeight(row, KeyboardGeometry.HANDWRITING_BODY_HEIGHT_DP);
+        // 手写区和其他布局的三行键一样高，切换布局时键盘总高度不跳。
+        s.imeStyler.adjustThreeRowBlockHeight(row);
         s.keyRows.addView(row);
 
         s.handwritingRecognizer = new HandwritingResultTap(HandwritingRecognizerFactory.create(s),
@@ -660,7 +661,7 @@ final class ImeLayoutRows {
         LinearLayout container = new LinearLayout(s);
         container.setOrientation(LinearLayout.HORIZONTAL);
         // 日语九键没有底栏，四行（あ行到わ行加 小゛゜ 那一行）都在这一块里：按三行算高度时每行只剩三十来 dp，假名被裁掉下半截，底栏的位置又空着。
-        s.imeStyler.adjustRowBlockHeight(container, 4);
+        s.imeStyler.adjustBottomRowBlockHeight(container);
         s.keyRows.addView(container, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 4)));
 

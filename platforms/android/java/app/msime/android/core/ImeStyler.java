@@ -178,6 +178,12 @@ final class ImeStyler {
             KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
+    /** 连同底栏位置一起占用的整块（日语九键没有底栏，四行都在块里）：三行键加一条 46 dp 的底栏，底栏不带行距，与其他布局总高相同。 */
+    void adjustBottomRowBlockHeight(View view) {
+        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+            KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * 4, 1, 0, 3));
+    }
+
     void styleButton(Button button, boolean action) { styleButton(button, action, s.skin); }
 
     void styleButton(Button button, boolean action, KeyboardSkin target) {

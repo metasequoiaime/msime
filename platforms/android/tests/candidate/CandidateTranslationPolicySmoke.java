@@ -87,8 +87,9 @@ public final class CandidateTranslationPolicySmoke {
             "every gloss row under the candidate reserves a row of strip height");
         check(CandidateTranslationPolicy.reservedGlossRows(0, true) == 1,
             "Korean reserves the 훈음 row with glosses off");
-        check(CandidateTranslationPolicy.reservedGlossRows(2, true) == 3,
-            "Korean reserves every gloss row under the 훈음");
+        check(CandidateTranslationPolicy.reservedGlossRows(1, true) == 1
+                && CandidateTranslationPolicy.reservedGlossRows(2, true) == 2,
+            "the 훈음 shares the first gloss row, so Korean reserves no more rows than any other scheme");
         // The account endpoint receives candidate words, so only an explicit choice may reach it.
         check(!CandidateTranslationPolicy.accountSelected(true, false, false, false),
             "candidate translations alone never select the account");

@@ -56,7 +56,8 @@ public final class CandidateGlossPolicy {
             String reading, String translation, boolean glossEnabled) {
         String gloss = glossEnabled && validEntry(translation) ? translation : "";
         if (reading == null || reading.isEmpty()) return gloss;
-        return gloss.isEmpty() ? reading : reading + "\n" + gloss;
+        // 훈음和第一行释义共用一行：另起一行会让韩语的候选条比其他方案多出一行，键盘一切到韩语就整体变高。
+        return gloss.isEmpty() ? reading : reading + " · " + gloss;
     }
 
     public static String hanjaAccessibilitySuffix(
