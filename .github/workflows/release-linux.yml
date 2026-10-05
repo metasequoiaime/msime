@@ -8,14 +8,14 @@ on:
 permissions: {contents: write}
 concurrency: {group: release-linux, cancel-in-progress: false}
 jobs:
-  # Resolves the source to one commit up front (main when dispatched from develop, otherwise the dispatched commit), so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
-  # 从 develop 触发时这个文件取自 develop、源码却是 main，main 可能还没有 platforms/linux/packaging/ 的脚本；packaging 输出记下源码里有没有它们，没有时跳过 distro-sources 与 package-definitions，发布只带 deb、rpm 和 tar.gz。
+  # Resolves the dispatched commit up front, so the deb and rpm builds and the publish job (tag target, release notes) use the same source even if the branch moves during the run.
+  # 从旧的分支或标签触发时，源码里可能还没有 platforms/linux/packaging/ 的脚本；packaging 输出记下源码里有没有它们，没有时跳过 distro-sources 与 package-definitions，发布只带 deb、rpm 和 tar.gz。
   source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: {ref: "${{ github.ref == 'refs/heads/develop' && 'main' || github.sha }}", persist-credentials: false}
+        with: {ref: "${{ github.sha }}", persist-credentials: false}
       - id: commit
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -165,7 +165,7 @@ jobs:
           pattern: msime-linux-*-${{ needs.deb.outputs.version }}
           path: dist
           merge-multiple: true
-      # The build takes main when dispatched from develop and the dispatched commit otherwise, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
+      # The build takes the dispatched commit, so publishing has to be asked for rather than implied. Without the gate a build of a feature branch cuts a real public release.
       - name: Publish independent Linux release
         env: {GH_TOKEN: "${{ github.token }}", VERSION: "${{ needs.deb.outputs.version }}", PRERELEASE: "${{ inputs.prerelease }}", EVERYAPI_RELEASE_NOTES_TOKEN: "${{ secrets.EVERYAPI_RELEASE_NOTES_TOKEN }}", EVERYAPI_RELEASE_NOTES_MODEL: "${{ vars.EVERYAPI_RELEASE_NOTES_MODEL }}"}
         run: |
