@@ -129,6 +129,9 @@ stdenv.mkDerivation {
   cmakeFlags = [
     (lib.cmakeBool "MSIME_ENABLE_FCITX5" true)
     (lib.cmakeFeature "MSIME_HOST_LIBRARY" "${msime-host-api}/lib/libmsime_host_api.so")
+    # NixOS 的 systemd.packages 只从包里的 lib/systemd/user 与 etc/systemd/user 取用户单元，
+    # 默认的 share/systemd/user 会被忽略。
+    (lib.cmakeFeature "MSIME_SYSTEMD_USER_UNIT_DIR" "lib/systemd/user")
   ]
   ++ lib.optional (bundledResources != null) (
     lib.cmakeFeature "MSIME_ENGINE_RESOURCES" "${bundledResources}/${bundledResources.directory}"

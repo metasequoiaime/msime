@@ -110,7 +110,7 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；provider 服务和设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
 
 ```sh
 nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
@@ -118,21 +118,23 @@ nix flake check
 nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
 ```
 
-插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以在系统配置里用 overlay 而不是直接取 `packages`：
+在 NixOS 上用模块。插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以模块默认按本系统的 nixpkgs 构建 `msime-fcitx5`，不需要另加 overlay：
 
 ```nix
 # flake.nix 的 inputs
 msime.url = "github:metasequoiaime/msime";
 
-# NixOS 模块
-nixpkgs.overlays = [ inputs.msime.overlays.default ];
-i18n.inputMethod = {
-  enable = true;
-  type = "fcitx5";
-  fcitx5.addons = [ pkgs.msime-fcitx5 ];
-};
-environment.systemPackages = [ pkgs.msime-fcitx5 ]; # 首次配置要用的 msime-linux-setup
+# NixOS 配置（imports 里加 inputs.msime.nixosModules.default）
+programs.msime.enable = true;
 ```
+
+`programs.msime.enable` 接入 Fcitx5 插件、放上 `msime-linux-setup` 等命令，并注册 provider 的用户单元：`programs.msime.services.online.enable`、`services.voice.enable` 两个按 socket 激活的服务和 `services.clipboard.enable` 剪贴板监视器默认都开，与 `msime-linux-setup` 首次配置时为用户启用的一致。`programs.msime.package` 可以换成 `override` 过的包。`nix flake check` 里的 `nixos-module` 起一台虚拟机核对这些单元能被拉起（需要 KVM）。
+
+以前按路径启用过这些单元（`systemctl --user enable /nix/store/…/msime-linux-online.socket` 之类）的用户，`~/.config/systemd/user` 里会留着指向旧 store 路径的链接，它们优先于模块注册的单元，旧路径被垃圾回收后单元就加载不了。换到模块后执行一次 `systemctl --user disable msime-linux-online.socket msime-linux-voice.socket msime-linux-clipboard.service`（会提示这些单元仍在全局范围启用，即由模块拉起）和 `systemctl --user daemon-reload`，再用 `systemctl --user show -p FragmentPath <单元>` 确认它们来自 `/etc/systemd/user`。
+
+录音、提示音和静音用的音频工具不随包，用系统的音频栈（例如 `services.pipewire`）。
+
+不用模块、经 `overlays.default` 自己写配置时，还要加上 `systemd.packages = [ pkgs.msime-fcitx5 ];`，否则 provider 单元不会注册到 systemd。
 
 切换配置并重新登录后，运行 `msime-linux-setup --download` 完成首次配置（见「安装后首次使用」），它会把水杉输入法加进当前的 Fcitx5 输入法组。包默认不带词库，与 `.deb` 一致：词库由这一步下载到 `$XDG_DATA_HOME/msime-client/resources`，`runtime-options.json` 里记录的也是这个用户目录，Nix store 的路径不会被写进去。`msime-fcitx5.override { bundledResources = pkgs.msime-resources; }` 可以把 `desktop-dictionary.lock.json` 钉住的词库装进包里，`msime-resources` 直接按锁文件里的地址和 SHA-256 下载，不另记一份哈希，词库放在包内的 `share/msime-client/resources`，旁边的 `share/doc/msime-resources` 带着逐项列出词库来源与上游条款的 `msime-engine-dictionary-NOTICE.md`；但这样首次配置记录的是 store 里的词库目录，词库锁不变时重新构建不会刷新这条记录，旧路径被垃圾回收后输入法就找不到词库，所以默认不这样做。
 
