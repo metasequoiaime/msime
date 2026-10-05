@@ -9,7 +9,6 @@ import {
   communityRating,
   resourceKindTitle,
   resourceMessage,
-  runCommunityAction,
 } from "./community-helpers";
 import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
@@ -167,12 +166,12 @@ function ResourceEditor({
   const [word, setWord] = useState("");
   const [weight, setWeight] = useState("100000");
   const [agreed, setAgreed] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const { clientGeneration, actionRunning, isCurrent } = useCommunityClientLifecycle(client);
-  useEffect(() => {
-    setBusy(false);
-  }, [client]);
+  const {
+    busy,
+    running: actionRunning,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(setError, undefined, client);
   const addEntry = () => {
     const value = { kind: entryKind, code: code.trim(), word, weight: Number(weight) };
     if (
@@ -211,17 +210,8 @@ function ResourceEditor({
       );
       return;
     }
-    const generation = clientGeneration.current;
-    await runCommunityAction({
-      busy,
-      generation,
-      clientGeneration,
-      actionRunning,
-      setBusy,
-      setError,
-      isCurrent: () => isCurrent(generation),
-      formatError: resourceMessage,
-      operation: async (isCurrent) => {
+    await runAsyncAction(
+      async (isCurrent) => {
         await client.publish(
           id,
           kind,
@@ -233,7 +223,8 @@ function ResourceEditor({
         if (!isCurrent()) return;
         await onPublished();
       },
-    });
+      { formatError: resourceMessage },
+    );
   };
   return (
     <CommunityDialogFrame
