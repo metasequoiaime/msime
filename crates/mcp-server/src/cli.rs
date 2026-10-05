@@ -113,7 +113,7 @@ pub async fn run(config: Config, action: Action) -> Result<ExitCode, Box<dyn std
                     println!("{}", text.text);
                 }
             }
-            println!("\nFrom a shell, run each tool this names as `msime-mcp <the same flags> call <tool> '<json arguments>'`.");
+            println!("\nFrom a shell, run each tool this names as `{} <the same flags> call <tool> '<json arguments>'`.", crate::config::program());
             ExitCode::SUCCESS
         }
     };
@@ -165,7 +165,7 @@ fn structured(
 }
 
 fn refused(reason: &str) -> ExitCode {
-    eprintln!("msime-mcp: {reason}");
+    eprintln!("{}: {reason}", crate::config::program());
     ExitCode::FAILURE
 }
 

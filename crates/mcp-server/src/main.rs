@@ -16,6 +16,7 @@ mod words;
 use rmcp::transport::io::stdio;
 use rmcp::ServiceExt;
 use serde_json::Value;
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 const ARGUMENTS_READ_LIMIT: u64 = 8 * 1024 * 1024;
@@ -25,6 +26,11 @@ fn main() -> ExitCode {
     diagnostics::remember_local_offset();
     let (config, action) =
         match config::parse(std::env::args_os().skip(1), |name| std::env::var_os(name)) {
+            // 一个人在终端里不带命令地运行时打印帮助，而不是开始等 MCP 消息、看起来像卡住了。助手启动服务器时 stdin 总是管道。
+            Ok(config::Command::Serve(_)) if std::io::stdin().is_terminal() => {
+                eprintln!("{}", config::usage());
+                return ExitCode::from(2);
+            }
             Ok(config::Command::Serve(config)) => (config, None),
             Ok(config::Command::Tools(config)) => (config, Some(cli::Action::Tools)),
             Ok(config::Command::Call {
@@ -34,7 +40,7 @@ fn main() -> ExitCode {
             }) => match call_arguments(arguments) {
                 Ok(arguments) => (config, Some(cli::Action::Call { tool, arguments })),
                 Err(error) => {
-                    eprintln!("msime-mcp: {error}");
+                    eprintln!("{}: {error}", config::program());
                     return ExitCode::from(2);
                 }
             },
@@ -46,7 +52,7 @@ fn main() -> ExitCode {
             }) => match call_arguments(arguments) {
                 Ok(arguments) => (config, Some(cli::Action::Prompt { name, arguments })),
                 Err(error) => {
-                    eprintln!("msime-mcp: {error}");
+                    eprintln!("{}: {error}", config::program());
                     return ExitCode::from(2);
                 }
             },
@@ -82,15 +88,16 @@ fn main() -> ExitCode {
                 }),
             ),
             Ok(config::Command::Help) => {
-                eprintln!("{}", config::USAGE);
+                eprintln!("{}", config::usage());
                 return ExitCode::SUCCESS;
             }
             Ok(config::Command::Version) => {
-                eprintln!("msime-mcp {}", env!("CARGO_PKG_VERSION"));
+                eprintln!("{} {}", config::program(), env!("CARGO_PKG_VERSION"));
                 return ExitCode::SUCCESS;
             }
             Err(error) => {
-                eprintln!("msime-mcp: {error}\n\n{}", config::USAGE);
+                let program = config::program();
+                eprintln!("{program}: {error}\nRun `{program} --help` for the commands and flags.");
                 return ExitCode::from(2);
             }
         };
@@ -100,7 +107,7 @@ fn main() -> ExitCode {
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("msime-mcp: cannot start: {error}");
+            eprintln!("{}: cannot start: {error}", config::program());
             return ExitCode::FAILURE;
         }
     };
@@ -108,7 +115,7 @@ fn main() -> ExitCode {
         return match runtime.block_on(cli::run(config, action)) {
             Ok(code) => code,
             Err(error) => {
-                eprintln!("msime-mcp: {error}");
+                eprintln!("{}: {error}", config::program());
                 ExitCode::FAILURE
             }
         };
@@ -124,7 +131,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("msime-mcp: {error}");
+            eprintln!("{}: {error}", config::program());
             ExitCode::FAILURE
         }
     }

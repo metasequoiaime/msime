@@ -10,26 +10,88 @@ use std::path::{Path, PathBuf};
 /// The largest runtime-options document read. A macOS document carries the preferences, and with them a custom screen-keyboard photo of up to 1 MiB of base64.
 const OPTIONS_READ_LIMIT: u64 = 2 << 20;
 
-pub const USAGE: &str = "usage: msime-mcp [flags]                                serve the Model Context Protocol over stdio
-       msime-mcp [flags] tools                          list the tools, with their argument schemas, as JSON
-       msime-mcp [flags] call <tool> [<json>|-|@file]   run one tool and print its result as JSON
-       msime-mcp [flags] prompts                        list the guided tasks (prompts), as JSON
-       msime-mcp [flags] prompt <name> [<json>|@file]   print a guided task's instructions, such as diagnose or make_skin
-       msime-mcp [flags] expand <keys> [--scheme quanpin|shuangpin|wubi] [--limit <n>] [--json]
-                                                        print the candidates typing <keys> offers, one per line: rank, text, code, origin, weight
-       msime-mcp [flags] config [--json]                print the current preferences, one key = value per line
-       msime-mcp [flags] config set <key>=<value>...    change preferences, such as scheme=shuangpin or candidate_page_size=9, and print them
+/// 帮助文本。`{program}` 换成用户实际敲的命令名，见 [`usage`]。终端里常见 80 到 100 列，每行控制在 80 列以内，免得被终端从单词中间折断。
+const USAGE: &str = "usage: {program} expand <keys> [--scheme <scheme>] [--limit <n>] [--json]
+       {program} config [--json]
+       {program} config set <key>=<value>...
+       {program} [flags] tools | call <tool> [<json>|-|@file]
+       {program} [flags] prompts | prompt <name> [<json>|@file]
+       {program} [flags]
 
-Manages 水杉输入法 (MSIME) for an AI assistant: over stdio as an MCP server, or one tool per run from a shell. Both offer the same tools and prompts under the same flags. call takes the tool's arguments as a JSON object (default {}), reads it from stdin when given -, or from a UTF-8 file when given @file, which works in every shell; tool names may use - for _. A refused call prints the reason to stderr and exits 1.
+Test 水杉输入法 (MSIME) by hand, or let an AI assistant manage it.
 
-expand and config are shortcuts for testing the input method by hand: expand is lookup_candidates in the user's current scheme unless --scheme names another, config is get_preferences, and config set is update_preferences at the current revision. They read the preferences anew on every run, and the input method picks up a change within a few seconds. expand implies --allow-dictionary-read and config set implies --allow-write.
+Testing by hand:
+  expand <keys>      Show the candidates typing <keys> offers, one per line:
+                     rank, text, code, origin and weight. Typed in your
+                     current scheme unless --scheme names quanpin, shuangpin
+                     or wubi; --limit takes 1 to 50 (20 by default); --json
+                     prints the raw result.
+  config             Show your current preferences, one key = value per line.
+  config set <key>=<value>...
+                     Change preferences, such as scheme=shuangpin or
+                     candidate_page_size=9, and show the result. The input
+                     method picks the change up within a few seconds.
 
-  --options <path>     The runtime-options document the input method hosts read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then MSIME_IBUS_OPTIONS, then the platform's usual location.
-  --state-dir <path>   The directory holding preferences.json, typing-statistics.json and the skins folder. Defaults to MSIME_CLIENT_STATE_DIR, then the document's preferences_directory.
-  --allow-write        Offer the tools that change quick phrases and preferences and install candidate-window skins. Without it the server is read-only.
+  Every run reads the preferences anew, so there is nothing to reload.
+  expand leaves out quick phrases, cloud and AI candidates and the context
+  of earlier words. expand implies --allow-dictionary-read and config set
+  implies --allow-write.
+
+For an AI assistant:
+  (no command)       Serve the Model Context Protocol over stdio.
+  tools              List the tools, with their argument schemas, as JSON.
+  call <tool> [<json>|-|@file]
+                     Run one tool and print its result as JSON. The
+                     arguments are a JSON object (default {}), read from
+                     stdin for -, or from a UTF-8 file for @file, which
+                     works in every shell. Tool names may use - for _. A
+                     refused call prints the reason to stderr and exits 1.
+  prompts            List the guided tasks (prompts), as JSON.
+  prompt <name> [<json>|@file]
+                     Print a guided task's instructions, such as diagnose or
+                     make_skin.
+
+  The server and the commands offer the same tools and prompts under the
+  same flags.
+
+Flags:
+  --options <path>   The runtime-options document the input method hosts
+                     read. Defaults to MSIME_CLIENT_HOST_OPTIONS, then
+                     MSIME_IBUS_OPTIONS, then the platform's usual location.
+  --state-dir <path> The directory holding preferences.json,
+                     typing-statistics.json and the skins folder. Defaults
+                     to MSIME_CLIENT_STATE_DIR, then the document's
+                     preferences_directory.
+  --allow-write      Offer the tools that change quick phrases and
+                     preferences and install candidate-window skins.
+                     Without it the server is read-only.
   --allow-dictionary-read
-                       Offer the tools that read the user's own dictionary words and look up the candidates a code offers. With --allow-write as well, also the tools that add, reweight, remove and import words.
+                     Offer the tools that read the user's own dictionary
+                     words and look up the candidates a code offers. With
+                     --allow-write as well, also the tools that add,
+                     reweight, remove and import words.
   --help, --version";
+
+/// 帮助文本，用户敲的是什么命令名就写什么。
+pub fn usage() -> String {
+    USAGE.replace("{program}", program())
+}
+
+/// 用户敲的命令名：经 Homebrew 或手动链接成 `msime` 时是 `msime`，否则是 `msime-mcp`。帮助和报错都用它，照着抄就能运行。
+pub fn program() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        std::env::args_os()
+            .next()
+            .as_deref()
+            .map(Path::new)
+            .and_then(Path::file_stem)
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("msime-mcp")
+            .to_owned()
+    })
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -407,6 +469,16 @@ mod tests {
             serve(parse(args(&[]), ibus_only).unwrap()).options,
             PathBuf::from("/env/ibus.json")
         );
+    }
+
+    #[test]
+    fn the_help_fits_an_80_column_terminal_under_either_name() {
+        for name in ["msime", "msime-mcp"] {
+            let text = USAGE.replace("{program}", name);
+            for line in text.lines() {
+                assert!(line.chars().count() <= 80, "{line}");
+            }
+        }
     }
 
     #[test]
