@@ -597,6 +597,12 @@ if(MSIME_HANDWRITING_MODEL_DIR)
 elseif(MSIME_ENABLE_PACKAGING AND MSIME_EDITION_HANDWRITING)
   message(FATAL_ERROR "Packaging requires the handwriting model; fetch it with scripts/fetch_handwriting_model.py (package-container.sh does)")
 endif()
+# 上面只按锁核对模型的字节；这里用构建出的识别入口真正加载它并识别一笔，各打包路线的 ctest 都会跑到。
+if(BUILD_TESTING AND MSIME_HANDWRITING_MODEL_DIR)
+  add_test(NAME linux-handwriting-local-model
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/provider/handwriting_local_model.py"
+                   $<TARGET_FILE:msime-linux-handwriting> "${MSIME_HANDWRITING_MODEL_DIR}/handwriting-zh_CN.model")
+endif()
 if(MSIME_EMOJI_RESOURCES)
   if(NOT IS_DIRECTORY "${MSIME_EMOJI_RESOURCES}")
     message(FATAL_ERROR "MSIME_EMOJI_RESOURCES is not a directory: ${MSIME_EMOJI_RESOURCES}")
