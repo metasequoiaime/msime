@@ -226,6 +226,8 @@ public final class AndroidLocalSettings {
 
     private static final Snapshot DEFAULTS = new Snapshot(Collections.emptyMap());
     private static final Object CACHE_LOCK = new Object();
+    /** 把同一进程内的 {@link #update(Path, Map)} 串行化，原因见那里的注释。 */
+    private static final Object UPDATE_LOCK = new Object();
     private static Path cachedFile;
     private static Object cachedStamp;
     private static Snapshot cachedSnapshot = DEFAULTS;
@@ -283,37 +285,40 @@ public final class AndroidLocalSettings {
             }
             accepted.put(spec.key, value);
         }
-        Path parent = file.getParent();
-        if (parent == null) throw new IOException("settings directory unavailable");
-        SafePaths.ensureDirectory(parent);
-        Path lockFile = parent.resolve(FILE_NAME + ".lock");
-        try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
-            FileLock lock = channel.lock();
-            try {
-                Map<String, Object> next = new TreeMap<>(stamp(file) == null
-                    ? Collections.<String, Object>emptyMap() : read(file).explicit());
-                for (Map.Entry<String, Object> edit : accepted.entrySet()) {
-                    if (edit.getValue() == null) next.remove(edit.getKey());
-                    else next.put(edit.getKey(), edit.getValue());
-                }
-                String encoded;
+        // 文件锁属于整个 JVM 而不是线程：同一进程里另一个线程已经持有时，channel.lock() 不会等待，而是抛 OverlappingFileLockException。所以先在这里把本进程的写入排成一队，文件锁只负责协调主进程与 :ime。CACHE_LOCK 只在这把锁里面取，load() 从不取这把锁，加锁顺序不会颠倒。
+        synchronized (UPDATE_LOCK) {
+            Path parent = file.getParent();
+            if (parent == null) throw new IOException("settings directory unavailable");
+            SafePaths.ensureDirectory(parent);
+            Path lockFile = parent.resolve(FILE_NAME + ".lock");
+            try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
+                FileLock lock = channel.lock();
                 try {
-                    encoded = encode(next);
-                } catch (JSONException error) {
-                    throw new IOException("settings encoding failed", error);
+                    Map<String, Object> next = new TreeMap<>(stamp(file) == null
+                        ? Collections.<String, Object>emptyMap() : read(file).explicit());
+                    for (Map.Entry<String, Object> edit : accepted.entrySet()) {
+                        if (edit.getValue() == null) next.remove(edit.getKey());
+                        else next.put(edit.getKey(), edit.getValue());
+                    }
+                    String encoded;
+                    try {
+                        encoded = encode(next);
+                    } catch (JSONException error) {
+                        throw new IOException("settings encoding failed", error);
+                    }
+                    writeAtomically(file, encoded.getBytes(StandardCharsets.UTF_8));
+                    Snapshot snapshot = new Snapshot(next);
+                    Object stamp = stamp(file);
+                    synchronized (CACHE_LOCK) {
+                        cachedFile = file;
+                        cachedStamp = stamp;
+                        cachedSnapshot = snapshot;
+                    }
+                    return snapshot;
+                } finally {
+                    lock.release();
                 }
-                writeAtomically(file, encoded.getBytes(StandardCharsets.UTF_8));
-                Snapshot snapshot = new Snapshot(next);
-                Object stamp = stamp(file);
-                synchronized (CACHE_LOCK) {
-                    cachedFile = file;
-                    cachedStamp = stamp;
-                    cachedSnapshot = snapshot;
-                }
-                return snapshot;
-            } finally {
-                lock.release();
             }
         }
     }
