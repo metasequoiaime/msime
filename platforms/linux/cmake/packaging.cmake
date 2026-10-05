@@ -76,6 +76,11 @@ if(NOT MSIME_EDITION_IS_FULL)
   if(MSIME_FCITX5_ADDON_DIR AND IS_ABSOLUTE "${MSIME_FCITX5_ADDON_DIR}")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "${MSIME_FCITX5_ADDON_DIR}")
   endif()
+  # The Fcitx5 addon has to sit in the system fcitx5 addon directory while the host library stays in this edition's private directory under /opt, so fcitx5/CMakeLists.txt gives the addon an absolute RUNPATH to that directory on purpose; no $ORIGIN path survives the two moving independently. Fedora's check-rpaths (run from %__os_install_post) rejects any absolute RPATH outside the standard library directories as 0x0002 "invalid" and fails %install, so for this package only that one bit is allowed. The check itself still runs, and every other RPATH problem (empty, relative, '..' or $ORIGIN out of order) still fails the build. The full edition installs under /usr with $ORIGIN-relative RUNPATHs and keeps the default check.
+  if(MSIME_ENABLE_FCITX5)
+    string(APPEND CPACK_RPM_SPEC_MORE_DEFINE "
+%global __brp_check_rpaths QA_RPATHS=0x0002 %{_rpmconfigdir}/check-rpaths")
+  endif()
 endif()
 # The autostart entry is the package's one file under /etc: the RPM counterpart of the Debian conffile above.
 set(CPACK_RPM_USER_FILELIST "%config(noreplace) ${MSIME_XDG_AUTOSTART_DIR}/${MSIME_EDITION_PACKAGE}-clipboard.desktop")
