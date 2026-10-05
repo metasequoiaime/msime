@@ -59,3 +59,25 @@ test("accepts actions after StrictMode effect replay", async () => {
   expect(action).toHaveBeenCalledOnce();
   expect(result.current.busy).toBe(false);
 });
+
+test("keeps action callbacks stable while busy changes", async () => {
+  const onFailure = vi.fn();
+  const { result } = renderHook(() => usePanelAction(onFailure));
+  const initialRun = result.current.run;
+  const initialInvalidate = result.current.invalidate;
+  let finish!: () => void;
+  let pending: Promise<void> | undefined;
+  act(() => {
+    pending = result.current.run(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+      "操作失败",
+    );
+  });
+  expect(result.current.run).toBe(initialRun);
+  expect(result.current.invalidate).toBe(initialInvalidate);
+  await act(async () => {
+    finish();
+    await pending;
+  });
+  expect(result.current.run).toBe(initialRun);
+});

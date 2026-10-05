@@ -1,6 +1,5 @@
-import { useCallback, useRef, useState, type MutableRefObject } from "react";
-import { useAsyncGeneration } from "../settings/use-async-generation";
-import { useMountedRef } from "../settings/use-mounted-ref";
+import { useCallback, type MutableRefObject } from "react";
+import { useAsyncActionRunner } from "../core/use-async-action";
 
 export type PanelAction = (revision: number) => Promise<void>;
 
@@ -15,42 +14,31 @@ export interface PanelActionState {
 
 /** Serializes panel actions and makes late async results harmless after a client is replaced. */
 export function usePanelAction(onFailure: (message: string) => void): PanelActionState {
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
-  const revisionRef = useAsyncGeneration();
-  const mounted = useMountedRef();
+  const noop = useCallback(() => {}, []);
+  const {
+    busy,
+    mounted,
+    running: busyRef,
+    generation: revisionRef,
+    invalidate,
+    run: runAsyncAction,
+  } = useAsyncActionRunner(noop, undefined);
 
   const isCurrent = useCallback(
     (revision: number) => mounted.current && revision === revisionRef.current,
-    [],
+    [mounted, revisionRef],
   );
-
-  const invalidate = useCallback(() => {
-    revisionRef.current++;
-    busyRef.current = false;
-    setBusy(false);
-  }, []);
 
   const run = useCallback(
     (action: PanelAction, failure: string) => {
       if (!mounted.current || busyRef.current) return undefined;
       const revision = ++revisionRef.current;
-      busyRef.current = true;
-      setBusy(true);
-      return (async () => {
-        try {
-          await action(revision);
-        } catch {
-          if (isCurrent(revision)) onFailure(failure);
-        } finally {
-          if (isCurrent(revision)) {
-            busyRef.current = false;
-            setBusy(false);
-          }
-        }
-      })();
+      return runAsyncAction(() => action(revision), {
+        formatError: () => failure,
+        onError: () => onFailure(failure),
+      });
     },
-    [isCurrent, onFailure],
+    [busyRef, mounted, onFailure, revisionRef, runAsyncAction],
   );
 
   return { busy, busyRef, revisionRef, run, invalidate, isCurrent };
