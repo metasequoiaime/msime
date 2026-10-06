@@ -904,7 +904,7 @@ final class ImePanels {
         back.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, s.pixels(32)));
         s.aiPolishPanel.addView(header);
-        java.util.List<TextView> secondary = new java.util.ArrayList<>();
+        java.util.List<TextView> secondary = new java.util.ArrayList<>(2);
         TextView error = null;
         if (!s.aiError.isEmpty()) {
             error = new TextView(s);
