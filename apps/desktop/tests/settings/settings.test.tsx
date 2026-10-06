@@ -5556,10 +5556,10 @@ test("Android help and about pages use mobile instructions and project links", a
   );
 });
 
-// The Linux section of msime.app/privacy/ does not match this host (it has an update check and keeps provider credentials in 0600 files), so Linux opens the PRIVACY.md that ships with this code, as the Windows reference opens its own. Every other host keeps msime.app/privacy/, which a looser Linux check would break.
-test("the privacy link opens PRIVACY.md on Linux and msime.app/privacy/ elsewhere", async () => {
+// 网站的 Linux 段落已与这个宿主一致（检查更新、凭据存在 0600 文件里），所以 Linux 与其他平台一样打开 msime.app/privacy/。
+test("the privacy link opens msime.app/privacy/ on every platform", async () => {
   const expected: Record<string, string> = {
-    linux: "https://github.com/metasequoiaime/msime/blob/develop/PRIVACY.md",
+    linux: "https://msime.app/privacy/",
     windows: "https://msime.app/privacy/",
     macos: "https://msime.app/privacy/",
     android: "https://msime.app/privacy/",
