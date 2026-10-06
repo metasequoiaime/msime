@@ -160,6 +160,7 @@ test("a mirror is empty or a complete https URL without credentials or query", (
   expect(validModelMirror("")).toBe(true);
   expect(validModelMirror("https://ghproxy.example.com")).toBe(true);
   expect(validModelMirror("https://ghproxy.example.com/prefix/")).toBe(true);
+  expect(validModelMirror(`https://ghproxy.example.com/${"中".repeat(700)}`)).toBe(false);
   expect(validModelMirror("http://ghproxy.example.com")).toBe(false);
   expect(validModelMirror("https://")).toBe(false);
   expect(validModelMirror("https:///missing-host")).toBe(false);

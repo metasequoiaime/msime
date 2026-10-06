@@ -1,5 +1,6 @@
 import { errorCode } from "../core/error-code";
 import { clamp } from "../core/number";
+import { utf8ByteLength } from "../core/text";
 import type { LocalVoiceModel, LocalVoiceModelProgress } from "./local-models";
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -89,7 +90,7 @@ export function localModelErrorMessage(error: unknown): string | null {
 export function validModelMirror(mirror: string): boolean {
   if (mirror === "") return true;
   if (
-    mirror.length > 2048 ||
+    utf8ByteLength(mirror) > 2048 ||
     !mirror.startsWith("https://") ||
     mirror.slice("https://".length).startsWith("/") ||
     /[\s\u0000-\u001f\u007f]/.test(mirror) ||
