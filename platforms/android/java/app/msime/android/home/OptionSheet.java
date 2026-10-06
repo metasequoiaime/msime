@@ -1,5 +1,6 @@
 package app.msime.android.home;
 
+import android.view.Gravity;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
