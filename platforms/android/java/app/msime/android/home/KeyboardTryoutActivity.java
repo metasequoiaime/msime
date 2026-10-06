@@ -153,7 +153,7 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
     private void sendChat(TextInputEditText field, MaterialButton send) {
         String text = field.getText() == null ? "" : field.getText().toString().trim();
         if (text.isEmpty() || models.isEmpty()) return;
-        while (messages.size() >= 14) messages.remove(0);
+        while (messages.size() >= 16) messages.remove(0);
         messages.add(new BackendAccount.ChatMessage("user", text));
         field.setText("");
         appendChat("你：" + text);
