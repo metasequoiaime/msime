@@ -33,7 +33,7 @@ public final class InputDialog {
     private final Context context;
     private final AppCompatDialog dialog;
     private final LinearLayout fields;
-    private final List<EditText> inputs = new ArrayList<>();
+    private final List<EditText> inputs = new ArrayList<>(2);
     private final TextView primary;
     private Predicate<List<String>> valid = values -> {
         for (String value : values) if (value.isEmpty()) return false;
