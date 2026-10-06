@@ -535,7 +535,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray values = shared == null ? null : shared.optJSONArray("enabled");
         java.util.List<String> ids = null;
         if (values != null) {
-            ids = new java.util.ArrayList<>();
+            ids = new java.util.ArrayList<>(values.length());
             for (int index = 0; index < values.length(); index++) {
                 String value = values.isNull(index) ? null : values.optString(index, null);
                 if (value != null) ids.add(value);
