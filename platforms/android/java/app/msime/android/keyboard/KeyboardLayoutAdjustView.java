@@ -235,8 +235,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     }
 
     private float dpFromPixels(float pixels) {
-        float density = getResources().getDisplayMetrics().density;
-        return density <= 0 ? pixels : pixels / density;
+        return KeyboardGeometry.fromPixels(getContext(), pixels);
     }
 
     private static int color(String value) {

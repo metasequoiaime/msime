@@ -108,7 +108,6 @@ final class ImeBottomRow {
         final boolean[] cancelled = new boolean[1];
         final boolean[] voiced = new boolean[1];
         final int touchSlop = ViewConfiguration.get(s).getScaledTouchSlop();
-        final float density = s.getResources().getDisplayMetrics().density;
         final Runnable startVoice = () -> {
             if (voiced[0]) return;
             voiced[0] = true;
@@ -129,7 +128,8 @@ final class ImeBottomRow {
                     button.getParent().requestDisallowInterceptTouchEvent(true);
                     // 组字中或关了长按语音时不武装长按：这次按压保持普通空格与拖动移光标，与 develop 一致；否则慢一点的空格会被吞掉、停顿后的拖动也移不了光标。
                     boolean voice = touchPreference(AndroidLocalSettings.SPACE_VOICE) && s.voiceInsertionReady();
-                    spaceGesture.down(SystemClock.uptimeMillis(), event.getX() / density, voice);
+                    spaceGesture.down(SystemClock.uptimeMillis(),
+                        KeyboardGeometry.fromPixels(s, event.getX()), voice);
                     cancelSpaceLongPress();
                     if (voice) {
                         spaceLongPress = () -> {
@@ -147,7 +147,8 @@ final class ImeBottomRow {
                     if (!dragging[0] && !cancelled[0]) {
                         float horizontal = event.getX() - origin[0];
                         float vertical = event.getY() - origin[1];
-                        spaceGesture.move(SystemClock.uptimeMillis(), event.getX() / density);
+                        spaceGesture.move(SystemClock.uptimeMillis(),
+                            KeyboardGeometry.fromPixels(s, event.getX()));
                         SpaceGesturePolicy.State state = spaceGesture.state();
                         if (state == SpaceGesturePolicy.State.VOICE) {
                             // VOICE is only reachable when long-press voice was on at ACTION_DOWN.

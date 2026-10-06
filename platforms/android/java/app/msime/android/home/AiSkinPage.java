@@ -79,7 +79,7 @@ public final class AiSkinPage extends DetailPage {
      */
     public static final class State extends ViewModel {
         private final Handler main = new Handler(Looper.getMainLooper());
-        final List<Result> results = new ArrayList<>();
+        final List<Result> results = new ArrayList<>(3);
         int chosen;
         boolean nineKey;
         int sound = 1;
@@ -102,7 +102,7 @@ public final class AiSkinPage extends DetailPage {
             cancelled = flag;
             // 一次生成可能要几分钟，不能占用设置页共用的那条 HostTask 线程。
             Thread worker = new Thread(() -> {
-                List<Result> generated = new ArrayList<>();
+                List<Result> generated = new ArrayList<>(3);
                 CloudApi.Failure failure = null;
                 try {
                     for (SkinJobsApi.Proposal proposal : new SkinJobsApi(new CloudApi(application)).generate(text, flag)) {

@@ -53,7 +53,7 @@ public final class KeyboardSkinPreview extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         previewBounds.set(0, 0, getWidth(), getHeight());
-        drawPreview(canvas, previewBounds, skin, getResources().getDisplayMetrics().density,
+        drawPreview(canvas, previewBounds, skin, KeyboardGeometry.density(getContext()),
             previewText, previewKey);
     }
 

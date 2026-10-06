@@ -3498,17 +3498,16 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     int pixels(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return KeyboardGeometry.pixels(this, value);
     }
 
     int pixels(double value) {
         if (value <= 0) return 0;
-        return Math.max(1, Math.round((float) value * getResources().getDisplayMetrics().density));
+        return Math.max(1, KeyboardGeometry.pixels(this, (float) value));
     }
 
     int halfSpacingPixels(int tenths) {
-        return KeyboardGeometry.halfGapPixels(tenths,
-            getResources().getDisplayMetrics().density);
+        return KeyboardGeometry.halfGapPixels(tenths, KeyboardGeometry.density(this));
     }
 
     /**

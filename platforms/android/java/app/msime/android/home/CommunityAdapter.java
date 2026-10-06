@@ -300,7 +300,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     /** The slice of the grouped card behind one row: rounded where the group starts and ends. */
     private static GradientDrawable group(View row, boolean first, boolean last) {
-        float radius = GROUP_RADIUS_DP * row.getResources().getDisplayMetrics().density;
+        float radius = Ui.dpFloat(row.getContext(), GROUP_RADIUS_DP);
         float top = first ? radius : 0f;
         float bottom = last ? radius : 0f;
         GradientDrawable card = new GradientDrawable();

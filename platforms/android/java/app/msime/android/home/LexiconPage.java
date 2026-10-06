@@ -359,8 +359,8 @@ public final class LexiconPage extends DetailPage {
     }
 
     private void create(String name) {
-        Set<String> before = new HashSet<>();
         Model current = model;
+        Set<String> before = new HashSet<>(current == null ? 0 : current.view().collections().size());
         if (current != null) for (DictionaryCollectionsStore.Collection item : current.view().collections()) before.add(item.id());
         HostTask.run(this, context -> DictionaryCollectionsStore.create(context, name), result -> {
             if (result == null || !result.ok()) {

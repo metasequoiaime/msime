@@ -202,7 +202,7 @@ public final class FunctionPanelView extends LinearLayout {
         }
 
         @Override protected void onDraw(Canvas canvas) {
-            float density = getResources().getDisplayMetrics().density;
+            float density = KeyboardGeometry.density(getContext());
             boolean on = state == State.ON;
             int color = on ? panel.accent : panel.foreground;
             if (isPressed()) color = Color.argb(Color.alpha(color) * PRESSED_ALPHA / 255,

@@ -193,6 +193,12 @@ public final class KeyboardGeometry {
         return floatPixels(dp, context.getResources().getDisplayMetrics().density);
     }
 
+    /** Convert pixels back to density-independent units using the context's density. */
+    public static float fromPixels(Context context, float pixels) {
+        float density = density(context);
+        return density <= 0 ? pixels : pixels / density;
+    }
+
     /** Convert scalable text units using the view context's display metrics. */
     public static float sp(Context context, float value) {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value,

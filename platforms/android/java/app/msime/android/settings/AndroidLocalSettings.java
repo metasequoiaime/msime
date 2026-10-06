@@ -366,7 +366,7 @@ public final class AndroidLocalSettings {
         JSONObject document = new JSONObject(text);
         JSONObject settings = document.optJSONObject("settings");
         if (settings == null) return DEFAULTS;
-        Map<String, Object> raw = new LinkedHashMap<>();
+        Map<String, Object> raw = new LinkedHashMap<>(settings.length());
         for (Iterator<String> keys = settings.keys(); keys.hasNext(); ) {
             String key = keys.next();
             raw.put(key, settings.opt(key));
