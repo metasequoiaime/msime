@@ -262,6 +262,41 @@ impl JapaneseDictionary {
         self.best_lemmas(matches, limit)
     }
 
+    /// Token ids whose reading starts with `prefix` followed by one of `next_kana`.
+    /// Each suffix is a contiguous sorted range, so querying those ranges avoids
+    /// scanning unrelated readings in the whole `prefix` group. Overlapping
+    /// suffixes are deduplicated before ranking.
+    fn continuing_candidate_ids(&self, prefix: &str, next_kana: &[&str]) -> Vec<u32> {
+        let mut matches = Vec::new();
+        for kana in next_kana {
+            if kana.is_empty() {
+                for index in self.lower_bound(prefix)..self.token_count {
+                    let reading = self.reading(&self.token_at(index));
+                    let Some(remaining) = reading.strip_prefix(prefix) else {
+                        break;
+                    };
+                    if !remaining.is_empty() {
+                        matches.push(index as u32);
+                    }
+                }
+                continue;
+            }
+            let mut query = String::with_capacity(prefix.len() + kana.len());
+            query.push_str(prefix);
+            query.push_str(kana);
+            let start = self.lower_bound(&query);
+            for index in start..self.token_count {
+                if !self.reading(&self.token_at(index)).starts_with(&query) {
+                    break;
+                }
+                matches.push(index as u32);
+            }
+        }
+        matches.sort_unstable();
+        matches.dedup();
+        matches
+    }
+
     /// Tokens strictly longer than `prefix` whose remainder starts with one of `next_kana`.
     ///
     /// The reference ended its scan at the first reading that was not longer than the prefix, and a reading equal to the prefix sorts first, so any prefix that was itself a word returned nothing. Equal readings are skipped instead, as the contract says.
@@ -274,16 +309,7 @@ impl JapaneseDictionary {
         if prefix.is_empty() || next_kana.is_empty() || limit == 0 {
             return Vec::new();
         }
-        let mut matches = Vec::with_capacity(limit);
-        for index in self.lower_bound(prefix)..self.token_count {
-            let reading = self.reading(&self.token_at(index));
-            let Some(remaining) = reading.strip_prefix(prefix) else {
-                break;
-            };
-            if !remaining.is_empty() && next_kana.iter().any(|kana| remaining.starts_with(kana)) {
-                matches.push(index as u32);
-            }
-        }
+        let matches = self.continuing_candidate_ids(prefix, next_kana);
         self.best_lemmas(matches, limit)
     }
 
@@ -632,6 +658,23 @@ mod tests {
         assert_eq!(dictionary.connection_cost(1, 1), 40);
         assert_eq!(dictionary.connection_cost(2, 0), 10_000);
         assert_eq!(dictionary.connection_cost(0, 2), 10_000);
+    }
+
+    #[test]
+    fn continuing_candidate_ranges_deduplicate_overlapping_kana() {
+        let dictionary = parsed(test_model::bytes(
+            &[
+                ("かな", "仮名", 0, 0, 10),
+                ("かない", "家内", 0, 0, 20),
+                ("かに", "蟹", 0, 0, 40),
+                ("かん", "漢", 0, 0, 30),
+            ],
+            1,
+            &[0],
+        ));
+
+        let ids = dictionary.continuing_candidate_ids("か", &["な", "ない", "ん"]);
+        assert_eq!(ids, vec![0, 1, 3]);
     }
 
     #[test]
