@@ -5,7 +5,11 @@ import { utf8Length } from "../Utf8";
 export class DoubaoHeaderPolicy {
   static validValue(value: string, maxBytes: number): boolean {
     const trimmed: string = value.trim();
-    return trimmed.length > 0 && utf8Length(trimmed) <= maxBytes && !TextPolicy.hasControl(trimmed);
+    return trimmed.length > 0 && utf8Length(trimmed) <= maxBytes && !TextPolicy.hasControl(trimmed)
+      && Array.from(trimmed).every((character: string): boolean => {
+        const code: number = character.charCodeAt(0);
+        return code >= 0x20 && code <= 0x7e;
+      });
   }
 
   static validConfiguration(
