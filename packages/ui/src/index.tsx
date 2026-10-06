@@ -1625,6 +1625,8 @@ export interface HostCapabilities {
   voice_commit_mode: boolean;
   /** The OS release the host is running on, for the feedback page to attach. */
   os_version?: string;
+  /** The CPU architecture the host was built for (Rust's `std::env::consts::ARCH`, e.g. `x86_64`, `aarch64`); the update check picks this machine's Linux package by it. */
+  arch?: string;
   /** Why the Linux desktop panel drawing the candidate list ignores the candidate font, colours and skin, as the running host reported it. Absent when the panel honours them. */
   candidate_panel_limit?: "gnome_shell" | "fcitx_theme" | "kimpanel";
   /** The host plays the sound packs in `plugins`: key sounds, the melody, the commit sound and the achievement jingle. */
@@ -2599,6 +2601,7 @@ function useSettingsPageModel({ client, initialPage, route }: SettingsPageProps)
     clientHostedPlatform,
     releasePlatform: client.host?.platform ?? null,
     edition: client.host?.edition?.id,
+    arch: client.host?.arch,
     releasePageUrl: platformReleasesPageUrl,
     currentAppVersion,
   });

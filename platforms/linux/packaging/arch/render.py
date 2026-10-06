@@ -4,7 +4,7 @@
 用法：render.py VERSION [--sha256sums FILE] [--source-sha256 HEX] [--no-srcinfo]
 
     VERSION          发布版本 MAJOR.MINOR.PATCH，对应 linux-vVERSION 标签与发布。
-    --sha256sums     该发布的 SHA256SUMS（release-linux.yml 上传的那份）；不给时从 GitHub 发布下载。msime-bin 的 .rpm 校验值取自这里，不另算一遍。
+    --sha256sums     该发布的 SHA256SUMS（release-linux.yml 上传的那份）；不给时从 GitHub 发布下载。msime-bin 的 x86_64 与 aarch64 两个 .rpm 的校验值取自这里，不另算一遍；缺了哪一个都失败。
     --source-sha256  linux-vVERSION 源码归档的 SHA-256；不给时下载 GitHub 生成的归档自己算。
     --no-srcinfo     不生成 .SRCINFO。生成它要 makepkg（Arch 上以非 root 用户运行），只在没有 Arch 环境时用来检查改写结果。
 
@@ -43,8 +43,8 @@ def source_sha256(version: str) -> str:
     return digest.hexdigest()
 
 
-def rpm_sha256(version: str, sums: str) -> str:
-    name = f"msime-linux-{version}-{RPM_RELEASE}.x86_64.rpm"
+def rpm_sha256(version: str, sums: str, arch: str) -> str:
+    name = f"msime-linux-{version}-{RPM_RELEASE}.{arch}.rpm"
     for line in sums.splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[1].lstrip("*") == name:
@@ -95,7 +95,8 @@ def main() -> None:
         "pkgver": version,
         "pkgrel": "1",
         "_rpmrel": RPM_RELEASE,
-        "sha256sums_x86_64": f"('{rpm_sha256(version, sums)}')",
+        "sha256sums_x86_64": f"('{rpm_sha256(version, sums, 'x86_64')}')",
+        "sha256sums_aarch64": f"('{rpm_sha256(version, sums, 'aarch64')}')",
     })
     if not arguments.no_srcinfo:
         for name in ("msime", "msime-bin"):

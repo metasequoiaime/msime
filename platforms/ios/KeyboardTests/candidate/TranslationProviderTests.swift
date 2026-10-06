@@ -100,6 +100,21 @@ final class TranslationProviderTests: XCTestCase {
     XCTAssertNil(TranslationProviderClient.urlRequest(zeroLimit))
   }
 
+  func testURLRequestRejectsCredentialsFragmentsAndMissingHosts() {
+    let descriptor: [String: Any] = [
+      "url": "https://example.invalid/translate", "method": "POST", "body": ["text": "x"],
+    ]
+    for url in [
+      "https://user:password@example.invalid/translate",
+      "https://example.invalid/translate#fragment",
+      "https:///translate",
+    ] {
+      var malformed = descriptor
+      malformed["url"] = url
+      XCTAssertNil(TranslationProviderClient.urlRequest(malformed), "must reject \(url)")
+    }
+  }
+
   func testCacheScopeChangesWithProviderAndCredentials() {
     let a = TranslationRoute.niutrans(appID: "app", apiKey: "one").cacheScope
     XCTAssertNotEqual(a, TranslationRoute.niutrans(appID: "app", apiKey: "two").cacheScope)

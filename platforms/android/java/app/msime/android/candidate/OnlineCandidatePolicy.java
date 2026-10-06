@@ -2,6 +2,7 @@ package app.msime.android;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.net.URL;
 
 /**
  * Bounds and identifies asynchronous cloud and AI results before they return to Engine.
@@ -17,6 +18,7 @@ import java.util.List;
 public final class OnlineCandidatePolicy {
     /** How long a composition has to hold still before either provider is asked. */
     public static final long QUIET_INTERVAL_MILLIS = 350;
+    public static final int CLOUD_TIMEOUT_MILLIS = 2_000;
     public static final int MAX_CLOUD_RESPONSE_BYTES = 256 * 1024;
     public static final int MAX_AI_RESPONSE_BYTES = 1024 * 1024;
     public static final int MAX_AI_CONTENT_BYTES = 64 * 1024;
@@ -24,6 +26,12 @@ public final class OnlineCandidatePolicy {
     private static final int MAX_CANDIDATE_LIMIT = 10;
 
     private OnlineCandidatePolicy() {}
+
+    public static boolean validURL(URL target) {
+        return target != null && "https".equalsIgnoreCase(target.getProtocol())
+            && target.getHost() != null && !target.getHost().isEmpty()
+            && target.getUserInfo() == null && target.getRef() == null;
+    }
 
     /** Read the positive host session id without JSONObject's lossy numeric conversions. */
     public static long sessionId(Object raw, long fallback) {

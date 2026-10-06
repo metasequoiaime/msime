@@ -7117,13 +7117,46 @@ test("Linux release assets yield a digest only when it is well-formed and unambi
       signed: false,
     });
   }
-  // Two architectures would make any single digest wrong for someone.
-  expect(
-    pick([
-      { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
-      { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
-    ]),
-  ).toEqual({ name: null, sha256: null, signed: false });
+  // Without the host's architecture, two architectures would make any single digest wrong for someone.
+  const bothArchitectures = [
+    { name: "msime-linux_1.2.0_amd64.deb", digest: `sha256:${digest}` },
+    { name: "msime-linux_1.2.0_arm64.deb", digest: `sha256:${"b".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.x86_64.rpm", digest: `sha256:${"c".repeat(64)}` },
+    { name: "msime-linux-1.2.0-1.aarch64.rpm", digest: `sha256:${"d".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-x86_64.tar.gz", digest: `sha256:${"e".repeat(64)}` },
+    { name: "msime-linux-1.2.0-linux-aarch64.tar.gz", digest: `sha256:${"f".repeat(64)}` },
+  ];
+  expect(pick(bothArchitectures)).toEqual({ name: null, sha256: null, signed: false });
+  // The host reports its architecture (`HostCapabilities.arch`, Rust's name), and only that architecture's package is offered: dpkg names it in the .deb and CMake in the tarball.
+  const pickFor = (assets: unknown, arch: string) => {
+    const update = selectPlatformRelease(release(assets), "linux", page, undefined, arch);
+    return update && { name: update.installerName, sha256: update.installerSha256 };
+  };
+  expect(pickFor(bothArchitectures, "x86_64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
+  expect(pickFor(bothArchitectures, "aarch64")).toEqual({
+    name: "msime-linux_1.2.0_arm64.deb",
+    sha256: "b".repeat(64),
+  });
+  // Each architecture falls back to its own tarball, never another architecture's .deb.
+  const tarballsOnly = bothArchitectures.filter((asset) => asset.name.endsWith(".tar.gz"));
+  expect(pickFor([...tarballsOnly, bothArchitectures[0]], "aarch64")).toEqual({
+    name: "msime-linux-1.2.0-linux-aarch64.tar.gz",
+    sha256: "f".repeat(64),
+  });
+  // A release from before aarch64 packages offers an aarch64 host nothing rather than the x86_64 package.
+  expect(pickFor([bothArchitectures[0], bothArchitectures[4]], "aarch64")).toEqual({
+    name: null,
+    sha256: null,
+  });
+  // An architecture no package is built for keeps every asset, and two of them still offer nothing.
+  expect(pickFor(bothArchitectures, "riscv64")).toEqual({ name: null, sha256: null });
+  expect(pickFor([bothArchitectures[0]], "riscv64")).toEqual({
+    name: "msime-linux_1.2.0_amd64.deb",
+    sha256: digest,
+  });
   // A name that would need shell quoting is never put into the copyable command.
   expect(pick([{ name: "--x;rm -rf ~.deb", digest: `sha256:${digest}` }])).toEqual({
     name: null,

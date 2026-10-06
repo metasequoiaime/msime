@@ -104,3 +104,35 @@ test("the installer placeholder names the edition's installer", () => {
     "MetasequoiaIME-Wubi_Setup_v<版本>.exe.sha256",
   );
 });
+
+test("an edition picks its own package for the host's architecture", () => {
+  const bothArchitectures = [
+    {
+      ...linuxRelease[0]!,
+      assets: [
+        ...linuxRelease[0]!.assets,
+        { name: "msime-linux_1.2.0_arm64.deb", digest: digest("1") },
+        { name: "msime-linux-wubi_1.2.0_arm64.deb", digest: digest("2") },
+        { name: "msime-linux-wubi-1.2.0-linux-aarch64.tar.gz", digest: digest("3") },
+      ],
+    },
+  ];
+  const pickFor = (edition: string | undefined, arch: string) => {
+    const update = selectPlatformRelease(bothArchitectures, "linux", page, edition, arch);
+    return update && { name: update.installerName, sha256: update.installerSha256 };
+  };
+  expect(pickFor(undefined, "aarch64")).toEqual({
+    name: "msime-linux_1.2.0_arm64.deb",
+    sha256: "1".repeat(64),
+  });
+  expect(pickFor("wubi", "aarch64")).toEqual({
+    name: "msime-linux-wubi_1.2.0_arm64.deb",
+    sha256: "2".repeat(64),
+  });
+  expect(pickFor("wubi", "x86_64")).toEqual({
+    name: "msime-linux-wubi_1.2.0_amd64.deb",
+    sha256: "c".repeat(64),
+  });
+  // pinyin has no aarch64 package in this release, so an aarch64 host is offered none of the x86_64 ones.
+  expect(pickFor("pinyin", "aarch64")).toEqual({ name: null, sha256: null });
+});
