@@ -48,8 +48,10 @@ struct Rows {
 impl Rows {
     fn reserve(&mut self, additional: usize) {
         self.items.reserve(additional);
+        self.seen.reserve(additional);
     }
 
+    #[cfg(test)]
     fn contains_word(&self, word: &str) -> bool {
         self.seen.contains(word)
     }
@@ -158,8 +160,8 @@ impl JapaneseProvider {
         if let Some(dynamic) = self.dynamic.get_ref(&request.raw_input) {
             let mut insertion = rows.items.len().min(if kana_first { 2 } else { 1 });
             for item in dynamic {
-                // Dynamic rows are bounded by the cache quota; scan the already-owned words to avoid cloning a second key into `seen`.
-                if rows.contains_word(&item.word) {
+                // Dynamic rows are bounded by the cache quota; keep the word index in sync while inserting them.
+                if !rows.seen.insert(item.word.clone()) {
                     continue;
                 }
                 rows.items.insert(insertion, item.clone());
