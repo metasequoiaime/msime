@@ -21,7 +21,7 @@ import org.json.JSONObject;
 /** 键盘的着色与几何：按键样式、皮肤套用、键距行距与键盘高度；从 MSIMEInputService 原样搬出。 */
 final class ImeStyler {
     private final MSIMEInputService s;
-    private final Map<String, Integer> colorCache = new HashMap<>();
+    private final Map<String, Integer> colorCache = new HashMap<>(64);
 
     ImeStyler(MSIMEInputService s) {
         this.s = s;
