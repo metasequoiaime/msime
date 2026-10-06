@@ -1,5 +1,6 @@
 //! The emoji, symbol and kaomoji catalog the host's picker pages through (api-contract §1c, bridge.cpp:1018-1137, 1237-1260). Errors deliberately carry no SQLite detail.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{Connection, Statement};
@@ -105,6 +106,7 @@ pub fn read_emoji_catalog_slice(
         next_offset: offset,
         complete: false,
     };
+    let mut seen = deduplicate.then(|| HashSet::with_capacity(limit.min(256)));
     let mut rows = statement.raw_query();
     loop {
         let row = match rows.next() {
@@ -129,7 +131,15 @@ pub fn read_emoji_catalog_slice(
             continue;
         }
         if let Some(text) = text {
-            if !deduplicate || !contains_catalog_text(&result.items, &text) {
+            let new_text = match &mut seen {
+                Some(seen) if seen.contains(text.as_str()) => false,
+                Some(seen) => {
+                    seen.insert(text.clone());
+                    true
+                }
+                None => true,
+            };
+            if new_text {
                 result.items.push(EmojiCatalogItem {
                     text,
                     annotation: annotation.unwrap_or_default(),
@@ -140,10 +150,6 @@ pub fn read_emoji_catalog_slice(
     }
     result.complete = result.next_offset - offset < limit;
     Ok(result)
-}
-
-fn contains_catalog_text(items: &[EmojiCatalogItem], text: &str) -> bool {
-    items.iter().any(|item| item.text == text)
 }
 
 fn search_pattern(search: &str) -> String {
@@ -259,17 +265,6 @@ mod tests {
     }
 
     #[test]
-    fn catalog_text_lookup_uses_owned_items() {
-        let items = vec![EmojiCatalogItem {
-            text: "😀".into(),
-            annotation: String::new(),
-            group: String::new(),
-        }];
-        assert!(contains_catalog_text(&items, "😀"));
-        assert!(!contains_catalog_text(&items, "😄"));
-    }
-
-    #[test]
     fn search_pattern_allocates_only_result_bytes() {
         let pattern = search_pattern("arrow");
         assert_eq!(pattern, "%arrow%");
@@ -325,6 +320,8 @@ mod tests {
         let dedup =
             read_emoji_catalog_slice(&resources, "", "symbols", "", 0, 10, "", true).unwrap();
         assert_eq!(texts(&dedup), ["+", "→", "←", ""]);
+        assert_eq!(dedup.items[1].group, "Arrows");
+        assert_eq!(dedup.next_offset, 5);
         let arrows =
             read_emoji_catalog_slice(&resources, "", "symbols", "Arrows", 0, 10, "", false)
                 .unwrap();
