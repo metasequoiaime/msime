@@ -773,7 +773,7 @@ fn is_sha256_hex(value: &str) -> bool {
 }
 
 fn validate_sync_list(entries: &[CandidateSkinSyncEntry]) -> Result<(), AccountError> {
-    let mut ids = BTreeSet::new();
+    let mut ids = HashSet::with_capacity(entries.len());
     if entries.len() > MAX_SYNC_ENTRIES
         || entries.iter().any(|entry| {
             entry.id.is_nil()
