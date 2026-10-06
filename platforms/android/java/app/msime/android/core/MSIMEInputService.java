@@ -222,7 +222,7 @@ public final class MSIMEInputService extends InputMethodService {
     /** The shared theme catalog (`msime_client_theme_catalog`), read once: ids, titles and palettes are fixed per build. */
     JSONArray themeCatalog;
     /** Resolved keyboards by request, so the four surfaces of one snapshot cost at most two native calls. */
-    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>();
+    private final java.util.Map<String, KeyboardSkin> resolvedThemes = new java.util.HashMap<>(8);
     /** 输入法自己写进编辑器后预期的选区，用来认出 `onUpdateSelection` 里迟到的回声。 */
     final SelectionEchoTracker selectionEcho = new SelectionEchoTracker();
     private JSONObject localModes = new JSONObject();
