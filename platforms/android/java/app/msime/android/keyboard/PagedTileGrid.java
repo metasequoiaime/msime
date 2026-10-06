@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.OverScroller;
+import app.msime.android.KeyboardGeometry;
 
 /**
  * 横向分页的网格：默认 4 列 × 2 行一页，子视图按顺序逐页排布，左右滑动按页吸附。功能面板、皮肤面板、输入方式面板共用它。
