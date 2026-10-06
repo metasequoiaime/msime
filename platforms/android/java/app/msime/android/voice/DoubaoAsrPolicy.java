@@ -28,7 +28,7 @@ public final class DoubaoAsrPolicy {
 
     /** A streaming response carries text; reject non-string JSON values before display. */
     static String strictText(Object value) {
-        return value instanceof String ? (String) value : "";
+        return AiProviderResponse.strictText(value);
     }
 
     static boolean validEndpoint(String endpoint) {

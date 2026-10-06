@@ -7,4 +7,8 @@ final class AiProviderResponse {
     static String strictContent(Object value) {
         return value instanceof String ? (String) value : "";
     }
+
+    static String strictText(Object value) {
+        return value instanceof String ? (String) value : "";
+    }
 }
