@@ -1,4 +1,4 @@
-# Linux 原生宿主的 CMake 构建，打开 Fcitx5 插件，可选装入随包词库。IBus engine 等其余
+# Linux 原生宿主的 CMake 构建，打开 Fcitx5 插件，可选装入随包词库与设置窗口。IBus engine 等其余
 # 入口照常一起构建和安装：顶层 CMake 把 IBus 列为必需，而且 msime-linux-setup、
 # msime-linux-prepare 是 Fcitx5 首次配置也要用的。
 {
@@ -12,7 +12,10 @@
   ninja,
   pkg-config,
   python3,
+  bashNonInteractive,
   makeWrapper,
+  wrapGAppsHook3,
+  glib-networking,
   wl-clipboard,
   wayland-scanner,
   wayland-protocols,
@@ -40,11 +43,15 @@
   # 本地语音识别用的 sherpa-onnx 运行库（msime-voice-runtime）。default.nix 默认传入，与各发行版的包
   # 一致；传 null 时 msime-voice-local 报告运行库缺失，本地识别不可用，云端识别不受影响。
   voiceRuntime ? null,
+  # 设置窗口的 Tauri 二进制（msime-desktop）。default.nix 默认传入；传 null 时没有
+  # msime-linux-settings 与桌面入口，插件菜单里打开设置、手写、语音等面板的项都不起作用。
+  settingsWindow ? null,
 }:
 let
   # 安装出去的 provider 脚本用的解释器。豆包流式识别要 websockets 的同步客户端
   # （scripts/msime_voice_doubao.py 按特性检查，不限主版本上限）；其余脚本只用标准库。
   python = python3.withPackages (ps: [ ps.websockets ]);
+  clipboardPath = lib.makeBinPath [ wl-clipboard ];
 in
 stdenv.mkDerivation {
   pname = "msime-fcitx5";
@@ -95,11 +102,14 @@ stdenv.mkDerivation {
     python3
     makeWrapper
     wayland-scanner
-  ];
-  # python 放在这里，postInstall 的 patchShebangs --host 才会把装出去的脚本改写到它。
+  ]
+  ++ lib.optional (settingsWindow != null) wrapGAppsHook3;
+  # python 放在这里，postInstall 的 patchShebangs --host 才会把装出去的脚本改写到它；bash 同理，
+  # 给装出去的 sh、bash 脚本（msime-linux-settings、Omarchy 的钩子等）用，NixOS 上没有 /bin/bash。
   # wayland-protocols 只提供 .pc 和协议 XML，CMake 经 pkg-config 找到其中的 xdg-shell.xml。
   buildInputs = [
     python
+    bashNonInteractive
     wayland-protocols
     fcitx5
     ibus
@@ -114,7 +124,9 @@ stdenv.mkDerivation {
     libxext
     libxfixes
     libxrandr
-  ];
+  ]
+  # 设置页发出的 https 请求（tauri.conf.json 的 connect-src）由 WebKit 经 GIO 的 TLS 模块完成。
+  ++ lib.optional (settingsWindow != null) glib-networking;
 
   # 测试会直接执行源码树里的脚本，构建沙箱里没有 /usr/bin/env。
   postPatch = ''
@@ -141,6 +153,11 @@ stdenv.mkDerivation {
   )
   ++ lib.optional (voiceRuntime != null) (
     lib.cmakeFeature "MSIME_VOICE_RUNTIME_DIR" "${voiceRuntime}"
+  )
+  # CMake 把它装成 msime-linux-desktop，与 msime-linux-setup、手写模型在同一个前缀下：设置窗口按
+  # 自己所在的前缀找这些。
+  ++ lib.optional (settingsWindow != null) (
+    lib.cmakeFeature "MSIME_DESKTOP_BINARY" (lib.getExe settingsWindow)
   );
 
   doCheck = true;
@@ -155,16 +172,24 @@ stdenv.mkDerivation {
   # 剪贴板监视器在 Wayland 上只靠 wl-paste 取剪贴板（--watch 与读取都是），找不到它时一直空转，
   # 剪贴板历史什么也记不下。录音、提示音和静音用的音频工具不随包：provider 取 PATH 上找到的第一个
   # （parec、pw-cat、arecord），带上 PulseAudio 的工具会让只有 PipeWire、没开 pipewire-pulse 的
-  # 系统选到连不上的 parec，所以交给系统的音频栈。
+  # 系统选到连不上的 parec，所以交给系统的音频栈。设置窗口的剪贴板面板在 Wayland 上同样只经
+  # wl-copy、wl-paste 读写剪贴板。
+  #
+  # wrapGAppsHook3 默认把 bin 下每个可执行文件都包一层，这里只包设置窗口，其余的不用 GTK。包装后真正
+  # 的二进制是同目录下的 .msime-linux-desktop-wrapped，它按 current_exe 找前缀，不受影响。
+  dontWrapGApps = true;
   postFixup = ''
-    wrapProgram $out/bin/msime-linux-clipboard-monitor --prefix PATH : ${
-      lib.makeBinPath [ wl-clipboard ]
-    }
+    wrapProgram $out/bin/msime-linux-clipboard-monitor --prefix PATH : ${clipboardPath}
+  ''
+  + lib.optionalString (settingsWindow != null) ''
+    wrapGApp $out/bin/msime-linux-desktop --prefix PATH : ${clipboardPath}
   '';
 
   # ctest 跑的是构建目录，看不到装出去的插件能不能加载。fixup 之后再核对一次：Fcitx5 按插件的
   # RUNPATH 找 Host API，它必须落在本包自己的 lib/msime-client 里。语音运行库同理，另外它的依赖都要
   # 能单独解析：msime-voice-local 自己已经载入了 libstdc++，只看它能否打开运行库发现不了缺依赖。
+  # 设置窗口经 fixup 收缩过 RUNPATH，也核对一遍它的 GTK 与 WebKit 依赖都还解析得到，以及包装器给了
+  # TLS 模块：缺了它 GIO 只记一条警告，设置页的 https 请求失败。
   doInstallCheck = true;
   installCheckPhase = ''
     runHook preInstallCheck
@@ -179,6 +204,10 @@ stdenv.mkDerivation {
       resolves $out/lib/msime-client/libsherpa-onnx-c-api.so libonnxruntime.so
       [[ $(ldd $out/lib/msime-client/libsherpa-onnx-c-api.so $out/lib/msime-client/libonnxruntime.so) != *"not found"* ]]
       python3 ../platforms/linux/tests/voice/local_runtime.py $out/lib/msime-client/msime-voice-local
+    ''}
+    ${lib.optionalString (settingsWindow != null) ''
+      [[ $(ldd $out/bin/.msime-linux-desktop-wrapped) != *"not found"* ]]
+      grep -qF ${glib-networking}/lib/gio/modules $out/bin/msime-linux-desktop
     ''}
     runHook postInstallCheck
   '';

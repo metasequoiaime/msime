@@ -19,7 +19,34 @@ let
     version = pkgs.lib.fileContents ../version.txt;
   };
 
-  msime-host-api = pkgs.callPackage ./host-api.nix (common // { inherit craneLib; });
+  # 两个 Rust 包共用的源码：只放 Cargo 需要的部分，别的平台改动不触发重编。resources 与 shared 里被
+  # include_str! 引用的是锁文件、语音模型目录和 shared/contracts，与 Rust 无关的大目录去掉。
+  # apps/desktop/src-tauri 由各包按需要的范围自己加。
+  cargoSources =
+    let
+      inherit (common) root;
+    in
+    pkgs.lib.fileset.unions [
+      (root + "/Cargo.toml")
+      (root + "/Cargo.lock")
+      (root + "/crates")
+      (pkgs.lib.fileset.difference (root + "/resources") (
+        pkgs.lib.fileset.unions [
+          (root + "/resources/eval")
+          (root + "/resources/dictionary-sources")
+          (root + "/resources/helpcodes")
+          (root + "/resources/licenses")
+          (root + "/resources/sound-packs")
+        ]
+      ))
+      (root + "/shared/contracts")
+    ];
+  rustArgs = common // {
+    inherit craneLib cargoSources;
+  };
+
+  msime-host-api = pkgs.callPackage ./host-api.nix rustArgs;
+  msime-desktop = pkgs.callPackage ./desktop.nix rustArgs;
   lockedArtifacts = pkgs.callPackage ./locked-artifacts.nix { };
   # desktop-dictionary.lock.json 钉住的词库，默认不随包（见 fcitx5.nix 的 bundledResources）。锁里只有
   # SCOWL 与 Mozc 的许可文本，逐项列出词库数据来源与上游条款的 NOTICE 是仓库里的固定副本，与插件包
@@ -45,6 +72,7 @@ let
     common
     // {
       inherit msime-host-api;
+      settingsWindow = msime-desktop;
       handwritingModel = msime-handwriting-model;
       # 锁里没有本机架构的运行库时（如 riscv64、i686）不带它，退回只有云端识别的构建，而不是求值失败。
       voiceRuntime =
@@ -59,6 +87,7 @@ in
   packages = {
     inherit
       msime-host-api
+      msime-desktop
       msime-resources
       msime-handwriting-model
       msime-voice-runtime
@@ -67,19 +96,13 @@ in
   };
 
   devShell = pkgs.mkShell {
+    # msime-desktop 带进 Tauri 外壳（msime-desktop、tauri-mobile-platform）要的 GTK 与 WebKit，
+    # verify-local.sh 的 cargo check 会编到它们。
     inputsFrom = [
       msime-host-api
+      msime-desktop
       msime-fcitx5
     ];
-    # 后几项是 Tauri 外壳（msime-desktop、tauri-mobile-platform）的开发依赖，与
-    # platforms/linux/tests/tools/Dockerfile.desktop-check 装的同一组；verify-local.sh 的
-    # cargo check 会编到它们。
-    packages = with pkgs; [
-      rustToolchain
-      gtk3
-      webkitgtk_4_1
-      libsoup_3
-      openssl
-    ];
+    packages = [ rustToolchain ];
   };
 }

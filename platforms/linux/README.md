@@ -110,13 +110,15 @@ msime-linux-setup --update --download   # 升级之后只取回过期的那几�
 
 ### Nix 与 NixOS
 
-仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5；设置窗口还没有接进 Nix。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，它由设置窗口下载，设置窗口接进 Nix 之前只能手动准备。
+仓库根目录的 `flake.nix` 提供 `msime-fcitx5`（默认包）、`msime-host-api`、`msime-desktop`、`msime-resources`、`msime-handwriting-model`、`msime-voice-runtime`、`overlays.default`、NixOS 模块 `nixosModules.default` 和开发 shell，实际的构建在 `platforms/linux/nix/`。`msime-host-api` 用 crane 构建，编译器按 `rust-toolchain.toml` 取自 rust-overlay，不用 nixpkgs 自带的 rustc；`msime-fcitx5` 是本目录的 CMake 构建，构建时跑与门禁相同的 ctest，装完再用 `ldd` 核对插件能按 RUNPATH 找到同一包里的 Host API。IBus engine、`msime-linux-setup` 等其余入口一并装进同一个包，但 NixOS 上目前只接入 Fcitx5。设置窗口默认随包：`msime-desktop` 先用 `pnpm --filter @msime/desktop build` 构建前端，再用 crane 带 `tauri/custom-protocol` 编译 Tauri 外壳，与 `package-container.sh` 相同；`msime-fcitx5` 把它经 `MSIME_DESKTOP_BINARY` 交给 CMake，装成同一前缀下的 `msime-linux-desktop`，连同 `msime-linux-settings` 和桌面入口，只给它包上 GTK 与 WebKit 的运行环境（`wrapGAppsHook3`、TLS 用的 `glib-networking`）。不要它时用 `msime-fcitx5.override { settingsWindow = null; }`，插件菜单里打开设置和各个面板的项随之失效。离线手写模型与各发行版的包一样默认随包：`msime-handwriting-model` 按 `resources/handwriting-model.lock.json` 的地址和 SHA-256 下载，构建中的 ctest `linux-handwriting-local-model` 用它识别两笔合成的「十」；不要它时用 `msime-fcitx5.override { handwritingModel = null; }`。本地语音识别用的 sherpa-onnx 运行库同样默认随包：`msime-voice-runtime` 取 `resources/voice-runtime.lock.json` 里本机架构的上游预编译库，由 ctest `linux-voice-local-runtime` 核对能被打开；不要它时用 `msime-fcitx5.override { voiceRuntime = null; }`。本地识别还需要识别模型，在设置窗口的语音页下载。
 
 ```sh
-nix build .#msime-fcitx5     # 插件、Host API 与命令行入口，构建中跑 ctest
+nix build .#msime-fcitx5     # 插件、Host API、命令行入口与设置窗口，构建中跑 ctest
 nix flake check
 nix develop                  # 钉住的 Rust 工具链与 CMake/Fcitx5 开发依赖
 ```
+
+前端的 npm 依赖按 `pnpm-lock.yaml` 里每个包的 `integrity` 逐个下载（`platforms/linux/nix/pnpm-lock.nix`），再把锁文件改写成从这些 tarball 离线安装，与其他锁文件驱动的资源一样不另记一份哈希，锁文件变了不用改 Nix 文件。它只认 lockfile v9 里来自 registry、只带 `integrity` 的包；锁文件里出现 git 依赖或 tarball 地址时求值直接失败，届时要扩展这个文件。
 
 在 NixOS 上用模块。插件被加载进 `fcitx5` 进程，应当与系统上的 Fcitx5 出自同一份 nixpkgs，所以模块默认按本系统的 nixpkgs 构建 `msime-fcitx5`，不需要另加 overlay：
 
