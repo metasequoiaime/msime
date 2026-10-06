@@ -38,15 +38,40 @@ public final class KeyboardSkinPreview extends View {
     private final RectF previewBounds = new RectF();
     private final Paint previewText = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF previewKey = new RectF();
+    private PreviewDrawState previewDrawState;
+
+    private static final class PreviewDrawState {
+        final KeyboardSkinBackgroundDrawable background;
+        final KeyboardSkinKeyDrawable[][] keys;
+
+        PreviewDrawState(KeyboardSkin skin, float density) {
+            background = new KeyboardSkinBackgroundDrawable(skin, density);
+            keys = new KeyboardSkinKeyDrawable[PREVIEW_ROWS.length][];
+            int keyFill = Color.parseColor(skin.keyBackground());
+            int actionFill = Color.parseColor(skin.actionBackground());
+            for (int rowIndex = 0; rowIndex < PREVIEW_ROWS.length; rowIndex++) {
+                String[] row = PREVIEW_ROWS[rowIndex];
+                keys[rowIndex] = new KeyboardSkinKeyDrawable[row.length];
+                for (int index = 0; index < row.length; index++) {
+                    boolean action = rowIndex == PREVIEW_ROWS.length - 1
+                        || index == 0 && rowIndex == 2;
+                    keys[rowIndex][index] = new KeyboardSkinKeyDrawable(skin,
+                        action ? actionFill : keyFill, action, density);
+                }
+            }
+        }
+    }
 
     public KeyboardSkinPreview(Context context, KeyboardSkin skin) {
         super(context);
         this.skin = skin;
+        previewDrawState = new PreviewDrawState(skin, KeyboardGeometry.density(context));
         setWillNotDraw(false);
     }
 
     public void setSkin(KeyboardSkin value) {
         skin = value;
+        previewDrawState = new PreviewDrawState(value, KeyboardGeometry.density(getContext()));
         invalidate();
     }
 
@@ -54,7 +79,7 @@ public final class KeyboardSkinPreview extends View {
         super.onDraw(canvas);
         previewBounds.set(0, 0, getWidth(), getHeight());
         drawPreview(canvas, previewBounds, skin, KeyboardGeometry.density(getContext()),
-            previewText, previewKey);
+            previewText, previewKey, previewDrawState);
     }
 
     public static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
@@ -64,9 +89,15 @@ public final class KeyboardSkinPreview extends View {
 
     private static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
                                     float density, Paint reusableText, RectF reusableKey) {
+        drawPreview(canvas, bounds, skin, density, reusableText, reusableKey, null);
+    }
+
+    private static void drawPreview(Canvas canvas, RectF bounds, KeyboardSkin skin,
+                                    float density, Paint reusableText, RectF reusableKey,
+                                    PreviewDrawState state) {
         if (bounds.width() <= 0 || bounds.height() <= 0) return;
-        KeyboardSkinBackgroundDrawable background =
-            new KeyboardSkinBackgroundDrawable(skin, density);
+        KeyboardSkinBackgroundDrawable background = state == null
+            ? new KeyboardSkinBackgroundDrawable(skin, density) : state.background;
         background.setBounds(Math.round(bounds.left), Math.round(bounds.top),
             Math.round(bounds.right), Math.round(bounds.bottom));
         background.draw(canvas);
@@ -92,9 +123,9 @@ public final class KeyboardSkinPreview extends View {
                 float top = bounds.top + rowIndex * (rowHeight + gap);
                 key.set(left, top, left + keyWidth, top + rowHeight);
                 boolean action = rowIndex == rows.length - 1 || index == 0 && rowIndex == 2;
-                int fill = action ? actionFill : keyFill;
-                KeyboardSkinKeyDrawable drawable = new KeyboardSkinKeyDrawable(
-                    skin, fill, action, density);
+                KeyboardSkinKeyDrawable drawable = state == null ? new KeyboardSkinKeyDrawable(
+                    skin, action ? actionFill : keyFill, action, density)
+                    : state.keys[rowIndex][index];
                 drawable.setBounds(Math.round(key.left), Math.round(key.top),
                     Math.round(key.right), Math.round(key.bottom));
                 drawable.draw(canvas);
