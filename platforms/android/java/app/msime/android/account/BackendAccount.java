@@ -267,25 +267,56 @@ public final class BackendAccount {
             if (id.isEmpty() || id.length() > 256) throw new IllegalStateException("invalid model catalogue");
             models.add(new ChatModel(id));
         }
+        String defaultModel = optionalStringField(response.opt("default_model"), "");
+        if (!validChatModels(models, defaultModel))
+            throw new IllegalStateException("invalid model catalogue");
         return List.copyOf(models);
+    }
+
+    static boolean validChatModels(List<ChatModel> models, String defaultModel) {
+        if (models == null || models.isEmpty() || models.size() > 33 || defaultModel == null
+                || defaultModel.isEmpty() || TextPolicy.utf8Length(defaultModel) > 200)
+            return false;
+        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        boolean hasDefault = false;
+        for (ChatModel model : models) {
+            if (model == null || model.id() == null || model.id().isEmpty()
+                    || TextPolicy.utf8Length(model.id()) > 200 || !ids.add(model.id())) return false;
+            if (defaultModel.equals(model.id())) hasDefault = true;
+        }
+        return hasDefault;
+    }
+
+    static boolean validChatRequest(List<ChatMessage> messages, String model) {
+        if (model == null || model.isEmpty() || TextPolicy.utf8Length(model) > 200
+                || messages == null || messages.isEmpty() || messages.size() > 16) return false;
+        int bytes = 0;
+        for (ChatMessage message : messages) {
+            if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())
+                    || "system".equals(message.role())) || message.content() == null
+                    || message.content().trim().isEmpty()
+                    || TextPolicy.utf8Length(message.content()) > 16 * 1024
+                    || TextPolicy.hasControlExceptWhitespace(message.content())) return false;
+            bytes += TextPolicy.utf8Length(message.content());
+        }
+        return bytes <= 64 * 1024;
+    }
+
+    static boolean validChatResponse(String role, String content) {
+        return "assistant".equals(role) && content != null && !content.trim().isEmpty()
+            && TextPolicy.utf8Length(content) <= 16 * 1024
+            && !TextPolicy.hasControlExceptWhitespace(content);
     }
 
     /** Sends one bounded non-streaming chat request; callers must run it off the UI thread. */
     public String chat(List<ChatMessage> messages, String model) throws Exception {
         String token = accessToken();
-        if (token.isEmpty() || model == null || model.isBlank() || model.length() > 256)
-            throw new IllegalStateException("invalid chat request");
-        if (messages == null || messages.isEmpty() || messages.size() > 14)
+        if (token.isEmpty() || !validChatRequest(messages, model))
             throw new IllegalStateException("invalid chat request");
         org.json.JSONArray payloadMessages = new org.json.JSONArray();
-        int bytes = 0;
         for (ChatMessage message : messages) {
-            if (message == null || !("user".equals(message.role()) || "assistant".equals(message.role())))
-                throw new IllegalStateException("invalid chat request");
-            String content = message.content() == null ? "" : message.content();
-            if (content.isEmpty() || content.length() > 10_000 || (bytes += TextPolicy.utf8Length(content)) > 48_000)
-                throw new IllegalStateException("invalid chat request");
-            payloadMessages.put(new JSONObject().put("role", message.role()).put("content", content));
+            payloadMessages.put(new JSONObject().put("role", message.role())
+                .put("content", message.content()));
         }
         JSONObject body = new JSONObject().put("messages", payloadMessages)
             .put("model", model).put("max_tokens", 2048).put("stream", false);
@@ -294,7 +325,8 @@ public final class BackendAccount {
         JSONObject first = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0);
         JSONObject message = first == null ? null : first.optJSONObject("message");
         String content = message == null ? "" : requiredStringField(message.opt("content"));
-        if (content.isEmpty() || content.length() > 10_000) throw new IllegalStateException("invalid chat response");
+        String role = message == null ? "" : optionalStringField(message.opt("role"), "");
+        if (!validChatResponse(role, content)) throw new IllegalStateException("invalid chat response");
         return content;
     }
 

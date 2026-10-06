@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 public final class BackendAccountResponseSmoke {
     public static void main(String[] args) throws Exception {
@@ -87,6 +88,33 @@ public final class BackendAccountResponseSmoke {
             "missing optional account string uses its fallback");
         check("synthetic".equals(BackendAccount.optionalStringField("synthetic", "fallback")),
             "string account response is accepted");
+
+        check(BackendAccount.validChatModels(List.of(
+                new BackendAccount.ChatModel("synthetic-model")), "synthetic-model"),
+            "model catalog accepts a valid default");
+        check(!BackendAccount.validChatModels(List.of(
+                new BackendAccount.ChatModel("synthetic-model"),
+                new BackendAccount.ChatModel("synthetic-model")), "synthetic-model"),
+            "model catalog rejects duplicate ids");
+        check(!BackendAccount.validChatModels(List.of(
+                new BackendAccount.ChatModel("你".repeat(100))), "你".repeat(100)),
+            "model catalog applies UTF-8 byte bounds");
+
+        List<BackendAccount.ChatMessage> messages = new java.util.ArrayList<>();
+        messages.add(new BackendAccount.ChatMessage("system", "system prompt"));
+        for (int index = 1; index < 16; index++) {
+            messages.add(new BackendAccount.ChatMessage(index % 2 == 0 ? "assistant" : "user",
+                "你".repeat(1_000)));
+        }
+        check(BackendAccount.validChatRequest(messages, "synthetic-model"),
+            "chat accepts the shared sixteen-message and UTF-8 bounds");
+        check(!BackendAccount.validChatRequest(List.of(
+                new BackendAccount.ChatMessage("user", "bad\u0000text")), "synthetic-model"),
+            "chat request rejects disallowed controls");
+        check(!BackendAccount.validChatResponse("user", "synthetic reply"),
+            "chat response requires an assistant role");
+        check(!BackendAccount.validChatResponse("assistant", "bad\u0000reply"),
+            "chat response rejects disallowed controls");
 
         check(!BackendAccount.validClipboardItem(new BackendAccount.ClipboardItem(
             "a".repeat(64), "safe\u0000hidden", "2026-10-04T00:00:00Z")),
