@@ -156,6 +156,11 @@ public final class FunctionPanelView extends LinearLayout {
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
+        private String fittedLabel;
+        private String fittedLabelSource;
+        private float fittedLabelWidth = Float.NaN;
+        private float fittedLabelSize = Float.NaN;
+        private boolean fittedLabelBold;
         private State state = State.NONE;
 
         Tile(Context context, FunctionPanelView panel, Entry entry) {
@@ -270,8 +275,21 @@ public final class FunctionPanelView extends LinearLayout {
 
         /** 放不下时以「…」结尾截断，不悄悄丢掉末尾的字。 */
         private String fit(String value, float width) {
-            return TextUtils.ellipsize(value == null ? "" : value, textPaint, Math.max(0f, width),
-                TextUtils.TruncateAt.END).toString();
+            String source = value == null ? "" : value;
+            float boundedWidth = Math.max(0f, width);
+            boolean bold = textPaint.getTypeface() == Typeface.DEFAULT_BOLD;
+            float size = textPaint.getTextSize();
+            if (fittedLabel == null || !source.equals(fittedLabelSource)
+                || fittedLabelWidth != boundedWidth || fittedLabelSize != size
+                || fittedLabelBold != bold) {
+                fittedLabel = TextUtils.ellipsize(source, textPaint, boundedWidth,
+                    TextUtils.TruncateAt.END).toString();
+                fittedLabelSource = source;
+                fittedLabelWidth = boundedWidth;
+                fittedLabelSize = size;
+                fittedLabelBold = bold;
+            }
+            return fittedLabel;
         }
 
     }
