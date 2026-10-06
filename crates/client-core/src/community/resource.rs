@@ -12,6 +12,7 @@ use crate::community::{
 };
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -609,16 +610,17 @@ fn validate_content(
             {
                 return Err(AccountError::Unavailable);
             }
-            let mut seen = std::collections::BTreeSet::new();
+            let mut seen = HashSet::with_capacity(content.entries.len());
             for entry in &content.entries {
+                let identity = (
+                    std::mem::discriminant(&entry.kind),
+                    entry.code.as_str(),
+                    entry.word.as_str(),
+                );
                 if !valid_text(&entry.code, 1, 256, false)
                     || !valid_text(&entry.word, 1, 1_024, false)
                     || entry.weight < 0
-                    || !seen.insert((
-                        format!("{:?}", entry.kind),
-                        entry.code.clone(),
-                        entry.word.clone(),
-                    ))
+                    || !seen.insert(identity)
                 {
                     return Err(AccountError::Unavailable);
                 }
