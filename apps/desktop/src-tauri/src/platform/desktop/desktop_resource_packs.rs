@@ -46,6 +46,8 @@ pub(crate) struct Installation {
     pub(crate) ink_chinese_recognizer: bool,
     /// 安装布局里随包带着落定重排模型。
     pub(crate) settled_model: bool,
+    /// 安装布局里随包带齐了粤拼、注音和笔画词库。
+    pub(crate) language_dictionaries: bool,
 }
 
 impl Installation {
@@ -58,6 +60,9 @@ impl Installation {
             settled_model: host_options
                 .and_then(msime_host_api::packaged_settled_model)
                 .is_some(),
+            // 还没有运行时选项（Linux 首次运行）时不知道装了什么，按带齐处理，与设置页可选方案的判断一致。
+            language_dictionaries: host_options
+                .is_none_or(msime_host_api::packaged_language_dictionaries),
         }
     }
 }
@@ -93,14 +98,19 @@ const CHINESE_MAIN_COMPONENT: &str = "chinese-main";
 
 /// 本机是否提供这个资源包。
 ///
-/// - 日文词典和语言词库只有 macOS 发布包不内置，其他桌面平台随包带着，不列出也不下载。
+/// - 日文词典和语言词库只有 macOS 发布包不内置，macOS 上总是列出。Windows 随包带着它们，不列出也不下载。Linux 随包带着日文词典；语言词库只在用得到它的版本（版本表 `language_dictionaries` 非空）没有随包带齐时才列出，例如打包时没有备好词库、或不带它们的 Nix 包，否则粤拼、注音和笔画在这台机器上无从启用。
 /// - 手写模型只认汉字，不提供手写的版本（版本表 `features.handwriting` 为 false：日文、越南文和藏文版）不列出也不下载它。macOS 上提供手写的版本都列出它；Windows 上手写面板先用 Ink，只有 Ink 没有中文识别器、且没有随包或指定的模型时才列出；Linux 上没有随包或指定的模型时才列出。没列出时手写面板照常识别，不等下载。
 /// - 落定重排模型只给中文整句重排，不带中文主词库（版本表 `resources.components` 没有 `chinese-main`：日文、越南文和藏文版）的版本不列出也不下载它，与打包时不装它的规则相同。其他版本在没有随包模型时列出：会话总是优先用随包的那份，有它时下载的用不上。
 fn offered_by(pack: ResourcePack, edition: &Edition, installation: &Installation) -> bool {
     match pack {
-        ResourcePack::Japanese | ResourcePack::LanguageDictionaries => {
-            installation.platform == DesktopPlatform::Macos
-        }
+        ResourcePack::Japanese => installation.platform == DesktopPlatform::Macos,
+        ResourcePack::LanguageDictionaries => match installation.platform {
+            DesktopPlatform::Macos => true,
+            DesktopPlatform::Windows => false,
+            DesktopPlatform::Linux => {
+                !edition.language_dictionaries.is_empty() && !installation.language_dictionaries
+            }
+        },
         ResourcePack::Handwriting => {
             edition.features.handwriting
                 && match installation.platform {
@@ -294,6 +304,7 @@ mod tests {
             handwriting_model: false,
             ink_chinese_recognizer: false,
             settled_model: false,
+            language_dictionaries: true,
         }
     }
 
@@ -426,7 +437,7 @@ mod tests {
         }
     }
 
-    /// Windows 和 Linux 随包带着日文词典和语言词库，从不下载它们。
+    /// Windows 和 Linux 随包带着日文词典和语言词库时，从不下载它们。
     #[test]
     fn only_macos_downloads_dictionaries() {
         for platform in [DesktopPlatform::Windows, DesktopPlatform::Linux] {
@@ -438,6 +449,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Linux 安装没有随包带齐语言词库时，用得到它们的版本列出语言词库资源包，否则粤拼、注音和笔画无从启用；日文词典照旧随包，不列出。Windows 不受影响。
+    #[test]
+    fn linux_offers_language_dictionaries_only_when_the_package_lacks_them() {
+        let mut linux = installation(DesktopPlatform::Linux);
+        linux.language_dictionaries = false;
+        for edition in Edition::all() {
+            assert_eq!(
+                offered_by(ResourcePack::LanguageDictionaries, edition, &linux),
+                !edition.language_dictionaries.is_empty(),
+                "{}",
+                edition.id
+            );
+            assert!(
+                !offered_by(ResourcePack::Japanese, edition, &linux),
+                "{}",
+                edition.id
+            );
+        }
+        assert!(offered_by(
+            ResourcePack::LanguageDictionaries,
+            Edition::full(),
+            &linux
+        ));
+        let mut windows = installation(DesktopPlatform::Windows);
+        windows.language_dictionaries = false;
+        assert!(!offered_by(
+            ResourcePack::LanguageDictionaries,
+            Edition::full(),
+            &windows
+        ));
     }
 
     /// Windows 上 Ink 有中文识别器时手写面板直接用它，不列出手写模型，面板也就不会等下载；Ink 没有、也没有随包模型时才列出。

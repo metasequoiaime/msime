@@ -1114,6 +1114,18 @@ pub fn packaged_settled_model(host_options: &Value) -> Option<PathBuf> {
     )
 }
 
+/// HostOptions 文档（`host_options`）所描述的安装布局是否随包带齐了粤拼、注音和笔画词库，也就是 `language_dictionaries` 记录的目录里三个文件都在。设置应用据此决定 Linux 上要不要提供 `language-dictionaries` 资源包的下载：没带齐的安装（打包时没有词库、或不带它们的 Nix 包）只能靠它补上，会话里每个词库都优先用资源包里的那份。
+pub fn packaged_language_dictionaries(host_options: &Value) -> bool {
+    let recorded = host_options
+        .get("language_dictionaries")
+        .and_then(Value::as_str)
+        .map(Path::new);
+    let dictionaries = LanguageDictionaries::resolve(None, recorded);
+    dictionaries.cantonese.is_some()
+        && dictionaries.zhuyin.is_some()
+        && dictionaries.stroke.is_some()
+}
+
 /// The offline gloss dictionary for one non-English target language installed beside a resource bundle, when one is there: `offline-glosses/zh-<language>.db`, built by `scripts/build_offline_glosses.py` and pinned by `resources/offline-glosses.lock.json`. A sibling of `resources` for the same reason as `settled_model_beside`: the resource directory must match the shared dictionary lock exactly, and a host ships only the languages it wants. Absence is the normal case.
 pub(crate) fn offline_glosses_beside(
     resources: &std::path::Path,

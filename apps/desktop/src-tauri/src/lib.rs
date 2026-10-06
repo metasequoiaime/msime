@@ -224,8 +224,13 @@ fn host_capabilities(app: tauri::AppHandle) -> HostCapabilities {
     let host_options = app
         .try_state::<DictionaryHostOptions>()
         .and_then(|options| options.snapshot().ok());
-    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。
-    if cfg!(target_os = "macos") {
+    // macOS 上选用粤拼/注音/笔画会下载对应的语言词库，所以即便还没下载，这些方案也保持可选；但锁文件没固定其词库的方案下载了也用不上，照样去掉。Linux 安装没有随包带齐这几份词库时，设置应用同样提供语言词库资源包（见 `desktop_resource_packs::offered_by`），按同样的规则处理；带齐时照旧按随包的词库判断。
+    let downloads_language_dictionaries = cfg!(target_os = "macos")
+        || (cfg!(target_os = "linux")
+            && host_options
+                .as_ref()
+                .is_some_and(|document| !msime_host_api::packaged_language_dictionaries(document)));
+    if downloads_language_dictionaries {
         drop_unpinned_language_schemes(&mut capabilities);
     } else {
         drop_uninstalled_language_schemes(
