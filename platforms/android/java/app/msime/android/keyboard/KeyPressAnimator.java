@@ -55,6 +55,8 @@ public final class KeyPressAnimator {
 
     /** 每个键上正在跑的 bounce / lift，用于与按压态动画互斥。 */
     private static final Map<View, Animator> RUNNING = new WeakHashMap<>();
+    /** Reusable X/Y keyframes; the previous animator is cancelled before values are rewritten. */
+    private static final Map<View, float[][]> BOUNCE_VALUES = new WeakHashMap<>();
     /** All animation entry points run on the IME main thread; reuse the short-lived location buffers. */
     private static final int[] PARENT_LOCATION = new int[2];
     private static final int[] HOST_LOCATION = new int[2];
@@ -94,10 +96,19 @@ public final class KeyPressAnimator {
     }
 
     private static void bounce(View key) {
-        float[] scales = bounceScales();
+        cancel(key);
+        float[][] values = BOUNCE_VALUES.computeIfAbsent(key,
+            ignored -> new float[][] {new float[4], new float[4]});
+        float[] scales = values[0];
         scales[0] = key.getScaleX();
-        float[] scalesY = bounceScales();
+        scales[1] = .86f;
+        scales[2] = 1.08f;
+        scales[3] = 1f;
+        float[] scalesY = values[1];
         scalesY[0] = key.getScaleY();
+        scalesY[1] = .86f;
+        scalesY[2] = 1.08f;
+        scalesY[3] = 1f;
         start(key, ObjectAnimator.ofPropertyValuesHolder(key,
             PropertyValuesHolder.ofFloat(View.SCALE_X, scales),
             PropertyValuesHolder.ofFloat(View.SCALE_Y, scalesY),
