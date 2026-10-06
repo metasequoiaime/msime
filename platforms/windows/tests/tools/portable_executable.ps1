@@ -9,6 +9,12 @@ try {
     foreach ($arch in $architectures) {
         foreach ($kind in @('exe', 'dll')) {
             Write-PEFixture $path $arch $kind
+            if ($arch -in 'arm64', 'arm64x') {
+                $fixtureBytes = [IO.File]::ReadAllBytes($path)
+                if ([BitConverter]::ToUInt16($fixtureBytes, 132) -ne 0xaa64) {
+                    throw 'Final ARM64/Arm64X fixture must use AA64 machine'
+                }
+            }
             & $verify -LiteralPath $path -Architecture $arch -Kind $kind
             $otherKind = if ($kind -eq 'exe') { 'dll' } else { 'exe' }
             # Every other architecture is rejected, including arm64 for an Arm64X image and arm64x for a plain ARM64 one.
