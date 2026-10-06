@@ -178,6 +178,18 @@ final class ImeStyler {
             KeyboardGeometry.STANDARD_ROW_HEIGHT_DP * rows, 1, 0, rows));
     }
 
+    /** 九键这一族带底栏的三行键块（全拼九键、笔画）：每行 {@link KeyboardGeometry#NINE_KEY_ROW_HEIGHT_DP}，比 26 键的三行高，按键不那么扁。 */
+    void adjustNineKeyBlockHeight(View view) {
+        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+            KeyboardGeometry.NINE_KEY_ROW_HEIGHT_DP * 3, 1, 0, 3));
+    }
+
+    /** 九键这一族不要底栏、四行都在块里的整块（日语九键）：总高等于 {@link #adjustNineKeyBlockHeight} 的三行加一条 46 dp 的底栏，与全拼九键、笔画之间切换不跳。 */
+    void adjustNineKeyBottomBlockHeight(View view) {
+        view.setTag(new MSIMEInputService.KeyboardHeightRole(
+            KeyboardGeometry.NINE_KEY_ROW_HEIGHT_DP * 3 + KeyboardGeometry.STANDARD_ROW_HEIGHT_DP, 1, 0, 3));
+    }
+
     /** 连同底栏位置一起占用的整块（日语九键没有底栏，四行都在块里）：三行键加一条 46 dp 的底栏，底栏不带行距，与其他布局总高相同。 */
     void adjustBottomRowBlockHeight(View view) {
         view.setTag(new MSIMEInputService.KeyboardHeightRole(

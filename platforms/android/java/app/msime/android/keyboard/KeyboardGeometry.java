@@ -10,6 +10,8 @@ public final class KeyboardGeometry {
     public static final int MIN_HEIGHT_ADJUSTMENT_DP = -12;
     public static final int MAX_HEIGHT_ADJUSTMENT_DP = 48;
     public static final int STANDARD_ROW_HEIGHT_DP = 46;
+    /** 九键这一族（全拼九键、笔画、日语九键、注音九键）的键行高：九宫格的键比 26 键宽两倍多，按 46 dp 排看起来太扁，这一族统一加高，彼此切换时键盘不跳。 */
+    public static final int NINE_KEY_ROW_HEIGHT_DP = 56;
     /** Fixed candidate/shortcut row; swapping its contents must not move the key rows. */
     public static final int CANDIDATE_ROW_HEIGHT_DP = 48;
     public static final int NINE_KEY_HEIGHT_DP = 180;
