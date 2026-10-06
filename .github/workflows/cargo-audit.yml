@@ -7,22 +7,25 @@ name: Cargo audit
 # cargo audit 回答“当前 Cargo.lock 里有没有今天新公布的漏洞”。这是外部异步事件，与某个 PR 做了
 # 什么都没关系：一条早上刚公布的 RustSec 公告会让每个 PR 同时变红，冻结全仓库的合并。所以它不挂在
 # 每个 PR 上，也不做必需检查。它在三种情况下跑：
-#   - 改到 Cargo.lock 的 PR：给作者关于这次锁变更的反馈；
-#   - 推送到 main：发布信号；
-#   - 每日定时：对新公告做全量监测。
+#   - 改到 Cargo.lock 或 .cargo/audit.toml 的 PR：给作者关于这次锁变更或忽略策略变更的反馈；
+  #   - 推送到 main：发布信号；
+  #   - 每日定时：对新公告做全量监测。
 on:
   pull_request:
+    # Cargo.lock 与 .cargo/audit.toml 一起决定审计结果：改忽略列表就是改审计 policy，同样要触发。
     paths:
       - Cargo.lock
+      - .cargo/audit.toml
       - .github/workflows/cargo-audit.yml
   push:
     branches:
       - main
     paths:
       - Cargo.lock
+      - .cargo/audit.toml
       - .github/workflows/cargo-audit.yml
   schedule:
-    # Daily at 00:00 Asia/Tokyo (UTC+09:00).
+    # 每天 00:00（Asia/Tokyo，UTC+09:00）。
     - cron: '0 15 * * *'
   workflow_dispatch:
 permissions:
