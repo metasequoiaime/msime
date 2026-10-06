@@ -7,7 +7,7 @@
 use crate::community::resource::{validate_resource, CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -388,7 +388,7 @@ fn validate(document: &CommonPhrases) -> Result<(), ()> {
     if document.packs.len() > MAX_PACKS {
         return Err(());
     }
-    let mut pack_ids = BTreeSet::new();
+    let mut pack_ids = HashSet::with_capacity(document.packs.len());
     for pack in &document.packs {
         if pack.id.is_nil()
             || pack.revision == 0
