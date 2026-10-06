@@ -138,7 +138,11 @@ public final class CandidateTranslationStore {
     }
 
     private static String signature(List<String> values) {
-        StringBuilder result = new StringBuilder().append(values.size()).append(':');
+        int capacity = String.valueOf(values.size()).length() + 1;
+        for (String value : values) {
+            capacity += String.valueOf(value.length()).length() + 1 + value.length();
+        }
+        StringBuilder result = new StringBuilder(capacity).append(values.size()).append(':');
         for (String value : values) {
             result.append(value.length()).append(':').append(value);
         }
