@@ -20,7 +20,15 @@ try {
     if ($reader.ReadUInt32() -ne 0x00004550) { throw 'Missing PE signature' }
     $machine = $reader.ReadUInt16()
     $sectionCount = $reader.ReadUInt16()
-    $expected = switch ($Architecture) { 'x64' { 0x8664 } 'x86' { 0x14c } default { 0xaa64 } }
+    $expected = switch ($Architecture) {
+        'x64' { 0x8664 }
+        'x86' { 0x14c }
+        'arm64' { 0xaa64 }
+        # 最终 Arm64X DLL 在磁盘上仍使用 ARM64 machine，随后通过混合元数据区分。
+        # https://learn.microsoft.com/windows/arm/arm64ec#identifying-arm64ec-binaries-and-apps
+        'arm64x' { 0xaa64 }
+        default { throw "Unsupported architecture: $Architecture" }
+    }
     if ($machine -ne $expected) { throw 'PE architecture mismatch' }
     $stream.Position = [long]$offset + 20
     $optionalSize = $reader.ReadUInt16()
