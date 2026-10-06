@@ -259,8 +259,7 @@ final class ImeCandidates {
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT, s.pixels(44)));
             }
         }
-        s.expandedCandidates.addView(list, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        s.expandedCandidates.addView(list, KeyboardGeometry.weightedWidthParams(1));
         // 底部 返回 + ⌫，各 40 dp 高、功能键底色。
         LinearLayout footer = new LinearLayout(s);
         footer.setOrientation(LinearLayout.HORIZONTAL);

@@ -575,8 +575,7 @@ final class ImePanels {
         s.replyActions.setOrientation(LinearLayout.VERTICAL);
         s.replyBody.addView(s.replyActions, new LinearLayout.LayoutParams(
             s.pixels(60), LinearLayout.LayoutParams.MATCH_PARENT));
-        root.addView(s.replyBody, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        root.addView(s.replyBody, KeyboardGeometry.weightedWidthParams(1));
 
         LinearLayout footer = new LinearLayout(s);
         footer.setGravity(Gravity.CENTER_VERTICAL);
@@ -631,7 +630,7 @@ final class ImePanels {
         ViewPolicy.clearMinimumWidth(button);
         button.setMinHeight(0);
         button.setMinimumHeight(0);
-        button.setPadding(horizontalPadding, 0, horizontalPadding, 0);
+        ViewPolicy.setHorizontalPadding(button, horizontalPadding);
         button.setIncludeFontPadding(false);
         button.setStateListAnimator(null);
     }
@@ -641,8 +640,7 @@ final class ImePanels {
         button.setContentDescription(description);
         KeyboardGeometry.setKeyTextSize(button, 14);
         compactReplyControl(button, 0);
-        button.setLayoutParams(new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        button.setLayoutParams(KeyboardGeometry.weightedWidthParams(1));
         return button;
     }
 
@@ -677,8 +675,7 @@ final class ImePanels {
                     choice.setLayoutParams(new LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
                 }
-                s.replyMain.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+                s.replyMain.addView(row, KeyboardGeometry.weightedWidthParams(1));
             }
         } else {
             for (String reply : s.replyModel.replies()) {
@@ -1506,8 +1503,7 @@ final class ImePanels {
                 @Override public void close() { s.closeSymbolPanel(); }
             });
         s.symbolPanel.setVisibility(View.GONE);
-        s.keyboardSurface.addView(s.symbolPanel, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        s.keyboardSurface.addView(s.symbolPanel, KeyboardGeometry.frameMatchParentParams());
     }
 
     void buildEmojiPanel() {
@@ -1536,8 +1532,7 @@ final class ImePanels {
                 oldLeft, oldTop, oldRight, oldBottom) -> {
             if (bottom - top != oldBottom - oldTop && s.emojiPickerVisible()) view.post(this::renderEmojiGrid);
         });
-        s.emojiPanel.addView(s.emojiGridScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        s.emojiPanel.addView(s.emojiGridScroll, KeyboardGeometry.weightedWidthParams(1));
         LinearLayout bar = new LinearLayout(s);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
@@ -1549,7 +1544,7 @@ final class ImePanels {
         s.emojiTabs = new LinearLayout(s);
         s.emojiTabs.setOrientation(LinearLayout.HORIZONTAL);
         s.emojiTabs.setContentDescription("表情分类");
-        LinearLayout.LayoutParams tabsParams = new LinearLayout.LayoutParams(0, s.pixels(40), 1);
+        LinearLayout.LayoutParams tabsParams = KeyboardGeometry.weightedHeightPxParams(s.pixels(40), 1);
         tabsParams.setMarginStart(s.pixels(6));
         tabsParams.setMarginEnd(s.pixels(6));
         bar.addView(s.emojiTabs, tabsParams);
@@ -1562,7 +1557,6 @@ final class ImePanels {
         s.emojiPanel.addView(bar, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, s.pixels(46)));
         s.emojiPanel.setVisibility(View.GONE);
-        s.keyboardSurface.addView(s.emojiPanel, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        s.keyboardSurface.addView(s.emojiPanel, KeyboardGeometry.frameMatchParentParams());
     }
 }

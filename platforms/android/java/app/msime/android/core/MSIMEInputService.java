@@ -5796,17 +5796,14 @@ public final class MSIMEInputService extends InputMethodService {
         LinearLayout keyboard = new LinearLayout(this);
         keyboard.setOrientation(LinearLayout.VERTICAL);
         WindowLayout.fitSystemBars(keyboard);
-        keyboardSurface.addView(keyboard, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(keyboard, KeyboardGeometry.frameMatchParentParams());
         japaneseFlickPreview = new JapaneseFlickPreview(this);
-        keyboardSurface.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(japaneseFlickPreview, KeyboardGeometry.frameMatchParentParams());
         // 按键气泡的覆盖层：盖在整个键盘上、初始为空，空的 FrameLayout 不拦截触摸，由 ImeLetterRows 持有。
         surface.fullBleed.add(japaneseFlickPreview);
         imeLetterRows.keyPreviewLayer = new FrameLayout(this);
         surface.fullBleed.add(imeLetterRows.keyPreviewLayer);
-        keyboardSurface.addView(imeLetterRows.keyPreviewLayer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(imeLetterRows.keyPreviewLayer, KeyboardGeometry.frameMatchParentParams());
         LinearLayout candidateRegion = new LinearLayout(this);
         candidateRegion.setOrientation(LinearLayout.VERTICAL);
         imeToolbar.buildCandidateHeader(candidateRegion);
@@ -5834,10 +5831,8 @@ public final class MSIMEInputService extends InputMethodService {
         verticalCandidateScroll = new ScrollView(this);
         verticalCandidateScroll.addView(verticalCandidates);
         candidateViewport = new FrameLayout(this);
-        candidateViewport.addView(horizontalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        candidateViewport.addView(verticalCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        candidateViewport.addView(horizontalCandidateScroll, KeyboardGeometry.frameMatchParentParams());
+        candidateViewport.addView(verticalCandidateScroll, KeyboardGeometry.frameMatchParentParams());
         candidateViewport.setVisibility(View.GONE);
         imeToolbar.addCandidateLine(candidateRegion, candidateViewport,
             pixels(ImeToolbar.CANDIDATE_LINE_DP));
@@ -5862,8 +5857,7 @@ public final class MSIMEInputService extends InputMethodService {
         // ordinary key rows and controls are hidden while this weighted child is visible.
         replyKeyboard = imePanels.createReplyKeyboard();
         replyKeyboard.setVisibility(View.GONE);
-        keyboard.addView(replyKeyboard, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        keyboard.addView(replyKeyboard, KeyboardGeometry.weightedWidthParams(1));
         // 键距是键的外边距；这两个容器把落在空隙里的按下交给拥有那段空隙的键，画面不变（见 KeyboardKeyArea）。
         keyRows = new KeyboardKeyArea(this, this::followsKeySpacing);
         keyRows.setOrientation(LinearLayout.VERTICAL);
@@ -5964,8 +5958,7 @@ public final class MSIMEInputService extends InputMethodService {
         expandedCandidateScroll.addView(expandedCandidates, new ScrollView.LayoutParams(
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         expandedCandidateScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(expandedCandidateScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(expandedCandidateScroll, KeyboardGeometry.frameMatchParentParams());
         clipboardPanel = new LinearLayout(this);
         clipboardPanel.setOrientation(LinearLayout.VERTICAL);
         ViewPolicy.setSymmetricPadding(clipboardPanel, 24, 16);
@@ -5974,8 +5967,7 @@ public final class MSIMEInputService extends InputMethodService {
         clipboardScroll = new ScrollView(this);
         clipboardScroll.addView(clipboardPanel);
         clipboardScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(clipboardScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(clipboardScroll, KeyboardGeometry.frameMatchParentParams());
         schemePanel = new LinearLayout(this);
         schemePanel.setOrientation(LinearLayout.VERTICAL);
         ViewPolicy.setSymmetricPadding(schemePanel, 24, 16);
@@ -5986,8 +5978,7 @@ public final class MSIMEInputService extends InputMethodService {
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         schemeScroll.setFillViewport(true);
         schemeScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(schemeScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(schemeScroll, KeyboardGeometry.frameMatchParentParams());
         skinPanel = new LinearLayout(this);
         skinPanel.setOrientation(LinearLayout.VERTICAL);
         ViewPolicy.setSymmetricPadding(skinPanel, 24, 16);
@@ -5998,8 +5989,7 @@ public final class MSIMEInputService extends InputMethodService {
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         skinScroll.setFillViewport(true);
         skinScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(skinScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(skinScroll, KeyboardGeometry.frameMatchParentParams());
         layoutSettingsPanel = new LinearLayout(this);
         layoutSettingsPanel.setOrientation(LinearLayout.VERTICAL);
         ViewPolicy.setSymmetricPadding(layoutSettingsPanel, 24, 16);
@@ -6070,8 +6060,7 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsScroll = new ScrollView(this);
         layoutSettingsScroll.addView(layoutSettingsPanel);
         layoutSettingsScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(layoutSettingsScroll, KeyboardGeometry.frameMatchParentParams());
         layoutAdjustView = new KeyboardLayoutAdjustView(this,
             new KeyboardLayoutAdjustView.Listener() {
                 @Override public void keySpacing(int tenths) {
@@ -6102,8 +6091,7 @@ public final class MSIMEInputService extends InputMethodService {
                 @Override public void close() { closeLayoutSettings(); }
             });
         layoutAdjustView.setVisibility(View.GONE);
-        keyboardSurface.addView(layoutAdjustView, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(layoutAdjustView, KeyboardGeometry.frameMatchParentParams());
         voiceResultPanel = new LinearLayout(this);
         voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
         ViewPolicy.setSymmetricPadding(voiceResultPanel, 24, 16);
@@ -6112,8 +6100,7 @@ public final class MSIMEInputService extends InputMethodService {
         voiceResultScroll = new ScrollView(this);
         voiceResultScroll.addView(voiceResultPanel);
         voiceResultScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(voiceResultScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(voiceResultScroll, KeyboardGeometry.frameMatchParentParams());
         aiPolishContainer = new LinearLayout(this);
         aiPolishContainer.setOrientation(LinearLayout.VERTICAL);
         aiPolishContainer.setBackgroundColor(Color.parseColor(skin.background()));
@@ -6125,15 +6112,13 @@ public final class MSIMEInputService extends InputMethodService {
         aiPolishScroll = new ScrollView(this);
         aiPolishScroll.setFillViewport(true);
         aiPolishScroll.addView(aiPolishPanel);
-        aiPolishContainer.addView(aiPolishScroll, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        aiPolishContainer.addView(aiPolishScroll, KeyboardGeometry.weightedWidthParams(1));
         aiPolishActions = new LinearLayout(this);
         aiPolishActions.setOrientation(LinearLayout.VERTICAL);
         aiPolishActions.setPadding(24, 0, 24, 16);
         aiPolishContainer.addView(aiPolishActions, KeyboardGeometry.matchWidthWrapParams());
         aiPolishContainer.setVisibility(View.GONE);
-        keyboardSurface.addView(aiPolishContainer, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(aiPolishContainer, KeyboardGeometry.frameMatchParentParams());
         moreToolsPanel = new LinearLayout(this);
         moreToolsPanel.setOrientation(LinearLayout.VERTICAL);
         moreToolsPanel.setPadding(pixels(12), 0, pixels(12), pixels(10));
@@ -6144,8 +6129,7 @@ public final class MSIMEInputService extends InputMethodService {
         moreToolsScroll.addView(moreToolsPanel, new ScrollView.LayoutParams(
             ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.MATCH_PARENT));
         moreToolsScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(moreToolsScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(moreToolsScroll, KeyboardGeometry.frameMatchParentParams());
         phrasePanel = new LinearLayout(this);
         phrasePanel.setOrientation(LinearLayout.VERTICAL);
         phrasePanel.setContentDescription("常用语面板");
@@ -6156,8 +6140,7 @@ public final class MSIMEInputService extends InputMethodService {
         phraseScroll.setFillViewport(true);
         phraseScroll.setClickable(true);
         phraseScroll.setVisibility(View.GONE);
-        keyboardSurface.addView(phraseScroll, new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        keyboardSurface.addView(phraseScroll, KeyboardGeometry.frameMatchParentParams());
         imePanels.buildEmojiPanel();
         imePanels.buildSymbolPanel();
         renderLayoutSettingsState();

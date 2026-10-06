@@ -94,6 +94,9 @@ public final class BackendAccountResponseSmoke {
         check(!BackendAccount.validChatModels(List.of(
                 new BackendAccount.ChatModel("你".repeat(100))), "你".repeat(100)),
             "model catalog applies UTF-8 byte bounds");
+        check(!BackendAccount.validChatModels(List.of(
+                new BackendAccount.ChatModel("bad\u0000model")), "bad\u0000model"),
+            "model catalog rejects control characters");
 
         List<BackendAccount.ChatMessage> messages = new java.util.ArrayList<>();
         messages.add(new BackendAccount.ChatMessage("system", "system prompt"));
@@ -106,6 +109,9 @@ public final class BackendAccountResponseSmoke {
         check(!BackendAccount.validChatRequest(List.of(
                 new BackendAccount.ChatMessage("user", "bad\u0000text")), "synthetic-model"),
             "chat request rejects disallowed controls");
+        check(!BackendAccount.validChatRequest(List.of(
+                new BackendAccount.ChatMessage("user", "valid")), "bad\u0000model"),
+            "chat request rejects control characters in the model");
         check(!BackendAccount.validChatResponse("user", "synthetic reply"),
             "chat response requires an assistant role");
         check(!BackendAccount.validChatResponse("assistant", "bad\u0000reply"),

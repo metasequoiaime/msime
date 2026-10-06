@@ -225,14 +225,14 @@ public final class StatisticsFragment extends HomeTabFragment {
 
     private void overview(Context context, LinearLayout content, Overview overview) {
         LinearLayout hero = card(context, content, 18);
-        hero.addView(label(context, "近 7 天共输入", 13, Ui.subText(context)));
+        hero.addView(Ui.label(context, "近 7 天共输入", 13, Ui.subText(context)));
         TextView total = new TextView(context);
         total.setText(figure(context, TypingStatisticsSummary.grouped(overview.weekTotal()), 40, "字"));
         Ui.setPaddingDp(total, context, 0, 4, 0, 0);
         hero.addView(total);
         String delta = TypingStatisticsSummary.weekDelta(overview.weekTotal(), overview.previousWeekTotal());
         if (delta != null) {
-            TextView change = label(context, delta, 13, Ui.accent(context));
+            TextView change = Ui.label(context, delta, 13, Ui.accent(context));
             change.setTypeface(Typeface.DEFAULT_BOLD);
         Ui.setPaddingDp(change, context, 0, 4, 0, 0);
             hero.addView(change);
@@ -277,7 +277,7 @@ public final class StatisticsFragment extends HomeTabFragment {
         header(context, content, "输入构成", null);
         LinearLayout composition = card(context, content, 16);
         if (mix.isEmpty()) {
-            composition.addView(label(context, "还没有记录", 14, Ui.subText(context)));
+            composition.addView(Ui.label(context, "还没有记录", 14, Ui.subText(context)));
         } else {
             DistributionView bar = new DistributionView(context);
             bar.setShares(mix, DistributionView.Style.STACK);
@@ -425,10 +425,10 @@ public final class StatisticsFragment extends HomeTabFragment {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         Ui.setHorizontalPaddingDp(row, context, 4);
-        TextView heading = label(context, title, 13, Ui.subText(context));
+        TextView heading = Ui.label(context, title, 13, Ui.subText(context));
         heading.setAccessibilityHeading(true);
         row.addView(heading, Ui.weightWrap(1f));
-        if (trailing != null) row.addView(label(context, trailing, 13, Ui.subText(context)));
+        if (trailing != null) row.addView(Ui.label(context, trailing, 13, Ui.subText(context)));
         LinearLayout.LayoutParams params = Ui.matchWidth();
         params.topMargin = Ui.dp(context, 22);
         // 最小 32 dp 而不是固定 32 dp：系统字体调大后标题和右侧的分段控件都比它高。
@@ -459,12 +459,12 @@ public final class StatisticsFragment extends HomeTabFragment {
         int pad = Ui.dp(context, 14);
         Ui.setSymmetricPaddingPx(tile, pad);
         tile.setBackground(Ui.rounded(Ui.card(context), Ui.dp(context, 20)));
-        tile.addView(label(context, title, 13, Ui.text(context)));
+        tile.addView(Ui.label(context, title, 13, Ui.text(context)));
         TextView number = new TextView(context);
         number.setText(figure(context, value, 24, "—".equals(value) ? "" : unit));
         Ui.setPaddingDp(number, context, 0, 6, 0, 6);
         tile.addView(number);
-        tile.addView(label(context, note, 12, highlight ? Ui.accent(context) : Ui.subText(context)));
+        tile.addView(Ui.label(context, note, 12, highlight ? Ui.accent(context) : Ui.subText(context)));
         tile.setContentDescription(title + " " + value + ("—".equals(value) ? "" : " " + unit) + "，" + note);
         tile.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         return tile;
@@ -488,10 +488,6 @@ public final class StatisticsFragment extends HomeTabFragment {
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return text;
-    }
-
-    private static TextView label(Context context, String text, int sizeSp, int colour) {
-        return Ui.label(context, text, sizeSp, colour);
     }
 
     private static Map<String, String> retentions() {

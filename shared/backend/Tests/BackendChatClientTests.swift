@@ -30,6 +30,33 @@ private final class ChatProtocol: URLProtocol {
   }
   override func stopLoading() {}
 }
+
+private final class MalformedChatResponseProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"choices":[{"message":{"role":"assistant","content":"bad\u0007reply"}}]}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+private final class MalformedChatModelsProtocol: URLProtocol {
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"])!
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Data(#"{"data":[{"id":"bad\u0007model"}],"default_model":"bad\u0007model"}"#.utf8))
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
 final class BackendChatClientTests: XCTestCase {
   func testModelsAndSelectedModelReachBackend() async throws {
     let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ChatProtocol.self]
@@ -48,5 +75,45 @@ final class BackendChatClientTests: XCTestCase {
       _ = try await api.chat(messages: [.init(role: "user", content: String(repeating: "字", count: 6000))], model: "sol", token: "session")
       XCTFail("Oversized message sent")
     } catch let failure as BackendAccountClient.Failure { XCTAssertEqual(failure.status, 400) }
+  }
+
+  func testRejectsInvalidModelAndMessageTextBeforeSending() async throws {
+    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ChatProtocol.self]
+    let api = BackendAccountClient(configuration: config)
+    let invalidRequests: [(String, [BackendAccountClient.ChatMessage])] = [
+      (String(repeating: "m", count: 201), [.init(role: "user", content: "valid")]),
+      ("model\u{0007}", [.init(role: "user", content: "valid")]),
+      ("sol", [.init(role: "user", content: " \n")]),
+      ("sol", [.init(role: "user", content: "bad\u{0007}text")])
+    ]
+    for (model, messages) in invalidRequests {
+      do {
+        _ = try await api.chat(messages: messages, model: model, token: "session")
+        XCTFail("invalid chat request sent")
+      } catch let failure as BackendAccountClient.Failure {
+        XCTAssertEqual(failure.status, 400)
+      }
+    }
+  }
+
+  func testRejectsControlCharactersInChatResponse() async throws {
+    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MalformedChatResponseProtocol.self]
+    do {
+      _ = try await BackendAccountClient(configuration: config).chat(
+        messages: [.init(role: "user", content: "valid")], model: "sol", token: "session")
+      XCTFail("invalid chat response accepted")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 502)
+    }
+  }
+
+  func testRejectsControlCharactersInChatModelCatalog() async throws {
+    let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MalformedChatModelsProtocol.self]
+    do {
+      _ = try await BackendAccountClient(configuration: config).chatModels(token: "session")
+      XCTFail("invalid chat model catalog accepted")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTAssertEqual(failure.status, 0)
+    }
   }
 }

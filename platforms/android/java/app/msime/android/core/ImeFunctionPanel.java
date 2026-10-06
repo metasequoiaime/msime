@@ -292,9 +292,9 @@ final class ImeFunctionPanel {
                 s.imePanels.showAiPolish();
                 s.render();
             });
-        LinearLayout.LayoutParams first = new LinearLayout.LayoutParams(0,
+        LinearLayout.LayoutParams first = KeyboardGeometry.weightedHeightPxParams(
             s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
-        LinearLayout.LayoutParams second = new LinearLayout.LayoutParams(0,
+        LinearLayout.LayoutParams second = KeyboardGeometry.weightedHeightPxParams(
             s.pixels(MoreToolsLayout.CARD_HEIGHT_DP), 1);
         second.setMarginStart(s.pixels(MoreToolsLayout.CARD_SPACING_DP));
         segments.addView(reply, first);

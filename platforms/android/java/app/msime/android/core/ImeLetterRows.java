@@ -343,8 +343,7 @@ final class ImeLetterRows {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(s);
             if (block != null) {
-                block.addView(row, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+                block.addView(row, KeyboardGeometry.weightedWidthParams(1));
             } else {
                 row.setTag(new MSIMEInputService.KeyboardHeightRole(KeyboardGeometry.KEY_ROW_HEIGHT_DP,
                     rows.size(), rowIndex, true));
@@ -453,8 +452,7 @@ final class ImeLetterRows {
             press.setKeyboardRole(KeyboardKeyRole.ACCENT);
         s.imeStyler.styleButton(key, KeyboardKeyRole.ACCENT, s.skin);
         key.setVisibility(View.VISIBLE);
-        row.addView(key, index, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, weight));
+        row.addView(key, index, KeyboardGeometry.weightedMatchParentParams(weight));
     }
 
     /**
@@ -479,8 +477,7 @@ final class ImeLetterRows {
                 if (key == null) continue;
                 if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
                 key.setVisibility(View.VISIBLE);
-                row.addView(key, new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.MATCH_PARENT, layerKey.weight()));
+                row.addView(key, KeyboardGeometry.weightedMatchParentParams(layerKey.weight()));
             }
         }
     }

@@ -112,6 +112,16 @@ final class KeyboardSkinTests: XCTestCase {
     XCTAssertTrue(CustomSkinLibrary.designs.isEmpty)
   }
 
+  func testCustomSkinLibraryRejectsMoreThanMaximumItems() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let directory = root.appendingPathComponent("CustomSkins", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let items = (0..<13).map { _ in SavedKeyboardSkin(name: "合成", design: CustomKeyboardSkin()) }
+    try JSONEncoder().encode(items).write(to: directory.appendingPathComponent("library.json"))
+    XCTAssertTrue(CustomSkinLibrary.designs(in: root).isEmpty)
+  }
+
   func testCustomSkinLibraryRejectsASymlinkedDirectory() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let outside = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

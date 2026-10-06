@@ -217,8 +217,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     }
 
     private FrameLayout.LayoutParams barParams() {
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            LayoutParams.MATCH_PARENT, KeyboardGeometry.pixels(getContext(), BAR_HEIGHT_DP));
+        FrameLayout.LayoutParams params = KeyboardGeometry.frameMatchWidthHeightPx(
+            KeyboardGeometry.pixels(getContext(), BAR_HEIGHT_DP));
         params.setMargins(KeyboardGeometry.pixels(getContext(), SPACING_MARGIN_DP),
             KeyboardGeometry.pixels(getContext(), 4), KeyboardGeometry.pixels(getContext(), SPACING_MARGIN_DP), 0);
         return params;

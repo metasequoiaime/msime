@@ -87,7 +87,7 @@ public final class SymbolPanelView extends LinearLayout {
         gridScroll.addView(grid, new ScrollView.LayoutParams(
             LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
         body.addView(gridScroll, KeyboardGeometry.weightedMatchParentParams(1));
-        addView(body, new LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1));
+        addView(body, KeyboardGeometry.weightedWidthParams(1));
 
         LinearLayout bottom = new LinearLayout(context);
         bottom.setOrientation(HORIZONTAL);

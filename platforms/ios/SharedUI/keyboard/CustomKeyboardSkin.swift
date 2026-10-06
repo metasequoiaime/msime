@@ -149,6 +149,7 @@ enum CustomSkinLibrary {
           size <= 9_000_000,
           let data = try? BoundedFileReader.read(from: file, maximumBytes: 9_000_000),
           let items = try? JSONDecoder().decode([SavedKeyboardSkin].self, from: data) else { return [] }
+    guard items.count <= 12 else { return [] }
     return Array(items.prefix(12)).map { item in
       var item = item
       item.design = item.design.normalized

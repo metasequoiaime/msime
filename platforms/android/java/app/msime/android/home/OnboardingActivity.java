@@ -265,10 +265,10 @@ public final class OnboardingActivity extends AppCompatActivity {
             cell.setOrientation(LinearLayout.VERTICAL);
             cell.setGravity(Gravity.CENTER_HORIZONTAL);
             Ui.setHorizontalPaddingDp(cell, this, 10);
-            TextView word = text(samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
+            TextView word = Ui.label(this, samples[index][0], 19, index == 0 ? Ui.accent(this) : Ui.text(this));
             if (index == 0) word.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
             cell.addView(word);
-            if (on) cell.addView(text(samples[index][1], 11, Ui.subText(this)));
+            if (on) cell.addView(Ui.label(this, samples[index][1], 11, Ui.subText(this)));
             strip.addView(cell);
         }
         column.addView(strip, Ui.matchWidth(this, 6));
@@ -278,7 +278,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         row.setGravity(Gravity.CENTER_VERTICAL);
         Ui.setSymmetricPaddingDp(row, this, 14, 12);
         row.setBackground(Ui.rounded(Ui.card(this), Ui.dp(this, 20)));
-        TextView label = text("显示译文", 16, Ui.text(this));
+        TextView label = Ui.label(this, "显示译文", 16, Ui.text(this));
         row.addView(label, Ui.weightWrap(1f));
         MaterialSwitch toggle = new MaterialSwitch(this);
         toggle.setChecked(on);
@@ -315,7 +315,7 @@ public final class OnboardingActivity extends AppCompatActivity {
 
     /** Ask once whether the last step can offer sign-in; the answer may need the backend, so it is read off the main thread. */
     private void probeAccount() {
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             SignIn.State state = SignIn.state(context);
             runOnUiThread(() -> {
@@ -385,7 +385,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         saving = true;
         note = "正在保存…";
         render(false);
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             JSONObject saved = HostStore.savePreferences(context, pending);
             JSONObject fresh = HostStore.loadPreferences(context);
@@ -405,7 +405,7 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void reload() {
-        Context context = getApplicationContext();
+        Context context = getApplicationConUi.label(this, );
         offMainThread(() -> {
             JSONObject value = HostStore.loadPreferences(context);
             runOnUiThread(() -> {
@@ -437,17 +437,17 @@ public final class OnboardingActivity extends AppCompatActivity {
         glyph.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         column.addView(glyph, Ui.squareParams(this, 36));
 
-        TextView kick = text(kicker, 13, Ui.accent(this));
+        TextView kick = Ui.label(this, kicker, 13, Ui.accent(this));
         kick.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
         kick.setLetterSpacing(0.04f);
         column.addView(kick, Ui.matchWidth(this, 14 + 6));
 
-        TextView heading = text(title, 32, Ui.text(this));
+        TextView heading = Ui.label(this, title, 32, Ui.text(this));
         heading.setLineSpacing(0, 1.1f);
         heading.setAccessibilityHeading(true);
         column.addView(heading, Ui.matchWidth(this, 14));
 
-        TextView line = text(body, 16, Ui.subText(this));
+        TextView line = Ui.label(this, body, 16, Ui.subText(this));
         line.setLineSpacing(0, 1.35f);
         column.addView(line, Ui.matchWidth(this, 14));
     }
@@ -486,14 +486,14 @@ public final class OnboardingActivity extends AppCompatActivity {
         mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         row.addView(mark, Ui.squareParams(this, 24));
 
-        TextView text = text(label, 16, Ui.text(this));
+        TextView text = Ui.label(this, label, 16, Ui.text(this));
         LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
         text.setContentDescription(label + (done ? "，已完成" : "，未完成"));
 
         if (!done) {
-            TextView button = text(action, 15, Ui.accent(this));
+            TextView button = Ui.label(this, action, 15, Ui.accent(this));
             button.setGravity(Gravity.CENTER);
             Ui.setHorizontalPaddingDp(button, this, 8);
             android.util.TypedValue ripple = new android.util.TypedValue();
@@ -519,10 +519,10 @@ public final class OnboardingActivity extends AppCompatActivity {
 
         LinearLayout text = new LinearLayout(this);
         text.setOrientation(LinearLayout.VERTICAL);
-        TextView heading = text(option.label(), 16, Ui.text(this));
+        TextView heading = Ui.label(this, option.label(), 16, Ui.text(this));
         heading.setTypeface(Typeface.create(Typeface.DEFAULT, 600, false));
         text.addView(heading);
-        TextView detail = text(option.detail(), 13, Ui.subText(this));
+        TextView detail = Ui.label(this, option.detail(), 13, Ui.subText(this));
         LinearLayout.LayoutParams detailParams = Ui.wrap();
         detailParams.topMargin = Ui.dp(this, 2);
         text.addView(detail, detailParams);
@@ -559,7 +559,7 @@ public final class OnboardingActivity extends AppCompatActivity {
         badge.setBackground(Ui.rounded(Ui.accentSoft(this), Ui.dp(this, 9)));
         badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         row.addView(badge, Ui.squareParams(this, 32));
-        TextView text = text(label, 15, Ui.text(this));
+        TextView text = Ui.label(this, label, 15, Ui.text(this));
         LinearLayout.LayoutParams textParams = Ui.weightWrap(1f);
         textParams.setMarginStart(Ui.dp(this, 12));
         row.addView(text, textParams);
@@ -567,13 +567,9 @@ public final class OnboardingActivity extends AppCompatActivity {
     }
 
     private void footnote(LinearLayout column, String message) {
-        TextView view = text(message, 13, Ui.subText(this));
+        TextView view = Ui.label(this, message, 13, Ui.subText(this));
         view.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         column.addView(view, Ui.matchWidth(this, 14));
-    }
-
-    private TextView text(String value, int size, int colour) {
-        return Ui.label(this, value, size, colour);
     }
 
     /**

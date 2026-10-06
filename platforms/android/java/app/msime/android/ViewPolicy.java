@@ -55,4 +55,9 @@ public final class ViewPolicy {
     public static void setSymmetricPadding(View view, int horizontal, int vertical) {
         view.setPadding(horizontal, vertical, horizontal, vertical);
     }
+
+    /** Apply equal horizontal pixel padding while leaving vertical padding unset. */
+    public static void setHorizontalPadding(View view, int horizontal) {
+        view.setPadding(horizontal, 0, horizontal, 0);
+    }
 }
