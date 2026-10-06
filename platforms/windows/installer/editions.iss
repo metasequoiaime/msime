@@ -3,7 +3,7 @@
 #endif
 #define MyDataDirMarkerPrefix ".metasequoiaime-data"
 #if Edition == "full"
-#define MyEditionAppName "Metasequoia IME 水杉输入法"
+#define MyEditionAppName "水杉输入法"
 #define MyEditionAppId "{{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}"
 #define MyEditionClsid "{A1160FE1-DE82-4216-9F2A-BC8A8A76F8B9}"
 #define MyEditionInstallDir "metasequoiaime-full"

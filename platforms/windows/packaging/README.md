@@ -21,7 +21,7 @@
 
 - **一个安装包，x64 与 Windows on Arm 通用**：`ArchitecturesAllowed=x64compatible`。在 ARM64 的 Windows 11 上，Server 等程序以 x64 模拟运行，64 位 TIP 换成随包的 Arm64X 版，原生 ARM64 应用和模拟的 x64 应用都能加载它（`../Build-Client.md`）。包定义里只声明 x64，winget 在 ARM64 上会选用它。
 - **按机器安装**：`PrivilegesRequired=admin`，程序装到 `%ProgramFiles%\metasequoiaime-full`，安装包自己请求提权（winget 的 `ElevationRequirement: elevatesSelf`）。输入法要注册 TSF DLL、COM 类和登录任务，没有按用户安装的形态。
-- **卸载项**：full 的 `AppId={4391158B-18CF-4B7A-A924-7FBBC23FB3F8}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1`（winget 的 `ProductCode`），显示名 `Metasequoia IME 水杉输入法`，发布者 `Metasequoia`。
+- **卸载项**：full 的 `AppId={4391158B-18CF-4B7A-A924-7FBBC23FB3F8}`（版本表的 `inno_app_id`），Inno 写入的卸载键是 `{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1`（winget 的 `ProductCode`），显示名 `水杉输入法`，发布者 `Metasequoia`。
 - **静默参数**：安装 `/SP- /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，卸载 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`，与 `../installer/tests/install-smoke.ps1` 在发布机上跑的相同。卸载程序会把自己复制到临时目录再启动并立即返回，所以 Scoop 和 Chocolatey 的卸载脚本等它删掉自己的文件再结束；3 分钟后文件还在（例如拒绝了 UAC），Scoop 报错让 `scoop uninstall` 失败、保留记录，Chocolatey 给出警告。
 - **升级就地覆盖，卸载删数据**：新版安装包直接覆盖旧版，保留数据目录；卸载程序会删除它拥有的数据目录（用户词、配置、皮肤）。因此 winget 用 `UpgradeBehavior: install` 而不是 `uninstallPrevious`，Scoop 的卸载脚本在 `scoop update` 时什么都不做，只在 `scoop uninstall` 时运行卸载程序；Chocolatey 升级本来就不运行卸载脚本。
 - **前置组件**：安装包不带 Visual C++ 2015-2022 x64 运行库和 WebView2 Runtime，静默安装时缺了也只写日志继续装（`InitializeSetup`）。winget 声明 `Microsoft.VCRedist.2015+.x64` 与 `Microsoft.EdgeWebView2Runtime` 依赖，Chocolatey 声明 `vcredist140`（≥ 14.20，与安装包要求的版本下限一致）与 `webview2-runtime`。Scoop 没有系统级依赖的机制，写在 `notes` 里。

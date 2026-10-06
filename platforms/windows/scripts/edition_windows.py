@@ -55,6 +55,9 @@ MSIME_WINDOWS = {
         "candidate_ui_element": "{9FFF12AA-B5EE-4477-A1AA-A4BF5F7B2447}",
     },
     "inno_app_id": "{A7C3E91F-4B2D-4E8A-9F1C-6D5E8B0A2C4D}",
+    # 开始菜单文件夹和快捷方式按 app_name 命名，系统键盘列表显示 text_service_description；同名时两边共用开始菜单文件夹，卸载一个就带走另一个的快捷方式。
+    "app_name": "Metasequoia IME 水杉输入法",
+    "text_service_description": "Metasequoia 水杉输入法",
     "install_dir": "metasequoiaime",
     "registry_key": "Software\\Metasequoia\\MetasequoiaIME",
     "data_dir_environment_variable": "METASEQUOIA_IME_DATA_DIR",

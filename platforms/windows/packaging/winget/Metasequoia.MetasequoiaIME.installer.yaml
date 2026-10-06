@@ -29,7 +29,7 @@ Dependencies:
 ProductCode: "{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1"
 ReleaseDate: "@RELEASE_DATE@"
 AppsAndFeaturesEntries:
-  - DisplayName: Metasequoia IME 水杉输入法
+  - DisplayName: 水杉输入法
     Publisher: Metasequoia
     DisplayVersion: "@VERSION@"
     ProductCode: "{4391158B-18CF-4B7A-A924-7FBBC23FB3F8}_is1"
