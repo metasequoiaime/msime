@@ -963,7 +963,7 @@ impl HostOptions {
     }
 
     fn into_engine_options(self) -> EngineOptions {
-        // 每个平台都这样查找；日文和语言词库只有 macOS 会下载，别处的状态目录里从来没有它们。
+        // 每个平台都这样查找；日文词典只有 macOS 会下载，语言词库由 macOS 和没有随包带齐它们的 Linux 安装下载，别处的状态目录里从来没有它们。
         let state_root = absolute_state_root(self.preferences_directory.as_deref());
         let dictionaries = LanguageDictionaries::resolve(
             state_root.as_deref(),
