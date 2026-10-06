@@ -1299,25 +1299,29 @@ impl<E: InputEngine> Runtime<E> {
         //
         // The Engine never puts English first while a Chinese candidate exists, whatever its weight or pin, except for a word the user fixed at position 1 (`apply_candidate_positions`). An English candidate at index zero with locals present is that word. It keeps the first seat and the leading English seat is not filled a second time.
         let is_local = |source: u8| !matches!(source, CLOUD | AI | ENGLISH | EMOJI | KAOMOJI);
-        let first_english = snapshot
-            .candidate_sources
-            .iter()
-            .position(|source| *source == ENGLISH);
-        let local_count = snapshot
-            .candidate_sources
-            .iter()
-            .filter(|source| is_local(**source))
-            .count();
+        let mut local = Vec::with_capacity(count);
+        let mut cloud = Vec::with_capacity(count);
+        let mut ai = Vec::with_capacity(count);
+        let mut english = Vec::with_capacity(count);
+        let mut emoji = Vec::with_capacity(count);
+        let mut kaomoji = Vec::with_capacity(count);
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            match *source {
+                CLOUD => cloud.push(index),
+                AI => ai.push(index),
+                ENGLISH => english.push(index),
+                EMOJI => emoji.push(index),
+                KAOMOJI => kaomoji.push(index),
+                _ if is_local(*source) => local.push(index),
+                _ => {}
+            }
+        }
+        let first_english = english.first().copied();
+        let local_count = local.len();
         let promoted_english = first_english == Some(0) && local_count != 0;
-        let has_cloud = snapshot.candidate_sources.contains(&CLOUD);
-        let first_emoji = snapshot
-            .candidate_sources
-            .iter()
-            .position(|source| *source == EMOJI);
-        let first_kaomoji = snapshot
-            .candidate_sources
-            .iter()
-            .position(|source| *source == KAOMOJI);
+        let has_cloud = !cloud.is_empty();
+        let first_emoji = emoji.first().copied();
+        let first_kaomoji = kaomoji.first().copied();
         let mut order = Vec::with_capacity(count);
         if promoted_english {
             order.push(0);
@@ -1327,26 +1331,10 @@ impl<E: InputEngine> Runtime<E> {
         let single_kana = scheme_type(snapshot.scheme) == Some(SchemeType::JapaneseRomaji)
             && matches!((reading.next(), reading.next()), (Some(kana), None) if ('\u{3041}'..='\u{3096}').contains(&kana));
         let local_prefix = if single_kana { 2 } else { 1 };
-        let mut local_seen = 0;
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            if is_local(*source) {
-                if local_seen < local_prefix {
-                    order.push(index);
-                }
-                local_seen += 1;
-            }
-        }
+        order.extend(local.iter().copied().take(local_prefix));
         if has_cloud {
-            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-                if *source == CLOUD {
-                    order.push(index);
-                }
-            }
-            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-                if *source == AI {
-                    order.push(index);
-                }
-            }
+            order.extend(cloud.iter().copied());
+            order.extend(ai.iter().copied());
         }
         if !promoted_english {
             if let Some(index) = first_english {
@@ -1354,11 +1342,7 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         if !has_cloud {
-            for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-                if *source == AI {
-                    order.push(index);
-                }
-            }
+            order.extend(ai.iter().copied());
         }
         if let Some(index) = first_emoji {
             order.push(index);
@@ -1366,30 +1350,10 @@ impl<E: InputEngine> Runtime<E> {
         if let Some(index) = first_kaomoji {
             order.push(index);
         }
-        local_seen = 0;
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            if is_local(*source) {
-                if local_seen >= local_prefix {
-                    order.push(index);
-                }
-                local_seen += 1;
-            }
-        }
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            if *source == ENGLISH && Some(index) != first_english {
-                order.push(index);
-            }
-        }
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            if *source == EMOJI && Some(index) != first_emoji {
-                order.push(index);
-            }
-        }
-        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
-            if *source == KAOMOJI && Some(index) != first_kaomoji {
-                order.push(index);
-            }
-        }
+        order.extend(local.iter().copied().skip(local_prefix));
+        order.extend(english.iter().copied().skip(1));
+        order.extend(emoji.iter().copied().skip(1));
+        order.extend(kaomoji.iter().copied().skip(1));
         // An English candidate the user fixed to a seat goes back to that seat after the seating, so a cloud or AI reply does not push it behind the online candidates (reference: server/src/ipc/candidate_selection_policy.h, the fixed-English pass at the end of NormalizeMixedCandidateOrder). Seats are 1-based and 0 means unfixed; a seat past the end clamps to the end, as the reference's `insert_at` does.
         let mut fixed_english = Vec::with_capacity(count);
         order.retain(|index| {
