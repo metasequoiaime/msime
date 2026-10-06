@@ -3869,7 +3869,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = value.getJSONArray("items");
         if (entries.length() > EmojiCatalogModel.PAGE_SIZE)
             throw new JSONException("Emoji catalog page too large");
-        java.util.ArrayList<EmojiCatalogModel.Item> items = new java.util.ArrayList<>();
+        java.util.ArrayList<EmojiCatalogModel.Item> items = new java.util.ArrayList<>(entries.length());
         for (int index = 0; index < entries.length(); index++) {
             JSONObject entry = entries.getJSONObject(index);
             EmojiCatalogModel.Item item;
