@@ -191,8 +191,9 @@ public final class TypingStatisticsModel {
 
     /** The pressed keys of a scope, most pressed first, titled the way the page prints them. */
     private List<Slice> rankedKeys(String day) {
-        List<Slice> slices = new ArrayList<>();
-        for (Map.Entry<String, Long> entry : keys(day).entrySet()) {
+        Map<String, Long> counts = keys(day);
+        List<Slice> slices = new ArrayList<>(counts.size());
+        for (Map.Entry<String, Long> entry : counts.entrySet()) {
             if (entry.getValue() > 0) {
                 slices.add(new Slice(entry.getKey(), KeyPressIds.label(entry.getKey()),
                     entry.getValue()));
@@ -226,7 +227,7 @@ public final class TypingStatisticsModel {
     private static List<Slice> modes(Map<String, Long> values) {
         long chinese = 0;
         for (String id : CHINESE_SOURCES) chinese += values.getOrDefault(id, 0L);
-        List<Slice> slices = new ArrayList<>();
+        List<Slice> slices = new ArrayList<>(12);
         slices.add(new Slice("chinese", "中文模式", chinese));
         slices.add(new Slice("japanese", "日语模式", values.getOrDefault("japanese", 0L)));
         slices.add(new Slice("korean", "韩语模式", values.getOrDefault("korean", 0L)));

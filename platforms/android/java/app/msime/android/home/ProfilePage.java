@@ -23,8 +23,8 @@ import androidx.annotation.Nullable;
 import androidx.core.content.FileProvider;
 import app.msime.android.CloudApi;
 import app.msime.android.DeviceDataApi;
+import app.msime.android.HttpBodyPolicy;
 import app.msime.android.SyncSwitch;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -111,6 +111,7 @@ public final class ProfilePage extends DetailPage {
         try {
             HttpsURLConnection connection = (HttpsURLConnection) new URL(url).openConnection();
             try {
+                connection.setInstanceFollowRedirects(false);
                 connection.setConnectTimeout(10_000);
                 connection.setReadTimeout(15_000);
                 connection.setRequestProperty("User-Agent", CloudApi.USER_AGENT);
@@ -148,14 +149,7 @@ public final class ProfilePage extends DetailPage {
 
     /** 读完整个流；超过 `limit` 字节时返回 null。 */
     @Nullable private static byte[] readAtMost(InputStream input, int limit) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = input.read(buffer)) != -1) {
-            if (output.size() + read > limit) return null;
-            output.write(buffer, 0, read);
-        }
-        return output.toByteArray();
+        return HttpBodyPolicy.readBounded(input, limit);
     }
 
     /** 圆形头像：有图片时画图片，否则是强调色底上的昵称首字。 */

@@ -3516,8 +3516,10 @@ public final class MSIMEInputService extends InputMethodService {
     private JSONObject readSkinHint() {
         File file = new File(getFilesDir(), SKIN_HINT_FILE);
         if (!file.isFile() || file.length() > 1_000_000) return null;
-        try {
-            String text = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        try (java.io.InputStream input = java.nio.file.Files.newInputStream(file.toPath())) {
+            byte[] bytes = HttpBodyPolicy.readBounded(input, 1_000_000);
+            if (bytes == null) return null;
+            String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             writtenSkinHint = text;
             return new JSONObject(text);
         } catch (java.io.IOException | JSONException | RuntimeException error) {

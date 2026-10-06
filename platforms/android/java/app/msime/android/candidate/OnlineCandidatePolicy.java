@@ -101,10 +101,11 @@ public final class OnlineCandidatePolicy {
      * matching the shared parser: one unusable entry does not discard the usable ones beside it.
      */
     public static List<String> aiCandidates(List<String> texts, int limit) {
-        List<String> result = new ArrayList<>();
-        if (texts == null || aiCandidateLimit(limit) == 0) return result;
+        int boundedLimit = aiCandidateLimit(limit);
+        if (texts == null || boundedLimit == 0) return new ArrayList<>();
+        List<String> result = new ArrayList<>(boundedLimit);
         for (String text : texts) {
-            if (result.size() == limit) break;
+            if (result.size() == boundedLimit) break;
             if (text == null || text.trim().isEmpty() || TextPolicy.utf8Length(text) > MAX_CANDIDATE_BYTES
                     || TextPolicy.hasControl(text) || result.contains(text)) {
                 continue;

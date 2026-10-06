@@ -306,8 +306,8 @@ public final class CommonPhrasesStore {
 
     /** 解析一次答复的 `value`。 */
     static Document parse(JSONObject value) {
-        List<Phrase> phrases = new ArrayList<>();
         JSONArray rawPhrases = value.optJSONArray("phrases");
+        List<Phrase> phrases = new ArrayList<>(rawPhrases == null ? 0 : rawPhrases.length());
         if (rawPhrases != null) {
             for (int index = 0; index < rawPhrases.length(); index++) {
                 JSONObject phrase = rawPhrases.optJSONObject(index);
@@ -316,8 +316,8 @@ public final class CommonPhrasesStore {
                 phrases.add(new Phrase(phrase.optString("id", ""), phrase.optString("text", ""), pack));
             }
         }
-        List<Pack> packs = new ArrayList<>();
         JSONArray rawPacks = value.optJSONArray("packs");
+        List<Pack> packs = new ArrayList<>(rawPacks == null ? 0 : rawPacks.length());
         if (rawPacks != null) {
             for (int index = 0; index < rawPacks.length(); index++) {
                 JSONObject pack = rawPacks.optJSONObject(index);

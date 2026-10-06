@@ -1,6 +1,7 @@
 package app.msime.android;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -64,8 +65,13 @@ public final class CommunitySkinCache {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > MAX_BYTES) {
                 return List.of();
             }
-            JSONArray array = new JSONArray(new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
-            List<Entry> entries = new ArrayList<>();
+            byte[] bytes;
+            try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+                bytes = HttpBodyPolicy.readBounded(input, (int) MAX_BYTES);
+            }
+            if (bytes == null) return List.of();
+            JSONArray array = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
+            List<Entry> entries = new ArrayList<>(MAX_ENTRIES);
             for (int index = 0; index < array.length() && entries.size() < MAX_ENTRIES; index++) {
                 JSONObject value = array.optJSONObject(index);
                 if (value == null) continue;

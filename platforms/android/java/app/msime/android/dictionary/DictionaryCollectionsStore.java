@@ -332,7 +332,7 @@ public final class DictionaryCollectionsStore {
      * 导入来源对话框的选项：只列 client-core 实际接受的格式，按「文本、搜狗、Rime、纯汉字」排；`standard` 和 `windows` 是文本文件的两种列顺序，由 client-core 在 `txt` 里自动识别，不单独列出。
      */
     public static List<ImportSource> importSources(List<String> formats) {
-        List<ImportSource> sources = new ArrayList<>();
+        List<ImportSource> sources = new ArrayList<>(formats.size());
         if (formats.contains("txt")) {
             sources.add(new ImportSource("txt", "文本文件（.txt）", new String[] {"text/plain"}));
         }
@@ -370,8 +370,8 @@ public final class DictionaryCollectionsStore {
 
     /** 解析集合视图（`value`）。 */
     static View parseView(JSONObject value) {
-        List<Collection> collections = new ArrayList<>();
         JSONArray raw = value.optJSONArray("collections");
+        List<Collection> collections = new ArrayList<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject item = raw.optJSONObject(index);
@@ -384,8 +384,8 @@ public final class DictionaryCollectionsStore {
                     item.optInt("entry_count", 0), item.optInt("pending", 0)));
             }
         }
-        List<String> formats = new ArrayList<>();
         JSONArray rawFormats = value.optJSONArray("formats");
+        List<String> formats = new ArrayList<>(rawFormats == null ? 0 : rawFormats.length());
         if (rawFormats != null) {
             for (int index = 0; index < rawFormats.length(); index++) {
                 String format = rawFormats.optString(index, "");
@@ -400,8 +400,8 @@ public final class DictionaryCollectionsStore {
 
     /** 解析一页词条（`value`）。 */
     static WordPage parseWords(JSONObject value) {
-        List<Word> words = new ArrayList<>();
         JSONArray raw = value.optJSONArray("entries");
+        List<Word> words = new ArrayList<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject item = raw.optJSONObject(index);

@@ -3,7 +3,6 @@ package app.msime.android;
 import android.graphics.Color;
 import android.os.SystemClock;
 import android.view.View;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,7 +49,7 @@ final class ImeDebugOverlay {
      * <p>写在单独的后台线程上，写不进去时静默放弃：这是开发者自己打开的诊断记录，不能影响打字。
      */
     static final class EventLog {
-        static final long MAX_BYTES = 1024 * 1024;
+        static final int MAX_BYTES = 1024 * 1024;
         static final String EVENTS_FILE = "input-events.jsonl";
         static final String PERF_FILE = "perf.jsonl";
 
@@ -139,16 +138,10 @@ final class ImeDebugOverlay {
         }
 
         private static byte[] read(java.nio.file.Path file) throws IOException {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) Math.min(MAX_BYTES, 1 << 16));
             try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-                byte[] buffer = new byte[8192];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    if (bytes.size() > 2 * MAX_BYTES) break;
-                    bytes.write(buffer, 0, count);
-                }
+                byte[] bytes = HttpBodyPolicy.readBounded(input, Math.toIntExact(2 * MAX_BYTES));
+                return bytes == null ? new byte[0] : bytes;
             }
-            return bytes.toByteArray();
         }
     }
 

@@ -67,7 +67,7 @@ public final class SchemePreferences {
             JSONObject schemes = values.optJSONObject("touch_keyboard_schemes");
             if (schemes != null) {
                 JSONArray enabled = schemes.optJSONArray("enabled");
-                List<String> current = new ArrayList<>();
+                List<String> current = new ArrayList<>(enabled == null ? 0 : enabled.length());
                 if (enabled != null) {
                     for (int index = 0; index < enabled.length(); index++) {
                         current.add(enabled.isNull(index) ? null : enabled.optString(index, null));

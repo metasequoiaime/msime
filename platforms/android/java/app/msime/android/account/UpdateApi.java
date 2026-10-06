@@ -5,7 +5,6 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.content.pm.SigningInfo;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -246,7 +245,7 @@ public final class UpdateApi {
             JSONObject root = new JSONObject(json);
             JSONArray items = root.optJSONArray("items");
             if (items == null) throw new Failure("发行版列表格式不对");
-            List<Release> releases = new ArrayList<>();
+            List<Release> releases = new ArrayList<>(items.length());
             for (int index = 0; index < items.length(); index++) {
                 JSONObject item = items.optJSONObject(index);
                 if (item == null) continue;
@@ -453,13 +452,9 @@ public final class UpdateApi {
     /** GET 一个小文件并整个读进内存。 */
     byte[] fetch(String url, int maxBytes) throws Failure {
         try (InputStream body = open(url).body()) {
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8192];
-            for (int read; (read = body.read(buffer)) != -1; ) {
-                if (out.size() + read > maxBytes) throw new Failure("更新服务器的响应过大");
-                out.write(buffer, 0, read);
-            }
-            return out.toByteArray();
+            byte[] response = HttpBodyPolicy.readBounded(body, maxBytes);
+            if (response == null) throw new Failure("更新服务器的响应过大");
+            return response;
         } catch (IOException offline) {
             throw new Failure("连不上更新服务器，请检查网络后重试", offline);
         }

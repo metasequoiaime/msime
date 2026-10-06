@@ -22,8 +22,8 @@ import app.msime.android.CommunityCatalog;
 import app.msime.android.CommunityRequest;
 import app.msime.android.DictionaryCollectionsStore;
 import app.msime.android.InputFeatureToggle;
+import app.msime.android.HttpBodyPolicy;
 import app.msime.android.R;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -436,14 +436,7 @@ public final class LexiconPage extends DetailPage {
     @Nullable private static byte[] readAll(Context context, Uri uri) throws IOException {
         try (InputStream input = context.getContentResolver().openInputStream(uri)) {
             if (input == null) throw new IOException("unreadable");
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                if (output.size() + read > DictionaryCollectionsStore.MAX_IMPORT_BYTES) return null;
-                output.write(buffer, 0, read);
-            }
-            return output.toByteArray();
+            return HttpBodyPolicy.readBounded(input, DictionaryCollectionsStore.MAX_IMPORT_BYTES);
         }
     }
 

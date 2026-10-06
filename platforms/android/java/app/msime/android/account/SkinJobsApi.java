@@ -170,13 +170,13 @@ public final class SkinJobsApi {
             return thread;
         });
         try {
-            List<Future<Proposal>> futures = new ArrayList<>();
+            List<Future<Proposal>> futures = new ArrayList<>(plans.length());
             for (int index = 0; index < plans.length(); index++) {
                 JSONObject plan = plans.optJSONObject(index);
                 if (plan == null) throw invalid("ai_skin_response");
                 futures.add(pool.submit(() -> illustrate(plan, cancelled)));
             }
-            List<Proposal> proposals = new ArrayList<>();
+            List<Proposal> proposals = new ArrayList<>(futures.size());
             CloudApi.Failure first = null;
             for (Future<Proposal> future : futures) {
                 try {

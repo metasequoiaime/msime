@@ -141,8 +141,8 @@ public final class SyncApi {
     static Phrases parsePhrases(JSONObject root) throws CloudApi.Failure {
         Object revision = root.opt("revision");
         if (!(revision instanceof Number)) throw invalid("phrases revision missing");
-        List<SyncMergePolicy.Phrase> phrases = new ArrayList<>();
         JSONArray raw = root.optJSONArray("phrases");
+        List<SyncMergePolicy.Phrase> phrases = new ArrayList<>(raw == null ? 0 : raw.length());
         if (raw != null) {
             for (int index = 0; index < raw.length(); index++) {
                 JSONObject value = raw.optJSONObject(index);

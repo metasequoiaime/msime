@@ -145,7 +145,7 @@ public final class FeedbackApi {
         } catch (JSONException impossible) {
             throw new IllegalStateException(impossible);
         }
-        List<CloudApi.Part> parts = new ArrayList<>();
+        List<CloudApi.Part> parts = new ArrayList<>(shots.size() + 1);
         parts.add(CloudApi.Part.json("payload", payload));
         for (int index = 0; index < shots.size(); index++) {
             Screenshot shot = shots.get(index);

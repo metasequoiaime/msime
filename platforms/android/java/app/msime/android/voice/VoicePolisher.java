@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -72,7 +71,9 @@ public final class VoicePolisher {
             if (status < 200 || status >= 300) return null;
             String response;
             try (InputStream input = connection.getInputStream()) {
-                response = read(input);
+                byte[] responseBytes = HttpBodyPolicy.readBounded(input, MAX_RESPONSE_BYTES);
+                response = responseBytes == null
+                    ? null : new String(responseBytes, StandardCharsets.UTF_8);
             }
             String content = content(response);
             return cancelled ? null : (VoicePolishPolicy.sendable(content) ? content.trim() : null);
@@ -82,24 +83,6 @@ public final class VoicePolisher {
             if (this.connection == connection) this.connection = null;
             if (connection != null) connection.disconnect();
         }
-    }
-
-    /** Returns null when the response exceeds the bound, without retaining the overflow. */
-    private static String read(InputStream stream) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        int read;
-        // Read one extra byte when the limit is reached so a valid JSON prefix followed by
-        // arbitrary data cannot be accepted merely because the overflow was ignored.
-        while (out.size() <= MAX_RESPONSE_BYTES) {
-            int remaining = MAX_RESPONSE_BYTES - out.size();
-            int requested = Math.min(chunk.length, remaining + 1);
-            read = stream.read(chunk, 0, requested);
-            if (read <= 0) break;
-            if (read > remaining) return null;
-            out.write(chunk, 0, read);
-        }
-        return out.toString(StandardCharsets.UTF_8.name());
     }
 
     private static String content(String response) {

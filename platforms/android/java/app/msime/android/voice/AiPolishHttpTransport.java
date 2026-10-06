@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -48,7 +47,11 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.UNAVAILABLE);
             byte[] response;
             try (InputStream input = connection.getInputStream()) {
-                response = readBounded(input, cancellation);
+                response = HttpBodyPolicy.readBounded(input,
+                    AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES, cancellation::cancelled);
+                if (cancellation.cancelled())
+                    throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
+                if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
             JSONObject document = new JSONObject(new String(response, StandardCharsets.UTF_8));
             Object content = document.getJSONArray("choices").getJSONObject(0)
@@ -83,18 +86,4 @@ public final class AiPolishHttpTransport implements AiPolishClient.Transport {
         return value instanceof String ? (String) value : "";
     }
 
-    private static byte[] readBounded(InputStream input, AiPolishClient.Cancellation cancellation)
-            throws IOException, AiPolishClient.Failure {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
-        int count;
-        while ((count = input.read(buffer)) != -1) {
-            if (cancellation.cancelled())
-                throw new AiPolishClient.Failure(AiPolishClient.Reason.CANCELLED);
-            if (output.size() + count > AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES)
-                throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-            output.write(buffer, 0, count);
-        }
-        return output.toByteArray();
-    }
 }

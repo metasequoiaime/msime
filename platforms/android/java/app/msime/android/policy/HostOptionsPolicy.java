@@ -1,6 +1,6 @@
 package app.msime.android.policy;
 
-import java.io.ByteArrayOutputStream;
+import app.msime.android.HttpBodyPolicy;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,14 +20,8 @@ public final class HostOptionsPolicy {
         if (file == null || !Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)) return "";
         if (Files.size(file.toPath()) > MAX_BYTES) return "";
         try (InputStream input = Files.newInputStream(file.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(MAX_BYTES);
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAX_BYTES) return "";
-                bytes.write(buffer, 0, count);
-            }
-            return new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+            byte[] bytes = HttpBodyPolicy.readBounded(input, MAX_BYTES);
+            return bytes == null ? "" : new String(bytes, StandardCharsets.UTF_8);
         }
     }
 }

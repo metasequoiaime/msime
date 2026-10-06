@@ -97,7 +97,9 @@ public final class AiPolishModelCatalog {
                 throw new AiPolishClient.Failure(AiPolishClient.Reason.UNAVAILABLE);
             byte[] response;
             try (InputStream input = connection.getInputStream()) {
-                response = readBounded(input);
+                response = HttpBodyPolicy.readBounded(
+                    input, AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES);
+                if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
             }
             return new JSONObject(new String(response, StandardCharsets.UTF_8));
         } catch (AiPolishClient.Failure error) {
@@ -109,13 +111,6 @@ public final class AiPolishModelCatalog {
         } finally {
             if (connection != null) connection.disconnect();
         }
-    }
-
-    private static byte[] readBounded(InputStream input) throws IOException, AiPolishClient.Failure {
-        byte[] response = HttpBodyPolicy.readBounded(
-            input, AiPolishConfiguration.MAXIMUM_RESPONSE_BYTES);
-        if (response == null) throw new AiPolishClient.Failure(AiPolishClient.Reason.INVALID);
-        return response;
     }
 
     static URI modelsUri(URI endpoint) throws AiPolishClient.Failure {

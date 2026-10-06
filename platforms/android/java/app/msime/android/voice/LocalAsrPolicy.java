@@ -1,6 +1,5 @@
 package app.msime.android;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -76,17 +75,10 @@ public final class LocalAsrPolicy {
         if (!Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("manifest unavailable");
         try (InputStream input = Files.newInputStream(manifest, LinkOption.NOFOLLOW_LINKS)) {
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream((int) MAX_MANIFEST_BYTES);
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                if (bytes.size() + count > MAX_MANIFEST_BYTES) {
-                    throw new IOException("manifest too large");
-                }
-                bytes.write(buffer, 0, count);
-            }
-            if (bytes.size() == 0) throw new IOException("manifest empty");
-            return bytes.toByteArray();
+            byte[] bytes = HttpBodyPolicy.readBounded(input, (int) MAX_MANIFEST_BYTES);
+            if (bytes == null) throw new IOException("manifest too large");
+            if (bytes.length == 0) throw new IOException("manifest empty");
+            return bytes;
         }
     }
 
