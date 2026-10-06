@@ -2050,8 +2050,10 @@ public final class MSIMEInputService extends InputMethodService {
         final long targetSession = session;
         final long targetEpoch = candidateGlossEpoch;
         final String targetResources = candidateGlossResources;
+        final java.util.List<String> offlineTargets = candidateOfflineTargets();
         final String request;
-        final java.util.Map<String, String> targetRequests = new java.util.LinkedHashMap<>();
+        final java.util.Map<String, String> targetRequests =
+            new java.util.LinkedHashMap<>(offlineTargets.size());
         try {
             JSONObject snapshot = value(NativeClient.allCandidates(targetSession));
             if (CandidateGlossPolicy.strictOr(snapshot.opt("session"), Long.MIN_VALUE) != targetSession
@@ -2060,7 +2062,7 @@ public final class MSIMEInputService extends InputMethodService {
                 snapshot.getJSONArray("candidates"));
             // The account path's scheme gate: a Japanese composition is not glossed into other languages. Korean Hanja rows are, as the shared translation query answers them.
             if ("none".equals(view.optString("local_mode", "none")) && InputViewValuePolicy.scheme(view, -1) != 3) {
-                for (String language : candidateOfflineTargets()) {
+                for (String language : offlineTargets) {
                     targetRequests.put(language, CandidateGlossModel.request(generation,
                         snapshot.getJSONArray("candidates"), language));
                 }
