@@ -215,7 +215,7 @@ pub(super) fn dictionary(request: &Request, roots: Roots) -> Outcome {
         statement.raw_bind_parameter(index, value)?;
     }
     let mut rows = statement.raw_query();
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(page_size as usize);
     while let Some(row) = rows.next()? {
         entries.push(json!({
             "kind": kind,
