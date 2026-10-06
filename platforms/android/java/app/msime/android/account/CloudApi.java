@@ -79,12 +79,12 @@ public final class CloudApi {
     public record Part(String name, String filename, String contentType, byte[] content) {
         /** 一个 JSON 字段，例如反馈和语音贡献的 `payload`。 */
         public static Part json(String name, String json) {
-            return new Part(name, null, "application/json", json.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "application/json", utf8(json));
         }
 
         /** 一个纯文本字段。 */
         public static Part text(String name, String value) {
-            return new Part(name, null, "text/plain; charset=utf-8", value.getBytes(StandardCharsets.UTF_8));
+            return new Part(name, null, "text/plain; charset=utf-8", utf8(value));
         }
 
         /** 一个文件，例如截图或录音。 */
@@ -96,7 +96,7 @@ public final class CloudApi {
     /** 已编码好的请求体与它的 `Content-Type`。 */
     public record Body(String contentType, byte[] bytes) {
         public static Body json(JSONObject value) {
-            return new Body("application/json", value.toString().getBytes(StandardCharsets.UTF_8));
+            return new Body("application/json", utf8(value.toString()));
         }
 
         public static Body multipart(List<Part> parts) {
@@ -293,6 +293,10 @@ public final class CloudApi {
         return Boolean.TRUE.equals(value);
     }
 
+    private static byte[] utf8(String value) {
+        return value.getBytes(StandardCharsets.UTF_8);
+    }
+
     // ---- multipart ----
 
     /** 一个新的随机分隔串：24 字节随机数的十六进制，前面加固定前缀。 */
@@ -331,7 +335,7 @@ public final class CloudApi {
             if (part.filename() != null) head.append("; filename=\"").append(headerToken(part.filename())).append('"');
             head.append("\r\n");
             head.append("Content-Type: ").append(headerToken(type)).append("\r\n\r\n");
-            write(output, head.toString().getBytes(StandardCharsets.UTF_8));
+            write(output, utf8(head.toString()));
             write(output, part.content());
             write(output, "\r\n".getBytes(StandardCharsets.US_ASCII));
         }
