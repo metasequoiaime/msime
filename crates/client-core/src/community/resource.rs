@@ -540,7 +540,7 @@ fn validate_page(
     if page.items.len() > MAXIMUM_PAGE_ITEMS || (page.has_more && page.items.is_empty()) {
         return Err(AccountError::Unavailable);
     }
-    let mut ids = std::collections::BTreeSet::new();
+    let mut ids = HashSet::with_capacity(page.items.len());
     if page
         .items
         .iter()
